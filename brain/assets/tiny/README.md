@@ -4,7 +4,8 @@ TinyHumans' own artwork of Tiny, copied from the marquee on
 [tinyhumansworld.com](https://tinyhumansworld.com/) on 2026-09-14. Kept here
 as reference for what the character looks like.
 
-Nothing reads these files at run time. The image and video hands draw from
+`hands/meme` may caption them or use them as comic panels (they are under
+`brain/assets/`, which it and `hands/x upload` take). The image and video hands draw from
 the character sheet at `brain/assets/teeny-reference.png` (`MEDIA_REFERENCE`;
 see `docs/hands.md`, `image` and `video`).
 

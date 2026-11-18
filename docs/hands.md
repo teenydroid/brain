@@ -54,7 +54,7 @@ report they leave beside it.
 | `post` body | | `{text, anchor, media_ids?, gif_id?, quote_of?, format?, experiment?}` (`anchor` is optional only on a quote). `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
 | `post-thread` | A | A thread of 2 to 5 posts: stdin `{posts: [text, ...], anchor, media_ids?, gif_id?, format?, experiment?}`. The first text goes out as an own post and each later one as a reply to the one before, so readers see one thread. It is a separate verb from `thread`, the read above. Fewer or more posts, no `anchor`, or a `quote_of` is refused (`rule: thread` or `anchor`) before anything is sent. See "Threads" below. |
 | `follow-up [--to ID]` | A | Continues one of the account's own posts as a thread: a reply to `ID` (or the body's `to`, since `bin/act` pipes a playbook's draft with no flags), which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
-| `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
+| `upload [--alt TEXT]` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. A still (PNG, JPEG, WebP) of 5,000,000 bytes or more is refused (`size`) before anything is sent: X refuses it after the upload starts. `--alt` sets the picture's alt text through X's media metadata route (`POST /2/media/metadata`) once it is uploaded: at most 1,000 characters, whitespace folded, no link, nothing the guard's lexicon holds (refused `alt`, no model, no hold), and not on a video. A refusal from X there is reported beside the media id (`alt_set: false`, `alt_error`), not raised, since the media is already X's. Under `DRY_RUN` the alt text is checked and echoed, nothing sent. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
@@ -236,6 +236,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `anchor` | R | The anchor judge (`teeny_hands/guard/anchor.py`): stdin `{text, anchor, inputs?}`, answers `{anchored, reason, judged}`. One short model pass, through the core's simple chat as the content judge asks (`SAFETY_JUDGE_MODEL` when set), reads whether the draft says something specific about its anchor that the inputs support. It only judges, never rewrites. Asks as the content judge does (`judge.ask`): an unreadable answer is asked again at once, a call that failed for a reason that may pass (a dropped provider stream) after the content judge's waits (2, 6, 15, 30 s), a permanent error not at all, all inside `BUDGET` (90 s). Fails closed: an unreachable core or an unreadable answer on the last ask is `anchored: false`. `ANCHOR_JUDGE=0` turns it off (every draft `anchored: true`, `judged: false`). `bin/act` asks it before every `post` output and records anything but a clear yes as a free skip, `reason: "not anchored: ..."`, with the draft. |
 | `truth` | R | The truth judge (`truth` in `teeny_hands/guard/anchor.py`, the anchor judge's second rubric): stdin `{text, facts}`, `facts` a non-empty list of the desk items and inputs the piece may draw on (any JSON), answers `{truthful, unsupported, reason, judged}`. One short model pass reads whether every factual claim in the text (events, numbers, names, who did what, outcomes) is supported by `facts`, and lists each one that is not (`unsupported`). Every sentence is checked: a joke, a feeling or a question can still carry a claim, a question that takes a fact for granted makes that claim, and any digit or count is always checked; only a feeling or opinion with no fact in it, the figure of speech itself, and the lore's stock staging (a desk, a mug, a kettle) are not claims. A callback to an earlier post or a running story is legal when `facts` hold it: there is no "one item from the last day" bar. The facts and the draft are fenced as data and the ask is repeated after them. Bounds: `facts` are cut to whole items within 40,000 UTF-8 bytes (`MAX_FACTS_BYTES`), and the judge is told how many were cut; a text over 4,000 bytes (`MAX_TEXT_BYTES`), facts that are empty, not a list, not JSON, or whose first item is already over the cap are a no with their own reason (`the text is too long ...`, `the facts are too large ...`, `... no facts ...`, `the facts are not a list of JSON items`), never sent to the judge. Only `truthful: true` with an empty `unsupported` is a yes; an answer without `unsupported`, or with any entry that is not a non-blank string, is unreadable (asked again, then a no), so a malformed list never reads as empty. Asks, waits and fails closed as the anchor judge does (`judge.ask`, `BUDGET` 90 s, `SAFETY_JUDGE_MODEL` when set): an unreachable core or an unreadable answer is `truthful: false`. Every verdict it gave is a row in `truth_checks` (the text, the facts as sent, the verdict, the claims, the reason, each bounded). `TRUTH_JUDGE=0` turns it off: every text is then `truthful: true` with `judged: false`, so **a caller that needs a judgment must check `judged`**. Nothing posts through it yet; `hands/guard anchor` is unchanged and still what `bin/act` and `x peer-suggest` ask. Both prompts are calibrated with `hands/tests/guard/calibrate_reader.py`: `--emit` prints each fixed case's exact message and expected verdict, `--score FILE` reads a model's raw answers through the real parsers and verdict rules; it never calls a model itself. |
 | `clarity` | R | The cold reader (`teeny_hands/guard/clarity.py`): stdin `{text, meaning?, quoted?}`, answers `{clear, says, unknown, vague, reason, judged}`. A model pass that sees only the post (and the post it quotes), told it is someone outside tech who has never seen the account: it says the post back in one sentence (`says`) and lists every word, name or number it would have to ask about (`unknown`) and every vague stand-in that hides what a thing is (`vague`: "something i run", "the system", "my setup"). A recurring thing the post explains in a clause ("the human who keeps my code") is explained, and the say-back must name what concretely happened. Clear only when it could say it back and both lists are empty; a stand-in is a no with a reason beginning "a stranger could not tell what these stand for", and is listed in `unknown` too, so the rewrite turn `bin/act` and `bin/tick` give a draft (on any reason beginning "a stranger") shows it to be named. An answer without `vague`, or with an entry in either list that is not a non-blank string, is unreadable (asked again, then a no), so a malformed list never reads as empty. Stand-ins and words are deduplicated case aside, and `unknown` keeps room for at least two stand-ins when the reader listed many words; when `meaning` (what the author meant the post to say) is given, a second pass compares the two sentences and a reader who understood something else is a no. `bin/act` and `bin/tick` ask it before an own post on X, after the anchor judge, and give a draft it could not follow one rewrite. A verdict, never a hold, and it fails closed: a reader that cannot be reached or answers unreadably is `clear: false`. Every verdict it gave is a row in `clarity_checks` (its `vague` column added to a ledger made before it). `CLARITY_JUDGE=0` turns it off; it asks `SAFETY_JUDGE_MODEL` when one is set. |
+| `view` | R | The viewer check (`teeny_hands/guard/viewer.py`): stdin `{image, intent, caption?}`, answers `{ok, sees, on_model, readable, reason, judged}`. `image` is a picture under `state/media/` or `brain/assets/` (at most 25 MB); `intent` (at most 400 characters) is what the piece is meant to get across; `caption` (at most 500) the words drawn on it. A vision model that is told nothing about the account looks in three passes: the picture alone (it says what it shows and means, `sees`, and copies every word it can read); the character sheet (`MEDIA_REFERENCE`) beside the picture (is every yellow character the one on the sheet, `on_model`); and, with no picture, `intent` against what it saw (did it get the point). `readable` is code: the words it copied match `caption`, case, spacing and punctuation aside, at 0.85 or better (`difflib`); with no caption it is true. `ok` only when all three hold; `reason` names every failure. It asks `/v1/chat/completions` on Surplus (`SURPLUS_API_KEY`, `SURPLUS_BASE_URL`) because the core's simple chat takes text only; the model is `VIEWER_JUDGE_MODEL`, else `glm-5.3-flash`; pictures are sent as JPEG at most 1,024 px a side. Fails closed: an answer without its fields or with a boolean that is not one is asked again (3 asks, 150 s in all), then a no; a 4xx other than 408/409/425/429 is not asked again; a path outside the folders, a file too large or not a picture, an intent or caption too long, no Pillow, or no character sheet is a no, never sent. Every verdict it gave is a row in `viewer_checks` (the path, its sha256, intent, caption, model, what it saw and read, the three answers, the reason). `VIEWER_JUDGE=0` turns it off: `ok: true`, `judged: false`. Nothing posts through it yet. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
@@ -1372,9 +1373,27 @@ and $0.07 a 5-second clip.
 
 | Verb | | Does |
 |---|---|---|
-| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` | A | image: `{prompt, alt?}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
+| `scenes [--last N]` | R | image only. The scenes of the last N pictures made for posts (default 16, at most 100), newest first, with the house style (`MEDIA_STYLE`) taken off, and every word past the common ones that two or more of them share, with how many pictures it is in (`repeated`, at most 20). A report for whoever writes the next scene, so "robot at a desk with a mug and a terminal" is seen before it is drawn a seventeenth time; it judges nothing. |
+
+**Under 5 MB.** X refuses a still over 5,000,000 bytes at upload, after the
+picture is paid for: `image-12.png` came back at 5,263,141 bytes on
+2026-11-14 and its post went out without it. So a picture over the limit is
+re-encoded before it is saved (`teeny_hands/media/fit.py`): a PNG first
+saved again losslessly with compression up, then (no transparency) as a
+JPEG at quality 92 down to 75, then scaled down a tenth at a time, never
+below 320 px a side. A picture already under the limit is kept byte for
+byte. What was done is in the row's `detail` (`shrunk`: bytes and format
+before and after). Pillow (`python3-pil` in the image) does it; a picture
+that cannot be shrunk is still kept, with the reason in `detail`, and
+`hands/x upload` refuses it (`size`).
+
+**Alt text.** `generate` takes `alt` (at most 1,000 characters, X's limit),
+kept on the row (`media_assets.alt`, a column added to ledgers made before
+it) and returned with the asset. It reaches X through `hands/x upload --file
+PATH --alt TEXT`; nothing carries it there on its own yet.
 
 Neither publishes anything, and neither is ever a playbook's output. A
 playbook that allows it (`media = ["image"]`, or `"video"`) lets the draft add
@@ -1445,6 +1464,75 @@ The pin moves to a new release tag only by pull request, after
 `hands/tests/reel` passes against it: `SchemaDriftTest` reads the job model
 (`TaskVideoRequest` in `app/models/schema.py`) from the submodule's source
 and fails when a field Teeny or its front sends is renamed or gone.
+
+## `meme`: exact words on Teeny's pictures, comics, and reaction GIFs
+
+A model misspells words it draws, so words go on pictures by code
+(`teeny_hands/meme/compose.py`, Pillow). The pictures come from
+`state/media/` (`image`'s stills, other memes) or `brain/assets/` (the ready
+art in `brain/assets/tiny/`); symlinks and `..` are resolved first, as `x
+upload`. Two fonts ship in `brain/assets/fonts/`, both SIL OFL 1.1 with
+their licence beside them: Anton for `impact`, Atkinson Hyperlegible Bold
+for everything else.
+
+| Verb | | Does |
+|---|---|---|
+| `caption` | A | stdin `{image, top?, bottom?, style?: "impact"\|"label"\|"subtitle", alt?}`. At least one of `top`, `bottom`. `impact` (default): white words with a black outline over the top and bottom of the picture, both blocks at one size. `label`: dark words on white bands added above and below, the picture left whole. `subtitle`: smaller outlined words, two lines at most. Answers `{asset}`: `state/media/meme-<id>.jpg` (`.png` for a PNG source), a `media_assets` row (kind `meme`, model `compositor`, cost 0), `detail` `{style, source, blocks: [{where, lines, size}], bytes, size}`, and `alt` (given, else the words on it). |
+| `comic` | A | stdin `{panels: [{image, caption?}] (2 to 4), layout?: "row"\|"grid"\|"strip", captions?: "under"\|"over", alt?}`. Each picture is cropped to its cell (row: square cells, at most 720 px, the frame at most 2,400 px wide; grid: 2x2 of 720 px, exactly 4 panels; strip: 900x675 stacked), each caption lettered on a white band under (or over) it, all at one size, on a near-black ground. Default layout: `grid` for 4, else `row`. Kind `comic`, `state/media/comic-<id>.jpg`; `detail` `{layout, captions, sources, cell, font_size, panels: [{lines}], bytes, size}`. |
+| `gif-search QUERY [--max N]` | R | Giphy search (`GIPHY_API_KEY`, as `x` uses for `gif_id`): `{query, gifs: [{id, title, url, rating}], dropped, note}`, at most N (8; 1 to 25). |
+| `list [--max N]` | R | The memes and comics made, newest first, with today's count and the cap. |
+| `get ID` | R | One. |
+
+**Words.** Each block is at most 120 characters (a panel caption 90),
+spaces folded, a newline kept as a line break. Refused (`text`) before
+anything is drawn: no words, too many, a control character, a link (it
+could not be followed on a picture), or anything the guard's lexicon holds
+(the outbound screen: no model, no hold). The text is never changed: not
+upper-cased, cut or hyphenated, only wrapped at spaces.
+
+**Legible or refused.** The size is fitted: the largest at which every line
+fits the width and the block fits its share of the height, down to a floor
+set as a share of the picture's width (X scales a picture to the timeline's
+width, so that is what legible means): `impact` 4.5% of the width and 28 px
+at least, three lines, 30% of the height a block; `label` 3.4% / 24 px, four
+lines; `subtitle` 3.2% / 22 px, two lines, 22% of the height; a comic's
+lettering 1.7% of the whole frame's width / 24 px, three lines. Words that
+would need less are refused (`fit`, "would not fit legibly"), and so is a
+word wider than the picture, a character the font has no glyph for (an
+emoji prints as a box), a picture with a side under 200 px, and a grid
+without 4 panels. A picture narrower than 800 px is scaled up to draw on;
+one longer than 2,048 px is scaled down. EXIF is turned upright and dropped.
+
+**Under 5 MB, the same every time.** The result is encoded under X's 5 MB
+still limit as `image`'s pictures are (`media/fit.py`), and the same input
+gives the same bytes. Refused (`path`) for a picture outside the two
+folders, (`source`) for one over 25 MB, not a picture, or animated.
+
+**Caps and DRY_RUN.** A meme costs nothing (no model, no network), so the
+cap is a count: `MEME_MAX_PER_DAY` (30) memes and comics together a UTC day
+(`per_day`); the runway does not apply. Under `DRY_RUN` the words are
+checked and set in memory, so a caption that would not fit is refused just
+the same, and the answer is `{dry_run, would_make, prompt, alt, blocks |
+panels, size, bytes, format}`: no file, no row.
+
+**GIFs.** X's API has no field for a Giphy id. A post's `gif_id` is looked
+up on Giphy by `hands/x` at post time, the largest rendition X takes (15 MB)
+downloaded from a Giphy host only and uploaded to X as media
+(`x/media.py`, `attach_gif`). So `gif-search` returns exactly that id
+(letters and digits, as `x post` checks). Giphy is asked for `rating=pg` at
+most and every answer is held to `g` or `pg` again here; an id or page that
+is not Giphy's own is dropped; titles are what strangers wrote, returned as
+data only: control characters removed, 120 characters at most, and a GIF
+whose title the lexicon holds is dropped. No key: refused with `rule:
+"unavailable"`; a key Giphy refuses or a spent rate limit, the same. No
+error names the key. Giphy's terms ask for a "Powered by GIPHY" mention
+where its search is shown to people; Teeny shows none, the operator should
+decide.
+
+Nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
+`NOT_OUTPUTS`), and the studio wires it in later. To post one: `hands/x
+upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
+on `hands/x post`.
 
 ## `build`: the builder's work queue
 
@@ -3083,7 +3171,7 @@ creates its own tables:
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
 | `brief` | `briefs` |
-| `image`, `video`, `reel` | `media_assets` |
+| `image`, `video`, `reel`, `meme` | `media_assets` |
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
@@ -3099,6 +3187,7 @@ creates its own tables:
 | `ladder` | `fence_proposals` |
 | `upstream` | `pin_proposals` |
 | `guard` (review) | `guard_reviews` |
+| `guard` (viewer) | `viewer_checks` |
 
 ## Rules the tests pin
 

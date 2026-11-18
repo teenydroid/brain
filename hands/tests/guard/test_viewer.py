@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -244,6 +243,3 @@ class ViewVerbTest(support.Scratch):
         with mock.patch.object(viewer, "view", fake):
             cli.view_check(cli.parser().parse_args(["view"]), {"image": "state/media/a.png", "intent": INTENT})
         self.assertEqual(seen, {"image": "state/media/a.png", "intent": INTENT, "caption": None})
-
-
-del sqlite3

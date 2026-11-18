@@ -57,7 +57,7 @@ SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # itself, and a draft must not reach the guard's own admin verbs (a playbook
 # may still queue a browser task with hand:tasks add). The keychain is made
 # and read by code only (the operator's desk and the browser's fill).
-NOT_OUTPUTS = ("guard", "image", "video", "reel", "keychain")
+NOT_OUTPUTS = ("guard", "image", "video", "reel", "meme", "keychain")
 # Hands a draft reaches only through the verbs named here. The builder's
 # queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
 # draft may only propose a change to Teeny itself (`self`), which files a

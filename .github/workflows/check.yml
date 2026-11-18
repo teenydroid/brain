@@ -121,8 +121,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: python3 -m pip install --quiet "cryptography>=38"
+      # Pillow at the image's version (python3-pil on bookworm is 9.4.0), and
+      # required: a test that needs it fails here rather than skipping
+      # (hands/tests/pillow_support.py).
+      - run: python3 -m pip install --quiet "cryptography>=38" "Pillow==9.4.0"
       - run: python3 bin/test/hands_shard.py --shards 4 --shard ${{ matrix.shard }} -v
+        env:
+          TEENY_TESTS_REQUIRE_PILLOW: "1"
 
   # The required check (the ruleset "main: frozen gate" names `scripts`): green
   # only when the shell tests, the doctor's and every shard of the hands'
