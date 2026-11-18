@@ -143,6 +143,15 @@ class CaptionTest(Scratch):
         frames[0].save(self.root / "state/media/anim.gif", save_all=True, append_images=frames[1:])
         self.refused("source", image="state/media/anim.gif", top="hi")
 
+    def test_a_picture_over_the_pixel_cap_is_refused_before_it_is_decoded(self):
+        from PIL import Image
+
+        Image.new("1", (7000, 7000)).save(self.root / "state/media/huge.png")
+        self.refused("pixels", image="state/media/huge.png", top="hi")
+        with self.assertRaises(hand.Refused) as caught:
+            memes.comic({"panels": [{"image": self.picture("ok.png")}, {"image": "state/media/huge.png"}]})
+        self.assertEqual(caught.exception.detail["rule"], "pixels")
+
     def test_a_picture_too_small_to_caption_is_refused(self):
         self.refused("fit", image=self.picture("tiny.png", size=(150, 150)), top="hi")
 

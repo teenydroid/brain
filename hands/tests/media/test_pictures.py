@@ -130,6 +130,64 @@ class ShrinkTest(PictureTest):
         self.assertEqual(caught.exception.detail["rule"], "size")
 
 
+@needs_pillow
+class EncodeModesTest(unittest.TestCase):
+    """fit.encode takes whatever a decoder hands it."""
+
+    def roundtrip(self, image, ext):
+        from PIL import Image
+
+        data, out_ext = fit.encode(image, ext)
+        self.assertLess(len(data), fit.X_IMAGE_MAX_BYTES)
+        decoded = Image.open(io.BytesIO(data))
+        decoded.load()
+        return decoded, out_ext
+
+    def test_a_cmyk_picture_encodes_as_png_and_as_jpeg(self):
+        from PIL import Image
+
+        image = Image.new("CMYK", (600, 400), (0, 200, 200, 0))
+        for ext in ("png", "jpg"):
+            decoded, _ = self.roundtrip(image, ext)
+            self.assertIn(decoded.mode, ("RGB", "RGBA"))
+            red = decoded.convert("RGB").getpixel((10, 10))
+            self.assertGreater(red[0], 200)
+            self.assertLess(red[1], 120)
+
+    def test_a_sixteen_bit_picture_keeps_its_tones(self):
+        from PIL import Image
+
+        image = Image.new("I;16", (512, 400))
+        image.putdata([x * 128 for y in range(400) for x in range(512)])
+        decoded, _ = self.roundtrip(image, "png")
+        grey = decoded.convert("L")
+        left, right = grey.getpixel((5, 5)), grey.getpixel((500, 5))
+        self.assertLess(left, 40)
+        self.assertGreater(right, 200)
+        self.assertGreater(len(set(grey.getdata())), 100)
+
+    def test_a_very_tall_and_a_very_wide_picture_come_in_under_the_limit_in_proportion(self):
+        from PIL import Image
+
+        rng = random.Random(5)
+        for size in ((900, 7000), (7000, 900)):
+            image = Image.frombytes("RGB", size, rng.randbytes(size[0] * size[1] * 3))
+            decoded, ext = self.roundtrip(image, "png")
+            self.assertEqual(ext, "jpg")
+            self.assertAlmostEqual(decoded.size[0] / decoded.size[1], size[0] / size[1], places=2)
+
+    def test_a_picture_over_the_pixel_cap_is_refused_before_it_is_decoded(self):
+        from PIL import Image
+
+        out = io.BytesIO()
+        Image.new("1", (7000, 7000)).save(out, "PNG")  # 49 MP: Pillow alone only warns under 80 MP
+        with self.assertRaises(hand.Refused) as caught:
+            fit.under_limit(out.getvalue() + b"\x00" * fit.X_IMAGE_MAX_BYTES, "png")
+        self.assertEqual(caught.exception.detail["rule"], "pixels")
+        with self.assertRaises(hand.Refused):
+            fit.open_checked(io.BytesIO(out.getvalue()))
+
+
 class AltTextTest(PictureTest):
     def test_alt_text_is_kept_on_the_asset(self):
         out = self.generate(alt="a small yellow robot waving from a desk")["asset"]

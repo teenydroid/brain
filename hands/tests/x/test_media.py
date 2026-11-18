@@ -167,12 +167,19 @@ class UploadVerbTest(Uploading):
 class UploadLimitsAndAltTest(Uploading):
     def test_a_still_over_x_s_five_megabyte_limit_is_refused_before_anything_is_sent(self):
         # image-12.png (5,263,141 bytes) failed at X on 2026-11-14.
-        (self.media_dir / "big.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (media.IMAGE_MAX_BYTES - 8))
+        (self.media_dir / "big.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (media.IMAGE_MAX_BYTES - 7))
         with self.assertRaises(hand.Refused) as caught:
             media.upload(str(self.media_dir / "big.png"))
         self.assertEqual(caught.exception.detail["rule"], "size")
         self.assertEqual(self.x.requests(), [])
         self.assertEqual(self.minted(), [])
+
+    def test_a_still_between_five_million_bytes_and_five_mebibytes_is_not_refused(self):
+        # X documents 5 MB as 5 MiB: 4,980,488 uploaded, 5,263,141 failed.
+        self.configure(DRY_RUN="1")
+        (self.media_dir / "mid.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 5_100_000)
+        self.assertTrue(media.upload(str(self.media_dir / "mid.png"))["dry_run"])
+        self.assertEqual(media.IMAGE_MAX_BYTES, 5 * 1024 * 1024)
 
     def test_a_video_over_five_megabytes_is_not_held_to_the_still_limit(self):
         self.configure(DRY_RUN="1")
