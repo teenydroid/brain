@@ -159,14 +159,31 @@ record() {
 # The studio owns every original post while STUDIO=1 (bin/lib/studio_switch.py):
 # a playbook whose slot it took is kept for the rollback (STUDIO=0) and never
 # run meanwhile, whoever asks for it. Before any input or model turn.
-if python3 "$TEENY_ROOT/bin/lib/studio_switch.py" replaced "$name"; then
-  record "$(jq -cn --arg p "$name" '{ok: true, playbook: $p, skipped: "the studio owns this slot (STUDIO=1): this playbook runs only with STUDIO=0"}')"
-  exit 0
-fi
+# The switch answers by exit code: 0 yes, 3 no, anything else (STUDIO set
+# to a word that is neither on nor off, a teeny.env that is not text, a
+# crash) is an error, and nothing runs: a switch that cannot be read never
+# turns the old posts, or a post without the editor, back on.
+switch_failed() { # WHAT -> records the failure and exits 1
+  record "$(jq -cn --arg p "$name" --arg w "$1" --arg e "$(tail -c 500 "$dir/switch.err" 2>/dev/null)" \
+    '{ok: false, playbook: $p, error: "the studio switch could not be read (\($w)): nothing was run", failure: "playbook", stderr: $e}')"
+  exit 1
+}
+switch_rc=0
+python3 "$TEENY_ROOT/bin/lib/studio_switch.py" replaced "$name" 2>"$dir/switch.err" || switch_rc=$?
+case "$switch_rc" in
+  0) record "$(jq -cn --arg p "$name" '{ok: true, playbook: $p, skipped: "the studio owns this slot (STUDIO=1): this playbook runs only with STUDIO=0"}')"
+     exit 0 ;;
+  3) ;;
+  *) switch_failed replaced ;;
+esac
 # The told-to post and the outward quote keep their jobs, and their words go
 # past the studio's editor first (`bin/studio --veto`), as one candidate.
-veto_kind="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" veto "$name")" || veto_kind=""
-studio_on="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" on)"
+switch_rc=0
+veto_kind="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" veto "$name" 2>"$dir/switch.err")" || switch_rc=$?
+case "$switch_rc" in 0) ;; 3) veto_kind="" ;; *) switch_failed veto ;; esac
+switch_rc=0
+studio_on="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" on 2>"$dir/switch.err")" || switch_rc=$?
+case "$switch_rc" in 0 | 3) ;; *) switch_failed on ;; esac
 
 if [ "$(taken)" -ge "$max_per_day" ]; then
   log "$name: today's $max_per_day action(s) already taken"

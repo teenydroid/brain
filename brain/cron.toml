@@ -8,7 +8,7 @@
 #   [jobs.<name>]          becomes the core job `teeny.<name>`
 #   schedule = "m h dom mon dow"   never more often than every 5 minutes
 #   command  = "bin/act <playbook>"   brain/playbooks/<playbook>.md
-#            | "bin/studio --slot <name> --legacy <playbook>"   a studio slot
+#            | "bin/studio --slot <name> --legacy <playbook> --detach"   a studio slot
 #            | "bin/heartbeat"
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
 #                          CALENDAR_TZ, else UTC
@@ -79,7 +79,10 @@ command = "bin/heartbeat"
 # Sunday, show). `shiplog` keeps its own job at 23:10 and runs only with
 # STUDIO=0: bin/act skips every replaced playbook while STUDIO=1
 # (bin/lib/studio_switch.py). No studio slot catches up or makes up: a late
-# post would take the next slot's room, and cron_policy.py refuses it.
+# post would take the next slot's room, and cron_policy.py refuses it. Each
+# runs detached (--detach: the run outlasts the 300 s the core gives a cron
+# call) under the studio lock, and claims its slot before any model turn, so
+# a retry or a rerun of a slot that already ran does nothing.
 #
 # Two posts keep their own jobs and draw on the same four a day: the team's
 # told-to post (`brief`) and the outward quote of a peer (`peer-quote`, 11:00
@@ -110,35 +113,35 @@ command = "bin/heartbeat"
 [jobs.studio-0430]
 schedule = "30 4 * * *"
 tz = "Asia/Kolkata"
-command = "bin/studio --slot 0430 --legacy x-quote"
+command = "bin/studio --slot 0430 --legacy x-quote --detach"
 
 # The 09:30 slot. With STUDIO=0: a gm only when the morning's reading gave
 # Teeny an anchor (brain/playbooks/morning.md, a nudge to the mind).
 [jobs.studio-0930]
 schedule = "30 9 * * *"
 tz = "Asia/Kolkata"
-command = "bin/studio --slot 0930 --legacy morning"
+command = "bin/studio --slot 0930 --legacy morning --detach"
 
 # The 15:00 slot, Monday to Saturday. With STUDIO=0: a take on the day's
 # story, or a quote of a builder's post (brain/playbooks/take.md).
 [jobs.studio-1500]
 schedule = "0 15 * * 1-6"
 tz = "Asia/Kolkata"
-command = "bin/studio --slot 1500 --legacy take"
+command = "bin/studio --slot 1500 --legacy take --detach"
 
 # The 15:00 slot on Sunday: a normal studio slot. With STUDIO=0: the weekly
 # growth diary (brain/playbooks/growth.md), as before.
 [jobs.studio-sunday]
 schedule = "0 15 * * 0"
 tz = "Asia/Kolkata"
-command = "bin/studio --slot 1500 --legacy growth"
+command = "bin/studio --slot 1500 --legacy growth --detach"
 
 # The 23:00 slot. With STUDIO=0: what Teeny built or did today, with
 # pictures, or the day's best exchange on Moltbook (brain/playbooks/show.md).
 [jobs.studio-2300]
 schedule = "0 23 * * *"
 tz = "Asia/Kolkata"
-command = "bin/studio --slot 2300 --legacy show"
+command = "bin/studio --slot 2300 --legacy show --detach"
 
 # The outward quote: up to three scored suggestions a run from the peers' new
 # posts (brain/x-peers.txt), and hands/x peer-suggest posts one only when its

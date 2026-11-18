@@ -452,23 +452,27 @@ for book in chatty vague; do
   check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
   check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
 done
-# The studio's slots: `bin/studio --slot NAME [--legacy PLAYBOOK]`, the
+# The studio's slots: `bin/studio --slot NAME [--legacy PLAYBOOK] --detach`, the
 # legacy one a playbook the studio replaced, and never caught up or made up.
 reset
-printf '[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning"\n[jobs.t]\nschedule = "0 23 * * *"\ncommand = "bin/studio --slot 2300"\n' >"$toml"
+printf '[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning --detach"\n[jobs.t]\nschedule = "0 23 * * *"\ncommand = "bin/studio --slot 2300 --detach"\n' >"$toml"
 if seed --check; then pass "accepts a studio slot, with or without its legacy playbook"; else fail "accepts a studio slot, with or without its legacy playbook"; fi
 refuses "refuses a studio slot whose legacy playbook the studio did not replace" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy chatty"'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy chatty --detach"'
 refuses "refuses a legacy playbook that is not there" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy take"'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy take --detach"'
 refuses "refuses a preview or a forced slot from cron" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --dry-run --slot 0930"'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --dry-run --slot 0930 --detach"'
 refuses "refuses a slot name that is not a short lowercase word" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot Morning_Post"'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot Morning_Post --detach"'
 refuses "refuses catch-up on a studio slot: it posts" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930"\ncatch_up = true'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --detach"\ncatch_up = true'
 refuses "refuses make_up_hours on a studio slot" \
-  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930"\nmake_up_hours = 3'
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --detach"\nmake_up_hours = 3'
+# A studio run outlasts the 300 s the core gives a cron call, which then kills
+# and retries it (review of PR #379): a slot runs detached, or not at all.
+refuses "refuses a studio slot that would run in the foreground" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning"'
 # A slot every run of which failed on the model provider may be made up
 # (`make_up_hours`), on a playbook that speaks too: its post was never made.
 refuses "refuses make_up_hours on a job that is not a playbook" \

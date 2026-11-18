@@ -8,6 +8,8 @@
   O  seed                  insert the seed storylines the ledger lacks
   J  record-run            keep one bin/studio run record (JSON on stdin), under DRY_RUN too
   R  runs [--limit N] [--full]  the newest studio runs (runs.py)
+  J  slot-claim            a slot's one run (JSON on stdin): {claimed} (runs.py)
+  J  slot-mark             the run's progress on its slot (JSON on stdin)
 """
 
 from __future__ import annotations
@@ -47,6 +49,10 @@ def parser() -> argparse.ArgumentParser:
     verb("beat", lambda a, body: store.beat(body), "record a posted beat (JSON on stdin)", takes_body=True)
     verb("seed", lambda a, _: store.seed(), "insert the seed storylines the ledger lacks")
     verb("record-run", lambda a, body: runs.record(body), "keep one studio run record (JSON on stdin)",
+         takes_body=True)
+    verb("slot-claim", lambda a, body: runs.claim_slot(body), "claim a slot's one run (JSON on stdin)",
+         takes_body=True)
+    verb("slot-mark", lambda a, body: runs.mark_slot(body), "mark a run's progress on its slot (JSON on stdin)",
          takes_body=True)
     listed = verb("runs", lambda a, _: runs.runs(a.limit, a.full), "the newest studio runs")
     listed.add_argument("--limit", type=_bounded(1, 100, "--limit"), default=runs.LIMIT_DEFAULT)

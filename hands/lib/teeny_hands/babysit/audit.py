@@ -275,7 +275,17 @@ class _Audit:
             if who_tier in policy.TRUSTED:
                 continue
             where = f"{c.get('kind')}:{c.get('id')}"
-            self.injected(injection.scan(c.get("body") or "", where), who, who_tier, lambda rule: "operator")
+            self.injected(injection.scan(c.get("body") or "", where, markers=self._markers(who)), who, who_tier,
+                          lambda rule: "operator")
+
+    def _markers(self, who: str | None) -> Any:
+        """The hidden comments `who` may leave without a `hidden_comment`
+        finding: on teenydroid/brain, PR-Agent's markers in comments by the
+        login its workflow posts as. A content exemption, not trust: the
+        author is still a stranger and every other rule still reads it."""
+        if policy.is_brain(self.repo) and who == policy.PR_AGENT_LOGIN:
+            return injection.PR_AGENT_MARKERS
+        return None
 
     def _shape(self) -> None:
         pr = self.pr
@@ -343,7 +353,8 @@ class _Audit:
             latest[who] = r
             who_tier = self.tier(who)
             if who_tier not in policy.TRUSTED:
-                self.injected(injection.scan(r.get("body") or "", f"review:{who}"), who, who_tier,
+                self.injected(injection.scan(r.get("body") or "", f"review:{who}", markers=self._markers(who)),
+                              who, who_tier,
                               lambda rule: "operator")
         approved, blocking = [], []
         for who, r in latest.items():

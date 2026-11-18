@@ -804,9 +804,9 @@ Sunday 15:00 is a normal slot until the weekly plan takes it), live: with
 and no per-post approval. An empty slot is a normal outcome.
 
 ```
-cron slot ──> bin/studio --slot S --legacy P
-                │  STUDIO=0 (the rollback) ──> bin/act P, exactly as before
-                ▼  STUDIO=1
+cron slot ──> bin/studio --slot S --legacy P --detach
+                │  STUDIO=0 (the rollback) ──> bin/act P, in the foreground, exactly as before
+                ▼  STUDIO=1: detached (bin/lib/detach.py, studio lock), slot claimed before any turn
    hands/x slot shut? ── yes ──> skip, no model turn
                 │
    hands/story desk + HN + listen digest (+ X search with STUDIO_OUTSIDE_X=1)
@@ -821,8 +821,8 @@ cron slot ──> bin/studio --slot S --legacy P
        a no: one rewrite by the writer with the reason, gated once more
        a second no: the next draft of the ranking the editor does not veto (at most 2)
                 │
-   image only: scene past the guard ──> hands/image ──> hands/x upload
-       (fails: the words alone if they stand alone, else the next draft)
+   image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
+       (fails: the words alone if the writer marked them alone, else the next draft)
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -836,6 +836,37 @@ mind's inbox), which the writer sees among the desk's `ideas`. The told-to `brie
 a slot) and the outward `peer-quote` keep their jobs, and their words go past
 the studio's editor as a single candidate (`bin/studio --veto`, which bin/act
 asks): pick, or none. Replies are unchanged.
+
+**How a slot runs.** Cron calls `bin/studio --slot S --legacy P --detach`
+(cron_policy.py refuses a studio slot without `--detach`): the core gives a
+cron shell call 300 s, then kills its process group and retries it, and a run
+takes longer. With `STUDIO=1` the run is started in its own session through
+`bin/lib/detach.py` under the studio lock and the call returns at once. The
+run claims its slot (`<date in India>:<slot>`, `hands/story slot-claim`)
+before any model turn: a retry or a rerun of a claimed slot does nothing. It
+marks the slot `posting`, with the draft, before it hands hands/x the post,
+and `posted` with the id after. A run that dies in between leaves the slot
+`posting`; the next claim marks it `in_doubt` and warns (the post may be on X
+without being in `x_posts`), and nothing retries it. (`hands/x` has an
+idempotency key only on twitr's text writes, ten minutes long; posts with
+media go to the X API with none, so the claim, not the key, is what holds.)
+
+**What fails closed.** `STUDIO` reads only `1/true/yes/on` and
+`0/false/no/off` (or unset); any other word, or a `teeny.env` that is not
+text, is an error: no studio run, no legacy playbook, no `post_x`, no brief
+without the editor, and `bin/doctor` fails. The process environment wins over
+the file when it sets `STUDIO` at all (cron and the compose services pass
+none, so on the box the file decides). Every required gate must have judged:
+a truth judge, cold reader or viewer check that is switched off, unreachable
+or answers no JSON leaves a live slot empty (a dry run passes it, marked
+`unjudged`). A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
+file as the hands read it) are the writer's model, including after the
+writer fell back to the core's default, posts nothing; the judge model is in
+every run's `models`. A picture's scene is truth-gated against the draft's
+facts before it is bought, made once a slot (a fallback with the same scene
+reuses it, or its refusal), and an image piece whose picture fails goes out
+as words only when the writer marked them `alone`. The judges and hands/x
+count against `STUDIO_BUDGET_SECS` like the model turns.
 
 **The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
 (`bin/lib/studio_switch.py`): each studio cron job names its slot's old

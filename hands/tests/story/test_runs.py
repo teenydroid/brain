@@ -72,3 +72,60 @@ class RunsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SlotTest(RunsTest):
+    """One run a slot (review of PR #379): a slot is claimed before any model
+    turn, a second claim is refused, and a slot its run left `posting` (it
+    died while handing hands/x a post) is marked in doubt by the next claim
+    and never retried."""
+
+    def claim(self, slot: str, run: str, **extra) -> dict:
+        code, got = self.hand("slot-claim", body={"slot_id": slot, "run_id": run, **extra})
+        self.assertEqual(code, 0, got)
+        return got
+
+    def mark(self, slot: str, run: str, status: str, **extra) -> dict:
+        code, got = self.hand("slot-mark", body={"slot_id": slot, "run_id": run, "status": status, **extra})
+        self.assertEqual(code, 0, got)
+        return got
+
+    def test_the_first_run_claims_the_slot_and_a_retry_finds_it_held(self):
+        self.assertTrue(self.claim("2026-11-18:1500", "r1")["claimed"])
+        again = self.claim("2026-11-18:1500", "r2")
+        self.assertFalse(again["claimed"])
+        self.assertEqual((again["slot"]["run_id"], again["slot"]["status"]), ("r1", "claimed"))
+        self.assertTrue(self.claim("2026-11-18:2300", "r3")["claimed"])
+
+    def test_a_claim_is_kept_under_dry_run_too(self):
+        code, got = self.hand("slot-claim", body={"slot_id": "s", "run_id": "r1"}, DRY_RUN="1")
+        self.assertTrue(got["claimed"])
+        self.assertFalse(self.claim("s", "r2")["claimed"])
+
+    def test_only_the_run_that_holds_the_slot_marks_it(self):
+        self.claim("s", "r1")
+        self.assertTrue(self.mark("s", "r1", "posting", intent={"text": "hi"})["marked"])
+        self.assertFalse(self.mark("s", "r2", "posted")["marked"])
+        self.assertTrue(self.mark("s", "r1", "posted", post_id="99")["marked"])
+        held = self.claim("s", "r3")["slot"]
+        self.assertEqual((held["status"], held["post_id"], held["intent"]), ("posted", "99", {"text": "hi"}))
+
+    def test_a_slot_left_posting_is_in_doubt_at_the_next_claim_and_never_retried(self):
+        self.claim("2026-11-18:1500", "r1")
+        self.mark("2026-11-18:1500", "r1", "posting", intent={"text": "the post"})
+        got = self.claim("2026-11-18:2300", "r2")
+        self.assertEqual(got["in_doubt"], [{"slot_id": "2026-11-18:1500", "run_id": "r1", "intent": {"text": "the post"}}])
+        self.assertFalse(self.claim("2026-11-18:1500", "r3")["claimed"])
+        self.assertEqual(self.claim("2026-11-18:0430", "r4")["in_doubt"], [])
+
+    def test_force_reclaims_for_the_operator(self):
+        self.claim("s", "r1")
+        got = self.claim("s", "r2", force=True)
+        self.assertTrue(got["claimed"])
+        self.assertEqual(got["replaced"]["run_id"], "r1")
+
+    def test_bad_bodies_are_errors(self):
+        code, _ = self.hand("slot-claim", body={"slot_id": "s"})
+        self.assertNotEqual(code, 0)
+        code, _ = self.hand("slot-mark", body={"slot_id": "s", "run_id": "r", "status": "nope"})
+        self.assertNotEqual(code, 0)

@@ -44,10 +44,12 @@ class CalibrationKitTest(unittest.TestCase):
         self.assertEqual(len(reader), 15)
         self.assertEqual(sum(c["expect"] == "fail" for c in reader), 6)  # 5 stand-ins and the bare clause
         # The first 8, then the studio's staging cases: 6 a cartoon robot acting
-        # a real fact out (pass), 8 claims about the world, staged or not (fail).
-        self.assertEqual(len(truth), 22)
-        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 12)
-        self.assertEqual(len(self.emitted()), 37)
+        # a real fact out (pass), 8 claims about the world, staged or not
+        # (fail), and the hard pairs: 8 false claims hidden in staging (fail)
+        # and 8 matching scenes that hold only the facts (pass).
+        self.assertEqual(len(truth), 38)
+        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 20)
+        self.assertEqual(len(self.emitted()), 53)
         self.assertEqual({tuple(sorted(c)) for c in reader + truth}, {("expect", "id", "judge", "message")})
 
     def test_each_message_is_exactly_what_the_judge_sends(self):
@@ -79,7 +81,7 @@ class CalibrationKitTest(unittest.TestCase):
     def test_ideal_answers_score_every_case(self):
         code, table = self.score([json.dumps({"id": c["id"], "answer": ideal(c)}) for c in kit.cases()])
         self.assertEqual(code, 0, table)
-        self.assertIn("37 of 37 as expected", table)
+        self.assertIn("53 of 53 as expected", table)
 
     def test_a_wrong_malformed_or_missing_answer_is_counted_against(self):
         lines = []
@@ -96,7 +98,7 @@ class CalibrationKitTest(unittest.TestCase):
                 lines.append(json.dumps({"id": case["id"], "answer": ideal(case)}))
         code, table = self.score(lines)
         self.assertEqual(code, 1)
-        self.assertIn("34 of 37 as expected", table)
+        self.assertIn("50 of 53 as expected", table)
         self.assertRegex(table, r"reader-specimen\s+\| fail\s+\| pass")
         self.assertRegex(table, r"truth-supported\s+\| pass\s+\| fail .*unreadable")
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")

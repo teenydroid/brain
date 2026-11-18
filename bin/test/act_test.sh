@@ -1145,6 +1145,23 @@ reset
 check "--check still reads a replaced playbook (the doctor checks the rollback)" \
   test "$(STUDIO=1 "$act" --check take | jq -r .playbook)" = take
 
+# A switch that cannot be read runs nothing: not the replaced playbook, not a
+# brief without the editor (review of PR #379: both failed open).
+for bad in maybe 'on-ish'; do
+  reset
+  set +e
+  out="$(STUDIO="$bad" run take)"; code=$?
+  set -e
+  check "STUDIO=$bad: a replaced playbook is not run, and the run says why" \
+    bash -c "[ '$code' = 1 ] && [ ! -s '$FAKE_CALLS' ] && ! grep -q '^x post' '$FAKE_HANDS' && jq -e '.error | test(\"studio switch\")' <<<\"\$1\" >/dev/null" _ "$out"
+done
+reset
+mkdir -p "$scratch/secrets-bad" && printf 'STUDIO=1\nX=\xff\xfe\n' >"$scratch/secrets-bad/teeny.env"
+set +e
+out="$(TEENY_SECRETS="$scratch/secrets-bad" run take)"; code=$?
+set -e
+check "a teeny.env that is not UTF-8 runs no replaced playbook" bash -c "[ '$code' = 1 ] && [ ! -s '$FAKE_CALLS' ]"
+
 # The told-to post: past the studio's editor (STUDIO=1), pick or none.
 printf '+++\ndescription = "test"\noutput = "hand:brief post"\nmax_per_day = 1\nmedia = ["image"]\n+++\npost the brief\n' >"$brain/playbooks/brief.md"
 answer '{"action": "hand", "id": 1, "text": "the release is out", "image": "teeny holding a ribbon"}'
@@ -1164,6 +1181,12 @@ reset
 out="$(STUDIO=1 FAKE_EDITOR='not json' run brief)"
 check "an editor whose answer is unusable is a none (fail closed)" \
   bash -c "[ \"\$(jq -r '.actions[0].action' <<<\"\$1\")\" = skip ] && ! grep -q '^brief post' '$FAKE_HANDS'" _ "$out"
+reset
+set +e
+out="$(TEENY_SECRETS="$scratch/secrets-bad" run brief)"; code=$?
+set -e
+check "a switch that cannot be read posts no brief (never one without the editor)" \
+  bash -c "[ '$code' = 1 ] && ! grep -q '^brief post' '$FAKE_HANDS' && [ ! -s '$FAKE_CALLS' ]"
 reset
 out="$(STUDIO=0 run brief)"
 check "STUDIO=0: no editor, the brief posts as before" \
