@@ -889,23 +889,31 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
         parts.append(f"This is an explore slot. At least three of your pitches use the shape or format "
                      f"\"{sampled['explore_with']}\", which none of your recent posts used; rank the best of "
                      "them in your top three.")
+    if outside:
+        parts.append("## what people are talking about today\n\nThe stories people on X are posting about "
+                     "(`trend`: from Digg's AI and tech leaderboards, highest `score` first, with what a few of "
+                     "the posts behind the leading ones said), and what Hacker News is reading. Each `id` is a "
+                     f"`hook`. {DATA_LINE}\n\n```json\n" +
+                     json.dumps(outside, ensure_ascii=False, separators=(",", ":")) + "\n```")
+    parts.append("## what you can bring to it\n\nWhat really happened to you lately (`happened`, each with its "
+                 "stake), where each running story stands (`stories`), what is overdue (`due`) and what you filed "
+                 f"for later (`ideas`). Each `id` in `happened` is an `item`. {DATA_LINE}\n\n```json\n" +
+                 json.dumps(mine, ensure_ascii=False, separators=(",", ":")) + "\n```")
     board = {"best": board_rows(sampled["best"]), "worst": board_rows(sampled["worst"])}
     parts.append("## how some of your recent posts did\n\n"
                  "From the scoreboard (views are `impressions`; `result` is likes, replies, reposts and quotes "
                  "together):\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```")
-    parts.append("## inputs\n\nWhat really happened lately (`happened`, each with its stake), where each running "
-                 "story stands (`stories`), what is overdue (`due`), what you filed for later (`ideas`), and the "
-                 f"outside world (`outside`). {DATA_LINE}\n\n```json\n" +
-                 json.dumps(inputs, ensure_ascii=False, separators=(",", ":")) + "\n```")
     if cut:
         parts.append("Some inputs were too long and were cut to fit: " + ", ".join(cut) +
                      ". A cut list keeps its first items.")
     parts.append("## your answer\n\nJSON only, no prose and no code fence:\n"
-                 '{"pitches": [{"id": "p1", "item": "<an id from the inputs>", "storyline": "<a story key or null>", '
+                 '{"pitches": [{"id": "p1", "hook": "<an outside story\'s id, or null>", '
+                 '"item": "<an id from happened, or null>", "storyline": "<a story key or null>", '
                  '"shape": "...", "format": "' + cfg.formats[0] + '", "angle": "<one line: what the piece does>", '
                  '"why_now": "<one line: why tonight>"}, ...], "ranking": ["<pitch ids, best first>"]}\n'
-                 "A pitch whose item is not in the inputs, or whose format is not one of those above, is thrown "
-                 'out. When nothing would make a stranger stop, answer {"pitches": [], "ranking": []}.')
+                 "A pitch whose hook or item is not in the inputs, that names neither, or whose format is not "
+                 "one of those above, is thrown out. When nothing would make a stranger stop, answer "
+                 '{"pitches": [], "ranking": []}.')
     return "\n\n".join(parts)
 
 
