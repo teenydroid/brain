@@ -166,15 +166,15 @@ def sections(text: str, level: int = 2) -> tuple[str, dict[str, str]]:
     return "\n".join(preamble).strip(), {k: "\n".join(v).strip() for k, v in found.items()}
 
 
-def lore(text: str) -> str:
+def lore(text: str, wanted: tuple[str, ...] = LORE_SECTIONS) -> str:
     """LORE.md minus the producer's parts: the premise and origin, then the
-    sections Teeny reads."""
+    sections Teeny reads (`wanted`; none gives the premise alone)."""
     preamble, found = sections(text)
     # The first preamble paragraph is the note to the producer about who
     # reads what; the story starts after it.
     paragraphs = [p for p in re.split(r"\n\s*\n", preamble) if p.strip() and not p.lstrip().startswith("# ")]
     out = paragraphs[1:] if paragraphs and "producer" in paragraphs[0] else paragraphs
-    for name in LORE_SECTIONS:
+    for name in wanted:
         if found.get(name):
             out.append(f"### {name}\n\n{found[name]}")
     return "\n\n".join(out).strip()
