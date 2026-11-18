@@ -942,7 +942,7 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         "## the pitch\n\n```json\n" + json.dumps(pitch, ensure_ascii=False) + "\n```",
     ]
     if hook:
-        parts.append("## the story it joins\n\nWhat people are talking about today, as the leaderboard and the "
+        parts.append("## the news it joins\n\nWhat people are talking about today, as the leaderboard and the "
                      f"posts behind it said it. {DATA_LINE}\n\n```json\n" + json.dumps(hook, ensure_ascii=False) +
                      "\n```\n\n" + JOIN_RULES)
     if item or not hook:
@@ -957,7 +957,7 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
     if fix:
         parts.append("## why your last drafts were thrown out\n\nEvery draft you wrote for this pitch had a number, "
                      "a day or a date that is not in what happened, or reused an example's words. Write them again "
-                     "with only what the thing it is about, the story it joins and the storyline hold; a feeling, "
+                     "with only what the thing it is about, the news it joins and the story it moves hold; a feeling, "
                      "a bet or a bit needs no number.\n\n" + "\n".join(f"- {text!r}: {why}" for text, why in fix))
     parts.append("## your answer\n\nJSON only, no prose and no code fence:\n"
                  '{"drafts": [' + shape + ", ...]}\n"
