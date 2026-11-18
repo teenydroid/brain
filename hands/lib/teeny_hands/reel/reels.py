@@ -542,7 +542,7 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
         try:
             data = api.download(url, AUDIO_MAX_BYTES)
         except SurplusError as exc:
-            # Paid for and not fetched: the cost stands, and the row says why.
+            # Made but not fetched: the failed row keeps the job id and says why.
             tried.append(f"{model}: {exc}")
             break
         ext = audio_type(data[:16])
