@@ -317,6 +317,13 @@ opens or leaves draft and again on every push to it (not base-branch merges), an
 `SURPLUS_API_KEY` repository secret, the same key as `secrets/teeny.env`. Fork
 PRs get no secrets, so it skips them.
 
+A budget job in front of it (`.github/scripts/pr-agent-budget.sh`, tested by
+`bin/test/pr_agent_budget_test.sh`) stops automatic reviews once a PR has had
+10, or once one author's PRs have had 25 in the last 24 hours, and says so once
+on the PR. A `/review` comment still runs and still counts. Repository
+variables `PR_AGENT_MAX_REVIEWS_PER_PR` and
+`PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY` change the caps (`0` is unlimited).
+
 ## Bumping OpenHuman
 
 1. Move `vendor/openhuman` to the new `upstream/main` commit and run
