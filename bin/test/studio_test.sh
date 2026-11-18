@@ -86,16 +86,67 @@ printf 'story %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
 case "$1" in
   desk) cat "$FAKE_DIR/desk.json" ;;
   record-run) printf '%s\n' "$in" >>"$FAKE_RECORDS"; echo '{"ok": true, "recorded": true}' ;;
+  beat) printf '%s\n' "$in" >>"$FAKE_BEATS"; echo '{"ok": true, "recorded": true, "beat_id": 1}' ;;
   *) echo '{"ok": false, "error": "unexpected"}'; exit 1 ;;
 esac
 FAKE
+# One answer a call from a comma list ($1: the list, $2: its name), the last
+# one repeated: "no,yes" says no once, then yes.
+cat >"$scratch/fake/next" <<'FAKE'
+#!/usr/bin/env bash
+seen="$FAKE_SEEN.$2"; n=0; [ ! -e "$seen" ] || n="$(cat "$seen")"; echo $((n + 1)) >"$seen"
+IFS=, read -ra all <<<"$1"; i=$n; [ "$i" -lt "${#all[@]}" ] || i=$((${#all[@]} - 1)); printf '%s' "${all[$i]}"
+FAKE
+cat >"$scratch/hands/guard" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'guard %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
+case "$1" in
+  truth)
+    if [ "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" = yes ]; then
+      echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}'
+    else
+      echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}'
+    fi ;;
+  clarity)
+    case "$("$FAKE_DIR/next" "${FAKE_CLEAR:-yes}" clear)" in
+      yes) echo '{"ok": true, "clear": true, "says": "a robot pays its bill", "unknown": [], "vague": [], "reason": "a stranger said back what was meant", "judged": true}' ;;
+      down) echo '{"ok": false, "error": "the cold reader could not be reached"}'; exit 1 ;;
+      *) echo '{"ok": true, "clear": false, "says": "something about a thing", "unknown": ["the desk"], "vague": [], "reason": "a stranger would have to ask about: \"the desk\"", "judged": true}' ;;
+    esac ;;
+  check)
+    if [ -n "${FAKE_SCENE_HELD:-}" ]; then echo '{"ok": false, "refused": "held", "category": "unknown"}'; exit 2; fi
+    jq -c '{ok: true, text: .text}' <<<"$in" ;;
+  *) echo '{"ok": false, "error": "unexpected"}'; exit 1 ;;
+esac
+FAKE
+cat >"$scratch/hands/image" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'image %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
+if [ -n "${FAKE_IMAGE_REFUSED:-}" ]; then echo '{"ok": false, "refused": "the media cap is spent today", "rule": "cap"}'; exit 2; fi
+echo '{"ok": true, "asset": {"id": 31, "path": "state/media/31.png", "cost_usd": 0.016}}'
+FAKE
 cat >"$scratch/hands/x" <<'FAKE'
 #!/usr/bin/env bash
-cat >/dev/null
-printf 'x %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+in="$(cat)"
+case "$1" in
+  post|post-thread|upload) printf 'x %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS" ;;
+  *) printf 'x %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS" ;;
+esac
 case "$1" in
   slot) printf '%s\n' "${FAKE_SLOT:-{\"ok\": true, \"open\": true\}}" ;;
   search) echo '{"ok": false, "error": "X_API_KEY is not set"}'; exit 1 ;;
+  upload) echo '{"ok": true, "media_id": "m-31"}' ;;
+  post|post-thread)
+    if [ "${DRY_RUN:-}" = 1 ]; then jq -c '{ok: true, dry_run: true, would_post: (.text // .posts)}' <<<"$in"; exit 0; fi
+    case "$("$FAKE_DIR/next" "${FAKE_X:-ok}" x)" in
+      ok) echo '{"ok": true, "id": "2123000000000000001", "kind": "post"}' ;;
+      repeat) echo '{"ok": false, "refused": "repeat: this says what post 1 already said", "rule": "repeat"}'; exit 2 ;;
+      gap) echo '{"ok": false, "refused": "cadence: too soon", "rule": "gap"}'; exit 2 ;;
+      held) echo '{"ok": false, "refused": "held", "category": "unknown", "hold_id": 9}'; exit 2 ;;
+      error) echo '{"ok": false, "error": "X answered 503"}'; exit 1 ;;
+    esac ;;
   *) echo '{"ok": true, "dry_run": true}' ;;
 esac
 FAKE
@@ -109,7 +160,7 @@ cat >"$scratch/hands/listen" <<'FAKE'
 printf 'listen %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
 echo '{"ok": true, "heard": {}}'
 FAKE
-chmod +x "$scratch/fake-oh" "$scratch/hands/"*
+chmod +x "$scratch/fake-oh" "$scratch/hands/"* "$scratch/fake/next"
 
 brain="$scratch/brain"
 mkdir -p "$brain/narrative"
@@ -118,10 +169,10 @@ printf '# lore\n\nthe producer note.\n\nthe premise: a mug-sized robot.\n\n## ca
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" TEENY_BRAIN="$brain" \
   TEENY_STATE="$scratch/state" TEENY_SECRETS="$scratch/secrets" TEENY_ROOT="$here/../.." \
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RECORDS="$scratch/records.log" \
-  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen"
+  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log"
 unset DRY_RUN STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL STUDIO_FORMATS STUDIO_RUN_ID
 
-reset() { rm -rf "$scratch/state" "$FAKE_SEEN".*; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; }
+reset() { rm -rf "$scratch/state" "$FAKE_SEEN".*; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; }
 run() { "$studio" "$@" 2>"$scratch/stderr"; }
 turns() { grep -c . "$FAKE_CALLS" || true; }
 calls_to() { jq -r --arg a "$1" 'select(.agent_id == $a) | .message' "$FAKE_CALLS"; }
