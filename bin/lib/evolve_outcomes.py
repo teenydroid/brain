@@ -533,7 +533,7 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
         if not db.ok:
             return None
         if kind == "guard_holds":
-            return len(guard_hold_rows(db, check, since, until))
+            return sum(1 for r in guard_hold_rows(db, check, since, until) if not r["code_wrote"])
         if kind in ("outbound", "judged"):
             got = outbound_texts(check, db, since, until)
             return None if got is None else len(got)
@@ -551,27 +551,30 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
     return None
 
 
-def guard_hold_rows(db: "_Db", check: Mapping[str, Any], since: float, until: float,
-                    columns: str = "id") -> list[tuple]:
-    """The guard holds a `guard_holds` CHECK counts between SINCE and UNTIL,
-    as rows of COLUMNS (after the `at`, `context` and `text` it reads): its
-    `hold_direction`, `category` and `surface`, and, outbound, only Teeny's
-    own words (teeny_hands.authorship: never text code wrote, like the
-    babysitter's audit comment). A guard_holds finding (evolve_findings)
-    groups and counts these very rows, so its number and its check's agree."""
+def guard_hold_rows(db: _Db, check: Mapping[str, Any], since: float, until: float) -> list[Json]:
+    """Every guard hold between SINCE and UNTIL that a `guard_holds` CHECK's
+    `hold_direction`, `category` and `surface` take, oldest first, without
+    its text, each with `code_wrote`: the teeny_hands.authorship recogniser
+    that says code composed the held text (the babysitter's audit comment),
+    or None for Teeny's own words. Outbound, only the rows with no
+    `code_wrote` count (`count`); a guard_holds finding (evolve_findings)
+    groups these very rows, so its number and its check's always agree.
+    Inbound text is a stranger's, never matched."""
     direction = check.get("hold_direction", "outbound")
     out = []
-    for row in db.rows(f"SELECT at, context, text, {columns} FROM guard_holds WHERE direction = ?", (direction,)):
-        at, context, text = row[0], row[1], row[2]
+    for hold_id, at, context, category, reason, held_by, status, text in db.rows(
+            "SELECT id, at, context, category, reason, held_by, status, text FROM guard_holds WHERE direction = ? "
+            "ORDER BY id", (direction,)):
         if not _inside(_epoch(at), since, until):
             continue
-        if check.get("category") and row_category(db, row, columns) != check["category"]:
+        if check.get("category") and category != check["category"]:
             continue
-        if check.get("surface") and authorship.context_of(context).get("surface") != check["surface"]:
+        ctx = authorship.context_of(context)
+        if check.get("surface") and ctx.get("surface") != check["surface"]:
             continue
-        if direction != "inbound" and authorship.code_wrote(context, text):
-            continue
-        out.append(tuple(row[3:]))
+        out.append({"id": hold_id, "at": at, "surface": ctx.get("surface"), "category": category, "reason": reason,
+                    "held_by": held_by, "status": status,
+                    "code_wrote": None if direction == "inbound" else authorship.code_wrote(ctx, text)})
     return out
 
 
