@@ -20,8 +20,12 @@
             whether an own post says something specific about its anchor that
             the inputs support (anchor.py; bin/act asks before a post). A
             verdict, never a hold: anything but a clear yes is anchored false
+  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged"}:
+            whether every factual claim in the text is supported by `facts`, the
+            list of desk items and inputs it may draw on (anchor.py, `truth`).
+            A verdict, never a hold: anything but a clear yes is truthful false
   clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
-            "reason", "judged"}: whether someone who has never heard of Teeny
+            "vague", "reason", "judged"}: whether someone who has never heard of Teeny
             could say the post back with nothing to ask about (clarity.py;
             bin/act and bin/tick ask before an own post). `meaning` is what
             the author meant it to say, `quoted` the post it quotes. A
@@ -101,6 +105,15 @@ def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if not isinstance(name, str) or not name.strip():
         raise hand.HandError("anchor must name the item the post is about")
     return anchor.judge(body["text"], name.strip(), body.get("inputs"))
+
+
+def truth_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    body = _body(body, "facts")
+    if not body["text"].strip():
+        raise hand.HandError("text must not be empty")
+    if not isinstance(body.get("facts"), list):
+        raise hand.HandError("facts must be a list of the items the text may draw on")
+    return anchor.truth(body["text"], body["facts"])
 
 
 def clarity_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -279,7 +292,8 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("clarity", clarity_check)):
+    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
+                          ("clarity", clarity_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")
