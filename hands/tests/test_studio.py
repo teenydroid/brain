@@ -151,10 +151,13 @@ class ConfigTest(unittest.TestCase):
             path.write_text(filed)
             return studio.Config.load(env, path)
 
-    def test_off_and_dry_by_default(self):
+    def test_off_by_default_and_live_once_on(self):
+        # Live at merge: STUDIO=1 posts unless STUDIO_DRY=1 (or --dry-run).
         cfg = self.load({})
         self.assertEqual((cfg.on, cfg.dry, cfg.formats, cfg.pitches, cfg.draft_top, cfg.drafts_each),
-                         (False, True, ("post", "thread", "image"), 12, 3, 3))
+                         (False, False, ("post", "thread", "image"), 12, 3, 3))
+        self.assertTrue(self.load({"STUDIO_DRY": "1"}).dry)
+        self.assertTrue(self.load({}, "STUDIO=1\nSTUDIO_DRY=1\n").dry)
 
     def test_the_environment_wins_over_the_file(self):
         cfg = self.load({"STUDIO_WRITER_MODEL": "a"}, "STUDIO=1\nSTUDIO_WRITER_MODEL=b\nSTUDIO_EDITOR_MODEL=c\n")
@@ -164,11 +167,13 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(any("same model" in w for w in self.load({"STUDIO_WRITER_MODEL": "m", "STUDIO_EDITOR_MODEL": "m"}).warnings))
         self.assertEqual(self.load({"STUDIO_WRITER_MODEL": "m"}).warnings, [])
 
-    def test_this_version_never_posts(self):
-        cfg = self.load({"STUDIO_DRY": "0"})
-        self.assertTrue(cfg.dry)
-        self.assertTrue(any("never posts" in w for w in cfg.warnings))
-        self.assertEqual(studio.publish({"text": "x"}), {"dry": True})
+    def test_the_switch_is_the_one_bin_act_and_the_mind_read(self):
+        import studio_switch
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "teeny.env"
+            path.write_text("STUDIO=1\n")
+            self.assertEqual(studio.Config.load({}, path).on, studio_switch.on({}, path))
+            self.assertFalse(studio.Config.load({"STUDIO": "0"}, path).on)
 
     def test_unknown_formats_are_left_out_with_a_warning(self):
         cfg = self.load({"STUDIO_FORMATS": "post,song"})
@@ -297,9 +302,29 @@ class RunTest(unittest.TestCase):
         root = Path(self.tmp.name)
         (root / "hands").mkdir()
         story = root / "hands" / "story"
-        story.write_text('#!/usr/bin/env bash\nbody="$(cat)"\nprintf "%s\\n" "$body" >> "$(dirname "$0")/../records"\n'
+        story.write_text('#!/usr/bin/env bash\nbody="$(cat)"\n[ "$1" = record-run ] || { printf "%s\\n" "$body" >> '
+                         '"$(dirname "$0")/../beats"; echo \'{"ok": true}\'; exit 0; }\n'
+                         'printf "%s\\n" "$body" >> "$(dirname "$0")/../records"\n'
                          'default=\'{"ok": true, "recorded": true}\'\nprintf "%s\\n" "${FAKE_RECORDED:-$default}"\n')
         story.chmod(story.stat().st_mode | stat.S_IEXEC)
+        # The gates and hands/x: every call kept in calls; the guard says yes
+        # unless FAKE_TRUTH / FAKE_CLEAR say no; hands/x posts (or, under
+        # DRY_RUN=1, would post).
+        for name, script in (
+            ("guard", 'case "$1" in\n'
+                      '  truth) [ -n "${FAKE_TRUTH:-}" ] && echo \'{"truthful": false, "unsupported": ["x"], "reason": "no"}\' '
+                      '|| echo \'{"truthful": true, "unsupported": [], "reason": "ok", "judged": true}\' ;;\n'
+                      '  clarity) [ -n "${FAKE_CLEAR:-}" ] && echo \'{"clear": false, "reason": "a stranger could not say"}\' '
+                      '|| echo \'{"clear": true, "reason": "ok"}\' ;;\n'
+                      '  check) echo "$body" ;;\nesac\n'),
+            ("x", 'if [ "${DRY_RUN:-}" = 1 ]; then echo \'{"ok": true, "dry_run": true, "would_post": "w"}\'; '
+                  'else echo \'{"ok": true, "id": "99"}\'; fi\n'),
+            ("image", 'echo \'{"ok": true, "asset": {"id": 1, "path": "p.png"}}\'\n'),
+        ):
+            path = root / "hands" / name
+            path.write_text('#!/usr/bin/env bash\nbody="$(cat)"\nprintf "%s %s %s\\n" "' + name + '" "$*" "DRY_RUN=${DRY_RUN:-}" '
+                            '>> "$(dirname "$0")/../calls"\n' + script)
+            path.chmod(path.stat().st_mode | stat.S_IEXEC)
         (root / "desk.json").write_text(json.dumps(RUN_DESK))
         self.root = root
         self.env = {"TEENY_ROOT": str(REPO), "TEENY_STATE": str(root / "state"), "TEENY_HANDS": str(root / "hands"),
@@ -457,11 +482,49 @@ class RunTest(unittest.TestCase):
         self.assertEqual(len(rec["drafts"]), 2)
         self.assertTrue(rec["drafts_dropped"][0]["why"].startswith("copies an example: "))
 
-    def test_studio_dry_0_still_posts_nothing(self):
+    def calls(self) -> list[str]:
+        path = self.root / "calls"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def test_dry_run_posts_nothing_whatever_studio_dry_says(self):
         ask, _ = self.script()
         code, out = self.go(ask, STUDIO_DRY="0")
-        self.assertEqual((out["outcome"], out["published"], out["dry"]), ("picked", {"dry": True}, True))
-        self.assertTrue(any("STUDIO_DRY=0" in w for w in out["warnings"]))
+        self.assertEqual((out["outcome"], out["published"]["outcome"], out["dry"]), ("picked", "would_post", True))
+        self.assertIn("x post DRY_RUN=1", self.calls())
+        self.assertFalse([c for c in self.calls() if c.startswith("x ") and not c.endswith("DRY_RUN=1")])
+
+    def test_a_live_run_posts_and_records_the_beat(self):
+        self.args.dry_run = False
+        ask, _ = self.script()
+        code, out = self.go(ask, STUDIO="1")
+        self.assertEqual((code, out["outcome"], out["published"]["post_id"]), (0, "published", "99"))
+        self.assertIn("x post DRY_RUN=", self.calls())
+        beat = json.loads((self.root / "beats").read_text().splitlines()[0])
+        self.assertEqual((beat["storyline"], beat["post_id"]), ("rent", "99"))
+
+    def test_studio_dry_1_runs_the_gates_and_posts_nothing(self):
+        self.args.dry_run = False
+        ask, _ = self.script()
+        code, out = self.go(ask, STUDIO="1", STUDIO_DRY="1")
+        self.assertEqual((out["outcome"], out["published"]["outcome"]), ("picked", "would_post"))
+        self.assertEqual([c.split()[0] + " " + c.split()[1] for c in self.calls()][:2], ["guard truth", "guard clarity"])
+        self.assertFalse(Path(self.root / "beats").exists())
+
+    def test_a_gate_that_says_no_twice_leaves_the_slot_empty(self):
+        self.args.dry_run = False
+        ask, seen = self.script(final='{"verdict": "pick", "reason": "r"}')
+
+        def with_rewrite(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: rewrite"):
+                return 0, json.dumps({"text": "my thinking bill, said again"}), ""
+            return ask(root, agent, message, thread, model, secs)
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_TRUTH": "1"}):
+            code, out = self.go(with_rewrite, STUDIO="1")
+        rec = self.record()
+        self.assertEqual((code, out["outcome"]), (0, "empty"))
+        self.assertEqual(len(rec["publish"]["attempts"]), 3)
+        self.assertFalse([c for c in self.calls() if c.startswith("x ")])
 
     def test_the_paid_x_search_is_off_unless_switched_on(self):
         self.args.no_outside = False
@@ -482,3 +545,125 @@ class RunTest(unittest.TestCase):
             self.assertIn(["x", "search"], calls)
         finally:
             studio.Room.hand = real
+
+
+# --- the cutover (PR studio-cutover) --------------------------------------------------
+
+
+class StorylineOnThePickTest(unittest.TestCase):
+    """A pitch's storyline comes through to the pick; when the writer names
+    none, the desk item's running storyline is used."""
+
+    def pitches(self, raw, stories=("rent", "count"), items=None):
+        kept, _, _ = studio.validate_pitches({"pitches": raw}, {"a:1", "b:2"}, set(stories), ("post",), 12,
+                                             items if items is not None else {"a:1": "count", "b:2": None})
+        return [p["storyline"] for p in kept]
+
+    def test_the_writers_storyline_when_it_is_running(self):
+        self.assertEqual(self.pitches([{"id": "p1", "item": "a:1", "storyline": "rent", "format": "post", "angle": "x"}]),
+                         ["rent"])
+
+    def test_none_named_takes_the_items(self):
+        self.assertEqual(self.pitches([{"id": "p1", "item": "a:1", "storyline": None, "format": "post", "angle": "x"},
+                                       {"id": "p2", "item": "a:1", "storyline": "", "format": "post", "angle": "x"},
+                                       {"id": "p3", "item": "a:1", "storyline": "nope", "format": "post", "angle": "x"}]),
+                         ["count", "count", "count"])
+
+    def test_an_item_with_none_or_a_story_not_running_gives_none(self):
+        self.assertEqual(self.pitches([{"id": "p1", "item": "b:2", "format": "post", "angle": "x"}]), [None])
+        self.assertEqual(self.pitches([{"id": "p1", "item": "a:1", "format": "post", "angle": "x"}], stories=("rent",)),
+                         [None])
+
+    def test_with_the_storylines_seeded_a_whole_run_lands_the_pick_on_one(self):
+        # The preview root had no storylines, so every pitch read null; with
+        # them, the desk item's storyline reaches the pick and its facts.
+        desk = {"items": [{"id": "evt:2", "storyline": "rent", "what": "thinking cost $0.20"}],
+                "storylines": [{"key": "rent", "premise": "a wallet and a bill"}]}
+        kept, _, _ = studio.validate_pitches({"pitches": [{"id": "p1", "item": "evt:2", "format": "post", "angle": "a"}]},
+                                             {"evt:2"}, {"rent"}, ("post",), 12,
+                                             {i["id"]: i.get("storyline") for i in desk["items"]})
+        self.assertEqual(kept[0]["storyline"], "rent")
+        draft, _ = studio.validate_drafts({"drafts": [{"text": "t"}]}, kept[0], 1)
+        self.assertEqual(draft[0]["storyline"], "rent")
+
+
+class PublishPartsTest(unittest.TestCase):
+    def test_words_that_point_at_the_picture_do_not_stand_alone(self):
+        self.assertTrue(studio.stands_alone({"text": "look at me, a robot at the laundromat"}))
+        self.assertTrue(studio.stands_alone({"text": "this picture is me at the window"}))
+        self.assertEqual(studio.stands_alone({"text": "i carried the dimes to the window. they did not look like more"}),
+                         "")
+
+    def test_the_unjudged_words_are_the_hands_own(self):
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        from teeny_hands.guard import anchor, clarity
+        self.assertEqual(set(studio.UNJUDGED), {anchor.TRUTH_UNREACHABLE, anchor.TRUTH_UNREADABLE,
+                                                clarity.UNREACHABLE, clarity.UNREADABLE})
+
+    def test_the_post_carries_the_studios_tags_and_never_the_meaning(self):
+        room = studio.Room(studio.Config(), REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
+        verb, body = studio.post_body(room, {"pitch": "p3", "format": "image", "storyline": "rent", "shape": "scene",
+                                             "text": "t", "meaning": "secret"}, {"item": "evt:2"}, ["m1"])
+        self.assertEqual(verb, "post")
+        self.assertEqual(body, {"text": "t", "anchor": "evt:2", "format": "image", "producer": "studio",
+                                "pitch_id": "run-1:p3", "storyline": "rent", "shape": "scene", "media_ids": ["m1"]})
+        verb, body = studio.post_body(room, {"pitch": "p1", "format": "thread", "posts": ["a", "b"]}, {"item": "x:1"}, [])
+        self.assertEqual((verb, body["posts"], "storyline" in body), ("post-thread", ["a", "b"], False))
+
+    def test_a_format_with_no_producer_is_no_post_and_says_so(self):
+        room = studio.Room(studio.Config(), REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
+        attempt: dict = {}
+        self.assertEqual(studio.try_draft(room, {"format": "song", "pitch": "p1"}, attempt, None, []), "next")
+        self.assertIn("no producer for the format 'song'", attempt["result"])
+
+
+class ModelFallbackTest(unittest.TestCase):
+    def room(self, writer="w", editor="e"):
+        cfg = studio.Config(writer_model=writer, editor_model=editor)
+        return studio.Room(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1", ask=self.ask)
+
+    def ask(self, root, agent, message, thread, model, secs):
+        self.asked.append(model)
+        if model in self.bad:
+            return 1, "", "model error: HTTP 503 no_healthy_sellers"
+        return 0, '{"ok": 1}', ""
+
+    def setUp(self):
+        self.asked, self.bad = [], set()
+
+    def test_a_failing_model_falls_back_to_the_core_default_with_a_warning(self):
+        self.bad = {"e"}
+        room = self.room()
+        self.assertEqual(room.turn("editor", "compare", "m", None), {"ok": 1})
+        self.assertEqual(room.turn("editor", "final", "m", None), {"ok": 1})
+        self.assertEqual(self.asked, ["e", "", ""])
+        self.assertEqual(room.models, {"writer": "w", "editor": ""})
+        self.assertEqual(len(room.warnings), 1)
+        self.assertIn("editor's model e failed", room.warnings[0])
+
+    def test_both_on_the_default_is_a_second_warning(self):
+        self.bad = {"w", "e"}
+        room = self.room()
+        room.turn("writer", "pitch", "m", None)
+        room.turn("editor", "final", "m", None)
+        self.assertTrue(any("same model" in w for w in room.warnings))
+
+    def test_the_core_default_failing_too_is_the_failure_it_always_was(self):
+        self.bad = {"w", ""}
+        with self.assertRaises(studio.Stop) as stop:
+            self.room().turn("writer", "pitch", "m", None)
+        self.assertEqual(stop.exception.detail.get("failure"), "provider")
+
+
+class VetoTest(unittest.TestCase):
+    def test_studio_off_picks_without_a_turn(self):
+        def never(*a):
+            raise AssertionError("no turn with STUDIO=0")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = studio.veto({"kind": "brief", "text": "hi"}, {"TEENY_SECRETS": tmp, "STUDIO": "0"}, ask=never)
+        self.assertEqual((out["verdict"], out["turn"]), ("pick", False))
+
+    def test_no_words_is_a_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = studio.veto({"kind": "brief"}, {"TEENY_SECRETS": tmp, "STUDIO": "1"})
+        self.assertEqual(out["verdict"], "none")

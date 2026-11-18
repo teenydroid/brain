@@ -76,6 +76,19 @@ class TruthJudgeTest(support.WithCore):
             self.assertIn(prop, message)
         self.assertNotIn("never fail a draft", message)
 
+    def test_the_judge_is_told_the_cartoons_staging_is_not_a_claim_but_who_did_what_is(self):
+        # The studio's preview day: "i carried the dimes over to the window"
+        # is staging; "you're the second in two days" with one follower lost,
+        # and a fix the operator merged told as Teeny's own, are claims.
+        core = self.core(said(True))
+        anchor.truth(STAGED, FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("i carried the dimes over to the window", message)
+        self.assertIn("tiny agents", message)
+        self.assertIn("whatever a staged scene says about the world is still checked", message)
+        self.assertIn("Who did what is always a claim, never staging", message)
+        self.assertIn('"the second in two days"', message)
+
     def test_the_judge_is_told_a_joke_or_question_can_still_carry_a_claim(self):
         core = self.core(said(True))
         anchor.truth(DRAFT, FACTS)

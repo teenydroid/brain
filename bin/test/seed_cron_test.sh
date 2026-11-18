@@ -452,6 +452,23 @@ for book in chatty vague; do
   check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
   check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
 done
+# The studio's slots: `bin/studio --slot NAME [--legacy PLAYBOOK]`, the
+# legacy one a playbook the studio replaced, and never caught up or made up.
+reset
+printf '[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning"\n[jobs.t]\nschedule = "0 23 * * *"\ncommand = "bin/studio --slot 2300"\n' >"$toml"
+if seed --check; then pass "accepts a studio slot, with or without its legacy playbook"; else fail "accepts a studio slot, with or without its legacy playbook"; fi
+refuses "refuses a studio slot whose legacy playbook the studio did not replace" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy chatty"'
+refuses "refuses a legacy playbook that is not there" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy take"'
+refuses "refuses a preview or a forced slot from cron" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --dry-run --slot 0930"'
+refuses "refuses a slot name that is not a short lowercase word" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot Morning_Post"'
+refuses "refuses catch-up on a studio slot: it posts" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930"\ncatch_up = true'
+refuses "refuses make_up_hours on a studio slot" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930"\nmake_up_hours = 3'
 # A slot every run of which failed on the model provider may be made up
 # (`make_up_hours`), on a playbook that speaks too: its post was never made.
 refuses "refuses make_up_hours on a job that is not a playbook" \
@@ -494,8 +511,9 @@ check "and self-improve catches up a slot a restart cut off" bash -c "
     jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
 check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
-      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | IN(\"teeny.studio-0430\", \"teeny.studio-0930\", \"teeny.studio-1500\",
+      \"teeny.studio-sunday\", \"teeny.studio-2300\", \"teeny.brief\", \"teeny.peer-quote\", \"teeny.shiplog\",
+      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 10 and all(. == 0)' >/dev/null"
 check "and no job that must follow another, or be followed, catches up out of order" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
@@ -505,7 +523,7 @@ check "and the Moltbook evening audit makes up a slot the model provider lost" b
     jq -e '[.[] | select(.name == \"teeny.moltbook-evening\") | .make_up_secs] | length == 1 and all(. > 0)' >/dev/null"
 check "and no X post makes one up: a late post would take the next one's eight-hour room" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\")) | .make_up_secs] | length == 3 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | startswith(\"teeny.studio-\")) | .make_up_secs] | length == 5 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "

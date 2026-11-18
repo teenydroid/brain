@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+from unittest import mock
 from pathlib import Path
 
 from gh.support import T0, Scratch
@@ -435,6 +436,18 @@ class DeskTest(StoryScratch):
         _, got = self.items()
         self.assertEqual([(i["text"], i["untrusted"]) for i in got["ideas"]],
                          [("the server bill and the follower we lost", True)])
+
+    def test_a_pitch_the_mind_filed_is_an_idea_and_never_back_in_its_inbox(self):
+        # bin/tick's pitch_x (STUDIO=1): stimuli.add on surface `studio` is
+        # filed, so the desk shows it and the mind's next batch does not.
+        with mock.patch.object(hand, "now", return_value=T0 - HOUR):
+            stimuli.add("studio", "pitch", "abc", "the server bill came in under a dollar",
+                        payload={"anchor": "stimuli:health:daily"})
+        self.assertEqual(stimuli.take()["stimuli"], [])
+        self.assertEqual(stimuli.counts()["filed"], 1)
+        _, got = self.items()
+        self.assertEqual([(i["id"], i["text"], i["status"], i["untrusted"]) for i in got["ideas"]],
+                         [("stimuli:studio:pitch:abc", "the server bill came in under a dollar", "filed", True)])
 
     def test_a_missing_table_is_unavailable_never_an_invented_item(self):
         store.seed()

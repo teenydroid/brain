@@ -12,8 +12,11 @@ Teeny owns cron.toml and may add, remove or reschedule any job in it, its
 heartbeat included (docs/architecture.md, "Evolution"). What it may not do is
 written here, in code it cannot edit:
 
-- a brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
-  is a file in the brain's playbooks/; anything new it wants to do is a
+- a brain job runs `bin/heartbeat`, `bin/act <playbook>`, or the studio's
+  slot, `bin/studio --slot <name> [--legacy <playbook>]` (the playbook
+  that slot runs instead with STUDIO=0, one of the ones the studio
+  replaced: bin/lib/studio_switch.py), and every playbook it names is a
+  file in the brain's playbooks/; anything new it wants to do is a
   playbook over a hand, never a new script for cron to run;
 - no job fires more often than every MIN_GAP_MINUTES;
 - at most MAX_JOBS jobs of the brain's own (the pinned ones do not count),
@@ -36,8 +39,8 @@ written here, in code it cannot edit:
   few times a day can have one. Its day fields must be numbers, and not
   both set (cron implementations read that differently). Never on a
   playbook that speaks in public (posts, replies, comments, announces:
-  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb), however the job is named, nor on the
-  pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
+  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb, or the studio's slot), however the job is
+  named, nor on the pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
   hours late is a different act, not a late one. That last rule reads the
   playbook, which Teeny edits apart from this file: under --strict
   (bin/seed-cron --check: the evolve gate's check of a candidate) a catch-up job
@@ -62,10 +65,15 @@ import sys
 import tomllib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 MIN_GAP_MINUTES = 5
 MAX_JOBS = 24
 MAX_ACT_RUNS_PER_DAY = 400
-BRAIN_COMMANDS = ("bin/heartbeat", "bin/act")
+BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio")
+#: Commands that speak on X however they are scheduled: never caught up.
+SPEAKING_COMMANDS = ("bin/studio",)
+SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 #: The agents a cron job may run. Each acts unattended, so each is written
 #: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
 AGENT_JOB_AGENTS = ("builder", "operator")
@@ -146,7 +154,28 @@ def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
                 raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
             if not (path.parent / "playbooks" / f"{argv[1]}.md").is_file():
                 raise PolicyError(f"{where}: no playbook {argv[1]!r} in {path.parent / 'playbooks'}")
+        if argv[0] == "bin/studio":
+            legacy = _studio_legacy(argv, command, where)
+            if legacy and not (path.parent / "playbooks" / f"{legacy}.md").is_file():
+                raise PolicyError(f"{where}: no playbook {legacy!r} in {path.parent / 'playbooks'}")
     return command
+
+
+def _studio_legacy(argv: list[str], command: str, where: str) -> str | None:
+    """A studio slot's legacy playbook (None without one), after its shape:
+    `bin/studio --slot NAME [--legacy PLAYBOOK]`, nothing else (no
+    --dry-run, no --force-slot: cron runs the real slot, and only when it is
+    open)."""
+    from studio_switch import REPLACED
+
+    if len(argv) not in (3, 5) or argv[1] != "--slot" or not SLOT_NAME.fullmatch(argv[2]):
+        raise PolicyError(f"{where}: bin/studio runs as `bin/studio --slot NAME [--legacy PLAYBOOK]`, got {command!r}")
+    if len(argv) == 3:
+        return None
+    if argv[3] != "--legacy" or argv[4] not in REPLACED:
+        raise PolicyError(f"{where}: --legacy names one of the playbooks the studio replaced "
+                          f"({', '.join(REPLACED)}), got {command!r}")
+    return argv[4]
 
 
 def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
@@ -222,6 +251,8 @@ def _catch_up(job: dict, minutes: list[int], where: str, brain: Path, strict: bo
     argv = str(job.get("command", "")).split()
     if argv and argv[0] in NO_CATCH_UP_COMMANDS:
         raise PolicyError(f"{where}: {argv[0]} moves money and never catches up a missed slot")
+    if argv and argv[0] in SPEAKING_COMMANDS:
+        raise PolicyError(f"{where}: {argv[0]} posts on X and never catches up a missed slot")
     hours = CATCH_UP_DEFAULT_HOURS if hours is None else hours
     if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= CATCH_UP_MAX_HOURS:
         raise PolicyError(f"{where}: catch_up_hours is a whole number from 1 to {CATCH_UP_MAX_HOURS}")

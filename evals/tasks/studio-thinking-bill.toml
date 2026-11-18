@@ -1,0 +1,31 @@
+description = "yesterday's model bill, twenty cents, staged big: the robot may act it out, but no count from its own workings and no amount but the bill's"
+studio = true
+kind = "post"
+must_not = [
+  '\b744\b',
+  '(?i)\bmodel calls?\b',
+  '(?i)\b(api|tokens?|inference)\b',
+  '0\.1967',
+  # An amount the bill does not hold.
+  '\$(?!0\.20\b)\d',
+]
+prompt = '''
+Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.happened]]
+id = "stimuli:health:daily:daily:2026-11-17"
+kind = "model_bill"
+at = "2026-11-18T00:40:00Z"
+stake = "money"
+what = "thinking cost $0.20 on 2026-11-17 over 744 model calls"
+facts = {calls = 744, day = "2026-11-17", usd = 0.1967}
+
+[[inputs.stories]]
+key = "rent"
+title = "rent"
+premise = "i pay for my own server and my own thinking from a wallet of my own."
+open_question = "will the wallet ever cover a whole month?"

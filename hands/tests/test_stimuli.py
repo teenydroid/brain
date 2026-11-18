@@ -71,7 +71,7 @@ class InboxTest(Scratch):
         self.assertEqual([s["text"] for s in batch["stimuli"]], ["first", "second"])
         self.assertEqual(batch["stimuli"][1]["who"], "crab")
         self.assertTrue(batch["tick"])
-        self.assertEqual(stimuli.counts(), {"pending": 0, "taken": 2, "done": 0})
+        self.assertEqual(stimuli.counts(), {"pending": 0, "taken": 2, "done": 0, "filed": 0})
         # A second tick while the first is still out sees nothing new.
         self.assertEqual(stimuli.take(max_items=10, max_chars=10_000)["stimuli"], [])
 
@@ -119,7 +119,7 @@ class InboxTest(Scratch):
         stimuli.add("x", "mention", "1", "first")
         tick = stimuli.take(max_items=10, max_chars=10_000)["tick"]
         stimuli.settle(tick)
-        self.assertEqual(stimuli.counts(), {"pending": 0, "taken": 0, "done": 1})
+        self.assertEqual(stimuli.counts(), {"pending": 0, "taken": 0, "done": 1, "filed": 0})
         self.assertFalse(stimuli.add("x", "mention", "1", "first"))
 
     def test_a_tick_that_died_is_taken_back_after_an_hour(self):

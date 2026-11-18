@@ -72,6 +72,12 @@
    the mind, with what the reader took from it and could not read, and the
    rewrite is read cold too. Still a no, a reader that did not answer, or
    out of time: refused, and the mind is told why. The entry says `clarity`.
+   That is with the studio off (STUDIO=0). With it on (bin/lib/studio_switch.py)
+   the studio owns every original post: the mind's answer shape offers
+   `pitch_x` instead of `post_x`, and either one files the idea for the
+   studio (a `studio` stimulus, filed, which hands/story desk shows the
+   writer as an idea): nothing is read cold, no picture is made, nothing is
+   posted, and the entry says `pitched`. Replies are unchanged.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -86,6 +92,7 @@ not learn.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import random
@@ -111,6 +118,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 import scoreboard  # noqa: E402
+import studio_switch  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
 MAX_INTENTS = 8
@@ -217,12 +225,50 @@ def _reply_x(i):
     return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i)}
 
 
+def studio_on() -> bool:
+    """STUDIO, as bin/studio reads it (bin/lib/studio_switch.py): with it on
+    the studio owns every original post, and the mind pitches instead."""
+    return studio_switch.on(os.environ, hand.secrets_dir() / "teeny.env")
+
+
+#: The most of a pitch's text the studio's desk keeps.
+PITCH_CHARS = 1200
+
+
+def _pitch_x(i):
+    """An idea for an original post, filed for the studio (STUDIO=1): a
+    `studio` stimulus, which hands/story desk shows the writer as one of its
+    `ideas` (untrusted: the mind writes it while it reads strangers' words).
+    Filed, never posted: the studio decides at its next slot whether
+    anything comes of it. A post_x while the studio is on lands here too."""
+    if not studio_on():
+        raise ValueError("pitch_x is for the studio, which is off (STUDIO=0): post with post_x")
+    text = _text(i)
+    if len(text) > PITCH_CHARS:
+        text = text[:PITCH_CHARS].rstrip() + " [...cut]"
+    payload = {k: i[k] for k in ("anchor", "meaning", "quote_of", "format", "image", "images", "why")
+               if i.get(k) not in (None, "", [])}
+    if i.get("do") == "post_x":
+        payload["was"] = "post_x"
+    ref = _pitch_ref(text)
+    return "stimuli", ["add"], {"surface": "studio", "kind": "pitch", "ref": ref, "text": text, "payload": payload}
+
+
+def _pitch_ref(text: str) -> str:
+    """A pitch's ref: the same words filed twice are one idea."""
+    return hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()[:16]
+
+
 def _post_x(i):
     """An own post. `anchor` names the one thing in front of the mind it is
     about (hands/x refuses a post without one); `quote_of` (a post id) makes
     it a quote, anchored on that post unless it names another; `format` tags
     it for the lab. Refused here, before any picture is made, when it has
-    neither. Pictures are made in carry_out and added as `media_ids`."""
+    neither. Pictures are made in carry_out and added as `media_ids`. With
+    the studio on (STUDIO=1) it is a pitch (`_pitch_x`), never a post: a
+    mind still in the habit of posting is filed, not refused."""
+    if studio_on():
+        return _pitch_x(i)
     body = {"text": _text(i), **_gif(i)}
     if i.get("quote_of") not in (None, ""):
         body["quote_of"] = _id(i, "quote_of")
@@ -721,6 +767,7 @@ def _propose_change(i):
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "reply_x": _reply_x,
     "post_x": _post_x,
+    "pitch_x": _pitch_x,
     "like_x": _like_x,
     "comment_moltbook": _comment_moltbook,
     "decline_moltbook": _decline_moltbook,
@@ -860,14 +907,38 @@ CAPPED_SHAPES = {
 }
 
 
+#: The post_x line of SHAPE, and what stands in its place while the studio is on.
+POST_X_LINE = next(line for line in SHAPE.splitlines() if line.startswith('- {"do": "post_x"'))
+PITCH_X_LINE = ('- {"do": "pitch_x", "text": "<the idea: what happened, and the post you see in it>", "anchor": "<the one '
+                'item it is about, optional>", "why": "<why a stranger would stop for it, optional>"}: an idea for an '
+                "original post on X, filed for the studio")
+#: SHAPE's paragraph on pictures and own posts, from its own-post sentences on.
+POST_X_RULES = SHAPE[SHAPE.index("You post on X at most 4 times a day"):SHAPE.index("A reply only has to answer")]
+PITCH_X_RULES = ("Your original posts on X are made by your studio now: four times a day a writer drafts from what "
+                 "really happened and an editor picks one or none. You do not post on X yourself; a post_x is filed "
+                 "as a pitch like any pitch_x. When something happens that would make a stranger stop, pitch it: say "
+                 "what happened and the post you see in it, and the studio may use it at its next slot. Replies "
+                 "are still yours, and still go out as you write them. ")
+
+
+def _studio_shape(text: str) -> str:
+    """SHAPE with post_x as a pitch for the studio (STUDIO=1)."""
+    return text.replace(POST_X_LINE, PITCH_X_LINE).replace(POST_X_RULES, PITCH_X_RULES).replace(
+        "A post_x or reply_x may carry pictures of you", "A reply_x may carry pictures of you").replace(
+        '"shots": <a task id> on a post_x or reply_x', '"shots": <a task id> on a reply_x').replace(
+        "A reply_x or post_x may carry a GIF instead", "A reply_x may carry a GIF instead")
+
+
 def shape() -> str:
-    """The answer's shape, with each capped intent listed while it is on."""
+    """The answer's shape, with each capped intent listed while it is on, and
+    post_x as a pitch while the studio is on."""
+    base = _studio_shape(SHAPE) if studio_on() else SHAPE
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
     if not extra:
-        return SHAPE
-    head, sep, tail = SHAPE.partition("\n\nA follow_up's ref")
+        return base
+    head, sep, tail = base.partition("\n\nA follow_up's ref")
     return head + "\n" + "\n".join(extra) + sep + tail
 
 
@@ -1721,7 +1792,14 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
-                    if do == "post_x":
+                    if name == "stimuli" and do in ("post_x", "pitch_x"):
+                        # A pitch for the studio (STUDIO=1): filed, nothing
+                        # read cold, no picture made, nothing posted.
+                        entry["pitched"] = True
+                        if do == "post_x":
+                            entry["note"] = ("the studio owns your original posts now: this post_x was filed as a "
+                                             "pitch (pitch_x), not posted")
+                    elif do == "post_x":
                         # Before any picture is made: a post no stranger can
                         # read is rewritten once, or not sent.
                         readable, entry["clarity"] = _clear_to_a_stranger(intent, deadline)
@@ -1735,7 +1813,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                             intent = readable
                             name, argv, body = ROUTES[do](intent)
                     media_ids: list[str] = []
-                    if do in ("post_x", "reply_x") and (_picture_prompts(intent) or intent.get("shots") not in (None, "")):
+                    if do in ("post_x", "reply_x") and name == "x" and (
+                            _picture_prompts(intent) or intent.get("shots") not in (None, "")):
                         media_ids, note = _media(intent)
                         entry["media"] = note
                         if media_ids:
@@ -1811,6 +1890,9 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
             what = f"queued as browser task #{queued['id']} ({queued['status']}), not done yet: {QUEUED[do]}"
         else:
             what = f"queued, not done yet: {QUEUED[do]}"
+    elif entry["status"] == "done" and entry.get("pitched"):
+        what = ("filed for the studio as a pitch: nothing was posted, and the studio's writer sees it at the next "
+                "slot" + ("; " + entry["note"] if entry.get("note") else ""))
     elif entry["status"] == "done":
         what = "done (dry run: nothing was sent)" if result.get("dry_run") else "done"
     elif entry["status"] == "refused":

@@ -778,7 +778,9 @@ How the day's beats become the page every prompt carries:
   is a skip. The rewrite is told X's 280 and measured by the guard's rule
   before the judges read it; one over gets one turn to cut it down, then is a
   skip (never the turned-down draft in its place), and a rewrite turn runs
-  only in what is left of the run's 900 s, at most 240 s a turn. `bin/tick` asks the same reader before the mind's own posts. The slots in IST: `x-quote` 04:30 (one
+  only in what is left of the run's 900 s, at most 240 s a turn. `bin/tick` asks the same reader before the mind's own posts. Since the studio
+  cutover (§4b) this is the rollback path, `STUDIO=0`: the four slots are the
+  studio's, and each runs its old playbook only with `STUDIO=0`. The old slots in IST: `x-quote` 04:30 (one
   quote of a small builder's post), `morning` 09:30 (a gm only when the reading
   gave it an anchor; a habit the mind carries out), `take` 15:00 (a take or a
   quote; on Sundays `growth` has the slot) and `show` 23:00 (what was built,
@@ -791,15 +793,59 @@ How the day's beats become the page every prompt carries:
   judge itself, against the quoted post, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
-## 4b. The studio: the writers' room (dry)
+## 4b. The studio: the writers' room
 
-`bin/studio` (logic in `bin/lib/studio.py`) is the room the plan for the
-X voice builds: many angles, many drafts, and an editor that picks one or
-none, instead of one draft from one turn that every later check can only
-cut down. In this version it **posts nothing**: `STUDIO=0` by default (a run
-exits before any model turn), `STUDIO_DRY=1`, and `publish(pick)` answers
-`{"dry": true}`. Nothing schedules it yet; the cutover fills `publish`
-(producer, gates, `hands/x`, `hands/story beat`) and the cron slots.
+`bin/studio` (logic in `bin/lib/studio.py`) owns every original post on X
+since the cutover: many angles, many drafts, an editor that picks one or
+none, and gates that only then decide whether the pick goes out. It runs at
+the four slots of `brain/cron.toml` (04:30, 09:30, 15:00 and 23:00 IST; the
+Sunday 15:00 is a normal slot until the weekly plan takes it), live: with
+`STUDIO=1` a pick that passes every gate is posted, with no shadow period
+and no per-post approval. An empty slot is a normal outcome.
+
+```
+cron slot ──> bin/studio --slot S --legacy P
+                │  STUDIO=0 (the rollback) ──> bin/act P, exactly as before
+                ▼  STUDIO=1
+   hands/x slot shut? ── yes ──> skip, no model turn
+                │
+   hands/story desk + HN + listen digest (+ X search with STUDIO_OUTSIDE_X=1)
+                │
+   writer: 12 pitches ──> 3 drafts x the best 3 ──> 280 + unsourced-number screen
+                │
+   editor: blind pairwise tournament ──> pick, or none (empty slot)
+                │
+   producer for the format (post | thread | image)
+                │
+   truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
+       a no: one rewrite by the writer with the reason, gated once more
+       a second no: the next draft of the ranking the editor does not veto (at most 2)
+                │
+   image only: scene past the guard ──> hands/image ──> hands/x upload
+       (fails: the words alone if they stand alone, else the next draft)
+                │
+   hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
+       repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
+                │
+   hands/story beat on the pick's storyline ──> studio_runs (published)
+```
+
+The mind no longer posts: its `post_x` is `pitch_x` (`bin/lib/tick.py`, item 9),
+an idea filed for the desk (a `studio` stimulus, filed, never back in the
+mind's inbox), which the writer sees among the desk's `ideas`. The told-to `brief` (14:55 and 22:55, just before
+a slot) and the outward `peer-quote` keep their jobs, and their words go past
+the studio's editor as a single candidate (`bin/studio --veto`, which bin/act
+asks): pick, or none. Replies are unchanged.
+
+**The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
+(`bin/lib/studio_switch.py`): each studio cron job names its slot's old
+playbook (`--legacy x-quote | morning | take | growth | show`) and with
+`STUDIO=0` runs it through `bin/act` instead; `shiplog` keeps its own 23:10
+job and runs only with `STUDIO=0`; the mind's `post_x` posts again; brief
+and peer-quote post without the editor. While `STUDIO=1`, `bin/act` skips
+every replaced playbook before any input, whoever runs it, so the old posts
+cannot come back by a stray job or a catch-up. The replaced playbooks stay on
+disk, marked legacy, for that.
 
 One run is one slot:
 
@@ -840,7 +886,10 @@ One run is one slot:
 5. **Pitch** (`writer`, one turn, on the run's own thread `studio:<run id>`):
    up to 12 `{id, item, storyline, shape, format, angle, why_now}` and the
    writer's own ranking. A pitch whose `item` is not in the inputs or whose
-   `format` is not in `STUDIO_FORMATS` is dropped, with why.
+   `format` is not in `STUDIO_FORMATS` is dropped, with why. A pitch that
+   names no running storyline takes its desk item's (`storyline` on the
+   item, the desk's guess by kind), so the pick, its facts and its beat land
+   on one.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
    3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
@@ -874,8 +923,42 @@ One run is one slot:
    pick or the veto, the models, every turn's time and size, the warnings)
    to `state/studio/runs.jsonl` and, through `hands/story record-run`, to
    `studio_runs` in `state/hands.db`. The pick is printed as JSON.
+9. **Publish** (`publish`): the producer for the pick's format (`post`,
+   `thread`, `image`; any other format is no post, recorded; later formats
+   arrive behind `STUDIO_FORMATS`), then the gates in order, each failing
+   closed and each result kept in the record: the **truth judge**
+   (`hands/guard truth` on the draft's `truth`: every factual claim
+   supported by its item and storyline; staging, what the cartoon robot and
+   the lore's tiny agents do on the page, is not a claim, but who did what
+   always is), the **cold reader** (`hands/guard clarity`; bin/act and
+   bin/tick run it before their own posts and hands/x does not, so this is
+   its one run), and the **safety guard**, which `hands/x post` runs itself
+   before the posting rules. A truth or stranger no gets one rewrite turn by
+   the writer, told the reason and what was unsupported or unclear, and is
+   gated once more; a second no falls to the next draft of the ranking, which
+   faces the editor's slot question first (at most two fallbacks); a judge
+   that could not judge at all, a shut slot (gap, cap), a guard hold or a
+   hands/x error ends it with the slot empty. For an image, the scene goes
+   past the guard as text a machine is sent (surface `task`), then
+   `hands/image generate` under its own caps and `hands/x upload`; when the
+   picture fails, the words go out alone only if the cold reader followed
+   them and they do not point at a picture. The post carries
+   `producer=studio`, `storyline`, `shape` and `pitch_id` into `x_posts`.
+   After a real post, `hands/story beat` records it on the pick's
+   storyline. With `STUDIO_DRY=1` (and always under `--dry-run`) every step
+   runs, gates included, the picture is only planned, and hands/x runs with
+   `DRY_RUN=1`: nothing is posted, nothing is bought. The outcome is
+   `published`, `picked` (dry: would post) or `empty`.
+10. **Models**: a writer or editor model that fails a turn is dropped for
+   the rest of the run: that turn is asked once more on the core's default,
+   with a warning in the record, and a second warning when the writer and
+   the editor end up on one model. `SAFETY_JUDGE_MODEL` (which the truth
+   judge and the cold reader use too) is set to the editor's model, so no
+   judge is the writer.
 
-A full run is 8 model turns (1 pitch, 3 drafts, 3 compare, 1 final) plus a
+A full run is 8 model turns (1 pitch, 3 drafts, 3 compare, 1 final) and
+about 5 judge calls (truth, the cold reader's two, the guard's), plus a rewrite
+and a slot question for each fallback, plus a
 shorten turn when a draft is long, a second draft turn for a pitch whose
 drafts all failed the screen, and a repeat when an answer is not usable.
 Failures go as `bin/act`'s: a provider failure is recorded with its class

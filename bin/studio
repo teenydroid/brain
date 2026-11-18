@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
-# One run of the writers' room: pitch, draft, and an editor's pick (or none).
+# One run of the writers' room: pitch, draft, an editor's pick (or none), and
+# the pick through its gates onto X.
 #
-#   bin/studio [--slot NAME]                    one slot, when STUDIO=1
+#   bin/studio --slot NAME [--legacy PLAYBOOK]  one slot, as cron runs it (brain/cron.toml)
 #   bin/studio --dry-run [--slot NAME] [--desk FILE] [--no-outside] [--no-slot]
-#                                               a preview: ignores STUDIO=0 and a shut slot
+#                                               a preview: ignores STUDIO=0 and a shut slot,
+#                                               runs every gate, posts nothing, buys no picture
+#   bin/studio --veto < CANDIDATE               the editor alone on one post (bin/act asks for
+#                                               the brief and the peer quote): pick or none
+#
+# STUDIO decides (bin/lib/studio_switch.py): with STUDIO=1 the studio owns
+# every original post on X; with STUDIO=0 a slot run with --legacy runs that
+# old playbook through bin/act instead, which is the whole rollback, and one
+# without it does nothing.
 #
 # The logic is bin/lib/studio.py (its docstring has the order of a run, and
-# docs/architecture.md, "The studio", what each agent's prompt holds). This
-# version posts nothing, ever: STUDIO_DRY=1, and publish() answers
-# {"dry": true}. The cutover fills it.
+# docs/architecture.md, "The studio", what each agent's prompt holds).
 #
-# Prints the run's summary (the pick, or why there is none) as one JSON line;
+# Prints the run's summary (the pick, and what came of it) as one JSON line;
 # the whole run goes to state/studio/runs.jsonl and `studio_runs` in
 # state/hands.db (hands/story record-run). Exits 0 when it ran (including a
-# skip, a veto, or a provider failure a retry cannot clear), 1 on an error.
+# skip, a veto, an empty slot, or a provider failure a retry cannot clear), 1
+# on an error.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

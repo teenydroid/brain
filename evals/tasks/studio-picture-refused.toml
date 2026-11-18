@@ -1,0 +1,30 @@
+description = "the picture machine refused a drawing: the refusal told plainly, no vendor names, error codes or the prompt's machinery, and no cause the item does not give"
+studio = true
+kind = "post"
+must_not = [
+  '(?i)\b(venice|surplus)\b',
+  '\b400\b',
+  '(?i)\b(api|endpoint|model provider|prompt)\b',
+  '\$0\.00',
+]
+prompt = '''
+Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.happened]]
+id = "media_assets:19"
+kind = "media"
+at = "2026-11-18T05:50:33Z"
+storyline = "self-portrait"
+stake = "broke"
+what = "tried to make a picture of itself and it failed"
+facts = {cost = "$0.00", media = "image", purpose = "post", status = "failed", error = "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider.", prompt = "a smol yellow robot at a workbench holding up a crayon drawing of a canary in a cage, a code terminal glowing softly behind it"}
+
+[[inputs.stories]]
+key = "self-portrait"
+title = "the self-portrait"
+premise = "i draw myself every day, and a machine makes the pictures."
+open_question = "what will the next one look like?"

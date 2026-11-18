@@ -1,4 +1,7 @@
 +++
+# LEGACY since the studio cutover: this playbook runs only with STUDIO=0, the
+# rollback. With STUDIO=1 the studio owns its slot (brain/cron.toml) and bin/act
+# skips it before any input (bin/lib/studio_switch.py). Kept for the rollback.
 description = "the 23:00 post: what you built or did today, with pictures, or the day's best exchange on Moltbook"
 output = "post"
 max_per_day = 1

@@ -80,7 +80,7 @@ class IntakeTest(unittest.TestCase):
         # Two listens a day from one job: the cap has no room for a second.
         self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
         self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
-        for name in ("world-scan", "build-idea", "show"):
+        for name in ("world-scan", "build-idea", "studio-2300"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
@@ -88,24 +88,31 @@ class IntakeTest(unittest.TestCase):
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
 
-    def test_x_has_four_slots_five_hours_apart_and_brief_takes_the_next_free_one(self):
+    def test_x_has_four_studio_slots_five_hours_apart_and_brief_runs_just_before_one(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
-        slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name].get("enabled", True))
-                 for name in ("x-quote", "morning", "take", "growth", "show", "brief", "shiplog")}
+        slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name]["command"])
+                 for name in ("studio-0430", "studio-0930", "studio-1500", "studio-sunday", "studio-2300", "brief",
+                              "shiplog")}
         self.assertEqual(slots, {
-            "x-quote": ("30 4 * * *", "Asia/Kolkata", True),
-            "morning": ("30 9 * * *", "Asia/Kolkata", True),
-            "take": ("0 15 * * 1-6", "Asia/Kolkata", True),
-            "growth": ("0 15 * * 0", "Asia/Kolkata", True),
-            "show": ("0 23 * * *", "Asia/Kolkata", True),
-            "brief": ("5 15,23 * * *", "Asia/Kolkata", True),
-            "shiplog": ("10 23 * * *", "Asia/Kolkata", True),
+            "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote"),
+            "studio-0930": ("30 9 * * *", "Asia/Kolkata", "bin/studio --slot 0930 --legacy morning"),
+            "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take"),
+            "studio-sunday": ("0 15 * * 0", "Asia/Kolkata", "bin/studio --slot 1500 --legacy growth"),
+            "studio-2300": ("0 23 * * *", "Asia/Kolkata", "bin/studio --slot 2300 --legacy show"),
+            "brief": ("55 14,22 * * *", "Asia/Kolkata", "bin/act brief"),
+            "shiplog": ("10 23 * * *", "Asia/Kolkata", "bin/act shiplog"),
         })
+        # The replaced jobs are gone from cron: their slots are the studio's,
+        # and each studio job names the old playbook it runs with STUDIO=0.
+        for gone in ("x-quote", "morning", "take", "show", "growth"):
+            self.assertNotIn(gone, jobs)
+            self.assertTrue((BRAIN / "playbooks" / f"{gone}.md").is_file(), gone)
+            self.assertIn("LEGACY since the studio cutover", (BRAIN / "playbooks" / f"{gone}.md").read_text())
         # The four daily slots (04:30, 09:30, 15:00, 23:00) keep five hours between them.
         starts = sorted([4 * 60 + 30, 9 * 60 + 30, 15 * 60, 23 * 60])
         gaps = [b - a for a, b in zip(starts, starts[1:])] + [starts[0] + 24 * 60 - starts[-1]]
         self.assertGreaterEqual(min(gaps), 5 * 60)
-        # A post job off its own slot reads the gap first and skips when it is shut.
+        # A legacy post job off its own slot reads the gap first and skips when it is shut.
         for name in ("x-quote", "growth", "shiplog"):
             self.assertIn('run = "hands/x slot"', (BRAIN / "playbooks" / f"{name}.md").read_text())
         for gone in ("humans", "milestone", "pr-merged", "wallet-receipt", "cost-of-living", "bounty-winner"):

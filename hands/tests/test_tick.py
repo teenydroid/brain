@@ -125,6 +125,8 @@ class TickTest(unittest.TestCase):
         for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab", "build",
                      "reddit"):
             _exe(hands / name, FAKE_HAND)
+        # The real inbox hand: a pitch for the studio is a stimulus (pitch_x).
+        (hands / "stimuli").symlink_to(REPO / "hands" / "stimuli")
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
         self.hands_log = self.scratch / "hands.log"
@@ -146,7 +148,8 @@ class TickTest(unittest.TestCase):
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
                     "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "FAKE_REFUSALS_MAIL", "FAKE_REFUSALS_TELEGRAM",
-                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN", "FAKE_UPLOAD_FAIL", "FAKE_CLARITY"):
+                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN", "FAKE_UPLOAD_FAIL", "FAKE_CLARITY",
+                    "STUDIO"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -2170,6 +2173,80 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [{"do": "post_x", "text": "same wall here", "quote_of": "4242"}]})
         self.tick()
         self.assertEqual(self.sent("post")[0]["body"], {"text": "same wall here", "quote_of": "4242"})
+
+    # --- the studio owns the posts (STUDIO=1) ---------------------------------
+
+    def studio(self, on: bool) -> None:
+        (self.root / "secrets" / "teeny.env").write_text(f"STUDIO={1 if on else 0}\n")
+        hand._ENV_CACHE = None
+
+    def filed(self) -> list[dict]:
+        conn = stimuli.db()
+        return [dict(r) for r in conn.execute("SELECT * FROM stimuli WHERE surface = 'studio'").fetchall()]
+
+    def test_with_the_studio_on_the_mind_is_offered_pitch_x_not_post_x(self):
+        self.studio(True)
+        stimuli.add("x", "mention", "1", "gm")
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertIn('{"do": "pitch_x", "text": "<the idea', message)
+        self.assertNotIn('{"do": "post_x"', message)
+        self.assertIn("Your original posts on X are made by your studio now", message)
+        self.assertIn('{"do": "reply_x"', message)
+
+    def test_with_the_studio_on_pitch_x_files_an_idea_and_posts_nothing(self):
+        self.studio(True)
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "pitch_x", "text": "my thinking bill came to twenty cents",
+                                                 "anchor": "stimuli:health:daily", "why": "money, small"}]})
+        got = self.tick()
+        entry = got["results"][0]
+        self.assertEqual((entry["status"], entry["pitched"]), ("done", True))
+        self.assertEqual(self.sent("post"), [])
+        self.assertEqual(self.sent("clarity"), [])
+        [row] = self.filed()
+        self.assertEqual((row["kind"], row["status"], row["text"]), ("pitch", "filed", "my thinking bill came to twenty cents"))
+        self.assertEqual(json.loads(row["payload"]), {"anchor": "stimuli:health:daily", "why": "money, small"})
+        # never back in the mind's own inbox
+        self.assertNotIn(row["id"], [p["id"] for p in stimuli.pending()])
+
+    def test_a_stale_post_x_with_the_studio_on_is_a_pitch_not_an_error(self):
+        self.studio(True)
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm lab", "anchor": "listen:7",
+                                                 "image": "teeny at the desk with coffee"}]})
+        got = self.tick()
+        entry = got["results"][0]
+        self.assertEqual((entry["status"], entry["pitched"]), ("done", True))
+        self.assertIn("filed as a pitch", entry["note"])
+        # no cold read, no picture, no post
+        self.assertEqual([c for c in map(json.loads, self.hands_log.read_text().splitlines())
+                          if c["hand"] in ("guard", "image") or c["argv"][:1] in (["post"], ["upload"])], [])
+        [row] = self.filed()
+        self.assertEqual(json.loads(row["payload"])["was"], "post_x")
+        # and the mind is told so next beat
+        told = [p for p in stimuli.pending() if p["surface"] == "hand"]
+        self.assertTrue(any("filed for the studio as a pitch" in p["text"] for p in told), told)
+
+    def test_with_the_studio_on_replies_are_unchanged(self):
+        self.studio(True)
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "1", "text": "gm to you"}]})
+        self.tick()
+        self.assertEqual([c["body"] for c in self.sent("reply")], [{"text": "gm to you"}])
+
+    def test_with_the_studio_off_post_x_posts_and_pitch_x_is_refused(self):
+        self.studio(False)
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap for bots", "anchor": "hn:1"},
+                                                {"do": "pitch_x", "text": "an idea"}]})
+        got = self.tick()
+        self.assertEqual([c["body"] for c in self.sent("post")], [{"text": "amazon built a trap for bots", "anchor": "hn:1"}])
+        self.assertEqual(len(self.sent("clarity")), 1)
+        self.assertEqual(got["results"][1]["status"], "refused")
+        self.assertIn("STUDIO=0", got["results"][1]["result"]["refused"])
+        self.assertEqual(self.filed(), [])
+        self.assertIn('{"do": "post_x", "text": "...", "anchor": "<', self.chats()[-1]["message"])
 
     UNREAD = {"clear": False, "says": "something about a week", "unknown": ["held writes"],
               "reason": 'a stranger would have to ask about: "held writes"', "judged": True}

@@ -196,7 +196,8 @@ def post(body: Any) -> Json:
     if not isinstance(media_ids, list) or not all(isinstance(m, str) and m for m in media_ids):
         raise hand.HandError('"media_ids" must be a list of media ids')
     # The brief is what the post is about: its anchor (hands/x refuses a post without one).
-    x_body: Json = {"text": text, "anchor": f"brief:{brief_id}", **({"media_ids": media_ids} if media_ids else {})}
+    x_body: Json = {"text": text, "anchor": f"brief:{brief_id}", "producer": "brief",
+                    **({"media_ids": media_ids} if media_ids else {})}
     with hand.lock("brief"):
         conn = _db()
         try:

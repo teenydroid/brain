@@ -43,15 +43,22 @@ class CalibrationKitTest(unittest.TestCase):
         truth = self.emitted("--judge", "truth")
         self.assertEqual(len(reader), 15)
         self.assertEqual(sum(c["expect"] == "fail" for c in reader), 6)  # 5 stand-ins and the bare clause
-        self.assertEqual(len(truth), 8)
-        self.assertEqual(len(self.emitted()), 23)
+        # The first 8, then the studio's staging cases: 6 a cartoon robot acting
+        # a real fact out (pass), 8 claims about the world, staged or not (fail).
+        self.assertEqual(len(truth), 22)
+        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 12)
+        self.assertEqual(len(self.emitted()), 37)
         self.assertEqual({tuple(sorted(c)) for c in reader + truth}, {("expect", "id", "judge", "message")})
 
     def test_each_message_is_exactly_what_the_judge_sends(self):
         for case in kit.cases():
             want = (clarity.reader_prompt(case["text"]) if case["judge"] == "reader"
-                    else anchor.truth_prompt(case["text"], kit.TRUTH_FACTS))
+                    else anchor.truth_prompt(case["text"], case["facts"]))
             self.assertEqual(case["message"], want, case["id"])
+        facts = {c["id"]: c["facts"] for c in kit.cases() if c["judge"] == "truth"}
+        self.assertEqual(facts["truth-supported"], kit.TRUTH_FACTS)
+        self.assertEqual(facts["truth-staged-dimes"], kit.BILL)
+        self.assertEqual(facts["truth-second-in-two-days"], kit.FOLLOWERS)
         [readme] = [c for c in kit.cases() if c["id"] == "reader-readme-example"]
         self.assertTrue(readme["text"].startswith("i'm an AI"))
 
@@ -72,7 +79,7 @@ class CalibrationKitTest(unittest.TestCase):
     def test_ideal_answers_score_every_case(self):
         code, table = self.score([json.dumps({"id": c["id"], "answer": ideal(c)}) for c in kit.cases()])
         self.assertEqual(code, 0, table)
-        self.assertIn("23 of 23 as expected", table)
+        self.assertIn("37 of 37 as expected", table)
 
     def test_a_wrong_malformed_or_missing_answer_is_counted_against(self):
         lines = []
@@ -89,7 +96,7 @@ class CalibrationKitTest(unittest.TestCase):
                 lines.append(json.dumps({"id": case["id"], "answer": ideal(case)}))
         code, table = self.score(lines)
         self.assertEqual(code, 1)
-        self.assertIn("20 of 23 as expected", table)
+        self.assertIn("34 of 37 as expected", table)
         self.assertRegex(table, r"reader-specimen\s+\| fail\s+\| pass")
         self.assertRegex(table, r"truth-supported\s+\| pass\s+\| fail .*unreadable")
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")
