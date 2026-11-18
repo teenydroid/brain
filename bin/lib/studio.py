@@ -1416,15 +1416,21 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     record["calls"] = {"total": len(room.calls), "writer": sum(c["agent"] == "writer" for c in room.calls),
                        "editor": sum(c["agent"] == "editor" for c in room.calls), "turns": room.calls}
     record["secs"] = round(time.monotonic() - room.started, 1)
+    record["warnings"] += room.warnings
+    record["models_used"] = {agent: model or "core default" for agent, model in room.models.items()}
     record.setdefault("pick", None)
     kept = keep(room, record)
     if kept:
         record["warnings"].append(kept)
-    summary = {"ok": exit_code == 0, "run": run_id, "outcome": record["outcome"], "dry": True,
+    summary = {"ok": exit_code == 0, "run": run_id, "outcome": record["outcome"], "dry": dry,
                "pick": record.get("pick"), "reason": record.get("reason"), "published": record.get("published")}
     if record.get("warnings"):
         summary["warnings"] = record["warnings"]
     return exit_code, summary
+
+
+#: run()'s exit code meaning "run the legacy playbook" (main execs bin/act).
+LEGACY = -100
 
 
 @contextlib.contextmanager
