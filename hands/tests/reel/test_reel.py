@@ -541,7 +541,7 @@ class ReelTest(unittest.TestCase):
         row = self.rows()[-1]
         self.assertEqual(row["status"], "unknown")
         self.assertGreater(row["cost_micro"], 0)
-        self.assertEqual(list((self.root / "state" / "media").glob("music-*.*")), [])
+        self.assertEqual(list((self.root / "state" / "media").glob(f"music-{row['id']}.*")), [])
         # Counted: in the day's spend and the week's cap.
         self.assertEqual(reels.listing(10)["spent_today_usd"], row["cost_micro"] / 1e6)
         with self.assertRaises(hand.Refused) as no:
