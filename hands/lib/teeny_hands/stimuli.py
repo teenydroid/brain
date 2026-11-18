@@ -15,6 +15,8 @@ a no-op, so a surface can re-scan freely.
   taken    in a tick's batch (`tick` names it); put back by `release` when
            the tick fails, or by the next `take` once it has been out an hour
   done     the tick that read it settled
+  filed    for another reader, never the mind's: a pitch the mind filed for
+           the studio (surface `studio`, read by hands/story desk as `ideas`)
 
 Follow-ups are Teeny's own reminders ("check whether ana's cli shipped"),
 kept in `follow_ups` until they come due, then raised as a `self`
