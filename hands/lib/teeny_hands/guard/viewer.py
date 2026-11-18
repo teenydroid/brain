@@ -50,7 +50,6 @@ import base64
 import difflib
 import hashlib
 import io
-import json
 import re
 import sqlite3
 import time
