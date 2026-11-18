@@ -849,8 +849,8 @@ JOIN_RULES = (
     "- Do not repeat an accusation against a named person or company, and do not pick a side in a fight "
     "between them. Joke about the situation, never at someone.\n"
     "- No @-mentions and no links.\n"
-    "- A stranger has not seen the story: name it in a clause (\"a chip maker just doubled its revenue in one "
-    "quarter\"), so the post makes sense on its own.")
+    "- A stranger has not seen the story: name it in one clause that says who did what, in words anyone knows, "
+    "so the post makes sense on its own.")
 
 
 def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> str:
