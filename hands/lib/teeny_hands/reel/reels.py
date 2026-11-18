@@ -32,11 +32,14 @@ REEL_MUSIC=1 and the first paid run is checked by hand.
 
 The caps are code, in secrets/teeny.env (defaults in brackets):
   REEL_MAX_PER_DAY [1]            clips a UTC day
-  REEL_SONGS_MAX_PER_WEEK [1]     songs (and music tracks) in 7 days
+  REEL_SONGS_MAX_PER_WEEK [1]     songs in 7 days, and tracks in 7 days (each counted on its own)
   REEL_MUSIC_MAX_USD_PER_JOB [0.70]  a track quoted above this is cancelled
   MEDIA_MAX_USD_PER_DAY [1.00]    shared with hands/image and hands/video
-and the runway tier that cuts pictures and clips cuts these too. A failed
-job counts toward nothing. DRY_RUN (on by default) answers what would be
+and the runway tier that cuts pictures and clips cuts these too. A render
+costs nothing: one that fails for any reason leaves a `failed` row and its
+slot free. A track's row carries money from its claim on (the cap, then the
+quote) and only a confirmed end replaces it; an outcome not known is status
+`unknown`, which counts as spent and toward the caps (see `music`). DRY_RUN (on by default) answers what would be
 made and calls nothing.
 """
 

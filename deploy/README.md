@@ -93,6 +93,17 @@ left by a task in flight then stays in the volume
 (`docker compose -f deploy/compose.yaml --profile reel down reel` and
 `docker volume rm teeny-spine_reel-storage` clear it).
 
+Egress: the only outbound call the service makes is upstream's Edge TTS
+request (`speech.platform.bing.com`, Microsoft's unofficial endpoint, over
+https). No model, stock library, upload service or update check is
+configured or run. Compose does not restrict it today: the service sits on
+the stack's default network, which reaches the internet. To hold it to that
+one host, either put `reel` on its own network with an egress proxy that
+allows only `speech.platform.bing.com:443` (set `HTTPS_PROXY` on the
+service; edge-tts honours it), or add a host firewall rule on the
+`DOCKER-USER` chain that drops the reel container's traffic to anything but
+that host. Either way the spine still reaches it on the compose network.
+
 To move the pin: check out the new release tag in `vendor/moneyprinter`, run
 `python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_reel.py'`
 (its schema check reads the new job model), rebuild, render one clip, and
