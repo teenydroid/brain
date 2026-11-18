@@ -957,8 +957,8 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
     if fix:
         parts.append("## why your last drafts were thrown out\n\nEvery draft you wrote for this pitch had a number, "
                      "a day or a date that is not in what happened, or reused an example's words. Write them again "
-                     "with only what the thing it is about and the story hold; a feeling, a bet or a bit needs no "
-                     "number.\n\n" + "\n".join(f"- {text!r}: {why}" for text, why in fix))
+                     "with only what the thing it is about, the story it joins and the storyline hold; a feeling, "
+                     "a bet or a bit needs no number.\n\n" + "\n".join(f"- {text!r}: {why}" for text, why in fix))
     parts.append("## your answer\n\nJSON only, no prose and no code fence:\n"
                  '{"drafts": [' + shape + ", ...]}\n"
                  "`meaning` is one plain sentence: what the piece tells someone who has never heard of you. "
