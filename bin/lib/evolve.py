@@ -2468,7 +2468,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "- `not-worth`: no change to the repository would make you act on it better (it is a fact or a feeling, "
         "or what it would cost outweighs it); `why` says so.\n"
         + wants_rules.REFUSED_SKIP_NOTE + "\n"
-        "        "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
+        "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
         INERT_NOTE.removeprefix("- "),
