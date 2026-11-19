@@ -383,7 +383,7 @@ class TickTest(unittest.TestCase):
                  "ref: 51",
                  '@ana is answering your post (60 min ago): "gm. coffee first"',
                  'Now @ana says: "what\'s the plan today?"',
-                 "Your response to @ana — or let it go.",
+                 "@ana is answering your own post: answer them.",
                  "## what you said on X lately"]
         at = [message.find(bit) for bit in order]
         self.assertNotIn(-1, at, [b for b, i in zip(order, at) if i < 0])
