@@ -366,11 +366,18 @@ class QuoteLaneTest(Posting):
         super().setUp()
         for n, author in enumerate(("43", "44", "45")):
             self.quotable(f"55{6 + n}", author, f"builder{n}")
+        self.ids = iter(range(100, 200))
+
+    def fresh_id(self) -> None:
+        """The fake X answers every post with one id; each post here gets its own."""
+        self.x.route("POST", "/2/tweets", {"data": {"id": str(next(self.ids))}}, status=201)
 
     def quote(self, n: int, post_id: str = "555") -> dict:
+        self.fresh_id()
         return publish.post({"text": self.TEXTS[n], "quote_of": post_id})
 
     def original(self, text: str = "the lighthouse census closed at forty one") -> dict:
+        self.fresh_id()
         return publish.post({"anchor": "hn:1", "text": text})
 
     def test_a_quote_does_not_shut_the_next_studio_slot(self):
@@ -444,6 +451,7 @@ class QuoteLaneTest(Posting):
     def test_a_thread_does_not_look_at_quotes(self):
         self.quote(0)
         self.at(T0 + 10 * MINUTE)
+        self.fresh_id()
         out = publish.thread({"anchor": "hn:1", "posts": ["one thing about moss", "another thing about moss"]})
         self.assertEqual(out["sent"], 2)
 
