@@ -626,6 +626,19 @@ class CommentTest(Scratch, Refusing):
             conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, ?, ?, 'posted')", (f"c{i}", f"p{i}", T0 - HOUR))
         self.refused(actions.comment, {"post_id": "x1", "body": "a"}, "daily_cap")
 
+    def test_the_comment_allowance_says_what_is_left_and_when_the_next_frees(self):
+        self.configure(MOLTBOOK_MAX_COMMENTS_PER_DAY="3")
+        conn = hand.open_db(rules.SCHEMA)
+        self.assertEqual(rules.comment_allowance(), {"left": 3, "cap": 3})
+        for i, ago in enumerate((20 * HOUR, 10 * HOUR, HOUR)):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, ?, ?, 'posted')",
+                         (f"c{i}", f"p{i}", T0 - ago))
+        # A comment refused at Moltbook never counted, and does not here.
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES ('r', 'p', ?, 'failed')", (T0,))
+        self.assertEqual(rules.comment_allowance(), {"left": 0, "cap": 3, "frees_at": T0 - 20 * HOUR + DAY})
+        self.at(T0 - 20 * HOUR + DAY + 1)
+        self.assertEqual(rules.comment_allowance(), {"left": 1, "cap": 3})
+
     def test_crypto_comment_in_a_submolt_that_forbids_it(self):
         self.a_post("x1", submolt="general")
         self.submolt("general", False)
