@@ -1504,7 +1504,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
     and run behind `deploy/reel/serve.py`, on the compose network only,
     behind the `reel` compose profile. It reads `state/media/` and
-    `brain/assets/` read-only and posts nothing.
+    `brain/assets/` read-only and posts nothing. The front's own
+    `POST /teeny/v1/cuts` (`deploy/reel/skitcut.py`) joins `hands/video
+    skit`'s shots with ffmpeg, keeping their sound, and burns in the label.
   - `memegen`: known meme templates for `hands/meme template`: memegen
     (`vendor/memegen`, the upstream repository at a pinned commit, since it
     tags no releases; never edited) built by its own `Containerfile` and run
