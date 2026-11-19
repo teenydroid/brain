@@ -32,6 +32,7 @@ import evolve  # noqa: E402
 import evolve_findings  # noqa: E402
 import wants  # noqa: E402
 from build import test_selfclone as sc  # noqa: E402  (the build hand's scratch box: a fake origin and a fake GitHub)
+from teeny_hands.gh import client as gh_client  # noqa: E402
 
 T0 = 1_763_000_000.0
 DAY = 86400.0
@@ -75,6 +76,18 @@ def pr_page(item_id, text):
     return f"# MEMORY.md\n\n## what i am in the middle of\n\n- [{item_id}] {text}\n"
 
 
+def gh_pr_answer(state="open", merged=False, merged_at=None):
+    """What `hands/gh pr` prints for a pull request: a GitHub API answer through
+    the producing code (`client.to_pr`), wrapped as `reads.pr` and `hand.run`
+    emit it ({"pr": ..., "ok": true}). Never a hand-written dict, so these
+    tests break if the real shape changes."""
+    api = {"number": 401, "title": "a feature", "state": state, "draft": False, "merged": merged,
+           "merged_at": merged_at, "merge_commit_sha": "abc123" if merged else None,
+           "head": {"label": "teenydroid:teeny/self-1", "ref": "teeny/self-1", "sha": "f00d"},
+           "base": {"ref": "main"}, "comments": 0, "review_comments": 0}
+    return 0, {"pr": gh_client.to_pr(api), "ok": True}
+
+
 class WantsCase(unittest.TestCase):
     def setUp(self):
         self.saved = {k: os.environ.get(k) for k in ENV_KEYS}
@@ -93,7 +106,7 @@ class WantsCase(unittest.TestCase):
         self.calls = []
         self.guard = lambda body: (0, {"ok": True, "text": body["text"]})
         self.build = self.file_a_request
-        self.pr = (0, {"ok": True, "state": "open", "merged": False, "merged_at": None})
+        self.pr = gh_pr_answer("open")
         patcher = unittest.mock.patch.object(wants, "run_hand", side_effect=self.fake_hand)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -363,7 +376,7 @@ class Standing(WantsCase):
 
     def test_a_closed_pull_request_declines_until_the_text_changes(self):
         self.filed_then("shipped", "shipped", pr_url=PR_URL)
-        self.pr = (0, {"ok": True, "state": "closed", "merged": False, "merged_at": None})
+        self.pr = gh_pr_answer("closed")
         self.assertEqual(self.standing()["state"], "declined")
         self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
         self.assertEqual(len(self.filed()), 1)
@@ -384,7 +397,7 @@ class Standing(WantsCase):
     def test_an_open_pull_request_is_in_flight_and_a_merged_one_holds(self):
         self.filed_then("shipped", "shipped", pr_url=PR_URL)
         self.assertEqual(self.standing()["state"], "in-flight")
-        self.pr = (0, {"ok": True, "state": "closed", "merged": True, "merged_at": evolve.iso(T0)})
+        self.pr = gh_pr_answer("closed", True, evolve.iso(T0))
         self.assertEqual(self.standing()["state"], "merged")
         self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
         self.assertIn(("gh", ["pr", "teenydroid/brain", "401"], {}), self.calls)
@@ -392,11 +405,28 @@ class Standing(WantsCase):
     def test_github_unreadable_is_in_flight_not_open(self):
         self.filed_then("shipped", "shipped", pr_url=PR_URL)
         for unreadable in ((1, {"ok": False, "error": "rate limited"}), (0, {"raw": "garbage"}), (1, {}),
-                           (0, {"ok": True, "state": "weird"})):
+                           gh_pr_answer("weird")):
             self.pr = unreadable
             self.assertEqual(self.standing()["state"], "in-flight", unreadable)
         self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
         self.assertEqual(len(self.filed()), 1)
+
+    def test_a_merged_pull_request_in_the_hands_real_shape_is_merged(self):
+        self.filed_then("shipped", "shipped", pr_url=PR_URL)
+        self.pr = gh_pr_answer("closed", True, evolve.iso(T0))
+        self.assertEqual(set(self.pr[1]), {"pr", "ok"})  # the hand's shape: nothing at the top level but the pr
+        self.assertEqual(wants.read_pr(PR_URL), {"state": "merged", "merged_at": T0})
+        self.assertEqual(self.standing()["state"], "merged")
+        self.pr = gh_pr_answer("closed")
+        self.assertEqual(wants.read_pr(PR_URL), {"state": "declined"})
+
+    def test_a_flat_answer_without_pr_is_in_flight(self):
+        self.filed_then("shipped", "shipped", pr_url=PR_URL)
+        for flat in ({"ok": True, "state": "closed", "merged": True, "merged_at": evolve.iso(T0)},
+                     {"ok": True, "pr": "merged"}, {"ok": True, "pr": None}, {"ok": True}):
+            self.pr = (0, flat)
+            self.assertEqual(wants.read_pr(PR_URL), {"state": "in-flight"}, flat)
+            self.assertEqual(self.standing()["state"], "in-flight", flat)
 
     def test_a_pull_request_url_that_does_not_parse_is_in_flight(self):
         self.filed_then("shipped", "shipped", pr_url="not a url")
@@ -422,7 +452,7 @@ class Standing(WantsCase):
 
 
 class Scoring(WantsCase):
-    MERGED = (0, {"ok": True, "state": "closed", "merged": True, "merged_at": evolve.iso(T0)})
+    MERGED = gh_pr_answer("closed", True, evolve.iso(T0))
 
     def merged_feature(self, hands=("tidetable",)):
         self.file()
@@ -510,7 +540,7 @@ class Scoring(WantsCase):
     def test_an_unmerged_or_unreadable_pull_request_is_not_scored(self):
         self.merged_feature()
         for pr in ((1, {"ok": False, "error": "down"}),
-                   (0, {"ok": True, "state": "closed", "merged": False, "merged_at": None})):
+                   gh_pr_answer("closed")):
             self.pr = pr
             got, count = self.watch(30, uses=9)
             self.assertEqual(got["scored"], [])
@@ -645,8 +675,8 @@ class EndToEnd(sc.SelfJobScratch):
                 return real(name, args, body)
             self.gh_reads.append(list(args))
             if self.merged_at is None:
-                return 0, {"ok": True, "state": "open", "merged": False, "merged_at": None}
-            return 0, {"ok": True, "state": "closed", "merged": True, "merged_at": evolve.iso(self.merged_at)}
+                return gh_pr_answer("open")
+            return gh_pr_answer("closed", True, evolve.iso(self.merged_at))
 
         for patcher in (
             unittest.mock.patch.object(wants, "run_hand", side_effect=run_hand),
