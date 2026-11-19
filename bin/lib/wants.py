@@ -57,8 +57,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import evolve  # noqa: E402  (puts hands/lib on the path)
 import evolve_findings  # noqa: E402
 import evolve_outcomes as eo  # noqa: E402
