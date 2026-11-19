@@ -112,10 +112,10 @@ class CallersTest(Tree):
         self.write("brain/playbooks/maybe.md", optional)
         self.assertEqual(feature.callers(self.tree, "gizmo"), [])
         # a required input beside it, or the hand as the output, makes it one
-        self.write("brain/playbooks/also-required.md", optional.replace(
-            "Say what", '[[inputs]]\nname = "g2"\nrun = "hands/gizmo look"\n+++\nSay what', 1).replace("\n+++\nSay what the gizmo shows.", "", 1)
-            if False else '+++\ndescription = "x"\noutput = "post"\n\n[[inputs]]\nname = "a"\nrun = "hands/gizmo look"\n'
-            'optional = true\n\n[[inputs]]\nname = "b"\nrun = "hands/gizmo look"\n+++\nSay.\n')
+        self.write("brain/playbooks/also-required.md",
+                   '+++\ndescription = "x"\noutput = "post"\n\n[[inputs]]\nname = "a"\n'
+                   'run = "hands/gizmo look"\noptional = true\n\n[[inputs]]\nname = "b"\n'
+                   'run = "hands/gizmo look"\n+++\nSay.\n')
         self.write("brain/playbooks/speaks-optionally.md",
                    '+++\ndescription = "x"\noutput = "hand:gizmo say"\n\n[[inputs]]\nname = "a"\n'
                    'run = "hands/gizmo look"\noptional = true\n+++\nSay.\n')
