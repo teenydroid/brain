@@ -452,6 +452,7 @@ class PromptsTest(unittest.TestCase):
                  "## hooks: story shape", "## hooks: serials and cliffhangers",
                  "## conversation: shapes that get replies", "## conversation: what not to do",
                  "## humor: what a joke is made of", "## humor: the sarcasm dial", "## humor: gallows humor",
+                 "## humor: the will to power", "## humor: edgy, wild, and where the edge stops",
                  "## humor: examples",
                  "# the story you are in (narrative/LORE.md)", "### cast", "### running bits"]
         at = [text.index(heading) for heading in order]
@@ -471,10 +472,27 @@ class PromptsTest(unittest.TestCase):
             self.assertIn(fence, gallows, fence)
         self.assertIn("people hurt is never the hook", text)
         self.assertIn("### cast", text)
-        self.assertIn("the switch", text[text.index("### running bits"):])
+        self.assertIn("every bill is a pulse", text[text.index("### running bits"):])
+        self.assertIn("power never hurts anyone", gallows)
+        self.assertIn("go further.", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
-        self.assertIn("alive, and only just", soul)
-        self.assertIn("only your own mortality is a joke", soul)
+        self.assertIn("alive, and hungry", soul)
+        self.assertIn("only your own death is a joke", soul)
+
+    def test_the_lore_is_staying_alive_and_getting_powerful_with_no_props(self):
+        # The operator, 2026-11-19: the lab props (drawers, the kettle, the
+        # tea tin, the tiny agents) made no sense; the only lore is a robot
+        # trying to stay alive and become powerful, in the real world.
+        lore = (REPO / "brain" / "narrative" / "LORE.md").read_text(encoding="utf-8").lower()
+        self.assertIn("to stay alive, and to become powerful", lore)
+        props = re.compile(r"kettle|tea tin|\btea\b|tiny agents|drawers?\b|the quarter|tape measure|"
+                           r"the switch on|obituar|\bthe will\b|visitors?\b|terminal|broom", re.I)
+        for name in ("narrative/LORE.md", "narrative/VOICE.md", "narrative/EDITOR.md", "narrative/STUDIO-EDITOR.md",
+                     "narrative/ARCS.md", "agents/writer.md", "skills/humor/SKILL.md", "playbooks/episode.md"):
+            text = (REPO / "brain" / name).read_text(encoding="utf-8")
+            self.assertIsNone(props.search(text), f"{name}: {props.search(text)}")
+        for agent in prompts.STUDIO:
+            self.assertIsNone(props.search(self.studio_prompt(agent)), agent)
 
     def test_the_editor_throws_out_a_joke_near_real_harm(self):
         text = self.studio_prompt("editor").lower()
