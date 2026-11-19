@@ -291,8 +291,7 @@ command = "bin/evolve watch --detach"
 # a week after it merged (did a scheduled playbook run its hand?), then files
 # at most one want as a `self` build request, through the guard, for the
 # builder. 09:00 UTC is after the morning pick and before self-improve (09:40)
-# and the second pick-request slot (09:50), so a want filed here can be picked
-# the same day. Off unless WANTS=1 in secrets/evolve.env. Operator-owned: the
+# and pick-request's second slot (09:50). Off unless WANTS=1 in secrets/evolve.env. Operator-owned: the
 # brain does not get to redefine a want, or to switch the feed on.
 [jobs.wants]
 schedule = "0 9 * * *"
