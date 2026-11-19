@@ -1186,7 +1186,23 @@ def _x_turn(mentions: list[Mapping[str, Any]], full: bool = True) -> list[str]:
         answers = _x_answering(m)
         lines += [answers] if answers else []
         lines.append(f'{"Then" if n else "Now"} {them} says: "{m["text"]}"')
+    if any(_x_own_thread(m) for m in mentions):
+        return [*lines, "", f"{them} is answering your own post: answer them.", ""]
     return [*lines, "", f"Your response to {them} — or let it go.", ""]
+
+
+def _x_own_thread(s: Mapping[str, Any]) -> bool:
+    """Whether an X mention sits in a thread under one of Teeny's own posts:
+    the post it answers, or its conversation's first post, is an own post,
+    quote or thread in hands/x's ledger. False when the ledger can't say."""
+    payload = s.get("payload") or {}
+    ids = [str(payload.get(k)) for k in ("in_reply_to", "conversation_id") if payload.get(k)]
+    ids = [i for i in ids if i != str(s.get("ref"))]
+    if not ids:
+        return False
+    n = _x_count(f"SELECT COUNT(*) FROM x_posts WHERE kind IN ('post', 'quote', 'thread')"
+                 f" AND id IN ({','.join('?' * len(ids))})", tuple(ids))
+    return bool(n)
 
 
 def _x_history(handle: str, refs: list[str]) -> list[str]:
