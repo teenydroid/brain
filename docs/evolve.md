@@ -2216,6 +2216,7 @@ does. Now every proposal carries a `check` the code can count
 | `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default, then only Teeny's own words: never text code wrote, like the babysitter's audit comment, `teeny_hands.authorship`) |
 | `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
 | `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
+| `hand_used` | `hand` | runs of `bin/act` playbooks whose input runs `hands/<hand>` or whose output is `hand:<hand> <verb>` (`state/act/<playbook>/runs.jsonl`); a run with a `skipped` key (the daily budget, the studio) is left out |
 | `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
 
 Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
@@ -2223,6 +2224,19 @@ check is validated against the candidate's own tree (so a playbook the
 change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
 shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
+
+**`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
+the runs inside the window of every playbook in the candidate's tree that
+calls the hand. It is validated against that tree (the hand must exist at
+`hands/<hand>`), so a hand the change adds counts. It counts the playbooks'
+runs, not the hand's calls, on purpose: `hand.run` logs nothing, some hands
+(`dripsplan`) do not go through it, and the playbook runs are already logged.
+The gap: a hand run only by a cron `command` or a beat reads 0. The builder's
+rubric accepts only a scheduled playbook as a caller, so a feature built
+through lane 2 is countable; a proposer of lane 1 who checks a hand that only
+a beat uses would get `no-effect` wrongly. `Sources` gained an optional
+`tree` (the checkout whose playbooks say who calls a hand; none means the one
+`evolve_outcomes.py` is in).
 
 **Normalised, not sent back** (since 2026-11-17, gen 16: candidate 2 on m25
 spent two of its three rounds on `direction` added to a `judged` check, and
@@ -2305,6 +2319,31 @@ gen-0).
 
 ## What is not built
 
+- **Self-merge for feature pull requests.** A person approves every
+  `teeny/self-*` pull request. The babysitter's self-merge covers only
+  `teeny/gen-*` (`audit.py`), and widening it would move a fence (the L5
+  autonomy rung). The feature rubric is useful before that point and does not
+  depend on it. There is also no `teeny/eval` status on a self pull request.
+- **A ledger of hand calls.** `hand.run` logs nothing, so "used" is counted
+  from the scheduled playbook runs that call a hand (`hand_used`). A hand
+  that only a cron `command` or a beat runs reads 0, and the rubric does not
+  accept such a caller.
+- **Wants from anywhere but the memory page.** Failed builds, frozen-path
+  failures, strangers' requests, browser tasks and beats were looked at on
+  2026-11-19 and dropped (the table in "1c. Wants").
+- **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
+  no existing hand was thawed. A want whose only remedy is a frozen file
+  fails at ship, and the feed gives it up at once. The builder's iteration
+  limit (`builder.toml`, 40) is untouched too, so a whole feature in one
+  run is tight; the desk's sent-back report gives it about three runs inside
+  the 6-hour claim.
+- **A code pick.** `pick-request` still chooses by judgement, so it may skip a
+  want that reads as touching tokens. A `skipped` request counts as a failed
+  try, and after `WANTS_MAX_TRIES` the want gives up (visible in `bin/wants
+  status`).
+- **A repair of request #3.** The `hedgediff` request stays `pending` after
+  the daily idea built it, because the idea path never marks the request;
+  `pick-request` lost 11-16 and 11-17 to it. Not touched.
 - **A real lab boot at scale.** No four labs have run at once on the box.
 - **Watching every merge.** evolve-watch watches the newest merged change;
   when two merge within 72 hours, the older one's watch ends early.
