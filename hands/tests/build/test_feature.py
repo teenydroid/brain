@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from teeny_hands.build import feature
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from teeny_hands.build import feature  # noqa: E402
 
 TESTS_PASS = {"ok": True, "jailed": True, "ran": 2, "output": "Ran 2 tests in 0.01s\n\nOK"}
 TESTS_FAIL = {"ok": False, "jailed": True, "ran": 1, "output": "FAIL: test_it\n" + "x" * 600 + "\nAssertionError: 1 != 2"}
