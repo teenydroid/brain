@@ -817,84 +817,127 @@ def ranking(labels: list[str], verdicts: list[Json]) -> list[Json]:
 
 # --- the checks before the tournament ---------------------------------------------------
 
-#: Number words read as counts or amounts. "one" is left out: it is mostly not
-#: a count ("no one", "the one that"). False drops are the safe side.
+#: Number words read as amounts. "one" is left out: it is mostly not a count
+#: ("no one", "the one that").
 NUMBER_WORDS = {w: n for n, w in enumerate(
     "zero _ two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
     "seventeen eighteen nineteen twenty".split()) if w != "_"}
-NUMBER_WORDS |= {"thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
-                 "hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_000_000_000, "dozen": 12,
-                 "twice": 2, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7,
-                 "eighth": 8, "ninth": 9, "tenth": 10}
-WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-#: "may" is left out: it is a verb far more often than a month.
-MONTHS = ("january", "february", "march", "april", "june", "july", "august", "september", "october",
-          "november", "december")
+NUMBER_WORDS |= {"thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+#: Words that multiply the number before them ("23 thousand", "five hundred").
+SCALES = {"hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_000_000_000}
+#: A digit's own scale ("$23K", "7.5m", "2bn").
+_SUFFIX = {"k": 1000, "m": 1_000_000, "b": 1_000_000_000, "bn": 1_000_000_000}
+#: Words just after a number that make it money or a token ("31 dollars").
+MONEY_UNITS = {"dollar", "dollars", "buck", "bucks", "cent", "cents", "usd", "usdc", "usdt", "euro", "euros",
+               "grand", "sol", "eth", "btc", "bitcoin", "token", "tokens", "coin", "coins", "tiny"}
+CENTS = {"cent", "cents"}
+#: Words a few words before a number that make it money ("the bill is 99",
+#: "paid twelve").
+MONEY_LEAD = {"cost", "costs", "costing", "paid", "pay", "pays", "earned", "earn", "earns", "made", "spent", "spend",
+              "price", "priced", "prices", "balance", "bill", "bills", "charged", "charges", "raised", "fee", "fees",
+              "worth", "wallet", "invoice", "sold", "bought", "budget", "revenue", "salary"}
+MONEY_LEAD_WINDOW = 3
 #: Fields that name a row, not a fact about it.
 ID_KEYS = ("id", "source", "post_id", "refs")
-_TOKEN = re.compile(r"\$?\d+(?:,\d{3})*(?:\.\d+)?%?|[a-z]+")
-_ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_TOKEN = re.compile(r"\$?\d+(?:,\d{3})*(?:\.\d+)?(?:(?:bn|k|m|b)(?![a-z0-9]))?%?|[a-z]+")
 
 
-def _value(token: str) -> float | None:
-    if token in NUMBER_WORDS:
-        return float(NUMBER_WORDS[token])
-    if token[0] == "$" or token[0].isdigit():
-        try:
-            return float(token.strip("$%").replace(",", ""))
-        except ValueError:
-            return None
-    return None
+def _digit(token: str) -> float | None:
+    """A digit token's value, its scale and signs applied ("$23k" is 23000)."""
+    if not (token[0] == "$" or token[0].isdigit()):
+        return None
+    body = token.strip("$%").replace(",", "")
+    scale = 1
+    for suffix in ("bn", "k", "m", "b"):
+        if body.endswith(suffix):
+            body, scale = body[:-len(suffix)], _SUFFIX[suffix]
+            break
+    try:
+        return float(body) * scale
+    except ValueError:
+        return None
 
 
-def _sourced_values(facts: list[Any]) -> tuple[set[float], set[str]]:
-    """Every number, weekday and month the facts hold, as values and words:
-    digits anywhere in them, number words, and the weekday and month of every
-    ISO date. Ids and refs are not facts ("evt:2" sources no "two")."""
+def _amounts(tokens: list[str]) -> Iterator[tuple[int, int, float, list[float]]]:
+    """Each number in TOKENS: (its first token, the token after it, its value,
+    the values of its parts). A number is a digit ("$23k", "0.27", "40%") or
+    a run of number words ("twenty seven"), either followed by its scale
+    words ("23 thousand", "five hundred"); a scale word alone is one of it
+    ("thousand")."""
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        first = _digit(token)
+        if first is None and token not in NUMBER_WORDS and token not in SCALES:
+            i += 1
+            continue
+        start, total, current, parts = i, 0.0, 0.0, []
+        if first is not None:
+            current = first
+            parts.append(first)
+            i += 1
+        else:
+            while i < len(tokens) and tokens[i] in NUMBER_WORDS:
+                current += NUMBER_WORDS[tokens[i]]
+                parts.append(float(NUMBER_WORDS[tokens[i]]))
+                i += 1
+        while i < len(tokens) and tokens[i] in SCALES and not token.endswith("%"):
+            scale = SCALES[tokens[i]]
+            if scale == 100:
+                current = (current or 1) * 100
+            else:
+                total += (current or 1) * scale
+                current = 0.0
+            i += 1
+        yield start, i, total + current, parts
+
+
+def _sourced_values(facts: list[Any]) -> set[float]:
+    """Every number the facts hold: each whole amount ("$23K" as 23000) and
+    each of its parts (23). Ids and refs are not facts ("evt:2" sources no
+    "two")."""
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
             return {k: strip(v) for k, v in value.items() if k not in ID_KEYS}
         if isinstance(value, list):
             return [strip(v) for v in value]
         return value
-    text = json.dumps(strip(facts), ensure_ascii=False).lower()
+    tokens = _TOKEN.findall(json.dumps(strip(facts), ensure_ascii=False).lower())
     values: set[float] = set()
-    words: set[str] = set()
-    for token in _TOKEN.findall(text):
-        v = _value(token)
-        if v is not None:
+    for _, _, value, parts in _amounts(tokens):
+        for v in (value, *parts):
             values |= {v, abs(v)}
-        if token in WEEKDAYS or token in MONTHS:
-            words.add(token)
-    for y, m, d in _ISO_DAY.findall(text):
-        try:
-            day = datetime(int(y), int(m), int(d))
-        except ValueError:
-            continue
-        words |= {WEEKDAYS[day.weekday()], day.strftime("%B").lower()}
-    return values, words
+    return values
 
 
 def unsourced(text: str, facts: list[Any]) -> list[str]:
-    """The numbers (digits, or number words used as counts and amounts),
-    weekdays and months in `text` that its facts do not hold, in order, each
-    once. Conservative on purpose: "twenty cents" is sourced by $0.20, and
-    anything else not found is a drop, false drops included."""
-    values, words = _sourced_values(facts)
+    """The amounts of money or of a token in `text` that its facts do not
+    hold, as written, in order, each once: a number with a currency sign
+    ("$500"), followed by a money or token word ("31 dollars", "twenty
+    cents"), a few words after a money word ("the bill is 99"), or a percent
+    in a text that speaks of money ("$TINY is up 40%"). Since 2026-11-19 the
+    rest is a bit or the truth judge's to check (a count of Teeny's own
+    doings, a day, a follower count, a figure from the news without a money
+    word): "last night there were two of me" is never dropped here.
+    "twenty cents" is sourced by $0.20, "23 thousand dollars" by "$23K"."""
+    values = _sourced_values(facts)
     tokens = _TOKEN.findall(text.lower())
+    speaks_of_money = "$" in text or any(t in MONEY_UNITS or t in MONEY_LEAD for t in tokens)
     out: list[str] = []
-    for i, token in enumerate(tokens):
-        if token in WEEKDAYS or token in MONTHS:
-            ok = token in words
-        else:
-            v = _value(token)
-            if v is None:
-                continue
-            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
-            candidates = {v} | ({round(v / 100, 2)} if nxt in ("cents", "cent") else set())
-            ok = any(any(abs(c - s) < 1e-9 for s in values) for c in candidates)
-        if not ok and token not in out:
-            out.append(token)
+    for start, end, value, _ in _amounts(tokens):
+        nxt = tokens[end] if end < len(tokens) else ""
+        said = tokens[start:end]
+        money = (said[0].startswith("$") or nxt in MONEY_UNITS or
+                 any(t in MONEY_LEAD for t in tokens[max(0, start - MONEY_LEAD_WINDOW):start]))
+        percent = said[-1].endswith("%") or nxt in ("percent", "per")
+        if not (money or (percent and speaks_of_money)):
+            continue
+        candidates = {value} | ({round(value / 100, 2)} if nxt in CENTS else set())
+        if any(any(abs(c - v) < 1e-9 for v in values) for c in candidates):
+            continue
+        word = " ".join(said)
+        if word not in out:
+            out.append(word)
     return out
 
 
