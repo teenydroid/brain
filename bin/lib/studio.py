@@ -2087,8 +2087,10 @@ def _make_skit(room: Room, draft: Json, note: Json) -> list[str] | None:
                     if isinstance(made, dict) else str(made)[:300])
         return None
     if made.get("dry_run"):
-        note["dry_run"] = True
-        return []
+        # This room is live (a dry room returned above), so a hand under
+        # DRY_RUN made no video: the words never go out without it.
+        note.update(dry_run=True, failed="the video hand is in DRY_RUN: no video was made")
+        return None
     asset = made.get("asset") or {}
     detail = asset.get("detail") if isinstance(asset.get("detail"), dict) else {}
     note.update(asset=asset.get("id"), cost_usd=made.get("cost_usd"), models=made.get("models"),

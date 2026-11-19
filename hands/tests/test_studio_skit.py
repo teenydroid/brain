@@ -508,3 +508,30 @@ class SkitVetoRunTest(unittest.TestCase):
         code, out = studio.run(self.args, self.env, ask=ask)
         self.assertEqual(out["outcome"], "vetoed")
         self.assertEqual(len(self.finals), 2)
+
+
+class LiveRoomDryHandTest(unittest.TestCase):
+    """A live room whose video hand still runs under DRY_RUN makes no video:
+    that is no skit, never the skit's words posted alone."""
+
+    def test_a_dry_run_answer_in_a_live_room_is_no_skit_and_the_fallback_goes_out(self):
+        producer = ProducerTest()
+        room = producer.room(**{"video skit": (0, {"ok": True, "dry_run": True, "would_generate": "skit"})})
+        result, attempt, calls = producer.go(room)
+        self.assertEqual(result, "next")
+        self.assertIn("DRY_RUN", attempt["skit"]["failed"])
+        self.assertNotIn("x post", calls)
+        self.assertNotIn("x upload", calls)
+        # The slot falls back: the next draft, another format, goes out.
+        post = {"id": "d2", "pitch": "p2", "format": "post", "text": "the robotaxi words, on their own terms",
+                "truth": {"text": "t", "facts": [HOOK]}}
+        slot = studio.Slot(order=["D1", "D2"], blind={"D1": skit_draft(), "D2": post}, board={}, stories_now=[],
+                           pitches={"p1": PITCH}, items={"trend:t1": HOOK}, stories={}, thread="t",
+                           rates={"D1": 1.0, "D2": 1.0}, close=0.0)
+        room.seen = []
+        room.ask = lambda *a: (0, json.dumps({"verdict": "pick", "reason": "r"}), "")
+        with mock.patch.object(studio, "example_afters", lambda brain: []):
+            out = studio.publish(room, {}, slot)
+        self.assertEqual((out["outcome"], out["label"]), ("posted", "D2"))
+        posts = [b for a, b, *_ in room.seen if a[:2] == ["x", "post"]]
+        self.assertEqual([p["text"] for p in posts], [post["text"]])
