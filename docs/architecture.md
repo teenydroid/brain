@@ -1039,7 +1039,11 @@ One run is one slot:
    of Teeny, and does not care about it, stop; all else equal a piece that
    joins what people are talking about beats one about Teeny's insides; do they feel
    something; do they get it with no setup; is there a reason to reply or
-   come back; could only Teeny have written it tonight). Ranked by win rate
+   come back; could only Teeny have written it tonight). Both the compare
+   turns and the slot question say `NERVE_LINE`: prefer the draft a stranger
+   would screenshot or argue with over the tidy one, an absurd claim Teeny
+   makes about itself is the point, and invented money or anything invented
+   about a real person, a company or the news still loses outright. Ranked by win rate
    over the pairs judged (none judged ranks last; ties: more wins, fewer
    losses, the head-to-head, the shuffle); then one turn on the winner:
    `pick` (any case) or none worth a slot. A duplicate pair in an answer or
