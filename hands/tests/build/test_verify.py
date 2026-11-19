@@ -68,5 +68,29 @@ class InterpreterOutsideTheRootsTest(unittest.TestCase):
         self.assertIn(os.path.realpath(self.tmp / "install"), roots)
 
 
+class NamedPatternTest(unittest.TestCase):
+    """`run` with a start folder, a top folder and a pattern runs only what they name."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="verify-pattern-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "hands" / "tests").mkdir(parents=True)
+        (self.tmp / "hands" / "tests" / "test_a.py").write_text(PASSING)
+        (self.tmp / "hands" / "tests" / "test_b.py").write_text(PASSING.replace("assertTrue(True)", "assertTrue(False)"))
+        (self.tmp / "test_top.py").write_text(PASSING)
+
+    @unittest.skipUnless(JAILED, "this kernel has no Landlock")
+    def test_verify_runs_only_the_named_pattern(self):
+        everything = verify.run(self.tmp)
+        self.assertEqual((everything["ok"], everything["ran"]), (False, 3), everything)  # test_b fails
+        named = verify.run(self.tmp, start="hands/tests", top="hands/tests", pattern="test_a.py")
+        self.assertTrue(named["jailed"], named)
+        self.assertEqual((named["ok"], named["ran"]), (True, 1), named)
+        other = verify.run(self.tmp, start="hands/tests", top="hands/tests", pattern="test_b.py")
+        self.assertEqual((other["ok"], other["ran"]), (False, 1), other)
+        none = verify.run(self.tmp, start="hands/tests", top="hands/tests", pattern="test_nope.py")
+        self.assertEqual((none["ok"], none["ran"]), (False, 0), none)
+
+
 if __name__ == "__main__":
     unittest.main()
