@@ -858,14 +858,13 @@ printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["ima
 answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "me", "relevance": 5, "why": "w", "format": "meme"}], "meme": {"template": "drake", "lines": ["reading the docs", "quoting the post"], "teeny": "brain/assets/tiny/nope.jpg"}}'
 out="$(DRY_RUN=0 run peer-quote)"
 check "a meme quote's meme goes through the studio's meme path: its lines past the guard, rendered, viewed, uploaded" \
-  bash -c "grep -q '^guard check  *stdin={\"text\":\"reading the docs / quoting the post\"}' '$FAKE_HANDS' &&
+  bash -c "grep -q '^guard check stdin={\"text\": \"reading the docs / quoting the post\"}' '$FAKE_HANDS' &&
     grep -q '^meme template DRY_RUN=0 ' '$FAKE_HANDS' && grep -q '^guard view ' '$FAKE_HANDS' &&
     grep -q '^x upload --file state/media/meme-41.png' '$FAKE_HANDS'"
 check "and the hand gets its media id and its lines, never its picture's path" \
   bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' |
     jq -e '.media_ids == [\"1234567890\"] and .meme == {template: \"drake\", lines: [\"reading the docs\", \"quoting the post\"]}' >/dev/null"
-echo "HANDS:"; cat "$FAKE_HANDS"; echo "OUT: $out"
-check "and the run says what was made" test "$(jq -r '.actions[0].media.kind + \" \" + .actions[0].media.media_id' <<<"$out")" = "meme 1234567890"
+check "and the run says what was made" test "$(jq -r '.actions[0].media | "\(.kind) \(.media_id)"' <<<"$out")" = "meme 1234567890"
 reset
 out="$(DRY_RUN=0 FAKE_MEME_REFUSED=1 run peer-quote)"
 check "a meme that cannot be made leaves no media, and the hand decides" \
