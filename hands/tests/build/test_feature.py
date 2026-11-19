@@ -55,7 +55,7 @@ class Tree(unittest.TestCase):
         self.write(f"hands/lib/teeny_hands/{name}/cli.py",
                    f"from .. import hand\n\n\ndef main(argv):\n    return hand.run('{name}', parser(), argv)\n")
         self.write(f"hands/tests/test_{name}.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    pass\n")
-        self.write("brain/playbooks/gizmo-look.md", PLAYBOOK.replace("gizmo ", f"{name} ").replace("hands/gizmo", f"hands/{name}"))
+        self.write("brain/playbooks/gizmo-look.md", PLAYBOOK.replace("hands/gizmo", f"hands/{name}"))
         self.write("brain/cron.toml", CRON)
         self.write("docs/hands.md", f"# Hands\n\n## `{name}`: looks at things\n\nIt looks.\n\n## `other`: another\n")
         return [("A", f"hands/{name}"), ("A", f"hands/lib/teeny_hands/{name}/cli.py"),
