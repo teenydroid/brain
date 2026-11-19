@@ -61,6 +61,16 @@ class SeedTest(unittest.TestCase):
         self.assertIn(got["explore_with"], (*studio.SHAPES, "thread", "image"))
 
 
+    def test_gallows_is_a_shape_the_room_can_be_asked_for(self):
+        # Teeny's dark streak is a shape an explore run can ask for, and
+        # writer.md holds a before/after pair under every label the room samples.
+        self.assertIn("gallows", studio.SHAPES)
+        brief = (Path(studio.__file__).resolve().parents[2] / "brain" / "agents" / "writer.md").read_text()
+        for label in studio.PAIRS:
+            self.assertIn(f"\n{label}.\n> before:", brief, label)
+        self.assertIn("Gallows", studio.PAIRS)
+
+
 class ValidateTest(unittest.TestCase):
     def test_pitches_on_unknown_items_or_formats_are_dropped_with_why(self):
         answer = {"pitches": [

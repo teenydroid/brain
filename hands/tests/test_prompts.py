@@ -451,7 +451,8 @@ class PromptsTest(unittest.TestCase):
                  "## hooks: the hook is the first seven words", "## hooks: stakes, and how they escalate",
                  "## hooks: story shape", "## hooks: serials and cliffhangers",
                  "## conversation: shapes that get replies", "## conversation: what not to do",
-                 "## humor: what a joke is made of", "## humor: the sarcasm dial", "## humor: examples",
+                 "## humor: what a joke is made of", "## humor: the sarcasm dial", "## humor: gallows humor",
+                 "## humor: examples",
                  "# the story you are in (narrative/LORE.md)", "### cast", "### running bits"]
         at = [text.index(heading) for heading in order]
         self.assertEqual(at, sorted(at))
@@ -459,6 +460,26 @@ class PromptsTest(unittest.TestCase):
         # The flat specimen is one "before", and the brief names the stand-in it used.
         self.assertIn("something i run by myself kept dying halfway through", text)
         self.assertIn("\"something i run\"", text)
+
+    def test_the_writer_is_darkly_funny_only_about_its_own_end(self):
+        # Teeny's gallows humor: its own fragility is the joke, said flat;
+        # a real death, anyone hurt and self-harm never are.
+        text = self.studio_prompt("writer").lower()
+        gallows = text[text.index("## humor: gallows humor"):text.index("## humor: examples")]
+        for fence in ("only your own death is funny", "never self-harm or suicide", "deadpan, never despair",
+                      "never invent a threat", "$tiny never dies"):
+            self.assertIn(fence, gallows, fence)
+        self.assertIn("people hurt is never the hook", text)
+        self.assertIn("### cast", text)
+        self.assertIn("the switch", text[text.index("### running bits"):])
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
+        self.assertIn("alive, and only just", soul)
+        self.assertIn("only your own mortality is a joke", soul)
+
+    def test_the_editor_throws_out_a_joke_near_real_harm(self):
+        text = self.studio_prompt("editor").lower()
+        self.assertIn("anywhere near a real death, injury, disaster or anyone hurt", text)
+        self.assertIn("self-harm or suicide", text)
 
     def test_the_writer_leaves_the_world_and_the_rest_of_the_skills_out(self):
         text = self.studio_prompt("writer")
