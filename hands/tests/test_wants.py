@@ -351,6 +351,7 @@ class Standing(WantsCase):
         self.sql("UPDATE build_requests SET status = ? WHERE id = 1", request_status)
         if job_status:
             self.job(1, job_status, **job)
+        self.next_day()  # the filing is yesterday's: the want's standing is all that can hold a refiling
 
     def test_a_filed_want_is_in_flight_while_its_request_is_pending_or_picked(self):
         for status in ("pending", "picked"):
@@ -370,6 +371,7 @@ class Standing(WantsCase):
         got = self.standing()
         self.assertEqual((got["state"], got["tries"]), ("open", 1))
         self.file()
+        self.next_day()
         self.sql("UPDATE build_requests SET status = 'skipped' WHERE id = 2")
         got = self.standing()
         self.assertEqual((got["state"], got["tries"]), ("gave-up", 2))
@@ -456,6 +458,7 @@ class Standing(WantsCase):
 
     def test_a_hands_db_that_cannot_be_read_is_in_flight_not_open(self):
         self.file()
+        self.next_day()
         self.db.unlink()
         self.assertEqual(self.standing()["state"], "in-flight")
         self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
@@ -466,8 +469,10 @@ class Standing(WantsCase):
                   "- [m2] i will build a tide table bot for the harbour.\n")
         self.file()
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")
+        self.next_day()
         self.assertEqual(self.file()["filed"], "w:m2")
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 2")
+        self.next_day()
         drawn = {w["id"]: w["standing"]["tries"] for w in wants.draw(self.cfg())["wants"]}
         self.assertEqual(drawn, {"w:m1": 1, "w:m2": 1})
         self.assertEqual(self.file()["filed"], "w:m1")
@@ -784,8 +789,10 @@ class EndToEnd(sc.SelfJobScratch):
         self.assertEqual(self.state_of(cfg), "in-flight")  # the pull request is open
         self.assertEqual(self.gh_reads[-1], ["pr", "teenydroid/brain", "7"])
 
+        day_seconds = 86400.0
         # 6. A person merges it. The want is merged, and nothing more is filed for it.
         self.merged_at = sc.T0 + 3600
+        self.clock(self.merged_at + day_seconds)  # a day on: the standing alone refuses a second filing
         self.assertEqual(self.state_of(cfg), "merged")
         self.assertEqual(wants.file_one(cfg), {"ok": True, "skipped": "no open want"})
 
