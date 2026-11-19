@@ -1870,8 +1870,7 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                     entry.update(status="refused", result={"refused": f"at most {MAX_INTENTS} actions a beat"})
                 elif do == "comment_moltbook" and comments.get("left") == 0:
                     # Refused here, before the guard reads a word (rule 10).
-                    entry.update(status="refused", result={"refused": _no_comments(comments) + "; it was not sent",
-                                                           "rule": "daily_cap"})
+                    entry.update(status="refused", result={"refused": _no_comments(comments), "rule": "daily_cap"})
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1

@@ -1921,12 +1921,16 @@ class TickTest(unittest.TestCase):
         self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
         refused = got["results"][0]
         self.assertEqual((refused["status"], refused["result"]["rule"]), ("refused", "daily_cap"))
-        self.assertIn("not sent", refused["result"]["refused"])
-        # Once the oldest ages out, the comment is offered again.
+        self.assertIn("0 of 50 left", refused["result"]["refused"])
+        # Once the oldest ages out, the comment is offered again, after the
+        # refusal, which says it was not sent.
         self.at(3601)
         self.answer({"thought": "", "intents": [{"do": "journal", "text": "room again"}]})
         self.tick()
-        self.assertIn("where is my answer?", self.chats()[-1]["message"])
+        message = self.chats()[-1]["message"]
+        self.assertIn("where is my answer?", message)
+        self.assertIn("refused: Moltbook comments: 0 of 50 left in the last 24 hours; the next frees at 08:00 your time;"
+                      " not sent; what it answered is still unanswered", message)
 
     def test_a_beat_is_told_how_few_moltbook_comments_are_left(self):
         self.comments_spent(47, oldest_ago=20 * 3600)
