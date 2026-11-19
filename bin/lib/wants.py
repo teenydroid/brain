@@ -63,7 +63,7 @@ import evolve  # noqa: E402  (puts hands/lib on the path)
 import evolve_findings  # noqa: E402
 import evolve_outcomes as eo  # noqa: E402
 import wants_rules  # noqa: E402
-from teeny_hands import stimuli  # noqa: E402
+from teeny_hands import hand, stimuli  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -302,7 +302,7 @@ def read_pr(url: Any) -> Json:
     return {"state": "in-flight"}
 
 
-def want_standing(want: Want, filed: list[Json], db: eo._Db) -> Standing:
+def want_standing(want: Want, filed: list[Json], db: eo._Db, max_tries: int = 2) -> Standing:
     """WANT's standing from what was filed for it (`filed`, oldest first) and
     the ledgers. A filing for text that has since materially changed is no
     longer this want's."""
@@ -316,7 +316,7 @@ def want_standing(want: Want, filed: list[Json], db: eo._Db) -> Standing:
     if last["state"] == "frozen":
         return Standing("gave-up", tries, last["by"])
     if last["state"] == "failed":
-        return Standing("gave-up" if tries >= _tries_allowed() else "open", tries, last["by"])
+        return Standing("gave-up" if tries >= max_tries else "open", tries, last["by"])
     if last["state"] == "shipped":
         pr = read_pr(last["pr_url"])
         return Standing({"merged": "merged", "declined": "declined"}.get(pr["state"], "in-flight"), tries,
@@ -324,18 +324,9 @@ def want_standing(want: Want, filed: list[Json], db: eo._Db) -> Standing:
     return Standing("in-flight", tries, last["by"])
 
 
-#: WANTS_MAX_TRIES for the run in hand (set by `standings`).
-_MAX_TRIES = [int(SETTINGS["WANTS_MAX_TRIES"][0])]
-
-
-def _tries_allowed() -> int:
-    return _MAX_TRIES[0]
-
-
 def standings(cfg: Settings, db: eo._Db) -> list[tuple[Want, Standing]]:
-    _MAX_TRIES[0] = cfg.max_tries
     filed = read_filed()
-    return [(want, want_standing(want, filed, db)) for want in read_wants()]
+    return [(want, want_standing(want, filed, db, cfg.max_tries)) for want in read_wants()]
 
 
 # --- verbs -------------------------------------------------------------------------------------
@@ -456,7 +447,7 @@ def run(cfg: Settings) -> Json:
     for name, step in (("watch", watch), ("file", file_one)):
         try:
             got[name] = step(cfg)
-        except (WantsError, evolve.EvolveError, OSError, stimuli.hand.HandError) as exc:
+        except (WantsError, evolve.EvolveError, OSError, hand.HandError) as exc:
             got[name] = {"ok": False, "error": evolve_findings.scrub(f"{type(exc).__name__}: {exc}", 200)}
     got["ok"] = all(got[name].get("ok") for name in ("watch", "file"))
     wants_dir().mkdir(parents=True, exist_ok=True)

@@ -11,8 +11,11 @@ desk files.
   J  ship                     push every ok job to GITHUB_USER/<repo> through hands/gh
                               (create the repository when missing); a self job's branch
                               to GITHUB_USER/brain as a pull request; DRY_RUN applies
-  A  self                     stdin {text}: a change Teeny proposes to itself, a pending
-                              build request (source self) picked like any other
+  A  self                     stdin {text, want?}: a change Teeny proposes to itself, a pending
+                              build request (source self) picked like any other. One at a
+                              time: refused (exit 2, rule one_at_a_time) while another is in
+                              flight. A want (w:<id>, from bin/wants) makes it a feature,
+                              whose ok report the desk holds to build/feature.py's rubric
   A  upstream                 stdin {gap, text}: one gap from docs/oh-gaps.md to close in OpenHuman,
                               a build request (source upstream) built in a fork and opened as
                               one disclosed pull request; off unless BUILD_UPSTREAM=1
@@ -60,8 +63,8 @@ def parser() -> argparse.ArgumentParser:
     verb("desk", lambda a, _: jobs.desk(), "settle the builder's report and lay out its next job")
     verb("ship", lambda a, _: jobs.ship(), "push finished jobs to GitHub")
     verb("babysit", lambda a, _: jobs.babysit(), "put Teeny's own red pull requests back on the builder's desk")
-    verb("self", lambda a, body: jobs.propose_self(body), "propose a change to Teeny itself (JSON on stdin)",
-         body=True)
+    verb("self", lambda a, body: jobs.propose_self(body),
+         "propose a change to Teeny itself, one at a time (JSON on stdin: text, want?)", body=True)
     verb("upstream", lambda a, body: upstream.propose(body),
          "propose closing one OpenHuman gap upstream (JSON on stdin)", body=True)
     verb("gaps", lambda a, _: upstream.listing(), "the OpenHuman gaps, and which can be proposed")

@@ -4,6 +4,9 @@
   ideas      the `build_ideas` table: the one idea a day the daily job is made from
   selfclone  Teeny's own clone of GITHUB_USER/brain: synced from origin/main,
              edited by a `self` job, shipped as a pull request (never merged)
+  feature    the rubric a `self` job built for a want (a new hand, tested,
+             called by a scheduled playbook, documented) must meet before
+             the desk takes its ok report
   cli        the verbs
 
 The builder agent (brain/agents/builder.toml) never calls a hand and holds
