@@ -21,9 +21,29 @@ jqe() { jq -e "$@" >/dev/null; }
 cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
+# The core's model windows ($FAKE_REGISTRY, a JSON array; none without it):
+# read and replaced whole, as the core's get_config and
+# inference_update_model_settings do. Not turns, so not in $FAKE_CALLS.
+registry() { if [ -n "${FAKE_REGISTRY:-}" ] && [ -s "$FAKE_REGISTRY" ]; then cat "$FAKE_REGISTRY"; else echo '[]'; fi; }
+case "$1" in
+  get_config) jq -cn --argjson r "$(registry)" '{config: {model_registry: $r}}'; exit 0 ;;
+  inference_update_model_settings)
+    [ -n "${FAKE_REGISTRY:-}" ] || { echo "no registry" >&2; exit 1; }
+    jq -c .model_registry <<<"$2" >"$FAKE_REGISTRY"; echo '{}'; exit 0 ;;
+esac
 printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
 [ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
+# $FAKE_WINDOWS: the real core's floor. A model_override with no window in
+# the registry is budgeted at 4,096 tokens, the trim drops the message and
+# the provider refuses the system-only request (the preview, 2026-11-19).
+if [ -n "${FAKE_WINDOWS:-}" ]; then
+  over="$(jq -r '.model_override // empty' <<<"$2")"
+  if [ -n "$over" ] && ! jq -e --arg m "$over" 'any(.[]; .id == $m and .context_window > 0)' <<<"$(registry)" >/dev/null; then
+    echo '[oh] openhuman.inference_agent_chat: driver failed: model error: local-openai returned HTTP 400 (request_rejected): messages: at least one message is required.' >&2
+    exit 1
+  fi
+fi
 msg="$(jq -r .message <<<"$2")"
 say() { jq -cn --arg a "$1" '{response: $a}'; }
 case "$(head -n 1 <<<"$msg")" in
