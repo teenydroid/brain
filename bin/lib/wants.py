@@ -346,9 +346,14 @@ def _held(verdict: Json) -> str:
 
 
 def file_one(cfg: Settings) -> Json:
-    """File the top open want as a `self` build request: at most one."""
+    """File the top open want as a `self` build request: at most one, and at
+    most one a UTC day (a failed build reopens a want the same day, and a
+    manual call or a catch-up run of the cron job must not file a second)."""
     if not cfg.wants:
         return {"ok": True, "skipped": "WANTS=0"}
+    today = evolve.day(evolve.now())
+    if any(isinstance(f.get("at"), (int, float)) and evolve.day(f["at"]) == today for f in read_filed()):
+        return {"ok": True, "skipped": "a want was filed today"}
     db = _open_db()
     try:
         rows = standings(cfg, db)
