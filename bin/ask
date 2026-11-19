@@ -52,7 +52,7 @@ if [ -n "$model" ]; then
   jq -r --arg m "$model" '
     (.added | to_entries[] | "model: registered a \(.value)-token window for \(.key)"),
     (.unknown[] | "model: no window for \(.) from the endpoint; a long turn on it may come back empty"),
-    (.error // empty | "model: could not check \($m)'"'"'s window: \(.)")' <<<"$windowed" 2>/dev/null |
+    (.error // empty | "model: could not check the window of \($m): \(.)")' <<<"$windowed" 2>/dev/null |
     while IFS= read -r line; do log "$line"; done || true
 fi
 
