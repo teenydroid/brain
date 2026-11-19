@@ -407,20 +407,21 @@ else
 fi
 
 # The meme service (deploy/compose.yaml, `memegen`; hands/meme template): only
-# when STUDIO_FORMATS names meme. A boot makes no call: MEMEGEN_URL is read,
+# when STUDIO_FORMATS in secrets/teeny.env names meme (on the box the file
+# decides: cron and compose pass none). A boot makes no call: MEMEGEN_URL is read,
 # and --live asks the service for its templates. A warning, never a failure,
 # like the sandbox's: with it down a meme pitch makes no picture and is no
 # post, and every other format still goes out.
 if [ -f "$root/hands/lib/teeny_hands/meme/templates.py" ]; then
   meme_out="$(python3 -I -c '
-import json, os, sys, urllib.parse, urllib.request
+import json, sys, urllib.parse, urllib.request
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from teeny_hands.hand import _parse_env_file
 from teeny_hands.meme import templates
 env = Path(sys.argv[2])
 filed = _parse_env_file(env.read_text()) if env.is_file() else {}
-formats = os.environ.get("STUDIO_FORMATS") or filed.get("STUDIO_FORMATS") or "post,thread,image"
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
 if "meme" not in [f.strip() for f in formats.split(",")]:
     print("ok off: STUDIO_FORMATS names no meme, so nothing needs the memegen service")
     sys.exit()
