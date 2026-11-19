@@ -1007,9 +1007,8 @@ One run is one slot:
    dollars" $23K, false drops are accepted). A count, a day or a date in a
    bit about Teeny itself is not screened ("last night there were two of
    me"), since 2026-11-19; the truth judge checks any that is about a real
-   person or the news. So is one sharing a run of
-   four words with an example "after" in `writer.md` (`copies an
-   example`). When every draft of a pitch fails, it is drafted once more,
+   person or the news. A draft sharing a run of four words with an example
+   "after" in `writer.md` is dropped too (`copies an example`). When every draft of a pitch fails, it is drafted once more,
    told which words failed. Each draft keeps `truth: {text, facts}`, the
    body `hands/guard truth` takes: the hooked story first, then one plain
    line made in code from its trend measure (`reach_line`: "This story is
