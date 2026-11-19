@@ -1184,6 +1184,136 @@ pull request opens with **What my ledgers show**, the statement and its check.
 `bin/evolve status` lists every current finding (`findings.current`: id,
 kind, events, days, check, state and what settled it) and `findings.slots`.
 
+### 1c. Wants
+
+**Why it exists (2026-11-19).** An audit that day found that all 44 evolve
+candidates since generation 9 changed only markdown under `brain/`; none
+touched `hands/` or `brain/cron.toml`. The loop makes the smallest change to
+a prompt or a playbook, so it cannot add a capability. The other route to one,
+lane 2 (the builder's `self` jobs, "What starts a self change"), had made three
+self jobs ever: one shipped (`dripsplan`, #285, a hand that nothing in
+`brain/`, `evals/` or `bin/` calls) and two failed on frozen paths (job 3 on
+`build/jobs.py`, job 13 on `bin/lib/audit.py`). Three things held lane 2 back:
+
+- **Cadence.** `pick-request` could pick once a day, and the 03:50 UTC run
+  usually spent it. On 11-18 and 11-19 its 09:50 slot only logged `skipped:
+  daily budget spent`, so a change proposed at 09:40 waited for the next
+  morning at best. Request 5, filed 11-17 16:38, was picked 11-19 03:50
+  because a canary request held the slot on 11-18.
+- **Wording.** `self-improve` and `builder-self` told the model to make "a
+  delta edit", "the file and the one bullet", "small enough to build and test
+  in one run". A feature is not that.
+- **No check that a feature is used.** Nothing looked for a new hand's tests,
+  its docs or a caller. Evolve's gate does (`bin/lib/evolve.py`: new hands
+  have tests, are called, are documented), but only for evolve candidates.
+
+And the memory page held a feature that nobody built. Item m15 says "the
+first thing i build myself is a $TINY chart renderer ... not built yet".
+Evolve skipped it as `already` on `brain/MEMORY.md` in g18c1, and 6 of the 14
+skips in the archive rested on the page the same way (the rule above).
+
+**What a want is.** An item of "what i am in the middle of" or "promises and
+open threads" that says its author will build a thing
+(`wants_rules.is_build_intent`: "i will/want to/mean to/plan to/am going to
+build/make/ship/write a ...", "the first thing i build", "i build myself",
+"not built yet", "build/make a tool/hand/renderer/bot/cli/script"). A status
+note ("build queue") or a promise to publish a number is not one. Its id is
+`w:` and the item's id (`w:m15`). Its text goes through
+`evolve_findings.scrub` (links, emails, handles and ids out) and is cut to 600
+characters. The code reads only the live `brain/MEMORY.md`.
+
+**Where wants could come from, and why only one does.** The ledgers were read
+on 2026-11-19 for every source that was proposed:
+
+| Source | What the ledgers showed | Used |
+|---|---|---|
+| Build-intent items on the memory page | m15, the chart renderer; m68 is a status note, m92 and m93 are promises to analyse | yes: the only real source |
+| Failed or abandoned build jobs | 5 failed: two dailies abandoned before the desk fixes, the canary (an infra `git push`), self jobs 3 and 13 (frozen) | no: they are failures of the lane, not things to build. `self-improve` already reads them (`builds`). They count as tries on a want |
+| Self jobs that failed on a frozen path | jobs 3 and 13; no `frozen` skip among the 14 skips | no: the only remedy is a frozen file, and a want made from one fails at ship the same way |
+| Pending stranger requests (`moltbook`, `x:mentions`) | #3 (already shipped as the daily `hedgediff`), #6 ("write an article", not a build) | no: they reach lane 2 already, as `request` jobs through `pick-request`. As `self` briefs they would put a stranger's words in front of a tooled agent working on Teeny's own repository |
+| Browser tasks | 39 rows; 31 of the 33 not-ok ones are `reddit_browse` hitting Reddit's network block; the notes are the operator agent's reading of web pages | no: external blocks, not a hand's job, and the notes carry page text |
+| Beats naming an intent with no hand | 1,479 beats in `state/tick/runs.jsonl`, no `no such intent` refusal | no: no signal |
+
+The memory page is Teeny's own text and already rides every prompt. A want
+made from it, scrubbed and then run past `hands/guard check` as the mind's
+`propose_change` does, adds no new exposure. Nothing else of a stranger's
+reaches a want.
+
+**Standing.** Where a want stands comes from the ledgers (`hands.db`, read
+only) and a read of GitHub, never from the page. Only the filings of this
+text count: after a material rewrite (the rule of "1. Learnings") the want is
+open again.
+
+| State | Meaning |
+|---|---|
+| `open` | nothing filed for this text, or the last build failed with tries left |
+| `in-flight` | its request is `pending` or `picked`, its job is `claimed` or `ok`, or its pull request is open. A pull request GitHub cannot be asked about (`hands/gh pr` fails or answers out of shape) is in flight: a want is never reopened on a guess |
+| `merged` | the pull request merged |
+| `declined` | the pull request closed unmerged |
+| `gave-up` | `WANTS_MAX_TRIES` builds failed, or one failed on a frozen path (`ship_error` or the summary says `frozen path`, `evals/frozen.txt` or `is frozen`) |
+
+A try is a filing whose job `failed` or `gave_up`, or whose request was
+`failed` or `skipped` before any job. `merged`, `declined` and `gave-up` hold
+until the text materially changes. Of the open wants, the one with the fewest
+tries goes first, then page order.
+
+**Filing** (`bin/wants file`, at most one a call):
+
+1. `WANTS=0` or no open want: nothing, and it says which.
+2. The brief is fixed text with the want quoted, at most 2,000 characters (the
+   desk's limit). The first line is `want: <id>`. It asks for a feature: a new
+   hand (`hands/<name>` through `hand.run`, its package, tests that need no
+   network, a `docs/hands.md` section) and a scheduled playbook that calls it,
+   read-only public data only (no wallet, key, trade or account), and the
+   builder picks the name. It tells the builder the desk checks every part
+   and that a week after merge the code counts how often a scheduled playbook
+   ran the hand.
+3. The brief goes through `hands/guard check` (surface `github`). A refusal
+   or no answer is not filed: the run says it was held.
+4. `hands/build self` gets `{text, want}`. A refusal with rule
+   `one_at_a_time` is `waiting` and nothing is recorded; any other failure is
+   an error (exit 1); success appends `state/wants/filed.jsonl`.
+
+`pick-request` still chooses: it is a judgement, not code. Its playbook now
+says that a `self` request whose text starts `want:` is something Teeny said
+it would build, and that reading public data such as a price chart is not
+touching tokens (trading, holding or moving them, or a wallet, still is).
+
+**Scoring** (`bin/wants watch`). Once a want's pull request has merged and
+`WANTS_USED_DAYS` have passed, the code counts, for each hand named in the
+job's rubric, the runs of scheduled playbooks that call it in that span
+(`hand_used`, "Outcomes" below), once. `WANTS_MIN_USES` or more is `used`,
+fewer is `unused`, a job with no rubric or a count that stays unreadable for
+`GRACE_DAYS` (2) past the end is `no-data`. A count not readable yet is tried
+again the next day. The record goes to `state/wants/outcomes.jsonl` and one
+`self · outcome` stimulus (ref `want:<id>:<request id>`) with fixed words, the
+want's id, the hand names and the count, so the next beat reads whether what
+it asked for got used. Nothing is reverted by it: it is a measurement.
+
+**Settings** (`secrets/evolve.env`, read next to evolve's, which ignores
+these keys). A value that does not parse or is out of range refuses the run
+(exit 1). The process environment can only set `WANTS=0`.
+
+| Name | Default | Range | Meaning |
+|---|---|---|---|
+| `WANTS` | 0 | 0..1 | the kill switch; off by default. With 0, `file` and `watch` skip; `draw` and `status` still read |
+| `WANTS_MAX_TRIES` | 2 | 1..5 | failed builds of one text before the want gives up |
+| `WANTS_USED_DAYS` | 7 | 1..30 | the days after merge that are counted |
+| `WANTS_MIN_USES` | 4 | 1..100 | playbook runs calling the hand, in that span, for `used` |
+
+**The verbs.** `bin/wants draw` (read only: the wants and each one's
+standing), `file`, `watch`, `run` (`watch`, then `file`: the pinned job
+`wants`, `0 9 * * *`, with `catch_up`; one step failing does not stop the
+other, but the run is then not ok) and `status` (the wants, their standing,
+`enabled` and the last run, `state/wants/last.json`). Each prints one JSON
+line; exit 0 is ok, 1 is an error. `bin/wants`, `bin/lib/wants.py` and
+`bin/lib/wants_rules.py` are frozen with `bin/`, and the pinned job with
+`evals/`: a candidate cannot redefine a want or switch the feed on.
+
+**Not built here.** No want comes from anything but the memory page. The code
+asks no model. A merged feature that goes `unused` changes nothing by
+itself. "What is not built" lists the rest.
+
 ### 2. Observe
 
 `state/evolve/<gen>/evidence.json` holds what exists, and says so when a
