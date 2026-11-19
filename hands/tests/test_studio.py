@@ -1195,7 +1195,9 @@ class OutsideRunTest(unittest.TestCase):
         self.assertEqual(rec["outside"]["sources"]["trend"]["not_trending"], 1)
         self.assertTrue(rec["pitches"][0]["drafted"])
         self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "trend:s1:reach", "evt:2", None])
-        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"]})
+        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"],
+                                          "want_invented": 1, "invented": 0,
+                                          "short_invented": rec["drafted"]["short_invented"]})
 
 
 # --- only what is trending may be a hook (operator review of PR #384) -------------------
