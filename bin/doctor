@@ -133,14 +133,47 @@ browser_ready() {
     jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
     return 1
   fi
-  echo "TinyComputer loads and Chrome starts"
+  echo "TinyComputer serving, Chrome starts"
 }
-DOCTOR_PROBE_DUMMY_END
 
-    jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
+# Every model the studio is set to answers one small turn on the route the
+# studio asks it on: the writer's and editor's through bin/ask (a tool-less
+# agent turn, the editor's prompt, which is the smaller), the judges' through
+# the simple chat. On 2026-11-19 a studio preview on claude-fable-5.2 and
+# claude-opus-5.5 had every first turn refused, "HTTP 400 (request_rejected):
+# messages: at least one message is required" (the core had no window for
+# them and the trim dropped the message), the run fell back to the core's
+# default model, and only the spine's log said so. Skipped when no studio
+# model is set (the core's default answers the heartbeat); one turn a model,
+# DOCTOR_MODEL_TURNS=0 skips it. bin/ask registers a model's window with the
+# core first when it has none: the one write this check can make.
+studio_models_answer() {
+  local listed route model out failed_models="" n=0
+  local probe='Answer with the JSON {"ok": true} and nothing else.'
+  listed="$(TEENY_SECRETS="$secrets" python3 "$TEENY_ROOT/bin/lib/studio_switch.py" models 2>&1)" || {
+    echo "the studio's models cannot be read: $listed"
+    return 1
+  }
+  [ -n "$listed" ] || { echo "no studio model set: its turns run on the core's default"; return 0; }
+  while read -r route model; do
+    [ -n "$model" ] || continue
+    n=$((n + 1))
+    if [ "$route" = agent ]; then
+      out="$(OH_TIMEOUT=120 timeout --kill-after=5 130 "$TEENY_ROOT/bin/ask" --agent editor --model "$model" "$probe" 2>&1)"
+    else
+      out="$(OH_TIMEOUT=120 oh inference_agent_chat_simple \
+        "$(jq -cn --arg m "$probe" --arg o "$model" '{message: $m, model_override: $o}')" 2>&1)"
+    fi
+    # shellcheck disable=SC2181 # the status of the turn above, either branch
+    if [ $? -ne 0 ] || ! [[ "$out" =~ [^[:space:]] ]]; then
+      failed_models="$failed_models; $model ($route): $(tail -n 1 <<<"${out:-no answer}" | cut -c1-200)"
+    fi
+  done <<<"$listed"
+  if [ -n "$failed_models" ]; then
+    echo "refused a turn:${failed_models#;}"
     return 1
   fi
-  echo "TinyComputer serving, Chrome starts"
+  echo "$n model turn(s) answered: $(awk '{print $2 " (" $1 ")"}' <<<"$listed" | paste -sd, - | sed 's/,/, /g')"
 }
 
 # --- the brain -----------------------------------------------------------------
