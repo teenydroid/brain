@@ -31,7 +31,7 @@ SHOTS = [
 ]
 RAW = {"figures": ["Elon Musk"], "logline": "elon musk loses at chess to his own robotaxi on the moon",
        "shots": SHOTS, "aspect": "16:9"}
-WORDS = "tesla says its robotaxi is nearly ready to drive itself. so i staged its unveiling on the moon. parody, obviously"
+WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "skit", "hook": "trend:t1", "item": None}
 
 
@@ -227,7 +227,6 @@ class ProducerTest(unittest.TestCase):
         self.assertEqual([c for c in calls if c not in ("guard check", "story slot-mark", "story beat")],
                          ["guard truth", "guard clarity", "guard skit", "video skit", "guard view-skit", "x upload",
                           "x post"])
-        post = next(b for a, b, *_ in self_seen(calls_room := None) or [] ) if False else None  # noqa: F841
         room = self.room()
         self.go(room)
         body = next(b for a, b, *_ in room.seen if a[:2] == ["x", "post"])
@@ -315,10 +314,6 @@ class ProducerTest(unittest.TestCase):
         self.assertIn("not enough of the run's time", attempt["result"])
 
 
-def self_seen(_):
-    return []
-
-
 def _draft(did, fmt, hook):
     draft = {"id": did, "pitch": did, "hook": hook, "format": fmt, "text": f"words of {did}",
              "truth": {"text": "t", "facts": [{"id": "x"}]}}
@@ -365,8 +360,10 @@ class SkitFallbackTest(unittest.TestCase):
         self.assertEqual(out["attempts"][0]["skits_dropped"], ["S2", "S3"])
 
     def test_the_failed_video_does_not_use_up_the_fallback_budget(self):
-        out, tried = self.publish(["S1", "P1", "P2", "P3"], {"S1": "next", "P1": "next", "P2": "next"})
-        self.assertEqual(tried, ["S1", "P1", "P2", "P3"])
+        # Without the exemption the pick and two fallbacks (S1, P2, P3) would
+        # spend it, and P1 would never be reached.
+        out, tried = self.publish(["S1", "P1", "P2", "P3"], {"S1": "next", "P2": "next", "P3": "next"})
+        self.assertEqual(tried, ["S1", "P2", "P3", "P1"])
         self.assertEqual(out["outcome"], "would_post")
 
     def test_a_skit_that_went_out_is_recorded_for_the_reach_feedback(self):
