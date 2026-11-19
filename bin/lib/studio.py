@@ -147,9 +147,9 @@ KNOWN_FORMATS = ("post", "thread", "image", "meme")
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
 #: point of an explore run.
-SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit", "gallows")
+SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit", "gallows", "tall tale")
 #: The before/after pairs of writer.md, by their label.
-PAIRS = ("Confession", "Grudge", "Bet", "Scene", "Callback", "Real question", "Lore bit", "Gallows")
+PAIRS = ("Confession", "Grudge", "Bet", "Scene", "Callback", "Real question", "Lore bit", "Gallows", "Tall tale")
 #: One run in EXPLORE_EVERY is an explore run.
 EXPLORE_EVERY = 4
 #: A thread is 2 to THREAD_MAX posts.
