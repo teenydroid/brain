@@ -789,10 +789,9 @@ class EndToEnd(sc.SelfJobScratch):
         self.assertEqual(self.state_of(cfg), "in-flight")  # the pull request is open
         self.assertEqual(self.gh_reads[-1], ["pr", "teenydroid/brain", "7"])
 
-        day_seconds = 86400.0
         # 6. A person merges it. The want is merged, and nothing more is filed for it.
         self.merged_at = sc.T0 + 3600
-        self.clock(self.merged_at + day_seconds)  # a day on: the standing alone refuses a second filing
+        self.clock(self.merged_at + DAY)  # a day on: the standing alone refuses a second filing
         self.assertEqual(self.state_of(cfg), "merged")
         self.assertEqual(wants.file_one(cfg), {"ok": True, "skipped": "no open want"})
 

@@ -1263,9 +1263,13 @@ A try is a filing whose job `failed` or `gave_up`, or whose request was
 until the text materially changes. Of the open wants, the one with the fewest
 tries goes first, then page order.
 
-**Filing** (`bin/wants file`, at most one a call):
+**Filing** (`bin/wants file`, at most one a call, and at most one a UTC day):
 
-1. `WANTS=0` or no open want: nothing, and it says which.
+1. `WANTS=0`, a want already filed today (any line of `filed.jsonl` dated the
+   same UTC day), or no open want: nothing, and it says which. The daily cron
+   job alone does not keep it to one a day: a want whose build failed is open
+   again the same day, and a manual `file` or a catch-up run would file a
+   second.
 2. The brief is fixed text with the want quoted, at most 2,000 characters (the
    desk's limit). The first line is `want: <id>`. It asks for a feature: a new
    hand (`hands/<name>` through `hand.run`, its package, tests that need no
