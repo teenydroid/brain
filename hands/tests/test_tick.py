@@ -1916,7 +1916,7 @@ class TickTest(unittest.TestCase):
         # The comment waits, unshown, for room, and comes back then; X does not wait.
         self.assertNotIn("where is my answer?", message)
         self.assertIn("gm teeny", message)
-        self.assertEqual([s["ref"] for s in stimuli.pending()], ["c1"])
+        self.assertEqual([s["ref"] for s in stimuli.pending() if s["surface"] == "moltbook"], ["c1"])
         # One written anyway is refused here, before the guard reads a word.
         self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
         refused = got["results"][0]

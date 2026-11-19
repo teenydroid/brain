@@ -39,7 +39,9 @@
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
-   next beat starts by learning how its last answer landed.
+   next beat starts by learning how its last answer landed: those are taken
+   ahead of anything older (stimuli.FIRST), and a refusal says it was not
+   sent.
 5. The batch is settled before any intent is carried out, so a beat that
    dies halfway never answers the same thing twice. A failed turn, or an
    answer that is not usable JSON twice, puts the batch back instead.
@@ -78,6 +80,16 @@
    studio (a `studio` stimulus, filed, which hands/story desk shows the
    writer as an idea): nothing is read cold, no picture is made, nothing is
    posted, and the entry says `pitched`. Replies are unchanged.
+10. A refused answer is not an answer. With fewer than FEW_COMMENTS Moltbook
+   comments left in the day's cap (teeny_hands.moltbook.rules,
+   comment_allowance), the beat says how many; with none left it says when
+   the next frees, takes no Moltbook comment into its batch (they wait,
+   pending in their place, for room), and refuses a comment_moltbook itself,
+   before the guard reads a word. A follow-up about an answer refused in
+   this beat or the last is not dropped: the thing is still unanswered.
+   Live, 2026-11-19: a beat wrote eight answers to a spent cap, all refused;
+   the next never saw the refusals (25 owed comments filled its batch), took
+   them as sent, and dropped the follow-up for a promise due that day.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
