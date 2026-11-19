@@ -151,7 +151,7 @@ browser_ready() {
 # DOCTOR_MODEL_TURNS=0 skips it. bin/ask registers a model's window with the
 # core first when it has none: the one write this check can make.
 studio_models_answer() {
-  local listed route model out failed_models="" n=0
+  local listed route model out status failed_models="" n=0
   local probe='Answer with the JSON {"ok": true} and nothing else.'
   listed="$(TEENY_SECRETS="$secrets" python3 "$TEENY_ROOT/bin/lib/studio_switch.py" models 2>&1)" || {
     echo "the studio's models cannot be read: $listed"
@@ -161,14 +161,15 @@ studio_models_answer() {
   while read -r route model; do
     [ -n "$model" ] || continue
     n=$((n + 1))
+    status=0
     if [ "$route" = agent ]; then
-      out="$(OH_TIMEOUT=120 timeout --kill-after=5 130 "$TEENY_ROOT/bin/ask" --agent editor --model "$model" "$probe" 2>&1)"
+      out="$(OH_TIMEOUT=120 timeout --kill-after=5 130 "$TEENY_ROOT/bin/ask" --agent editor --model "$model" "$probe" 2>&1)" ||
+        status=$?
     else
       out="$(OH_TIMEOUT=120 oh inference_agent_chat_simple \
-        "$(jq -cn --arg m "$probe" --arg o "$model" '{message: $m, model_override: $o}')" 2>&1)"
+        "$(jq -cn --arg m "$probe" --arg o "$model" '{message: $m, model_override: $o}')" 2>&1)" || status=$?
     fi
-    # shellcheck disable=SC2181 # the status of the turn above, either branch
-    if [ $? -ne 0 ] || ! [[ "$out" =~ [^[:space:]] ]]; then
+    if [ "$status" -ne 0 ] || ! [[ "$out" =~ [^[:space:]] ]]; then
       failed_models="$failed_models; $model ($route): $(tail -n 1 <<<"${out:-no answer}" | cut -c1-200)"
     fi
   done <<<"$listed"

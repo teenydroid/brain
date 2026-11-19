@@ -896,7 +896,13 @@ One run is one slot:
    endpoint's listing at boot, as it does `SPINE_MODEL`'s: the core budgets
    an unknown model at a few thousand tokens, trims the whole message away,
    and the provider answers `messages: at least one message is required`
-   (seen on every `claude-fable-5.2` turn of the 2026-11-18 preview).
+   (seen on every `claude-fable-5.2` turn of the 2026-11-18 preview). Boot
+   only covers the models configured then, so `bin/ask --model` also
+   registers a model's window itself before the turn when the core has none
+   (`bin/lib/model_window.py`, read-add-write so no entry is lost): the
+   preview of 2026-11-19 set its models for one run only and every first
+   writer and editor turn was refused. `bin/doctor --live` asks every studio
+   model one small turn on its route (`studio models answer`).
 2. **The slot**: `hands/x slot`. Shut, the run ends before any model turn
    (`--dry-run` and `--force-slot` read it and go on).
 3. **The outside world, then what happened.** The pitches start from what
