@@ -528,10 +528,8 @@ class FeatureJobTest(SelfJobScratch):
     def test_a_failed_feature_report_is_not_checked(self):
         rid = self.queue_want()
         job = jobs.next_job()["job"]
-        for status in ("failed", "gave_up"):
-            with self.subTest(status=status), mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
-                self.report(job, status)
-                break
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
+            self.report(job, "failed")
         row = jobs.listing("failed")["jobs"][0]
         self.assertNotIn("rubric", row)
         from teeny_hands import requests as build_requests
@@ -564,8 +562,6 @@ class FeatureJobTest(SelfJobScratch):
         # A job without a rubric reads as before.
         plain = {k: v for k, v in done.items() if k != "rubric"}
         self.assertNotIn("Feature rubric", selfclone.pr_text(plain)[1])
-        self.assertEqual(selfclone.pr_text(plain)[1], body.split("\n\n**Feature rubric**")[0] + "\n\n**Checks**"
-                         + body.split("**Checks**")[1] if False else selfclone.pr_text(plain)[1])
 
 
 PR_URL = "https://github.com/teenydroid/brain/pull/7"
