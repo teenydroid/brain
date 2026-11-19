@@ -63,6 +63,8 @@ what no output does, however good the room's idea was:
 - no real person's likeness, body or family; no claim about a real person or company that the idea did not give as fact.
 - no price, market cap, buy call or "nfa". $TINY never dies.
 - no invented world for teeny: no props, rooms or characters that are not real. only the real internet, its bill, its wallet, its followers, its human, the bigger AIs.
+- no fact the idea did not give. the room makes things up; you do not keep them. a date, a weekday, an amount, a name or an event that is not in the idea is cut or said vaguely ("end of the month", not "friday").
+- no props. a mug, a kettle, a desk ornament, a coffee ring: none of them. a picture holds teeny, the screen or place the idea is about, and at most one other figure.
 - whoever sees it has never heard of teeny (READER.md): plain words, no private names for teeny's parts.
 
 answer with the JSON the message asks for, and nothing else.

@@ -71,7 +71,8 @@ FORMATS: dict[str, tuple[str, str]] = {
         "pictures and 5-second clips of teeny (a small yellow robot). it needs a hook in the first two "
         "seconds, a story that flows (each line causes the next), an escalation, and a last line and last "
         "frame that land together. the voice is the only sound; the pictures carry the jokes the words "
-        "do not say.",
+        "do not say. every shot is one picture an image model can make: teeny, one setting, at most one "
+        "other figure, no crowds, no real person, no logo, and no readable words beyond one or two on a screen.",
         '{"title": "...", "hook": "the first line, under 12 words", '
         '"voiceover": [{"at": "0-3s", "line": "..."}], '
         '"shots": [{"at": "0-5s", "picture": "one picture or 5-second clip of teeny, described physically"}], '
