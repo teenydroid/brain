@@ -72,9 +72,12 @@ In order:
    stranger no gets one rewrite turn by the writer, told the gate's reason,
    and is gated again once; a second no, or the posting rules turning a
    draft away (a repeat, a link), falls to the next draft of the ranking
-   that the editor, asked the slot question again, does not veto, at most
-   MAX_FALLBACKS times. A shut slot or a guard hold ends it. An empty slot
-   is an outcome, never an error. A picture is made only after the words
+   that the editor, asked the slot question again (told nothing has gone
+   out yet, never shown the draft that failed), does not veto, at most
+   MAX_FALLBACKS times through the gates; a veto costs none
+   (`next_fallback` says the order). A shut slot or a guard hold ends it. An
+   empty slot is an outcome, never an error, and its reason says what came
+   of every attempt (`empty_reason`). A picture is made only after the words
    passed (`picture`), under hands/image's own caps; when it fails the post
    goes out as words alone only if they stand alone. With STUDIO_DRY=1 (and
    always under `--dry-run`) every step runs, the picture is only planned,
@@ -917,14 +920,70 @@ def copies_example(text: str, afters: list[str], n: int = 4) -> str | None:
     return None
 
 
+#: The bars for a hooked story to be "widely discussed" in its truth facts
+#: (`reach_line`): on Digg's AI trends, a Digg Score of 500 and 50 authors
+#: on X (the day's top story on 2026-11-19 had 1044 and 84; the fourth, 98
+#: and 9); on Hacker News's front page, 500 points and 200 comments.
+WIDE_DIGG_SCORE = 500
+WIDE_DIGG_AUTHORS = 50
+WIDE_HN_POINTS = 500
+WIDE_HN_COMMENTS = 200
+
+
+def _hours(age: Any) -> str:
+    if not isinstance(age, (int, float)):
+        return ""
+    whole = max(1, round(age))
+    return f" in the last {whole} hour{'s' if whole != 1 else ''}"
+
+
+def reach_line(measure: Json, topic: str | None) -> str:
+    """How widely a hooked story is discussed, in one plain sentence made in
+    code from its trend measure, for the truth facts: so "everyone's talking
+    about it" is supported when the story is big, and not when it is small.
+    The measure itself stays out of the facts (the story does not say how big
+    it is). "" when there is no measure to say it from."""
+    source = measure.get("source")
+    if source == "digg":
+        score, rank = _whole(measure.get("score")), _whole(measure.get("rank"))
+        posts, authors = _whole(measure.get("sources")), _whole(measure.get("authors"))
+        if score is None and posts is None:
+            return ""
+        wide = (score or 0) >= WIDE_DIGG_SCORE and (authors or 0) >= WIDE_DIGG_AUTHORS
+        what = (f"{posts} posts" + (f" by {authors} authors" if authors is not None else "") + " on X"
+                if posts is not None else "posts on X")
+        where = ", ".join(x for x in (f"Digg score {score}" if score is not None else "",
+                                      f"rank {rank}" + (f" in {topic.upper() if topic.lower() == 'ai' else topic}"
+                                                        if topic else "") if rank is not None else "") if x)
+        said = f"{what}{_hours(measure.get('age_hours'))}" + (f" ({where})" if where else "")
+    elif source == "hn-front":
+        points, comments = _whole(measure.get("points")), _whole(measure.get("comments"))
+        if points is None:
+            return ""
+        wide = points >= WIDE_HN_POINTS and (comments or 0) >= WIDE_HN_COMMENTS
+        said = (f"{points} points" + (f" and {comments} comments" if comments is not None else "") +
+                f" on Hacker News{_hours(measure.get('age_hours'))}")
+    else:
+        return ""
+    if wide:
+        return f"This story is being widely discussed: {said}."
+    return (f"This story is being discussed, but not widely: {said}. That is not enough to say that everyone is "
+            "talking about it.")
+
+
 def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -> list[Json]:
     """What one draft may draw on, as `hands/guard truth` takes `facts`: the
     outside story it joins (its headline, what it says, the posts quoted),
-    Teeny's own item, the storyline."""
+    how widely it is discussed (`reach_line`), Teeny's own item, the
+    storyline."""
+    reach: Json | None = None
     if hook:
-        # How big a story is, is not something the story says.
+        line = reach_line(hook.get("trend") or {}, _str(hook.get("topic")) or None)
+        if line:
+            reach = {"id": f"{hook.get('id')}:reach", "what": line}
+        # How big a story is, is not something the story says: only the line.
         hook = {k: v for k, v in hook.items() if k not in ("trend", "trending")}
-    return [f for f in (hook, item, story) if f]
+    return [f for f in (hook, reach, item, story) if f]
 
 
 def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
@@ -1143,11 +1202,22 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
         'that decided it>, "why": "<one line>"}, ...]}, one for each pair.')
 
 
-def final_message(label: str, draft: Json, board: Json, stories: list[Json]) -> str:
+#: What a fallback's slot question says of the drafts tried before it: none
+#: went out, so none of them has told its story yet (`publish`).
+FALLBACK_LINE = ("Nothing has gone out in this slot yet. The drafts ranked above this one were not posted: they did "
+                 "not pass the checks a post must pass before it goes out, or you passed on them. So this one tells "
+                 "its story for the first time tonight. Is it worth the slot, or is the slot better left empty?")
+
+
+def final_message(label: str, draft: Json, board: Json, stories: list[Json], fallback: bool = False) -> str:
+    """The editor's slot question: on the tournament's winner, or (`fallback`)
+    on the next draft of the ranking after the ones above it did not go out.
+    A fallback is never shown those drafts."""
+    opening = FALLBACK_LINE if fallback else (
+        "This draft won the comparisons. Is it worth a slot on X tonight, or is the slot better left empty?")
     return (
-        "# studio: the slot\n\nThis draft won the comparisons. Is it worth a slot on X tonight, or is the slot "
-        "better left empty? Judge it on your rubric as a stranger meets it: someone who has never heard of "
-        "Teeny, and does not care about it. Picking none is a real answer.\n\n"
+        f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
+        "heard of Teeny, and does not care about it. Picking none is a real answer.\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
@@ -1341,7 +1411,15 @@ class Room:
         choosing that fails is asked once more on the core's default model
         (`_fall_back`). Raises Stop on a provider failure, no time, or a
         second unusable answer (`soft`: None instead, for a turn the run can
-        go on without)."""
+        go on without).
+
+        A turn with no `thread` (the editor's) is a cold read: it runs on a
+        new thread of its own (`studio:<run id>:<agent>:<n>`). The core gives
+        a turn with no thread the agent's newest transcript (its
+        LatestForAgent resume), so without one each editor turn read the
+        last: the fallback's slot question came after the pick's, which the
+        editor had said pick to, and it vetoed the fallback as the same story
+        told twice though nothing had gone out (preview-box-2, 2026-11-19)."""
         first = message
         attempt = 0
         while attempt < 2:
@@ -1350,8 +1428,9 @@ class Room:
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
             if secs < self.cfg.turn_min_secs:
                 raise Stop("skipped", f"out of time before the {step} turn ({self.cfg.budget_secs} s budget)")
+            on = thread or f"studio:{self.run_id}:{agent}:{len(self.calls) + 1}"
             began = time.monotonic()
-            status, out, err = (self.ask or ask_core)(self.root, agent, message, thread, model, secs)
+            status, out, err = (self.ask or ask_core)(self.root, agent, message, on, model, secs)
             call = {"agent": agent, "step": step, "attempt": attempt, "secs": round(time.monotonic() - began, 1),
                     "bytes": len(message.encode())}
             if model:
@@ -1428,6 +1507,11 @@ class Slot:
     items: dict[str, Json]
     stories: dict[str, Json]
     thread: str
+    #: Each label's win rate in the tournament, and how close two rates are
+    #: for a fallback on another story to go first (`next_fallback`): one
+    #: meeting's worth.
+    rates: dict[str, float] = field(default_factory=dict)
+    close: float = 0.0
 
 
 def _words(draft: Json) -> str:
@@ -1928,19 +2012,31 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
         return out
     if same:
         room.warnings.append(f"{same}: a live run would leave this slot empty")
-    for n, label in enumerate(slot.order[:MAX_FALLBACKS + 1]):
+    left = list(slot.order)
+    fell: set[str] = set()
+    gated = 0
+    ended = ""
+    while left and gated <= MAX_FALLBACKS:
+        label = next_fallback(left, slot, fell) if attempts else left[0]
+        left.remove(label)
         draft = dict(slot.blind[label])
+        if attempts and room.left() - 5 < room.cfg.turn_min_secs:
+            ended = "the run's time ran out before the next fallback"
+            break
         attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
         attempts.append(attempt)
-        if n:
-            answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now), None,
-                               soft=True)
+        if len(attempts) > 1:
+            answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now,
+                                                                fallback=True), None, soft=True)
             verdict = _str((answer or {}).get("verdict"), 20).lower() if isinstance(answer, dict) else ""
             attempt["editor"] = {"verdict": verdict or "no answer",
                                  "reason": _str((answer or {}).get("reason"), 400) if isinstance(answer, dict) else ""}
             if verdict != "pick":
+                # A veto costs one editor turn and no gate: it does not use
+                # up the fallback budget, so every ranked draft can be asked.
                 attempt["result"] = "the editor vetoed it as a fallback"
                 continue
+        gated += 1
         result = try_draft(room, draft, attempt, slot, afters)
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
@@ -1948,9 +2044,65 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             out["text"] = attempt.get("sent")
             return out
         if result == "stop":
+            ended = "nothing else could be tried"
             break
-    out.update(outcome="empty", reason=attempts[-1].get("result") if attempts else "nothing to publish")
+        fell.add(story_of(draft))
+    else:
+        if left:
+            ended = f"the fallback budget ({MAX_FALLBACKS} through the checks) was spent"
+        elif len(slot.order) > 1:
+            ended = "every ranked draft was tried"
+    out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
+
+
+def story_of(draft: Json) -> str:
+    """The story a draft tells: the outside story it joins, else its pitch."""
+    return str(draft.get("hook") or f"pitch:{draft.get('pitch')}")
+
+
+def next_fallback(left: list[str], slot: Slot, fell: set[str]) -> str:
+    """The next draft to try after a draft did not go out: the best ranked
+    left, unless one on a story that has not failed tonight ranks within
+    `slot.close` of it (one meeting's worth of win rate), when that one goes
+    first. A sibling of a draft that failed its checks tends to fail them for
+    the same reason (preview-box-2: the pick's two siblings on one story were
+    the only fallbacks tried, and the drafts on two other trending stories
+    ranked just below were never reached)."""
+    best = slot.rates.get(left[0], 0.0)
+    for label in left:
+        if slot.rates.get(label, 0.0) < best - slot.close - 1e-9:
+            break
+        if story_of(slot.blind[label]) not in fell:
+            return label
+    return left[0]
+
+
+def empty_reason(attempts: list[Json], ended: str = "") -> str:
+    """Why a slot ended empty, every attempt in it: what came of the pick
+    (which gate failed), then how many fallbacks were tried and how each fell."""
+    if not attempts:
+        return "nothing to publish"
+
+    def said(a: Json) -> str:
+        why = str(a.get("result") or "no result")
+        editor = a.get("editor") or {}
+        if editor.get("verdict") != "pick" and editor.get("reason"):
+            why = f"the editor vetoed it ({_str(editor['reason'], 200)})"
+        elif editor.get("verdict") and editor.get("verdict") != "pick":
+            why = "the editor vetoed it (no reason given)"
+        return why
+
+    first, rest = attempts[0], attempts[1:]
+    parts = [f"the pick {first['label']}: {said(first)}"]
+    if rest:
+        parts.append(f"{len(rest)} fallback{'s' if len(rest) != 1 else ''} tried, none went out: " +
+                     "; ".join(f"{a['label']}: {said(a)}" for a in rest))
+    else:
+        parts.append("no fallback was tried")
+    if ended:
+        parts.append(ended)
+    return ". ".join(parts)
 
 
 def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str], list[str], Json]:
@@ -2400,7 +2552,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     pick = dict(blind[top]) | {"label": top}
     record.update({"outcome": "picked", "reason": reason, "pick": pick})
     slot = Slot(order=[r["label"] for r in ranked_drafts], blind=blind, board=board, stories_now=state_now,
-                pitches=by_id, items=known_items, stories=stories, thread=thread)
+                pitches=by_id, items=known_items, stories=stories, thread=thread,
+                rates={r["label"]: -1.0 if r["rate"] is None else r["rate"] for r in ranked_drafts},
+                close=1 / cfg.meetings)
     done = publish(room, record, slot)
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason")
                            if k in done}

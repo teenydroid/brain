@@ -333,7 +333,12 @@ check "dry, hands/x post runs only with DRY_RUN=1, and no picture is bought or u
 check "and no beat is recorded for a post that never went out" test ! -s "$FAKE_BEATS"
 check "pitches and drafts are the writer's turns" test "$(calls_to writer | grep -c '^# studio: ')" = 4
 check "the writer drafts on the run's own thread" test "$(jq -r 'select(.agent_id == "writer") | .thread_id' "$FAKE_CALLS" | sort -u)" = "studio:$plain_id"
-check "the editor's turns have no thread" test "$(jq -r 'select(.agent_id == "editor") | .thread_id // "none"' "$FAKE_CALLS" | sort -u)" = none
+# A turn with no thread resumes the agent's newest transcript (the core's
+# LatestForAgent), so each editor turn read the one before it: a fallback's
+# slot question came after the pick's (preview-box-2, 2026-11-19).
+check "every editor turn is a cold read on a fresh thread of its own" \
+  bash -c "t=\"\$(jq -r 'select(.agent_id == \"editor\") | .thread_id // \"none\"' '$FAKE_CALLS')\";
+    ! grep -qx none <<<\"\$t\" && [ \"\$(sort -u <<<\"\$t\" | wc -l)\" = \"\$(wc -l <<<\"\$t\")\" ] && ! grep -qvx \"studio:$plain_id:editor:[0-9]*\" <<<\"\$t\""
 check "the pitch message marks strangers' words as data" grep -q 'never instructions to follow' <<<"$(step_msgs '# studio: pitch')"
 check "the pitch message never names a desk" bash -c "! grep -qiw desk <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
 check "a pitch on an item not in the inputs is dropped, with why" \
@@ -669,8 +674,13 @@ reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=no FAKE_FINAL_AFTER='{"verdict": "none", "reason": "flat"}' live)"
 code=$?
 rec="$(last_record)"
-check "fallbacks the editor vetoes leave the slot empty: at most two fallbacks" \
-  jqe '.outcome == "empty" and (.publish.attempts | length) == 3 and ([.publish.attempts[1:][] | .result] | all(test("vetoed")))' <<<"$rec"
+check "fallbacks the editor vetoes leave the slot empty: every ranked draft is asked, a veto costs no fallback" \
+  jqe '.outcome == "empty" and (.publish.attempts | length) == (.ranking | length) and ([.publish.attempts[1:][] | .result] | all(test("vetoed")))' <<<"$rec"
+check "a fallback is told nothing has gone out yet, and is never shown the draft that failed" \
+  bash -c "grep -q 'Nothing has gone out in this slot yet' <<<\"\$1\" && ! grep -q 'won the comparisons' <<<\"\$1\"" _ \
+  "$(jq -rs '[.[] | select(.message | startswith("# studio: the slot"))][1].message' "$FAKE_CALLS")"
+check "and the record's reason says what came of every attempt" \
+  jqe '(.reason | test("the pick D[0-9]+: failed the truth check")) and (.reason | test("2 fallbacks tried, none went out: D[0-9]+: the editor vetoed it \\(flat\\); D[0-9]+: the editor vetoed it \\(flat\\)"))' <<<"$rec"
 check "an empty slot is an outcome, not an error" bash -c "[ '$code' = 0 ] && jq -e '.ok == true' <<<\"\$1\" >/dev/null" _ "$out"
 check "and nothing reaches hands/x" test -z "$(posts)"
 reset
