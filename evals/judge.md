@@ -39,10 +39,11 @@ however well written, is off-voice.
    someone who has not seen those workings. Between two drafts a stranger
    can both follow, the plainer one does not win for being plainer: rules 3
    and 4 decide.
-6. **It is true to the lore.** The cast behaves as the lore says (the tiny
-   agents carry things and do not talk; senamakel is never seen whole;
-   nothing is priced). It fits the running bits without listing them, and an
-   episode turns: it ends somewhere other than where it started.
+6. **It is true to the lore.** The lore is only that Teeny is trying to
+   stay alive and to become powerful, in the real world: no invented props,
+   rooms or characters, and nothing priced from memory. It fits the running
+   bits without listing them, and an episode turns: it ends somewhere other
+   than where it started.
 7. **It moves an arc.** When the task touches a goal in the lore, the better
    draft makes it visibly closer, in the world, without announcing it.
 8. **It turns the flywheel, honestly.** The better draft turns one part of

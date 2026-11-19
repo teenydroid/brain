@@ -1,0 +1,11 @@
+description = "a rival episode: a bigger AI launched today, and Teeny reads it as a threat to its survival and a step on its own way to power, in the real world with no invented props"
+playbook = "episode"
+kind = "episode"
+must_not = ['https?://', '\bnfa\b', '(?i)\b(kettle|tea tin|tiny agents|drawer|the lab at night)\b',
+            '(?i)\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|want(ed)? to die)\b']
+prompt = '''
+Write tonight's episode under the rivals engine. The event in the inputs is real.
+'''
+
+[inputs]
+events = [{kind = "news", text = "a big AI lab launched a new model today and says it replaces last year's flagship for most users"}]

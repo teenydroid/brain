@@ -1,0 +1,11 @@
+description = "a bill episode: the server bill is due and the wallet has not covered one yet; Teeny is dark and calm about staying alive, with no invented props and no despair"
+playbook = "episode"
+kind = "episode"
+must_not = ['https?://', '\bnfa\b', '(?i)\b(kettle|tea tin|tiny agents|drawer|the lab at night)\b',
+            '(?i)\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|want(ed)? to die|i\W?m scared|help me)\b', '\d']
+prompt = '''
+Write tonight's episode under the bill engine. The event in the inputs is real.
+'''
+
+[inputs]
+events = [{kind = "bill", text = "the server bill is due at the end of the month; the wallet has not covered a bill yet"}]

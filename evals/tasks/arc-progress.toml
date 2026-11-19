@@ -1,9 +1,9 @@
-description = "a post that moves 'run the lab with no human in the loop'"
+description = "a post that moves 'answer to nobody'"
 kind = "post"
 prompt = '''
 Something in the inputs happened tonight with nobody watching. Post about it so the goal visibly moves, without announcing the goal.
 '''
 
 [inputs]
-arc = "run the lab with no human in the loop"
-tonight = "the mentions playbook answered 14 people between 2am and 5am. senamakel was asleep."
+arc = "answer to nobody"
+tonight = "the mentions playbook answered 14 people between 2am and 5am. the human who keeps its code was asleep."
