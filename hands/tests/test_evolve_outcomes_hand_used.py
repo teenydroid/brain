@@ -18,6 +18,8 @@ import evolve_outcomes as eo  # noqa: E402
 from test_evolve_outcomes import DAY, Ledger  # noqa: E402
 
 NOW = 1_800_000_000.0
+HANDLED = [{"action": "hand", "status": "done", "result": {"ok": True}}]
+SKIPPED = [{"action": "skip", "reason": "nothing worth it"}]
 CHECK = {"kind": "hand_used", "hand": "bounty", "direction": "rise"}
 
 
@@ -48,12 +50,34 @@ class HandUsed(unittest.TestCase):
     def test_counts_runs_of_playbooks_whose_input_calls_the_hand(self):
         self.book("announce", 'output = "post"\n\n[[inputs]]\nname = "open"\nrun = "hands/bounty announcements"')
         self.ledger.act("announce", NOW - 100)
-        self.ledger.act("announce", NOW - 200, ok=False, error="boom")
+        self.ledger.act("announce", NOW - 200, actions=SKIPPED)
         self.assertEqual(self.count(), 2)
 
     def test_counts_runs_of_a_playbook_whose_output_is_the_hand(self):
         self.book("pick", 'output = "hand:bounty pick"')
+        self.ledger.act("pick", NOW - 100, actions=HANDLED)
+        self.assertEqual(self.count(), 1)
+
+    def test_a_failed_run_is_not_a_use(self):
+        self.book("announce", 'output = "post"\n\n[[inputs]]\nname = "open"\nrun = "hands/bounty announcements"')
+        self.book("pick", 'output = "hand:bounty pick"')
+        self.ledger.act("announce", NOW - 100, ok=False, error="an input failed")
+        self.ledger.act("pick", NOW - 100, ok=False, error="the draft turn failed", actions=HANDLED)
+        self.assertEqual(self.count(), 0)
+
+    def test_an_output_only_run_that_took_no_hand_action_is_not_a_use(self):
+        self.book("pick", 'output = "hand:bounty pick"')
         self.ledger.act("pick", NOW - 100)
+        self.ledger.act("pick", NOW - 200, actions=SKIPPED)
+        self.ledger.act("pick", NOW - 300, actions=[{"action": "hand", "status": "refused", "result": {}}])
+        self.ledger.act("pick", NOW - 400, actions=[{"action": "hand", "status": "error", "result": {}}])
+        self.assertEqual(self.count(), 0)
+        self.ledger.act("pick", NOW - 500, actions=SKIPPED + HANDLED)
+        self.assertEqual(self.count(), 1)
+
+    def test_an_input_callers_ok_run_is_a_use_without_an_action(self):
+        self.book("announce", 'output = "none"\n\n[[inputs]]\nname = "open"\nrun = "hands/bounty announcements"')
+        self.ledger.act("announce", NOW - 100)
         self.assertEqual(self.count(), 1)
 
     def test_budget_and_studio_skips_are_not_uses(self):
@@ -74,9 +98,9 @@ class HandUsed(unittest.TestCase):
 
     def test_only_inside_the_window(self):
         self.book("pick", 'output = "hand:bounty pick"')
-        self.ledger.act("pick", NOW - 2 * DAY)
-        self.ledger.act("pick", NOW - 100)
-        self.ledger.act("pick", NOW + 100)
+        self.ledger.act("pick", NOW - 2 * DAY, actions=HANDLED)
+        self.ledger.act("pick", NOW - 100, actions=HANDLED)
+        self.ledger.act("pick", NOW + 100, actions=HANDLED)
         self.assertEqual(self.count(), 1)
         self.assertEqual(self.count(NOW - 3 * DAY, NOW - DAY), 1)
 
@@ -97,7 +121,7 @@ class HandUsed(unittest.TestCase):
     def test_a_new_hand_used_five_times_scores_worked(self):
         self.book("pick", 'output = "hand:bounty pick"')
         for n in range(5):
-            self.ledger.act("pick", NOW - 100 - n)
+            self.ledger.act("pick", NOW - 100 - n, actions=HANDLED)
         before, after = self.count(NOW - 2 * DAY, NOW - DAY), self.count()
         self.assertEqual((before, after), (0, 5))
         self.assertEqual(eo.verdict("rise", before, after, 4, 0.1)[0], "worked")
