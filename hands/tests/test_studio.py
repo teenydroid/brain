@@ -5,6 +5,7 @@ switches."""
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import sys
@@ -12,6 +13,7 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "bin" / "lib"))
@@ -1155,3 +1157,158 @@ class TrendingTest(unittest.TestCase):
     def test_how_big_a_story_is_never_reaches_the_truth_facts(self):
         hook = items()[0]
         self.assertEqual(set(studio.facts_for(None, None, hook)[0]) & {"trend", "trending"}, set())
+
+
+# The live dry run of 2026-11-19 (preview-box-2): the pick joined the day's top
+# story, failed its gates, and both fallbacks were vetoed as "tonight's last
+# pick already told this story", though nothing had gone out.
+GEMINI = {"source": "digg", "score": 1044, "rank": 1, "sources": 147, "authors": 84, "age_hours": 19.0}
+AMD = {"source": "digg", "score": 98, "rank": 4, "sources": 10, "authors": 9, "age_hours": 6.0}
+
+
+def _draft(did, pitch, hook, text):
+    return {"id": did, "pitch": pitch, "hook": hook, "format": "post", "text": text,
+            "truth": {"text": text, "facts": [{"id": "x"}]}}
+
+
+class FallbackTest(unittest.TestCase):
+    PICK = "everyone's doing sums on what google's new AI reportedly charges to think"
+
+    def setUp(self):
+        self.asked: list[tuple[str, str, str | None]] = []
+        self.tried: list[str] = []
+        self.verdicts: dict[str, str] = {}
+        self.results: dict[str, str] = {}
+
+    def ask(self, root, agent, message, thread, model, secs):
+        self.asked.append((agent, message, thread))
+        label = (re.findall(r'"(D[0-9]+)": \{', message) or ["?"])[0]
+        return 0, json.dumps({"verdict": self.verdicts.get(label, "pick"), "reason": f"said of {label}"}), ""
+
+    def room(self):
+        cfg = studio.Config(writer_model="w", editor_model="e", judge_model="j")
+        return studio.Room(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1", ask=self.ask)
+
+    def slot(self, rates=None):
+        blind = {"D5": _draft("d1", "p1", "trend:g", self.PICK),
+                 "D8": _draft("d2", "p1", "trend:g", "27 cents. that's what i cost yesterday"),
+                 "D2": _draft("d3", "p1", "trend:g", "google's new AI reportedly costs $3 to listen"),
+                 "D1": _draft("d5", "p2", "trend:a", "openai says amd's chips had room for a rewrite"),
+                 "D3": _draft("d6", "p3", "hn-top:1", "AI agents ask better questions than accountants")}
+        rates = rates or {"D5": 1.0, "D8": 1.0, "D2": 0.667, "D1": 0.333, "D3": 0.333}
+        return studio.Slot(order=list(rates), blind=blind, board={}, stories_now=[], pitches={}, items={},
+                           stories={}, thread="studio:run-1", rates=rates, close=1 / 3)
+
+    def publish(self, slot):
+        def fake_try(room, draft, attempt, slot_, afters):
+            label = attempt["label"]
+            self.tried.append(label)
+            result = self.results.get(label, "would_post")
+            attempt["result"] = {"next": "failed the stranger check, and its rewrite failed the truth check",
+                                 "would_post": "would post (dry)", "stop": "the slot stays empty"}[result]
+            return result
+        room = self.room()
+        # The pick's own slot question, as run() asks it before publishing.
+        room.turn("editor", "final", studio.final_message("D5", slot.blind["D5"], {}, []), None)
+        record: dict = {}
+        with mock.patch.object(studio, "try_draft", fake_try), mock.patch.object(studio, "example_afters",
+                                                                                 lambda brain: []):
+            out = studio.publish(room, record, slot)
+        return out
+
+    def test_every_editor_turn_is_a_cold_read_on_a_thread_of_its_own(self):
+        # A turn with no thread resumes the agent's newest transcript (the
+        # core's LatestForAgent), so the fallback's slot question was read
+        # after the pick's, which the editor had just said pick to.
+        self.results = {"D5": "next"}
+        self.publish(self.slot())
+        threads = [t for agent, _, t in self.asked if agent == "editor"]
+        self.assertEqual(len(threads), 2)
+        self.assertTrue(all(threads), threads)
+        self.assertEqual(len(set(threads)), len(threads))
+
+    def test_a_writer_turn_keeps_the_runs_thread(self):
+        room = self.room()
+        room.turn("writer", "pitch", '{"x": 1}', "studio:run-1")
+        self.assertEqual(self.asked[-1][2], "studio:run-1")
+
+    def test_a_fallback_is_told_nothing_went_out_and_is_never_shown_the_failed_pick(self):
+        self.results = {"D5": "next"}
+        self.publish(self.slot())
+        fallback = [m for agent, m, _ in self.asked if agent == "editor"][1]
+        self.assertIn("Nothing has gone out in this slot yet", fallback)
+        self.assertNotIn(self.PICK, fallback)
+        self.assertNotIn("This draft won the comparisons", fallback)
+
+    def test_a_vetoed_fallback_does_not_use_up_the_fallback_budget(self):
+        self.results = {"D5": "next"}
+        self.verdicts = {"D8": "none", "D2": "none"}
+        out = self.publish(self.slot())
+        self.assertEqual(out["outcome"], "would_post")
+        self.assertEqual(self.tried, ["D5", "D1"])
+        self.assertEqual([a["label"] for a in out["attempts"]], ["D5", "D8", "D2", "D1"])
+
+    def test_at_most_max_fallbacks_reach_the_gates(self):
+        self.results = {label: "next" for label in ("D5", "D8", "D2", "D1", "D3")}
+        out = self.publish(self.slot())
+        self.assertEqual(len(self.tried), 1 + studio.MAX_FALLBACKS)
+        self.assertEqual(out["outcome"], "empty")
+
+    def test_a_fallback_on_another_story_goes_first_when_the_ranks_are_close(self):
+        self.results = {"D5": "next"}
+        self.publish(self.slot({"D5": 1.0, "D8": 0.667, "D1": 0.667, "D2": 0.333, "D3": 0.0}))
+        self.assertEqual(self.tried, ["D5", "D1"])
+
+    def test_but_not_over_a_clearly_better_draft(self):
+        self.results = {"D5": "next"}
+        self.publish(self.slot({"D5": 1.0, "D8": 1.0, "D2": 0.667, "D1": 0.333, "D3": 0.0}))
+        self.assertEqual(self.tried, ["D5", "D8"])
+
+    def test_an_empty_slot_says_what_came_of_every_attempt(self):
+        self.results = {"D5": "next", "D1": "next"}
+        self.verdicts = {"D8": "none", "D2": "none"}
+        out = self.publish(self.slot({"D5": 1.0, "D8": 1.0, "D2": 0.667, "D1": 0.333}))
+        self.assertEqual(out["outcome"], "empty")
+        reason = out["reason"]
+        self.assertIn("the pick D5 failed the stranger check, and its rewrite failed the truth check", reason)
+        self.assertIn("3 fallbacks tried", reason)
+        self.assertIn("D8: the editor vetoed it (said of D8)", reason)
+        self.assertIn("D2: the editor vetoed it (said of D2)", reason)
+        self.assertIn("D1: failed the stranger check", reason)
+
+
+class ReachTest(unittest.TestCase):
+    """How widely a hooked story is discussed, said in the truth facts so that
+    "people are talking about this" is supported only when it is so."""
+
+    def test_the_days_top_story_is_widely_discussed(self):
+        self.assertEqual(studio.reach_line(GEMINI, "ai"),
+                         "This story is being widely discussed: 147 posts by 84 authors on X in the last 19 hours "
+                         "(Digg score 1044, rank 1 in AI).")
+
+    def test_a_small_story_is_not(self):
+        line = studio.reach_line(AMD, "ai")
+        self.assertTrue(line.startswith("This story is being discussed, but not widely: 10 posts by 9 authors"), line)
+        self.assertIn("not enough to say that everyone is talking about it", line)
+
+    def test_hacker_news(self):
+        self.assertIn("widely discussed", studio.reach_line({"source": "hn-front", "points": 812, "comments": 400,
+                                                             "age_hours": 5.0}, None))
+        small = studio.reach_line({"source": "hn-front", "points": 377, "comments": 166, "age_hours": 11.3}, None)
+        self.assertIn("377 points and 166 comments on Hacker News in the last 11 hours", small)
+        self.assertIn("not widely", small)
+
+    def test_no_measure_no_line(self):
+        self.assertEqual(studio.reach_line({}, "ai"), "")
+        self.assertEqual(studio.reach_line({"source": "hn-search", "points": 900}, None), "")
+
+    def test_the_line_follows_the_hook_in_the_truth_facts(self):
+        hook = {"id": "trend:g", "title": "Gemini 4 Neon pricing reportedly surfaces", "topic": "ai",
+                "trend": GEMINI, "trending": True, "untrusted": True}
+        facts = studio.facts_for({"id": "evt:2", "what": "a bill"}, None, hook)
+        self.assertEqual([f["id"] for f in facts], ["trend:g", "trend:g:reach", "evt:2"])
+        self.assertEqual(facts[1]["what"], studio.reach_line(GEMINI, "ai"))
+        self.assertNotIn("trend", facts[0])
+
+    def test_no_hook_no_line(self):
+        self.assertEqual(studio.facts_for({"id": "evt:2"}, None, None), [{"id": "evt:2"}])
