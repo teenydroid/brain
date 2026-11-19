@@ -66,6 +66,7 @@ it could not ask is a no, as before, and nothing is kept.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -153,6 +154,11 @@ def judge(text: str, anchor: str, inputs: Any) -> dict[str, Any]:
 
 TRUTH_UNREACHABLE = "the truth judge could not be reached"
 TRUTH_UNREADABLE = "the truth judge answered in an unreadable shape"
+#: How a verdict the code check gave in the judge's place begins: a pass, or
+#: a hold for the hard-claim markers it lists. Neither begins with the
+#: unjudged words above, so a caller reads both as a judgment of the draft.
+CODE_PASSED = "passed on the code check"
+CODE_HELD = "held on the code check"
 NO_FACTS = "the truth judge was given no facts to check against"
 BAD_FACTS = "the facts are not a list of JSON items"
 FACTS_TOO_LARGE = "the facts are too large for the truth judge"
@@ -239,16 +245,67 @@ CREATE TABLE IF NOT EXISTS truth_checks (
     facts TEXT NOT NULL,
     truthful INTEGER NOT NULL,
     unsupported TEXT NOT NULL,
-    reason TEXT NOT NULL
+    reason TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT 'judge'
 );
 CREATE INDEX IF NOT EXISTS truth_checks_at ON truth_checks (at);
 """
+
+#: The marks of a hard claim that code can see without a model (`hard_markers`):
+#: money, the token and anything a reader could act on with money. Read
+#: case-insensitively, except the ticker. False holds are the safe side: the
+#: code check only ever stands in for a judge it could not ask.
+_MONEY_WORDS = (
+    "dollar", "dollars", "buck", "bucks", "cent", "cents", "penny", "pennies", "dime", "dimes", "nickel", "nickels",
+    "usd", "usdc", "usdt", "euro", "euros", "money", "cash", "price", "prices", "priced", "pricing", "cost", "costs",
+    "costing", "paid", "pay", "pays", "paying", "payment", "payments", "payout", "payouts", "earn", "earns", "earned",
+    "earning", "earnings", "income", "revenue", "profit", "profits", "salary", "bill", "bills", "invoice", "fee",
+    "fees", "wallet", "wallets", "balance", "fund", "funds", "funded", "funding", "invest", "invested", "investing",
+    "investment", "investor", "investors", "token", "tokens", "coin", "coins", "crypto", "bitcoin", "btc", "eth",
+    "ether", "ethereum", "sol", "solana", "memecoin", "memecoins", "airdrop", "airdrops", "giveaway", "giveaways",
+    "mcap", "buy", "buys", "buying", "bought", "sell", "sells", "selling", "sold", "percent", "grand", "rich", "broke",
+)
+HARD_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("a currency sign", re.compile(r"[$\u20ac\u00a3\u00a5\u20bf\u20b9]")),
+    ("a percent", re.compile(r"\d\s*%|\bper\s?cent\b", re.IGNORECASE)),
+    ("an amount in thousands or millions", re.compile(r"\b\d+(?:\.\d+)?\s?(?:k|m|bn|b)\b", re.IGNORECASE)),
+    ("TINY", re.compile(r"(?<![A-Za-z0-9_])TINY(?![A-Za-z0-9_])")),
+    ("market cap", re.compile(r"\bmarket\s+caps?\b", re.IGNORECASE)),
+    ("a contract address", re.compile(r"(?<![A-Za-z0-9])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])")),
+    ("a mint address", re.compile(r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}(?![1-9A-HJ-NP-Za-km-z])")),
+    ("pump.fun", re.compile(r"pump\s*\.?\s*fun", re.IGNORECASE)),
+    ("a money word", re.compile(r"\b(?:" + "|".join(_MONEY_WORDS) + r")\b", re.IGNORECASE)),
+)
 
 
 def truth_enabled() -> bool:
     """`TRUTH_JUDGE`, default on; a value it cannot read leaves it on."""
     value = hand.setting("TRUTH_JUDGE")
     return value is None or value.strip().lower() not in ("0", "false", "no", "off")
+
+
+def fail_closed() -> bool:
+    """`TRUTH_FAIL_CLOSED`, default off: on, a judge that could not be asked
+    is a no, as it was before 2026-11-19, and the code check never runs."""
+    value = hand.setting("TRUTH_FAIL_CLOSED")
+    return value is not None and value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def hard_markers(text: str) -> list[str]:
+    """What in TEXT marks a hard claim code can see: each match, as written,
+    in order, each once ("$0.27", "wallet", "TINY"). [] when there is none."""
+    found: list[tuple[int, str]] = []
+    for _, pattern in HARD_MARKERS:
+        for m in pattern.finditer(text):
+            # A currency sign is shown with the amount or the ticker it marks.
+            word = m.group(0) if m.group(0) not in "$\u20ac\u00a3\u00a5\u20bf\u20b9" else \
+                re.match(r"\S+", text[m.start():]).group(0)  # type: ignore[union-attr]
+            found.append((m.start(), word.strip(".,;:!?)(\"'")))
+    out: list[str] = []
+    for _, word in sorted(found):
+        if word and word not in out:
+            out.append(word)
+    return out[:MAX_UNSUPPORTED]
 
 
 def _bytes(text: str) -> int:
@@ -324,29 +381,52 @@ def _keep_truth(text: str, block: str, verdict: dict[str, Any]) -> None:
         conn = hand.db()
         try:
             conn.executescript(_TRUTH_SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(truth_checks)")}
+            if "path" not in columns:  # a ledger from before the code check
+                conn.execute("ALTER TABLE truth_checks ADD COLUMN path TEXT NOT NULL DEFAULT 'judge'")
             conn.execute(
-                "INSERT INTO truth_checks (at, text, facts, truthful, unsupported, reason) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO truth_checks (at, text, facts, truthful, unsupported, reason, path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (iso(hand.now()), text, block, int(verdict["truthful"]),
-                 json.dumps(verdict["unsupported"], ensure_ascii=False), verdict["reason"]),
+                 json.dumps(verdict["unsupported"], ensure_ascii=False), verdict["reason"], verdict["path"]),
             )
+            conn.commit()
         finally:
             conn.close()
     except (sqlite3.Error, OSError):
         pass
 
 
-def _refused(reason: str) -> dict[str, Any]:
-    return {"truthful": False, "unsupported": [], "reason": reason, "judged": True}
+def _refused(reason: str, path: str = "refused") -> dict[str, Any]:
+    return {"truthful": False, "unsupported": [], "reason": reason, "judged": True, "path": path}
+
+
+def code_check(text: str, why: str) -> dict[str, Any]:
+    """The verdict in place of a judge that could not judge (WHY: its
+    unreachable or unreadable words): truthful when TEXT has no hard-claim
+    marker, held with the markers listed when it has any."""
+    markers = hard_markers(text)
+    if markers:
+        return {"truthful": False, "unsupported": markers, "judged": True, "path": "code",
+                "reason": (f"{CODE_HELD}, because {why}: it carries a mark of money or the token "
+                           f"({', '.join(markers)}), and only the judge may pass one")[:MAX_REASON_CHARS]}
+    return {"truthful": True, "unsupported": [], "judged": True, "path": "code",
+            "reason": (f"{CODE_PASSED}, because {why}: no money, token or price in it, and a bit about "
+                       "the account itself needs no judge")[:MAX_REASON_CHARS]}
 
 
 def truth(text: str, facts: Any) -> dict[str, Any]:
-    """{truthful, unsupported, reason, judged}: truthful only on the judge's
-    clear yes with nothing listed. Never raises on what it is given: a text
-    or facts it cannot put to the judge is a no with its own reason, and
-    `judged` is false only when the judge is off (and then truthful is true:
-    callers that need a judgment check `judged`)."""
+    """{truthful, unsupported, reason, judged, path}: truthful on the judge's
+    clear yes with nothing listed, or, when the judge could not judge, on the
+    code check's (`code_check`; never with TRUTH_FAIL_CLOSED=1). `path` says
+    which decided: "judge", "code", "refused" (a text or facts it cannot put
+    to the judge: a no with its own reason), "unjudged" (the judge could not
+    judge and TRUTH_FAIL_CLOSED is on: a no) or "off". Never raises on what
+    it is given, and `judged` is false only when the judge is off (and then
+    truthful is true: callers that need a judgment check `judged`)."""
     if not truth_enabled():
-        return {"truthful": True, "unsupported": [], "reason": "the truth judge is off", "judged": False}
+        return {"truthful": True, "unsupported": [], "reason": "the truth judge is off", "judged": False,
+                "path": "off"}
     if not isinstance(text, str) or not text.strip():
         return _refused("the truth judge was given no text")
     if _bytes(text) > MAX_TEXT_BYTES:
@@ -362,11 +442,16 @@ def truth(text: str, facts: Any) -> dict[str, Any]:
         params["model_override"] = model
     read, error = ask(params, lambda reply: _read_truth(_answer(reply)), budget=BUDGET, timeout=TIMEOUT)
     if read is None:
-        # Any failure to judge is a no, never a pass; nothing was said about
-        # the draft, so nothing is kept.
-        return _refused(TRUTH_UNREADABLE if error is None else f"{TRUTH_UNREACHABLE}: {error}")
+        why = TRUTH_UNREADABLE if error is None else f"{TRUTH_UNREACHABLE}: {error}"
+        if fail_closed():
+            # The old rule: any failure to judge is a no; nothing was said
+            # about the draft, so nothing is kept.
+            return _refused(why, "unjudged")
+        verdict = code_check(text, why)
+        _keep_truth(text, block, verdict)
+        return verdict
     # A listed claim is a no, whatever the judge's yes said.
-    verdict = {**read, "truthful": read["truthful"] and not read["unsupported"], "judged": True}
+    verdict = {**read, "truthful": read["truthful"] and not read["unsupported"], "judged": True, "path": "judge"}
     if not verdict["reason"]:
         verdict["reason"] = ("not supported by the facts: " + ", ".join(f'"{c}"' for c in read["unsupported"])
                              if read["unsupported"] else
