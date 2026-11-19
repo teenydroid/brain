@@ -12,6 +12,7 @@ the outcome kind that counts a hand's uses; it codes against their shapes."""
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -145,6 +146,14 @@ class WantsCase(unittest.TestCase):
     def file_a_request(self, body):
         return 0, {"ok": True, "id": self.request("pending", body["text"], body.get("want", "w:none")),
                    "status": "pending", "want": body.get("want")}
+
+    def reset(self):
+        """The ledgers and the wants' own state as they were before any filing."""
+        shutil.rmtree(self.root / "state" / "wants", ignore_errors=True)
+        self.sql("DELETE FROM build_requests")
+        self.sql("DELETE FROM build_jobs")
+        self.sql("DELETE FROM sqlite_sequence")
+        self.calls.clear()
 
     def filed(self):
         path = self.root / "state" / "wants" / "filed.jsonl"
@@ -307,18 +316,16 @@ class Standing(WantsCase):
 
     def test_a_filed_want_is_in_flight_while_its_request_is_pending_or_picked(self):
         for status in ("pending", "picked"):
-            self.setUp()
+            self.reset()
             self.filed_then(status)
             self.assertEqual(self.standing()["state"], "in-flight", status)
             self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
-            self.tearDown()
 
     def test_a_want_is_in_flight_while_its_job_is_claimed_or_ok(self):
         for status in ("claimed", "ok"):
-            self.setUp()
+            self.reset()
             self.filed_then("picked", status)
             self.assertEqual(self.standing()["state"], "in-flight", status)
-            self.tearDown()
 
     def test_a_failed_build_is_a_try_and_two_give_up(self):
         self.filed_then("failed", "failed", summary="abandoned: the builder never reported back")
