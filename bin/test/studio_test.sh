@@ -864,6 +864,13 @@ out="$(STUDIO=1 veto <<<'{"kind": "peer-quote", "text": "we measured this too", 
 check "STUDIO=1: one editor turn on the one candidate, with the post it quotes" \
   bash -c "jq -e '.verdict == \"pick\" and .kind == \"peer-quote\"' <<<\"\$1\" >/dev/null && [ \"\$2\" = 1 ] && grep -q SECRET-QUOTED-POST <<<\"\$3\"" _ "$out" "$(turns)" "$(calls_to editor)"
 check "and it is kept in studio_runs as a veto" jqe '.kind == "veto" and .outcome == "picked" and .slot == "peer-quote"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
+check "the peer quote is judged as a reaction (funny or striking, about the post), never as a first-hand report" \
+  bash -c "grep -q 'funny or striking' <<<\"\$1\" && grep -q 'Do not ask it for first-hand material' <<<\"\$1\" &&
+    ! grep -q 'Judge it on your rubric' <<<\"\$1\"" _ "$(calls_to editor)"
+reset
+out="$(STUDIO=1 veto <<<'{"kind": "brief", "text": "the team asked me to say hi"}')"
+check "the brief keeps the slot rubric" bash -c "grep -q 'Judge it on your rubric as a stranger meets it' <<<\"\$1\" &&
+  ! grep -q 'funny or striking' <<<\"\$1\"" _ "$(calls_to editor)"
 reset
 out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat"}' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "the editor's none is a none" jqe '.verdict == "none" and .reason == "flat"' <<<"$out"
