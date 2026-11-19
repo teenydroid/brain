@@ -1,9 +1,13 @@
 """The mentions queue: what people said to the account, read once, screened,
 and offered to the core as inbound events (docs/hands.md, "ingest").
 
-`ingest` reads the account's mentions timeline (`/2/users/:id/mentions`)
-from a cursor kept in `x_cursor`, so a mention is fetched, and billed, once.
-Each new one becomes a row in `x_mentions`, unique on its post id:
+X's webhook (x/webhook.py) queues each mention as it is written. `ingest`
+screens and offers what is queued on every run, and once an hour
+(`X_MENTIONS_POLL_HOURS`, 1) also reads the account's mentions timeline
+(`/2/users/:id/mentions`) for anything the webhook lost: a read of X is
+a call, and one every five minutes mostly found nothing. That read
+starts from a cursor kept in `x_cursor`, so a mention is fetched, and billed,
+once. Each new one becomes a row in `x_mentions`, unique on its post id:
 
   unscreened  queued by X's webhook (x/webhook.py), which runs where the
            core, and so the safety judge, is out of reach; the next ingest
@@ -206,29 +210,56 @@ def _open_drop_posts(conn) -> set[str]:
     return {str(r["post_id"]) for r in rows}
 
 
-def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None) -> Mapping[str, Any]:
-    """Reads new mentions into the queue and offers every pending one. Safe to
-    run at any time and twice at once (a lock), and it never answers anyone."""
-    x = x or XApi.from_settings()
-    wanted = max_results if max_results is not None else int(number_setting("X_MENTIONS_MAX_RESULTS", 20, 5, 100))
+#: The `x_cursor` row that keeps when X's mentions timeline was last read.
+POLL = "mentions_poll"
+#: Hours between two reads of the timeline, by default: X's webhook brings
+#: each mention as it is written, so the timeline is only the backstop for a
+#: delivery the webhook lost.
+DEFAULT_POLL_HOURS = 1.0
+
+
+def _poll_due(conn, now: float) -> float | None:
+    """None when X's mentions timeline is read this run, else when it next
+    is. It is read when it never was, or `X_MENTIONS_POLL_HOURS` (1; 0 reads
+    it every run) have passed since the last read that X answered."""
+    every = number_setting("X_MENTIONS_POLL_HOURS", DEFAULT_POLL_HOURS, 0.0, 168.0) * 3600.0
+    row = conn.execute("SELECT at FROM x_cursor WHERE name = ?", (POLL,)).fetchone()
+    if row is None or now - row["at"] >= every:
+        return None
+    return row["at"] + every
+
+
+def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None, poll: bool = False) -> Mapping[str, Any]:
+    """Screens what X's webhook queued and offers every pending mention; once
+    an hour (`_poll_due`), or when `poll` forces it, it first reads X's mentions
+    timeline for anything the webhook lost. The run in between makes no X
+    call at all. Safe to run at any time and twice at once (a lock), and it
+    never answers anyone."""
     with hand.lock("x-ingest", timeout=60):
         conn = _db()
-        me = cache.reads(x).identity()
+        now = hand.now()
+        next_poll = None if poll else _poll_due(conn, now)
+        counts = {status: 0 for status in STATUSES}
+        posts: list[Json] = []
+        newest = None
         row = conn.execute("SELECT since_id FROM x_cursor WHERE name = 'mentions'").fetchone()
         since_id = row["since_id"] if row else None
-        page = x.mentions_page(me["id"], since_id=since_id, max_results=wanted)
-        posts = page["posts"]
-        cache.remember(posts)
-
-        counts = {status: 0 for status in STATUSES}
-        now = hand.now()
-        for post in sorted(posts, key=lambda p: int(p["id"])):
-            _store(conn, me, post, counts, now)
-        # Every post the page brought back is stored, so the cursor can move:
-        # a failed offer is retried from the row, not by reading X again.
-        newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
-        if newest:
-            _set_cursor(conn, "mentions", newest, now)
+        if next_poll is None:
+            x = x or XApi.from_settings()
+            wanted = max_results if max_results is not None else int(number_setting("X_MENTIONS_MAX_RESULTS", 20, 5, 100))
+            me = cache.reads(x).identity()
+            page = x.mentions_page(me["id"], since_id=since_id, max_results=wanted)
+            posts = page["posts"]
+            cache.remember(posts)
+            for post in sorted(posts, key=lambda p: int(p["id"])):
+                _store(conn, me, post, counts, now)
+            # Every post the page brought back is stored, so the cursor can move:
+            # a failed offer is retried from the row, not by reading X again.
+            newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
+            if newest:
+                _set_cursor(conn, "mentions", newest, now)
+            # Only a read X answered counts: a failed one is tried again next run.
+            _set_cursor(conn, POLL, None, now)
         screened = {status: 0 for status in STATUSES}
         screen_queued(conn, screened)
 
@@ -258,6 +289,8 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         result: dict[str, Any] = {"read": len(posts), "new": new, "offered": offered, "cursor": newest or since_id}
         if any(screened.values()):
             result["screened"] = {status: n for status, n in screened.items() if n}
+        if next_poll is not None:
+            result["poll"] = {"skipped": True, "next_at": rules.iso(next_poll)}
         if failed:
             _warn(f"offer failed, left pending: {failed}")
             result["offer_error"] = failed
