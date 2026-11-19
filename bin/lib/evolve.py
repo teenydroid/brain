@@ -5478,6 +5478,14 @@ def _pr_fields(cand: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict[str
 
 
 def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
+    """pr_text(CAND) as it is published: screened as the babysitter will
+    screen it (`pr_words_screened`), then its file names and off-list hosts
+    put as the guard's link screen lets them out (`linked_pr_text`)."""
+    title, body = pr_words_screened(cand, proposer)
+    return linked_pr_text(cand, title, body)
+
+
+def pr_words_screened(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
     """pr_text(CAND), screened as the babysitter will screen it. While a
     word the guard holds on sight matches (`pr_held`: never a `judged`
     one, which the guard and the babysitter pass), the fields it is in are
@@ -5544,6 +5552,184 @@ def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
     else:
         cand.pop("pr_screen", None)
     return title, body
+
+
+# --- the pull request's links, as the guard's link screen reads them --------------------------------------------
+#
+# The guard's link screen (hands/lib/teeny_hands/guard/links.py) reads any
+# bare dotted token whose last part is a tld as a host, and hands/gh refuses
+# a pull request whose title or body names one off the allowlist. Gen 19's
+# candidate 3 passed its eval and never opened (guard_holds 1192): its own
+# evidence and research quoted the file name pr-agent-budget.sh and the
+# domains drips.network, docs.drips.network and a bare github.com. On
+# GitHub a code span is never a link (#375), so file names and repository
+# paths go in one; any other off-list host is put in words. The allowlist
+# stays as it is: nothing here adds to it.
+
+#: A dotted name ending in one of these is a file, never a host.
+CODE_EXTS = frozenset("""
+    sh bash zsh fish py pyi ipynb md mdx rst txt toml json jsonl yaml yml ini cfg conf env lock js mjs cjs ts tsx jsx
+    rs go rb php java kt swift c h cc cpp hpp cs lua pl sql html htm css scss svg csv tsv patch diff log service timer
+    socket nix tf
+    """.split())
+#: A repository path or file name as prose writes it: dotted at the end,
+#: never glued to a URL, an address, a word or a code span.
+_PATH_TOKEN = re.compile(r"(?<![\w@./:\\`~-])((?:[\w.-]+/)*[\w-][\w.-]*\.[A-Za-z0-9]{1,10})(?![\w/`-]|\.\w)")
+
+
+def pr_link_cuts(fields: Mapping[str, str]) -> list[dict[str, str]]:
+    """What the guard's link screen cuts from these pull request fields, as
+    hands/gh's check_fields runs it (surface github: the house style, then
+    links with code spans as code): one {"link", "reason"} each."""
+    from teeny_hands.guard import gate
+    from teeny_hands.guard.links import filter_links
+    from teeny_hands.guard.style import apply_house_style
+
+    allowed = gate.allowlist()
+    cuts: list[dict[str, str]] = []
+    for name, text in fields.items():
+        styled = apply_house_style(text, max_emoji=gate.default_max_emoji("github"),
+                                   max_length=gate.field_limit("github", name), strip_handles=False).text
+        cuts.extend(filter_links(styled, allowed, code_is_code="github" in gate.CODE_SPAN_SURFACES).removed)
+    return cuts
+
+
+def code_named(text: str, paths: Iterable[str] = ()) -> tuple[str, list[str]]:
+    """TEXT with each repository path or file name the link screen would read
+    as a host put in a code span: a name in PATHS, or one ending in a code
+    extension (CODE_EXTS). Names in code already, and names the screen
+    passes (brain/SOUL.md), stay as they are. The text, and the names."""
+    from teeny_hands.guard.gate import allowlist
+    from teeny_hands.guard.links import code_spans, filter_links
+
+    known = set(paths)
+    spans = code_spans(text)
+    allowed = allowlist()
+    out: list[str] = []
+    named: list[str] = []
+    at = 0
+    for match in _PATH_TOKEN.finditer(text):
+        token = match.group(1)
+        if any(start <= match.start() and match.end() <= end for start, end in spans):
+            continue
+        if text[max(0, match.start() - 2):match.start()] == "](":  # a markdown link's target
+            continue
+        if token not in known and token.rsplit(".", 1)[-1].lower() not in CODE_EXTS:
+            continue
+        if not filter_links(token, allowed).removed:
+            continue
+        out += [text[at:match.start()], f"`{token}`"]
+        named.append(token)
+        at = match.end()
+    out.append(text[at:])
+    return "".join(out), named
+
+
+def _site_words(link: Any) -> str:
+    """An off-list link in words, with no dot in them: "the drips site"."""
+    host = link.url.host if link.url is not None else re.split(r"[/:?#]", link.raw.split("://")[-1])[0]
+    labels = [label for label in host.lower().removeprefix("www.").split(".") if label]
+    return f"the {' '.join(labels[:-1]) or ''.join(labels[:1]) or 'other'} site"
+
+
+def worded_links(text: str) -> tuple[str, list[str]]:
+    """TEXT with each link the guard keeps off (an off-allowlist host, bare
+    or not) put in words: a markdown link keeps its label. One the text
+    hides (evil[.]com) is left for the guard. The text, and the links."""
+    from teeny_hands.guard.gate import allowlist
+    from teeny_hands.guard.links import find_links, judge_link
+
+    allowed = allowlist()
+    off: dict[str, Any] = {}
+    for link in find_links(text, code_is_code=True):
+        if link.raw in text and judge_link(link, allowed) is not None:
+            off.setdefault(link.raw, link)
+    for raw in sorted(off, key=len, reverse=True):
+        words = _site_words(off[raw])
+        esc = re.escape(raw)
+        text = re.sub(r"\[([^\]\n]*)\]\(\s*<?" + esc + r">?\s*\)",
+                      lambda m, w=words: f"{m.group(1)} (on {w})" if m.group(1).strip() else w, text)
+        text = re.sub(r"<" + esc + ">", lambda m, w=words: w, text)
+        text = re.sub(r"(?<![A-Za-z0-9_@./\-])" + esc + r"(?![A-Za-z0-9/-])", lambda m, w=words: w, text)
+    return text, sorted(off)
+
+
+def pr_link_text(title: str, body: str, paths: Iterable[str] = (), info: Json | None = None) -> tuple[str, str]:
+    """TITLE and BODY as the guard's link screen lets them out: file names in
+    code (`code_named`), other off-list hosts in words (`worded_links`).
+    INFO, when given, gets what was changed ("coded", "reworded") and what
+    the screen still cuts ("still")."""
+    fields = {"title": title, "body": body}
+    coded: list[str] = []
+    reworded: list[str] = []
+    for _ in range(2):
+        if not pr_link_cuts(fields):
+            break
+        for name, text in fields.items():
+            text, got = code_named(text, paths)
+            coded += got
+            text, got = worded_links(text)
+            reworded += got
+            fields[name] = text
+    if info is not None:
+        info.update({k: sorted(set(v)) for k, v in (("coded", coded), ("reworded", reworded)) if v})
+        still = pr_link_cuts(fields)
+        if still:
+            info["still"] = sorted({c["reason"] for c in still})
+    return fields["title"], fields["body"]
+
+
+def pr_paths(cand: Mapping[str, Any]) -> set[str]:
+    """The repository paths CAND's pull request may name: the learning's
+    files, the research's, the proposal's edits and the frozen list's plain
+    entries."""
+    paths: set[str] = set()
+    learning = cand.get("learning") if isinstance(cand.get("learning"), Mapping) else {}
+    research = cand.get("research") if isinstance(cand.get("research"), Mapping) else {}
+    for value in (learning.get("files"), research.get("document"), research.get("read"), cand.get("touched")):
+        if isinstance(value, list):
+            paths.update(p for p in value if isinstance(p, str))
+    with contextlib.suppress(Exception):
+        paths.update(p for p in frozen.listing().get("patterns") or [] if "*" not in p)
+    return {p.rstrip("/") for p in paths if p}
+
+
+def linked_pr_text(cand: Json, title: str, body: str) -> tuple[str, str]:
+    """TITLE and BODY put as the guard's link screen lets them out
+    (`pr_link_text`), what changed kept on CAND as `pr_links`. What the
+    screen still cuts goes to the guard as it is, which holds it, and the
+    candidate's pr-error names that hold."""
+    info: Json = {}
+    title, body = pr_link_text(title, body, pr_paths(cand), info)
+    if info:
+        cand["pr_links"] = info
+    else:
+        cand.pop("pr_links", None)
+    if info.get("still"):
+        say(f"candidate {cand['cand']}: the guard's link screen still cuts its pull request text "
+            f"({'; '.join(info['still'])[:200]}); the guard decides")
+    return title, body
+
+
+def pr_refusal(exc: BaseException) -> tuple[str, Json | None]:
+    """Why publishing failed, for the archive's pr_error, and the guard's hold
+    when one stopped it ({"id", "category", "field", "reason"}): the hold's
+    own reason (the links it cut) beside the guard's sentence, not the
+    sentence alone, which names nothing."""
+    said = str(getattr(exc, "reason", None) or exc)
+    detail = getattr(exc, "detail", None)
+    hold_id = detail.get("hold_id") if isinstance(detail, Mapping) else None
+    if not isinstance(hold_id, int):
+        return said[:500], None
+    hold: Json = {"id": hold_id, "category": detail.get("category"), "field": detail.get("field")}
+    with contextlib.suppress(Exception):
+        from teeny_hands.guard import holds
+
+        row = holds.get(hold_id) or {}
+        hold.update({k: row.get(k) for k in ("category", "reason") if row.get(k)})
+    what = ", ".join(str(v) for v in (hold.get("category"), hold.get("field") and f"the {hold['field']}") if v)
+    because = f": {hold['reason']}" if hold.get("reason") else ""
+    return f"the guard's hold {hold_id} ({what}){because}. The guard said: {said}"[:500], hold
 
 
 def new_branch(tree: Path, branch: str) -> str:
@@ -5620,7 +5806,11 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
                         infra={"stage": "publish", "detail": broke})
             say(f"candidate {cand['cand']}: publishing failed for the box ({broke[:160]}); it waits for the next run")
             return {"waiting": cand["waiting"]}
-        cand.update(verdict="pr-error", pr_error=str(getattr(exc, "reason", None) or exc)[:300])
+        why, hold = pr_refusal(exc)
+        cand.update(verdict="pr-error", pr_error=why)
+        if hold:
+            cand["pr_hold"] = hold
+        say(f"candidate {cand['cand']}: its pull request did not open: {why[:200]}")
         return {"pr_error": cand["pr_error"]}
     finally:
         if tree is not None:

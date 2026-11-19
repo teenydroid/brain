@@ -41,9 +41,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
+from teeny_hands import authorship  # noqa: E402  (stdlib only, frozen)
 
 Json = dict[str, Any]
 
@@ -245,13 +249,21 @@ def follower_moves(db: Ledgers, since: float) -> Json | None:
 
 def held_drafts(db: Ledgers, since: float) -> Json | None:
     """Teeny's own words the guard held, grouped by surface, category, who
-    held them and why. The reason is the guard's; the held text is left out."""
+    held them and why. The reason is the guard's; the held text is left out
+    (matched only against teeny_hands.authorship's fixed markers: a hold on
+    text code wrote, the babysitter's audit comment, is not Teeny's draft and
+    is only counted, as `not_yours`)."""
     groups: dict[tuple, Json] = {}
     total = 0
-    for r in db.rows("SELECT at, kind, context, category, reason, held_by, status FROM guard_holds "
+    not_yours: dict[str, int] = {}
+    for r in db.rows("SELECT at, kind, context, category, reason, held_by, status, text FROM guard_holds "
                      "WHERE direction = 'outbound'"):
         at = epoch(r["at"])
         if at is None or at < since:
+            continue
+        whose = authorship.code_wrote(r["context"], r["text"])
+        if whose:
+            not_yours[whose] = not_yours.get(whose, 0) + 1
             continue
         total += 1
         try:
@@ -263,9 +275,14 @@ def held_drafts(db: Ledgers, since: float) -> Json | None:
                                         "reason": key[3], "count": 0, "statuses": {}})
         group["count"] += 1
         group["statuses"][r["status"]] = group["statuses"].get(r["status"], 0) + 1
-    if not total:
+    if not total:  # nothing of Teeny's held: the code's holds alone are no evidence for it
         return None
-    return {"total": total, "groups": sorted(groups.values(), key=lambda g: -g["count"])[:6]}
+    return {"total": total, "groups": sorted(groups.values(), key=lambda g: -g["count"])[:6],
+            **({"not_yours": sum(not_yours.values()),
+                "not_yours_means": "holds on text code wrote and posted under your name ("
+                + ", ".join(authorship.what(w) for w in sorted(not_yours, key=lambda w: -not_yours[w]))
+                + "), not drafts of yours and not in `total`: nothing for you to change there"}
+               if not_yours else {})}
 
 
 # --- builds -----------------------------------------------------------------------------------------------------

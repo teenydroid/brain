@@ -92,6 +92,9 @@ hands/hn
 # The wider intake (Lobsters, GitHub, arXiv, HN on the standing topics): what
 # strangers write reaches the mind only past the guard's screen, as data.
 hands/listen
+# What AI X is talking about (the studio's first outside source): strangers' words reach
+# the writer only past the guard's screen, as data, and the tool's pin is the operator's.
+hands/trend
 
 # The scorer: hands/world computes W and J from the other hands' data
 # (docs/research/teeny-application.md, section 2). Teeny can change how it
@@ -129,6 +132,11 @@ hands/lib/teeny_hands/deploy/
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
 # lands a hand that should be frozen too.
 hands/lib/teeny_hands/__init__.py
+# Which guard holds are on Teeny's own words and which on text code wrote
+# (the babysitter's audit comment): the evolve findings, their checks, the
+# proposer's held drafts, J's penalty and the Moltbook material count only
+# the first, so a candidate must not decide which of its holds count.
+hands/lib/teeny_hands/authorship.py
 hands/lib/teeny_hands/bounty/
 hands/lib/teeny_hands/briefs.py
 hands/lib/teeny_hands/build/
@@ -142,6 +150,7 @@ hands/lib/teeny_hands/hand.py
 hands/lib/teeny_hands/hn/
 hands/lib/teeny_hands/keychain/
 hands/lib/teeny_hands/listen/
+hands/lib/teeny_hands/trend/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
 # Clips and songs: renders on the reel service and buys music under the

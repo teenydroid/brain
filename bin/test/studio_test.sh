@@ -86,7 +86,7 @@ cat >"$scratch/fake/desk.json" <<'JSON'
 JSON
 cat >"$scratch/fake/pitch.json" <<'JSON'
 {"pitches": [
-  {"id": "p1", "item": "evt:2", "storyline": "rent", "shape": "confession", "format": "post", "angle": "SECRET-ANGLE-ONE", "why_now": "SECRET-WHY-ONE"},
+  {"id": "p1", "hook": "trend:s1", "item": "evt:2", "storyline": "rent", "shape": "confession", "format": "post", "angle": "SECRET-ANGLE-ONE", "why_now": "SECRET-WHY-ONE"},
   {"id": "p2", "item": "evt:1", "storyline": null, "shape": "real question", "format": "thread", "angle": "SECRET-ANGLE-TWO", "why_now": "SECRET-WHY-TWO"},
   {"id": "p3", "item": "nope:404", "storyline": "rent", "shape": "bet", "format": "post", "angle": "made up", "why_now": "x"},
   {"id": "p4", "item": "evt:2", "storyline": "rent", "shape": "scene", "format": "song", "angle": "sing it", "why_now": "x"},
@@ -205,7 +205,20 @@ FAKE
 cat >"$scratch/hands/hn" <<'FAKE'
 #!/usr/bin/env bash
 printf 'hn %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
-echo '{"ok": true, "stories": [{"id": 42, "title": "a robot learns to fold laundry", "url": "https://example.com", "score": 300}]}'
+# One story a verb (the front page's is 42), each its own headline.
+case "$1" in top) id=42 ;; show) id=43 ;; *) id=44 ;; esac
+# The front page: 42 is big and fresh (trending), 41 is small (not).
+jq -cn --argjson id "$id" --arg v "$1" --argjson now "$(date +%s)" '{ok: true, stories: [{id: $id, title: "a robot learns to fold laundry (\($v))", url: "https://example.com/\($id)", score: 500, descendants: 80, time: ($now - 3600), by: "someone"}, {id: 41, title: "a small front page story", url: "https://example.com/41", score: 20, descendants: 1, time: ($now - 3600)}]}'
+FAKE
+# What AI X is talking about: one story with a post behind it, or, with
+# $FAKE_TREND_DOWN, Digg not answering.
+cat >"$scratch/hands/trend" <<'FAKE'
+#!/usr/bin/env bash
+printf 'trend %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+if [ -n "${FAKE_TREND_DOWN:-}" ]; then echo '{"ok": false, "error": "digg-pp-cli top exited 1: temporarily unavailable", "reason": "rate_limited"}'; exit 1; fi
+jq -cn --arg at "$(date -u -d '-3 hours' +%Y-%m-%dT%H:%M:%SZ)" --arg old "$(date -u -d '-3 days' +%Y-%m-%dT%H:%M:%SZ)" '{ok: true, source: "digg", key: "k", cached: false, stories: [
+  {id: "s1", cluster: "2febb0c8-0d89-4403-a0d6-9cbc315abcbc", topic: "ai", title: "an AI lab hired a new chief scientist", summary: "the lab says the hire will lead its research team", score: 556, rank: 1, sources: 71, authors: 55, published_at: $at, posts: [{by: "Ana", text: "big hire for the lab", url: "https://x.com/ana/status/1"}]},
+  {id: "s9", topic: "ai", title: "an old story still on the board", score: 400, rank: 2, published_at: $old}], unavailable: []}'
 FAKE
 cat >"$scratch/hands/listen" <<'FAKE'
 #!/usr/bin/env bash
@@ -280,7 +293,19 @@ check "and prints the pick as JSON" jqe '.pick.label | test("^D[0-9]+$")' <<<"$o
 check "and says it posted nothing: it would post" jqe '.dry == true and .published.outcome == "would_post" and .published.dry == true' <<<"$out"
 check "every hand runs with DRY_RUN=1" bash -c "! grep -vE 'DRY_RUN=1( stdin=.*)?$' '$FAKE_HANDS' | grep -v '^story record-run'"
 check "it reads what happened from hands/story desk" grep -q '^story desk DRY_RUN=1$' "$FAKE_HANDS"
-check "and the free outside world the old playbooks read" bash -c "grep -q '^hn top --max 8' '$FAKE_HANDS' && grep -q '^hn show --max 8' '$FAKE_HANDS' && grep -q '^listen digest --days 1 --max 4' '$FAKE_HANDS'"
+check "it reads what AI X is talking about first, once a slot" bash -c "head -n 20 '$FAKE_HANDS' | grep -v '^x slot\|^story ' | head -n 1 | grep -q '^trend top --slot [0-9-]*:afternoon --limit 10 '"
+check "and Hacker News's front page second" grep -q '^hn top --max 15' "$FAKE_HANDS"
+check "but no keyword search, show or listen digest: no trend signal" bash -c "! grep -qE '^(hn (search|show)|listen )' '$FAKE_HANDS'"
+check "only trending stories reach the writer, biggest first, with their measure" bash -c "grep -q '\"trend:s1\"' <<<\"\$1\" && ! grep -q 'trend:s9' <<<\"\$1\" && ! grep -q 'hn-top:41' <<<\"\$1\" && grep -q '\"score\":556,\"rank\":1' <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
+check "and the record counts what was not trending" jqe '.outside.sources.trend.not_trending == 1 and .outside.sources["hn-top"].not_trending == 1' <<<"$rec"
+check "the hooked pitch keeps its story's trend measure" jqe '.pitches | map(select(.id == "p1"))[0].hook_trend | .score == 556 and .rank == 1 and .source == "digg"' <<<"$rec"
+check "and the editor sees the story a draft joins and how big it is" bash -c "grep -q '\"joins\": {\"story\": \"an AI lab hired a new chief scientist\"' <<<\"\$1\"" _ "$(calls_to editor)"
+check "the pitch message leads with the outside world" bash -c "msg=\"\$1\"; o=\"\${msg%%## what is trending today*}\"; m=\"\${msg%%## what you can bring to it*}\"; [ \${#o} -lt \${#m} ]" _ "$(step_msgs '# studio: pitch')"
+check "and who posted on Hacker News is left out of it" bash -c "! grep -q 'someone' <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
+check "the hooked pitch keeps its story in the record" jqe '.pitches | map(select(.id == "p1"))[0] | .hook == "trend:s1" and .hook_item.title == "an AI lab hired a new chief scientist" and .drafted == true' <<<"$rec"
+check "and its drafts carry the story in their truth facts" jqe '.drafts | map(select(.pitch == "p1")) | length == 3 and all(.hook == "trend:s1" and .truth.facts[0].id == "trend:s1" and .truth.facts[0].posts[0].text == "big hire for the lab")' <<<"$rec"
+check "two of the three drafted pitches are hooked" jqe '.drafted == {want_hooked: 2, hooked: 2}' <<<"$rec"
+check "and the draft message gives the writer the story and the rules for it" bash -c "grep -q '## the news it joins' <<<\"\$1\" && grep -q 'No @-mentions' <<<\"\$1\"" _ "$(step_msgs '# studio: draft')"
 check "but not the paid X search, which is off by default, and says so" \
   bash -c "! grep -q '^x search ' '$FAKE_HANDS' && jq -e '.inputs.skipped | any(test(\"STUDIO_OUTSIDE_X=1\"))' <<<\"\$1\" >/dev/null" _ "$rec"
 check "dry, hands/x post runs only with DRY_RUN=1, and no picture is bought or uploaded" \
@@ -295,7 +320,7 @@ check "a pitch on an item not in the inputs is dropped, with why" \
   jqe '.pitches_dropped | map(select(.pitch.id == "p3" and (.why | test("not in the inputs")))) | length == 1' <<<"$rec"
 check "a pitch in a format not in STUDIO_FORMATS is dropped, with why" \
   jqe '.pitches_dropped | map(select(.pitch.id == "p4" and (.why | test("format")))) | length == 1' <<<"$rec"
-check "a pitch on an outside item is kept" jqe '.pitches | map(.id) | index("p5")' <<<"$rec"
+check "a pitch naming an outside item as its item is kept, with it as the hook" jqe '.pitches | map(select(.id == "p5"))[0] | .hook == "hn-top:42" and .item == null' <<<"$rec"
 check "the writer's ranking is recorded and drafts follow it" \
   test "$(jq -c '[.writer_ranking[0:3], ([.drafts[].pitch] | unique | sort)]' <<<"$rec")" = '[["p2","p5","p1"],["p1","p2","p5"]]'
 check "three drafts each for the top three" test "$(jq '.drafts | length' <<<"$rec")" = 9
@@ -333,7 +358,45 @@ check "the same run id samples, shuffles and pairs the same" \
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_OUTSIDE_X=1 run >/dev/null
 check "STUDIO_OUTSIDE_X=1 runs the X search" grep -q '^x search .* DRY_RUN=1$' "$FAKE_HANDS"
-check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$(last_record)"
+check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | any(startswith("x-"))' <<<"$(last_record)"
+check "and the call is claimed in the day's ledger" test "$(grep -c . "$scratch/state/studio/outside-x.jsonl")" = 1
+# The cap: with one a day, the second run of the day makes no X search
+# (the day's ledger is kept; only the stand-ins' counters start again).
+rm -f "$FAKE_SEEN".*; : >"$FAKE_HANDS"
+STUDIO=1 STUDIO_RUN_ID="$plain_id-2" STUDIO_OUTSIDE_X=1 STUDIO_OUTSIDE_X_MAX_PER_DAY=1 run >/dev/null
+check "STUDIO_OUTSIDE_X_MAX_PER_DAY caps the paid X searches a day" bash -c "! grep -q '^x search ' '$FAKE_HANDS'"
+check "and the record says the day's are spent" jqe '.inputs.skipped | any(test("are spent today"))' <<<"$(last_record)"
+
+# --- the outside world down ------------------------------------------------------------
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_TREND_DOWN=1 run --slot evening)"
+rec="$(last_record)"
+check "with Digg down the run still picks, from Hacker News" jqe '.outcome == "picked"' <<<"$out"
+check "and the record names the trend feed unavailable, with why" \
+  jqe '(.inputs.unavailable | index("trend")) and .outside.sources.trend.reason == "rate_limited" and .outside.available == true' <<<"$rec"
+check "a pitch hooked to a story that is not trending keeps its item, unhooked" \
+  jqe '.pitches | map(select(.id == "p1"))[0] | .hook == null and .item == "evt:2" and (.unhooked | test("not a trending story"))' <<<"$rec"
+reset
+cat >"$scratch/hands/hn" <<'FAKE'
+#!/usr/bin/env bash
+printf 'hn %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+echo '{"ok": false, "error": "Hacker News answered 503"}'; exit 1
+FAKE
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_TREND_DOWN=1 \
+  FAKE_PITCH_ANSWER='{"pitches": [{"id": "p1", "item": "evt:2", "storyline": "rent", "shape": "scene", "format": "post", "angle": "a", "why_now": "w"}], "ranking": ["p1"]}' run)"
+rec="$(last_record)"
+check "with no outside world at all the run still goes on Teeny's own events" jqe '.outcome == "picked"' <<<"$out"
+check "and records that the outside world was unavailable" \
+  jqe '.outside.available == false and (.warnings | any(test("no trending story could be read")))' <<<"$rec"
+check "and the pitch message says so" grep -q 'No trending story could be read today' <<<"$(step_msgs '# studio: pitch')"
+cat >"$scratch/hands/hn" <<'FAKE'
+#!/usr/bin/env bash
+printf 'hn %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+case "$1" in top) id=42 ;; show) id=43 ;; *) id=44 ;; esac
+# The front page: 42 is big and fresh (trending), 41 is small (not).
+jq -cn --argjson id "$id" --arg v "$1" --argjson now "$(date +%s)" '{ok: true, stories: [{id: $id, title: "a robot learns to fold laundry (\($v))", url: "https://example.com/\($id)", score: 500, descendants: 80, time: ($now - 3600), by: "someone"}, {id: 41, title: "a small front page story", url: "https://example.com/41", score: 20, descendants: 1, time: ($now - 3600)}]}'
+FAKE
+chmod +x "$scratch/hands/hn"
 
 # --- explore: one run in four --------------------------------------------------------
 reset

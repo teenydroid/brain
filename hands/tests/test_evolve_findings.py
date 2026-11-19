@@ -28,6 +28,12 @@ from test_evolve import T0, EvolveCase, FakePublisher  # noqa: E402
 from test_evolve_outcomes import Ledger, refused  # noqa: E402
 
 import evolve  # noqa: E402
+from teeny_hands.babysit import actions as babysit_actions  # noqa: E402  (evolve puts hands/lib on the path)
+
+#: The babysitter's audit comment, rendered by hands/babysit itself.
+BABYSIT_COMMENT = babysit_actions.report({"verdict": "needs_operator", "head_sha": "004a55c535d6aa", "tier": "teeny"})
+BABYSIT_CONTEXT = {"field": "body", "fields": ["body"], "number": 368, "post_kind": "comment",
+                   "repo": "teenydroid/brain", "surface": "github"}
 
 DAY = 86400.0
 HOUR = 3600.0
@@ -152,6 +158,42 @@ class Drawn(EvolveCase):
                                      "direction": "fall"})
         self.assertEqual(got.files, ["brain/playbooks/moltbook-threads.md"])
         self.assertIn("brave.com is not on the link allowlist", got.text)
+
+    def hold_github_links(self, at, context, text):
+        self.ledger.sql("insert into guard_holds (at, direction, kind, context, category, reason, held_by, text) "
+                        "values (?, 'outbound', 'link', ?, 'links', 'links', 'links', ?)", evolve.iso(at),
+                        json.dumps(context), text)
+
+    def babysitter_holds(self, n):
+        """The live 2026-11-18 shape: the babysitter's audit comment on one
+        PR, held for its links every 20 minutes."""
+        for k in range(n):
+            self.hold_github_links(T0 - (k + 1) * 20 * 60, BABYSIT_CONTEXT, json.dumps({"body": BABYSIT_COMMENT}))
+
+    def test_holds_on_the_babysitters_audit_comment_are_not_counted_as_teenys_drafts(self):
+        self.babysitter_holds(17)
+        for k in range(4):  # evolve's own PR text and a build issue: the model wrote those
+            context = ({"field": "body", "fields": ["title", "body"], "head": f"teeny/gen-1{k}-c3", "post_kind": "pr",
+                        "repo": "teenydroid/brain", "surface": "github"} if k % 2 else
+                       {"post_kind": "post", "surface": "github"})
+            self.hold_github_links(T0 - (k + 1) * DAY, context, json.dumps({"title": "gen", "body": "see notes.md"}))
+        got = self.by_id()["f:guard_holds:github:links"]
+        self.assertEqual(got.events, 4)
+        self.assertEqual(eo.count(got.check, self.ledger.sources(), T0 - 7 * DAY, T0), 4)
+        self.assertIn("held 4 of your own github drafts", got.text)
+        self.assertIn("17 more", got.text)
+        self.assertIn("nothing for you to change there", got.text)
+        self.assertNotIn("babysitter only presses", json.dumps([got.text, got.examples]))
+
+    def test_a_surface_whose_only_holds_are_the_babysitters_comment_is_no_finding(self):
+        self.babysitter_holds(17)
+        self.assertEqual(self.draw(), [])
+
+    def test_babysitter_holds_never_lift_teenys_own_holds_over_the_minimum(self):
+        self.babysitter_holds(17)
+        for k in range(3):
+            self.hold_github_links(T0 - (k + 1) * DAY, {"post_kind": "post", "surface": "github"}, "a build issue")
+        self.assertEqual(self.draw(), [])  # 3 of Teeny's own, fewer than 4
 
     def test_a_hold_the_judge_could_not_make_is_not_a_finding(self):
         for k in range(6):

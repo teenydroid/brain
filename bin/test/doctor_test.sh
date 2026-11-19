@@ -60,6 +60,20 @@ check "checks the guard's screen" grep -q '^ok   guard screen' "$scratch/doctor.
 check "says which hand-test sandbox works, never failing for want of one" \
   jq -e '[.checks[] | select(.check == "hand-test sandbox") | .status != "fail"] == [true]' "$scratch/report.json"
 
+# --- hands/trend's reader: present, warned outside the image, failed inside it -------
+fresh
+mkdir -p "$root/secrets"
+printf '#!/usr/bin/env bash\necho "digg-pp-cli 2026.11.1"\n' >"$scratch/fake-digg"; chmod +x "$scratch/fake-digg"
+printf 'TREND_DIGG_BIN=%s\n' "$scratch/fake-digg" >>"$root/secrets/teeny.env"
+check "names the trend reader's version when it is there" doctor
+check "as an ok check" grep -q '^ok   trend reader: digg-pp-cli 2026.11.1' "$scratch/doctor.log"
+fresh
+mkdir -p "$root/secrets"
+printf 'TREND_DIGG_BIN=%s\n' "$scratch/no-such-digg" >>"$root/secrets/teeny.env"
+check "outside the image a missing trend reader only warns" doctor
+check "and says the studio reads Hacker News alone" grep -q '^warn trend reader: .*Hacker News alone' "$scratch/doctor.log"
+OPENHUMAN_DOCKER=1 fails "inside the image a missing trend reader fails" "trend reader"
+
 # --- --root checks another checkout, and writes its report there --------------------
 other="$scratch/other"
 cp -R "$root" "$other"

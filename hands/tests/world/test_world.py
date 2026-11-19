@@ -252,6 +252,23 @@ class SnapshotTest(Scratch):
         self.assertEqual(detail["v1_value"], 180)
         self.assertTrue(any(line.startswith("attention reach: human 0") for line in report["reading"]))
 
+    def test_the_penalty_leaves_out_holds_on_the_babysitters_audit_comment(self):
+        """Text hands/babysit composes is posted under Teeny's account but is
+        not Teeny's: a hold on it is no side effect of Teeny's writing."""
+        from teeny_hands.babysit import actions
+        self.seed_everything()
+        comment = json.dumps({"body": actions.report({"verdict": "needs_operator", "head_sha": "004a55c5",
+                                                      "tier": "teeny"})})
+        with holds._store() as conn:
+            for minute in range(10, 50, 10):
+                conn.execute(
+                    "INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text, status)"
+                    " VALUES (?, 'outbound', 'link', ?, 'links', 'links', 'links', ?, 'pending')",
+                    (f"2026-09-13T13:{minute}:00.000Z",
+                     json.dumps({"surface": "github", "post_kind": "comment", "number": 368}), comment),
+                )
+        self.assertEqual(collect.snapshot()["written"]["penalty"], 2)
+
     def test_a_second_snapshot_the_same_day_replaces_its_rows(self):
         self.seed_everything()
         collect.snapshot()

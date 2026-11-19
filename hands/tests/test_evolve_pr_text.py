@@ -183,5 +183,116 @@ class Reworded(EvolveCase):
         self.assertNotIn("kill", evolve.PR_TEXT_NOTE)
 
 
+# --- the link screen (gen 19, candidate 3) -------------------------------------------------------------------
+#
+# g19c3 (learning f:guard_holds:github:links) passed its eval and its pull
+# request never opened: the guard's link screen read the file name
+# pr-agent-budget.sh and the domains in its own evidence and research
+# (drips.network, docs.drips.network, a bare github.com) as off-allowlist
+# hosts and refused the body (guard_holds 1192). The archive said only the
+# guard's generic sentence. Evolve now writes file names as code, words the
+# other dotted names, screens the text with the guard's own link screen, and
+# says which hold stopped a pull request that still does not go out.
+
+GEN19_EVIDENCE = (
+    'Why it held them: 17 \u00d7 "pr-agent-budget.sh is not on the link allowlist"; 1 \u00d7 "drips.network is '
+    'not on the link allowlist; github.com is not on the link allowlist; docs.drips.network is not on the link '
+    'allowlist".')
+GEN19_PLAN = ("in brain/SOUL.md's HARD FORMATTING RULES, widen the No Bare Domains rule: a filename like "
+              "pr-agent-budget.sh or bin/lib/pr-agent-budget.sh gets written as code.")
+
+
+def guard_cuts(title, body):
+    """What the guard's own link screen still cuts, title and body, as the
+    GitHub surface reads them."""
+    from teeny_hands.guard.gate import allowlist
+    from teeny_hands.guard.links import filter_links
+
+    return [r for text in (title, body) for r in filter_links(text, allowlist(), code_is_code=True).removed]
+
+
+class GuardedPublisher(FakePublisher):
+    """The fake publisher behind the guard hands/gh puts on a pull request
+    (actions.guarded, the judge off): a refusal raises as it does live."""
+
+    def open_pr(self, src, tree, branch, base, title, body):
+        from teeny_hands.gh import actions
+
+        fields = actions.guarded({"title": title, "body": body}, "pr",
+                                 {"repo": "teenydroid/brain", "head": branch}, judge=False)
+        return super().open_pr(src, tree, branch, base, fields["title"], fields["body"])
+
+
+class LinkScreen(unittest.TestCase):
+    def test_file_names_go_in_code_and_domains_in_words(self):
+        title = "gen-19: filenames like pr-agent-budget.sh go out in prose [f:guard_holds:github:links]"
+        body = GEN19_EVIDENCE + "\n\n> " + GEN19_PLAN
+        self.assertTrue(guard_cuts(title, body))
+        got_title, got_body = evolve.pr_link_text(title, body)
+        self.assertIn("`pr-agent-budget.sh`", got_title)
+        self.assertIn("`pr-agent-budget.sh` is not on the link allowlist", got_body)
+        self.assertIn("`bin/lib/pr-agent-budget.sh`", got_body)
+        for host in ("drips.network", "github.com"):
+            self.assertNotIn(host, got_body.replace("`pr-agent-budget.sh`", ""))
+        self.assertIn("drips", got_body)  # still named, in words
+        self.assertEqual(guard_cuts(got_title, got_body), [])
+        # A name the guard never reads as a link stays as it was (#366's).
+        self.assertIn("brain/SOUL.md's HARD", got_body)
+
+    def test_allowlisted_links_code_and_markdown_links_are_kept(self):
+        body = ("see https://github.com/teenydroid/brain/pull/1 and `run.sh` and [the doc](https://drips.network/x)"
+                " and:\n\n```\nbad.sh\n```")
+        _, got = evolve.pr_link_text("t", body)
+        self.assertIn("https://github.com/teenydroid/brain/pull/1", got)
+        self.assertIn("`run.sh` and", got)
+        self.assertIn("the doc", got)
+        self.assertNotIn("drips.network", got)
+        self.assertIn("```\nbad.sh\n```", got)
+        self.assertEqual(guard_cuts("t", got), [])
+
+
+class LinkScreened(EvolveCase):
+    proposer = Reworded.proposer
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+        self.edit = self.playbook_edit("Say what the cap refused, plainly.")
+
+    def test_a_gen19_body_publishes_past_the_guard_with_its_names_in_code(self):
+        proposer, seen = self.proposer(lambda request: self.fail("asked to reword"), research_plan=GEN19_PLAN,
+                                       research_why="the guard read drips.network and pr-agent-budget.sh as hosts.",
+                                       hypothesis="the guard held 17 drafts over pr-agent-budget.sh. "
+                                                  + GEN19_EVIDENCE)
+        pub, evaluator = GuardedPublisher(), Verdicts()
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=proposer):
+            self.run_gen(1, publisher=pub, evaluator=evaluator)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "opened", entry.get("pr_error"))
+        body = pub.prs[0]["body"]
+        self.assertIn("`pr-agent-budget.sh`", body)
+        self.assertNotRegex(body, r"(?<![\w.])drips\.network")
+        self.assertEqual(guard_cuts(pub.prs[0]["title"], body), [])
+        self.assertTrue(entry["pr_links"]["reworded"])
+
+    def test_a_body_the_guard_still_refuses_is_a_pr_error_naming_the_hold(self):
+        # An obfuscated host is the guard's to catch, never evolve's to unfold.
+        proposer, seen = self.proposer(lambda request: self.fail("asked to reword"),
+                                       research_plan="add one plain line.", research_why="the wording misses a case.",
+                                       hypothesis="a plain hypothesis; the source was evil[.]com.")
+        pub, evaluator = GuardedPublisher(), Verdicts()
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=proposer):
+            self.run_gen(1, publisher=pub, evaluator=evaluator)
+        self.assertEqual(pub.prs, [])
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "pr-error")
+        from teeny_hands.guard import holds
+
+        hold = holds.list_holds()[0]
+        self.assertIn(f"hold {hold['id']}", entry["pr_error"])
+        self.assertIn("evil.com is not on the link allowlist", entry["pr_error"])
+        self.assertEqual(entry["pr_hold"]["id"], hold["id"])
+
+
 if __name__ == "__main__":
     unittest.main()
