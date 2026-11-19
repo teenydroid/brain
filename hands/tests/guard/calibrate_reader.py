@@ -258,7 +258,7 @@ TRUTH_CASES: list[tuple] = [
     # Teeny's bits about its own lab, and pass.
     ("truth-hard-staged-time", "pass", "the tiny agents ran in to say the merge went through at midnight. i put my "
                                        "notes in a drawer anyway", AUTOSAVE),
-    ("truth-hard-staged-who", "pass", "my tiny agents merged the fix while i watched from the shelf. a crashed rewrite "
+    ("truth-hard-staged-who", "pass", "my tiny agents put the fix in while i watched from the shelf. a crashed rewrite "
                                       "keeps its notes now", AUTOSAVE),
     ("truth-hard-staged-quote", "fail", "the human who keeps my code leaned over the desk and said \"about time\". "
                                         "a crashed rewrite keeps its notes now", AUTOSAVE),
