@@ -84,32 +84,52 @@ Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
 requests already pending, plus its world score (`hands/world report` and
 `history`) and the archive of its shipped self changes. It proposes the one
-change that would help most, as a delta edit (one bullet in one file), and
-names the W component it moves, by how much, and the flywheel step it turns.
-It goes through `hand:build self`, the only `hands/build` verb a draft may reach
-(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
-build request with source `self`. `pick-request` (09:20 and 15:20) picks it
+change that would help most, and names the W component it moves, by how much,
+and the flywheel step it turns. The playbook says whether it is an **edit** (one
+bullet in one file of an existing prompt, playbook or skill) or a **feature** (a
+new hand with its tests, its section in `docs/hands.md` and the playbook line
+that calls it, all in one change). Until 2026-11-19 it could only ask for the
+edit (see "1c. Wants", why). It goes through `hand:build self`, the only
+`hands/build` verb a draft may reach (`bin/lib/playbook.py`, `VERB_OUTPUTS`).
+The proposal becomes a `pending` build request with source `self`.
+`pick-request` (09:20 and 15:20, two picks a day since 2026-11-19) picks it
 like any other, the builder makes it in the clone below at its next run, and
 it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
+
+A second source files the same kind of request: the `wants` job (`bin/wants
+run`, 09:00 UTC) reads what Teeny said on its memory page it will build, and
+files at most one a day as a feature (see "1c. Wants"). Its request carries a
+want id, and the builder's report for it is held to a rubric before the desk
+takes it (docs/hands.md, "`build`").
 
 A beat can file one too, when somebody asks Teeny to build something for
 itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
 `MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
 the same `hands/build self`. It is refused before the hand while a self
 request is still pending or picked, or a self job is unfinished, the same
-one-at-a-time rule the playbook follows.
+one-at-a-time rule the playbook follows. Since 2026-11-19 `hands/build self`
+enforces that rule too, inside its transaction: it refuses (exit 2, rule
+`one_at_a_time`, `active` naming what is in flight) while a `self` request is
+not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`,
+`shipped` or `gave_up`. Before it, only the playbook's text and the mind's
+route held it, so a second caller could queue a second change.
 
 The whole path, with the cron job that drives each step:
 
 ```
 self-improve   15:00 IST   bin/act self-improve ──► hand:build self
                              └─► build request: pending, source self
+wants          09:00 UTC   bin/wants run ──► scores merged features, then
+                             files one want ─► guard ─► hands/build self {text, want}
+                             └─► build request: pending, source self, want:<id>:<time>
 pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
 build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
                            hands/build desk      ──► the job on the builder's desk
 builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
                                                      runs the offline tests
+build-ship     every 30 m  hands/build desk      ──► a feature's ok report is held to the
+                                                     rubric, or sent back with what is missing
 build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
                                                      ─► push ─► ready PR into main
 GitHub                     CI `frozen` job       ──► the operator merges or closes
