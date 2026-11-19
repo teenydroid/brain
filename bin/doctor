@@ -133,6 +133,13 @@ browser_ready() {
     jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
     return 1
   fi
+  echo "TinyComputer loads and Chrome starts"
+}
+DOCTOR_PROBE_DUMMY_END
+
+    jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
+    return 1
+  fi
   echo "TinyComputer serving, Chrome starts"
 }
 
