@@ -67,13 +67,12 @@ class BuildIntents(LoopCase):
 
         # m15 was built and passed before routing: it waits for a slot.
         self.live()
-        self.page(WANT_PAGE)
-        proposer = Recording(proposals=[self.proposal()])
-        with unittest.mock.patch.object(evolve, "split_wants", lambda items: (items, [])), \
-                unittest.mock.patch.object(evolve, "pick_key", lambda item, got: item.id != "m15"):
-            out = self.run_with(proposer, publisher=Down(), evaluator=Verdicts())
+        self.page(f"# MEMORY.md\n\n## what i am in the middle of\n\n- [m15] {WANT}\n")
+        with unittest.mock.patch.object(evolve, "split_wants", lambda items: (items, [])):
+            out = self.run_with(Recording(proposals=[self.proposal()]), publisher=Down(), evaluator=Verdicts())
         self.assertEqual((out["candidates"][0]["learning"], out["candidates"][0]["verdict"]), ("m15", "waiting"))
         # Routing stops new picks only: the change that passed still ships.
+        self.page(WANT_PAGE)
         pub = FakePublisher()
         self.run_with(Recording(proposals=[{"skip": "just looking", "why": "not-actionable"}]), publisher=pub,
                       evaluator=Verdicts())

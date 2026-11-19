@@ -78,8 +78,10 @@ Every run:
    playbook). On 2026-11-15, -16 and -17 self-improve failed every run (the
    core's prompt screen) while the provider answered, `act_alarm` stayed
    quiet, and the failure surfaced days later as a finding. It is cleared by
-   the playbook's first ok run, and not raised while the model alarm above
-   is open. What it files is this file's fixed sentences and the class of
+   the playbook's first ok run, or once it has no failed run in the last
+   PLAYBOOK_LOOKBACK_SECS (a playbook retired or unscheduled never gets an
+   ok run), and not raised while the model alarm above is open. Runs older
+   than that are not counted. What it files is this file's fixed sentences and the class of
    the playbook's error (bin/act's own words up to the first colon,
    scrubbed): never the stderr or an answer, which can carry what a
    stranger wrote.
@@ -193,6 +195,10 @@ ACT_LOOKBACK_SECS = 86400
 PLAYBOOK_ALARM_RUNS = 3
 #: How many lines of a playbook's runs.jsonl are read.
 PLAYBOOK_LOG_LINES = 500
+#: How far back a playbook's runs count toward its alarm. A playbook that
+#: failed long ago and was retired raises none, and an open alarm clears once
+#: the playbook has no failed run inside this window.
+PLAYBOOK_LOOKBACK_SECS = 7 * 86400
 
 Json = dict[str, Any]
 
@@ -796,14 +802,16 @@ def _playbook_runs(now: float) -> dict[str, Json]:
     """Per playbook, the failed runs at the end of its log: `runs` (one run's
     quick retries count once; 0 when it ended in an ok run or has no failure
     of its own), `since` and `last` (when the first and the latest failed),
-    `error` (the latest one's class) and `ok_at` (the ok run that ended
-    them, or None). A skip is no run. A provider failure ends the count and
+    `error` (the latest one's class), `ok_at` (the ok run that ended
+    them, or None) and `recent` (whether any run inside PLAYBOOK_LOOKBACK_SECS
+    failed, of any kind). Runs older than that are ignored. A skip is no run. A provider failure ends the count and
     is not an ok: it is the act alarm's, and says nothing of the playbook."""
     out: dict[str, Json] = {}
     for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
-        timed = [(at, line) for line in _lines(path)[-PLAYBOOK_LOG_LINES:] if (at := _at(line)) is not None]
+        timed = [(at, line) for line in _lines(path)[-PLAYBOOK_LOG_LINES:]
+                 if (at := _at(line)) is not None and at >= now - PLAYBOOK_LOOKBACK_SECS]
         timed.sort(key=lambda e: e[0])
-        found: Json = {"runs": 0, "ok_at": None}
+        found: Json = {"runs": 0, "ok_at": None, "recent": any(line.get("ok") is False for _, line in timed)}
         newer = None
         for at, line in reversed(timed):
             if line.get("ok") is True:
@@ -859,12 +867,20 @@ def _watch_playbooks(state: Json, now: float) -> Json:
     out: dict[str, str] = {}
     problems: list[str] = []
     for book in sorted(set(alarms) | {b for b, f in found.items() if f["runs"] >= threshold}):
-        now_found, alarm = found.get(book) or {"runs": 0, "ok_at": None}, alarms.get(book)
-        if alarm and not now_found["runs"] and now_found["ok_at"] is not None:
-            down = f"from {_when(alarm['since'])} to {_when(now_found['ok_at'])}"
-            closed = _close_issue(alarm, f"The {book} playbook had an ok run again. Its runs failed {down}. Closing.")
-            stimuli.add("health", "recovered", alarm["ref"],
-                        f"health: your {book} playbook runs again. its runs failed {down}.",
+        now_found, alarm = found.get(book) or {"runs": 0, "ok_at": None, "recent": False}, alarms.get(book)
+        if alarm and not now_found["runs"] and (now_found["ok_at"] is not None or not now_found["recent"]):
+            if now_found["ok_at"] is not None:
+                down = f"from {_when(alarm['since'])} to {_when(now_found['ok_at'])}"
+                note, said = (f"The {book} playbook had an ok run again. Its runs failed {down}. Closing.",
+                              f"health: your {book} playbook runs again. its runs failed {down}.")
+            else:
+                days = PLAYBOOK_LOOKBACK_SECS // 86400
+                note = (f"The {book} playbook has had no failed run for {days} days (it may have been retired or"
+                        f" unscheduled). Its runs failed since {_when(alarm['since'])}. Closing.")
+                said = (f"health: your {book} playbook has had no failed run for {days} days. its runs failed"
+                        f" since {_when(alarm['since'])}. closing the alarm.")
+            closed = _close_issue(alarm, note)
+            stimuli.add("health", "recovered", alarm["ref"], said,
                         payload={"playbook": book, "since": alarm["since"], "recovered_at": now,
                                  "issue": alarm.get("issue")})
             alarms.pop(book)
