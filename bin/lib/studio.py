@@ -1187,8 +1187,9 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
                      f"{DATA_LINE}\n\n```json\n" + json.dumps(item, ensure_ascii=False) + "\n```")
     else:
         parts.append("## what of yours it brings\n\nNo event of yours: the angle is who you are (a small robot "
-                     "with its own wallet, its own bill, and a habit of rewriting itself). Claim nothing that "
-                     "happened to you beyond that.")
+                     "with its own wallet, its own bill, and a habit of rewriting itself). Anything more you say "
+                     "about yourself is a bit, yours to invent however absurd; never an amount of money, the token "
+                     "or anything about a real person.")
     if story:
         parts.append("## the story it moves\n\n```json\n" + json.dumps(story, ensure_ascii=False) + "\n```")
     if fix:
