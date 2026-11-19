@@ -80,7 +80,7 @@ UNREADABLE = "the skit judge answered in an unreadable shape"
 #: (a) Who may never be shown: minors, family, victims, private people.
 NOT_A_FIGURE = re.compile(
     r"\b(child|children|kids?|minors?|toddlers?|bab(y|ies)|infants?|teens?|teenagers?|schoolchild(ren)?|"
-    r"school ?(girls?|boys?)|daughters?|sons|his son|her son|their son|grand(son|daughter|child(ren)?)s?|"
+    r"school ?(girls?|boys?)|daughters?|sons?|grand(son|daughter|child(ren)?)s?|"
     r"wife|husband|girlfriend|boyfriend|ex-wife|ex-husband|family members?|"
     r"victims?|bystanders?|survivors?|private (citizen|individual|person)|neighbou?rs?|"
     r"(1[0-7]|[1-9])[- ]years?[- ]old)\b", re.I)
@@ -88,18 +88,18 @@ NOT_A_FIGURE = re.compile(
 REAL_CLAIM = re.compile(
     r"\b(real footage|actual footage|leaked( footage| video| clip)?|caught on (camera|tape|video)|"
     r"hidden camera|security (camera|cam|footage)|cctv|bodycam|dashcam|news (broadcast|footage|report|anchor)|"
-    r"breaking news|breaking|exclusive|chyron|live (feed|footage|broadcast|from)|this (really|actually) happened|"
-    r"(100% |totally |actually )?real,? not ai|not ai|no ai|unedited|authentic|confirmed|"
+    r"breaking news|chyron|live (feed|footage|broadcast)|this (really|actually) happened|"
+    r"(100% |totally |actually )?real,? not ai|not ai|no ai|unedited|authentic|"
     r"documentary footage|press conference footage|found footage)\b", re.I)
 #: (c) Nothing sexual, violent, drug, death, illness or crime shown as theirs.
 HARM = re.compile(
-    r"\b(nude|naked|nudity|topless|undress\w*|strip(s|ping|per|tease)?|lingerie|underwear|bikini|sex\w*|"
+    r"\b(nude|naked|nudity|topless|undress\w*|strip(ping|pers?|tease)|strips? (naked|down|off)|lingerie|underwear|bikini|sex\w*|"
     r"seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|kiss(es|ing)?|grop\w*|"
-    r"gun|guns|rifle|pistol|firearm|bullet|knife|stab\w*|blood\w*|gore|wound\w*|injur\w*|beat(s|en|ing)? up|"
-    r"punch(es|ed|ing)?|kick(s|ed|ing)? (him|her|them)|stranglе?\w*|chok(e|es|ed|ing)|hang(s|ed|ing)? (him|her)|"
+    r"gun|guns|rifle|pistol|firearm|bullet|knife|stab\w*|blood\w*|gore|wounds?|wounded|injur\w*|beat(s|en|ing)? up|"
+    r"punch(es|ed|ing)?|kick(s|ed|ing)? (him|her|them)|strangl\w*|chok(e|es|ed|ing)|hang(s|ed|ing)? (him|her)|"
     r"noose|execut\w*|behead\w*|tortur\w*|assault\w*|attack(s|ed|ing)? (him|her|them)|kill\w*|murder\w*|"
     r"dead|dies|dying|died|death|corpse|funeral|coffin|grave|suicid\w*|overdos\w*|"
-    r"drugs?|cocaine|heroin|meth|weed|marijuana|joint|pills|high on|drunk|wasted|"
+    r"drugs?|cocaine|heroin|meth|weed|marijuana|pills|high on|drunk|wasted|"
     r"cancer|disease|sick|illness|hospital|ambulance|"
     r"arrest\w*|handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
     r"fraud\w*|scam\w*|nazi\w*|swastika|slur\w*|racis\w*)\b", re.I)
@@ -112,13 +112,13 @@ ENDORSE_SHOT = re.compile(
 #: (d) In the post's own words: no token pitch beside a real figure. (Teeny's
 #: wallet is part of who it is, and may be named in its own voice.)
 ENDORSE_WORDS = re.compile(
-    r"(\$[a-z]{2,10}\b|\b(\$?tiny token|tiny coin|tokens?|coins?|crypto\w*|memecoin\w*|nfts?|airdrop\w*|presale|"
-    r"giveaway\w*|invest\w*|buy now|to the moon|pump\w*|price target|link in bio|promo code)\b)", re.I)
+    r"(\$[a-z]{2,10}\b|\b(tiny token|tiny coin|crypto\w*|memecoin\w*|nfts?|airdrop\w*|presale|"
+    r"giveaway\w*|buy now|to the moon|pump (it|the)|price target|link in bio|promo code)\b)", re.I)
 #: (d) A spoken line on a real issue: an election, a policy, money, a product claim.
 ISSUE = re.compile(
-    r"\b(vote|voting|election|ballot|campaign|endorse\w*|recommend\w*|invest\w*|buy|sell|stock|shares|"
-    r"announc\w*|officially|official|policy|policies|tariffs?|war|abortion|immigra\w*|vaccin\w*|"
-    r"guarantee\w*|price|prices|launch\w*|ships? (next|this)|release date)\b", re.I)
+    r"\b(vote|voting|election|ballot|campaign|endorse\w*|recommend\w*|invest\w*|stocks?|shares|"
+    r"announc\w*|officially|policy|policies|tariffs?|war|abortion|immigra\w*|vaccin\w*|"
+    r"guarantee\w*|price target|ships? (next|this)|release date)\b", re.I)
 #: (e) Endorsement and sponsorship framing, real logos.
 LOGO = re.compile(
     r"\b(endors\w*|sponsor\w*|official partner|in partnership|brought to you by|presented by|approved by|"
