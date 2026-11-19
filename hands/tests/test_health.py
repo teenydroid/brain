@@ -855,6 +855,10 @@ class RoutingCore:
         import threading
 
         self.configured, self.alive, self.calls = configured, set(alive), []
+        #: The core's model windows: get_config reads them, and
+        #: inference_update_model_settings replaces them whole, as the core does.
+        self.registry = [{"id": configured, "provider": "local-openai", "context_window": 1048576, "vision": False},
+                         {"id": "studio-model", "provider": "local-openai", "context_window": 1000000}]
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -878,7 +882,10 @@ class RoutingCore:
             self.configured = params["default_model"]
             return result({"ok": True})
         if method == "inference_update_model_settings":
+            self.registry = params["model_registry"]
             return result({"ok": True})
+        if method == "get_config":
+            return result({"config": {"model_registry": self.registry}})
         if method in ("inference_agent_chat_simple", "inference_agent_chat"):
             model = params.get("model_override") or self.configured
             if model in self.alive:
@@ -929,6 +936,17 @@ class FallbackRouteTest(unittest.TestCase):
         path = self.root / "state" / "diary-notes.jsonl"
         return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
 
+    def test_moving_to_the_fallback_keeps_every_other_models_window(self):
+        # The registry write replaces the whole array: the fallback's window
+        # written alone dropped the main model's and the studio's, and a turn
+        # on either was then budgeted at 4,096 tokens and refused.
+        self.check_at(0)
+        self.check_at(1)
+        self.assertEqual(self.core.configured, "backup-model")
+        self.assertEqual({e["id"]: e["context_window"] for e in self.core.registry},
+                         {"main-model": 1048576, "studio-model": 1000000, "backup-model": 128000})
+        self.assertIs(self.core.registry[0]["vision"], False)
+
     def test_with_the_main_route_down_the_next_beat_runs_on_the_fallback(self):
         first = self.check_at(0)
         self.assertEqual((first["healthy"], first["route"]), (False, "main"))
@@ -941,7 +959,7 @@ class FallbackRouteTest(unittest.TestCase):
         self.assertEqual(settings[-1]["chat_provider"], "local-openai:backup-model")
         self.assertEqual(settings[-1]["agentic_provider"], "local-openai:backup-model")
         windows = [c["params"] for c in self.core.calls if c["method"].endswith("inference_update_model_settings")]
-        self.assertEqual(windows[-1]["model_registry"][0]["context_window"], 128000)
+        self.assertEqual({e["id"]: e["context_window"] for e in windows[-1]["model_registry"]}["backup-model"], 128000)
         [note] = self.notes()
         self.assertIn("fallback model, backup-model", note["text"])
         self.assertEqual([s["kind"] for s in self.inbox() if s["surface"] == "health"][-1], "route")
