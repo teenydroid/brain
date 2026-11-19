@@ -75,6 +75,8 @@ class NamedPatternTest(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="verify-pattern-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         (self.tmp / "hands" / "tests").mkdir(parents=True)
+        (self.tmp / "hands" / "__init__.py").write_text("")
+        (self.tmp / "hands" / "tests" / "__init__.py").write_text("")
         (self.tmp / "hands" / "tests" / "test_a.py").write_text(PASSING)
         (self.tmp / "hands" / "tests" / "test_b.py").write_text(PASSING.replace("assertTrue(True)", "assertTrue(False)"))
         (self.tmp / "test_top.py").write_text(PASSING)
