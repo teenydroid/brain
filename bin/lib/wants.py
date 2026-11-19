@@ -421,8 +421,8 @@ def watch(cfg: Settings) -> Json:
                 record["why"] = "no rubric on the job"
             else:
                 src = src or evolve.outcome_sources(evolve.load_config())
-                counts = [eo.count({"kind": "hand_used", "hand": hand, "direction": "rise"}, src, pr["merged_at"],
-                                   until) for hand in record["hands"]]
+                counts = [eo.count({"kind": "hand_used", "hand": name, "direction": "rise"}, src, pr["merged_at"],
+                                   until) for name in record["hands"]]
                 if None in counts:
                     if now < until + eo.GRACE_DAYS * DAY:
                         continue  # not readable yet: try again tomorrow
