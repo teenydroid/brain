@@ -295,14 +295,17 @@ class GapTest(Posting):
         publish.post({"anchor": "hn:1", "text": "chart"})
 
 
-    def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
+    def test_a_quote_is_recorded_as_one_and_does_not_hold_the_posts_gap(self):
+        # Quotes have their own lane (QuoteLaneTest): an original post an hour
+        # after a quote goes out.
         publish.post({"anchor": "hn:1", "text": "look", "quote_of": "555"})
         self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
         self.assertEqual(self.ledger()[0]["kind"], "quote")
         self.assertEqual(self.ledger()[0]["quote_of"], "555")
         self.at(T0 + HOUR)
-        with self.assertRaises(hand.Refused):
-            publish.post({"anchor": "hn:1", "text": "gm"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.assertEqual(len(self.posted()), 2)
 
     def test_a_reply_does_not_count_toward_the_gap(self):
         conn = hand.db()
@@ -430,10 +433,11 @@ class QuoteLaneTest(Posting):
         with self.assertRaises(hand.Refused) as caught:
             self.quote(2, "557")
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"]), ("quote_cap", 2))
-        for n in range(4):
-            self.original(f"original number {n} about lighthouses {'and moss ' * n}")
+        for text in ("a lighthouse with opinions", "the moss filed a complaint", "wifi on the beach is a myth",
+                     "crabs run the night shift"):
+            self.original(text)
         with self.assertRaises(hand.Refused) as caught:
-            self.original("a fifth original")
+            self.original("a fifth original about kettles")
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
         self.assertEqual([r["kind"] for r in self.ledger()].count("quote"), 2)
         self.assertEqual([r["kind"] for r in self.ledger()].count("post"), 4)
@@ -457,8 +461,8 @@ class QuoteLaneTest(Posting):
 
 
 class DailyCapTest(Posting):
-    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the slots and
-    the outward quote share them; replies are never counted."""
+    """Four original posts a UTC day by default (X_POSTS_MAX_PER_DAY); quotes
+    have their own cap (QuoteLaneTest) and replies are never counted."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi",
@@ -494,14 +498,16 @@ class DailyCapTest(Posting):
         publish.post({"anchor": "hn:1", "text": "a fifth thing about lighthouses and moss"})
         self.assertEqual(len(self.posted()), 1)
 
-    def test_replies_do_not_count_and_a_quote_does(self):
+    def test_replies_and_quotes_do_not_count(self):
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         for n in range(5):
             posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
         self.earlier(kinds=("post", "quote", "post", "post"))
+        publish.post({"anchor": "hn:1", "text": "one more about lighthouses and moss"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"anchor": "hn:1", "text": "one more about lighthouses and moss"})
+            publish.post({"anchor": "hn:1", "text": "and the fifth original of the day"})
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
 
     def test_the_cap_is_a_setting(self):
@@ -798,7 +804,8 @@ class OutwardTest(Posting):
 class PeerRotationTest(Posting):
     """No author is quoted twice within 7 days (rule: peer_rotation)."""
 
-    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0", "QUOTE_MIN_GAP_HOURS": "0",
+                "QUOTE_AFTER_POST_MINUTES": "0", "X_QUOTES_MAX_PER_DAY": "12"}
 
     def setUp(self):
         super().setUp()

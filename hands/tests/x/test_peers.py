@@ -185,11 +185,14 @@ class ReadTest(PeersBase):
 
 
 class SuggestBase(PeersBase):
-    """A read first (the suggest bar checks quote_of against it), the gap off
-    so a test can post twice in a day, and the anchor judge (a model call)
-    stood in for: it passes unless a test sets `self.anchor_verdict`."""
+    """A read first (the suggest bar checks quote_of against it), the quote
+    lane's gaps off so a test can post twice in a day, and the quote judge (a
+    model call) stood in for: it passes unless a test sets
+    `self.quote_verdict`. The anchor judge is stood in for too, so a test can
+    show it is never asked."""
 
-    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0", "QUOTE_MIN_GAP_HOURS": "0",
+                "QUOTE_AFTER_POST_MINUTES": "0"}
 
     def setUp(self):
         super().setUp()
@@ -201,6 +204,11 @@ class SuggestBase(PeersBase):
         judge = mock.patch("teeny_hands.guard.anchor.judge", self.judged)
         judge.start()
         self.addCleanup(judge.stop)
+        self.quote_verdict = {"reacts": True, "reason": "a riff on the post", "judged": True}
+        self.quote_judged = mock.Mock(side_effect=lambda *args: dict(self.quote_verdict))
+        qjudge = mock.patch("teeny_hands.guard.quote.judge", self.quote_judged)
+        qjudge.start()
+        self.addCleanup(qjudge.stop)
 
     def fresh(self, now: float) -> None:
         """The peers' newest posts, as a search at `now` finds them."""
@@ -445,7 +453,7 @@ class LiveFailuresTest(SuggestBase):
 class TouchTest(PeersBase):
     """publish writes x_peer_touches for any quote of a peer, take's too."""
 
-    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0", "QUOTE_MIN_GAP_HOURS": "0"}
 
     def quotable(self, post_id: str, username: str) -> None:
         self.x.route("GET", f"/2/tweets/{post_id}", {
