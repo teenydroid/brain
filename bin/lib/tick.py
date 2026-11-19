@@ -1044,7 +1044,8 @@ HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn
                 "about elsewhere, remembered or followed up; never answered on HN.")
 
 
-def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None) -> str:
+def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None,
+           allowance: Mapping[str, Any] | None = None) -> str:
     now = _clock()
     utc = now.astimezone(dt.timezone.utc)
     age = rhythm.age_line()
@@ -1053,6 +1054,7 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         "",
         *([age] if age else []),
         *rhythm.header(woke),
+        *_allowance_lines(allowance),
         *_waiting(),
         *scoreboard.block(),
         "",
