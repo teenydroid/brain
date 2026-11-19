@@ -13,7 +13,9 @@
 # Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
 # the check that stands between an edit and a restart, so it is frozen with
 # the rest of bin/ (docs/architecture.md, "Evolution"). It changes nothing:
-# no core call that writes, no guard hold, no post.
+# no core call that writes (but --live's studio model turn, which may give
+# the core a model's context window, as any `bin/ask --model` does), no
+# guard hold, no post.
 #
 # Prints one line per check on stderr and a JSON report on stdout, and writes
 # the report to state/doctor.json (of the root it checked). The one other
