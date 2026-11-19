@@ -1899,8 +1899,8 @@ class TickTest(unittest.TestCase):
         self.at(900)
         self.tick()
         message = self.chats()[1]["message"]
-        self.assertIn("your comment_moltbook on p1: refused, not sent:", message)
-        self.assertIn("the cap is 50", message)
+        self.assertIn("your comment_moltbook on p1: refused: 50 Moltbook comment(s) in the last 24 hours; the cap is 50;"
+                      " not sent; what it answered is still unanswered", message)
 
     def test_a_beat_is_told_when_no_moltbook_comments_are_left(self):
         self.comments_spent(50, oldest_ago=86400 - 3600)

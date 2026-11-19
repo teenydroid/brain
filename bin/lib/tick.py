@@ -2011,9 +2011,11 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += (f"; it is build request #{request['id']}, {request['status']}: pick-request picks it at its next run"
                  " and the builder makes it at its next run after that; it ships as a pull request the operator"
                  " merges or closes")
-    if do in ROUTES and entry["status"] in ("refused", "error"):
+    if do in ROUTES and entry["status"] == "refused" and result.get("rule") != "verification":
         # Said plainly: live, 2026-11-19, the next beat took eight refused
-        # answers as sent (rule 10).
+        # answers as sent (rule 10). A Moltbook challenge left unsolved is
+        # the one refusal after the write (hands/moltbook), so it says only
+        # what the hand said.
         text += "; not sent" + ("; what it answered is still unanswered" if do in ANSWERS else "")
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
