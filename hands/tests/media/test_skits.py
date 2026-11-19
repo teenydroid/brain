@@ -325,8 +325,9 @@ class SkitTest(unittest.TestCase):
         self.api.fail[FIRST] = SurplusError("Surplus answered 402: insufficient credit", 402)
         with self.assertRaises(hand.HandError):
             self.skit()
-        self.assertEqual(self.api.submitted(), [])
+        self.assertEqual(self.api.submitted(), [FIRST])  # asked once, no other model, no second shot
         self.assertEqual(self.reel.jobs, [])
+        self.assertTrue(all(s["status"] == "failed" and s["cost_micro"] == 0 for s in self.rows("shot")))
 
     def test_a_shot_no_model_can_make_fails_the_skit_cancels_the_rest_and_costs_nothing(self):
         for model in skits.SKIT_MODELS.split(","):

@@ -348,6 +348,7 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per
                     _cancel(api, shot.job)
                     shot.tried.append(f"{shot.model}: not done after {wait} s, cancelled")
                     shot.failed = f"not done after {wait} s"
+                    shot.job = None
             break
         sleep(POLL_SECONDS)
 
@@ -445,6 +446,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
             for shot in shots:
                 if shot.job and not shot.path:
                     _cancel(api, shot.job)
+                    shot.job = None
             _end_shots(conn, shots)
             why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
@@ -501,6 +503,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
             for shot in shots:
                 if shot.job and not shot.path:
                     _cancel(api, shot.job)
+                    shot.job = None
             _end_shots(conn, shots)
             row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (skit_id,)).fetchone()
             if row and row["status"] == "pending":
