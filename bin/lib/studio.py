@@ -1413,6 +1413,11 @@ class Slot:
     items: dict[str, Json]
     stories: dict[str, Json]
     thread: str
+    #: Each label's win rate in the tournament, and how close two rates are
+    #: for a fallback on another story to go first (`next_fallback`): one
+    #: meeting's worth.
+    rates: dict[str, float] = field(default_factory=dict)
+    close: float = 0.0
 
 
 def _words(draft: Json) -> str:
