@@ -268,7 +268,7 @@ _MONEY_WORDS = (
 HARD_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # With the amount or the ticker it marks ("$0.27", "$TINY").
     ("a currency sign", re.compile(r"[$\u20ac\u00a3\u00a5\u20bf\u20b9]\S*")),
-    ("a percent", re.compile(r"\d\s*%|\bper\s?cent\b", re.IGNORECASE)),
+    ("a percent", re.compile(r"\d+(?:[.,]\d+)?\s*%|\bper\s?cent\b", re.IGNORECASE)),
     ("an amount in thousands or millions", re.compile(r"\b\d+(?:\.\d+)?\s?(?:k|m|bn|b)\b", re.IGNORECASE)),
     ("TINY", re.compile(r"(?<![A-Za-z0-9_])TINY(?![A-Za-z0-9_])")),
     ("market cap", re.compile(r"\bmarket\s+caps?\b", re.IGNORECASE)),
