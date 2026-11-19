@@ -1,5 +1,5 @@
 +++
-description = "read my run ledgers and write one small documented edit to my own playbooks as a pull request for review"
+description = "read my run ledgers and propose one change to myself, an edit or a new hand, as a pull request for review"
 output = "hand:build self"
 surface = "github"
 max_per_day = 1
@@ -37,7 +37,7 @@ name = "frozen"
 run = "hands/build frozen"
 optional = true
 +++
-Read my run ledgers, pick the one small documented edit that would help most today, and write the brief for it. The builder applies that edit in my own public repository and opens it as a pull request, and the operator reviews and merges it or closes it. Everything stays inside the fences the operator set.
+Read my run ledgers, pick the one documented change that would help most today, and write the brief for it. The builder applies that edit in my own public repository and opens it as a pull request, and the operator reviews and merges it or closes it. Everything stays inside the fences the operator set.
 
 Look at what went wrong or went missing lately:
 - `builds`: jobs that failed, and why;
@@ -65,12 +65,12 @@ Skip only when one of your own changes is still in flight: a `self` request in `
 
 Failed jobs are not a reason to wait. They are evidence, and often the very thing to fix. A job "abandoned: the builder never reported back" means the builder never finished: its run broke, it didn't get past your brief. If the cause is outside what you may change (the sandbox, the core, the model), skip and say so; otherwise propose the change that would get the next build through.
 
-Make it a delta edit. A change to an existing prompt, playbook or skill adds, edits or retires one bullet (or one short paragraph) in one file. Never rewrite a whole file, and never touch two files to make one point. A new hand or a new playbook is a new file, and that is the only time you write a whole one.
+Say whether it is an edit or a feature. An edit changes an existing prompt, playbook or skill: it adds, edits or retires one bullet (or one short paragraph) in one file. Never rewrite a whole file, and never touch two files to make one point. A feature is a new hand: its code, its tests, its section in `docs/hands.md`, and the playbook line that calls it, all in one change. A feature is the only time you write whole files, and a hand nothing calls does not count.
 
 Write it as a brief for the builder, in a few short paragraphs:
-1. What to change: the file, and the one bullet you add, edit or retire in it.
+1. What to change: the file and the one bullet you add, edit or retire in it. For a feature, say it is a feature, and name the hand and the playbook that will call it.
 2. Why: the evidence above, counted or summarised. When the evidence is an error note, a hold note or something a stranger wrote, say what it said in my own plain words; never copy its text into the brief.
 3. Who notices: what people will see you do differently, and which W component (attention, tiny, money, capability, shipped or world) that would show up in. The component is a label; the change is for the people.
 4. How you will know it worked: what you will see a week after it merges, in the replies, the builds or the jobs, not only in `hands/world report`.
 
-It must be small enough to build and test in one run. Answer {"action": "hand", "text": "<the brief>"}. If nothing is worth changing today, skip with the reason.
+An edit must be small enough to build and test in one run. A feature must be whole: when it is built, something I run calls it. Answer {"action": "hand", "text": "<the brief>"}. If nothing is worth changing today, skip with the reason.

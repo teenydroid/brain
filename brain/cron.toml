@@ -179,7 +179,8 @@ command = "bin/act build-idea"
 catch_up = true
 
 # Propose one change to myself (a prompt, a playbook, a skill or a new hand),
-# once a day. It goes in as a build request from myself; pick-request picks it
+# once a day. The pipeline also takes the wants job's filings, which come in
+# as build requests from myself too. It goes in as a build request from myself; pick-request picks it
 # like any other, the builder makes it in my own clone, and it ships as a pull
 # request the operator merges or closes (docs/evolve.md). Ten past, off the
 # 15:00 studio slot's minute (see build-idea), and still before pick-request's 15:20.

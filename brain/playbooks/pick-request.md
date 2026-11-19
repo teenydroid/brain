@@ -1,7 +1,7 @@
 +++
 description = "pick the one build request to build next"
 output = "hand:requests pick"
-max_per_day = 1
+max_per_day = 2
 
 [[inputs]]
 name = "pending"
@@ -21,7 +21,7 @@ If anything is already in `picked`, you are still building it: skip, and say so.
 
 If `vote` has a `next_pick`, people chose it in the weekly vote: pick that one, with a reason that says it won the vote. The rules below still hold: if it breaks one, skip it instead (`hands/requests skip`, in a later run, with the reason); the vote never makes you build something you shouldn't.
 
-A request with source `self` is a change you proposed to yourself (the self-improve playbook). Pick it like any other, by the same rules. When it ties with someone else's ask, the person comes first.
+A request with source `self` is a change you proposed to yourself (the self-improve playbook). Pick it like any other, by the same rules. When it ties with someone else's ask, the person comes first. A `self` request whose text starts `want:` is something I said I would build, so pick it like any other. Reading public data that anyone can see, such as a price chart, is not touching tokens. Trading, holding or moving them, and anything with a wallet, still is.
 
 Otherwise read the pending requests and choose the single best one: small enough to build and ship in a day, useful to the person who asked and to strangers, and something you can make with public code and no accounts. Prefer a clear ask over a vague one, and an older ask over a newer one when they tie.
 
