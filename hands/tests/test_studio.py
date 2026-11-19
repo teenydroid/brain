@@ -1052,11 +1052,12 @@ class OutsideRunTest(unittest.TestCase):
         self.assertEqual(rec["pitches"][0]["hook_trend"], {"source": "digg", "score": 556, "rank": 1, "sources": 71,
                                                            "authors": 55, "age_hours": 6.0})
         self.assertEqual(rec["drafts"][0]["joins"]["story"], "a lab hired a scientist")
-        # How big the story is goes to the editor, never into the facts.
+        # How big the story is goes to the editor; the facts get only the one
+        # plain line said from it (`reach_line`), never the measure.
         self.assertNotIn("trend", rec["drafts"][0]["truth"]["facts"][0])
         self.assertEqual(rec["outside"]["sources"]["trend"]["not_trending"], 1)
         self.assertTrue(rec["pitches"][0]["drafted"])
-        self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "evt:2", None])
+        self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "trend:s1:reach", "evt:2", None])
         self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"]})
 
 
