@@ -1326,7 +1326,15 @@ class Room:
         choosing that fails is asked once more on the core's default model
         (`_fall_back`). Raises Stop on a provider failure, no time, or a
         second unusable answer (`soft`: None instead, for a turn the run can
-        go on without)."""
+        go on without).
+
+        A turn with no `thread` (the editor's) is a cold read: it runs on a
+        new thread of its own (`studio:<run id>:<agent>:<n>`). The core gives
+        a turn with no thread the agent's newest transcript (its
+        LatestForAgent resume), so without one each editor turn read the
+        last: the fallback's slot question came after the pick's, which the
+        editor had said pick to, and it vetoed the fallback as the same story
+        told twice though nothing had gone out (preview-box-2, 2026-11-19)."""
         first = message
         attempt = 0
         while attempt < 2:
@@ -1335,8 +1343,9 @@ class Room:
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
             if secs < self.cfg.turn_min_secs:
                 raise Stop("skipped", f"out of time before the {step} turn ({self.cfg.budget_secs} s budget)")
+            on = thread or f"studio:{self.run_id}:{agent}:{len(self.calls) + 1}"
             began = time.monotonic()
-            status, out, err = (self.ask or ask_core)(self.root, agent, message, thread, model, secs)
+            status, out, err = (self.ask or ask_core)(self.root, agent, message, on, model, secs)
             call = {"agent": agent, "step": step, "attempt": attempt, "secs": round(time.monotonic() - began, 1),
                     "bytes": len(message.encode())}
             if model:
