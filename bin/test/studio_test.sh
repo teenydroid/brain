@@ -605,8 +605,8 @@ rec="$(last_record)"
 check "fallbacks the editor vetoes leave the slot empty: every ranked draft is asked, a veto costs no fallback" \
   jqe '.outcome == "empty" and (.publish.attempts | length) == (.ranking | length) and ([.publish.attempts[1:][] | .result] | all(test("vetoed")))' <<<"$rec"
 check "a fallback is told nothing has gone out yet, and is never shown the draft that failed" \
-  bash -c "m=\"\$(step_msgs '# studio: the slot' | awk 'BEGIN{RS=\"# studio: the slot\"} NR==3')\";
-    grep -q 'Nothing has gone out in this slot yet' <<<\"\$m\" && ! grep -q 'won the comparisons' <<<\"\$m\"" 
+  bash -c "grep -q 'Nothing has gone out in this slot yet' <<<\"\$1\" && ! grep -q 'won the comparisons' <<<\"\$1\"" _ \
+  "$(jq -rs '[.[] | select(.message | startswith("# studio: the slot"))][1].message' "$FAKE_CALLS")"
 check "and the record's reason says what came of every attempt" \
   jqe '(.reason | test("the pick D[0-9]+: failed the truth check")) and (.reason | test("2 fallbacks tried, none went out: D[0-9]+: the editor vetoed it \\(flat\\); D[0-9]+: the editor vetoed it \\(flat\\)"))' <<<"$rec"
 check "an empty slot is an outcome, not an error" bash -c "[ '$code' = 0 ] && jq -e '.ok == true' <<<\"\$1\" >/dev/null" _ "$out"
