@@ -1111,6 +1111,8 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
            for s in batch):
         lines += [OWN_THREAD, ""]
     people = _x_people(batch)
+    if any(_x_own_thread(s) for s in batch if _x_handle(s)):
+        lines += [X_OWN_THREAD, ""]
     turned: list[str] = []
     for s in batch:
         handle = _x_handle(s)
