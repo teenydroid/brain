@@ -90,6 +90,20 @@ class ResearchSkips(LoopCase):
         (request,) = proposer.requests
         self.assertEqual(request["refused_skip"]["verdict"], "not-worth")
 
+    def test_a_pr_built_after_a_refused_skip_says_the_skip_was_refused(self):
+        self.live()
+        self.one_learning()
+        pub = FakePublisher()
+        proposer = Recording(research=[{"verdict": "already", "why": "it sits on my memory page", "read": []}],
+                             proposals=[self.proposal()])
+        out = self.run_with(proposer, publisher=pub, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        (pr,) = pub.prs
+        reason = wants_rules.memory_skip_reason("already", "", "it sits on my memory page")
+        self.assertNotIn("**Research**: already.", pr["body"])
+        self.assertIn("**Research**: said `already` (it sits on my memory page); that skip was refused "
+                      f"({reason}), so it was built without a plan.", pr["body"])
+
     def test_a_research_already_naming_a_playbook_still_skips(self):
         self.one_learning()
         proposer = Recording(research=[{"verdict": "already", "why": "morning.md checks first",

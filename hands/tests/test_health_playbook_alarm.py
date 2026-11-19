@@ -101,6 +101,26 @@ class PlaybookAlarmTest(unittest.TestCase):
         self.at(2 * QUARTER)
         self.assertIsNone(health.check()["playbook_alarm"])
 
+    def test_a_streak_older_than_the_lookback_is_no_alarm(self):
+        # A playbook that failed three runs long ago and was retired since.
+        self.act_runs("self-improve", *[(-10 * DAY - 60 - DAY * back, self.SCREENED) for back in (2, 1, 0)])
+        out = health.check()
+        self.assertEqual((out["playbook_alarm"], self.alarms(), self.gh.seen), (None, [], []))
+
+    def test_an_open_alarm_clears_when_the_playbook_stops_running(self):
+        self.three_days()
+        health.check()
+        self.assertEqual(len(self.gh.requests("POST", ISSUES)), 1)
+        # The playbook is unscheduled: no new runs, and the 7-day lookback passes.
+        self.at(7 * DAY + QUARTER)
+        out = health.check()
+        self.assertEqual(out["playbook_alarm"], {"self-improve": "cleared"})
+        self.assertEqual(self.state()["playbook_alarm"], {})
+        self.assertEqual(self.gh.requests("PATCH", f"{ISSUES}/41")[0].json()["state"], "closed")
+        self.assertEqual(self.inbox()[-1]["kind"], "recovered")
+        self.at(7 * DAY + 2 * QUARTER)
+        self.assertIsNone(health.check()["playbook_alarm"])
+
     def test_a_provider_failure_after_the_failures_does_not_clear_it(self):
         self.three_days()
         health.check()
