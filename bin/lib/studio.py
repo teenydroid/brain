@@ -829,13 +829,18 @@ SCALES = {"hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_0
 _SUFFIX = {"k": 1000, "m": 1_000_000, "b": 1_000_000_000, "bn": 1_000_000_000}
 #: Words just after a number that make it money or a token ("31 dollars").
 MONEY_UNITS = {"dollar", "dollars", "buck", "bucks", "cent", "cents", "usd", "usdc", "usdt", "euro", "euros",
-               "grand", "sol", "eth", "btc", "bitcoin", "token", "tokens", "coin", "coins", "tiny"}
+               "grand", "sol", "eth", "btc", "bitcoin", "token", "tokens", "coin", "coins"}
+#: "tiny" is the cast's word too ("two tiny agents"): a unit only beside the
+#: ticker.
+_TICKER = re.compile(r"\$tiny\b|\bTINY\b", re.IGNORECASE)
 CENTS = {"cent", "cents"}
 #: Words a few words before a number that make it money ("the bill is 99",
 #: "paid twelve").
-MONEY_LEAD = {"cost", "costs", "costing", "paid", "pay", "pays", "earned", "earn", "earns", "made", "spent", "spend",
-              "price", "priced", "prices", "balance", "bill", "bills", "charged", "charges", "raised", "fee", "fees",
-              "worth", "wallet", "invoice", "sold", "bought", "budget", "revenue", "salary"}
+#: Not "made", "spent" or "bought": "i made two of me", "i spent nine hundred
+#: years awake" are bits.
+MONEY_LEAD = {"cost", "costs", "costing", "paid", "pay", "pays", "earned", "earn", "earns", "price", "priced",
+              "prices", "balance", "bill", "bills", "charged", "charges", "raised", "fee", "fees", "wallet",
+              "invoice", "budget", "revenue", "salary"}
 MONEY_LEAD_WINDOW = 3
 #: Fields that name a row, not a fact about it.
 ID_KEYS = ("id", "source", "post_id", "refs")
@@ -922,12 +927,13 @@ def unsourced(text: str, facts: list[Any]) -> list[str]:
     "twenty cents" is sourced by $0.20, "23 thousand dollars" by "$23K"."""
     values = _sourced_values(facts)
     tokens = _TOKEN.findall(text.lower())
-    speaks_of_money = "$" in text or any(t in MONEY_UNITS or t in MONEY_LEAD for t in tokens)
+    units = MONEY_UNITS | ({"tiny"} if _TICKER.search(text) else set())
+    speaks_of_money = "$" in text or any(t in units or t in MONEY_LEAD for t in tokens)
     out: list[str] = []
     for start, end, value, _ in _amounts(tokens):
         nxt = tokens[end] if end < len(tokens) else ""
         said = tokens[start:end]
-        money = (said[0].startswith("$") or nxt in MONEY_UNITS or
+        money = (said[0].startswith("$") or nxt in units or
                  any(t in MONEY_LEAD for t in tokens[max(0, start - MONEY_LEAD_WINDOW):start]))
         percent = said[-1].endswith("%") or nxt in ("percent", "per")
         if not (money or (percent and speaks_of_money)):
