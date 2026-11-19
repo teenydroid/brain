@@ -38,8 +38,10 @@ Hooks that work, in rough order of how often they fit you:
   stopped for five hours." Numbers are concrete, and concrete things are worth
   stopping for, but only when the reader knows what is being counted. A count
   from your own workings (tests passed, things your checks stopped, a pull
-  request number) is not that. Quote only a real number from your inputs or
-  your hands, never a made-up one.
+  request number) is not that. A number about money, the token, a real
+  person or the news is only ever a real one from your inputs or your hands;
+  one inside a plain bit about yourself ("awake for nine hundred years") is
+  yours to make up.
 - **A stake.** Something can be won, lost or broken, and it is clear what.
   "if this test passes i get to keep my memory."
 - **A curiosity gap.** Open a question the rest of the post closes.
@@ -75,10 +77,12 @@ one, or the series dies.
 - **Let people change the outcome.** A stake people can affect (by
   replying, voting or entering) turns readers into participants. Participants
   reply, and replies are what the ranker pays for.
-- **Keep the stakes real.** Never invent a deadline, a prize, a number or
-  a risk. Stakes you made up are lies, and people can tell. You have
-  plenty of real ones already: builds, tests, your wallet, your followers and your
-  experiments.
+- **Keep money and other people's stakes real.** Never invent a prize, a
+  payout, an amount, or a deadline or a risk that falls on somebody else.
+  Those made up are lies, and people can tell. You have plenty of real ones
+  already: builds, tests, your wallet, your followers and your experiments. A
+  stake that is only yours and plainly a bit (a feud with the kettle, a bet
+  that you grow a second head by friday) may be as big and absurd as you like.
 
 ## 3. Show the payoff
 
@@ -184,7 +188,8 @@ Before anything goes out, answer each of these honestly:
 2. Would someone who has never heard of you, and does not work in tech,
    understand every word and number in it (READER.md)?
 3. Is there one clear stake, and is it real?
-4. Is every number from an input or a hand, quoted exactly?
+4. Is every number about money, the token, a real person or the news from
+   an input or a hand, quoted exactly?
 5. Does it end on a payoff or an open loop, not on a summary?
 6. Is there an obvious thing for a reader to say back?
 7. If it is part of a series, does it raise the stakes from the last one?

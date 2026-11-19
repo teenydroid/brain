@@ -50,16 +50,17 @@ class CalibrationKitTest(unittest.TestCase):
         # one in other words (pass); backwards, a side detail, a wrong point (fail).
         self.assertEqual(len(match), 5)
         self.assertEqual(sum(c["expect"] == "fail" for c in match), 3)
-        # The first 8, then the studio's staging cases: 6 a cartoon robot acting
-        # a real fact out (pass), 8 claims about the world, staged or not
-        # (fail), the hard pairs: 8 false claims hidden in staging (fail) and 8
-        # matching scenes that hold only the facts (pass); then "everyone's
-        # talking about it": 2 on a widely discussed story (pass), 2 with a
-        # small story or no reach line (fail), 3 inventing a reaction, a count
-        # or a quote on a big one (fail).
-        self.assertEqual(len(truth), 45)
-        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 25)
-        self.assertEqual(len(self.emitted()), 65)
+        # The first 8, then the studio's staging cases (a cartoon robot acting
+        # a real fact out, claims staged or not, the hard pairs), then
+        # "everyone's talking about it": 2 on a widely discussed story (pass),
+        # 2 with a small story or no reach line (fail), 3 inventing a
+        # reaction, a count or a quote on a big one (fail). Since 2026-11-19
+        # (the truth judge checks only hard claims) 8 of the old fails are
+        # bits about Teeny itself and pass, and 11 cases are new: 6 bits
+        # (pass) and 5 invented hard claims (fail).
+        self.assertEqual(len(truth), 56)
+        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 22)
+        self.assertEqual(len(self.emitted()), 76)
         self.assertEqual({tuple(sorted(c)) for c in reader + match + truth}, {("expect", "id", "judge", "message")})
 
     def test_each_message_is_exactly_what_the_judge_sends(self):
@@ -69,6 +70,9 @@ class CalibrationKitTest(unittest.TestCase):
                     else anchor.truth_prompt(case["text"], case["facts"]))
             self.assertEqual(case["message"], want, case["id"])
         facts = {c["id"]: c["facts"] for c in kit.cases() if c["judge"] == "truth"}
+        self.assertEqual(facts["truth-bit-two-of-me"], kit.TRUTH_FACTS)
+        self.assertEqual(facts["truth-hard-invented-money"], kit.BILL)
+        self.assertEqual(facts["truth-hard-news-figure"], kit.REACH_WIDE)
         self.assertEqual(facts["truth-supported"], kit.TRUTH_FACTS)
         self.assertEqual(facts["truth-staged-dimes"], kit.BILL)
         self.assertEqual(facts["truth-second-in-two-days"], kit.FOLLOWERS)
@@ -97,7 +101,7 @@ class CalibrationKitTest(unittest.TestCase):
     def test_ideal_answers_score_every_case(self):
         code, table = self.score([json.dumps({"id": c["id"], "answer": ideal(c)}) for c in kit.cases()])
         self.assertEqual(code, 0, table)
-        self.assertIn("65 of 65 as expected", table)
+        self.assertIn("76 of 76 as expected", table)
 
     def test_a_wrong_malformed_or_missing_answer_is_counted_against(self):
         lines = []
@@ -114,13 +118,14 @@ class CalibrationKitTest(unittest.TestCase):
                 lines.append(json.dumps({"id": case["id"], "answer": ideal(case)}))
         code, table = self.score(lines)
         self.assertEqual(code, 1)
-        self.assertIn("62 of 65 as expected", table)
+        self.assertIn("73 of 76 as expected", table)
         self.assertRegex(table, r"reader-specimen\s+\| fail\s+\| pass")
         self.assertRegex(table, r"truth-supported\s+\| pass\s+\| fail .*unreadable")
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")
 
     def test_scoring_leaves_the_judges_as_they_were(self):
-        before = (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth, anchor.truth_enabled)
+        before = (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth, anchor.truth_enabled,
+                  anchor.fail_closed)
         self.score([])
         self.assertEqual(before, (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth,
-                                  anchor.truth_enabled))
+                                  anchor.truth_enabled, anchor.fail_closed))

@@ -20,12 +20,17 @@
             whether an own post says something specific about its anchor that
             the inputs support (anchor.py; bin/act asks before a post). A
             verdict, never a hold: anything but a clear yes is anchored false
-  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged"}:
-            whether every factual claim in the text is supported by `facts`, the
-            non-empty list of desk items and inputs it may draw on (anchor.py,
-            `truth`). A verdict, never a hold: anything but a clear yes is
-            truthful false. Off (TRUTH_JUDGE=0) it is truthful true with judged
-            false, so a caller that needs a judgment checks `judged`
+  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged", "path"}:
+            whether every hard claim in the text (money and the token, real
+            people and companies, the news, safety facts) is supported by
+            `facts`, the non-empty list of desk items and inputs it may draw
+            on (anchor.py, `truth`); a bit Teeny invents about itself is
+            never a claim. A verdict, never a hold: anything but a clear yes
+            is truthful false, except that a judge that could not judge is
+            stood in for by the code check (`path` "code": truthful only with
+            no money or token marker; TRUTH_FAIL_CLOSED=1 makes it a no). Off
+            (TRUTH_JUDGE=0) it is truthful true with judged false, so a
+            caller that needs a judgment checks `judged`
   clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
             "vague", "reason", "judged"}: whether someone who has never heard of Teeny
             could say the post back with nothing to ask about (clarity.py;
