@@ -900,7 +900,7 @@ One run is one slot:
    is the core's model; the same one for both is a warning in the record),
    `STUDIO_FORMATS` (`post,thread,image`; `meme` too when the memegen
    service is up), `STUDIO_PITCHES` (12),
-   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
+   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
@@ -961,7 +961,8 @@ One run is one slot:
    the X search is billed, so it is off by default, previews included
    (`inputs.skipped` says so).
 4. **Sampling** from a seed the run id gives (recorded): three lore lines to
-   reach for, three of `writer.md`'s before/after pairs to reread, three of
+   reach for, three of `writer.md`'s before/after pairs to reread (always at
+   least one in the unhinged register, `UNHINGED_PAIRS`), three of
    the scoreboard's best and two of its worst posts. One seed in four is an
    **explore** run: at least three pitches use a shape or a format the recent
    posts did not.
@@ -986,10 +987,16 @@ One run is one slot:
    `drafted`, and `hooked` counts them; fewer than half hooked, with an
    outside world to join, is a warning.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
-   3 (`choose_drafted`: with an outside world, the writer's two best hooked
-   pitches and then its best of the rest, so too few hooks never costs the
-   slot; `drafted` in the record says how many were hooked and why any
-   were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
+   3 (`choose_drafted`: first the writer's best `STUDIO_DRAFT_INVENTED` (1)
+   invention-led pitches, a tall tale, grudge, lore bit or threat, wherever
+   it ranked them, when it pitched one (the pitch turn asks for at least
+   three; the dry run of 2026-11-19 ranked its one tall tale 7th and drafted
+   three gallows and scene pitches that all came out "big AI news. i'm an AI
+   too. small self-own."); then, with an outside world, hooked pitches
+   until two of the three are hooked (a hooked tall tale counts for both);
+   then its best of the rest, so too few hooks never costs the slot;
+   `drafted` in the record says how many were hooked and invention-led and
+   why any were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
    A hooked pitch's draft turn gives the story whole (headline, what it
    says, the posts quoted) with the rules for real news (`JOIN_RULES`, and
    `writer.md`, "start from their world, not yours"): join the conversation
@@ -1101,7 +1108,7 @@ ends the run); a run out of budget is recorded and exits 0.
 | | `writer` | `editor` |
 |---|---|---|
 | From the core | `SOUL.md`, `IDENTITY.md` (`omit_identity = false`); no recall | nothing (`omit_identity`, `omit_memory_context`) |
-| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), seven before/after pairs | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
+| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), ten before/after pairs and five on joining the news, most in the unhinged voice (`writer.md`, "the voice"), and the lines that do not move | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
 | Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters); `LORE.md`'s premise, cast and running bits | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is); `LORE.md`'s premise |
 | Left out | `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, the arcs, what it said lately: rules about what may be said, which the gates after the studio enforce on the one piece picked | the same, and every pitch's reasoning |
 | Temperature | 1.0 | 0.3 |

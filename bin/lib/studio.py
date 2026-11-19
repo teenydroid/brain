@@ -30,7 +30,8 @@ In order:
    Every hand runs with DRY_RUN=1, which keeps a hand from acting but does
    not make a read free: see OUTSIDE.
 5. Sampling, from a seed the run's id gives (`seed_of`): a few lore lines to
-   reach for, which of writer.md's before/after pairs to reread, which of
+   reach for, which of writer.md's before/after pairs to reread (at least one
+   of them unhinged, UNHINGED_PAIRS), which of
    the scoreboard's posts to show; and one run in four (`explore`) asks for
    a shape or a format the recent posts have not used.
 6. The pitch turn (`writer`): the message leads with the outside world and
@@ -41,8 +42,10 @@ In order:
    neither, or whose format is not in STUDIO_FORMATS, is dropped with its
    reason.
 7. The draft turns (`writer`): STUDIO_DRAFTS_EACH drafts for each of the
-   STUDIO_DRAFT_TOP best pitches (`choose_drafted`: two of three hooked when
-   there is an outside world, filled from the ranking when hooks are short),
+   STUDIO_DRAFT_TOP best pitches (`choose_drafted`: STUDIO_DRAFT_INVENTED of
+   them invention-led, a tall tale, grudge, lore bit or threat, whatever the
+   writer's ranking, when the pitches hold one; two of three hooked when
+   there is an outside world; filled from the ranking when either is short),
    one turn a pitch; a hooked one is given the story whole and the rules for
    real news (`JOIN_RULES`), and the story goes into its truth facts. Every text is held to
    X's 280 (bin/lib/post_length.py, the guard's own count): the ones over it
