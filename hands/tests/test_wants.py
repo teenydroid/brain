@@ -615,10 +615,12 @@ class EndToEnd(sc.SelfJobScratch):
     rubric, shipped as a pull request through the real ship step, and scored a
     week after it merged by the real `hand_used` count over playbook runs.
 
-    Patched: GitHub, in two places. `hands/gh pr` (the one wants.run_hand call
-    that is not the guard or the build hand) answers open and then merged,
-    and the build hand's own GitHub calls go to hands/x's fake server with a
-    local bare repository for origin, as in the other build tests. The clock
+    Patched: GitHub, in two places. `hands/gh pr`, the one wants.run_hand call
+    that is not the guard or the build hand, answers open and then merged; and
+    the ship step (run in this process, not patched) pushes to a local bare
+    repository and opens its pull request on hands/x's fake server, as in the
+    other build tests. The memory page, the playbook runs and the checkout
+    that says who calls a hand (the clone) are the scratch box's. The clock
     is the scratch box's (TEENY_NOW and EVOLVE_NOW), moved by the test. The
     jail is real where the kernel has Landlock; where it has none
     `verify.run` answers for it (and the test says so)."""
