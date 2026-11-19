@@ -118,6 +118,7 @@ import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
 import sandbox as sandbox_lib  # noqa: E402
+import wants_rules  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -824,7 +825,25 @@ def attempts_on(entries: Mapping[str, Json], item: Learning) -> list[Json]:
     return [e for e in history(entries, item.id) if carries(e, item)]
 
 
+def refused_skip(why: Any, where: Any, note: Any) -> str | None:
+    """Why a skip is no skip, or None when it stands (wants_rules): one that
+    rests on the memory page, or an `already` that names no file. 2026-11-19:
+    six of the archive's fourteen skips (g9c1, g9c3, g15c3, g18c1, g19c1,
+    g20c1) settled a learning on "it is on my page"; writing it down is not
+    carrying it out."""
+    return wants_rules.memory_skip_reason(str(why or ""), str(where or ""), str(note or ""))
+
+
+def _refused(entry: Mapping[str, Any]) -> bool:
+    skip = entry.get("skip") if entry.get("verdict") == "skipped" else None
+    return isinstance(skip, Mapping) and refused_skip(skip.get("why"), skip.get("where"), skip.get("note")) is not None
+
+
 def _settles(entry: Mapping[str, Any]) -> bool:
+    """Whether ENTRY settles its learning. A skip refused by `refused_skip`
+    never does, archived before the rule or not: its learning is open again."""
+    if _refused(entry):
+        return False
     return entry.get("verdict") in SETTLED or (entry.get("verdict") == DRY_SETTLED and dry_run())
 
 
