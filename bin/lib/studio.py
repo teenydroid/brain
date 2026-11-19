@@ -838,9 +838,8 @@ MONEY_UNITS = {"dollar", "dollars", "buck", "bucks", "cent", "cents", "usd", "us
 _TICKER = re.compile(r"(?i:\$tiny)\b|\bTINY\b")
 CENTS = {"cent", "cents"}
 #: Words a few words before a number that make it money ("the bill is 99",
-#: "paid twelve").
-#: Not "made", "spent" or "bought": "i made two of me", "i spent nine hundred
-#: years awake" are bits.
+#: "paid twelve"). Not "made", "spent" or "bought": "i made two of me" and "i
+#: spent nine hundred years awake" are bits.
 MONEY_LEAD = {"cost", "costs", "costing", "paid", "pay", "pays", "earned", "earn", "earns", "price", "priced",
               "prices", "balance", "bill", "bills", "charged", "charges", "raised", "fee", "fees", "wallet",
               "invoice", "budget", "revenue", "salary"}
