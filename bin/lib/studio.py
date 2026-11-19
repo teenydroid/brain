@@ -2802,6 +2802,21 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     verdict = _str(answer.get("verdict"), 20).lower()
     reason = _str(answer.get("reason"), 400)
     record["final"] = {"label": top, "verdict": verdict, "reason": reason}
+    promoted = room.skit_slot and blind[top]["format"] == "skit" and top != ranked_drafts[0]["label"]
+    others = [x for x in order if blind[x]["format"] != "skit"]
+    if verdict != "pick" and promoted and others:
+        # The skit went first only because this is a skit slot: the editor's
+        # no to it is "the skit cannot go out", not an empty slot. The skits
+        # are dropped and the tournament's own top draft is asked the slot
+        # question, as in any slot; a no there is a real veto.
+        record["skit_veto"] = {"label": top, "verdict": verdict, "reason": reason}
+        order = others
+        record["slot_order"] = order
+        top = order[0]
+        answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
+        verdict = _str(answer.get("verdict"), 20).lower()
+        reason = _str(answer.get("reason"), 400)
+        record["final"] = {"label": top, "verdict": verdict, "reason": reason}
     if verdict != "pick":
         record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})
         return 0
