@@ -867,7 +867,8 @@ the file when it sets `STUDIO` at all (cron and the compose services pass
 none, so on the box the file decides). Every required gate must have judged:
 a truth judge, cold reader or viewer check that is switched off, unreachable
 or answers no JSON leaves a live slot empty (a dry run passes it, marked
-`unjudged`). A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
+`unjudged`); an unreachable truth judge's own code check (`path: "code"`) is
+a judgment, a pass or a no about the draft. A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
 file as the hands read it) are the writer's model, including after the
 writer fell back to the core's default, posts nothing; the judge model is in
 every run's `models`. A picture's scene is truth-gated against the draft's
@@ -1038,13 +1039,16 @@ One run is one slot:
    @-mentions; name the story in a clause. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
    ones over get one shorten turn together, and one still over is dropped.
-   Then a plain-code screen: a draft with a number (digits, or number words
-   used as counts or amounts: `two`, `second`, `dozen`, never `one`), a
-   weekday or a month that its own item and storyline do not hold is
-   dropped (`unsourced: [...]`; ids and refs are not facts, "twenty cents"
-   matches $0.20, false drops are accepted), and so is one sharing a run of
-   four words with an example "after" in `writer.md` (`copies an
-   example`). When every draft of a pitch fails, it is drafted once more,
+   Then a plain-code screen: a draft with an amount of money or of a token
+   (a currency sign, a money or token word after it, a money word just
+   before it, or a percent in a text about money) that its own item,
+   storyline and story do not hold is dropped (`unsourced: [...]`; ids and
+   refs are not facts, "twenty cents" matches $0.20 and "23 thousand
+   dollars" $23K, false drops are accepted). A count, a day or a date in a
+   bit about Teeny itself is not screened ("last night there were two of
+   me"), since 2026-11-19; the truth judge checks any that is about a real
+   person or the news. A draft sharing a run of four words with an example
+   "after" in `writer.md` is dropped too (`copies an example`). When every draft of a pitch fails, it is drafted once more,
    told which words failed. Each draft keeps `truth: {text, facts}`, the
    body `hands/guard truth` takes: the hooked story first, then one plain
    line made in code from its trend measure (`reach_line`: "This story is
@@ -1084,10 +1088,13 @@ One run is one slot:
    `thread`, `image`; any other format is no post, recorded; later formats
    arrive behind `STUDIO_FORMATS`), then the gates in order, each failing
    closed and each result kept in the record: the **truth judge**
-   (`hands/guard truth` on the draft's `truth`: every factual claim
-   supported by its item and storyline; staging, what the cartoon robot and
-   the lore's tiny agents do on the page, is not a claim, but who did what
-   always is), the **cold reader** (`hands/guard clarity`; bin/act and
+   (`hands/guard truth` on the draft's `truth`: every hard claim, money and
+   the token, real people, companies and accounts, the news, safety facts,
+   supported by its item, storyline and story; whatever Teeny invents about
+   itself, and the cartoon's staging, is a bit and never a claim; a judge it
+   cannot reach is stood in for by its code check, which holds only a draft
+   with a mark of money or the token, `path: "code"` in the record,
+   `TRUTH_FAIL_CLOSED=1` for the old no), the **cold reader** (`hands/guard clarity`; bin/act and
    bin/tick run it before their own posts and hands/x does not, so this is
    its one run), and the **safety guard**, which `hands/x post` runs itself
    before the posting rules. A truth or stranger no gets one rewrite turn by

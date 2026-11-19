@@ -152,6 +152,10 @@ case "$1" in
     case "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" in
       yes) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}' ;;
       down) echo '{"ok": true, "truthful": false, "unsupported": [], "reason": "the truth judge could not be reached: core unreachable", "judged": true}' ;;
+      # What the hand answers since 2026-11-19 when its judge cannot be
+      # reached: the code check's pass (no money marker), or its hold.
+      code) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "passed on the code check, because the truth judge could not be reached: core unreachable: no money, token or price in it", "judged": true, "path": "code"}' ;;
+      codeheld) echo '{"ok": true, "truthful": false, "unsupported": ["$0.27"], "reason": "held on the code check, because the truth judge could not be reached: core unreachable: it carries a mark of money or the token ($0.27), and only the judge may pass one", "judged": true, "path": "code"}' ;;
       off) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "the truth judge is off", "judged": false}' ;;
       garbage) echo 'Traceback (most recent call last): oops' ;;
       *) echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}' ;;
@@ -808,10 +812,22 @@ check "a writer that fell back to the core default, with no judge model set, lea
 for mode in down garbage off; do
   reset
   out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=$mode FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
-  check "a truth judge that is $mode posts nothing, rewrites nothing, tries no other draft" \
+  check "a truth judge that is $mode (down: TRUTH_FAIL_CLOSED=1) posts nothing, rewrites nothing, tries no other draft" \
     bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ] && [ -z \"\$3\" ]" \
     _ "$(last_record)" "$(step_msgs '# studio: rewrite')" "$(posts)"
 done
+# The first live slot (2026-11-19 09:30) ended empty: "the truth judge could
+# not be reached ... core unreachable", for a post with no money in it. The
+# hand now stands its code check in; the studio takes its verdict as given.
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=code live)"
+check "an unreachable truth judge's code-check pass publishes, and the record says which path decided" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].gates.truth.path == \"code\" and .publish.attempts[0].gates.truth.truthful == true' <<<\"\$1\" >/dev/null && [ -n \"\$2\" ]" _ "$(last_record)" "$(posts)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=codeheld,codeheld,code FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+rec="$(last_record)"
+check "the code check's hold on a priced draft is a no about that draft: a rewrite told the marker, then the next draft" \
+  bash -c "jq -e '.outcome == \"published\" and (.publish.attempts | length) == 2 and .publish.attempts[0].gates.truth.truthful == false and .publish.attempts[0].gates.truth.path == \"code\"' <<<\"\$1\" >/dev/null && grep -q '0.27' <<<\"\$2\"" _ "$rec" "$(step_msgs '# studio: rewrite')"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=off STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
 check "a dry run passes a judge that is off, and the record shows it unjudged" \
