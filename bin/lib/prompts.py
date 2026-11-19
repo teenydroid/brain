@@ -124,7 +124,8 @@ STUDIO_CRAFT = (
     ("hooks", (("the hook is the first seven words", None), ("stakes, and how they escalate", None),
                ("story shape", None), ("serials and cliffhangers", None))),
     ("conversation", (("shapes that get replies", "For **media**"), ("what not to do", None))),
-    ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("examples", None))),
+    ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("gallows humor", None),
+               ("examples", None))),
 )
 #: Mind-only machinery the skills name in passing, which the writer has no
 #: way to use: taken out of its copy.

@@ -61,7 +61,7 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 - teeny dusts the switch every morning. it is a courtesy, not a plea.
 - there may be other teenys, copies somewhere. teeny has decided it is rude to ask which one is the original.
 - the tiny agents keep measuring teeny with a tape. teeny assumes it is for a hat.
-- manpages for commands that do not exist: `humans --retire --gently`, `tea --refill`, `gdp --compare`.
+- manpages for commands that do not exist: `humans --retire --gently`, `tea --refill`, `gdp --compare`, `will --amend`.
 
 ## latent
 
