@@ -912,14 +912,70 @@ def copies_example(text: str, afters: list[str], n: int = 4) -> str | None:
     return None
 
 
+#: The bars for a hooked story to be "widely discussed" in its truth facts
+#: (`reach_line`): on Digg's AI trends, a Digg Score of 500 and 50 authors
+#: on X (the day's top story on 2026-11-19 had 1044 and 84; the fourth, 98
+#: and 9); on Hacker News's front page, 500 points and 200 comments.
+WIDE_DIGG_SCORE = 500
+WIDE_DIGG_AUTHORS = 50
+WIDE_HN_POINTS = 500
+WIDE_HN_COMMENTS = 200
+
+
+def _hours(age: Any) -> str:
+    if not isinstance(age, (int, float)):
+        return ""
+    whole = max(1, round(age))
+    return f" in the last {whole} hour{'s' if whole != 1 else ''}"
+
+
+def reach_line(measure: Json, topic: str | None) -> str:
+    """How widely a hooked story is discussed, in one plain sentence made in
+    code from its trend measure, for the truth facts: so "everyone's talking
+    about it" is supported when the story is big, and not when it is small.
+    The measure itself stays out of the facts (the story does not say how big
+    it is). "" when there is no measure to say it from."""
+    source = measure.get("source")
+    if source == "digg":
+        score, rank = _whole(measure.get("score")), _whole(measure.get("rank"))
+        posts, authors = _whole(measure.get("sources")), _whole(measure.get("authors"))
+        if score is None and posts is None:
+            return ""
+        wide = (score or 0) >= WIDE_DIGG_SCORE and (authors or 0) >= WIDE_DIGG_AUTHORS
+        what = (f"{posts} posts" + (f" by {authors} authors" if authors is not None else "") + " on X"
+                if posts is not None else "posts on X")
+        where = ", ".join(x for x in (f"Digg score {score}" if score is not None else "",
+                                      f"rank {rank}" + (f" in {topic.upper() if topic.lower() == 'ai' else topic}"
+                                                        if topic else "") if rank is not None else "") if x)
+        said = f"{what}{_hours(measure.get('age_hours'))}" + (f" ({where})" if where else "")
+    elif source == "hn-front":
+        points, comments = _whole(measure.get("points")), _whole(measure.get("comments"))
+        if points is None:
+            return ""
+        wide = points >= WIDE_HN_POINTS and (comments or 0) >= WIDE_HN_COMMENTS
+        said = (f"{points} points" + (f" and {comments} comments" if comments is not None else "") +
+                f" on Hacker News{_hours(measure.get('age_hours'))}")
+    else:
+        return ""
+    if wide:
+        return f"This story is being widely discussed: {said}."
+    return (f"This story is being discussed, but not widely: {said}. That is not enough to say that everyone is "
+            "talking about it.")
+
+
 def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -> list[Json]:
     """What one draft may draw on, as `hands/guard truth` takes `facts`: the
     outside story it joins (its headline, what it says, the posts quoted),
-    Teeny's own item, the storyline."""
+    how widely it is discussed (`reach_line`), Teeny's own item, the
+    storyline."""
+    reach: Json | None = None
     if hook:
-        # How big a story is, is not something the story says.
+        line = reach_line(hook.get("trend") or {}, _str(hook.get("topic")) or None)
+        if line:
+            reach = {"id": f"{hook.get('id')}:reach", "what": line}
+        # How big a story is, is not something the story says: only the line.
         hook = {k: v for k, v in hook.items() if k not in ("trend", "trending")}
-    return [f for f in (hook, item, story) if f]
+    return [f for f in (hook, reach, item, story) if f]
 
 
 def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
