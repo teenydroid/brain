@@ -6,7 +6,8 @@
 #   bin/doctor --live          also the running core: /health, cron in step
 #                              with brain/cron.toml, every enabled job's next
 #                              run current, the heartbeat fresh, the
-#                              browser loads and starts Chrome
+#                              browser loads and starts Chrome, each studio
+#                              model answers one small turn
 #   bin/doctor --full          also the hands' unit tests
 #
 # Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
