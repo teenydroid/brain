@@ -1959,6 +1959,32 @@ class TickTest(unittest.TestCase):
         self.assertEqual(got["results"][1]["status"], "refused", got["results"])
         self.assertEqual([f["id"] for f in stimuli.follow_ups()["follow_ups"]], [1])
 
+    def test_the_answer_shape_says_an_intent_sends_nothing_until_its_outcome(self):
+        # Live, 2026-11-19 02:21: an answer cut off before its JSON said "six
+        # Moltbook comment answers ... all now sent"; nothing had run.
+        self.tick()
+        self.assertIn("Writing an intent sends nothing", self.chats()[0]["message"])
+
+    def test_a_beat_whose_answer_was_not_json_is_shown_as_nothing_carried_out(self):
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        self.answer("This turn fired six answers, all now sent.", "still prose",
+                    {"thought": "", "intents": [{"do": "journal", "text": "again"}]})
+        self.assertEqual(self.tick()["kind"], "failed")
+        self.at(900)
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertIn("your last answer was not usable JSON, so nothing in it was carried out", message)
+        self.assertIn("gm teeny", message)  # the batch it failed on comes back too
+
+    def test_a_beat_whose_turn_failed_is_shown_as_nothing_carried_out(self):
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        os.environ["FAKE_TURN_FAIL"] = "1"
+        self.assertEqual(self.tick()["kind"], "failed")
+        del os.environ["FAKE_TURN_FAIL"]
+        self.at(900)
+        self.tick()
+        self.assertIn("your last turn failed before it answered, so nothing was carried out", self.chats()[-1]["message"])
+
     def test_the_batch_shows_each_follow_up_by_id_and_ref(self):
         stimuli.follow_up(T0 + 60, "send the japanese reply", ref="x:111")
         stimuli.follow_up(T0 + 5 * 3600, "write to bob", ref="bob@example.com")
