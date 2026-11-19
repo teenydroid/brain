@@ -9,12 +9,14 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
-from teeny_hands.build import feature  # noqa: E402
+from teeny_hands.build import feature, selfclone  # noqa: E402
 
 TESTS_PASS = {"ok": True, "jailed": True, "ran": 2, "output": "Ran 2 tests in 0.01s\n\nOK"}
 TESTS_FAIL = {"ok": False, "jailed": True, "ran": 1, "output": "FAIL: test_it\n" + "x" * 600 + "\nAssertionError: 1 != 2"}
@@ -106,7 +108,6 @@ class CallersTest(Tree):
         self.assertEqual(feature.callers(self.tree, "nobody"), [])
         self.assertEqual(feature.callers(Path(self.tmp) / "missing", "gizmo"), [])
 
-
     def test_an_optional_input_alone_is_not_a_caller(self):
         optional = PLAYBOOK.replace('run = "hands/gizmo look --max 3"', 'run = "hands/gizmo look"\noptional = true')
         self.write("brain/playbooks/maybe.md", optional)
@@ -138,6 +139,91 @@ enabled = false
         self.assertEqual(feature.scheduled(self.tree, books), ["gizmo-look"])
         self.assertEqual(feature.scheduled(self.tree, []), [])
         self.assertEqual(feature.scheduled(Path(self.tmp) / "missing", books), [])
+
+
+    def test_a_job_that_is_not_a_table_is_skipped_not_fatal(self):
+        self.write("brain/cron.toml", CRON + "\n[other]\nx = 1\n")
+        self.assertEqual(feature.scheduled(self.tree, ["gizmo-look"]), ["gizmo-look"])
+        self.write("brain/cron.toml", "[jobs]\nfoo = 1\n")
+        self.assertEqual(feature.scheduled(self.tree, ["gizmo-look"]), [])
+        self.write("brain/cron.toml", '[jobs]\nfoo = 1\nbar = "bin/act gizmo-look"\n\n'
+                   '[jobs.gizmo-look]\nschedule = "0 9 * * *"\ncommand = "bin/act gizmo-look"\n')
+        self.assertEqual(feature.scheduled(self.tree, ["gizmo-look"]), ["gizmo-look"])
+
+
+class HandRunTest(Tree):
+    def runs(self, source: str, name: str = "gizmo") -> bool:
+        self.write(f"hands/lib/teeny_hands/{name}/cli.py", source)
+        return feature.runs_through_hand_run(self.tree / "hands" / "lib" / "teeny_hands" / name)[0]
+
+    def test_a_real_call_of_hand_run_counts_in_each_import_form(self):
+        for source in (
+            "from .. import hand\n\ndef main(a):\n    return hand.run('g', None, a)\n",
+            "from teeny_hands import hand\n\ndef main(a):\n    return hand.run('g', None, a)\n",
+            "from teeny_hands import hand as h\n\ndef main(a):\n    return h.run('g', None, a)\n",
+            "from teeny_hands.hand import run\n\ndef main(a):\n    return run('g', None, a)\n",
+            "from ..hand import run as go\n\ndef main(a):\n    return go('g', None, a)\n",
+            "import teeny_hands.hand\n\ndef main(a):\n    return teeny_hands.hand.run('g', None, a)\n",
+            "import teeny_hands.hand as hand\n\ndef main(a):\n    return hand.run('g', None, a)\n",
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(self.runs(source))
+
+    def test_a_mention_of_hand_run_is_not_a_call(self):
+        for source in (
+            "# hand.run(\ndef main(a):\n    return 0\n",
+            '"""Goes through hand.run(name, parser, argv)."""\ndef main(a):\n    return 0\n',
+            "def main(a):\n    s = 'hand.run('\n    return 0\n",
+            "from .. import hand\n\ndef main(a):\n    return hand.runner(a)\n",   # another attribute
+            "from .. import hand\n\ndef main(a):\n    return hand.run\n",         # not called
+            "def main(a, hand):\n    return hand.run('g', None, a)\n",             # a parameter, not the module
+            "from other import hand\n\ndef main(a):\n    return hand.run('g', None, a)\n",
+            "from other import run\n\ndef main(a):\n    return run('g', None, a)\n",
+        ):
+            with self.subTest(source=source):
+                self.assertFalse(self.runs(source))
+
+    def test_source_that_does_not_parse_fails_and_is_named(self):
+        self.write("hands/lib/teeny_hands/gizmo/cli.py", "from .. import hand\nhand.run(\n")
+        ok, broken = feature.runs_through_hand_run(self.tree / "hands" / "lib" / "teeny_hands" / "gizmo")
+        self.assertFalse(ok)
+        self.assertEqual(broken, ["cli.py"])
+
+    def test_a_missing_package_does_not_run_through_it(self):
+        self.assertEqual(feature.runs_through_hand_run(self.tree / "nope"), (False, []))
+
+
+class RenamesTest(unittest.TestCase):
+    """selfclone.changed_paths feeds new_hands: a new hands/<name> must stay an
+    add when the branch also deleted a file, which git would call a rename."""
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                       cwd=self.repo, check=True, capture_output=True)
+
+    def test_a_new_hand_beside_a_deleted_file_is_not_hidden_by_a_rename(self):
+        self.tmp = tempfile.mkdtemp(prefix="renames-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = Path(self.tmp)
+        self.git("init", "-q", "-b", "main")
+        (self.repo / "hands").mkdir()
+        body = "#!/usr/bin/env python3\n" + "".join(f"line {i}\n" for i in range(30))
+        (self.repo / "hands" / "old").write_text(body)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        self.git("checkout", "-q", "-b", "work")
+        (self.repo / "hands" / "old").unlink()
+        (self.repo / "hands" / "gizmo").write_text(body)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "work")
+
+        def git(*args, check=True, token=None):
+            return subprocess.run(["git", *args], cwd=self.repo, check=check, capture_output=True)
+
+        with mock.patch.object(selfclone, "_git", git):
+            changed = selfclone.changed_paths("main")
+        self.assertEqual(changed, [("A", "hands/gizmo"), ("D", "hands/old")])
+        self.assertEqual(feature.new_hands(changed), ["gizmo"])
 
 
 class RubricTest(Tree):
@@ -184,6 +270,42 @@ class RubricTest(Tree):
         ])
         self.assertEqual(self.calls, [])  # no tests to run, so none ran
         self.assertEqual(out["hands"][0]["ran"], {"ok": False, "ran": 0, "jailed": False, "output": ""})
+
+    def test_a_hollow_hand_is_named_gap_by_gap(self):
+        changed = self.complete()
+        self.write("hands/gizmo", "#!/usr/bin/env python3\nprint('hi')\n", 0o755)
+        self.write("hands/lib/teeny_hands/gizmo/cli.py", "# hand.run(\ndef main(argv):\n    return 0\n")
+        self.write("hands/tests/test_gizmo.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n")
+        out = self.rubric(changed)
+        self.assertEqual(out["missing"], [
+            "hands/gizmo does not run its package teeny_hands.gizmo",
+            "hands/lib/teeny_hands/gizmo/ does not run through hand.run (the hand contract)",
+            "hands/tests/test_gizmo.py asserts nothing (no assert statement or self.assert* call)",
+        ])
+        self.assertEqual(self.calls, [])  # a test that asserts nothing is not run
+        found = out["hands"][0]
+        self.assertEqual((found["entry"], found["contract"], found["tests"]), (False, False, False))
+
+    def test_source_that_does_not_parse_is_named_in_the_contract_message(self):
+        changed = self.complete()
+        self.write("hands/lib/teeny_hands/gizmo/extra.py", "def broken(:\n")
+        out = self.rubric(changed)
+        self.assertEqual(out["missing"], ["hands/lib/teeny_hands/gizmo/extra.py does not parse"])
+        self.assertFalse(out["hands"][0]["contract"])
+
+    def test_every_assertion_form_makes_a_test_file_count(self):
+        for body in ("assert 1 == 1", "self.assertTrue(True)", "with self.assertRaises(ValueError):\n            int('x')"):
+            with self.subTest(body=body):
+                changed = self.complete()
+                self.write("hands/tests/test_gizmo.py", "import unittest\n\n\nclass T(unittest.TestCase):\n"
+                           f"    def test_x(self):\n        {body}\n")
+                self.assertEqual(self.rubric(changed)["missing"], [])
+
+    def test_a_cron_job_that_is_not_a_table_does_not_break_the_rubric(self):
+        changed = self.complete()
+        self.write("brain/cron.toml", "[jobs]\nfoo = 1\n")
+        out = self.rubric(changed)
+        self.assertEqual(out["missing"], ["no playbook that calls hands/gizmo is scheduled in brain/cron.toml"])
 
     def test_tests_that_do_not_parse_are_not_run(self):
         changed = self.complete()

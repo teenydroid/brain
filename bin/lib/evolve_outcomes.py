@@ -459,11 +459,13 @@ def _refusal_rule(result: Any) -> str | None:
     return HELD_RULE if result.get("refused") == HELD_RULE else None
 
 
-def _callers(tree: Path, hand: str) -> list[str]:
+def _callers(tree: Path, hand: str) -> dict[str, bool]:
     """The playbooks in TREE whose input runs `hands/<hand>` or whose output
-    is `hand:<hand> ...`, by name. A playbook whose front matter cannot be
-    read calls nothing."""
-    names = []
+    is `hand:<hand> ...`, by name, each with whether the hand is called from
+    an input (its run calls it whenever it is ok) rather than only through
+    its output (it calls it only when the model's answer takes the hand
+    action). A playbook whose front matter cannot be read calls nothing."""
+    names = {}
     for path in sorted((tree / "brain" / "playbooks").glob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
@@ -473,9 +475,11 @@ def _callers(tree: Path, hand: str) -> list[str]:
         except (OSError, ValueError):  # tomllib.TOMLDecodeError and a bad encoding are both ValueErrors
             continue
         runs = [i.get("run") for i in head.get("inputs") or [] if isinstance(i, Mapping)]
-        words = [r.split()[:1] for r in [*runs, head.get("output")] if isinstance(r, str)]
-        if any(w in ([f"hands/{hand}"], [f"hand:{hand}"]) for w in words):
-            names.append(path.stem)
+        via_input = any(isinstance(r, str) and r.split()[:1] == [f"hands/{hand}"] for r in runs)
+        output = head.get("output")
+        via_output = isinstance(output, str) and output.split()[:1] == [f"hand:{hand}"]
+        if via_input or via_output:
+            names[path.stem] = via_input
     return names
 
 
@@ -560,8 +564,14 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
         return n
     if kind == "hand_used":
         tree = src.tree or Path(__file__).resolve().parents[2]
-        return sum(1 for book in _callers(tree, check["hand"]) for run in _act_runs(src, book)
-                   if "skipped" not in run and _inside(_epoch(run.get("at")), since, until))
+        # A use is a run that finished ok (a failed one, or a skipped one, never
+        # reached the hand) and, for a playbook that calls the hand only
+        # through its output, whose answer took the hand action: bin/act
+        # records each as {action: "hand", status: "done"} in `actions`.
+        return sum(1 for book, via_input in _callers(tree, check["hand"]).items() for run in _act_runs(src, book)
+                   if run.get("ok") is True and "skipped" not in run and _inside(_epoch(run.get("at")), since, until)
+                   and (via_input or any(isinstance(a, Mapping) and a.get("action") == "hand"
+                                         and a.get("status") == "done" for a in run.get("actions") or [])))
     db = _Db(src.hands_db)
     try:
         if not db.ok:
