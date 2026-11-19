@@ -1292,7 +1292,8 @@ VETO_WORDS = {
 VETO_QUESTION = {
     "peer-quote": ("It is a quote post: these words go out above somebody else's post (below), to that post's "
                    "readers. It is meant to be a reaction, not a report: a one-line bit, an absurd or unhinged riff, "
-                   "an invented absurd scene about Teeny itself, or a meme. Do not ask it for first-hand material or "
+                   "an invented absurd scene about Teeny itself, or a meme, and crude, profane or openly contemptuous of the "
+                   "product and its hype is the voice, not a flaw. Do not ask it for first-hand material or "
                    "for what really happened. Your one question: is it funny or striking, and is it plainly about the "
                    "post it quotes, so that a reader of that post would stop for it? Pick it when it is; pick none "
                    "when it is flat, bare praise, an advert for Teeny, cruel to a private person, or has nothing to "

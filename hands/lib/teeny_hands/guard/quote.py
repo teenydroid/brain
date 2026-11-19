@@ -48,7 +48,8 @@ UNREADABLE = "the quote judge answered in an unreadable shape, so the quote goes
 RUBRIC = """You check one quote post before a small AI agent's account on X publishes it. A quote post shows the
 account's words above somebody else's post (the QUOTED POST). The account is a cartoon robot with a loud, absurd sense
 of humour: its quotes may be one unhinged line, a joke at its own expense, an invented absurd scene about itself, a
-meme caption, or a flat disagreement. None of that is a reason to fail a quote. You do not judge whether it is true,
+meme caption, a flat disagreement, or crude, profane contempt for the post's product and hype. None of that is a reason
+to fail a quote. You do not judge whether it is true,
 kind, wise or funny enough.
 
 Your one question: would a person who just read the QUOTED POST read the QUOTE as a reaction to that post?
