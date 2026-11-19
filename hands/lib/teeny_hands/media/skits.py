@@ -16,10 +16,13 @@ screen. What it does hold, in code:
 - **The money fences.** The runway tier (no media on a low wallet); at most
   `MEDIA_SKIT_MAX_PER_DAY` skits a UTC day (a skit that bought anything
   counts, even one that failed after); every shot reserves
-  `MEDIA_SKIT_MAX_USD_PER_SHOT` ($0.60) on its row before the first job, and
+  `MEDIA_SKIT_MAX_USD_PER_SHOT` ($0.90) on its row before the first job, and
   all of them together must fit under the shared `MEDIA_MAX_USD_PER_DAY`
   ($1.00) with everything else bought today, or nothing starts (`budget`). A
-  shot quoted above its cap is cancelled and the next model asked.
+  shot whose job can cost more than its cap (`max_cost_usdc`, else the
+  estimate: Surplus bills about 20% over the estimate) is cancelled and the
+  next model asked; the shot's row carries that figure until the real
+  cost comes, and keeps it, as an estimate, when none does.
 - **The cutter first.** The reel service must answer before any money is
   spent: a shot nothing could label is never bought.
 - **The label.** The cut carries "AI parody · @<X_BOT_USERNAME>" (or "AI
@@ -340,13 +343,20 @@ def _submit(api: Surplus, conn, skit_id: int, shot: _Shot, aspect: str, per_shot
         if not job_id:
             shot.tried.append(f"{model}: the answer named no job")
             continue
+        # What can really be charged: Surplus billed about 20% over its
+        # estimate on 2026-11-19 (kling 5 s quoted 0.598, billed 0.7176), so
+        # the cap and the reservation are the job's max_cost_usdc when it
+        # gives one, else its estimate, else the cap itself.
         estimate = _micros(job.get("estimated_cost_usdc"))
-        if estimate is not None and estimate > per_shot:
+        most = _micros(job.get("max_cost_usdc"))
+        charge = most if most is not None else estimate
+        if charge is not None and charge > per_shot:
             _cancel(api, job_id)
-            shot.tried.append(f"{model}: quoted ${estimate / 1e6:.3f}, over the ${per_shot / 1e6:.2f} a shot cap")
+            shot.tried.append(f"{model}: up to ${charge / 1e6:.3f} (quoted ${(estimate or 0) / 1e6:.3f}), over the "
+                              f"${per_shot / 1e6:.2f} a shot cap")
             continue
         shot.model, shot.job, shot.asked = model, job_id, seconds
-        shot.cost = estimate if estimate is not None else per_shot
+        shot.cost = charge if charge is not None else per_shot
         _set(conn, shot.row, model=model, job_id=job_id, cost_micro=shot.cost, estimated=1,
              detail=json.dumps({"seconds": seconds, "tried": shot.tried}, ensure_ascii=False))
         return True
@@ -439,7 +449,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     job = job_of(body)
     the_label = label()
     models = assets._models("MEDIA_SKIT_MODELS", SKIT_MODELS)
-    per_shot = assets._usd("MEDIA_SKIT_MAX_USD_PER_SHOT", "0.60")
+    per_shot = assets._usd("MEDIA_SKIT_MAX_USD_PER_SHOT", "0.90")
     limit = hand.number("MEDIA_SKIT_MAX_PER_DAY", 0, 0, 10)
     params = _params()
     if hand.dry_run():

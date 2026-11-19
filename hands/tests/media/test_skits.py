@@ -48,6 +48,7 @@ class FakeSurplus:
     def __init__(self):
         self.calls = []
         self.fail, self.quotes, self.jobs, self.errors = {}, {}, {}, {}
+        self.maxes, self.no_usage = {}, set()
         self._polls = {}
         self.n = 0
 
@@ -66,7 +67,10 @@ class FakeSurplus:
             self.n += 1
             job = f"job-{self.n}-{model}"
             self._polls[job] = (model, list(self.jobs.get(model, ["running", "succeeded"])))
-            return {"id": job, "status": "queued", "estimated_cost_usdc": str(self.quotes.get(model, 400000))}
+            out = {"id": job, "status": "queued", "estimated_cost_usdc": str(self.quotes.get(model, 400000))}
+            if model in self.maxes:
+                out["max_cost_usdc"] = str(self.maxes[model])
+            return out
         if path.startswith("/v1/video/generations/") and method == "GET":
             job = path.rsplit("/", 1)[1]
             model, polls = self._polls[job]
@@ -74,7 +78,8 @@ class FakeSurplus:
             out = {"id": job, "status": status}
             if status == "succeeded":
                 out["results"] = [{"url": f"https://api.surplusintelligence.ai/v1/media/artifacts/{job}/0"}]
-                out["usage"] = {"buyer_cost_usdc": "450000"}
+                if model not in self.no_usage:
+                    out["usage"] = {"buyer_cost_usdc": "450000"}
             if status == "failed":
                 out["error"] = self.errors.get(model, {"type": "provider_unavailable", "retryable": True})
             return out
@@ -140,6 +145,7 @@ class SkitTest(unittest.TestCase):
         self.api = FakeSurplus()
         self.reel = FakeReel()
         self.clock = [0.0]
+        self.reserved_seen = []
 
     def tearDown(self):
         os.environ.clear()
@@ -156,6 +162,8 @@ class SkitTest(unittest.TestCase):
         self.write(text)
 
     def sleep(self, seconds):
+        # What the shots' rows carry while the jobs run.
+        self.reserved_seen += [r["cost_micro"] for r in self.rows("shot")]
         self.clock[0] += seconds
 
     def skit(self, body=None):
@@ -191,7 +199,7 @@ class SkitTest(unittest.TestCase):
     def test_the_code_defaults_are_conservative(self):
         self.write("DRY_RUN=1\n")
         out = self.skit()
-        self.assertEqual((out["enabled"], out["max_usd_per_shot"], out["reserve_usd"]), (False, 0.6, 1.2))
+        self.assertEqual((out["enabled"], out["max_usd_per_shot"], out["reserve_usd"]), (False, 0.9, 1.8))
         self.assertEqual(out["models"], skits.SKIT_MODELS.split(","))
 
     def test_a_dry_run_says_what_it_would_make_and_calls_nothing(self):
@@ -302,11 +310,35 @@ class SkitTest(unittest.TestCase):
         self.setUp()
 
     def test_a_shot_quoted_over_its_cap_is_cancelled_and_the_next_model_asked(self):
-        self.api.quotes[FIRST] = 900000
+        self.api.quotes[FIRST] = 950000
         out = self.skit()
         self.assertEqual(self.api.submitted(), [FIRST, SECOND, FIRST, SECOND])
         self.assertEqual(len(self.api.deleted()), 2)
         self.assertEqual(out["models"], [SECOND, SECOND])
+
+    def test_the_cap_is_held_against_the_most_a_job_can_cost_not_its_estimate(self):
+        # Surplus billed about 20% over its quote (2026-11-19: kling 5 s quoted
+        # 598000, billed 717600): max_cost_usdc is what can really be charged.
+        self.api.quotes[FIRST], self.api.maxes[FIRST] = 598000, 950000
+        out = self.skit()
+        self.assertEqual(out["models"], [SECOND, SECOND])
+        self.assertEqual(len(self.api.deleted()), 2)
+
+    def test_the_shot_reserves_the_jobs_most_until_its_real_cost_comes(self):
+        self.api.quotes[FIRST], self.api.maxes[FIRST] = 598000, 850000
+        self.api.jobs[FIRST] = ["running"]
+        with self.assertRaises(hand.HandError):
+            self.skit({**SKIT, "wait_seconds": 60})
+        # While it ran, the row carried the job's most, not its estimate.
+        self.assertIn(850000, self.reserved_seen)
+
+    def test_a_success_with_no_billed_cost_keeps_the_reservation_as_an_estimate(self):
+        # seedance-2-0 succeeded on 2026-11-19 with no usage.buyer_cost_usdc.
+        self.api.quotes[FIRST], self.api.maxes[FIRST] = 517275, 700000
+        self.api.no_usage.add(FIRST)
+        self.skit()
+        shots = self.rows("shot")
+        self.assertEqual([(s["status"], s["cost_micro"], s["estimated"]) for s in shots], [("done", 700000, 1)] * 2)
 
     def test_a_content_refusal_moves_the_shot_to_the_next_model(self):
         # Hosted models differ on real people: a refusal is "try another".

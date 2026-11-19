@@ -520,7 +520,7 @@ per_day = int(number("MEDIA_SKIT_MAX_PER_DAY", 0))
 if per_day <= 0:
     print("warn STUDIO_FORMATS names skit, but MEDIA_SKIT_MAX_PER_DAY is 0: hands/video refuses every skit")
     sys.exit()
-shot, budget = number("MEDIA_SKIT_MAX_USD_PER_SHOT", 0.60), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+shot, budget = number("MEDIA_SKIT_MAX_USD_PER_SHOT", 0.90), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if shot > budget:
     print(f"warn MEDIA_SKIT_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no skit fits a day")
     sys.exit()
