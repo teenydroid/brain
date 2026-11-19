@@ -231,51 +231,78 @@ class SuggestBase(PeersBase):
 
 
 class SuggestTest(SuggestBase):
-    def test_a_relevance_4_top_stores_all_and_posts_nothing(self):
-        out = peers.suggest({"candidates": [self.candidate(relevance=4), self.candidate("202", 3), self.candidate("201", 2)]})
+    def test_a_relevance_3_top_stores_all_and_posts_nothing(self):
+        out = peers.suggest({"candidates": [self.candidate(relevance=3), self.candidate("202", 2), self.candidate("201", 1)]})
         self.assertIsNone(out["posted"])
         self.assertEqual(out["skipped"]["rule"], "relevance")
         self.assertEqual(self.posted(), [])
-        self.assertEqual(self.statuses(), [("201", 4, "skipped", "relevance"), ("202", 3, "kept", None), ("201", 2, "kept", None)])
+        self.assertEqual(self.statuses(), [("201", 3, "skipped", "relevance"), ("202", 2, "kept", None), ("201", 1, "kept", None)])
         self.assertEqual(self.table("x_posts"), [])
 
-    def test_a_5_without_a_source_posts_nothing(self):
-        out = peers.suggest({"candidates": [self.candidate(source="  ")]})
-        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "source"))
-        self.assertEqual(self.posted(), [])
-        self.assertEqual(self.statuses(), [("201", 5, "skipped", "source")])
+    def test_a_4_is_posted_by_default(self):
+        # The score is how hard the quote hits a reader of the quoted post,
+        # and the floor (PEER_QUOTE_MIN_RELEVANCE) is 4.
+        self.assertEqual(peers.suggest({"candidates": [self.candidate("202", 4)]})["posted"]["id"], "300")
 
-    def test_the_anchor_judge_reads_the_draft_against_the_quoted_post(self):
+    def test_a_suggestion_without_a_source_posts(self):
+        out = peers.suggest({"candidates": [self.candidate("202", 5, source="  ")]})
+        self.assertEqual(out["posted"]["id"], "300")
+        self.assertEqual(self.statuses(), [("202", 5, "posted", None)])
+
+    def test_the_quote_judge_reads_the_draft_against_the_quoted_post(self):
         peers.suggest({"candidates": [self.candidate("202", 5)]})
-        [(text, anchor, inputs)] = [c.args for c in self.judged.call_args_list]
-        self.assertEqual((text, anchor), (self.TEXTS["202"], "202"))
-        self.assertEqual(inputs["quoted_post"]["text"], "our agent forgets everything overnight")
-        self.assertEqual(inputs["source"], "x_post_metrics: 14 days of my own replies")
+        [(text, quoted, extra)] = [c.args for c in self.quote_judged.call_args_list]
+        self.assertEqual((text, quoted, extra), (self.TEXTS["202"], "our agent forgets everything overnight", ""))
+        self.judged.assert_not_called()
         [row] = self.table("x_posts")
         self.assertEqual(row["anchor"], "202")
 
-    def test_a_judge_drop_is_a_kept_skip_with_its_reason_not_an_error(self):
-        self.anchor_verdict = {"anchored": False, "reason": "it says nothing about the post", "judged": True}
+    def test_the_quote_judge_reads_a_memes_lines(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_media(conn, "m1", "state/media/meme-1.png", "image/png", 3)
+        conn.commit()
+        meme = {**self.candidate("202", 5, format="meme"), "text": "me every morning"}
+        out = peers.suggest({"candidates": [meme], "media_ids": ["m1"],
+                             "meme": {"template": "drake", "lines": ["remembering things", "waking up blank"]}})
+        self.assertEqual(out["posted"]["id"], "300")
+        extra = self.quote_judged.call_args.args[2]
+        self.assertIn("remembering things / waking up blank", extra)
+        self.assertEqual(self.posted()[0]["media"], {"media_ids": ["m1"]})
+        self.assertEqual(self.table("x_posts")[0]["format"], "peer-meme")
+
+    def test_a_meme_without_its_picture_is_kept_not_posted(self):
+        out = peers.suggest({"candidates": [{**self.candidate("202", 5, format="meme"), "text": "me"}]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "meme"))
+        self.assertEqual(self.posted(), [])
+
+    def test_a_bit_goes_out_as_a_quote(self):
+        bit = {**self.candidate("201", 5, format="bit"), "text": "my evals are also vibes but they have a spreadsheet"}
+        self.assertEqual(peers.suggest({"candidates": [bit]})["posted"]["id"], "300")
+        self.assertEqual(self.table("x_posts")[0]["format"], "peer-bit")
+
+    def test_a_quote_judge_no_is_a_kept_skip_with_its_reason_not_an_error(self):
+        self.quote_verdict = {"reacts": False, "reason": "bare praise", "judged": True}
         out = peers.suggest({"candidates": [self.candidate("202", 5), self.candidate("201", 4)]})
         self.assertIsNone(out["posted"])
-        self.assertEqual(out["skipped"]["rule"], "anchor")
-        self.assertIn("it says nothing about the post", out["skipped"]["reason"])
+        self.assertEqual(out["skipped"]["rule"], "quote_judge")
+        self.assertIn("bare praise", out["skipped"]["reason"])
         self.assertEqual(self.posted(), [])
-        self.assertEqual(self.statuses(), [("202", 5, "skipped", "anchor"), ("201", 4, "kept", None)])
-        self.assertIn("it says nothing about the post", self.table("x_peer_candidates")[0]["reason"])
+        self.assertEqual(self.statuses(), [("202", 5, "skipped", "quote_judge"), ("201", 4, "kept", None)])
+        self.assertIn("bare praise", self.table("x_peer_candidates")[0]["reason"])
         self.assertEqual(self.table("x_posts"), [])
 
-    def test_a_judge_that_cannot_answer_is_a_skip_too(self):
-        self.anchor_verdict = {"anchored": False, "reason": "the anchor judge could not be reached", "judged": True}
-        out = peers.suggest({"candidates": [self.candidate("202", 5)]})
-        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "anchor"))
-        self.assertEqual(self.posted(), [])
+    def test_a_quote_judge_that_cannot_answer_lets_the_quote_go(self):
+        # The judge fails open (guard/quote.py); hands/x's guard still reads every word.
+        self.quote_verdict = {"reacts": True, "reason": "the quote judge could not be reached", "judged": False}
+        self.assertEqual(peers.suggest({"candidates": [self.candidate("202", 5)]})["posted"]["id"], "300")
+        self.assertEqual(len(self.guard.calls), 1)
 
     def test_a_suggestion_below_the_bar_is_never_judged(self):
-        peers.suggest({"candidates": [self.candidate(relevance=4)]})
-        self.judged.assert_not_called()
+        peers.suggest({"candidates": [self.candidate(relevance=3)]})
+        self.quote_judged.assert_not_called()
 
-    def test_a_5_whose_post_was_not_in_the_last_read_posts_nothing(self):
+    def test_a_5_whose_post_was_in_no_read_posts_nothing(self):
         out = peers.suggest({"candidates": [self.candidate("999")]})
         self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "not_read"))
         self.assertEqual(self.posted(), [])
@@ -314,18 +341,28 @@ class SuggestTest(SuggestBase):
         self.assertEqual((touch["handle"], touch["their_post_id"], touch["our_post_id"], touch["format"], touch["at"]),
                          ("bob_builder", "202", "300", "peer-quote", T0))
 
-    def test_a_second_5_the_same_day_posts_nothing(self):
+    def test_a_third_quote_the_same_day_posts_nothing(self):
+        # Two a UTC day (X_QUOTES_MAX_PER_DAY), the posting rule's one setting.
         peers.suggest({"candidates": [self.candidate("202", 5)]})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "301"}}, status=201)
+        self.at(T0 + 4 * HOUR)
+        self.assertEqual(peers.suggest({"candidates": [self.candidate("201", 5)]})["posted"]["id"], "301")
         self.at(T0 + 8 * HOUR)
         out = peers.suggest({"candidates": [self.candidate("201", 5)]})
         self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "daily"))
-        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(len(self.posted()), 2)
         self.at(T0 + 17 * HOUR + MINUTE)  # past midnight UTC
-        self.assertEqual(peers.suggest({"candidates": [self.candidate("201", 5)]})["posted"]["id"], "300")
+        self.fresh(T0 + 17 * HOUR + MINUTE)
+        self.x.route("GET", SEARCH, found(("203", "carol", "a third peer's post", T0 + 17 * HOUR)))
+        self.peers_file("alice\nbob_builder\ncarol\n")
+        peers.read()
+        self.x.route("POST", "/2/tweets", {"data": {"id": "302"}}, status=201)
+        self.assertEqual(peers.suggest({"candidates": [self.candidate("203", 5)]})["posted"]["id"], "302")
 
     def test_a_quote_whose_fate_is_unknown_counts_for_the_day(self):
         # A run that died between claiming the post and recording it may
         # have quoted already: the day's one quote is not risked twice.
+        self.configure(X_QUOTES_MAX_PER_DAY="1")
         conn = hand.db()
         conn.executescript(peers.SCHEMA)
         conn.execute("INSERT INTO x_peer_candidates (batch, rank, quote_of, text, relevance, format, status, at)"
@@ -335,16 +372,17 @@ class SuggestTest(SuggestBase):
         self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "daily"))
         self.assertEqual(self.posted(), [])
 
-    def test_the_daily_number_is_a_setting(self):
-        self.configure(PEER_QUOTES_MAX_PER_DAY="2", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+    def test_the_daily_number_is_the_posting_rules_setting(self):
+        self.configure(X_QUOTES_MAX_PER_DAY="1")
         peers.suggest({"candidates": [self.candidate("202", 5)]})
-        self.x.route("POST", "/2/tweets", {"data": {"id": "301"}}, status=201)
         self.at(T0 + HOUR)
-        self.assertEqual(peers.suggest({"candidates": [self.candidate("201", 5)]})["posted"]["id"], "301")
+        out = peers.suggest({"candidates": [self.candidate("201", 5)]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "daily"))
 
     def test_the_bar_is_a_setting(self):
-        self.configure(PEER_QUOTE_MIN_RELEVANCE="4", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
-        self.assertEqual(peers.suggest({"candidates": [self.candidate("201", 4)]})["posted"]["id"], "300")
+        self.configure(PEER_QUOTE_MIN_RELEVANCE="5")
+        out = peers.suggest({"candidates": [self.candidate("201", 4)]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "relevance"))
 
     def test_one_visit_a_week(self):
         visit = self.candidate("202", 5, format="visit")
@@ -383,7 +421,7 @@ class SuggestTest(SuggestBase):
         self.assertEqual(self.x.writes(), [])
         for table in ("x_posts", "x_peer_candidates", "x_peer_touches"):
             self.assertEqual(self.table(table), [], table)
-        skipped = peers.suggest({"candidates": [self.candidate("202", 4)]})
+        skipped = peers.suggest({"candidates": [self.candidate("202", 3)]})
         self.assertEqual((skipped["dry_run"], skipped["skipped"]["rule"]), (True, "relevance"))
         self.assertEqual(self.table("x_peer_candidates"), [])
 
@@ -475,7 +513,7 @@ class TouchTest(PeersBase):
 
 class SuggestionsTest(SuggestBase):
     def test_what_was_suggested_posted_and_skipped_newest_first(self):
-        peers.suggest({"candidates": [self.candidate("201", 4), self.candidate("202", 2)]})
+        peers.suggest({"candidates": [self.candidate("201", 3), self.candidate("202", 2)]})
         self.at(T0 + HOUR)
         peers.suggest({"candidates": [self.candidate("202", 5)]})
         out = peers.suggestions(days=7)
@@ -489,7 +527,7 @@ class SuggestionsTest(SuggestBase):
         self.assertIsNone(out["last_visit_at"])
 
     def test_only_the_window(self):
-        peers.suggest({"candidates": [self.candidate("201", 4)]})
+        peers.suggest({"candidates": [self.candidate("201", 3)]})
         self.at(T0 + 8 * DAY)
         self.assertEqual(peers.suggestions(days=7)["suggestions"], [])
         self.assertEqual(len(peers.suggestions(days=9)["suggestions"]), 1)
@@ -552,7 +590,7 @@ class CliTest(SuggestBase):
         code, out = self.run_x("peers", "--skip-quoted", "--max-age-hours", "8", "--per-peer", "2")
         self.assertEqual(code, 0, out)
         self.assertEqual([p["id"] for p in out["posts"]], ["202", "201"])
-        code, out = self.run_x("peer-suggest", stdin=json.dumps({"candidates": [self.candidate("202", 4)]}))
+        code, out = self.run_x("peer-suggest", stdin=json.dumps({"candidates": [self.candidate("202", 3)]}))
         self.assertEqual((code, out["skipped"]["rule"]), (0, "relevance"), out)
         code, out = self.run_x("peers", "suggestions", "--days", "7")
         self.assertEqual((code, len(out["suggestions"])), (0, 1), out)
