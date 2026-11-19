@@ -5465,7 +5465,14 @@ def research_summary(cand: Mapping[str, Any]) -> str | None:
         return None
     if research.get("error"):
         return f"**Research**: none usable ({str(research['error'])[:200]}); built without a plan."
-    out = f"**Research**: {research.get('verdict')}. {str(research.get('why') or '').strip()}"
+    why = str(research.get("why") or "").strip()
+    if research.get("refused_skip"):
+        # 2026-11-19: a refused skip is built anyway; the body says so, not
+        # that the learning is already carried out.
+        out = (f"**Research**: said `{research.get('verdict')}` ({why}); that skip was refused "
+               f"({research['refused_skip']}), so it was built without a plan.")
+    else:
+        out = f"**Research**: {research.get('verdict')}. {why}"
     if research.get("plan"):
         out += "\n\n> " + "\n> ".join(str(research["plan"]).splitlines())
     if research.get("dropped"):
@@ -6181,7 +6188,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
-    queue = waiting(entries, [*learnings, *findings])
+    # Routing stops new picks only: a candidate that passed before its
+    # learning was routed still ships.
+    queue = waiting(entries, [*learnings, *routed, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()

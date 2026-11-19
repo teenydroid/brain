@@ -285,7 +285,9 @@ def changed_paths(since: str = ORIGIN_BASE) -> list[tuple[str, str]]:
     added stays an add through later edits, and an added path deleted again
     is no change at all."""
     changes: dict[str, str] = {}
-    committed = _git("diff", "--name-status", "-z", f"{since}...HEAD").stdout
+    # --no-renames: a new hands/<name> beside a deleted file is an add and a
+    # delete, never a rename that hides the new hand (build/feature.py).
+    committed = _git("diff", "--name-status", "-z", "--no-renames", f"{since}...HEAD").stdout
     for status, path, _ in _status_entries(committed, porcelain=False):
         changes[path] = status
     live = _git("status", "--porcelain", "-z", "--untracked-files=all").stdout

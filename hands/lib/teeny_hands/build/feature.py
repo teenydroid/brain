@@ -14,6 +14,11 @@ that text, so the builder finishes the job instead of shipping half of it:
     output `hand:<name> <verb>`) that brain/cron.toml runs as `bin/act <book>`
   - a `## `<name>`` section in docs/hands.md
 
+These checks are cheap hardening against an empty shell (a hand that is a
+stub, a comment, a test that asserts nothing), not proof the hand is useful:
+the operator's review and the use count a week after it ships are the real
+gates.
+
 Pure reads of the clone, plus the one jailed test run; nothing is written.
 The same ideas as evolve's gate (bin/lib/evolve.py: new hands have tests, are
 called, are documented), which the hand lib does not import: this is the
@@ -81,12 +86,15 @@ def callers(tree: Path, name: str) -> list[str]:
     """The playbooks (brain/playbooks/<book>.md) whose front matter calls the
     hand: an input whose `run` starts with `hands/<name>`, or an `output`
     that is `hand:<name> <verb>`. Prose that mentions the hand does not
-    count: a playbook calls what its inputs run and its output does."""
+    count: a playbook calls what its inputs run and its output does. An
+    `optional = true` input may never run, so it counts only beside the hand
+    as the output or as a non-optional input."""
     out = []
     for path in sorted((tree / "brain" / "playbooks").glob("*.md")):
         meta = _front_matter(path)
         inputs = meta.get("inputs")
-        runs = [_argv(i.get("run")) for i in inputs if isinstance(i, dict)] if isinstance(inputs, list) else []
+        runs = [_argv(i.get("run")) for i in inputs
+                if isinstance(i, dict) and i.get("optional") is not True] if isinstance(inputs, list) else []
         output = meta.get("output")
         if any(argv[:1] == [f"hands/{name}"] for argv in runs) or (
                 isinstance(output, str) and output.startswith(f"hand:{name} ")):
@@ -103,7 +111,9 @@ def scheduled(tree: Path, books: list[str]) -> list[str]:
         return []
     runs = set()
     for job in jobs.values() if isinstance(jobs, dict) else []:
-        argv = _argv(job.get("command")) if isinstance(job, dict) else []
+        if not isinstance(job, dict):
+            continue  # a builder-written `foo = 1`: not a job, and not worth failing the desk
+        argv = _argv(job.get("command"))
         if job.get("enabled", True) is not False and len(argv) >= 2 and argv[0] == "bin/act":
             runs.add(argv[1])
     return [book for book in books if book in runs]
@@ -115,14 +125,85 @@ def _has_section(text: str, name: str) -> bool:
     return any(line.startswith("## ") and f"`{name}`" in line for line in text.splitlines())
 
 
-def _runs_through_hand_run(package: Path) -> bool:
+def _calls_hand_run(module: ast.AST) -> bool:
+    """MODULE really calls the hand contract's `run`: `hand.run(...)` where
+    `hand` is teeny_hands.hand (`from teeny_hands import hand`, `from .. import
+    hand`, `import teeny_hands.hand [as x]`), or `run(...)` imported from it
+    (`from teeny_hands.hand import run`). A comment, a docstring, a string, a
+    parameter named hand or another module's `run` is not that."""
+    hand_names: set[str] = set()
+    run_names: set[str] = set()
+    dotted = False
+    for node in ast.walk(module):
+        if isinstance(node, ast.ImportFrom):
+            package = (node.level == 0 and node.module == "teeny_hands") or (node.level > 0 and not node.module)
+            hand_module = (node.level == 0 and node.module == "teeny_hands.hand") or (
+                node.level > 0 and node.module == "hand")
+            for alias in node.names:
+                if package and alias.name == "hand":
+                    hand_names.add(alias.asname or "hand")
+                elif hand_module and alias.name == "run":
+                    run_names.add(alias.asname or "run")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "teeny_hands.hand":
+                    if alias.asname:
+                        hand_names.add(alias.asname)
+                    else:
+                        dotted = True
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in run_names:
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "run":
+            owner = func.value
+            if isinstance(owner, ast.Name) and owner.id in hand_names:
+                return True
+            if (dotted and isinstance(owner, ast.Attribute) and owner.attr == "hand"
+                    and isinstance(owner.value, ast.Name) and owner.value.id == "teeny_hands"):
+                return True
+    return False
+
+
+def runs_through_hand_run(package: Path) -> tuple[bool, list[str]]:
+    """(some module of PACKAGE really calls hand.run, the modules that do not
+    parse as paths under PACKAGE). Source that does not parse is not a hand
+    that can run, so it is named rather than skipped."""
+    ok = False
+    broken: list[str] = []
     for path in sorted(package.rglob("*.py")) if package.is_dir() else []:
         try:
-            if "hand.run(" in path.read_text(encoding="utf-8"):
-                return True
-        except (OSError, UnicodeDecodeError):
+            module = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError):
+            broken.append(str(path.relative_to(package)))
             continue
-    return False
+        ok = ok or _calls_hand_run(module)
+    return ok, broken
+
+
+def _entry_runs_package(entry: Path, name: str) -> bool:
+    """The entry point's text names its package: `from teeny_hands.<name>...
+    import main` (every hands/<x> does) or `from teeny_hands import <name>`."""
+    try:
+        text = entry.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(re.search(rf"\bteeny_hands\.{name}\b|\bfrom\s+teeny_hands\s+import\s+[^\n]*\b{name}\b", text))
+
+
+def _asserts(path: Path) -> bool:
+    """The test file asserts something: an `assert` statement or a call of a
+    method named assert* (assertEqual, `with self.assertRaises(...)`)."""
+    try:
+        module = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return False
+    return any(isinstance(node, ast.Assert)
+               or (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                   and node.func.attr.startswith("assert"))
+               for node in ast.walk(module))
 
 
 def _parses(path: Path) -> bool:
@@ -140,14 +221,24 @@ def _check(tree: Path, name: str, run_tests: Callable[..., Json]) -> tuple[Json,
     is_entry = entry.is_file() and os.access(entry, os.X_OK)
     if not is_entry:
         missing.append(f"hands/{name} is not an executable entry point")
-    contract = _runs_through_hand_run(tree / "hands" / "lib" / "teeny_hands" / name)
-    if not contract:
+    elif not _entry_runs_package(entry, name):
+        is_entry = False
+        missing.append(f"hands/{name} does not run its package teeny_hands.{name}")
+    package = tree / "hands" / "lib" / "teeny_hands" / name
+    contract, broken = runs_through_hand_run(package)
+    for rel in broken:
+        contract = False
+        missing.append(f"hands/lib/teeny_hands/{name}/{rel} does not parse")
+    if not contract and not broken:
         missing.append(f"hands/lib/teeny_hands/{name}/ does not run through hand.run (the hand contract)")
     test_file = tree / "hands" / "tests" / f"test_{name}.py"
-    tests = test_file.is_file() and _parses(test_file)
+    parses = test_file.is_file() and _parses(test_file)
+    tests = parses and _asserts(test_file)
     ran = dict(_NOT_RUN)
-    if not tests:
+    if not parses:
         missing.append(f"no hands/tests/test_{name}.py that parses")
+    elif not tests:
+        missing.append(f"hands/tests/test_{name}.py asserts nothing (no assert statement or self.assert* call)")
     else:
         result = run_tests(tree, start="hands/tests", top="hands/tests", pattern=f"test_{name}.py")
         ran = {"ok": bool(result.get("ok")), "ran": int(result.get("ran") or 0),
