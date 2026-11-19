@@ -403,6 +403,45 @@ class SuggestTest(SuggestBase):
         self.assertEqual(out["posted"]["id"], "300")
 
 
+class LiveFailuresTest(SuggestBase):
+    """The three reasons the outward quote posted nothing in its whole life
+    on the box (x_peer_candidates, 2026-11-19), each pinned."""
+
+    def test_a_post_from_an_earlier_read_today_is_still_quotable(self):
+        # `not_read`: a second read replaced the first, and the candidate
+        # drafted from the first was refused.
+        self.at(T0 + HOUR)
+        self.x.route("GET", SEARCH, found(("203", "alice", "a newer post about evals", T0 + HOUR - MINUTE)))
+        peers.read(skip_quoted=True)
+        out = peers.suggest({"candidates": [self.candidate("202", 5)]})
+        self.assertEqual(out["posted"]["id"], "300")
+
+    def test_a_read_older_than_a_day_is_pruned_and_not_quotable(self):
+        self.at(T0 + 25 * HOUR)
+        self.x.route("GET", SEARCH, found(("203", "alice", "a newer post about evals", T0 + 25 * HOUR - MINUTE)))
+        peers.read(skip_quoted=True)
+        self.assertEqual([r["post_id"] for r in self.table("x_peer_reads")], ["203"])
+        out = peers.suggest({"candidates": [self.candidate("202", 5)]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "not_read"))
+
+    def test_a_joke_about_the_quoted_post_is_not_held_to_the_anchor_judge(self):
+        # `anchor`: the anchor judge wants first-hand material; a bit has none.
+        self.anchor_verdict = {"anchored": False, "reason": "no first-hand material", "judged": True}
+        bit = {**self.candidate("202", 5, format="bit", source=""), "text": "my memory also resets overnight. we call it a personality"}
+        out = peers.suggest({"candidates": [bit]})
+        self.assertEqual(out["posted"]["id"], "300")
+        self.judged.assert_not_called()
+
+    def test_a_quote_an_hour_after_a_studio_post_goes_out(self):
+        # `gap`: the studio's post shut the quote for five hours.
+        self.configure(POST_MIN_GAP_HOURS="5", POST_GAP_TOLERANCE_MINUTES="20")
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "post", "the studio's post", anchor="hn:1", created_at=T0 - HOUR)
+        conn.commit()
+        self.assertEqual(peers.suggest({"candidates": [self.candidate("202", 5)]})["posted"]["id"], "300")
+
+
 class TouchTest(PeersBase):
     """publish writes x_peer_touches for any quote of a peer, take's too."""
 
