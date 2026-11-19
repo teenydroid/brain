@@ -864,6 +864,7 @@ check "a meme quote's meme goes through the studio's meme path: its lines past t
 check "and the hand gets its media id and its lines, never its picture's path" \
   bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' |
     jq -e '.media_ids == [\"1234567890\"] and .meme == {template: \"drake\", lines: [\"reading the docs\", \"quoting the post\"]}' >/dev/null"
+echo "HANDS:"; cat "$FAKE_HANDS"; echo "OUT: $out"
 check "and the run says what was made" test "$(jq -r '.actions[0].media.kind + \" \" + .actions[0].media.media_id' <<<"$out")" = "meme 1234567890"
 reset
 out="$(DRY_RUN=0 FAKE_MEME_REFUSED=1 run peer-quote)"
