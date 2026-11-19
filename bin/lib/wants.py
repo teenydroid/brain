@@ -291,11 +291,12 @@ def read_pr(url: Any) -> Json:
     if not match:
         return {"state": "in-flight"}
     code, got = run_hand("gh", ["pr", match.group(1), match.group(2)], {})
-    if code != 0 or got.get("ok") is not True:
+    pr = got.get("pr")
+    if code != 0 or got.get("ok") is not True or not isinstance(pr, dict):
         return {"state": "in-flight"}
-    if got.get("merged_at") or got.get("merged") is True:
-        return {"state": "merged", "merged_at": _epoch(got.get("merged_at"))}
-    if got.get("state") == "closed":
+    if pr.get("merged_at") or pr.get("merged") is True:
+        return {"state": "merged", "merged_at": _epoch(pr.get("merged_at"))}
+    if pr.get("state") == "closed":
         return {"state": "declined"}
     return {"state": "in-flight"}
 
