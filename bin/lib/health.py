@@ -953,9 +953,16 @@ def use_model(model: str, window: str | None = None) -> None:
     hand.core("config_update_model_settings", {"default_model": model, **{p: provider for p in _PROVIDERS}},
               timeout=PROBE_TIMEOUT)
     if window and window.isdigit() and int(window) > 0:
+        # The write replaces the whole registry: written alone, the fallback's
+        # entry would drop the main model's window and the studio's, and each
+        # of them would be budgeted at 4,096 tokens and refused
+        # (bin/lib/model_window.py). Read first, add, write back.
+        try:
+            registry = model_window.registry_of(hand.core("get_config", {}, timeout=PROBE_TIMEOUT))
+        except (hand.CoreError, model_window.WindowError):
+            registry = []
         hand.core("inference_update_model_settings",
-                  {"model_registry": [{"id": model, "provider": "local-openai", "context_window": int(window)}]},
-                  timeout=PROBE_TIMEOUT)
+                  {"model_registry": model_window.merged(registry, {model: int(window)})}, timeout=PROBE_TIMEOUT)
 
 
 def note(text: str, now: float) -> None:

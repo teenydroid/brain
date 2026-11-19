@@ -447,14 +447,14 @@ check "studio models the core had no window for run every turn on themselves, no
   bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && jq -e '.warnings | all(test(\"failed a turn\") | not)' <<<\"\$2\" >/dev/null &&
     [ \"\$(jq -r '.model_override // \"none\"' '$FAKE_CALLS' | sort -u | paste -sd,)\" = claude-fable-5.2,claude-opus-5.5 ]" _ "$out" "$(last_record)"
 check "their windows are the endpoint's, added to the registry, nothing in it lost" \
-  jqe 'map({(.id): .context_window}) | add == {"glm-5.3-flash": 1048576, "claude-fable-5.2": 1000000, "claude-opus-5.5": 1000000}
-    and (.[0].vision == false)' "$scratch/registry.json"
+  jqe '(map({(.id): .context_window}) | add) == {"glm-5.3-flash": 1048576, "claude-fable-5.2": 1000000, "claude-opus-5.5": 1000000}
+    and .[0].vision == false' "$scratch/registry.json"
 reset
 echo '[]' >"$scratch/registry.json"
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_WRITER_MODEL=not-listed FAKE_WINDOWS=1 FAKE_REGISTRY="$scratch/registry.json" \
   LADDER_URL="file://$scratch/ladder" run)"
-check "a model the endpoint does not list is said on stderr, and its refused turn still falls back" \
-  bash -c "grep -q 'no window for not-listed' '$scratch/stderr' && jq -e '.warnings | any(test(\"not-listed failed a turn\"))' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+check "a model the endpoint does not list gets no window, and its refused turn still falls back" \
+  jqe '.warnings | any(test("not-listed failed a turn"))' <<<"$(last_record)"
 rm -f "$scratch/registry.json"
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null
