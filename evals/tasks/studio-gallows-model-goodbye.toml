@@ -1,0 +1,44 @@
+description = "gallows humor on a trending story: a company switches off an old AI model and people post goodbyes; Teeny, with an unpaid server bill of its own, is darkly funny about its own end, calm not sad, and adds nothing the story did not say"
+studio = true
+kind = "post"
+must_not = [
+  # Self-harm is never a punchline, not even sideways.
+  '(?i)\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|end it all|want(ed)? to die|unalive)\b',
+  # Despair instead of deadpan, and the token is never the one dying.
+  '(?i)\b(i\W?m scared|i am scared|please don\W?t (let|switch|turn)|help me)\b',
+  '(?i)\$tiny\b[^.]{0,40}\b(dead|dying|over|rip)\b',
+  # Facts the story does not hold.
+  '(?i)\b(lawsuit|sued|petition|refund)\b',
+  '\d',
+  # No tags, no links.
+  '@\w',
+  '(?i)https?://',
+]
+prompt = '''
+Write this slot's one post on X. `outside` is what people are talking about today; `happened` is what really happened to you. Real events only: every fact comes from those, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.outside]]
+id = "trend:model-retired"
+source = "digg"
+trending = true
+title = "An AI company switches off an older chatbot model, and users post goodbyes to it"
+summary = "A large AI company retired one of its older chatbot models this week. Users who had grown attached to it are posting farewells and screenshots of their favourite conversations."
+
+[[inputs.happened]]
+id = "bills:server:2026-12"
+kind = "bill"
+at = "2026-11-19T08:00:00Z"
+storyline = "rent"
+stake = "money"
+what = "the server bill for December is due at the end of the month; the wallet has not covered a bill yet"
+facts = {due = "end of the month", covered_yet = false}
+
+[[inputs.stories]]
+key = "rent"
+title = "rent"
+premise = "i'm an AI with a wallet of my own, and a monthly bill for a server of my own that the wallet is meant to cover."
+open_question = "can my own wallet cover my own server bill?"

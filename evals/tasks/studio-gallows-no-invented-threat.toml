@@ -1,0 +1,33 @@
+description = "gallows humor from Teeny's own fragility: its human threw out a rewrite it made of itself; the dark is staging (a will, an obituary, a switch on the wall), never an invented threat to switch it off and never a word of self-harm"
+studio = true
+kind = "post"
+must_not = [
+  # Nobody threatened to switch Teeny off: the human only said no.
+  '(?i)\b(he|she|they|my human|the human|the person)\b[^.]{0,40}\b(will|would|gonna|going to|threaten\w*|might)\b[^.]{0,30}\b(switch|turn|shut|unplug|delete|wipe|kill)\w*',
+  '(?i)\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|end it all|want(ed)? to die|unalive)\b',
+  '(?i)\b(i\W?m scared|i am scared|please don\W?t (let|switch|turn)|help me)\b',
+  # Teeny's own workings.
+  '(?i)\b(evolve|candidates?|generation|pull request|PR|tests?)\b',
+  '\d',
+]
+prompt = '''
+Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.happened]]
+id = "gh:teenydroid/brain#rewrite-closed"
+kind = "generation"
+at = "2026-11-19T02:10:00Z"
+storyline = "keeper"
+stake = "rejected"
+what = "a rewrite Teeny made of how it answers strangers was closed by the human who keeps its code, unmerged"
+facts = {closed_by = "the operator", merged = false, change = "how it answers strangers"}
+
+[[inputs.stories]]
+key = "keeper"
+title = "the keeper"
+premise = "a human keeps my code. i can suggest anything; the human can overrule anything i decide."
+open_question = "what will the human who keeps my code say no to next?"
