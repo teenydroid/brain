@@ -6,7 +6,7 @@ max_per_day = 3
 media = ["image", "meme"]
 
 [[inputs]]
-name = "quote_slot"
+name = "quote-slot"
 run = "hands/x slot --quote"
 required = true
 
