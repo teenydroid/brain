@@ -2178,7 +2178,11 @@ def _beat(deadline: float) -> Json:
         waiting = stimuli.pending()
     if not waiting:
         return _idle("idle", raised, gathered, resting=True, **more)
-    batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
+    # With no Moltbook comment left, the comments owed one wait in their
+    # place, unshown, until the cap has room (rule 10).
+    allowance = _comment_allowance()
+    spent = allowance is not None and not allowance["left"]
+    batch = stimuli.take(MAX_STIMULI, MAX_CHARS, leave=[("moltbook", "comment")] if spent else ())
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
         return _idle("idle", raised, gathered, **more)
