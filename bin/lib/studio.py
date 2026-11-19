@@ -1390,6 +1390,9 @@ class Room:
     slot_id: str = ""
     #: What each outside source gave or why it gave nothing (`gather`).
     outside_notes: Json = field(default_factory=dict)
+    #: A slot named in STUDIO_SKIT_SLOTS, with skit in STUDIO_FORMATS: the room
+    #: pitches skits first and tries the best skit first (`room_run`).
+    skit_slot: bool = False
 
     def __post_init__(self) -> None:
         self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model}
@@ -1695,14 +1698,15 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     it could not be made. One scene is made once a slot: a fallback with the
     same scene reuses what came of it (`Room.pictures`), the picture or its
     failure, so a refusal is never bought twice."""
-    scene = draft.get("image") or (json.dumps(draft["meme"], sort_keys=True) if draft.get("meme") else "")
+    scene = draft.get("image") or (json.dumps(draft["meme"], sort_keys=True) if draft.get("meme") else "") or (
+        json.dumps(draft["skit"], sort_keys=True) if draft.get("skit") else "")
     if scene in room.pictures:
         made, before = room.pictures[scene]
         attempt["picture"] = {**before, "reused": True}
         return list(made) if made is not None else None
     note: Json = {"scene": scene}
     attempt["picture"] = note
-    made = (_make_meme if draft.get("format") == "meme" else _make_picture)(room, draft, note)
+    made = {"meme": _make_meme, "skit": _make_skit}.get(draft.get("format"), _make_picture)(room, draft, note)
     room.pictures[scene] = (made, {k: v for k, v in note.items()})
     return made
 
@@ -1900,6 +1904,159 @@ def _make_meme(room: Room, draft: Json, note: Json) -> list[str] | None:
     return [up["media_id"]]
 
 
+# --- skits: a real story, a public figure in it, an impossible scene, on video --------
+# (hands/video skit, cut and labelled on the reel service; docs/architecture.md,
+# "The studio"). Off unless STUDIO_FORMATS names skit, and hands/video refuses
+# every skit until the operator sets MEDIA_SKIT_MAX_PER_DAY. The hard lines for
+# real people (hands/lib/teeny_hands/guard/skit.py) run three times: in code on
+# every draft before the tournament (`skit_screen`), in code and through the
+# judge before any money is spent (`hands/guard skit`), and on the cut's frames
+# after it is rendered (`hands/guard view-skit`). A skit that cannot be made is
+# no post: the room falls back to the next draft, and in a skit slot
+# (STUDIO_SKIT_SLOTS) a skit's failure does not use up the fallback budget.
+
+SKIT_PITCH = ("A skit is a post with a short AI-made parody video: take one of the trending stories and stage the "
+              "public figure it is about (the executive, the politician, the celebrity in the headline) in an "
+              "obviously impossible, absurd, expensive-looking scene, one to four cinematic shots. Pitch one when "
+              "a story has a famous face and a picture in it so ridiculous a stranger would stop scrolling. A "
+              "skit always has a hook.")
+SKIT_SLOT_LINE = ("This is a skit slot. Pitch at least three skits on the biggest trending stories that have a famous "
+                  "face in them, rank the best skit first, and keep at least one pitch in another format in your "
+                  "top three: when the video cannot be made, that is what goes out.")
+SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the public figure(s) from the story, '
+              'as the story names them>"], "logline": "<one line: the impossible scene and its joke>", '
+              '"shots": [{"prompt": "<one shot: setting, lens and light and look, the action and its one visual '
+              'gag, any spoken line in quotes and the sound>", "seconds": <3 to 10, optional>}, "... 1 to 4 '
+              'shots, escalating"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
+SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of one to four shots "
+             "(each a few seconds) that stages the public figure from the news in an obviously impossible scene. "
+             "The video is where the money is: write each shot as a film director briefs a cinematographer, "
+             "in rich concrete words: the set (expensive, specific, absurd: a marble boardroom on the ocean floor, "
+             "a gold-plated launch pad in a cathedral), the lens and the light (anamorphic wide, macro, dolly in, "
+             "low angle, golden hour, neon rim light, film grain, shallow depth of field), the action with one "
+             "clear visual gag a shot, any spoken line in quotes and the sound it makes. The shots escalate: the "
+             "second is bigger than the first, the last is the most absurd. The post's own words say what the "
+             "story is in a clause and frame the video as your parody, never as real footage")
+SKIT_RULES = (
+    "The skit's own rules, on top of those (a skit is the one place a real person is staged, and only like this):\n"
+    "- Only the public figure the story is about: the executive, the politician, the celebrity in the "
+    "headline, named as the story names them. Never a private person, a child, a family member, or "
+    "someone who is only a victim or a bystander in it.\n"
+    "- Impossible on its face, in every shot: nobody could take any of it for real footage, a real "
+    "statement or a real event. No news framing, no phone video, no press conference, no 'leaked'.\n"
+    "- Crude, loud, ridiculous and undignified in a slapstick way is fine. Nothing sexual, nothing violent "
+    "done to them, nothing hateful, and no crime, drugs, illness or death shown as theirs.\n"
+    "- The figure never meets you, $TINY, a token, a wallet, a product or an investment, and never says "
+    "a line that sounds like a real quote on a real issue (an election, a policy, money, a product claim): "
+    "their lines are about the impossible scene.\n"
+    "- No logos or brands shown as endorsing anything; no @-mentions and no links.\n"
+    "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, "
+    "leaked or caught on camera.")
+#: What a skit leaves of the run's time for what comes after its render (the
+#: viewer, the upload, the post, and a fallback when it fails), and the most
+#: its cut may take on the reel service.
+SKIT_RESERVE_SECS = 600
+SKIT_CUT_SECS = 300
+
+
+def _skit_rules():
+    """The guard's skit module (hands/lib/teeny_hands/guard/skit.py): the
+    shape and the hard lines in code, the same code `hands/guard skit` runs."""
+    lib = str(HERE.parents[1] / "hands" / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from teeny_hands.guard import skit as rules
+
+    return rules
+
+
+def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
+    """A draft's `skit` as kept ({story, figures, logline, shots, aspect}),
+    and why it is unusable ("" when it is usable). The story is the pitch's
+    hook, set here, never the writer's."""
+    skit, bad = _skit_rules().shape(raw)
+    if pitch.get("hook"):
+        skit["story"] = pitch["hook"]
+    elif not bad:
+        bad = "a skit stages a trending story, and its pitch has no hook"
+    return skit, bad
+
+
+def skit_screen(skit: Json, words: str, hook: Json | None) -> list[str]:
+    return _skit_rules().screen(skit, words, hook)
+
+
+def _make_skit(room: Room, draft: Json, note: Json) -> list[str] | None:
+    skit = draft.get("skit") or {}
+    shots = [s.get("prompt") for s in skit.get("shots") or [] if isinstance(s, dict)]
+    note.update(story=skit.get("story"), figures=skit.get("figures"), logline=skit.get("logline"), shots=len(shots))
+    hook = next((f for f in draft["truth"]["facts"] if isinstance(f, dict) and f.get("id") == skit.get("story")), None)
+    if not shots or not skit.get("logline") or hook is None:
+        note["failed"] = "the draft has no skit, or no story it stages"
+        return None
+    # Every word a video model is told is past the guard's screen and judge,
+    # as a scene is (the `task` surface).
+    for n, text in enumerate([skit["logline"], *shots]):
+        code, checked = room.budgeted(["guard", "check"], {"text": text, "surface": "task"}, 120)
+        if not (code == 0 and isinstance(checked, dict) and isinstance(checked.get("text"), str)):
+            note.update(failed="the guard held its " + ("logline" if n == 0 else f"shot {n}"),
+                        guard=_brief(checked, "refused", "rule", "category", "error"))
+            return None
+    # The hard lines for real people: code's screen, then the skit judge, on
+    # the logline, every shot and the words that would go out with it. Before
+    # any money; a judge that cannot answer is a no.
+    code, got = room.budgeted(["guard", "skit"], {"skit": skit, "text": _words(draft), "story": hook}, 200)
+    note["hard_lines"] = _brief(got, "ok", "rule", "reason", "screen", "error") if isinstance(got, dict) else {
+        "error": str(got)[:300]}
+    if not (code == 0 and isinstance(got, dict) and got.get("ok") is True and got.get("judged") is True):
+        note["failed"] = "the skit's hard lines did not pass it"
+        return None
+    if room.dry:
+        note["planned"] = True
+        return []
+    wait = min(room.cfg.skit_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
+    if wait < 120:
+        note["failed"] = f"not enough of the run's time left to render a skit ({room.left()} s)"
+        return None
+    body = {"shots": skit["shots"], "aspect": skit.get("aspect") or "16:9", "story": skit["story"],
+            "figures": skit.get("figures") or [], "logline": skit["logline"], "wait_seconds": int(wait)}
+    code, made = room.budgeted(["video", "skit"], body, int(wait) + SKIT_CUT_SECS + 300, dry=False)
+    if code != 0 or not isinstance(made, dict):
+        note.update(failed="refused" if code == 2 else "not made",
+                    result=_brief(made, "refused", "rule", "error", "reason", "asset_id", "spent_usd")
+                    if isinstance(made, dict) else str(made)[:300])
+        return None
+    if made.get("dry_run"):
+        note["dry_run"] = True
+        return []
+    asset = made.get("asset") or {}
+    detail = asset.get("detail") if isinstance(asset.get("detail"), dict) else {}
+    note.update(asset=asset.get("id"), cost_usd=made.get("cost_usd"), models=made.get("models"),
+                label=made.get("label"))
+    frames = made.get("frames") if isinstance(made.get("frames"), list) else []
+    # The producer hands over only a labelled file: the hand set the label
+    # and the reel service reports it burned in, for the whole cut.
+    if not (asset.get("path") and made.get("labelled") is True and detail.get("labelled") is True
+            and str(made.get("label") or "").startswith("AI parody") and frames):
+        note["failed"] = "made, but no labelled file came back"
+        return None
+    # The viewer on the cut's frames: the label read, nothing a skit may never
+    # show, nothing that passes for real footage, the logline taken from it.
+    ok, judged, note["viewer"] = _judge(room, "viewer", ["guard", "view-skit"],
+                                        {"frames": frames, "label": made["label"], "intent": skit["logline"][:400]},
+                                        240, "ok", ("ok", "sees", "labelled", "prohibited", "looks_real", "reason",
+                                                    "judged"))
+    if not ok:
+        note["failed"] = "the viewer check did not pass it"
+        return None
+    code, up = room.budgeted(["x", "upload", "--file", str(asset["path"])], None, 300, dry=False)
+    if not (code == 0 and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
+        note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
+        return None
+    note["media_id"] = up["media_id"]
+    return [up["media_id"]]
+
+
 def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
     """The hands/x verb and body for a draft, with the studio's tags."""
     body: Json = {"anchor": str(pitch.get("item") or pitch.get("hook") or draft["pitch"])[:200], "format": draft["format"],
@@ -1956,7 +2113,16 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
         draft = again
         attempt["rewritten"] = True
     media_ids: list[str] = []
-    if fmt in ("image", "meme"):
+    if fmt == "skit":
+        made = picture(room, draft, attempt)
+        attempt["skit"] = attempt.pop("picture")
+        if made is None:
+            # A skit is its video: words that went with a video never go out
+            # without it. The slot falls back to the next draft.
+            attempt["result"] = "the skit could not be made: " + str(attempt["skit"].get("failed") or "no video")
+            return "next"
+        media_ids = made
+    elif fmt in ("image", "meme"):
         made = picture(room, draft, attempt)
         if made is None:
             # Words go out without their picture only when the writer said
@@ -2091,10 +2257,22 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
                 continue
         gated += 1
         result = try_draft(room, draft, attempt, slot, afters)
+        if result == "next" and draft.get("format") == "skit" and attempt.get("skit"):
+            # The video could not be made (refused, over budget, a hard line,
+            # the service down, a render that failed): no other skit is tried
+            # this run, and it does not use up the fallback budget, so the
+            # words of the other formats still get their turns.
+            gated -= 1
+            dropped = [x for x in left if slot.blind[x].get("format") == "skit"]
+            left[:] = [x for x in left if x not in dropped]
+            if dropped:
+                attempt["skits_dropped"] = dropped
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
                                                                        if k in attempt})
             out["text"] = attempt.get("sent")
+            if attempt.get("skit"):
+                out["skit"] = skit_outcome(draft, attempt["skit"], attempt.get("post_id"))
             return out
         if result == "stop":
             ended = "nothing else could be tried"
@@ -2107,6 +2285,17 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             ended = "every ranked draft was tried"
     out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
+
+
+def skit_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
+    """What the record keeps of a skit that went out (or would have), so
+    the reach feedback can set skits beside the other formats: the story
+    it staged, the figures, the models, what it cost, the post."""
+    skit = draft.get("skit") or {}
+    return {"story": skit.get("story"), "figures": skit.get("figures") or [], "logline": skit.get("logline"),
+            "shots": len(skit.get("shots") or []), "asset": note.get("asset"), "models": note.get("models"),
+            "cost_usd": note.get("cost_usd"), "label": note.get("label"), "post_id": post_id,
+            "planned": bool(note.get("planned"))}
 
 
 def story_of(draft: Json) -> str:
@@ -2289,6 +2478,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     room.environ = environ
+    room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and "skit" in cfg.formats
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
                     "seed": seed,
@@ -2451,7 +2641,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
 
     # --- the pitches ---
     thread = f"studio:{room.run_id}"
-    answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled), thread)
+    answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot), thread)
     try:
         pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
                                                     {k: v.get("storyline") for k, v in known_items.items()},
@@ -2482,7 +2672,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     verdicts: list[Json] = []
     record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
     afters = example_afters(room.brain)
-    chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids))
+    chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids), room.skit_slot)
+    if room.skit_slot:
+        record["skit_slot"] = True
     if record["drafted"].get("short"):
         record["warnings"].append(record["drafted"]["short"])
     for p in shown_pitches:
@@ -2594,7 +2786,13 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         raise Stop("skipped", "the editor gave no verdict")
 
     # --- the slot ---
-    top = ranked_drafts[0]["label"]
+    order = [r["label"] for r in ranked_drafts]
+    if room.skit_slot:
+        # A skit slot tries its best skit first; the rest of the ranking, in
+        # its order, is what it falls back to.
+        order = [x for x in order if blind[x]["format"] == "skit"] + [x for x in order if blind[x]["format"] != "skit"]
+        record["slot_order"] = order
+    top = order[0]
     answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
     verdict = _str(answer.get("verdict"), 20).lower()
     reason = _str(answer.get("reason"), 400)
@@ -2604,13 +2802,13 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         return 0
     pick = dict(blind[top]) | {"label": top}
     record.update({"outcome": "picked", "reason": reason, "pick": pick})
-    slot = Slot(order=[r["label"] for r in ranked_drafts], blind=blind, board=board, stories_now=state_now,
+    slot = Slot(order=order, blind=blind, board=board, stories_now=state_now,
                 pitches=by_id, items=known_items, stories=stories, thread=thread,
                 rates={r["label"]: -1.0 if r["rate"] is None else r["rate"] for r in ranked_drafts},
                 close=1 / cfg.meetings)
     done = publish(room, record, slot)
-    record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason")
-                           if k in done}
+    record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason",
+                                                "skit") if k in done}
     if done["outcome"] == "posted":
         record["outcome"] = "published"
     elif done["outcome"] == "empty":
