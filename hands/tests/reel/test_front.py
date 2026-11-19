@@ -292,7 +292,7 @@ class ServeUsesPolicyTest(unittest.TestCase):
         self.assertIn("policy.check_job(", source)
         self.assertIn("sweep(-1)", source)
         self.assertIn("policy.MAX_BODY_BYTES", source)
-        self.assertIn("COPY --from=teeny serve.py policy.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
+        self.assertIn("COPY --from=teeny serve.py policy.py skitcut.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
 
 
 if __name__ == "__main__":
