@@ -12,7 +12,7 @@ required = true
 
 [[inputs]]
 name = "peers"
-run = "hands/x peers --skip-quoted"
+run = "hands/x peers --skip-quoted --reuse-hours 4"
 
 [[inputs]]
 name = "trending"

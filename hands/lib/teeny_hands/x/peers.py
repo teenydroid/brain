@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from .. import hand, peerfile
-from . import cache, mentions, open_db, twitr
+from . import cache, mentions, open_db
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 from .model import Json, SearchOptions

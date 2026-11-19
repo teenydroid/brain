@@ -11,10 +11,12 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
   R  slot [--quote]         whether an original post (a quote, with --quote) would pass its lane's gap and the
                             day's cap now: {open: true} or {why}
-  R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted]
-                            the newest original posts of the accounts in brain/x-peers.txt, screened
+  R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted] [--reuse-hours H]
+                            the newest original posts of the accounts in brain/x-peers.txt, screened; with
+                            --reuse-hours, a search younger than H hours is answered from its kept posts
   R  peers trending [--max-age-hours H] [--stories N] [--per-story N] [--skip-quoted]
-                            the X posts behind today's top-ranked AI and tech stories (hands/trend top), screened
+                            the X posts behind today's top-ranked AI and tech stories (hands/trend top), screened;
+                            no X read: ids, handles and texts are Digg's
   A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source?, format}], "media_ids"?,
                             "meme"?}: all kept, the top one quoted only when it clears the bar (x/peers.py)
   R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
@@ -166,7 +168,7 @@ def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _peers(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
-    return peers.read(args.max_age_hours, args.per_peer, skip_quoted=args.skip_quoted)
+    return peers.read(args.max_age_hours, args.per_peer, skip_quoted=args.skip_quoted, reuse_hours=args.reuse_hours)
 
 
 def _peers_suggest(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -196,6 +198,13 @@ def _hours(value: str) -> float:
     number = float(value)
     if not 1 <= number <= 168:
         raise argparse.ArgumentTypeError("--max-age-hours is 1..168 (X searches the last 7 days)")
+    return number
+
+
+def _reuse(value: str) -> float:
+    number = float(value)
+    if not 0 <= number <= 24:
+        raise argparse.ArgumentTypeError("--reuse-hours is 0..24")
     return number
 
 
@@ -261,6 +270,8 @@ def parser() -> argparse.ArgumentParser:
     reading.add_argument("--max-age-hours", type=_hours, default=8.0)
     reading.add_argument("--per-peer", type=_per_peer, default=2)
     reading.add_argument("--skip-quoted", action="store_true", help="leave out peers quoted in the last 7 days")
+    reading.add_argument("--reuse-hours", type=_reuse, default=0.0,
+                         help="answer from a peers search younger than this (hours) instead of searching again")
     peer_verbs = reading.add_subparsers(dest="peers_verb")
     listed = peer_verbs.add_parser("suggestions", help="what was suggested, posted and skipped")
     listed.add_argument("--days", type=_days, default=7)
