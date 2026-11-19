@@ -363,9 +363,12 @@ def verdict(case: dict[str, Any], answer: Any) -> dict[str, Any]:
     ANSWER (raw text): the real parser and verdict rules, with the model call,
     the settings and the ledger stubbed out."""
     saved = (hand.setting, clarity.enabled, clarity._ask, clarity._keep, anchor.truth_enabled, anchor.ask,
-             anchor._keep_truth)
+             anchor._keep_truth, anchor.fail_closed)
     hand.setting = lambda name: None
     clarity.enabled = anchor.truth_enabled = lambda: True
+    # An answer the truth judge cannot read is the model's miss: scored as the
+    # judge's no, never passed by the code check that stands in for it live.
+    anchor.fail_closed = lambda: True
     clarity._keep = anchor._keep_truth = lambda *a, **k: None
 
     def reader_ask(message: str, read: Any) -> tuple[Any, str]:
@@ -393,7 +396,7 @@ def verdict(case: dict[str, Any], answer: Any) -> dict[str, Any]:
         return {"got": "pass" if out["truthful"] else "fail", "detail": out["reason"]}
     finally:
         (hand.setting, clarity.enabled, clarity._ask, clarity._keep, anchor.truth_enabled, anchor.ask,
-         anchor._keep_truth) = saved
+         anchor._keep_truth, anchor.fail_closed) = saved
 
 
 def score(lines: list[str]) -> tuple[list[dict[str, Any]], int]:

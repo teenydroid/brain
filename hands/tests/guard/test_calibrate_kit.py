@@ -124,7 +124,8 @@ class CalibrationKitTest(unittest.TestCase):
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")
 
     def test_scoring_leaves_the_judges_as_they_were(self):
-        before = (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth, anchor.truth_enabled)
+        before = (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth, anchor.truth_enabled,
+                  anchor.fail_closed)
         self.score([])
         self.assertEqual(before, (clarity._ask, clarity._keep, clarity.enabled, anchor.ask, anchor._keep_truth,
-                                  anchor.truth_enabled))
+                                  anchor.truth_enabled, anchor.fail_closed))
