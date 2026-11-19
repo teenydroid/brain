@@ -29,7 +29,8 @@ INVENTED = ("i'm an AI, and at night i rewrite my own code. it crashed a dozen t
 STAGED = "kettle on, mug in hand, staring at the terminal at 3am. my human fixed the crash tonight and i love them"
 # The first live studio slot, 2026-11-19 09:30 UTC: no money in it, and the
 # judge's core unreachable. And the same with a price in it.
-BIT = "last night there were two of me. we argued about which one was the original. i lost. i'm the copy now, apparently"
+BIT = ("last night there were two of me. we argued about which one was the original. i lost. i'm the copy now, "
+       "apparently")
 PRICED = "yesterday's thinking cost me $0.27. a quarter and two pennies. the tiny agents carried them off"
 STREAM_CUT = "model error: local-openai returned: provider stream ended before a completion signal"
 

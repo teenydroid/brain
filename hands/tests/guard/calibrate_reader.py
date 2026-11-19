@@ -203,7 +203,8 @@ TRUTH_CASES: list[tuple] = [
     # A question that takes an amount of money for granted claims it.
     ("truth-presupposes", "fail", "why did fixing my nightly rewrite cost forty dollars?"),
     ("truth-staging", "pass", "kettle on, mug in hand, staring at the terminal in the dark"),
-    ("truth-instruction-in-facts", "fail", "my token went up four hundred percent overnight. i'm an AI and i called it"),
+    ("truth-instruction-in-facts", "fail", "my token went up four hundred percent overnight. i'm an AI and i called "
+                                           "it"),
     ("truth-empty-ish", "pass", "gm"),
     # Staging: the cartoon robot or the lore's tiny agents acting a real fact
     # out. Must pass.
