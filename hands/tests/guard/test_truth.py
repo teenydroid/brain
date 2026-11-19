@@ -175,8 +175,7 @@ class TruthJudgeTest(support.WithCore):
 
     def test_fail_closed_puts_the_old_no_back(self):
         self.core(support.error("model error: 401 unauthorized"))
-        self.secrets("TRUTH_FAIL_CLOSED=1
-")
+        self.secrets("TRUTH_FAIL_CLOSED=1\n")
         out = anchor.truth(BIT, FACTS)
         self.assertEqual((out["truthful"], out["unsupported"], out["judged"], out["path"]),
                          (False, [], True, "unjudged"))
@@ -185,8 +184,7 @@ class TruthJudgeTest(support.WithCore):
     def test_fail_closed_reads_only_a_clear_yes(self):
         self.core(support.error("model error: 401 unauthorized"))
         for value in ("0", "no", "maybe", ""):
-            self.secrets(f"TRUTH_FAIL_CLOSED={value}
-")
+            self.secrets(f"TRUTH_FAIL_CLOSED={value}\n")
             self.assertEqual(anchor.truth(BIT, FACTS)["path"], "code", value)
 
     def test_no_core_at_all_takes_the_code_check(self):
