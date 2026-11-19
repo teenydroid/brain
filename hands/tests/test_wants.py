@@ -311,6 +311,23 @@ class Filing(WantsCase):
         self.assertFalse(self.file()["ok"])
         self.assertEqual(self.filed(), [])
 
+    def test_a_second_filing_the_same_day_is_skipped(self):
+        self.assertTrue(self.file()["filed"])
+        self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")  # open again, with a try left
+        self.assertEqual(self.standing()["state"], "open")
+        os.environ["EVOLVE_NOW"] = str(T0 + 3600)  # later the same UTC day
+        self.assertEqual(evolve.day(T0), evolve.day(T0 + 3600))
+        self.assertEqual(self.file(), {"ok": True, "skipped": "a want was filed today"})
+        self.assertEqual(len(self.filed()), 1)
+        self.assertEqual(len(self.build_calls()), 1)
+
+    def test_the_next_day_files_again(self):
+        self.assertTrue(self.file()["filed"])
+        self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")
+        os.environ["EVOLVE_NOW"] = str(T0 + DAY)
+        self.assertTrue(self.file()["filed"])
+        self.assertEqual(len(self.filed()), 2)
+
     def test_the_brief_names_every_part_of_a_feature_and_stays_under_2000_chars(self):
         text = evolve_findings.scrub("i will build a chart renderer. " + "candle " * 200, 600)
         want = wants.Want(id="w:m15", kind="memory", subject="m15", section="what i am in the middle of",
