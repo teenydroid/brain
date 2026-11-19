@@ -55,11 +55,11 @@ class CalibrationKitTest(unittest.TestCase):
         # "everyone's talking about it": 2 on a widely discussed story (pass),
         # 2 with a small story or no reach line (fail), 3 inventing a
         # reaction, a count or a quote on a big one (fail). Since 2026-11-19
-        # (the truth judge checks only hard claims) 10 of the old fails are
+        # (the truth judge checks only hard claims) 8 of the old fails are
         # bits about Teeny itself and pass, and 11 cases are new: 6 bits
         # (pass) and 5 invented hard claims (fail).
         self.assertEqual(len(truth), 56)
-        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 20)
+        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 22)
         self.assertEqual(len(self.emitted()), 76)
         self.assertEqual({tuple(sorted(c)) for c in reader + match + truth}, {("expect", "id", "judge", "message")})
 

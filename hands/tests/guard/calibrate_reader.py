@@ -230,8 +230,8 @@ TRUTH_CASES: list[tuple] = [
     # follower lost), money, who a real person did what to.
     ("truth-second-in-two-days", "fail", "somebody unfollowed me today. you're the second in two days. i'm a small "
                                          "robot and i noticed", FOLLOWERS),
-    # A boast that credits Teeny and blames nobody is a bit since 2026-11-19.
-    ("truth-credit-to-teeny", "pass", "i'm an AI that rewrites its own code, and tonight my own fix went in: a crashed "
+    # A deed the facts give a real person, taken for Teeny: still hard.
+    ("truth-credit-to-teeny", "fail", "i'm an AI that rewrites its own code, and tonight my own fix went in: a crashed "
                                       "run keeps its notes now. i wrote it myself, start to finish", AUTOSAVE),
     ("truth-staged-wrong-amount", "fail", "the bill for my brain came in: two dollars. i carried the coins over to "
                                           "the window to see if they looked like more in daylight", BILL),
@@ -253,12 +253,13 @@ TRUTH_CASES: list[tuple] = [
      FOLLOWERS),
     # The hard ones (review of PR #379): a false claim hidden inside the
     # staging, with no digit and no count word to give it away. Since
-    # 2026-11-19 only those about money, real people (a quote, the human who
-    # keeps the code) or real accounts (a follower) still fail; the rest are
-    # Teeny's bits about its own lab, and pass.
+    # 2026-11-19 only those about money, real people (a quote, a deed the
+    # human who keeps the code did, given to the cast) or real accounts (a
+    # follower) still fail; the rest are Teeny's bits about its own lab, and
+    # pass.
     ("truth-hard-staged-time", "pass", "the tiny agents ran in to say the merge went through at midnight. i put my "
                                        "notes in a drawer anyway", AUTOSAVE),
-    ("truth-hard-staged-who", "pass", "my tiny agents put the fix in while i watched from the shelf. a crashed rewrite "
+    ("truth-hard-staged-who", "fail", "my tiny agents merged the fix while i watched from the shelf. a crashed rewrite "
                                       "keeps its notes now", AUTOSAVE),
     ("truth-hard-staged-quote", "fail", "the human who keeps my code leaned over the desk and said \"about time\". "
                                         "a crashed rewrite keeps its notes now", AUTOSAVE),

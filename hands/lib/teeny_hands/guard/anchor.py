@@ -187,7 +187,8 @@ A hard claim is one of these, said as fact:
    not ("i made $500 yesterday").
 2. Real people, companies, products and other accounts, named or identifiable: what they did, said, shipped, decided
    or think; a quote put in their mouth; crediting or blaming a real person or company (the human who keeps the
-   agent's code too) with something the FACTS do not give them; anything about a private person. What real accounts
+   agent's code too) with something the FACTS do not give them, or taking for the agent or its cast a deed the FACTS
+   give a real person; anything about a private person. What real accounts
    did to the agent counts here: the followers it gained or lost, the replies it got. When a real person or company
    is the subject of a sentence, check it, even when it reads as a joke; only a plain opinion about them, or a
    cartoon image nobody could take for a report, is not a claim.
