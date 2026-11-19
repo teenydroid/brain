@@ -266,6 +266,8 @@ class UnsourcedTest(unittest.TestCase):
         self.assertEqual(studio.unsourced("my rewrite crashed 14 times on tuesday and i cried oil", [self.ITEM]), [])
         self.assertEqual(studio.unsourced("you're the second in two days. see you on friday", [self.ITEM]), [])
         self.assertEqual(studio.unsourced("i'm 100% robot", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i made two of me and spent nine hundred years awake", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("two tiny agents carried it to the bin", [self.ITEM]), [])
 
     def test_money_must_be_in_the_facts(self):
         self.assertEqual(studio.unsourced("i made $500 yesterday", [self.ITEM]), ["$500"])
@@ -275,6 +277,7 @@ class UnsourcedTest(unittest.TestCase):
         self.assertEqual(studio.unsourced("i paid twelve for a mug", [self.ITEM]), ["twelve"])
         self.assertEqual(studio.unsourced("$TINY is up 40% today", [self.ITEM]), ["40%"])
         self.assertEqual(studio.unsourced("i hold 3 tokens", [self.ITEM]), ["3"])
+        self.assertEqual(studio.unsourced("i hold 500 TINY", [self.ITEM]), ["500"])
         # A follower count is not money: the truth judge checks it, not this.
         self.assertEqual(studio.unsourced("331 on tuesday, 330 now", [self.ITEM]), [])
 
