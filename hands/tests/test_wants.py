@@ -4,9 +4,10 @@ one a day as a `self` build request for its builder, tracks each want's
 standing from the ledgers, and scores a merged feature used or unused after
 seven days.
 
-No test reaches a hand: `wants.run_hand` is the one place a hand is called,
-and it is replaced by a fake that answers for the guard, `hands/build self`
-and `hands/gh pr`. The scoring count (`evolve_outcomes.count`) is replaced
+Apart from the last class, no test reaches a hand: `wants.run_hand` is the
+one place a hand is called, and it is replaced by a fake that answers for the
+guard, `hands/build self` and `hands/gh pr`. The last class (`EndToEnd`) runs
+the real guard and build hands through the whole lane. The scoring count (`evolve_outcomes.count`) is replaced
 too, so this file does not depend on the build hand's feature rubric or on
 the outcome kind that counts a hand's uses; it codes against their shapes."""
 
@@ -663,9 +664,8 @@ class EndToEnd(sc.SelfJobScratch):
         return item["standing"]["state"]
 
     def test_end_to_end_a_want_becomes_a_feature_job_and_its_rubric_is_scored(self):
-        from teeny_hands import requests as build_requests
-        from teeny_hands import stimuli
-        from teeny_hands.build import feature, jobs, verify
+        from teeny_hands import hand, requests as build_requests, stimuli
+        from teeny_hands.build import jobs, verify
 
         cfg = wants.load_settings()
         self.assertEqual(self.state_of(cfg), "open")
@@ -762,7 +762,6 @@ class EndToEnd(sc.SelfJobScratch):
         self.assertIn("gizmo", told["text"])
         self.assertIn("5 times", told["text"])
         self.assertEqual(wants.watch(cfg)["scored"], [])  # scored once
-        self.assertIs(feature.rubric, feature.rubric)  # the rubric the desk ran is the module the feed reads
 
 
 if __name__ == "__main__":
