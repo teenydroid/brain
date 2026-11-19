@@ -70,10 +70,24 @@ Every run:
    With the probe answering and no provider failure since the last answered
    draft, a slot such a failure lost is made up (bin/lib/catch_up.py,
    `provider_back`).
+6b. Watches each playbook for runs of its own that fail (`failure` is not
+   `provider`): PLAYBOOK_ALARM_RUNS in a row (one run's retries within
+   ACT_RETRY_SECS count once; a skip, such as a spent budget, is no run and
+   changes nothing) raise a fourth alarm of the same kind
+   (`playbook_alarm`: a `health · alarm` stimulus and one issue, per
+   playbook). On 2026-11-15, -16 and -17 self-improve failed every run (the
+   core's prompt screen) while the provider answered, `act_alarm` stayed
+   quiet, and the failure surfaced days later as a finding. It is cleared by
+   the playbook's first ok run, and not raised while the model alarm above
+   is open. What it files is this file's fixed sentences and the class of
+   the playbook's error (bin/act's own words up to the first colon,
+   scrubbed): never the stderr or an answer, which can carry what a
+   stranger wrote.
 7. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
    did not run), `stale_crons`, `rearmed`, `caught_up`, `cron_alarm`,
-   `act_outage` (the provider failures in a row, or null) and `act_alarm`, and
+   `act_outage` (the provider failures in a row, or null), `act_alarm`,
+   `playbook_alarm` (`{playbook: raised|open|cleared}`, or null) and
    `moltbook_unverified`: how many of the last day's Moltbook writes are
    still hidden behind an unsolved challenge, when fewer than nine in ten
    of at least three are visible (null otherwise). That one is a count on
@@ -173,6 +187,12 @@ ACT_ALARM_MINUTES = 30
 ACT_RETRY_SECS = 120
 #: How far back the playbook logs are read.
 ACT_LOOKBACK_SECS = 86400
+#: Runs in a row of one playbook that failed for a reason that is not the
+#: model provider's before the playbook alarm opens (secrets/teeny.env
+#: PLAYBOOK_ALARM_RUNS). Retries within ACT_RETRY_SECS count once.
+PLAYBOOK_ALARM_RUNS = 3
+#: How many lines of a playbook's runs.jsonl are read.
+PLAYBOOK_LOG_LINES = 500
 
 Json = dict[str, Any]
 
@@ -760,6 +780,118 @@ def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
     return out, outage
 
 
+# --- playbooks that fail for their own reasons ---------------------------------------------------
+
+
+def _error_class(line: Mapping[str, Any]) -> str:
+    """What kind of failure a run's line records, in bin/act's own words:
+    its `error` up to the first colon (after which it quotes a parse error
+    or a hand's output), scrubbed, and only when it reads as a plain name.
+    Never `stderr`, `stdout` or `answer`: those can carry a stranger's text."""
+    head = scrub(str(line.get("error") or "").split(":", 1)[0])
+    return _named(head) if head else "unknown"
+
+
+def _playbook_runs(now: float) -> dict[str, Json]:
+    """Per playbook, the failed runs at the end of its log: `runs` (one run's
+    quick retries count once; 0 when it ended in an ok run or has no failure
+    of its own), `since` and `last` (when the first and the latest failed),
+    `error` (the latest one's class) and `ok_at` (the ok run that ended
+    them, or None). A skip is no run. A provider failure ends the count and
+    is not an ok: it is the act alarm's, and says nothing of the playbook."""
+    out: dict[str, Json] = {}
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        timed = [(at, line) for line in _lines(path)[-PLAYBOOK_LOG_LINES:] if (at := _at(line)) is not None]
+        timed.sort(key=lambda e: e[0])
+        found: Json = {"runs": 0, "ok_at": None}
+        newer = None
+        for at, line in reversed(timed):
+            if line.get("ok") is True:
+                if "skipped" in line:
+                    continue
+                found["ok_at"] = at
+                break
+            if line.get("ok") is not False or line.get("failure") == "provider":
+                break
+            if newer is None:
+                found.update(last=at, error=_error_class(line))
+            if newer is None or newer - at >= ACT_RETRY_SECS:
+                found["runs"] += 1
+            found["since"] = newer = at
+        out[_named(path.parent.name)] = found
+    return out
+
+
+def playbook_failures(now: float) -> dict[str, Json]:
+    """The playbooks whose latest runs failed for a reason that is not the
+    model provider's: `{playbook: {runs, since, last, error}}`, `error`
+    the class of the last failure (`_error_class`)."""
+    return {book: {k: v for k, v in found.items() if k != "ok_at"}
+            for book, found in _playbook_runs(now).items() if found["runs"]}
+
+
+def _playbook_issue(book: str, found: Mapping[str, Any]) -> Json:
+    return {
+        "repo": _repo(),
+        "title": f"Teeny's playbook {book} has failed {found['runs']} runs in a row (since {_when(found['since'])})",
+        "body": (
+            f"The pinned health check (bin/health) reads the playbook runs (bin/act). The last {found['runs']}"
+            f" run(s) of the {book} playbook in a row failed, and the model provider was not the cause:"
+            " its drafts were not refused for money or a key.\n\n"
+            f"- failing since: {_when(found['since'])}\n"
+            f"- last failure: {_when(found['last'])}\n"
+            f"- kind of error: {found['error']}\n\n"
+            f"Each of those runs lost its slot: nothing {book} makes was made. Read the last lines of"
+            f" state/act/{book}/runs.jsonl for the whole error, and the playbook's inputs and prompt. A message"
+            " the core's prompt screen holds, an input that fails, or a draft that is not JSON look like this.\n\n"
+            "This issue is closed by the same check when the playbook has an ok run again."
+        ),
+    }
+
+
+def _watch_playbooks(state: Json, now: float) -> Json:
+    """Raises, keeps or clears the alarm of each playbook that fails runs in
+    a row for its own reasons. What goes on the check's line, `{playbook:
+    "raised"|"open"|"cleared"}`, or None."""
+    found = _playbook_runs(now)
+    threshold = _setting_int("PLAYBOOK_ALARM_RUNS", PLAYBOOK_ALARM_RUNS)
+    alarms: Json = dict(state.get("playbook_alarm") or {})
+    out: Json = {}
+    for book in sorted(set(alarms) | {b for b, f in found.items() if f["runs"] >= threshold}):
+        now_found, alarm = found.get(book) or {"runs": 0, "ok_at": None}, alarms.get(book)
+        if alarm and not now_found["runs"] and now_found["ok_at"] is not None:
+            down = f"from {_when(alarm['since'])} to {_when(now_found['ok_at'])}"
+            closed = _close_issue(alarm, f"The {book} playbook had an ok run again. Its runs failed {down}. Closing.")
+            stimuli.add("health", "recovered", alarm["ref"],
+                        f"health: your {book} playbook runs again. its runs failed {down}.",
+                        payload={"playbook": book, "since": alarm["since"], "recovered_at": now,
+                                 "issue": alarm.get("issue")})
+            alarms.pop(book)
+            out[book] = "cleared"
+            if closed:
+                out[f"{book}_issue_error"] = closed["issue_error"]
+        elif alarm:
+            if not alarm.get("issue") and now_found["runs"]:
+                _open_issue(alarm, _playbook_issue(book, now_found))
+            out[book] = "open"
+        elif not state.get("failures"):
+            alarm = alarms[book] = {"ref": f"playbook:{book}:{int(now_found['since'])}", "opened_at": now,
+                                    "since": now_found["since"], "issue": None}
+            _open_issue(alarm, _playbook_issue(book, now_found))
+            stimuli.add(
+                "health", "alarm", alarm["ref"],
+                f"health alarm: your {book} playbook failed its last {now_found['runs']} run(s) in a row, since"
+                f" {_when(now_found['since'])}, and the model provider was not the cause. those slots made"
+                f" nothing. kind of error: {now_found['error']}. {_issue_line(alarm)}",
+                payload={"playbook": book, "runs": now_found["runs"], "since": now_found["since"],
+                         "error": now_found["error"], "issue": alarm["issue"]},
+            )
+            out[book] = "raised"
+    state["playbook_alarm"] = alarms
+    return {"playbook_alarm": {k: v for k, v in out.items() if not k.endswith("_issue_error")} or None,
+            **{k: v for k, v in out.items() if k.endswith("_issue_error")}}
+
+
 # --- yesterday, as one stimulus (docs/roadmap.md, A4) ------------------------------------------
 
 #: A name that may go into the stimulus as it is: a job, playbook, check or
@@ -1053,6 +1185,7 @@ def check() -> Json:
         out.update(reroute(state, error, now))
         watched, outage = _watch_act(state, now)
         out.update(watched)
+        out.update(_watch_playbooks(state, now))
         out.update(_watch_crons(state, now, provider_back=error is None and outage["runs"] == 0))
         save(state)
         return out
