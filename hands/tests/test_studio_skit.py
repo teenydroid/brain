@@ -102,7 +102,7 @@ class FormatTest(unittest.TestCase):
         lens = skit_draft()
         lens["skit"]["shots"][0]["prompt"] += " Shot on a 35mm lens at 24 frames, 1970s film stock."
         self.assertEqual(studio.screen(lens, [HOOK], []), "")
-        self.assertIn("unsourced", studio.screen(skit_draft(text=WORDS + " in 3 weeks"), [HOOK], []))
+        self.assertIn("unsourced", studio.screen(skit_draft(text=WORDS + ". the fare is $40"), [HOOK], []))
 
     def test_a_logline_copying_an_example_is_dropped(self):
         afters = studio.example_afters(REPO / "brain")
