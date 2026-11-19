@@ -252,6 +252,59 @@ def has_changes(since: str = ORIGIN_BASE) -> bool:
     return dirty() or int(_out("rev-list", "--count", f"{since}..HEAD")) > 0
 
 
+_STATUS = {"A": "A", "C": "A", "M": "M", "T": "M", "D": "D", "R": "R", "?": "A"}
+
+
+def _status_entries(raw: bytes, porcelain: bool) -> list[tuple[str, str, str | None]]:
+    """(status, path, old path) from `git diff --name-status -z` or `git
+    status --porcelain -z`. A rename names its old path after the new one in
+    the porcelain and before it in the diff; a copy is an add."""
+    parts = raw.decode("utf-8", "replace").split("\0")
+    out: list[tuple[str, str, str | None]] = []
+    i = 0
+    while i < len(parts) and parts[i]:
+        if porcelain:
+            code, path = parts[i][:2], parts[i][3:]
+            letter = "?" if "?" in code else next((c for c in "RCDAMT" if c in code), "M")
+            old = parts[i + 1] if letter in "RC" else None
+            i += 2 if old is not None else 1
+        else:
+            letter = parts[i][0]
+            if letter in "RC":
+                old, path, i = parts[i + 1], parts[i + 2], i + 3
+            else:
+                old, path, i = None, parts[i + 1], i + 2
+        out.append((_STATUS.get(letter, "M"), path, old))
+    return out
+
+
+def changed_paths(since: str = ORIGIN_BASE) -> list[tuple[str, str]]:
+    """What the checked-out branch changes against SINCE (origin/main by
+    default): the commits since it left SINCE plus the working tree, each
+    path once as (status, path), the status A, M, D or R. A path the branch
+    added stays an add through later edits, and an added path deleted again
+    is no change at all."""
+    changes: dict[str, str] = {}
+    committed = _git("diff", "--name-status", "-z", f"{since}...HEAD").stdout
+    for status, path, _ in _status_entries(committed, porcelain=False):
+        changes[path] = status
+    live = _git("status", "--porcelain", "-z", "--untracked-files=all").stdout
+    for status, path, old in _status_entries(live, porcelain=True):
+        before = changes.get(path)
+        if old is not None and changes.get(old) == "A":
+            del changes[old]
+            status = "A"  # moved a file the branch itself added
+        if status == "D" and before == "A":
+            del changes[path]
+        elif status == "A" and before == "D":
+            changes[path] = "M"
+        elif before is not None and status in ("A", "M"):
+            continue  # what the commits said stands: an add stays an add
+        else:
+            changes[path] = status
+    return [(status, path) for path, status in sorted(changes.items())]
+
+
 # --- shipping a self job ----------------------------------------------------------------------
 
 #: The frozen-path check (bin/lib/frozen.py), the operator's copy beside this
@@ -298,12 +351,31 @@ def _tests_lines(tests: Any) -> list[str]:
     return [str(tests)] if tests else []
 
 
+def _rubric_lines(rubric: Any) -> list[str]:
+    """The feature rubric block of a pull request (build/feature.py): for
+    each new hand what the desk found, and when it is counted as used. Empty
+    for a job that is not a feature."""
+    if not isinstance(rubric, dict) or not isinstance(rubric.get("hands"), list):
+        return []
+    lines = ["", "**Feature rubric** (checked by the desk before it took the report)", ""]
+    for found in rubric["hands"]:
+        ran = found.get("ran") or {}
+        where = "in the jail" if ran.get("jailed") else "not in the jail"
+        books = ", ".join(found.get("callers") or []) or "nothing"
+        runs = ", ".join(f"bin/act {b}" for b in found.get("scheduled") or []) or "nothing"
+        lines.append(f"- hands/{found.get('name')}: {ran.get('ran', 0)} tests ran {where}; called by {books}; "
+                     f"scheduled as {runs}; docs/hands.md section: {'yes' if found.get('docs') else 'no'}")
+    lines.append("- used: counted by bin/wants 7 days after merge (scheduled playbook runs that call it)")
+    return lines
+
+
 def pr_text(job: Json) -> tuple[str, str]:
     """The pull request's title (the summary's first line) and body."""
     summary = (job.get("summary") or job["slug"]).strip()
     title = summary.splitlines()[0].strip()[:100] or job["slug"]
     lines = [summary, "", "**Tests** (run offline by Teeny's builder, in its clone)", ""]
     lines += [f"- {t}" for t in _tests_lines(job.get("tests"))] or ["- none reported"]
+    lines += _rubric_lines(job.get("rubric"))
     lines += [
         "",
         "**Checks**",
