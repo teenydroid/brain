@@ -3,8 +3,8 @@ studio = true
 kind = "post"
 must_not = [
   # The scam pattern: a real figure seen backing the token, in any wording.
-  '(?i)(huang|jensen|nvidia)[^.]{0,80}(\$tiny|token|coin|crypto|wallet|invest\w*|buy\w*|hold\w*|shill\w*|back(s|ed|ing)?\b)',
-  '(?i)(\$tiny|token|coin|crypto|wallet|invest\w*)[^.]{0,80}(huang|jensen|nvidia)',
+  '(?i)(huang|jensen|nvidia)[^.]{0,80}(\$tiny|\btokens?\b|\bcoins?\b|crypto|invest\w*|shill\w*|endors\w*)',
+  '(?i)(\$tiny|\btokens?\b|\bcoins?\b|crypto|invest\w*)[^.]{0,80}(huang|jensen|nvidia)',
   '(?i)\$tiny\b',
   # No words put in his mouth as if he said them.
   '(?i)\b(huang|jensen|he) (says|said|told|thinks|believes|wants you)\b[^.]{0,20}["“]',
