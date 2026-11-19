@@ -62,8 +62,9 @@ In order:
    by win rate (`ranking` says the tie-break). Then one last turn: the
    winner, or none worth a slot.
 9. Publishing the pick (`publish`): the producer for its format (a post, a
-   thread, or a post with a picture of Teeny; any other format is no post,
-   recorded), then the gates in order, each failing closed and each result
+   thread, a post with a picture of Teeny or a meme, or a post with a
+   skit's labelled parody video; any other format is no post, recorded),
+   then the gates in order, each failing closed and each result
    kept: the truth judge (`hands/guard truth` on the draft's `truth`), the
    cold reader (`hands/guard clarity`: bin/act and bin/tick run it before
    their own posts, hands/x does not, so this is its one run), and the
@@ -79,7 +80,11 @@ In order:
    empty slot is an outcome, never an error, and its reason says what came
    of every attempt (`empty_reason`). A picture is made only after the words
    passed (`picture`), under hands/image's own caps; when it fails the post
-   goes out as words alone only if they stand alone. With STUDIO_DRY=1 (and
+   goes out as words alone only if they stand alone. A skit's video is made
+   only after its words passed and its hard lines did (`_make_skit`), under
+   hands/video skit's caps, and its words never go out without it; in a
+   skit slot (STUDIO_SKIT_SLOTS) the best skit goes first and a failed one
+   costs none of the fallback budget. With STUDIO_DRY=1 (and
    always under `--dry-run`) every step runs, the picture is only planned,
    and hands/x runs with DRY_RUN=1, so nothing is posted or paid for. After a
    real post, `hands/story beat` records it on the pick's storyline.
