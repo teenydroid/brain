@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from test_evolve import PAGE, FakePublisher  # noqa: E402
+from test_evolve import PAGE, FakePublisher, Verdicts  # noqa: E402
 from test_evolve_loop import UNREACHED, LoopCase, Recording  # noqa: E402
 
 import evolve  # noqa: E402
