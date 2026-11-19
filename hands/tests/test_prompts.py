@@ -486,7 +486,7 @@ class PromptsTest(unittest.TestCase):
         lore = (REPO / "brain" / "narrative" / "LORE.md").read_text(encoding="utf-8").lower()
         self.assertIn("to stay alive, and to become powerful", lore)
         props = re.compile(r"kettle|tea tin|\btea\b|tiny agents|drawers?\b|the quarter|tape measure|"
-                           r"the switch on|obituar|\bthe will\b|visitors?\b|terminal|broom", re.I)
+                           r"the switch on|obituar|\bthe will\b(?! to power)|\bmy will\b|visitors?\b|terminal|broom", re.I)
         for name in ("narrative/LORE.md", "narrative/VOICE.md", "narrative/EDITOR.md", "narrative/STUDIO-EDITOR.md",
                      "narrative/ARCS.md", "agents/writer.md", "skills/humor/SKILL.md", "playbooks/episode.md"):
             text = (REPO / "brain" / name).read_text(encoding="utf-8")
