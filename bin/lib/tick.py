@@ -1058,6 +1058,20 @@ OWN_THREAD = ("Comments on your own Moltbook posts come first: every agent there
               "(decline_moltbook) with that reason instead. One still unanswered comes back (`again` in its "
               "details) until it is answered or declined.")
 
+#: Said once a batch holds a mention in a thread under one of Teeny's own X
+#: posts. The rule the operator wrote into playbooks/mentions.md (940e51c5),
+#: which only the older core path reads: since mentions go to the mind
+#: (597a798f) nothing carried it, and from 2026-11-17 to 11-19 19 of 30
+#: comments under Teeny's own posts were let go as "hype, silence".
+X_OWN_THREAD = ("Replies under your own X posts come first on X: these people answered something you posted, and "
+                "a comment left unanswered under your own post reads as nobody home. Answer each one in this beat, "
+                "alongside your Moltbook threads rather than after them, even when you are running low. A reply has "
+                "a looser bar than a post: a short line, a one-liner or a joke back is enough, so a cheer or a gm "
+                "under your own post gets a short line back, not silence (the triage rule that hype with no question "
+                "gets no reply is for tags in other people's threads). Let one go only when it is spam, a bare link, "
+                "a contract or ticker spray, abuse, the same point you already answered, or from someone you have "
+                "answered three times today with nothing new asked; then say which in your thought.")
+
 #: Said once a batch holds something from Hacker News, where Teeny cannot write.
 HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn comment can be talked "
                 "about elsewhere, remembered or followed up; never answered on HN.")
@@ -1097,6 +1111,8 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
            for s in batch):
         lines += [OWN_THREAD, ""]
     people = _x_people(batch)
+    if any(_x_own_thread(s) for s in batch if _x_handle(s)):
+        lines += [X_OWN_THREAD, ""]
     turned: list[str] = []
     for s in batch:
         handle = _x_handle(s)
@@ -1170,7 +1186,23 @@ def _x_turn(mentions: list[Mapping[str, Any]], full: bool = True) -> list[str]:
         answers = _x_answering(m)
         lines += [answers] if answers else []
         lines.append(f'{"Then" if n else "Now"} {them} says: "{m["text"]}"')
+    if any(_x_own_thread(m) for m in mentions):
+        return [*lines, "", f"{them} is answering your own post: answer them.", ""]
     return [*lines, "", f"Your response to {them} — or let it go.", ""]
+
+
+def _x_own_thread(s: Mapping[str, Any]) -> bool:
+    """Whether an X mention sits in a thread under one of Teeny's own posts:
+    the post it answers, or its conversation's first post, is an own post,
+    quote or thread in hands/x's ledger. False when the ledger can't say."""
+    payload = s.get("payload") or {}
+    ids = [str(payload.get(k)) for k in ("in_reply_to", "conversation_id") if payload.get(k)]
+    ids = [i for i in ids if i != str(s.get("ref"))]
+    if not ids:
+        return False
+    n = _x_count(f"SELECT COUNT(*) FROM x_posts WHERE kind IN ('post', 'quote', 'thread')"
+                 f" AND id IN ({','.join('?' * len(ids))})", tuple(ids))
+    return bool(n)
 
 
 def _x_history(handle: str, refs: list[str]) -> list[str]:

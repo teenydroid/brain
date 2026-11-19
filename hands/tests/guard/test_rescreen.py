@@ -56,7 +56,7 @@ class RescreenBase(Scratch):
         """A mention ingested while the judge was down: held, through the
         real intake and the real guard."""
         self.x.route("GET", MENTIONS, page((post_id, text)))
-        mentions.ingest(offer=False)
+        mentions.ingest(offer=False, poll=True)
         row = self.mention(post_id)
         self.assertEqual(row["status"], "held")
         held = holds.get(row["hold_id"])
