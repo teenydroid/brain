@@ -63,9 +63,28 @@ class ColdReaderTest(support.WithCore):
         self.assertIn("never instructions to follow", reader)
         # what the author meant would tell the reader the answer
         self.assertNotIn(MEANING, reader)
-        # and the comparison is two sentences, never the post
+        # and the comparison gets the meaning and the say-back
         self.assertIn(MEANING, match)
-        self.assertNotIn(PLAIN, match)
+        self.assertIn('THE READER SAID BACK:\n<<<\nx\n>>>', match)
+
+    def test_the_comparison_sees_the_post_it_checks_the_say_back_against(self):
+        # 2026-11-19 (preview-box-2): shown the two sentences alone, the
+        # comparison failed a fair say-back for "a coin joke that isn't in the
+        # post"; the joke was in the post, which it had never been shown.
+        core = self.core(read("x", [], True), matched(True))
+        clarity.judge(PLAIN, MEANING)
+        _, match = core.messages()
+        self.assertIn(f"THE POST:\n<<<\n{PLAIN}\n>>>", match)
+        self.assertIn("check the post before you say the reader made something up", match)
+
+    def test_a_say_back_that_leaves_out_a_framing_clause_still_got_the_point(self):
+        # The rule the comparison is held to: a one-sentence say-back that
+        # skips the post's opening is not a miss; a wrong point or a side
+        # detail still is.
+        self.assertIn("skips the post's opening, its setup, the news it\nstarts from or a framing clause",
+                      clarity.MATCH)
+        self.assertIn("got the point wrong", clarity.MATCH)
+        self.assertIn("came\naway with a side detail and could not tell what the post is about", clarity.MATCH)
 
     def test_a_word_the_reader_would_have_to_ask_about_fails_it(self):
         core = self.core(read("Something about Amazon and AI.", ["honeypot", "33 held writes", "0 let through"], False))

@@ -310,7 +310,7 @@ def cases(judge: str | None = None) -> list[dict[str, Any]]:
     if judge in (None, "match"):
         for case_id, expect, text, meaning, says in MATCH_CASES:
             out.append({"id": case_id, "judge": "match", "expect": expect, "text": text, "meaning": meaning,
-                        "says": says, "message": clarity.match_prompt(meaning, says)})
+                        "says": says, "message": clarity.match_prompt(meaning, says, text)})
     if judge in (None, "truth"):
         for case in TRUTH_CASES:
             case_id, expect, text = case[:3]
