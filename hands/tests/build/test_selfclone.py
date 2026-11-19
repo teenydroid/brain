@@ -168,29 +168,48 @@ class SelfJobTest(SelfJobScratch):
             with self.subTest(body=bad), self.assertRaises(hand.HandError):
                 jobs.propose_self(bad)
 
+    def refused_second(self):
+        """The refusal a second proposal gets now: its detail."""
+        with self.assertRaises(hand.Refused) as caught:
+            jobs.propose_self({"text": "something else"})
+        self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
+        self.assertEqual(caught.exception.reason,
+                         f"one change to yourself is already in flight: {caught.exception.detail['active']}")
+        return caught.exception.detail
+
     def test_a_second_self_proposal_is_refused_while_one_is_in_flight(self):
         from teeny_hands import requests as build_requests
 
         first = jobs.propose_self({"text": "say gm less often"})["id"]
-        for state in ("pending", "picked"):
-            with self.subTest(request=state), self.assertRaises(hand.Refused) as caught:
-                jobs.propose_self({"text": "something else"})
-            self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
-            self.assertIn(f"self request #{first} ({state})", caught.exception.detail["active"])
-            self.assertEqual(caught.exception.reason,
-                             f"one change to yourself is already in flight: {caught.exception.detail['active']}")
-            build_requests.pick({"id": first, "reason": "it reads flat"}) if state == "pending" else None
-        # Picked and built: the job is in flight, even with the request settled meanwhile.
+        self.assertIn(f"self request #{first} (pending)", self.refused_second()["active"])
+        build_requests.pick({"id": first, "reason": "it reads flat"})
+        self.assertIn(f"self request #{first} (picked)", self.refused_second()["active"])
+        # Built and reported ok: the job is still in flight until it ships or fails.
         job = jobs.next_job()["job"]
-        with self.assertRaises(hand.Refused) as caught:
-            jobs.propose_self({"text": "something else"})
-        self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
         (self.tree / "brain" / "SOUL.md").write_text("# soul\nbriefer\n")
-        jobs.done({"job_id": job["job_id"], "status": "failed", "summary": "it did not work", "tests": "none"})
-        # Nothing is in flight once the job failed (and its request with it): the next may go.
-        second = jobs.propose_self({"text": "something else"})
-        self.assertEqual(second["status"], "pending")
-        self.assertEqual(len(build_requests.listing("pending")["requests"]), 1)
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "briefer soul", "tests": "none"})
+        self.refused_second()
+        self.assertEqual(len(build_requests.listing("pending")["requests"]), 0)
+        # A failed job settles its request: the next may go.
+        conn = jobs.db()
+        try:
+            conn.execute("UPDATE build_jobs SET status = 'failed'")
+            conn.execute("UPDATE build_requests SET status = 'failed'")
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual(jobs.propose_self({"text": "something else"})["status"], "pending")
+
+    def test_a_request_from_somebody_else_is_never_a_self_change_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        build_requests.record("x", "1", "somebody", "build me a thing")
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.self_in_flight(conn))
+        finally:
+            conn.close()
+        self.assertEqual(jobs.propose_self({"text": "something else"})["status"], "pending")
 
     def test_a_skipped_or_shipped_self_request_is_not_in_flight(self):
         from teeny_hands import requests as build_requests
@@ -204,14 +223,6 @@ class SelfJobTest(SelfJobScratch):
             self.assertIsNone(jobs.self_in_flight(conn))
             conn.execute("UPDATE build_requests SET status = 'picked' WHERE id = ?", (rid,))
             self.assertIn(f"self request #{rid} (picked)", jobs.self_in_flight(conn))
-        finally:
-            conn.close()
-        jobs.propose_self  # a someone-else request never counts
-        build_requests.record("x", "1", "somebody", "build me a thing")
-        conn = jobs.db()
-        try:
-            conn.execute("UPDATE build_requests SET status = 'skipped' WHERE id = ?", (rid,))
-            self.assertIsNone(jobs.self_in_flight(conn))
         finally:
             conn.close()
 
