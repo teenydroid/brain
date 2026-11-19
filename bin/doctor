@@ -525,7 +525,7 @@ if shot > budget:
     print(f"warn MEDIA_SKIT_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no skit fits a day")
     sys.exit()
 url = (filed.get("REEL_URL") or DEFAULT_URL).rstrip("/")
-said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {int(budget // shot) if shot else 0} shot(s) under {budget:.2f} USD a day; cut at {url}"
+said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; cut at {url}"
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()
