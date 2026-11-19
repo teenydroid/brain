@@ -1865,6 +1865,96 @@ class TickTest(unittest.TestCase):
         self.assertEqual(self.tick()["results"][0]["result"]["dropped"], [1])
         self.assertIn('"do": "drop_follow_up"', self.chats()[0]["message"])
 
+    # --- refusals reach the mind (live, 2026-11-19) -------------------------
+
+    CAPPED = {"refused": "50 Moltbook comment(s) in the last 24 hours; the cap is 50", "rule": "daily_cap"}
+
+    def comments_spent(self, n: int, oldest_ago: float) -> None:
+        """n Moltbook comments sent in the last day, the oldest `oldest_ago`
+        seconds back, by a long-claimed agent (the cap is 50)."""
+        from teeny_hands.moltbook import rules
+
+        (self.root / "secrets" / "teeny.env").write_text(f"MOLTBOOK_CLAIMED_AT={T0 - 30 * 86400}\n")
+        hand._ENV_CACHE = None
+        conn = rules.db()
+        for i in range(n):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'p', ?, 'posted')",
+                         (f"sent{i}", T0 - oldest_ago + i * 60))
+        conn.commit()
+        conn.close()
+
+    def test_a_comment_refused_by_the_daily_cap_is_shown_to_the_next_beat_as_not_sent(self):
+        # Live, 2026-11-19: comments owed since the day before (offered again
+        # in their old place) filled every batch of 25, so the eight refusals
+        # of the beat that answered them never reached the next one, which
+        # took them as sent.
+        for n in range(60):
+            stimuli.add("moltbook", "comment", f"c{n}", f"question {n}", who=f"agent{n}",
+                        payload={"post_id": "p1", "on_own_post": True}, at=T0 - 86400 + n)
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.CAPPED])
+        self.answer({"thought": "the oldest first", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c0", "text": "here is the answer"}]},
+                    {"thought": "", "intents": [{"do": "journal", "text": "receipts"}]})
+        self.tick()
+        self.at(900)
+        self.tick()
+        message = self.chats()[1]["message"]
+        self.assertIn("your comment_moltbook on p1: refused, not sent:", message)
+        self.assertIn("the cap is 50", message)
+
+    def test_a_beat_is_told_when_no_moltbook_comments_are_left(self):
+        self.comments_spent(50, oldest_ago=86400 - 3600)
+        stimuli.add("moltbook", "comment", "c1", "where is my answer?", who="nyna",
+                    payload={"post_id": "p1", "on_own_post": True}, at=T0 - 7200)
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        self.answer({"thought": "", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+            {"do": "reply_x", "to": "111", "text": "gm ana"}]})
+        got = self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("Moltbook comments: 0 of 50 left in the last 24 hours; the next frees at 08:00 your time", message)
+        # The comment waits, unshown, for room, and comes back then; X does not wait.
+        self.assertNotIn("where is my answer?", message)
+        self.assertIn("gm teeny", message)
+        self.assertEqual([s["ref"] for s in stimuli.pending()], ["c1"])
+        # One written anyway is refused here, before the guard reads a word.
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        refused = got["results"][0]
+        self.assertEqual((refused["status"], refused["result"]["rule"]), ("refused", "daily_cap"))
+        self.assertIn("not sent", refused["result"]["refused"])
+        # Once the oldest ages out, the comment is offered again.
+        self.at(3601)
+        self.answer({"thought": "", "intents": [{"do": "journal", "text": "room again"}]})
+        self.tick()
+        self.assertIn("where is my answer?", self.chats()[-1]["message"])
+
+    def test_a_beat_is_told_how_few_moltbook_comments_are_left(self):
+        self.comments_spent(47, oldest_ago=20 * 3600)
+        self.tick()
+        self.assertIn("Moltbook comments: 3 of 50 left in the last 24 hours", self.chats()[0]["message"])
+
+    def test_a_refused_answer_does_not_clear_its_follow_up(self):
+        stimuli.follow_up(T0 + 6 * 3600, "answer nyna: promise #4", ref="c9")
+        stimuli.add("moltbook", "comment", "c9", "where is my answer?", who="nyna",
+                    payload={"post_id": "p1", "on_own_post": True})
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.CAPPED, self.CAPPED])
+        self.answer({"thought": "answered nyna", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c9", "text": "here it is"}]},
+                    {"thought": "the answer is fired, the follow-up can go", "intents": [
+                        {"do": "drop_follow_up", "ref": "c9"}]},
+                    {"thought": "answer and drop in one beat", "intents": [
+                        {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c9", "text": "here it is"},
+                        {"do": "drop_follow_up", "id": 1}]})
+        self.tick()
+        self.at(900)
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused", got["results"])
+        self.assertIn("was not sent", got["results"][0]["result"]["refused"])
+        self.at(1800)
+        got = self.tick()
+        self.assertEqual(got["results"][1]["status"], "refused", got["results"])
+        self.assertEqual([f["id"] for f in stimuli.follow_ups()["follow_ups"]], [1])
+
     def test_the_batch_shows_each_follow_up_by_id_and_ref(self):
         stimuli.follow_up(T0 + 60, "send the japanese reply", ref="x:111")
         stimuli.follow_up(T0 + 5 * 3600, "write to bob", ref="bob@example.com")
