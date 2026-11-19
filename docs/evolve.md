@@ -1768,6 +1768,24 @@ Every candidate whose gate passed and whose eval is `pass` or
    say up front that pull request text is screened by the guard and to
    prefer plain, literal words. The guard and the babysitter are not changed.
 
+   Then the guard's link screen (`linked_pr_text`), as hands/gh runs it on a
+   pull request (`check_fields`, surface github: house style, then links,
+   where a code span is code since #375). Gen 19's candidate 3 passed its
+   eval and never opened (guard_holds 1192): its evidence and research
+   quoted the file name `pr-agent-budget.sh` and the domains of a search
+   result and a bare code-host domain, which the screen reads as off-list
+   hosts. So a repository path or file name the screen would read as a
+   host (one the candidate names, a plain entry of the frozen list, or a
+   name ending in a code extension, `CODE_EXTS`) goes in a code span
+   (`code_named`), and any other off-list host is put in words with no dot
+   ("the drips site"; a markdown link keeps its label: `worded_links`).
+   What changed is kept on the entry as `pr_links` (`coded`, `reworded`).
+   Nothing is added to the allowlist. What the screen still cuts (a host the
+   text hides, `evil[.]com`) goes to the guard as it is; when the guard
+   refuses or holds it, the entry's `pr_error` names the hold, its category,
+   field and reason (`pr_refusal`), and `pr_hold` keeps its id, not only the
+   guard's sentence.
+
 1. Its worktree is rebuilt from its patch when it is not exactly that
    (after a restart, or for a candidate waiting from an earlier run), and
    committed as Teeny on `teeny/gen-<n>-c<i>`, digits only: the babysitter merges
