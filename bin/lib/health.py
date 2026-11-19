@@ -130,6 +130,7 @@ from teeny_hands.guard.judge import permanent  # noqa: E402
 from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
 import catch_up  # noqa: E402  (bin/lib: the claims, the re-arm and the catch-up)
+import model_window  # noqa: E402  (bin/lib: the core's model windows, merged)
 
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
