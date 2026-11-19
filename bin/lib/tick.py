@@ -2197,7 +2197,7 @@ def _beat(deadline: float) -> Json:
     # Nobody waits on a quiet moment: a failed one is let go, not put back
     # to come round again stale.
     give_back = stimuli.settle if kind == "quiet" else stimuli.release
-    message = render(items, woke)
+    message = render(items, woke, allowance)
     thought, intents, last_error = "", None, ""
     for attempt in (1, 2):
         try:
