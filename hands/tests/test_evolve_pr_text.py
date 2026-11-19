@@ -241,7 +241,7 @@ class LinkScreen(unittest.TestCase):
 
     def test_allowlisted_links_code_and_markdown_links_are_kept(self):
         body = ("see https://github.com/teenydroid/brain/pull/1 and `run.sh` and [the doc](https://drips.network/x)"
-                " and ```\nbad.sh\n```")
+                " and:\n\n```\nbad.sh\n```")
         _, got = evolve.pr_link_text("t", body)
         self.assertIn("https://github.com/teenydroid/brain/pull/1", got)
         self.assertIn("`run.sh` and", got)
