@@ -176,7 +176,10 @@ approval. Replies are unchanged. To deploy it:
    must show `model: the studio's claude-fable-5.2 has a N-token window` and
    the same for `claude-opus-5.5` (bin/lib/model_windows.sh). A line saying
    "no window" or "refused a window" means its turns may come back empty: fix
-   that before the next slot. Then `bin/crons` lists `teeny.studio-0430`,
+   that before the next slot (a model set later, or for one run, gets its
+   window from `bin/ask --model` on its first turn; `bin/doctor --live`'s
+   `studio models answer` asks each studio model one turn and fails on a
+   refusal). Then `bin/crons` lists `teeny.studio-0430`,
    `-0930`, `-1500`, `-sunday` and `-2300` and no `teeny.x-quote`,
    `teeny.morning`, `teeny.take`, `teeny.show` or `teeny.growth`; `bin/doctor
    --live` is green; and a preview that posts nothing:

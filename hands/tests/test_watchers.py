@@ -94,6 +94,7 @@ ENVIRONMENT = {
     "LADDER_API_KEY": "the model key, from secrets/spine.env in a subshell",
     "SPINE_MODEL": "the model id, from secrets/spine.env",
     "SPINE_CONTEXT_WINDOW": "the model's window, from secrets/spine.env",
+    "DOCTOR_MODEL_TURNS": "bin/doctor --live's studio model turns, run by a person or bin/evolve; =0 skips one paid check, never a watcher",
     "STUDIO_WRITER_MODEL": "which model bin/spine gives a context window for bin/studio's writer (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
     "STUDIO_EDITOR_MODEL": "which model bin/spine gives a context window for bin/studio's editor (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
     "SPINE_NATIVE_TOOLS": "the tool protocol, from secrets/spine.env",

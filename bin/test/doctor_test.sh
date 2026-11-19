@@ -326,6 +326,17 @@ case "$1" in
   modules_browser_check_readiness)
     ready='{"module_ready": true, "chrome_ready": true}'
     printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
+  # A turn: refused as the core refused the studio's on 2026-11-19 when its
+  # model is in $FAKE_REFUSED (a comma list). Each is logged to $FAKE_TURNS.
+  inference_agent_chat|inference_agent_chat_simple)
+    printf '%s %s\n' "$1" "$2" >>"${FAKE_TURNS:-/dev/null}"
+    m="$(jq -r '.model_override // ""' <<<"$2")"
+    if [[ ",${FAKE_REFUSED:-}," == *",$m,"* ]]; then
+      echo "[oh] openhuman.$1: driver failed: model error: local-openai returned HTTP 400 (request_rejected): messages: at least one message is required." >&2
+      exit 1
+    fi
+    echo '{"response": "{\"ok\": true}"}' ;;
+  get_config) echo '{"config": {"model_registry": [{"id": "w", "context_window": 1000}, {"id": "e", "context_window": 1000}]}}' ;;
   *) echo "unexpected method $1" >&2; exit 1 ;;
 esac
 FAKE
@@ -382,6 +393,34 @@ FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "Chrome cou
 check "--live fails when Chrome does not start" grep -q '^FAIL browser: .*Chrome could not start' "$scratch/doctor.log"
 live_doctor || true
 check "--live passes a browser that loads and starts Chrome" grep -q '^ok   browser: ' "$scratch/doctor.log"
+
+# 2026-11-19: a studio preview's every first writer and editor turn on
+# claude-fable-5.2 and claude-opus-5.5 was refused "messages: at least one
+# message is required", the run fell back to the core's default model, and
+# only the spine's log said so. --live asks each studio model one turn.
+live_doctor || true
+check "--live skips the studio models when none is set" \
+  grep -q '^ok   studio models answer: no studio model set' "$scratch/doctor.log"
+mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSTUDIO_EDITOR_MODEL=e\nSAFETY_JUDGE_MODEL=j\n' >"$root/secrets/teeny.env"
+: >"$scratch/turns.log"
+FAKE_TURNS="$scratch/turns.log" live_doctor || true
+check "--live passes when every studio model answers its turn" \
+  grep -q '^ok   studio models answer: 3 model turn(s) answered: w (agent), e (agent), j (simple)' "$scratch/doctor.log"
+check "and asks the writer's and editor's models as an agent turn, the judges' as the simple chat" \
+  test "$(sed -E 's/^([a-z_]+) (.*)$/\1 \2/' "$scratch/turns.log" | while read -r m p; do jq -r --arg m "$m" '"\($m) \(.agent_id // "-") \(.model_override)"' <<<"$p"; done | paste -sd, -)" \
+    = "inference_agent_chat editor w,inference_agent_chat editor e,inference_agent_chat_simple - j"
+FAKE_REFUSED=e live_doctor || true
+check "--live fails when a studio model refuses its turn, and names it and why" \
+  grep -q '^FAIL studio models answer: refused a turn: e (agent): .*at least one message is required' "$scratch/doctor.log"
+FAKE_REFUSED=j live_doctor || true
+check "--live fails when the judges' model refuses the simple chat" \
+  grep -q '^FAIL studio models answer: refused a turn: j (simple)' "$scratch/doctor.log"
+printf 'STUDIO=0\nSTUDIO_EDITOR_MODEL=e\n' >"$root/secrets/teeny.env"
+FAKE_REFUSED=e live_doctor || true
+check "--live still asks a model set while the studio is off" grep -q '^FAIL studio models answer: refused a turn: e' "$scratch/doctor.log"
+DOCTOR_MODEL_TURNS=0 FAKE_REFUSED=e live_doctor || true
+check "and DOCTOR_MODEL_TURNS=0 skips the turns" bash -c "! grep -q 'studio models answer' '$scratch/doctor.log'"
+rm -f "$root/secrets/teeny.env"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
