@@ -89,6 +89,9 @@ MAX_FIGURES = 3
 MAX_BYTES = 200 * 1024 * 1024
 FRAME_MAX_BYTES = 5 * 1024 * 1024
 POLL_SECONDS = 10.0
+#: A job's bill can land a little after it says succeeded (seedance-2-0 on
+#: 2026-11-19): read once more after this pause before booking the reservation.
+BILL_SECONDS = 5.0
 #: A content refusal, in a seller's or a job's words: try the next model.
 REFUSAL = re.compile(r"content|policy|safety|moderat|refus|likeness|public figure|celebrit|real person|prohibit|"
                      r"not allowed|violat|blocked|sensitive|nsfw|guideline", re.I)
@@ -380,7 +383,7 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per
                 continue  # asked again next round, until the deadline
             word = str((status or {}).get("status") or "") if isinstance(status, dict) else ""
             if word == "succeeded":
-                _land(api, conn, skit_id, shot, status)
+                _land(api, conn, skit_id, shot, status, sleep)
             elif word in ("failed", "canceled", "expired"):
                 error = status.get("error") if isinstance(status.get("error"), dict) else {}
                 said = " ".join(str(error.get(k) or "") for k in ("type", "code", "message"))
@@ -405,7 +408,15 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per
         sleep(POLL_SECONDS)
 
 
-def _land(api: Surplus, conn, skit_id: int, shot: _Shot, status: Json) -> None:
+def _land(api: Surplus, conn, skit_id: int, shot: _Shot, status: Json, sleep=time.sleep) -> None:
+    if _micros((status.get("usage") or {}).get("buyer_cost_usdc") if isinstance(status.get("usage"), dict) else None) is None:
+        sleep(BILL_SECONDS)
+        try:
+            again = api.call("GET", f"/v1/video/generations/{shot.job}", timeout=30)
+        except SurplusError:
+            again = None
+        if isinstance(again, dict) and again.get("status") == "succeeded":
+            status = again
     url = ((status.get("results") or [{}])[0] or {}).get("url") if isinstance(status.get("results"), list) else None
     actual = _micros((status.get("usage") or {}).get("buyer_cost_usdc")) if isinstance(status.get("usage"), dict) else None
     cost = actual if actual is not None else shot.cost
@@ -449,7 +460,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     job = job_of(body)
     the_label = label()
     models = assets._models("MEDIA_SKIT_MODELS", SKIT_MODELS)
-    per_shot = assets._usd("MEDIA_SKIT_MAX_USD_PER_SHOT", "0.90")
+    per_shot = assets._usd("MEDIA_SKIT_MAX_USD_PER_SHOT", "1.60")
     limit = hand.number("MEDIA_SKIT_MAX_PER_DAY", 0, 0, 10)
     params = _params()
     if hand.dry_run():

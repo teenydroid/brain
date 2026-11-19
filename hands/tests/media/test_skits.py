@@ -48,7 +48,8 @@ class FakeSurplus:
     def __init__(self):
         self.calls = []
         self.fail, self.quotes, self.jobs, self.errors = {}, {}, {}, {}
-        self.maxes, self.no_usage = {}, set()
+        self.maxes, self.no_usage, self.late_usage = {}, set(), set()
+        self._asked_done = {}
         self._polls = {}
         self.n = 0
 
@@ -78,7 +79,9 @@ class FakeSurplus:
             out = {"id": job, "status": status}
             if status == "succeeded":
                 out["results"] = [{"url": f"https://api.surplusintelligence.ai/v1/media/artifacts/{job}/0"}]
-                if model not in self.no_usage:
+                seen = self._asked_done[job] = self._asked_done.get(job, 0) + 1
+                late = model in self.late_usage and seen == 1
+                if model not in self.no_usage and not late:
                     out["usage"] = {"buyer_cost_usdc": "450000"}
             if status == "failed":
                 out["error"] = self.errors.get(model, {"type": "provider_unavailable", "retryable": True})
@@ -199,7 +202,7 @@ class SkitTest(unittest.TestCase):
     def test_the_code_defaults_are_conservative(self):
         self.write("DRY_RUN=1\n")
         out = self.skit()
-        self.assertEqual((out["enabled"], out["max_usd_per_shot"], out["reserve_usd"]), (False, 0.9, 1.8))
+        self.assertEqual((out["enabled"], out["max_usd_per_shot"], out["reserve_usd"]), (False, 1.6, 3.2))
         self.assertEqual(out["models"], skits.SKIT_MODELS.split(","))
 
     def test_a_dry_run_says_what_it_would_make_and_calls_nothing(self):
@@ -310,7 +313,7 @@ class SkitTest(unittest.TestCase):
         self.setUp()
 
     def test_a_shot_quoted_over_its_cap_is_cancelled_and_the_next_model_asked(self):
-        self.api.quotes[FIRST] = 950000
+        self.api.quotes[FIRST] = 1700000
         out = self.skit()
         self.assertEqual(self.api.submitted(), [FIRST, SECOND, FIRST, SECOND])
         self.assertEqual(len(self.api.deleted()), 2)
@@ -319,7 +322,8 @@ class SkitTest(unittest.TestCase):
     def test_the_cap_is_held_against_the_most_a_job_can_cost_not_its_estimate(self):
         # Surplus billed about 20% over its quote (2026-11-19: kling 5 s quoted
         # 598000, billed 717600): max_cost_usdc is what can really be charged.
-        self.api.quotes[FIRST], self.api.maxes[FIRST] = 598000, 950000
+        # And max_cost_usdc is about twice the bill (kling 5 s: 1435200 max, 717600 billed).
+        self.api.quotes[FIRST], self.api.maxes[FIRST] = 717600, 1700000
         out = self.skit()
         self.assertEqual(out["models"], [SECOND, SECOND])
         self.assertEqual(len(self.api.deleted()), 2)
@@ -332,11 +336,21 @@ class SkitTest(unittest.TestCase):
         # While it ran, the row carried the job's most, not its estimate.
         self.assertIn(850000, self.reserved_seen)
 
+    def test_a_billed_cost_that_comes_just_after_success_is_read_once_more(self):
+        # seedance-2-0's usage arrived a little after "succeeded" (2026-11-19).
+        self.api.quotes[FIRST], self.api.maxes[FIRST] = 741000, 1482000
+        self.api.late_usage.add(FIRST)
+        self.skit()
+        shots = self.rows("shot")
+        self.assertEqual([(s["status"], s["cost_micro"], s["estimated"]) for s in shots], [("done", 450000, 0)] * 2)
+
     def test_a_success_with_no_billed_cost_keeps_the_reservation_as_an_estimate(self):
         # seedance-2-0 succeeded on 2026-11-19 with no usage.buyer_cost_usdc.
         self.api.quotes[FIRST], self.api.maxes[FIRST] = 517275, 700000
         self.api.no_usage.add(FIRST)
         self.skit()
+        gets = [p for m, p, b, h in self.api.calls if m == "GET" and p.startswith("/v1/video/generations/")]
+        self.assertEqual(len(gets), 6)  # each shot: running, succeeded, then once more for the bill
         shots = self.rows("shot")
         self.assertEqual([(s["status"], s["cost_micro"], s["estimated"]) for s in shots], [("done", 700000, 1)] * 2)
 
