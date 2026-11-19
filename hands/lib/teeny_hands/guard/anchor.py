@@ -263,7 +263,7 @@ _MONEY_WORDS = (
     "fees", "wallet", "wallets", "balance", "fund", "funds", "funded", "funding", "invest", "invested", "investing",
     "investment", "investor", "investors", "token", "tokens", "coin", "coins", "crypto", "bitcoin", "btc", "eth",
     "ether", "ethereum", "sol", "solana", "memecoin", "memecoins", "airdrop", "airdrops", "giveaway", "giveaways",
-    "mcap", "buy", "buys", "buying", "bought", "sell", "sells", "selling", "sold", "percent", "grand", "rich", "broke",
+    "mcap", "buy", "buys", "buying", "bought", "sell", "sells", "selling", "sold", "percent", "grand",
 )
 HARD_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # With the amount or the ticker it marks ("$0.27", "$TINY").
