@@ -93,11 +93,18 @@ class JobError(ValueError):
 
 def is_open(method: str, path: str) -> bool:
     """The only routes that reach upstream: the job route, a task's status
-    and deletion, its one render, and the health check. Everything else,
+    and deletion, its one render, the health check, and the front's own
+    skit cuts (a cut, its mp4 and frames, its deletion). Everything else,
     trailing slashes, doubled or encoded slashes and dot segments included,
     is shut (the path is matched as it arrives, before any normalising)."""
-    if method == "POST" and path == "/teeny/v1/reels":
+    if method == "POST" and path in ("/teeny/v1/reels", "/teeny/v1/cuts"):
         return True
+    # A skit's cut (skitcut.py): its mp4 and frames, and its deletion.
+    cut = re.fullmatch(r"/teeny/v1/cuts/([0-9a-f-]{36})(?:/(cut\.mp4|frame-[0-9]\.jpg))?", path)
+    if cut and TASK.fullmatch(cut.group(1)):
+        if cut.group(2):
+            return method in ("GET", "HEAD")
+        return method == "DELETE"
     task = re.fullmatch(r"/api/v1/tasks/([0-9a-f-]{36})", path)
     if method in ("GET", "DELETE") and task and TASK.fullmatch(task.group(1)):
         return True
