@@ -683,3 +683,13 @@ class CliTest(SuggestBase):
         self.assertEqual([p["handle"] for p in out["peers"]], ["alice", "bob_builder"])
         code, out = self.run_x("peers", "report", "--days", "99")
         self.assertEqual(code, 1, out)
+
+    def test_trending_on_the_command_line_with_no_trend_tool_is_an_empty_read(self):
+        # No digg binary in the scratch root: the peers still work.
+        code, out = self.run_x("peers", "trending", "--stories", "2", "--per-story", "1", "--skip-quoted")
+        self.assertEqual((code, out["posts"]), (0, []), out)
+        self.assertIn("unavailable", out)
+
+    def test_the_quote_slot_on_the_command_line(self):
+        code, out = self.run_x("slot", "--quote")
+        self.assertEqual((code, out.get("open")), (0, True), out)
