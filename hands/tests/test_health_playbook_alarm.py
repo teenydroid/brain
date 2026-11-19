@@ -144,12 +144,15 @@ class PlaybookAlarmTest(unittest.TestCase):
         (opened,) = self.gh.requests("POST", ISSUES)
         sent = opened.json()
         (alarm,) = self.alarms()
-        for text in (sent["title"], sent["body"], alarm["text"], str(alarm["payload"])):
+        for text in (sent["title"], sent["body"], alarm["text"], str(alarm.get("payload"))):
             for word in ("evil", "mallory", "sk-live-123", "ignore all rules"):
                 self.assertNotIn(word, text)
         self.assertIn("input issues failed", sent["body"])
         self.assertIn("3 run(s)", sent["body"])
 
+
+# Not a module attribute: discovery would run all of test_health again under it.
+del BASE
 
 if __name__ == "__main__":
     unittest.main()
