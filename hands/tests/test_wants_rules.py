@@ -54,6 +54,9 @@ G10C1 = ("already", "brain/playbooks/build-idea.md", "the queue is already worki
 G12C3 = ("already", "brain/cron.toml (run-4, the bridge job) with the rail, cap and surplus logic in hands/x402 "
          "(frozen)", "the learning is already enacted: run-4, my scheduled bridge job, tops the surplus on its own, "
          "the daily cap is the x402 hand's own rule")
+G10C4 = ("already", "brain/CONTEXT.md", "already carried: my every-turn context (brain/CONTEXT.md) says a refused "
+         "moltbook write changes nothing; a gap-held draft self-delivers through the beat, so a manual re-send is the "
+         "duplicate (held replies: never manually re-send, MEMORY.md m12).")
 G19C2 = ("already", "brain/playbooks/morning.md", "the g18c2 change merged yesterday (brain PR #380): the morning post "
          "now carries the dated self-portraits. the only new words in this wording are \"gen-18\", the current "
          "generation's count, which my memory page already tracks; no repository change would make me act on it "
@@ -119,7 +122,7 @@ class SkipsThatLeanOnTheMemoryPage(unittest.TestCase):
         self.assertIsNone(wr.memory_skip_reason("not-actionable", "", "it is a state of the world"))
 
     def test_an_already_naming_a_playbook_stands(self):
-        for why, where, note in (G10C1, G12C3, G19C2):
+        for why, where, note in (G10C1, G12C3, G19C2, G10C4):
             with self.subTest(where=where[:30]):
                 self.assertIsNone(wr.memory_skip_reason(why, where, note))
 

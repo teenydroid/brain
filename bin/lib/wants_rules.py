@@ -39,11 +39,11 @@ BUILD_INTENT = re.compile(
     re.I)
 #: A note that says the memory page carries the thing out. A bare "memory
 #: page" is not enough ("which my memory page already tracks" is a count, not
-#: a carrier): it has to be where the thing lives, or that the page rides
-#: into every prompt.
+#: a carrier), nor is a passing mention of MEMORY.md: it has to be where the
+#: thing lives, or that the page rides into every prompt.
 MEMORY_CARRIER = re.compile(
-    r"\blive page\b|\blive memory page\b|\bmemory\.md\b"
-    r"|\b(?:on|in|by|from) (?:my|the) memory page\b"
+    r"\blive page\b|\blive memory page\b"
+    r"|\b(?:on|in|by|from|of) (?:my |the )?(?:brain/)?memory(?:\.md\b| page\b)"
     r"|\brides\s+(?:into\s+)?(?:every|each)\b",
     re.I)
 
