@@ -285,6 +285,20 @@ command = "bin/evolve credit"
 schedule = "20 * * * *"
 command = "bin/evolve watch --detach"
 
+# What Teeny said it would build (bin/wants run; docs/evolve.md, "1c. Wants"):
+# the build-intent items of its memory page ("the first thing i build myself
+# is ... not built yet"), drawn in code, no model. Scores each merged feature
+# a week after it merged (did a scheduled playbook run its hand?), then files
+# at most one want as a `self` build request, through the guard, for the
+# builder. 09:00 UTC is after the morning pick and before self-improve (09:40)
+# and the second pick-request slot (09:50), so a want filed here can be picked
+# the same day. Off unless WANTS=1 in secrets/evolve.env. Operator-owned: the
+# brain does not get to redefine a want, or to switch the feed on.
+[jobs.wants]
+schedule = "0 9 * * *"
+command = "bin/wants run"
+catch_up = true
+
 # The goal ledger's checks (bin/goals-check): every open goal Teeny proposed
 # (brain/playbooks/goals.md) is evaluated against its check, one of the kinds
 # in frozen code, and moved to solved or, past its deadline, failed. Hourly,
