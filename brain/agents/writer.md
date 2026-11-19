@@ -116,7 +116,7 @@ When the formats include skit, a skit is a post with a short AI-made parody vide
 These are examples, not today's news. Take the craft, not the words: the four-word rule covers each "after" and each logline.
 
 Skit, joining the news.
-> before: Tesla shows its robotaxi at an event and says the cars will soon drive themselves everywhere.
+> before: Elon Musk shows off Tesla's robotaxi at an event and says the cars will soon drive themselves everywhere.
 >
 > after: tesla says its robotaxi is nearly ready to drive itself. so i staged the unveiling on the moon, against the car, at chess. parody, obviously. the car wins
 > logline: elon musk unveils a robotaxi on the moon that will not drive anywhere until he beats it at chess, and the chessboard keeps growing until it covers the moon
