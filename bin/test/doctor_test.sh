@@ -467,7 +467,7 @@ check "a shot cap over the daily budget warns" grep -q '^warn skits: MEDIA_SKIT_
 printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\n' >"$root/secrets/teeny.env"
 doctor || true
 check "skits on say their caps and where they are cut" \
-  grep -q '^ok   skits: on: 2 a day, up to 0.90 USD a shot, 5 shot(s) under 4.50 USD a day; cut at http://reel:8080' "$scratch/doctor.log"
+  grep -q '^ok   skits: on: 2 a day, up to 1.60 USD a shot, 2 shot(s) under 4.50 USD a day; cut at http://reel:8080' "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nREEL_URL=http://127.0.0.1:9\n' \
   >"$root/secrets/teeny.env"
 live_doctor || true

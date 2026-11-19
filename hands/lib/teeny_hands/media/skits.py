@@ -16,13 +16,16 @@ screen. What it does hold, in code:
 - **The money fences.** The runway tier (no media on a low wallet); at most
   `MEDIA_SKIT_MAX_PER_DAY` skits a UTC day (a skit that bought anything
   counts, even one that failed after); every shot reserves
-  `MEDIA_SKIT_MAX_USD_PER_SHOT` ($0.90) on its row before the first job, and
+  `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60) on its row before the first job, and
   all of them together must fit under the shared `MEDIA_MAX_USD_PER_DAY`
   ($1.00) with everything else bought today, or nothing starts (`budget`). A
-  shot whose job can cost more than its cap (`max_cost_usdc`, else the
-  estimate: Surplus bills about 20% over the estimate) is cancelled and the
-  next model asked; the shot's row carries that figure until the real
-  cost comes, and keeps it, as an estimate, when none does.
+  shot whose job can cost more than its cap (`max_cost_usdc`, the true
+  ceiling, about twice what Surplus bills; else the estimate) is cancelled
+  and the next model asked; the shot's row carries that ceiling until the
+  real cost comes (read once more, after a short pause, when a succeeded
+  job carries no bill yet), and keeps it, as an estimate, when none does.
+  So a three-shot kling skit reserves about $4.31 until its shots land and
+  then costs about $2.15.
 - **The cutter first.** The reel service must answer before any money is
   spent: a shot nothing could label is never bought.
 - **The label.** The cut carries "AI parody · @<X_BOT_USERNAME>" (or "AI
@@ -346,10 +349,10 @@ def _submit(api: Surplus, conn, skit_id: int, shot: _Shot, aspect: str, per_shot
         if not job_id:
             shot.tried.append(f"{model}: the answer named no job")
             continue
-        # What can really be charged: Surplus billed about 20% over its
-        # estimate on 2026-11-19 (kling 5 s quoted 0.598, billed 0.7176), so
-        # the cap and the reservation are the job's max_cost_usdc when it
-        # gives one, else its estimate, else the cap itself.
+        # What can really be charged: the job's max_cost_usdc, the true
+        # ceiling (about twice the bill on 2026-11-19: kling 5 s max 1.4352,
+        # billed 0.7176), so the cap and the reservation are that when it is
+        # given, else the estimate, else the cap itself.
         estimate = _micros(job.get("estimated_cost_usdc"))
         most = _micros(job.get("max_cost_usdc"))
         charge = most if most is not None else estimate
