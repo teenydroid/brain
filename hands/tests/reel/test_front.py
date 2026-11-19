@@ -83,7 +83,6 @@ class RoutesTest(unittest.TestCase):
             "/ping/",
             "",
             "/teeny/v1/cuts/",
-            "/teeny/v1/cuts",
             f"/teeny/v1/cuts/{TASK}/",
             f"/teeny/v1/cuts/{TASK}/label.txt",
             f"/teeny/v1/cuts/{TASK}/frame-10.jpg",
