@@ -1608,7 +1608,12 @@ The templates are third-party pictures in common use (film stills, cartoons,
 stock photos); memegen's licence (MIT) covers its code, not those pictures.
 
 The studio makes memes when `STUDIO_FORMATS` names `meme`
-(docs/architecture.md, "The studio"). Otherwise nothing calls this hand: a
+(docs/architecture.md, "The studio"), and the outward quote makes one for a
+`meme` suggestion through the same path (`bin/studio --meme`, which bin/act
+asks when a playbook's `media` names `meme`: the lines past the guard, the
+render with Teeny pasted in, the viewer check and the upload, without the
+truth judge; the `peer-quote` playbook reads `templates` as an input).
+Otherwise nothing calls this hand: a
 draft cannot reach it (`bin/lib/playbook.py`, `NOT_OUTPUTS`). To post one: `hands/x
 upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
 on `hands/x post`.
