@@ -933,6 +933,64 @@ A candidate waiting under the open-PR cap stays waiting through a rewording
 and goes `stale` on a material change; a learning deferred for want of a
 sandbox waits for one across a rewording too.
 
+**A skip that rests on the memory page is no skip** (since 2026-11-19). On
+2026-11-19 an audit of the archive found 14 skips in 65 candidates, and 6 of
+the 14 settled a learning on the memory page itself: g9c1, g9c3 and g18c1
+named `brain/MEMORY.md` as the file that already carries it out, and g15c3,
+g19c1 and g20c1 said in their notes that it "already lives on my (live)
+memory page". The page says what Teeny decided, not what it does, so writing
+a thing down is not carrying it out. m15, the chart renderer, was skipped
+that way in g18c1 (see "1c. Wants"). The rule is in `bin/lib/wants_rules.py`
+(`memory_skip_reason`), frozen with `bin/`, so a candidate cannot change what
+counts. It refuses a skip in these cases, and no other:
+
+| Skip | Refused when |
+|---|---|
+| `already` | `where` is empty (it names no file that carries it out), or its first word is `brain/MEMORY.md`, `MEMORY.md` or `brain/MEMORY.seed.md` (a leading `./` and a trailing `,`, `;` or `:` are ignored, case is folded) |
+| `not-actionable` | `where` names one of those three paths |
+| `already` or `not-worth` | the note says the page carries it: "live page", "live memory page", "on/in/by/from/of the memory page" or "memory.md", or that it "rides into every/each" prompt |
+| `frozen` | never: a file the candidate cannot touch is not the memory page |
+
+A bare "memory page" in a note is not enough ("which my memory page already
+tracks" counts something; it does not say where the thing lives). The phrases
+were narrowed after a first draft refused too much. Against the live archive
+the rule refuses the skips of g9c1, g9c3, g15c3, g18c1, g19c1 and g20c1 and
+lets the other eight stand.
+
+What a refusal does, by where the skip came from (`refused_skip` in
+`bin/lib/evolve.py`):
+
+- **Research said `already` or `not-worth`.** The build goes ahead, with no
+  plan. The request carries `refused_skip` and the turn reads a block "##
+  research said it is already done": what it answered, the reason, and the
+  fixed sentence ("Your memory page is not a carrier ... An `already` must
+  name a file in this repository that runs"). The entry records the refusal
+  under `research.refused_skip`. The proposer can still skip, but only by
+  naming a file that runs.
+- **The proposer skipped.** The skip is sent back as a finding on
+  `brain/MEMORY.md` and spends the round (the round shows as `refused-skip`:
+  "the skip leaned on the memory page"). If it is refused on the last round
+  the candidate parks with that reason, a failed try like any other park. A
+  skip that does stand after refused ones, because it names a file that runs,
+  settles as if it had come in round 1, so one refused try does not turn an
+  honest `already` into a parked candidate.
+- **The archive.** `_settles` is false for any archived `skipped` entry the
+  rule refuses, whenever it was recorded. The six skips above stop settling
+  their learnings at the next run, and those learnings are open again. A
+  `finding_standing` uses the same function and inherits this.
+
+The brief and the research brief each gain that one fixed sentence. No other
+prompt changed.
+
+**Build intents leave the loop** (since 2026-11-19). An item under "what i am
+in the middle of" or "promises and open threads" that says its author will
+build a thing (`wants_rules.is_build_intent`, shared with `bin/wants`) is not
+picked here: `split_wants` takes it out of the list `_run_generation` reads
+(the run says so), and `bin/evolve status` shows it under `learnings.wants`
+(`id`, `section`, `text` cut to 160 characters), not in `open` or `not_open`.
+It is a feature, and this loop makes the smallest edit to an existing file.
+"1c. Wants" says where it goes.
+
 **What the box broke is not a verdict on the idea.** Gen 10's candidates 2
 and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
 template './brain/artifacts/sandbox-scratch/shell-…/tmp.XXXXXXXXXX'` and were
