@@ -266,7 +266,8 @@ _MONEY_WORDS = (
     "mcap", "buy", "buys", "buying", "bought", "sell", "sells", "selling", "sold", "percent", "grand", "rich", "broke",
 )
 HARD_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("a currency sign", re.compile(r"[$\u20ac\u00a3\u00a5\u20bf\u20b9]")),
+    # With the amount or the ticker it marks ("$0.27", "$TINY").
+    ("a currency sign", re.compile(r"[$\u20ac\u00a3\u00a5\u20bf\u20b9]\S*")),
     ("a percent", re.compile(r"\d\s*%|\bper\s?cent\b", re.IGNORECASE)),
     ("an amount in thousands or millions", re.compile(r"\b\d+(?:\.\d+)?\s?(?:k|m|bn|b)\b", re.IGNORECASE)),
     ("TINY", re.compile(r"(?<![A-Za-z0-9_])TINY(?![A-Za-z0-9_])")),
@@ -297,10 +298,7 @@ def hard_markers(text: str) -> list[str]:
     found: list[tuple[int, str]] = []
     for _, pattern in HARD_MARKERS:
         for m in pattern.finditer(text):
-            # A currency sign is shown with the amount or the ticker it marks.
-            word = m.group(0) if m.group(0) not in "$\u20ac\u00a3\u00a5\u20bf\u20b9" else \
-                re.match(r"\S+", text[m.start():]).group(0)  # type: ignore[union-attr]
-            found.append((m.start(), word.strip(".,;:!?)(\"'")))
+            found.append((m.start(), m.group(0).rstrip(".,;:!?)\"'")))
     out: list[str] = []
     for _, word in sorted(found):
         if word and word not in out:
@@ -390,7 +388,6 @@ def _keep_truth(text: str, block: str, verdict: dict[str, Any]) -> None:
                 (iso(hand.now()), text, block, int(verdict["truthful"]),
                  json.dumps(verdict["unsupported"], ensure_ascii=False), verdict["reason"], verdict["path"]),
             )
-            conn.commit()
         finally:
             conn.close()
     except (sqlite3.Error, OSError):
