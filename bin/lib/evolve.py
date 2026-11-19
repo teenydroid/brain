@@ -4842,7 +4842,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 tried: Any = None, budget: SearchBudget | None = None, *, reviewer: Reviewer,
                 same_learning: Iterable[str] = ()) -> Json:
     """Candidate I, for LEARNING: worktree, research (research_one: `already`
-    and `not-worth` end it as a skip), then up to EVOLVE_REVISE_ROUNDS rounds
+    and `not-worth` end it as a skip, unless the skip rests on the memory
+    page: refused_skip), then up to EVOLVE_REVISE_ROUNDS rounds
     of build, hard gate, checks and review. A frozen path, an oversized
     change or SOUL+CONTEXT past its cap is `rejected` for good, and a
     near-duplicate is dropped; a failed check, a reviewer's revision, or
@@ -6180,7 +6181,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
-    queue = waiting(entries, [*learnings, *findings])
+    # A change that passed before its learning was routed still ships.
+    queue = waiting(entries, [*learnings, *routed, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
