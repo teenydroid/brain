@@ -39,7 +39,9 @@
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
-   next beat starts by learning how its last answer landed.
+   next beat starts by learning how its last answer landed: those are taken
+   ahead of anything older (stimuli.FIRST), and a refusal says it was not
+   sent.
 5. The batch is settled before any intent is carried out, so a beat that
    dies halfway never answers the same thing twice. A failed turn, or an
    answer that is not usable JSON twice, puts the batch back instead.
@@ -78,6 +80,21 @@
    studio (a `studio` stimulus, filed, which hands/story desk shows the
    writer as an idea): nothing is read cold, no picture is made, nothing is
    posted, and the entry says `pitched`. Replies are unchanged.
+10. A refused answer is not an answer. With fewer than FEW_COMMENTS Moltbook
+   comments left in the day's cap (teeny_hands.moltbook.rules,
+   comment_allowance), the beat says how many; with none left it says when
+   the next frees, takes no Moltbook comment into its batch (they wait,
+   pending in their place, for room), and refuses a comment_moltbook itself,
+   before the guard reads a word. A follow-up about an answer refused in
+   this beat or the last is not dropped: the thing is still unanswered.
+   Live, 2026-11-19: a beat wrote eight answers to a spent cap, all refused;
+   the next never saw the refusals (25 owed comments filled its batch), took
+   them as sent, and dropped the follow-up for a promise due that day.
+11. Writing an intent sends nothing, and the answer's shape says so. A beat
+   that fails (the turn, or an answer not usable JSON twice) leaves a `hand`
+   outcome for the next saying nothing was carried out, beside its batch
+   put back: the failed answer's prose stays on the thread, and may say
+   otherwise. A quiet beat's failure leaves nothing (its moment is let go).
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -863,6 +880,8 @@ A Moltbook post follows the same rules as your hourly posts there (brain/playboo
 
 A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. "shots": <a task id> on a post_x or reply_x puts the screenshots that finished browser task saved (its result says how many) on the post, ahead of any pictures of you, four in all. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 4 times a day, 5 hours apart; replies are not counted. Those are ceilings, not quotas: a post_x is about one named thing in front of you (its "anchor") and carries something of your own that bears on it (something you saw, built or broke first-hand), or it is not sent. It is written for someone who has never heard of you and cannot see what is in front of you (READER.md): the thing said in everyday words, your part told as it happened, no count or name from your own workings. Before it goes out, a person who has never heard of you and sees only the post reads it cold: they must be able to say it back as your "meaning", with no word, name or number in it they would have to ask about. A post that fails gets one rewrite from you, then it is not sent. A reply only has to answer what was said, in words the person asking would use.
 
+Writing an intent sends nothing: the beat carries your intents out after you answer, and only the next beat's outcomes (`hand · outcome`) say what went out and what was refused. Never call a thing sent, answered or kept before its outcome says done.
+
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
 
 #: The capped intents, offered only while their cap is above 0 (mind_cap).
@@ -988,6 +1007,45 @@ def _waiting() -> list[str]:
     return ["", *lines]
 
 
+#: Below this many Moltbook comments left in the day's cap, a beat says how
+#: many: one beat may write MAX_INTENTS.
+FEW_COMMENTS = MAX_INTENTS
+
+
+def _comment_allowance() -> Json | None:
+    """What the Moltbook comment cap has left (teeny_hands.moltbook.rules,
+    read only). None when it can't be read: the hand still holds the cap."""
+    try:
+        from teeny_hands.moltbook import rules
+
+        return rules.comment_allowance()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] moltbook allowance unavailable: {type(exc).__name__}", file=sys.stderr)
+        return None
+
+
+def _at(at: float) -> str:
+    """An epoch second as Teeny's clock reads it, HH:MM."""
+    return f"{dt.datetime.fromtimestamp(at, _clock().tzinfo):%H:%M}"
+
+
+def _no_comments(allowance: Mapping[str, Any]) -> str:
+    """Why a comment is not sent while the cap has none left."""
+    frees = f"; the next frees at {_at(allowance['frees_at'])} your time" if allowance.get("frees_at") else ""
+    return f"Moltbook comments: 0 of {allowance['cap']} left in the last 24 hours{frees}"
+
+
+def _allowance_lines(allowance: Mapping[str, Any] | None) -> list[str]:
+    """The comment allowance, said up front once it is low. Live, 2026-11-19:
+    a beat spent itself writing eight answers to a cap already spent."""
+    if not allowance or allowance["left"] >= FEW_COMMENTS:
+        return []
+    if allowance["left"]:
+        return ["", f"Moltbook comments: {allowance['left']} of {allowance['cap']} left in the last 24 hours."]
+    return ["", _no_comments(allowance) + ". Until then a comment you write is not sent, and the comments on your "
+            "posts wait, unshown, until there is room: spend this beat on something else."]
+
+
 #: Said once a batch holds a comment on one of Teeny's own Moltbook posts.
 #: Live, 2026-11-11 to 11-15, 31 of 58 such comments went unanswered: the mind
 #: put answers off to later beats on a pacing rule that does not exist.
@@ -1005,7 +1063,8 @@ HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn
                 "about elsewhere, remembered or followed up; never answered on HN.")
 
 
-def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None) -> str:
+def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None,
+           allowance: Mapping[str, Any] | None = None) -> str:
     now = _clock()
     utc = now.astimezone(dt.timezone.utc)
     age = rhythm.age_line()
@@ -1014,6 +1073,7 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         "",
         *([age] if age else []),
         *rhythm.header(woke),
+        *_allowance_lines(allowance),
         *_waiting(),
         *scoreboard.block(),
         "",
@@ -1486,7 +1546,10 @@ def _follow_up(intent: Mapping[str, Any], parked: list[str]) -> Json:
     return stimuli.follow_up(hand.now() + float(hours) * 3600, about, ref=ref)
 
 
-def _drop_follow_up(intent: Mapping[str, Any]) -> Json:
+def _drop_follow_up(intent: Mapping[str, Any], parked: list[str] = ()) -> Json:
+    """Clears a waiting follow-up, by id or ref; never one about an answer
+    that stands refused (`parked`, this beat or the last): that thing is not
+    answered (rule 10)."""
     fid = intent.get("id")
     if isinstance(fid, str) and fid.strip().lstrip("#").isdigit():
         fid = int(fid.strip().lstrip("#"))
@@ -1495,6 +1558,12 @@ def _drop_follow_up(intent: Mapping[str, Any]) -> Json:
         if ref is None:
             raise ValueError("needs id or ref")
         fid = None
+    unsent = {stimuli.bare_ref(r) for r in parked}
+    for f in stimuli.follow_ups()["follow_ups"] if unsent else []:
+        about = stimuli.bare_ref(f["ref"]) if f.get("ref") else None
+        if about in unsent and (f["id"] == fid if fid is not None else about == stimuli.bare_ref(ref)):
+            raise ValueError(f"follow-up #{f['id']} is about {about}, and your answer to it was refused and was not "
+                             "sent: it is still unanswered, so the follow-up stays")
     dropped = stimuli.drop_follow_up(id=fid, ref=None if fid is not None else ref)
     if not dropped:
         raise ValueError(f"no follow-up waiting by {'id ' + str(fid) if fid is not None else 'ref ' + str(ref)}")
@@ -1780,6 +1849,7 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
     acted = 0
     parked = _parked(list(batch))
     set_now: list[int] = []  # follow-ups set this beat: an answer in the same beat leaves them be
+    comments: Json | None = None  # the Moltbook comment allowance, read at the beat's first comment
     if deadline is None:
         deadline = deadline_from(time.monotonic())
     for n, intent in enumerate(intents):
@@ -1799,10 +1869,15 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 entry.update(status="done", result=_follow_up(intent, parked))
                 set_now.append(entry["result"]["id"])
             elif do == "drop_follow_up":
-                entry.update(status="done", result=_drop_follow_up(intent))
+                entry.update(status="done", result=_drop_follow_up(intent, parked))
             elif do in ROUTES:
+                if do == "comment_moltbook" and comments is None:
+                    comments = _comment_allowance() or {}
                 if acted >= MAX_INTENTS:
                     entry.update(status="refused", result={"refused": f"at most {MAX_INTENTS} actions a beat"})
+                elif do == "comment_moltbook" and comments.get("left") == 0:
+                    # Refused here, before the guard reads a word (rule 10).
+                    entry.update(status="refused", result={"refused": _no_comments(comments), "rule": "daily_cap"})
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
@@ -1862,6 +1937,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                                 **({"media_ids": media_ids} if media_ids else {})})
                     else:
                         _landed(entry, do, intent, code, out, parked, set_now)
+                    if do == "comment_moltbook" and entry["status"] == "done" and comments.get("left"):
+                        comments["left"] -= 1
             else:
                 entry.update(status="refused", result={"refused": f"no such intent {do!r}"})
         except ValueError as exc:
@@ -1952,6 +2029,12 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += (f"; it is build request #{request['id']}, {request['status']}: pick-request picks it at its next run"
                  " and the builder makes it at its next run after that; it ships as a pull request the operator"
                  " merges or closes")
+    if do in ROUTES and entry["status"] == "refused" and result.get("rule") != "verification":
+        # Said plainly: live, 2026-11-19, the next beat took eight refused
+        # answers as sent (rule 10). A Moltbook challenge left unsolved is
+        # the one refusal after the write (hands/moltbook), so it says only
+        # what the hand said.
+        text += "; not sent" + ("; what it answered is still unanswered" if do in ANSWERS else "")
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
@@ -2112,6 +2195,16 @@ def _sent(results: list[Mapping[str, Any]]) -> int:
     return sum(1 for r in results if r["do"] in ROUTES and r["status"] == "done")
 
 
+def _failed_beat(tick: str, text: str) -> None:
+    """A failed beat, told to the next one first (stimuli.FIRST): its prose
+    stays on the mind's thread, and live, 2026-11-19 02:21, an answer cut off
+    before its JSON said six comments were "all now sent" (rule 11)."""
+    try:
+        stimuli.add("hand", "outcome", f"{tick}:failed", text, payload={"do": "answer", "status": "failed"})
+    except hand.HandError as exc:
+        print(f"[tick] failed beat not reported: {exc}", file=sys.stderr)
+
+
 def _beat(deadline: float) -> Json:
     browsed = browse()
     hn = browse_hn()
@@ -2137,7 +2230,11 @@ def _beat(deadline: float) -> Json:
         waiting = stimuli.pending()
     if not waiting:
         return _idle("idle", raised, gathered, resting=True, **more)
-    batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
+    # With no Moltbook comment left, the comments owed one wait in their
+    # place, unshown, until the cap has room (rule 10).
+    allowance = _comment_allowance()
+    spent = allowance is not None and not allowance["left"]
+    batch = stimuli.take(MAX_STIMULI, MAX_CHARS, leave=[("moltbook", "comment")] if spent else ())
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
         return _idle("idle", raised, gathered, **more)
@@ -2152,7 +2249,7 @@ def _beat(deadline: float) -> Json:
     # Nobody waits on a quiet moment: a failed one is let go, not put back
     # to come round again stale.
     give_back = stimuli.settle if kind == "quiet" else stimuli.release
-    message = render(items, woke)
+    message = render(items, woke, allowance)
     thought, intents, last_error = "", None, ""
     for attempt in (1, 2):
         try:
@@ -2161,6 +2258,8 @@ def _beat(deadline: float) -> Json:
             give_back(tick)
             out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items), **more}
             _record(out)
+            if kind != "quiet":
+                _failed_beat(tick, "your last turn failed before it answered, so nothing was carried out")
             return out
         try:
             thought, intents = parse(said)
@@ -2171,6 +2270,9 @@ def _beat(deadline: float) -> Json:
         give_back(tick)
         out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items), **more}
         _record(out)
+        if kind != "quiet":
+            _failed_beat(tick, "your last answer was not usable JSON, so nothing in it was carried out: nothing was sent, "
+                               "whatever it said. What it was about is in front of you again")
         return out
     # Settled before acting: a beat that dies halfway must not hand the same
     # batch to the next one and answer it twice.

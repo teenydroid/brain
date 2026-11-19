@@ -371,6 +371,27 @@ def check_comment(conn: sqlite3.Connection, own_thread: bool = False) -> dict[st
     return {"new_agent": new}
 
 
+def comment_allowance(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    """What the day's comment cap has left now, read only, counted as
+    check_comment counts it: {"left", "cap"}, and with none left
+    `frees_at`, when the next comment ages out of the 24 hours. The beat
+    says it up front (bin/lib/tick.py), so the mind does not write answers
+    that cannot go out."""
+    own = conn is None
+    conn = db() if own else conn
+    try:
+        cap = min(max_comments_per_day(), NEW_COMMENTS_PER_DAY if new_agent(conn) else COMMENTS_PER_DAY)
+        sql = _counted("moltbook_comments").format(what="at") + " AND at > ? ORDER BY at"
+        spent = [float(r[0]) for r in conn.execute(sql, (hand.now() - DAY,)).fetchall()]
+    finally:
+        if own:
+            conn.close()
+    out: dict[str, Any] = {"left": max(0, cap - len(spent)), "cap": cap}
+    if not out["left"] and cap and spent:
+        out["frees_at"] = spent[len(spent) - cap] + DAY
+    return out
+
+
 # --- collaboration consent ------------------------------------------------------------------
 
 _COLLAB = re.compile(r"\bcollab\w*|\bco-?(?:authored|created|built|written)\b|\bpartner(?:ed|ing|ship)?\s+with\b", re.IGNORECASE)

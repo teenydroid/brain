@@ -75,6 +75,26 @@ class InboxTest(Scratch):
         # A second tick while the first is still out sees nothing new.
         self.assertEqual(stimuli.take(max_items=10, max_chars=10_000)["stimuli"], [])
 
+    def test_a_hand_outcome_is_taken_before_older_waiting_stimuli(self):
+        # Live, 2026-11-19: comments owed since the day before, offered again
+        # in their old place, filled every batch, and the outcomes of the beat
+        # that answered them never reached the mind.
+        for n in range(5):
+            stimuli.add("moltbook", "comment", f"c{n}", f"old {n}")
+        self.at(600)
+        stimuli.add("hand", "outcome", "t:0", "your comment_moltbook: refused, not sent")
+        batch = stimuli.take(max_items=3, max_chars=10_000)
+        self.assertEqual([s["ref"] for s in batch["stimuli"]], ["t:0", "c0", "c1"])
+
+    def test_take_leaves_what_it_is_told_to_pending_in_its_place(self):
+        stimuli.add("moltbook", "comment", "c1", "owed an answer")
+        self.at(10)
+        stimuli.add("x", "mention", "1", "gm")
+        batch = stimuli.take(max_items=10, max_chars=10_000, leave=[("moltbook", "comment")])
+        self.assertEqual([s["ref"] for s in batch["stimuli"]], ["1"])
+        self.assertEqual([s["ref"] for s in stimuli.pending()], ["c1"])
+        self.assertEqual([s["ref"] for s in stimuli.take(max_items=10, max_chars=10_000)["stimuli"]], ["c1"])
+
     def test_take_stops_at_the_item_cap(self):
         for n in range(5):
             stimuli.add("x", "mention", str(n), f"m{n}")
