@@ -5,6 +5,7 @@ model is faked at the transport; nothing here calls one."""
 
 from __future__ import annotations
 
+from . import support  # noqa: F401 - puts the hands library on the path
 from teeny_hands.guard import cli, viewer
 from teeny_hands.media.surplus import SurplusError
 
