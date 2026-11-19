@@ -110,8 +110,13 @@ print(json.dumps({"ok": True, **clarity.judge(body["text"], body.get("meaning"))
   esac
   exit 0
 fi
+# The viewer check (the studio's meme path asks it): sees Teeny, on model.
+if [ "${1:-}" = view ]; then echo '{"ok": true, "sees": "a small yellow robot", "on_model": true, "reason": "r", "judged": true}'; exit 0; fi
 if grep -q BAD <<<"$in"; then echo '{"ok": false, "refused": "held"}'; exit 2; fi
 if [ -n "${FAKE_GUARD_EMPTY:-}" ]; then echo '{"ok": true}'; exit 0; fi
+# The studio's meme path checks a meme's lines with no surface, and posts
+# them only as written: words with nothing to change come back as they are.
+if [ -z "${2:-}" ] && ! jq -e 'has("surface")' <<<"$in" >/dev/null 2>&1; then jq -c '{ok: true, text: .text}' <<<"$in"; exit 0; fi
 if [ "${2:-}" = --fields ]; then
   jq -c --arg f "$3" '. as $b | {ok: true, fields: ([$f | split(",")[] | {key: ., value: ($b[.] + "[g]")}] | from_entries)}' <<<"$in"
 else
@@ -137,6 +142,15 @@ printf '$kind %s stdin=%s\n' "\$*" "\$in" >>"\$FAKE_HANDS"
 echo '{"ok": true, "asset": {"id": 7, "path": "state/media/$kind-7.png", "cost_usd": 0.016}}'
 FAKE
 done
+# hands/meme: a known template rendered ($FAKE_MEME_REFUSED: refused).
+cat >"$scratch/hands/meme" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'meme %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
+[ -n "${FAKE_MEME_REFUSED:-}" ] && { echo '{"ok": false, "refused": "this template takes exactly 2 line(s)", "rule": "lines"}'; exit 2; }
+[ "${DRY_RUN:-}" = 1 ] && { echo '{"ok": true, "dry_run": true, "would_make": "meme"}'; exit 0; }
+echo '{"ok": true, "asset": {"id": 41, "path": "state/media/meme-41.png", "alt": "a meme"}}'
+FAKE
 # A queue: `next` answers $FAKE_QUEUE (default: nothing queued).
 cat >"$scratch/hands/queue" <<'FAKE'
 #!/usr/bin/env bash
@@ -837,6 +851,30 @@ check "the whole batch reaches the hand in one call, with the picture's media id
 check "only the picture's description goes past bin/act's guard (publish guards the quote it posts)" test "$(hand_calls guard)" = 1
 check "and the action is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "--check takes the verb" test "$("$act" --check peer-quote | jq -r .output)" = "hand:x peer-suggest"
+# A meme quote: the meme is made by the studio's meme path (bin/studio --meme)
+# and rides on the body with its lines, for the quote judge.
+reset
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image", "meme"]\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "me", "relevance": 5, "why": "w", "format": "meme"}], "meme": {"template": "drake", "lines": ["reading the docs", "quoting the post"], "teeny": "brain/assets/tiny/nope.jpg"}}'
+out="$(DRY_RUN=0 run peer-quote)"
+check "a meme quote's meme goes through the studio's meme path: its lines past the guard, rendered, viewed, uploaded" \
+  bash -c "grep -q '^guard check  *stdin={\"text\":\"reading the docs / quoting the post\"}' '$FAKE_HANDS' &&
+    grep -q '^meme template DRY_RUN=0 ' '$FAKE_HANDS' && grep -q '^guard view ' '$FAKE_HANDS' &&
+    grep -q '^x upload --file state/media/meme-41.png' '$FAKE_HANDS'"
+check "and the hand gets its media id and its lines, never its picture's path" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' |
+    jq -e '.media_ids == [\"1234567890\"] and .meme == {template: \"drake\", lines: [\"reading the docs\", \"quoting the post\"]}' >/dev/null"
+check "and the run says what was made" test "$(jq -r '.actions[0].media.kind + \" \" + .actions[0].media.media_id' <<<"$out")" = "meme 1234567890"
+reset
+out="$(DRY_RUN=0 FAKE_MEME_REFUSED=1 run peer-quote)"
+check "a meme that cannot be made leaves no media, and the hand decides" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e 'has(\"media_ids\") | not' >/dev/null &&
+    ! grep -q '^x upload' '$FAKE_HANDS'"
+reset
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+out="$(DRY_RUN=0 run peer-quote)"
+check "a playbook that does not allow memes makes none, and the hand never sees one" \
+  bash -c "! grep -q '^meme ' '$FAKE_HANDS' && grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e 'has(\"meme\") | not' >/dev/null"
 
 # --- drafts that are not usable ------------------------------------------------------------
 reset
