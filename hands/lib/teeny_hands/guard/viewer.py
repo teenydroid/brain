@@ -96,7 +96,7 @@ MAX_READ_CHARS = 600
 TIMEOUT = 60.0
 ASKS = 3
 #: Seconds each pass may take, asks and waits together: cold, on model, say-back.
-PASS_SECONDS = {"cold": 60.0, "model": 60.0, "match": 30.0}
+PASS_SECONDS = {"cold": 60.0, "model": 60.0, "match": 30.0, "frames": 90.0}
 #: A pass does not start an ask with less than this left.
 MIN_ASK_SECONDS = 5.0
 #: Checks a UTC day (`VIEWER_MAX_PER_DAY`): each is up to nine paid asks.
@@ -296,14 +296,15 @@ class Spend:
 
 
 def _ask(api: Any, name: str, stage: str, text: str, pictures: list[str], read: Callable[[Any], dict | None],
-         spend: Spend, clock: Callable[[], float], sleep: Callable[[float], None]) -> tuple[dict[str, Any] | None, str]:
+         spend: Spend, clock: Callable[[], float], sleep: Callable[[float], None],
+         max_tokens: int = 400) -> tuple[dict[str, Any] | None, str]:
     """One pass, inside its own PASS_SECONDS: the verdict as `read` takes
     it, or None and why not."""
     from ..media.surplus import SurplusError
 
     parts: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": uri}} for uri in pictures]
     parts.append({"type": "text", "text": text})
-    body = {"model": name, "temperature": 0, "max_tokens": 400,
+    body = {"model": name, "temperature": 0, "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": parts}]}
     budget = PASS_SECONDS[stage]
     deadline = clock() + budget
