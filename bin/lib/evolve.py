@@ -1026,6 +1026,20 @@ def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None
     return [item for _, item in sorted(out, key=lambda p: p[0])]
 
 
+def split_wants(learnings: list[Learning]) -> tuple[list[Learning], list[Learning]]:
+    """The learnings this loop picks, and those it leaves to the builder
+    (bin/wants): an item in a WANT_SECTION that says Teeny will build a
+    thing (wants_rules.is_build_intent). 2026-11-19: m15, "the first thing i
+    build myself is a chart renderer", was settled here as `already` on the
+    memory page; a feature is a build, not a delta edit to a playbook."""
+    kept: list[Learning] = []
+    routed: list[Learning] = []
+    for item in learnings:
+        want = item.section in wants_rules.WANT_SECTIONS and wants_rules.is_build_intent(item.text)
+        (routed if want else kept).append(item)
+    return kept, routed
+
+
 def standing_brief(item: Learning, got: Standing) -> Json:
     """One learning's standing as `status` shows it: why one is not open."""
     out: Json = {"id": item.id, "state": got.state}
@@ -6110,7 +6124,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     entries = archive()
     if not dry_run():
         refresh_prs(entries, publisher)
-    learnings = read_learnings()
+    learnings, routed = split_wants(read_learnings())
+    if routed:
+        say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
     queue = waiting(entries, [*learnings, *findings])
@@ -6679,7 +6695,7 @@ def status() -> Json:
     generation (and each waiting one) is."""
     entries = archive()
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
-    learnings = read_learnings()
+    learnings, routed = split_wants(read_learnings())
     try:
         cfg: Config | None = load_config()
         cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
@@ -6706,7 +6722,10 @@ def status() -> Json:
                                for item in open_learnings(entries, learnings, cooloff)],
                       "not_open": [standing_brief(item, stood[item.id]) for item in learnings
                                    if stood[item.id].state != "open"],
-                      "by_state": states},
+                      "by_state": states,
+                      # Things to build: the builder's (bin/wants), never picked here.
+                      "wants": [{"id": item.id, "section": item.section, "text": item.text[:160]}
+                                for item in routed]},
         "findings": {"slots": cfg["EVOLVE_FINDING_SLOTS"] if cfg is not None else None,
                      "current": [{**standing_brief(f, got), "kind": f.kind, "events": f.events, "days": f.days,
                                   "check": evolve_outcomes.describe(f.check), "text": f.text[:300]}
