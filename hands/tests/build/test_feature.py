@@ -37,6 +37,15 @@ tz = "UTC"
 command = "bin/act gizmo-look"
 '''
 
+ENTRY = """#!/usr/bin/env -S python3 -I
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+from teeny_hands.{name}.cli import main
+sys.exit(main(sys.argv[1:]))
+"""
+
+ASSERTING_TEST = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        self.assertEqual(1, 1)\n"
+
 
 class Tree(unittest.TestCase):
     def setUp(self) -> None:
@@ -52,11 +61,11 @@ class Tree(unittest.TestCase):
 
     def complete(self, name: str = "gizmo") -> list[tuple[str, str]]:
         """A whole feature in the tree, and the changes that made it."""
-        self.write(f"hands/{name}", "#!/usr/bin/env python3\n", 0o755)
+        self.write(f"hands/{name}", ENTRY.format(name=name), 0o755)
         self.write(f"hands/lib/teeny_hands/{name}/__init__.py")
         self.write(f"hands/lib/teeny_hands/{name}/cli.py",
                    f"from .. import hand\n\n\ndef main(argv):\n    return hand.run('{name}', parser(), argv)\n")
-        self.write(f"hands/tests/test_{name}.py", "import unittest\n\n\nclass T(unittest.TestCase):\n    pass\n")
+        self.write(f"hands/tests/test_{name}.py", ASSERTING_TEST)
         self.write("brain/playbooks/gizmo-look.md", PLAYBOOK.replace("hands/gizmo", f"hands/{name}"))
         self.write("brain/cron.toml", CRON)
         self.write("docs/hands.md", f"# Hands\n\n## `{name}`: looks at things\n\nIt looks.\n\n## `other`: another\n")
@@ -96,6 +105,21 @@ class CallersTest(Tree):
         self.assertEqual(feature.callers(self.tree, "gizmo"), ["looks", "speaks"])
         self.assertEqual(feature.callers(self.tree, "nobody"), [])
         self.assertEqual(feature.callers(Path(self.tmp) / "missing", "gizmo"), [])
+
+
+    def test_an_optional_input_alone_is_not_a_caller(self):
+        optional = PLAYBOOK.replace('run = "hands/gizmo look --max 3"', 'run = "hands/gizmo look"\noptional = true')
+        self.write("brain/playbooks/maybe.md", optional)
+        self.assertEqual(feature.callers(self.tree, "gizmo"), [])
+        # a required input beside it, or the hand as the output, makes it one
+        self.write("brain/playbooks/also-required.md", optional.replace(
+            "Say what", '[[inputs]]\nname = "g2"\nrun = "hands/gizmo look"\n+++\nSay what', 1).replace("\n+++\nSay what the gizmo shows.", "", 1)
+            if False else '+++\ndescription = "x"\noutput = "post"\n\n[[inputs]]\nname = "a"\nrun = "hands/gizmo look"\n'
+            'optional = true\n\n[[inputs]]\nname = "b"\nrun = "hands/gizmo look"\n+++\nSay.\n')
+        self.write("brain/playbooks/speaks-optionally.md",
+                   '+++\ndescription = "x"\noutput = "hand:gizmo say"\n\n[[inputs]]\nname = "a"\n'
+                   'run = "hands/gizmo look"\noptional = true\n+++\nSay.\n')
+        self.assertEqual(feature.callers(self.tree, "gizmo"), ["also-required", "speaks-optionally"])
 
 
 class ScheduledTest(Tree):
