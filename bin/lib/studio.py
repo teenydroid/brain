@@ -832,7 +832,7 @@ MONEY_UNITS = {"dollar", "dollars", "buck", "bucks", "cent", "cents", "usd", "us
                "grand", "sol", "eth", "btc", "bitcoin", "token", "tokens", "coin", "coins"}
 #: "tiny" is the cast's word too ("two tiny agents"): a unit only beside the
 #: ticker.
-_TICKER = re.compile(r"\$tiny\b|\bTINY\b", re.IGNORECASE)
+_TICKER = re.compile(r"(?i:\$tiny)\b|\bTINY\b")
 CENTS = {"cent", "cents"}
 #: Words a few words before a number that make it money ("the bill is 99",
 #: "paid twelve").
