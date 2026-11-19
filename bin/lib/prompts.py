@@ -70,8 +70,8 @@ The studio's two agents (STUDIO: `writer` and `editor`, run by bin/studio)
 are built differently, on purpose. The writer's prompt is its instructions,
 then READER.md, then a craft block (STUDIO_CRAFT: the hook, stakes, story
 shape and serials from skills/hooks, the shapes that get replies and what not
-to do from skills/conversation, and the anatomy, the dial, gallows humor and the
-examples of skills/humor), then the lore Teeny reads (premise, cast, running bits). SOUL.md
+to do from skills/conversation, and the anatomy, the dial, gallows humor, the
+will to power, the edge and the examples of skills/humor), then the lore Teeny reads (premise, cast, running bits). SOUL.md
 reaches it from the core (writer.toml: omit_identity = false). The editor's is
 its instructions, READER.md, narrative/STUDIO-EDITOR.md (the rubric and the
 taste) and the lore's premise alone; it is not Teeny (editor.toml:
@@ -125,7 +125,7 @@ STUDIO_CRAFT = (
                ("story shape", None), ("serials and cliffhangers", None))),
     ("conversation", (("shapes that get replies", "For **media**"), ("what not to do", None))),
     ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("gallows humor", None),
-               ("examples", None))),
+               ("the will to power", None), ("edgy, wild, and where the edge stops", None), ("examples", None))),
 )
 #: Mind-only machinery the skills name in passing, which the writer has no
 #: way to use: taken out of its copy.
