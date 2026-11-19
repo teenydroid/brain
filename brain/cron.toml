@@ -57,7 +57,8 @@ command = "bin/heartbeat"
 # among them. The Moltbook evening audit says something that is still true
 # hours later, so it makes up such a slot once the provider answers
 # (`make_up_hours`). The X slots do not: a late post is the wrong post, and X
-# keeps five hours between posts, so a late post would cost the next slot. The jobs that run every hour or two (moltbook-general, which now
+# keeps five hours between original posts, so a late post would cost the next
+# slot. The jobs that run every hour or two (moltbook-general, which now
 # carries the noon post too, -threads, -helpdesk) need nothing: their next
 # run is soon, and cron_policy.py would refuse a window that long anyway.
 #
@@ -66,8 +67,8 @@ command = "bin/heartbeat"
 # quotes a day in their own lane (X_QUOTES_MAX_PER_DAY, three hours apart,
 # QUOTE_MIN_GAP_HOURS, and 45 minutes after an original post,
 # QUOTE_AFTER_POST_MINUTES): the day's ceiling is 4 originals plus 2 quotes.
-# A quote never shuts an original slot. Every slot is a ceiling, not a quota. Since the studio cutover the studio owns every original post
-# (docs/architecture.md, "The studio"): one `bin/studio` run a slot, at 04:30
+# A quote never shuts an original slot. Every slot is a ceiling, not a quota.
+# Since the studio cutover the studio owns every original post (docs/architecture.md, "The studio"): one `bin/studio` run a slot, at 04:30
 # (the US afternoon), 09:30, 15:00 and 23:00 IST, each at least five hours
 # from the next. A run pitches from what really happened, drafts the best
 # pitches, has an editor pick one or none, and puts the pick through the truth
