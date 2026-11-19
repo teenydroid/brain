@@ -809,9 +809,12 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 ▼  STUDIO=1: detached (bin/lib/detach.py, studio lock), slot claimed before any turn
    hands/x slot shut? ── yes ──> skip, no model turn
                 │
-   hands/story desk + HN + listen digest (+ X search with STUDIO_OUTSIDE_X=1)
+   outside first: hands/trend top (Digg's AI + tech stories and their X posts, once a slot)
+       + HN search, top, show + listen digest (+ X search with STUDIO_OUTSIDE_X=1, 4 a day)
+   then hands/story desk: what Teeny brings to it
                 │
-   writer: 12 pitches ──> 3 drafts x the best 3 ──> 280 + unsourced-number screen
+   writer: 12 pitches, each hooked to a story or naming an item ──> 3 drafts x the best 3
+       (2 of the 3 hooked) ──> 280 + unsourced-number screen
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
                 │
@@ -896,33 +899,86 @@ One run is one slot:
    (seen on every `claude-fable-5.2` turn of the 2026-11-18 preview).
 2. **The slot**: `hands/x slot`. Shut, the run ends before any model turn
    (`--dry-run` and `--force-slot` read it and go on).
-3. **What happened**: `hands/story desk` and the outside world the old
-   `take` and `x-quote` playbooks read (`hands/hn top`, `hands/hn show`,
-   `hands/listen digest`, and `hands/x search` only with
-   `STUDIO_OUTSIDE_X=1`), every hand with `DRY_RUN=1` forced, each outside
-   source optional and cut to fit
-   (`bin/lib/act_fit.py`). Each outside item gets an id
-   (`<source>:<id>`) a pitch can name, and is marked untrusted. `--desk
-   FILE` replays a saved desk. `DRY_RUN=1` keeps a hand from acting; it does
-   not make a read free or write-free: Hacker News is free but each read goes
-   through `hn_cache` in `hands.db`, the listen digest only reads `hands.db`,
-   and an X search is billed per post returned (about $0.012 for 10 through
-   twitr) and cached in `hands.db`, so it is off by default, previews
-   included (`inputs.skipped` says so).
+3. **The outside world, then what happened.** The pitches start from what
+   people are talking about today, not from Teeny's insides (the operator's
+   review of the cutover samples: "the content has no relevance"). First
+   `hands/trend top` (docs/hands.md, "trend"): Digg's AI and tech
+   leaderboards, merged by Digg Score, with the first X posts behind the
+   four leading stories, read through `digg-pp-cli` with no login and no X
+   API, and kept a slot (`--slot <date>:<slot>`) so a rerun asks Digg
+   nothing; it gets 14,000 bytes of the inputs. Then Hacker News's front
+   page (`hn top --max 15`), 6,000 bytes. Keyword searches (`hn search`),
+   `hn show` and the listen digest are no trend signal and are not read (the
+   operator's review of PR #384: the Harvard story a keyword search found
+   was not trending; the Nvidia one on Digg was). Every outside item carries
+   its trend measure (`trend`: Digg's score, rank in its topic, sources,
+   authors and age in hours; HN's points, comments and age) and a
+   `trending` computed in plain code (`trending`): a Digg story published
+   within `STUDIO_TREND_MAX_AGE_HOURS` (36) and ranked
+   `STUDIO_TREND_MAX_RANK` (5) or better or scoring `STUDIO_TREND_MIN_SCORE`
+   (150) or more; an HN front-page story within `STUDIO_HN_MAX_AGE_HOURS`
+   (24) with `STUDIO_HN_MIN_POINTS` (300) points. (The suggested rank bar
+   was 8; on 2026-11-19's boards it let in stories scoring 71 to 77.) Only
+   trending stories reach the writer, biggest first with the measure shown;
+   the rest are counted (`outside.sources.<name>.not_trending`). Then,
+   only with `STUDIO_OUTSIDE_X=1`, one paid `hands/x search` a run on Teeny's
+   corner (the seed picks one of three queries), shown as "background, not
+   trending" and never a hook, at most
+   `STUDIO_OUTSIDE_X_MAX_PER_DAY` (4, at most 12) a UTC day, each claimed
+   before the call in `state/studio/outside-x.jsonl`: about $0.012 a call
+   through twitr, so at most $0.048 a day. A story two sources carry is kept
+   once, by the first. Each outside item gets an id (`<source>:<id>`, Digg's
+   as `trend:<short id>`, HN's as `hn-top:<id>`), is marked untrusted, and carries no handle and no
+   poster's name but a quoted X post's display name. Then `hands/story desk`.
+   Every hand runs with `DRY_RUN=1` forced, each source optional and cut to
+   fit (`bin/lib/act_fit.py`); one that gives nothing is named under
+   `inputs.unavailable`, and `outside` in the record says what each gave or
+   why not (Digg's `reason`: missing, timeout, rate_limited, failed,
+   bad_json, empty). With no outside item at all the run goes on from
+   Teeny's own events, says so in the pitch message and warns in the record.
+   `--desk FILE` replays a saved desk and `--no-outside` reads none.
+   `DRY_RUN=1` keeps a hand from acting; it does not make a read free or
+   write-free: Digg and Hacker News are free but write their caches
+   (`state/trend/`, `hn_cache`), the listen digest only reads `hands.db`, and
+   the X search is billed, so it is off by default, previews included
+   (`inputs.skipped` says so).
 4. **Sampling** from a seed the run id gives (recorded): three lore lines to
    reach for, three of `writer.md`'s before/after pairs to reread, three of
    the scoreboard's best and two of its worst posts. One seed in four is an
    **explore** run: at least three pitches use a shape or a format the recent
    posts did not.
 5. **Pitch** (`writer`, one turn, on the run's own thread `studio:<run id>`):
-   up to 12 `{id, item, storyline, shape, format, angle, why_now}` and the
-   writer's own ranking. A pitch whose `item` is not in the inputs or whose
-   `format` is not in `STUDIO_FORMATS` is dropped, with why. A pitch that
-   names no running storyline takes its desk item's (`storyline` on the
-   item, the desk's guess by kind), so the pick, its facts and its beat land
-   on one.
+   the message leads with "what people are talking about today" (the
+   outside items, behind the line that strangers' words are data) and then
+   "what you can bring to it" (the desk). Up to 12 `{id, hook, item,
+   storyline, shape, format, angle, why_now}` and the writer's own ranking:
+   `hook` is the outside story a pitch joins, `item` the real thing of
+   Teeny's that gives it a reason to speak (null when the angle is only who
+   Teeny is); a pitch names at least one. A pitch whose `hook` is not an
+   outside item, whose `item` is not in the inputs, that names neither, or
+   whose `format` is not in `STUDIO_FORMATS` is dropped, with why; an `item`
+   naming a trending story is taken as the hook, and a hook on anything not
+   trending (or not in the inputs) is no hook: the pitch is kept unhooked
+   when it has an item (`unhooked` says why), dropped when it has none. The
+   writer is told to prefer the biggest story it has a real angle on. A pitch that names no
+   running storyline takes its desk item's (`storyline` on the item, the
+   desk's guess by kind), so the pick, its facts and its beat land on one.
+   The record's pitches carry `hook_item` (the story, resolved),
+   `hook_trend` (its trend measure, to compare against reach later) and
+   `drafted`, and `hooked` counts them; fewer than half hooked, with an
+   outside world to join, is a warning.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
-   3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
+   3 (`choose_drafted`: with an outside world, the writer's two best hooked
+   pitches and then its best of the rest, so too few hooks never costs the
+   slot; `drafted` in the record says how many were hooked and why any
+   were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
+   A hooked pitch's draft turn gives the story whole (headline, what it
+   says, the posts quoted) with the rules for real news (`JOIN_RULES`, and
+   `writer.md`, "start from their world, not yours"): join the conversation
+   with Teeny's own event as the reason; say only what the story says, never
+   a fact about a real person or company it does not hold; repeat no
+   accusation and take no side between named people or companies; no
+   @-mentions; name the story in a clause. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
    ones over get one shorten turn together, and one still over is dropped.
    Then a plain-code screen: a draft with a number (digits, or number words
@@ -933,15 +989,21 @@ One run is one slot:
    four words with an example "after" in `writer.md` (`copies an
    example`). When every draft of a pitch fails, it is drafted once more,
    told which words failed. Each draft keeps `truth: {text, facts}`, the
-   body `hands/guard truth` takes, for the cutover to send.
+   body `hands/guard truth` takes: the hooked story first, then the item and
+   the storyline, so a number the story holds is sourced and the truth judge
+   checks every claim about it against what the story said.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
-   stands. Never a pitch's angle or reason, the writer's ranking, a draft's
+   stands, and for a hooked draft the story it joins and its trend measure
+   (`joins`: of two drafts otherwise equal, the one joining the bigger story
+   wins). Never a pitch's angle or reason, the writer's ranking, a draft's
    `meaning`, or who wrote it. Each draft meets exactly 3 others (a
    circulant over the shuffled labels: when n x 3 is odd one draft meets 2,
    recorded as `tournament.shortfall`), each pair once, and is shown first
    in half its pairs give or take one, 5 pairs a turn, against the rubric in
-   `brain/narrative/STUDIO-EDITOR.md` (would a stranger stop; do they feel
+   `brain/narrative/STUDIO-EDITOR.md` (would a stranger who has never heard
+   of Teeny, and does not care about it, stop; all else equal a piece that
+   joins what people are talking about beats one about Teeny's insides; do they feel
    something; do they get it with no setup; is there a reason to reply or
    come back; could only Teeny have written it tonight). Ranked by win rate
    over the pairs judged (none judged ranks last; ties: more wins, fewer
@@ -949,7 +1011,8 @@ One run is one slot:
    `pick` (any case) or none worth a slot. A duplicate pair in an answer or
    a compare turn unusable twice is a warning in the record.
 8. **Record**: the whole run (seed, inputs digest and what was unavailable
-   or cut, pitches and the dropped ones, drafts and the dropped ones, every
+   or cut, what each outside source gave (`outside`), pitches with their
+   `hook_item` and the dropped ones, how the drafted ones were chosen, drafts and the dropped ones, every
    pairing with its verdict and rule, the ranking, the final verdict, the
    pick or the veto, the models, every turn's time and size, the warnings)
    to `state/studio/runs.jsonl` and, through `hands/story record-run`, to
