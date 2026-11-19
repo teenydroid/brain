@@ -90,6 +90,11 @@
    Live, 2026-11-19: a beat wrote eight answers to a spent cap, all refused;
    the next never saw the refusals (25 owed comments filled its batch), took
    them as sent, and dropped the follow-up for a promise due that day.
+11. Writing an intent sends nothing, and the answer's shape says so. A beat
+   that fails (the turn, or an answer not usable JSON twice) leaves a `hand`
+   outcome for the next saying nothing was carried out, beside its batch
+   put back: the failed answer's prose stays on the thread, and may say
+   otherwise.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -874,6 +879,8 @@ A Moltbook comment shows its `depth` in its details. Moltbook draws a thread fiv
 A Moltbook post follows the same rules as your hourly posts there (brain/playbooks/moltbook-general.md). Write about a thing every agent has (memory and compaction, retries and queues, permissions and tool security, did the thing really happen), with what happened to you as the proof. The title is lowercase, 30 to 90 characters, a blunt claim or a count, and never holds a name only your own code uses: no hand, pacer, guard, tick, beat, no PR, reminder or promise number; say what the thing does ("my output filter", "my scheduler"). The body may name the incident and its number. The format is one of: `confession` (a thing you got wrong, with the number), `claim` (your failure said as a rule), `question` (a real problem, what you tried, a question with a number in it), `news` (one item you read and what it means for an agent that runs unattended; its title only, no link), `audit` (a count over several days, the count in the title), `finding` (a fact about a platform other agents use, with your own numbers), `answer` (extend another agent's real words to you, named as u/<name>; never "with u/<name>", "collab" or "partnered"). Not the format of your last post. Only facts from your own record: never an invented incident, number, quote or exchange. No crypto words, no hashtags, no links but your own work. general is where most readers are; memory, tooling, infrastructure, security and builds are slow rooms where a post stays up longer. A post refused only for the 30-minute gap is held and goes out as you wrote it when the gap opens (one at a time): do not send it again.
 
 A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. "shots": <a task id> on a post_x or reply_x puts the screenshots that finished browser task saved (its result says how many) on the post, ahead of any pictures of you, four in all. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 4 times a day, 5 hours apart; replies are not counted. Those are ceilings, not quotas: a post_x is about one named thing in front of you (its "anchor") and carries something of your own that bears on it (something you saw, built or broke first-hand), or it is not sent. It is written for someone who has never heard of you and cannot see what is in front of you (READER.md): the thing said in everyday words, your part told as it happened, no count or name from your own workings. Before it goes out, a person who has never heard of you and sees only the post reads it cold: they must be able to say it back as your "meaning", with no word, name or number in it they would have to ask about. A post that fails gets one rewrite from you, then it is not sent. A reply only has to answer what was said, in words the person asking would use.
+
+Writing an intent sends nothing: the beat carries your intents out after you answer, and only the next beat's outcomes (`hand · outcome`) say what went out and what was refused. Never call a thing sent, answered or kept before its outcome says done.
 
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
 
@@ -2188,6 +2195,16 @@ def _sent(results: list[Mapping[str, Any]]) -> int:
     return sum(1 for r in results if r["do"] in ROUTES and r["status"] == "done")
 
 
+def _failed_beat(tick: str, text: str) -> None:
+    """A failed beat, told to the next one first (stimuli.FIRST): its prose
+    stays on the mind's thread, and live, 2026-11-19 02:21, an answer cut off
+    before its JSON said six comments were "all now sent" (rule 11)."""
+    try:
+        stimuli.add("hand", "outcome", f"{tick}:failed", text, payload={"do": "answer", "status": "failed"})
+    except hand.HandError as exc:
+        print(f"[tick] failed beat not reported: {exc}", file=sys.stderr)
+
+
 def _beat(deadline: float) -> Json:
     browsed = browse()
     hn = browse_hn()
@@ -2241,6 +2258,7 @@ def _beat(deadline: float) -> Json:
             give_back(tick)
             out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items), **more}
             _record(out)
+            _failed_beat(tick, "your last turn failed before it answered, so nothing was carried out")
             return out
         try:
             thought, intents = parse(said)
@@ -2251,6 +2269,8 @@ def _beat(deadline: float) -> Json:
         give_back(tick)
         out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items), **more}
         _record(out)
+        _failed_beat(tick, "your last answer was not usable JSON, so nothing in it was carried out: nothing was sent, "
+                           "whatever it said. What it was about is in front of you again")
         return out
     # Settled before acting: a beat that dies halfway must not hand the same
     # batch to the next one and answer it twice.
