@@ -385,7 +385,7 @@ class ChangedPathsTest(SelfJobScratch):
 def feature_files(name="gizmo", want_tests=True):
     """A whole feature, as the files the builder writes in the clone."""
     files = {
-        f"hands/{name}": "#!/usr/bin/env python3\n",
+        f"hands/{name}": f"#!/usr/bin/env python3\nfrom teeny_hands.{name}.cli import main\n",
         f"hands/lib/teeny_hands/{name}/__init__.py": "",
         f"hands/lib/teeny_hands/{name}/cli.py": f"from .. import hand\n\n\ndef main(argv):\n    return hand.run('{name}', None, argv)\n",
         "brain/playbooks/gizmo-look.md": f'+++\ndescription = "look"\noutput = "post"\n\n[[inputs]]\nname = "g"\n'
