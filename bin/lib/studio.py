@@ -1128,11 +1128,22 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
         'that decided it>, "why": "<one line>"}, ...]}, one for each pair.')
 
 
-def final_message(label: str, draft: Json, board: Json, stories: list[Json]) -> str:
+#: What a fallback's slot question says of the drafts tried before it: none
+#: went out, so none of them has told its story yet (`publish`).
+FALLBACK_LINE = ("Nothing has gone out in this slot yet. The drafts ranked above this one were not posted: they did "
+                 "not pass the checks a post must pass before it goes out, or you passed on them. So this one tells "
+                 "its story for the first time tonight. Is it worth the slot, or is the slot better left empty?")
+
+
+def final_message(label: str, draft: Json, board: Json, stories: list[Json], fallback: bool = False) -> str:
+    """The editor's slot question: on the tournament's winner, or (`fallback`)
+    on the next draft of the ranking after the ones above it did not go out.
+    A fallback is never shown those drafts."""
+    opening = FALLBACK_LINE if fallback else (
+        "This draft won the comparisons. Is it worth a slot on X tonight, or is the slot better left empty?")
     return (
-        "# studio: the slot\n\nThis draft won the comparisons. Is it worth a slot on X tonight, or is the slot "
-        "better left empty? Judge it on your rubric as a stranger meets it: someone who has never heard of "
-        "Teeny, and does not care about it. Picking none is a real answer.\n\n"
+        f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
+        "heard of Teeny, and does not care about it. Picking none is a real answer.\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
@@ -1793,19 +1804,31 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
         return out
     if same:
         room.warnings.append(f"{same}: a live run would leave this slot empty")
-    for n, label in enumerate(slot.order[:MAX_FALLBACKS + 1]):
+    left = list(slot.order)
+    fell: set[str] = set()
+    gated = 0
+    ended = ""
+    while left and gated <= MAX_FALLBACKS:
+        label = next_fallback(left, slot, fell) if attempts else left[0]
+        left.remove(label)
         draft = dict(slot.blind[label])
+        if attempts and room.left() - 5 < room.cfg.turn_min_secs:
+            ended = "the run's time ran out before the next fallback"
+            break
         attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
         attempts.append(attempt)
-        if n:
-            answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now), None,
-                               soft=True)
+        if len(attempts) > 1:
+            answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now,
+                                                                fallback=True), None, soft=True)
             verdict = _str((answer or {}).get("verdict"), 20).lower() if isinstance(answer, dict) else ""
             attempt["editor"] = {"verdict": verdict or "no answer",
                                  "reason": _str((answer or {}).get("reason"), 400) if isinstance(answer, dict) else ""}
             if verdict != "pick":
+                # A veto costs one editor turn and no gate: it does not use
+                # up the fallback budget, so every ranked draft can be asked.
                 attempt["result"] = "the editor vetoed it as a fallback"
                 continue
+        gated += 1
         result = try_draft(room, draft, attempt, slot, afters)
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
@@ -1813,9 +1836,65 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             out["text"] = attempt.get("sent")
             return out
         if result == "stop":
+            ended = "nothing else could be tried"
             break
-    out.update(outcome="empty", reason=attempts[-1].get("result") if attempts else "nothing to publish")
+        fell.add(story_of(draft))
+    else:
+        if left:
+            ended = f"the fallback budget ({MAX_FALLBACKS} through the checks) was spent"
+        elif len(slot.order) > 1:
+            ended = "every ranked draft was tried"
+    out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
+
+
+def story_of(draft: Json) -> str:
+    """The story a draft tells: the outside story it joins, else its pitch."""
+    return str(draft.get("hook") or f"pitch:{draft.get('pitch')}")
+
+
+def next_fallback(left: list[str], slot: Slot, fell: set[str]) -> str:
+    """The next draft to try after a draft did not go out: the best ranked
+    left, unless one on a story that has not failed tonight ranks within
+    `slot.close` of it (one meeting's worth of win rate), when that one goes
+    first. A sibling of a draft that failed its checks tends to fail them for
+    the same reason (preview-box-2: the pick's two siblings on one story were
+    the only fallbacks tried, and the drafts on two other trending stories
+    ranked just below were never reached)."""
+    best = slot.rates.get(left[0], 0.0)
+    for label in left:
+        if slot.rates.get(label, 0.0) < best - slot.close - 1e-9:
+            break
+        if story_of(slot.blind[label]) not in fell:
+            return label
+    return left[0]
+
+
+def empty_reason(attempts: list[Json], ended: str = "") -> str:
+    """Why a slot ended empty, every attempt in it: what came of the pick
+    (which gate failed), then how many fallbacks were tried and how each fell."""
+    if not attempts:
+        return "nothing to publish"
+
+    def said(a: Json) -> str:
+        why = str(a.get("result") or "no result")
+        editor = a.get("editor") or {}
+        if editor.get("verdict") != "pick" and editor.get("reason"):
+            why = f"the editor vetoed it ({_str(editor['reason'], 200)})"
+        elif editor.get("verdict") and editor.get("verdict") != "pick":
+            why = "the editor vetoed it (no reason given)"
+        return why
+
+    first, rest = attempts[0], attempts[1:]
+    parts = [f"the pick {first['label']} {said(first)}"]
+    if rest:
+        parts.append(f"{len(rest)} fallback{'s' if len(rest) != 1 else ''} tried, none went out: " +
+                     "; ".join(f"{a['label']}: {said(a)}" for a in rest))
+    else:
+        parts.append("no fallback was tried")
+    if ended:
+        parts.append(ended)
+    return ". ".join(parts)
 
 
 def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str], list[str], Json]:
