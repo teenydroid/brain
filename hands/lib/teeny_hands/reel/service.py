@@ -1,12 +1,18 @@
 """The `reel` service over HTTP: MoneyPrinterTurbo behind Teeny's own front
 (deploy/reel/serve.py), on the compose network at REEL_URL.
 
-Four calls, and the front answers 403 to anything else:
+These calls, and the front answers 403 to anything else:
 
   POST   /teeny/v1/reels                        a job; its task id
   GET    /api/v1/tasks/{id}                     the task's state
   GET    /api/v1/download/{id}/final-1.mp4      the render
   DELETE /api/v1/tasks/{id}                     the task and its files
+  GET    /ping                                  the service is up
+  POST   /teeny/v1/cuts                         a skit's cut (deploy/reel/skitcut.py): its id,
+                                                length, frames and label, once it is made
+  GET    /teeny/v1/cuts/{id}/cut.mp4            the cut
+  GET    /teeny/v1/cuts/{id}/frame-N.jpg        one of its frames
+  DELETE /teeny/v1/cuts/{id}                    the cut and its frames
 
 No key: the service binds the compose network only. Redirects are not
 followed, and an error says the status and the service's short message.
@@ -79,8 +85,8 @@ class Reel:
             raise ReelError(f"the reel service sent more than {limit // (1024 * 1024)} MB")
         return raw
 
-    def _json(self, method: str, path: str, body: Any = None) -> dict:
-        raw = self._open(method, path, body)
+    def _json(self, method: str, path: str, body: Any = None, timeout: float = 30.0) -> dict:
+        raw = self._open(method, path, body, timeout=timeout)
         try:
             parsed = json.loads(raw or b"{}")
         except ValueError:
@@ -104,3 +110,24 @@ class Reel:
 
     def delete(self, task_id: str) -> None:
         self._open("DELETE", f"/api/v1/tasks/{_task(task_id)}")
+
+    def ping(self) -> None:
+        """Nothing when the service answers; ReelError when it does not."""
+        self._open("GET", "/ping", timeout=10.0)
+
+    def cut(self, job: dict, timeout: float = 600.0) -> dict:
+        """A skit's cut, made before the answer comes: {cut_id, seconds,
+        shots, frames, label, labelled, audio}."""
+        data = self._json("POST", "/teeny/v1/cuts", job, timeout=timeout).get("data")
+        if not isinstance(data, dict):
+            raise ReelError("the reel service answered a cut with nothing in it")
+        _task(data.get("cut_id"))
+        return data
+
+    def cut_file(self, cut_id: str, name: str, limit: int) -> bytes:
+        if not re.fullmatch(r"cut\.mp4|frame-[0-9]\.jpg", name or ""):
+            raise ReelError("the reel service named a file a cut does not have")
+        return self._open("GET", f"/teeny/v1/cuts/{_task(cut_id)}/{name}", timeout=120.0, limit=limit)
+
+    def cut_delete(self, cut_id: str) -> None:
+        self._open("DELETE", f"/teeny/v1/cuts/{_task(cut_id)}")
