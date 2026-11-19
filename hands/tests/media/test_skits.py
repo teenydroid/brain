@@ -51,8 +51,14 @@ class FakeSurplus:
         self._polls = {}
         self.n = 0
 
+    catalog = None  # GET /v1/models answers this when set, else a 503
+
     def call(self, method, path, body=None, timeout=60.0, headers=None):
         self.calls.append((method, path, body, headers))
+        if path == "/v1/models" and method == "GET":
+            if self.catalog is None:
+                raise SurplusError("Surplus answered 503", 503)
+            return self.catalog
         if path == "/v1/video/generations" and method == "POST":
             model = body["model"]
             if model in self.fail:
@@ -372,6 +378,57 @@ class SkitTest(unittest.TestCase):
         self.skit({**SKIT, "shots": [{"prompt": SKIT["shots"][0]["prompt"], "seconds": 8}]})
         body = next(b for m, p, b, h in self.api.calls if m == "POST")
         self.assertEqual(body["duration_seconds"], 8)
+
+    # --- lengths a model sells (GET /v1/models, durations_seconds) --------------------
+
+    CATALOG = {"data": [{"id": "kling-v3-pro-text-to-video", "durations_seconds": list(range(3, 16))},
+                        {"id": "seedance-2-0-text-to-video", "durations_seconds": list(range(5, 16))},
+                        {"id": "veo3-1-fast-text-to-video", "durations_seconds": [4, 6, 8]},
+                        {"id": "wan-2-7-text-to-video"}]}
+
+    def lengths(self):
+        return [(b["model"], b["duration_seconds"]) for m, p, b, h in self.api.calls
+                if p == "/v1/video/generations" and m == "POST"]
+
+    def one(self, seconds):
+        return {**SKIT, "shots": [{"prompt": SKIT["shots"][0]["prompt"], "seconds": seconds}]}
+
+    def test_a_shot_is_asked_for_the_nearest_length_its_model_sells_ties_up(self):
+        self.api.catalog = self.CATALOG
+        self.env(MEDIA_SKIT_MODELS="veo3-1-fast-text-to-video")
+        out = self.skit(self.one(5))
+        self.assertEqual(self.lengths(), [("veo3-1-fast-text-to-video", 6)])
+        [shot] = self.rows("shot")
+        self.assertEqual(json.loads(shot["detail"])["seconds"], 6)
+        self.assertTrue(out["asset"])
+
+    def test_a_short_shot_is_lengthened_to_what_seedance_sells(self):
+        self.api.catalog = self.CATALOG
+        self.env(MEDIA_SKIT_MODELS="seedance-2-0-text-to-video")
+        self.skit(self.one(3))
+        self.assertEqual(self.lengths(), [("seedance-2-0-text-to-video", 5)])
+
+    def test_each_model_gets_its_own_length_when_a_shot_moves_on(self):
+        self.api.catalog = self.CATALOG
+        self.env(MEDIA_SKIT_MODELS="veo3-1-fast-text-to-video,kling-v3-pro-text-to-video")
+        self.api.fail["veo3-1-fast-text-to-video"] = SurplusError("Surplus answered 503", 503)
+        self.skit(self.one(5))
+        self.assertEqual(self.lengths(), [("veo3-1-fast-text-to-video", 6), ("kling-v3-pro-text-to-video", 5)])
+
+    def test_the_catalog_is_read_once_a_skit(self):
+        self.api.catalog = self.CATALOG
+        self.skit()
+        self.assertEqual(sum(1 for m, p, b, h in self.api.calls if p == "/v1/models"), 1)
+
+    def test_an_unreadable_catalog_or_a_model_with_no_lengths_sends_the_length_as_asked(self):
+        self.env(MEDIA_SKIT_MODELS="veo3-1-fast-text-to-video")
+        self.skit(self.one(5))
+        self.assertEqual(self.lengths(), [("veo3-1-fast-text-to-video", 5)])
+        self.setUp()
+        self.api.catalog = self.CATALOG
+        self.env(MEDIA_SKIT_MODELS="wan-2-7-text-to-video")
+        self.skit(self.one(7))
+        self.assertEqual(self.lengths(), [("wan-2-7-text-to-video", 7)])
 
     def test_a_malformed_skit_is_refused_before_anything(self):
         for bad in ({**SKIT, "shots": []}, {**SKIT, "shots": SKIT["shots"] * 3}, {**SKIT, "aspect": "4:3"},
