@@ -58,6 +58,28 @@ class BuildIntents(LoopCase):
         self.assertNotIn("m15", [x["id"] for x in got["not_open"]])
         self.assertNotIn("m15", [i for ids in got["by_state"].values() for i in ids])
 
+    def test_a_waiting_candidate_on_a_routed_learning_still_ships(self):
+        from teeny_hands import hand as hand_lib
+
+        class Down(FakePublisher):
+            def open_pr(self, *a, **k):
+                raise hand_lib.HandError("GitHub answered 502 Bad Gateway")
+
+        # m15 was built and passed before routing: it waits for a slot.
+        self.live()
+        self.page(WANT_PAGE)
+        proposer = Recording(proposals=[self.proposal()])
+        with unittest.mock.patch.object(evolve, "split_wants", lambda items: (items, [])), \
+                unittest.mock.patch.object(evolve, "pick_key", lambda item, got: item.id != "m15"):
+            out = self.run_with(proposer, publisher=Down(), evaluator=Verdicts())
+        self.assertEqual((out["candidates"][0]["learning"], out["candidates"][0]["verdict"]), ("m15", "waiting"))
+        # Routing stops new picks only: the change that passed still ships.
+        pub = FakePublisher()
+        self.run_with(Recording(proposals=[{"skip": "just looking", "why": "not-actionable"}]), publisher=pub,
+                      evaluator=Verdicts())
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "opened")
+
 
 class ResearchSkips(LoopCase):
     def test_a_research_already_resting_on_the_memory_page_goes_on_to_build(self):
