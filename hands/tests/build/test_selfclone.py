@@ -355,6 +355,219 @@ class SelfJobTest(SelfJobScratch):
         self.assertEqual(out["branches"], [{"branch": job["branch"], "ahead": 1, "behind": 1, "pushed": False}])
 
 
+class ChangedPathsTest(SelfJobScratch):
+    """What a self job changed in the clone against origin/main: committed or
+    not, each path once, as A, M, D or R."""
+
+    def test_changed_paths_are_the_committed_and_the_uncommitted_ones(self):
+        self.queue()
+        jobs.next_job()
+        self.assertEqual(selfclone.changed_paths(), [])
+        (self.tree / "hands").mkdir()
+        (self.tree / "hands" / "committed").write_text("one\n")
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nchanged\n")
+        self.clone_git("add", "-A")
+        self.clone_git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "work")
+        (self.tree / "hands" / "committed").write_text("two\n")           # committed as added, edited since
+        (self.tree / "hands" / "fresh file").write_text("untracked\n")    # a path with a space
+        (self.tree / "bin" / "tool").unlink()                              # deleted, not committed
+        (self.tree / "brain" / "SOUL.md").unlink()                         # committed as modified, deleted since
+        self.assertEqual(sorted(selfclone.changed_paths()), [("A", "hands/committed"), ("A", "hands/fresh file"),
+                                                              ("D", "bin/tool"), ("D", "brain/SOUL.md")])
+
+    def test_a_rename_is_one_path_with_its_new_name(self):
+        self.queue()
+        jobs.next_job()
+        self.clone_git("mv", "bin/tool", "bin/tool2")
+        self.assertEqual(selfclone.changed_paths(), [("R", "bin/tool2")])
+
+
+def feature_files(name="gizmo", want_tests=True):
+    """A whole feature, as the files the builder writes in the clone."""
+    files = {
+        f"hands/{name}": "#!/usr/bin/env python3\n",
+        f"hands/lib/teeny_hands/{name}/__init__.py": "",
+        f"hands/lib/teeny_hands/{name}/cli.py": f"from .. import hand\n\n\ndef main(argv):\n    return hand.run('{name}', None, argv)\n",
+        "brain/playbooks/gizmo-look.md": f'+++\ndescription = "look"\noutput = "post"\n\n[[inputs]]\nname = "g"\n'
+                                         f'run = "hands/{name} look"\n+++\nSay it.\n',
+        "brain/cron.toml": '[jobs.gizmo-look]\nschedule = "0 9 * * *"\ncommand = "bin/act gizmo-look"\n',
+        "docs/hands.md": f"# Hands\n\n## `{name}`: looks\n\nIt looks.\n",
+    }
+    if want_tests:
+        files[f"hands/tests/test_{name}.py"] = ("import unittest\n\n\nclass T(unittest.TestCase):\n"
+                                                "    def test_it(self):\n        self.assertTrue(True)\n")
+    return files
+
+
+class FeatureJobTest(SelfJobScratch):
+    """A self job whose request carries a want is a feature: the desk hands
+    the builder the rubric, and takes "ok" only when the clone holds all of
+    it (build/feature.py), keeping the rubric on the job."""
+
+    def lay(self, files):
+        for rel, text in files.items():
+            target = self.tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+            if rel == "hands/gizmo":
+                target.chmod(0o755)
+
+    def queue_want(self, want="w:m15", text="build the gizmo hand"):
+        from teeny_hands import requests as build_requests
+
+        rid = jobs.propose_self({"text": text, "want": want})["id"]
+        build_requests.pick({"id": rid, "reason": "the top want"})
+        return rid
+
+    def report(self, job, status="ok"):
+        return jobs.done({"job_id": job["job_id"], "status": status, "summary": "gizmo: looks at things",
+                          "tests": "python3 -m unittest: 1 passed"})
+
+    def passing(self, ran=1):
+        return mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": ran, "output": "OK"})
+
+    def test_a_feature_job_carries_the_feature_and_its_rules_on_the_desk(self):
+        self.queue_want()
+        jobs.desk()
+        offer = json.loads((self.root / "state" / "workbench" / "desk" / "build.json").read_text())
+        self.assertEqual(offer["job"]["kind"], "self")
+        self.assertEqual(offer["job"]["feature"], {"want": "w:m15", "requires": jobs.FEATURE_REQUIRES})
+        self.assertEqual(offer["rules"], jobs.SELF_FEATURE_RULES)
+        self.assertTrue(offer["rules"].startswith(jobs.SELF_RULES))
+        self.assertIn("docs/hands.md", offer["rules"])
+        self.assertIn("scheduled playbook", offer["rules"])
+        # What a feature requires, in the builder's words, names every part.
+        needed = " ".join(jobs.FEATURE_REQUIRES)
+        for part in ("hands/<name>", "hand.run", "hands/tests/test_<name>.py", "brain/playbooks", "brain/cron.toml",
+                     "bin/act", "docs/hands.md"):
+            self.assertIn(part, needed)
+        # A run that ended mid-job gets the same offer back.
+        again = jobs.next_job()
+        self.assertTrue(again["job"]["resumed"])
+        self.assertEqual((again["job"]["feature"]["want"], again["rules"]), ("w:m15", jobs.SELF_FEATURE_RULES))
+
+    def test_a_plain_self_job_is_unchanged(self):
+        self.queue()
+        offer = jobs.next_job()
+        self.assertNotIn("feature", offer["job"])
+        self.assertEqual(offer["rules"], jobs.SELF_RULES)
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nsmall, kind, brief\n")
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a plain job is not checked")):
+            self.report(offer["job"])
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertNotIn("rubric", row)
+        self.assertEqual(row["kind"], "self")
+
+    def test_ok_on_a_feature_without_tests_is_sent_back_naming_what_is_missing(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files(want_tests=False))
+        with self.passing(), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        exc = caught.exception
+        self.assertEqual(exc.detail["rule"], "feature")
+        self.assertEqual(exc.detail["missing"], ["no hands/tests/test_gizmo.py that parses"])
+        self.assertEqual(exc.reason, "the feature is not complete: no hands/tests/test_gizmo.py that parses")
+        # The builder keeps the job and finishes it.
+        self.assertEqual(jobs.listing("claimed")["jobs"][0]["id"], job["job_id"])
+        self.assertTrue(jobs.next_job()["job"]["resumed"])
+        self.lay({"hands/tests/test_gizmo.py": feature_files()["hands/tests/test_gizmo.py"]})
+        with self.passing():
+            self.report(job)
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
+
+    def test_ok_on_a_feature_no_scheduled_playbook_calls_is_sent_back(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        files = feature_files()
+        files["brain/cron.toml"] = '[jobs.other]\nschedule = "0 9 * * *"\ncommand = "bin/act something-else"\n'
+        self.lay(files)
+        with self.passing(), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        self.assertEqual(caught.exception.detail["missing"],
+                         ["no playbook that calls hands/gizmo is scheduled in brain/cron.toml"])
+        self.assertEqual(jobs.listing("claimed")["jobs"][0]["id"], job["job_id"])
+
+    def test_a_feature_whose_tests_fail_in_the_jail_is_sent_back_with_the_failure(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        failing = {"ok": False, "jailed": True, "ran": 1, "output": "FAIL: test_it\nAssertionError: False is not true"}
+        with mock.patch.object(verify, "run", return_value=failing), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        (missing,) = caught.exception.detail["missing"]
+        self.assertIn("did not pass when the desk ran them", missing)
+        self.assertIn("AssertionError: False is not true", missing)
+
+    def test_a_complete_feature_is_settled_with_its_rubric(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        with self.passing(ran=1) as run:
+            out = self.report(job)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(run.call_args.kwargs, {"start": "hands/tests", "top": "hands/tests", "pattern": "test_gizmo.py"})
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertTrue(row["rubric"]["ok"])
+        self.assertEqual(row["rubric"]["missing"], [])
+        (gizmo,) = row["rubric"]["hands"]
+        self.assertEqual((gizmo["name"], gizmo["entry"], gizmo["contract"], gizmo["tests"], gizmo["docs"]),
+                         ("gizmo", True, True, True, True))
+        self.assertEqual((gizmo["callers"], gizmo["scheduled"]), (["gizmo-look"], ["gizmo-look"]))
+        self.assertEqual(gizmo["ran"], {"ok": True, "ran": 1, "jailed": True, "output": "OK"})
+
+    @unittest.skipUnless(verify.landlock_abi() > 0, "this kernel has no Landlock")
+    def test_a_complete_feature_passes_with_the_tests_really_run_in_the_jail(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        self.report(job)
+        (gizmo,) = jobs.listing("ok")["jobs"][0]["rubric"]["hands"]
+        self.assertEqual((gizmo["ran"]["ok"], gizmo["ran"]["ran"], gizmo["ran"]["jailed"]), (True, 1, True), gizmo["ran"])
+
+    def test_a_failed_feature_report_is_not_checked(self):
+        rid = self.queue_want()
+        job = jobs.next_job()["job"]
+        for status in ("failed", "gave_up"):
+            with self.subTest(status=status), mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
+                self.report(job, status)
+                break
+        row = jobs.listing("failed")["jobs"][0]
+        self.assertNotIn("rubric", row)
+        from teeny_hands import requests as build_requests
+
+        self.assertEqual(build_requests.get(rid)["request"]["status"], "failed")
+
+    def test_a_gave_up_feature_report_is_not_checked(self):
+        rid = self.queue_want()
+        job = jobs.next_job()["job"]
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
+            self.report(job, "gave_up")
+        self.assertEqual(jobs.listing("gave_up")["jobs"][0]["id"], job["job_id"])
+
+    def test_the_pull_request_body_shows_the_rubric(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        with self.passing(ran=3):
+            self.report(job)
+        done = jobs.listing("ok")["jobs"][0]
+        title, body = selfclone.pr_text(done)
+        self.assertEqual(title, "gizmo: looks at things")
+        block = body[body.index("**Feature rubric**"):]
+        self.assertIn("hands/gizmo", block)
+        self.assertIn("3 tests ran in the jail", block)
+        self.assertIn("called by gizmo-look", block)
+        self.assertIn("scheduled", block)
+        self.assertIn("docs/hands.md section", block)
+        self.assertIn("used: counted by bin/wants 7 days after merge (scheduled playbook runs that call it)", block)
+        # A job without a rubric reads as before.
+        plain = {k: v for k, v in done.items() if k != "rubric"}
+        self.assertNotIn("Feature rubric", selfclone.pr_text(plain)[1])
+        self.assertEqual(selfclone.pr_text(plain)[1], body.split("\n\n**Feature rubric**")[0] + "\n\n**Checks**"
+                         + body.split("**Checks**")[1] if False else selfclone.pr_text(plain)[1])
+
+
 PR_URL = "https://github.com/teenydroid/brain/pull/7"
 
 
