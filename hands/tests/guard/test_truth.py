@@ -84,6 +84,7 @@ class TruthJudgeTest(support.WithCore):
                      "wallet movement; $TINY or any other token or coin",
                      "2. Real people, companies, products and other accounts, named or identifiable",
                      "a quote put in their mouth", "the followers it gained or lost",
+                     "taking for the agent or its cast a deed the FACTS give a real person",
                      "3. The news and the outside world",
                      "4. Anything said as a safety, legal, medical or security fact."):
             self.assertIn(hard, message)
