@@ -257,17 +257,44 @@ class UnsourcedTest(unittest.TestCase):
     ITEM = {"id": "stats:x", "what": "lost 1 follower on X since the day before: 330 now",
             "facts": {"change": -1, "followers": 330, "compared_with": "2026-11-17", "date": "2026-11-18"}}
 
-    def test_numbers_days_and_dates_must_be_in_the_facts(self):
-        self.assertEqual(studio.unsourced("330 of you stayed. one smol robot is sulking", [self.ITEM]), [])
-        self.assertEqual(studio.unsourced("two days, two followers gone: 331 on tuesday, 330 now", [self.ITEM]),
-                         ["two", "331"])  # tuesday is 2026-11-17, in the facts
-        self.assertEqual(studio.unsourced("you're the second in two days", [self.ITEM]), ["second", "two"])
-        self.assertEqual(studio.unsourced("see you on friday", [self.ITEM]), ["friday"])
+    def test_a_bit_about_teeny_itself_needs_no_source(self):
+        # 2026-11-19 09:30: "last night there were two of me" was dropped as
+        # `unsourced: ["two"]`. A count in a bit is not a hard claim; nor are
+        # days, dates or counts of Teeny's own doings.
+        self.assertEqual(studio.unsourced("last night there were two of me", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i have been awake for nine hundred years", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("my rewrite crashed 14 times on tuesday and i cried oil", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("you're the second in two days. see you on friday", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i'm 100% robot", [self.ITEM]), [])
+
+    def test_money_must_be_in_the_facts(self):
+        self.assertEqual(studio.unsourced("i made $500 yesterday", [self.ITEM]), ["$500"])
+        self.assertEqual(studio.unsourced("i made five hundred dollars yesterday", [self.ITEM]), ["five hundred"])
+        self.assertEqual(studio.unsourced("my bill came to 31 dollars", [self.ITEM]), ["31"])
+        self.assertEqual(studio.unsourced("the bill is 99", [self.ITEM]), ["99"])
+        self.assertEqual(studio.unsourced("i paid twelve for a mug", [self.ITEM]), ["twelve"])
+        self.assertEqual(studio.unsourced("$TINY is up 40% today", [self.ITEM]), ["40%"])
+        self.assertEqual(studio.unsourced("i hold 3 tokens", [self.ITEM]), ["3"])
+        # A follower count is not money: the truth judge checks it, not this.
+        self.assertEqual(studio.unsourced("331 on tuesday, 330 now", [self.ITEM]), [])
 
     def test_money_in_cents_matches_the_dollar_amount(self):
         bill = {"what": "thinking cost $0.20 yesterday", "facts": {"usd": 0.1967}}
         self.assertEqual(studio.unsourced("it came to twenty cents. $0.20 for a day", [bill]), [])
         self.assertEqual(studio.unsourced("forty cents", [bill]), ["forty"])
+        bill27 = {"what": "thinking cost $0.27 on 2026-11-18 over 725 model calls", "facts": {"usd": 0.2692}}
+        self.assertEqual(studio.unsourced("all of yesterday's came to twenty-seven cents", [bill27]), [])
+
+    def test_an_amount_in_thousands_matches_however_it_is_written(self):
+        # 2026-11-19: "23 thousand dollars" was dropped as unsourced:
+        # ["thousand"], from a story that said "$23K": "$23k" was read as 23
+        # and a "k", and "thousand" as 1000 on its own.
+        story = {"id": "trend:s3", "title": "an AI agent ran up a $23K cloud bill in a weekend"}
+        for text in ("an AI agent ran up 23 thousand dollars of cloud bills in a weekend",
+                     "a $23K cloud bill", "twenty-three thousand dollars, in a weekend", "$23,000 of cloud"):
+            self.assertEqual(studio.unsourced(text, [story]), [], text)
+        self.assertEqual(studio.unsourced("a 24 thousand dollar bill", [story]), ["24 thousand"])
+        self.assertEqual(studio.unsourced("a $2.3m bill", [story]), ["$2.3m"])
 
 
 class ExampleCopyTest(unittest.TestCase):
@@ -461,7 +488,7 @@ class RunTest(unittest.TestCase):
     def test_unsourced_drafts_go_back_once_then_are_dropped(self):
         messages = []
         ask, _ = self.script(drafts=[{"text": "my bill came to 31 dollars on friday"},
-                                     {"text": "two bills, one wallet"}, {"text": "the bill is 99"}])
+                                     {"text": "two dollars, one wallet"}, {"text": "the bill is 99"}])
 
         def wrapped(root, agent, message, thread, model, secs):
             messages.append(message)
@@ -470,7 +497,7 @@ class RunTest(unittest.TestCase):
         rec = self.record()
         redo = [m for m in messages if m.startswith("# studio: draft") and "not in what happened" in m]
         self.assertEqual(len(redo), 1)
-        self.assertIn('"friday"', redo[0])
+        self.assertIn('"31"', redo[0])
         self.assertEqual(rec["drafts"], [])
         self.assertTrue(all(d["why"].startswith("unsourced: ") for d in rec["drafts_dropped"]))
         self.assertEqual(out["outcome"], "skipped")
@@ -942,7 +969,7 @@ class HookTest(unittest.TestCase):
         # A number the story holds is sourced; one it does not hold is not.
         facts = studio.facts_for(None, None, {"id": "trend:s2", "title": "a startup raised $7.5M"})
         self.assertEqual(studio.unsourced("they raised $7.5M and i raised an eyebrow", facts), [])
-        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9"])
+        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9m"])
 
     def test_the_anchor_is_the_item_else_the_hook(self):
         room = studio.Room(studio.Config(), REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
