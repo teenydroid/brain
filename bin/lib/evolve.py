@@ -6181,8 +6181,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
-    # A change that passed before its learning was routed still ships.
-    queue = waiting(entries, [*learnings, *routed, *findings])
+    queue = waiting(entries, [*learnings, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
