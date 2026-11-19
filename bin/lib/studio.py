@@ -1886,7 +1886,7 @@ def empty_reason(attempts: list[Json], ended: str = "") -> str:
         return why
 
     first, rest = attempts[0], attempts[1:]
-    parts = [f"the pick {first['label']} {said(first)}"]
+    parts = [f"the pick {first['label']}: {said(first)}"]
     if rest:
         parts.append(f"{len(rest)} fallback{'s' if len(rest) != 1 else ''} tried, none went out: " +
                      "; ".join(f"{a['label']}: {said(a)}" for a in rest))
@@ -2340,7 +2340,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     pick = dict(blind[top]) | {"label": top}
     record.update({"outcome": "picked", "reason": reason, "pick": pick})
     slot = Slot(order=[r["label"] for r in ranked_drafts], blind=blind, board=board, stories_now=state_now,
-                pitches=by_id, items=known_items, stories=stories, thread=thread)
+                pitches=by_id, items=known_items, stories=stories, thread=thread,
+                rates={r["label"]: r["rate"] for r in ranked_drafts}, close=1 / cfg.meetings)
     done = publish(room, record, slot)
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason")
                            if k in done}

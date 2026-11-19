@@ -1270,7 +1270,7 @@ class FallbackTest(unittest.TestCase):
         out = self.publish(self.slot({"D5": 1.0, "D8": 1.0, "D2": 0.667, "D1": 0.333}))
         self.assertEqual(out["outcome"], "empty")
         reason = out["reason"]
-        self.assertIn("the pick D5 failed the stranger check, and its rewrite failed the truth check", reason)
+        self.assertIn("the pick D5: failed the stranger check, and its rewrite failed the truth check", reason)
         self.assertIn("3 fallbacks tried", reason)
         self.assertIn("D8: the editor vetoed it (said of D8)", reason)
         self.assertIn("D2: the editor vetoed it (said of D2)", reason)
