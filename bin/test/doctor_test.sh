@@ -454,6 +454,27 @@ check "--live warns, never fails, when the meme service is down" \
   test "$(jq -r '.checks[] | select(.check == "meme service") | .status' "$root/state/doctor.json")" = warn
 check "and says how to bring it up" grep -q '^warn meme service: no templates from .*--profile memegen up -d memegen' "$scratch/doctor.log"
 
+# Skits: named only when STUDIO_FORMATS has skit, never a failure; says when
+# hands/video would refuse every one, or when no shot fits the day's budget.
+fresh; doctor || true
+check "skits are off while no format names them" grep -q '^ok   skits: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,skit\n' >"$root/secrets/teeny.env"
+check "a boot with the skit format but no skit budget passes" doctor
+check "and warns that hands/video refuses every skit" grep -q '^warn skits: .*MEDIA_SKIT_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_SKIT_MAX_USD_PER_SHOT=1.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a shot cap over the daily budget warns" grep -q '^warn skits: MEDIA_SKIT_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "skits on say their caps and where they are cut" \
+  grep -q '^ok   skits: on: 2 a day, up to \$0.60 a shot, 7 shot(s) under \$4.50 a day; cut at http://reel:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nREEL_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when the reel service is down" \
+  test "$(jq -r '.checks[] | select(.check == "skits") | .status' "$root/state/doctor.json")" = warn
+rm -f "$root/secrets/teeny.env"
+
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash
