@@ -5,8 +5,6 @@ model is faked at the transport; nothing here calls one."""
 
 from __future__ import annotations
 
-import json
-
 from teeny_hands.guard import cli, viewer
 from teeny_hands.media.surplus import SurplusError
 
@@ -103,5 +101,3 @@ class ViewSkitTest(ViewerBase):
             viewer.view_skit = original
         with self.assertRaises(Exception):
             cli.view_skit_check(None, {"frames": self.paths, "label": LABEL, "intent": INTENT, "image": "x"})
-        json.dumps(out := {"ok": True})  # the verdict is plain JSON
-        self.assertTrue(out["ok"])
