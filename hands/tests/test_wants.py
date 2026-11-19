@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import dataclasses
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -29,6 +30,7 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 import evolve  # noqa: E402
 import evolve_findings  # noqa: E402
 import wants  # noqa: E402
+from build import test_selfclone as sc  # noqa: E402  (the build hand's scratch box: a fake origin and a fake GitHub)
 
 T0 = 1_763_000_000.0
 DAY = 86400.0
@@ -602,6 +604,165 @@ class Wrapper(unittest.TestCase):
                                   cwd=tmp)
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual([w["id"] for w in json.loads(done.stdout)["wants"]], ["w:m15"])
+
+
+class EndToEnd(sc.SelfJobScratch):
+    """The whole lane in one scratch box, with the real code at every step: a
+    want drawn from a memory page, filed through the real `hands/guard check`
+    and the real `hands/build self` (each its own process), picked, built as a
+    feature job by the desk, sent back for what it lacked, settled with its
+    rubric, shipped as a pull request through the real ship step, and scored a
+    week after it merged by the real `hand_used` count over playbook runs.
+
+    Patched: GitHub, in two places. `hands/gh pr` (the one wants.run_hand call
+    that is not the guard or the build hand) answers open and then merged,
+    and the build hand's own GitHub calls go to hands/x's fake server with a
+    local bare repository for origin, as in the other build tests. The clock
+    is the scratch box's (TEENY_NOW and EVOLVE_NOW), moved by the test. The
+    jail is real where the kernel has Landlock; where it has none
+    `verify.run` answers for it (and the test says so)."""
+
+    def setUp(self):
+        super().setUp()
+        for key in ("TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "OPENHUMAN_WORKSPACE", "WANTS", "WANTS_MAX_TRIES",
+                    "WANTS_USED_DAYS", "WANTS_MIN_USES"):
+            os.environ.pop(key, None)
+        os.environ["EVOLVE_NOW"] = str(sc.T0)
+        (self.root / "brain" / "MEMORY.md").write_text(PAGE)
+        (self.root / "secrets" / "evolve.env").write_text("WANTS=1\n")
+        self.me()
+        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 7, "html_url": sc.PR_URL}, status=201)
+        self.merged_at = None
+        self.gh_reads = []
+        real = wants.run_hand
+        self.real_run_hand = real
+
+        def run_hand(name, args, body):
+            if name != "gh":
+                return real(name, args, body)
+            self.gh_reads.append(list(args))
+            if self.merged_at is None:
+                return 0, {"ok": True, "state": "open", "merged": False, "merged_at": None}
+            return 0, {"ok": True, "state": "closed", "merged": True, "merged_at": evolve.iso(self.merged_at)}
+
+        for patcher in (
+            unittest.mock.patch.object(wants, "run_hand", side_effect=run_hand),
+            # The checkout whose playbooks say who calls a hand is the merged one: the clone.
+            unittest.mock.patch.object(
+                evolve, "outcome_sources",
+                side_effect=lambda cfg, real=evolve.outcome_sources: dataclasses.replace(real(cfg), tree=self.tree)),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def clock(self, at):
+        os.environ["TEENY_NOW"] = os.environ["EVOLVE_NOW"] = str(at)
+
+    def state_of(self, cfg):
+        (item,) = wants.draw(cfg)["wants"]
+        return item["standing"]["state"]
+
+    def test_end_to_end_a_want_becomes_a_feature_job_and_its_rubric_is_scored(self):
+        from teeny_hands import requests as build_requests
+        from teeny_hands import stimuli
+        from teeny_hands.build import feature, jobs, verify
+
+        cfg = wants.load_settings()
+        self.assertEqual(self.state_of(cfg), "open")
+
+        # 1. The want is filed: through the real guard and the real build hand.
+        filed = wants.file_one(cfg)
+        self.assertEqual(filed["filed"], "w:m15", filed)
+        rid = filed["request_id"]
+        request = build_requests.get(rid)["request"]
+        self.assertEqual((request["source"], request["status"]), ("self", "pending"))
+        self.assertRegex(request["source_id"], r"^want:w:m15:\d+\.\d{6}$")
+        self.assertTrue(request["text"].startswith("want: w:m15\n"), request["text"][:40])
+        self.assertIn("chart renderer", request["text"])
+        self.assertEqual(self.state_of(cfg), "in-flight")
+        # The hand refuses a second change at once, and the feed reads that as waiting.
+        code, refusal = self.real_run_hand("build", ["self"], {"text": "something else"})
+        self.assertEqual((code, refusal["rule"]), (2, "one_at_a_time"))
+
+        # 2. It is picked and lands on the desk as a feature.
+        build_requests.pick({"id": rid, "reason": "something i said i would build"})
+        offer = jobs.next_job()
+        job = offer["job"]
+        self.assertEqual((job["kind"], job["feature"]["want"]), ("self", "w:m15"))
+        self.assertEqual(offer["rules"], jobs.SELF_FEATURE_RULES)
+
+        # 3. A report with no tests is sent back, naming what is missing, and the claim stays open.
+        files = sc.feature_files()
+        tests = files.pop("hands/tests/test_gizmo.py")
+        report = {"job_id": job["job_id"], "status": "ok", "summary": "gizmo: looks at things",
+                  "tests": "python3 -m unittest: 1 passed"}
+        for rel, text in files.items():
+            target = self.tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        (self.tree / "hands" / "gizmo").chmod(0o755)
+        with self.assertRaises(hand.Refused) as caught:
+            jobs.done(report)
+        self.assertEqual(caught.exception.detail["rule"], "feature")
+        self.assertIn("no hands/tests/test_gizmo.py that parses", caught.exception.reason)
+        self.assertEqual(jobs.listing("ok")["jobs"], [])
+
+        # 4. With its tests, run by the desk itself, it is settled with its rubric.
+        (self.tree / "hands" / "tests").mkdir(parents=True, exist_ok=True)
+        (self.tree / "hands" / "tests" / "test_gizmo.py").write_text(tests)
+        if verify.landlock_abi() > 0:
+            jobs.done(report)
+        else:  # no jail on this kernel: what verify.run would say of a passing run
+            with unittest.mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": 1,
+                                                                         "output": "OK"}):
+                jobs.done(report)
+        (row,) = jobs.listing("ok")["jobs"]
+        self.assertTrue(row["rubric"]["ok"], row["rubric"])
+        (found,) = row["rubric"]["hands"]
+        self.assertEqual((found["name"], found["callers"], found["scheduled"]), ("gizmo", ["gizmo-look"], ["gizmo-look"]))
+
+        # 5. The ship step opens the pull request, and its body shows the rubric.
+        shipped = jobs.ship()["shipped"]
+        self.assertEqual(len(shipped), 1, shipped)
+        (pr,) = self.gh.requests("POST", "/repos/teenydroid/brain/pulls")
+        self.assertIn("**Feature rubric**", pr.json()["body"])
+        self.assertIn("hands/gizmo", pr.json()["body"])
+        self.assertEqual(self.state_of(cfg), "in-flight")  # the pull request is open
+        self.assertEqual(self.gh_reads[-1], ["pr", "teenydroid/brain", "7"])
+
+        # 6. A person merges it. The want is merged, and nothing more is filed for it.
+        self.merged_at = sc.T0 + 3600
+        self.assertEqual(self.state_of(cfg), "merged")
+        self.assertEqual(wants.file_one(cfg), {"ok": True, "skipped": "no open want"})
+
+        # 7. Scheduled runs of the playbook that calls the hand: five inside the week, one the budget
+        # skipped, one after it, and another playbook's, which calls nothing of it.
+        def runs(book, *at, **extra):
+            path = self.root / "state" / "act" / book
+            path.mkdir(parents=True, exist_ok=True)
+            with open(path / "runs.jsonl", "a") as fh:
+                for when in at:
+                    fh.write(json.dumps({"at": evolve.iso(when), "ok": True, **extra}) + "\n")
+
+        day = 86400.0
+        runs("gizmo-look", *(self.merged_at + n * day + 100 for n in range(5)))
+        runs("gizmo-look", self.merged_at + 5 * day, skipped="daily budget spent")
+        runs("gizmo-look", self.merged_at + 8 * day)
+        runs("other-book", self.merged_at + day)
+
+        self.clock(self.merged_at + 6 * day)
+        self.assertEqual(wants.watch(cfg)["scored"], [])  # the week is not over
+        self.clock(self.merged_at + 7 * day + 60)
+        (record,) = wants.watch(cfg)["scored"]
+        self.assertEqual((record["want"], record["request_id"], record["hands"], record["uses"], record["verdict"]),
+                         ("w:m15", rid, ["gizmo"], 5, "used"))
+        self.assertEqual(record["pr_url"], sc.PR_URL)
+        (told,) = [s for s in stimuli.take(max_items=50, max_chars=50_000)["stimuli"]
+                   if (s["surface"], s["kind"]) == ("self", "outcome")]
+        self.assertIn("gizmo", told["text"])
+        self.assertIn("5 times", told["text"])
+        self.assertEqual(wants.watch(cfg)["scored"], [])  # scored once
+        self.assertIs(feature.rubric, feature.rubric)  # the rubric the desk ran is the module the feed reads
 
 
 if __name__ == "__main__":
