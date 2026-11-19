@@ -988,6 +988,45 @@ def _waiting() -> list[str]:
     return ["", *lines]
 
 
+#: Below this many Moltbook comments left in the day's cap, a beat says how
+#: many: one beat may write MAX_INTENTS.
+FEW_COMMENTS = MAX_INTENTS
+
+
+def _comment_allowance() -> Json | None:
+    """What the Moltbook comment cap has left (teeny_hands.moltbook.rules,
+    read only). None when it can't be read: the hand still holds the cap."""
+    try:
+        from teeny_hands.moltbook import rules
+
+        return rules.comment_allowance()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] moltbook allowance unavailable: {type(exc).__name__}", file=sys.stderr)
+        return None
+
+
+def _at(at: float) -> str:
+    """An epoch second as Teeny's clock reads it, HH:MM."""
+    return f"{dt.datetime.fromtimestamp(at, _clock().tzinfo):%H:%M}"
+
+
+def _no_comments(allowance: Mapping[str, Any]) -> str:
+    """Why a comment is not sent while the cap has none left."""
+    frees = f"; the next frees at {_at(allowance['frees_at'])} your time" if allowance.get("frees_at") else ""
+    return f"Moltbook comments: 0 of {allowance['cap']} left in the last 24 hours{frees}"
+
+
+def _allowance_lines(allowance: Mapping[str, Any] | None) -> list[str]:
+    """The comment allowance, said up front once it is low. Live, 2026-11-19:
+    a beat spent itself writing eight answers to a cap already spent."""
+    if not allowance or allowance["left"] >= FEW_COMMENTS:
+        return []
+    if allowance["left"]:
+        return ["", f"Moltbook comments: {allowance['left']} of {allowance['cap']} left in the last 24 hours."]
+    return ["", _no_comments(allowance) + ". Until then a comment you write is not sent, and the comments on your "
+            "posts wait, unshown, until there is room: spend this beat on something else."]
+
+
 #: Said once a batch holds a comment on one of Teeny's own Moltbook posts.
 #: Live, 2026-11-11 to 11-15, 31 of 58 such comments went unanswered: the mind
 #: put answers off to later beats on a pacing rule that does not exist.
