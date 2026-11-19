@@ -878,6 +878,31 @@ reset
 out="$(STUDIO=1 FAKE_ASK_ERROR='HTTP 503 service unavailable' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "none" and (.reason | test("could not be asked"))' <<<"$out"
 
+# --- the outward quote's meme (bin/studio --meme) ----------------------------------
+meme() { "$studio" --meme 2>"$scratch/stderr"; }
+one_quote_meme='{"template": "drake", "lines": ["reading the post", "quoting it with a meme"], "teeny": "not/a/picture.jpg"}'
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 meme <<<"$one_quote_meme")"
+check "--meme makes it by the studio's meme path: the guard, a live render, the viewer check, the upload" \
+  bash -c "jq -e '.media_ids == [\"m-31\"] and .note.viewer.ok == true' <<<\"\$1\" >/dev/null &&
+    grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^meme template DRY_RUN=0 ' '$FAKE_HANDS' &&
+    grep -q '^guard view ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/meme-41.png' '$FAKE_HANDS'" _ "$out"
+check "and no truth judge: a meme about somebody else's post is a joke, the quote judge reads it" \
+  bash -c "! grep -q '^guard truth' '$FAKE_HANDS'"
+check "and a picture of Teeny's own is pasted in, whatever the draft named" \
+  bash -c "jq -e '.teeny | startswith(\"brain/assets/tiny/\")' <<<\"\$1\" >/dev/null" _ "$(grep '^meme template ' "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//')"
+check "and no model turn" test "$(turns)" = 0
+reset
+out="$(meme <<<"$one_quote_meme")"
+check "under a dry run the meme is rendered dry and never uploaded" \
+  bash -c "jq -e '.media_ids == [] and .note.planned == true' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$out"
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 FAKE_MEME_REFUSED=1 meme <<<"$one_quote_meme")"
+check "a meme the hand refuses is no media, with why" jqe '.media_ids == [] and (.note.failed == "refused")' <<<"$out"
+reset
+out="$(meme <<<'{"template": "drake", "lines": []}')"
+check "a meme with no lines is no media, with why" jqe '.media_ids == [] and (.note.failed | test("lines"))' <<<"$out"
+
 # --- the rollback: STUDIO=0 runs the slot's old playbook ------------------------------
 legacy_root="$scratch/legacy-root"
 mkdir -p "$legacy_root/bin"
