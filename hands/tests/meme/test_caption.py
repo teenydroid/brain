@@ -245,6 +245,51 @@ class ComicTest(Scratch):
 
 
 @needs_pillow
+class SymlinkedRootTest(Scratch):
+    """The checkout reached through symlinks: TEENY_ROOT a link to the real
+    folder, and state/media a link to a folder outside it (a media disk
+    mounted elsewhere). A picture there is still one of the two folders'."""
+
+    def setUp(self):
+        super().setUp()
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        self.outside = tempfile.TemporaryDirectory()
+        media = self.root / "state" / "media"
+        moved = Path(self.outside.name) / "media"
+        shutil.move(str(media), str(moved))
+        media.symlink_to(moved, target_is_directory=True)
+        self.links = tempfile.TemporaryDirectory()
+        self.link = Path(self.links.name) / "teeny"
+        self.link.symlink_to(self.root, target_is_directory=True)
+        os.environ["TEENY_ROOT"] = str(self.link)
+        hand._ENV_CACHE = None
+
+    def tearDown(self):
+        super().tearDown()
+        self.links.cleanup()
+        self.outside.cleanup()
+
+    def test_a_comic_of_pictures_in_a_symlinked_media_folder_is_made(self):
+        panels = [{"image": self.picture("a.png"), "caption": "one"}, {"image": ART, "caption": "two"}]
+        out = memes.comic({"panels": panels})["asset"]
+        self.assertEqual(out["status"], "done")
+        self.assertEqual(out["detail"]["sources"], ["state/media/a.png", ART])
+        self.assertTrue((self.link / out["path"]).is_file())
+
+    def test_a_caption_on_a_picture_in_a_symlinked_media_folder_is_made(self):
+        out = memes.caption({"image": self.picture("b.png"), "top": "hi"})["asset"]
+        self.assertEqual(out["detail"]["source"], "state/media/b.png")
+
+    def test_an_absolute_path_through_the_link_is_the_same_picture(self):
+        out = memes.caption({"image": str(self.link / ART), "top": "hi"})["asset"]
+        self.assertEqual(out["detail"]["source"], ART)
+
+
+@needs_pillow
 class LedgerTest(Scratch):
     def test_a_ledger_made_before_memes_is_rebuilt_to_take_them(self):
         old = assets.SCHEMA.replace(assets.KINDS_CHECK, "kind IN ('image', 'video', 'reel', 'song', 'music')")

@@ -164,6 +164,12 @@ hands/lib/teeny_hands/reel/
 hands/meme
 hands/lib/teeny_hands/meme/
 brain/assets/fonts/
+# Known meme templates (hands/meme template) render on the memegen service.
+# Its front, named although deploy/** covers it, is what keeps the service
+# to Teeny's own art and off the internet; the tests that pin that rule
+# (and the template verbs' refusals) are the operator's, like the wallet's.
+deploy/memegen/
+hands/tests/meme/test_templates.py
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/

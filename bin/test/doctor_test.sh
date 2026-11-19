@@ -422,6 +422,38 @@ DOCTOR_MODEL_TURNS=0 FAKE_REFUSED=e live_doctor || true
 check "and DOCTOR_MODEL_TURNS=0 skips the turns" bash -c "! grep -q 'studio models answer' '$scratch/doctor.log'"
 rm -f "$root/secrets/teeny.env"
 
+# The meme service: named only when STUDIO_FORMATS has meme, never a failure;
+# --live asks it for its templates (a stand-in memegen on a loopback port).
+fresh; doctor || true
+check "the meme service is off while no format needs it" grep -q '^ok   meme service: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,meme\n' >"$root/secrets/teeny.env"
+check "a boot with memes on passes without asking the service" doctor
+check "and says where it is" grep -q '^ok   meme service: on, at http://memegen:5000' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,meme\nMEMEGEN_URL=ftp://memegen\n' >"$root/secrets/teeny.env"
+check "an address that is not http warns and still passes" doctor
+check "and says so" grep -q '^warn meme service: MEMEGEN_URL is not an http address' "$scratch/doctor.log"
+mkdir -p "$scratch/memegen/templates"
+printf '[{"id": "drake", "lines": 2}, {"id": "cmm", "lines": 1}]' >"$scratch/memegen/templates/index.html"
+python3 -c '
+import functools, http.server, sys
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+handler.log_message = lambda *a: None
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+open(sys.argv[2], "w").write(str(server.server_address[1]))
+server.serve_forever()
+' "$scratch/memegen" "$scratch/memegen.port" &
+memegen_pid=$!
+for _ in $(seq 50); do [ -s "$scratch/memegen.port" ] && break; sleep 0.1; done
+printf 'STUDIO_FORMATS=post,meme\nMEMEGEN_URL=http://127.0.0.1:%s\n' "$(cat "$scratch/memegen.port")" >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live counts the meme service's templates" grep -q '^ok   meme service: 2 templates at http://127.0.0.1:' "$scratch/doctor.log"
+kill "$memegen_pid" 2>/dev/null || true
+wait "$memegen_pid" 2>/dev/null || true
+live_doctor || true
+check "--live warns, never fails, when the meme service is down" \
+  test "$(jq -r '.checks[] | select(.check == "meme service") | .status' "$root/state/doctor.json")" = warn
+check "and says how to bring it up" grep -q '^warn meme service: no templates from .*--profile memegen up -d memegen' "$scratch/doctor.log"
+
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash

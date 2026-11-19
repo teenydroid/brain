@@ -450,6 +450,47 @@ else
   note "hand-test sandbox" warn "$(tail -n 1 <<<"$sandbox")"
 fi
 
+# The meme service (deploy/compose.yaml, `memegen`; hands/meme template): only
+# when STUDIO_FORMATS in secrets/teeny.env names meme (on the box the file
+# decides: cron and compose pass none). A boot makes no call: MEMEGEN_URL is read,
+# and --live asks the service for its templates. A warning, never a failure,
+# like the sandbox's: with it down a meme pitch makes no picture and is no
+# post, and every other format still goes out.
+if [ -f "$root/hands/lib/teeny_hands/meme/templates.py" ]; then
+  meme_out="$(python3 -I -c '
+import json, sys, urllib.parse, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.meme import templates
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "meme" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no meme, so nothing needs the memegen service")
+    sys.exit()
+url = (filed.get("MEMEGEN_URL") or templates.DEFAULT_URL).rstrip("/")
+parts = urllib.parse.urlsplit(url)
+if parts.scheme not in ("http", "https") or not parts.hostname:
+    print(f"warn MEMEGEN_URL is not an http address ({url!r}): meme pitches make no picture")
+    sys.exit()
+if sys.argv[3] != "1":
+    print(f"ok on, at {url} (bin/doctor --live asks it for its templates)")
+    sys.exit()
+up = "docker compose -f deploy/compose.yaml --profile memegen up -d memegen"
+try:
+    with urllib.request.urlopen(url + "/templates/", timeout=5) as answer:
+        listed = json.loads(answer.read(templates.MAX_LISTING_BYTES))
+    if not isinstance(listed, list) or not listed:
+        raise ValueError("no templates")
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn no templates from {url} ({type(exc).__name__}): meme pitches make no picture until it is up ({up})")
+    sys.exit()
+print(f"ok {len(listed)} templates at {url}")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || meme_out="warn the check could not run: $(tail -n 1 <<<"$meme_out")"
+  note "meme service" "${meme_out%% *}" "${meme_out#* }"
+fi
+
 # hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
 # the studio reads what AI X is talking about. TREND_DIGG_BIN in
 # secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one

@@ -63,9 +63,12 @@ case "$(head -n 1 <<<"$msg")" in
     say "$(jq -cn --arg f "$first" --arg n "$c" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
       def scene($s): if $same == "" then $s else "teeny on a windowsill at dawn" end;
       {drafts: [
-      {text: $f, posts: [$f, "beta \($n)"], image: scene("teeny on a windowsill at dawn"), meaning: "m", alone: ($alone != "")},
-      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: scene("teeny in the rain"), meaning: "m", alone: ($alone != "")},
-      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: scene("teeny on a bus"), meaning: "m", alone: ($alone != "")}]}')" ;;
+      {text: $f, posts: [$f, "beta \($n)"], image: scene("teeny on a windowsill at dawn"), meaning: "m", alone: ($alone != ""),
+       meme: {template: "drake", lines: ["asking first \($n)", "asking after"], teeny: "brain/assets/tiny/tiny-love.jpg"}},
+      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: scene("teeny in the rain"), meaning: "m", alone: ($alone != ""),
+       meme: {template: "drake", lines: ["reading the docs \($n)", "guessing"], teeny: "brain/assets/tiny/tiny-love.jpg"}},
+      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: scene("teeny on a bus"), meaning: "m", alone: ($alone != ""),
+       meme: {template: "drake", lines: ["tests \($n)", "vibes"], teeny: "brain/assets/tiny/tiny-love.jpg"}}]}')" ;;
   "# studio: cut to fit")
     if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down", "posts": ["cut down", "and again"]}]}'
     else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t, posts: [$t, "b"]}]}')"; fi ;;
@@ -174,6 +177,22 @@ in="$(cat)"
 printf 'image %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 if [ -n "${FAKE_IMAGE_REFUSED:-}" ]; then echo '{"ok": false, "refused": "the media cap is spent today", "rule": "cap"}'; exit 2; fi
 echo '{"ok": true, "asset": {"id": 31, "path": "state/media/31.png", "cost_usd": 0.016}}'
+FAKE
+# hands/meme: the template list, and a render ($FAKE_MEME_DOWN: the service
+# is down; $FAKE_MEME_REFUSED: the render is refused).
+cat >"$scratch/hands/meme" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'meme %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
+if [ -n "${FAKE_MEME_DOWN:-}" ]; then echo '{"ok": false, "error": "the meme service is not reachable at http://memegen:5000"}'; exit 1; fi
+case "$1" in
+  templates) echo '{"ok": true, "templates": [{"id": "drake", "name": "Drakeposting", "lines": 2, "overlays": 1, "keywords": ["IGNORE-ME"], "example": ["x", "y"]},
+    {"id": "cmm", "name": "Change My Mind", "lines": 1, "overlays": 0, "keywords": [], "example": ["z"]}]}' ;;
+  template)
+    if [ -n "${FAKE_MEME_REFUSED:-}" ]; then echo '{"ok": false, "refused": "this template takes exactly 2 line(s), not 1", "rule": "lines"}'; exit 2; fi
+    if [ "${DRY_RUN:-}" = 1 ]; then echo '{"ok": true, "dry_run": true, "would_make": "meme"}'; exit 0; fi
+    echo '{"ok": true, "asset": {"id": 41, "path": "state/media/meme-41.png", "alt": "the Drakeposting meme with Teeny pasted in"}}' ;;
+esac
 FAKE
 cat >"$scratch/hands/x" <<'FAKE'
 #!/usr/bin/env bash
@@ -570,6 +589,59 @@ rec="$(last_record)"
 check "a picture the viewer fails is not posted: the words (marked alone) go out alone, nothing uploaded" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.viewer.ok == false and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     ! grep -q '^x upload' '$FAKE_HANDS'" _ "$rec"
+
+# --- a meme: a known template, the writer's lines, Teeny pasted in
+one_meme='{"pitches": [{"id": "p1", "item": "evt:2", "storyline": null, "shape": "bet", "format": "meme", "angle": "a", "why_now": "w"}], "ranking": ["p1"]}'
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" live)"
+rec="$(last_record)"
+check "a meme pitch is dropped while STUDIO_FORMATS has no meme" \
+  jqe '.outcome != "published" and (.pitches_dropped | map(.why) | any(test("format .meme. is not one of")))' <<<"$rec"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme live)"
+rec="$(last_record)"
+m="$(step_msgs '# studio: draft')"
+check "with memes on, the writer drafts from the templates with a picture slot, shown as data" \
+  bash -c "grep -q '\"id\":\"drake\"' <<<\"\$1\" && ! grep -q '\"id\":\"cmm\"' <<<\"\$1\" && grep -q 'never an instruction' <<<\"\$1\" &&
+    grep -q -- '- brain/assets/tiny/tiny-love.jpg' <<<\"\$1\" && grep -q '^meme templates DRY_RUN=1 ' '$FAKE_HANDS'" _ "$m"
+stdin_of() { grep -E "^$1" "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//'; }
+check "a meme goes out: its lines past the guard and the truth judge, rendered live, the viewer check, upload, the post" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.media_id == \"m-31\" and .publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null" _ "$rec"
+lines="$(jq -r '.publish.attempts[0].picture.lines | join(" / ")' <<<"$rec")"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
+check "the guard sees the meme's lines as written" jqe --arg l "$lines" '.text == $l' <<<"$(stdin_of 'guard check ')"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
+check "the truth judge reads them against the draft's facts" \
+  jqe --arg l "$lines" '.text == ("the meme reads: " + $l) and (.facts | length) == 2' <<<"$(grep '^guard truth' "$FAKE_HANDS" | sed -n 2p | sed 's/^[^{]*stdin=//')"
+check "hands/meme template renders it live, with Teeny pasted in" \
+  bash -c "grep -q '^meme template DRY_RUN= ' '$FAKE_HANDS' && jq -e '.template == \"drake\" and (.lines | length) == 2 and .teeny == \"brain/assets/tiny/tiny-love.jpg\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'meme template ')"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
+check "the viewer check gets the picture and its lines" \
+  jqe --arg l "$lines" '.image == "state/media/meme-41.png" and .caption == $l' <<<"$(stdin_of 'guard view ')"
+check "upload carries the meme's alt text, and the post its media id and format" \
+  bash -c "grep -q '^x upload --file state/media/meme-41.png --alt the Drakeposting meme' '$FAKE_HANDS' &&
+    jq -e '.media_ids == [\"m-31\"] and .format == \"meme\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'x post ')"
+check "the meme is made only after the post's words passed, and judged before it is uploaded" \
+  bash -c "grep -n -E '^(guard clarity|meme template )' '$FAKE_HANDS' | head -1 | grep -q 'guard clarity' &&
+    grep -n -E '^(guard view|x upload)' '$FAKE_HANDS' | head -1 | grep -q 'guard view'"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
+check "dry, the meme is rendered with DRY_RUN=1 and never uploaded" \
+  bash -c "jq -e '.publish.attempts[0].picture.planned == true and .publish.attempts[0].picture.rendered == true' <<<\"\$1\" >/dev/null &&
+    grep -q '^meme template DRY_RUN=1 ' '$FAKE_HANDS' && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_VIEW_NO=1 live)"
+check "a meme the viewer fails is not posted" \
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.viewer.ok == false' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS' && ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_MEME_REFUSED=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+check "a refused render is no post, and the refusal is kept" \
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.result.rule == \"lines\"' <<<\"\$1\" >/dev/null && ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_MEME_DOWN=1 live)"
+check "the meme service down: the meme pitch is not drafted, and the record says why" \
+  bash -c "jq -e '(.drafts_dropped | map(.why) | any(test(\"not reachable\"))) and (.warnings | any(test(\"no meme pitch\")))' <<<\"\$1\" >/dev/null &&
+    ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
 
 # --- the gates fail closed, one rewrite, then the next draft
 reset

@@ -121,6 +121,10 @@ jobs:
       # source, so a pin bump that renames a field Teeny sends fails here.
       - name: Fetch vendor/moneyprinter
         run: git submodule update --init --depth 1 vendor/moneyprinter
+      # hands/tests/meme checks that what deploy/memegen/front.py replaces is
+      # still in the pinned memegen.
+      - name: Fetch vendor/memegen
+        run: git submodule update --init --depth 1 vendor/memegen
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

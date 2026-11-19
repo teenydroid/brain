@@ -5,3 +5,7 @@
 	path = vendor/moneyprinter
 	url = https://github.com/harry0703/MoneyPrinterTurbo.git
 	shallow = true
+[submodule "vendor/memegen"]
+	path = vendor/memegen
+	url = https://github.com/jacebrowning/memegen.git
+	shallow = true

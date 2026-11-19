@@ -1523,6 +1523,8 @@ for everything else.
 |---|---|---|
 | `caption` | A | stdin `{image, top?, bottom?, style?: "impact"\|"label"\|"subtitle", alt?}`. At least one of `top`, `bottom`. `impact` (default): white words with a black outline over the top and bottom of the picture, both blocks at one size. `label`: dark words on white bands added above and below, the picture left whole. `subtitle`: smaller outlined words, two lines at most. Answers `{asset}`: `state/media/meme-<id>.jpg` (`.png` for a PNG source), a `media_assets` row (kind `meme`, model `compositor`, cost 0), `detail` `{style, source, blocks: [{where, lines, size}], bytes, size}`, and `alt` (given, else the words on it). |
 | `comic` | A | stdin `{panels: [{image, caption?}] (2 to 4), layout?: "row"\|"grid"\|"strip", captions?: "under"\|"over", alt?}`. Each picture is cropped to its cell (row: square cells, at most 720 px, the frame at most 2,400 px wide; grid: 2x2 of 720 px, exactly 4 panels; strip: 900x675 stacked), each caption lettered on a white band under (or over) it, all at one size, on a near-black ground. Default layout: `grid` for 4, else `row`. Kind `comic`, `state/media/comic-<id>.jpg`; `detail` `{layout, captions, sources, cell, font_size, panels: [{lines}], bytes, size}`. |
+| `templates [--query WORDS] [--max N]` | R | Known meme templates from the memegen service: `{templates: [{id, name, lines, overlays, keywords, example}], count, note}`, sorted by id, those whose id, name or keywords hold every word of `--query`, at most N (all; 1 to 300). Names, keywords and examples are upstream's text about each picture: cut short, control characters removed, returned as data. A template with no lines or an id that is not `[a-z0-9_-]` is left out. |
+| `template` | A | stdin `{template, lines, teeny?, alt?}`. One known template lettered by memegen: `lines` exactly the template's `lines` (`""` leaves a place empty, not all), each held to a caption's rules (100 characters, no link, no control character, nothing the lexicon holds, one line). `teeny`: a picture under `state/media/` or `brain/assets/` pasted into the template's picture slot (`overlays` at least 1). Answers `{asset}`: `state/media/meme-<id>.png` (`.jpg` when a PNG would pass 5 MB), kind `meme`, model `memegen`, cost 0, `detail` `{template, name, lines, overlay, service, fetched_bytes, bytes, size}`. |
 | `gif-search QUERY [--max N]` | R | Giphy search (`GIPHY_API_KEY`, as `x` uses for `gif_id`): `{query, gifs: [{id, title, url, rating}], dropped, note}`, at most N (8; 1 to 25). |
 | `list [--max N]` | R | The memes and comics made, newest first, with today's count and the cap. |
 | `get ID` | R | One. |
@@ -1578,8 +1580,33 @@ error names the key. Giphy's terms ask for a "Powered by GIPHY" mention
 where its search is shown to people; Teeny shows none, the operator should
 decide.
 
-Nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
-`NOT_OUTPUTS`), and the studio wires it in later. To post one: `hands/x
+**Templates (memegen).** `templates` and `template` need the `memegen`
+service (`deploy/compose.yaml`, profile `memegen`; `MEMEGEN_URL`, default
+`http://memegen:5000`): the upstream memegen (`vendor/memegen`, a pinned
+commit, never edited) behind `deploy/memegen/front.py`. memegen takes a
+picture to paste in only as a URL and downloads only from public addresses
+(a `file://` URL answers 415, a bare path 422), so the art is mounted
+read-only into the container (`state/media/` at `/teeny/media`,
+`brain/assets/` at `/teeny/assets`) and the hand names it
+`http://teeny-art/<media|assets>/<path>`; the front copies that file from
+the mount (no `..`, no symlink out, a picture extension, at most 20 MB) and
+refuses every other URL, so the service fetches nothing from the internet.
+The front also turns off upstream's "Memegen.link" watermark, and its
+tracking and search (both inert without `REMOTE_TRACKING_URL`, which stays
+unset). The render is read at most 12 MB (`size`), checked against the
+40 MP cap before it is decoded (`pixels`), and brought under 5 MB like a
+caption. Refused, nothing saved: an unknown template (`template`), the
+wrong number of lines (`lines`, with `want`), a picture on a template with
+no slot or one the service could not read (`overlay`), a render the service
+would not make (`render`), a line it found too long (`text`). The service
+down or answering garbage is an error (`ok: false`, exit 1). Under
+`DRY_RUN` the template is looked up and rendered and nothing is written.
+The templates are third-party pictures in common use (film stills, cartoons,
+stock photos); memegen's licence (MIT) covers its code, not those pictures.
+
+The studio makes memes when `STUDIO_FORMATS` names `meme`
+(docs/architecture.md, "The studio"). Otherwise nothing calls this hand: a
+draft cannot reach it (`bin/lib/playbook.py`, `NOT_OUTPUTS`). To post one: `hands/x
 upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
 on `hands/x post`.
 
