@@ -29,7 +29,7 @@ SHOTS = [
     {"prompt": "Low-angle close-up, cool rim light: Musk plays chess against the robotaxi's robotic arm and the "
                "board grows to the size of a planet. He mutters: \"best of three.\" Comic timpani."},
 ]
-RAW = {"figures": ["Elon Musk"], "logline": "elon musk loses at chess to his own robotaxi on the moon",
+RAW = {"figures": ["Elon Musk"], "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "shots": SHOTS, "aspect": "16:9"}
 WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "skit", "hook": "trend:t1", "item": None}
