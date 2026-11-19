@@ -185,6 +185,11 @@ class WantsCase(unittest.TestCase):
     def file(self):
         return wants.file_one(self.cfg())
 
+    def next_day(self):
+        """One more UTC day on: at most one want is filed a day, so a test
+        that files twice lets a day pass between the two."""
+        os.environ["EVOLVE_NOW"] = str(float(os.environ["EVOLVE_NOW"]) + DAY)
+
     def standing(self, want_id="w:m15"):
         return {w["id"]: w for w in wants.draw(self.cfg())["wants"]}[want_id]["standing"]
 
