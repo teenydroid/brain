@@ -1173,6 +1173,12 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `wants` (`bin/wants run`, 09:00 UTC), what Teeny said on its memory page
+    it will build: it scores each merged feature a week after it merged (did
+    a scheduled playbook run its hand?), then files at most one want as a
+    `self` build request through the guard, for the builder. Drawn in code,
+    no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
+    "1c. Wants"; docs/hands.md, "`build`");
   - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
     babysitter: audits every open pull request on teenydroid/brain and
     teenydroid/diary in code and logs every prompt-injection attempt;
@@ -1211,7 +1217,26 @@ Every scheduled job is in one of two files:
     Three such runs in a row, or two half an hour apart, while the probe
     still answers, raise a third alarm (`act_alarm` in `state/health.json`,
     one issue), cleared by the next answered draft (`ACT_ALARM_RUNS`,
-    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). Once drafts are answered
+    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). A fourth alarm is for a
+    playbook that fails for its own reasons (`playbook_alarm`, one per
+    playbook, since 2026-11-19): on 11-15, -16 and -17 `self-improve` failed
+    every run, because the core's prompt screen refused an 86,357-character
+    message, while the provider answered; `act_alarm` stayed quiet and the
+    failure surfaced days later as an evolve finding. Now the latest runs of
+    each playbook are read (`state/act/<playbook>/runs.jsonl`, the last 500
+    lines): a run with `ok: false` whose `failure` is not `provider` counts,
+    a skip (an `ok` line with `skipped`, such as a spent budget) is no run
+    and changes nothing, and the count stops at the first ok run or the first
+    provider failure. A failure within `ACT_RETRY_SECS` (120 s) of the next
+    newer failure is folded into it, so cron's quick retries of one slot count
+    once, and failures two minutes or more apart count separately. At
+    `PLAYBOOK_ALARM_RUNS` (3, `secrets/teeny.env`) runs in a row it raises a
+    `health · alarm` stimulus and one issue on teenydroid/brain, unless the
+    model alarm above is open. The issue is fixed sentences, the run count,
+    the times and one more thing: the class of the error, which is bin/act's
+    own words up to the first colon, scrubbed. It never carries stderr, stdout
+    or a draft, which can quote a stranger. The playbook's next ok run closes
+    the issue and sends `health · recovered`. Once drafts are answered
     again, a slot they lost is made up once within its window: a
     `make_up_hours` job (the Moltbook evening audit) or a
     `catch_up` playbook (`bin/lib/catch_up.py`).
