@@ -150,8 +150,12 @@ def argv(ffmpeg: str, clips: list[dict[str, Any]], label_file: str, font: str, o
 
 
 def _quote(path: str) -> str:
-    """A path inside a filter's single quotes."""
-    return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+    """A path inside a filter's single quotes, where ffmpeg reads everything
+    literally up to the next quote: one with a quote, a backslash or a colon
+    in it is refused (the front's own paths never have one)."""
+    if any(ch in path for ch in "'\\:\n"):
+        raise CutError("a path the filter cannot quote")
+    return path
 
 
 def probe(ffprobe: str, path: str) -> dict[str, Any]:
