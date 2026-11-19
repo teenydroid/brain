@@ -349,6 +349,105 @@ class GapTest(Posting):
         self.assertEqual(len(self.posted()), 1, "never retried")
 
 
+class QuoteLaneTest(Posting):
+    """A quote of somebody's post has its own lane (2026-11-19): it keeps a
+    gap from the previous quote (QUOTE_MIN_GAP_HOURS, 3), waits a short
+    spacing after the newest original post (QUOTE_AFTER_POST_MINUTES, 45),
+    and has its own day's cap (X_QUOTES_MAX_PER_DAY, 2). An original post
+    never looks at quotes: on the box the outward quote shut the next studio
+    slot, and a studio post shut every quote for five hours, so in its whole
+    life the quote job posted nothing."""
+
+    settings = {"POST_MIN_GAP_HOURS": "5"}
+    TEXTS = ("the robot in this one has my exact posture", "i would also lose to a toaster here",
+             "somebody give this benchmark a nap", "four quotes is three too many")
+
+    def setUp(self):
+        super().setUp()
+        for n, author in enumerate(("43", "44", "45")):
+            self.quotable(f"55{6 + n}", author, f"builder{n}")
+
+    def quote(self, n: int, post_id: str = "555") -> dict:
+        return publish.post({"text": self.TEXTS[n], "quote_of": post_id})
+
+    def original(self, text: str = "the lighthouse census closed at forty one") -> dict:
+        return publish.post({"anchor": "hn:1", "text": text})
+
+    def test_a_quote_does_not_shut_the_next_studio_slot(self):
+        self.quote(0)
+        self.assertEqual(publish.slot(), {"open": True})
+        self.at(T0 + HOUR)
+        self.original()
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_studio_post_is_never_refused_because_of_a_quote(self):
+        self.original()
+        self.at(T0 + 4 * HOUR)
+        self.quote(0)
+        self.at(T0 + 5 * HOUR)
+        self.original("the crab census closed at forty two")
+        self.assertEqual(len(self.posted()), 3)
+
+    def test_a_quote_goes_out_an_hour_after_a_studio_post(self):
+        # On the box: "cadence: too soon after post ... next slot at ...".
+        self.original()
+        self.at(T0 + HOUR)
+        self.assertEqual(self.quote(0)["kind"], "quote")
+        self.assertEqual([r["kind"] for r in self.ledger()], ["post", "quote"])
+
+    def test_a_quote_waits_a_short_spacing_after_the_newest_post(self):
+        self.original()
+        self.at(T0 + 30 * MINUTE)
+        with self.assertRaises(hand.Refused) as caught:
+            self.quote(0)
+        self.assertEqual(caught.exception.detail["rule"], "quote_gap")
+        self.assertIn("too soon after post 100", caught.exception.reason)
+        self.at(T0 + 46 * MINUTE)
+        self.quote(0)
+
+    def test_quotes_keep_their_own_gap(self):
+        self.quote(0)
+        self.at(T0 + 2 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            self.quote(1, "556")
+        self.assertEqual(caught.exception.detail["rule"], "quote_gap")
+        self.assertEqual(caught.exception.detail["next_at"], posting_rules.iso(T0 + 3 * HOUR))
+        self.at(T0 + 3 * HOUR - 15 * MINUTE)  # the slots' tolerance holds for quotes too
+        self.quote(1, "556")
+
+    def test_quotes_have_their_own_days_cap_and_spend_none_of_the_posts(self):
+        self.configure(POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0", QUOTE_MIN_GAP_HOURS="0",
+                       QUOTE_AFTER_POST_MINUTES="0")
+        for n, post_id in enumerate(("555", "556")):
+            self.quote(n, post_id)
+        with self.assertRaises(hand.Refused) as caught:
+            self.quote(2, "557")
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"]), ("quote_cap", 2))
+        for n in range(4):
+            self.original(f"original number {n} about lighthouses {'and moss ' * n}")
+        with self.assertRaises(hand.Refused) as caught:
+            self.original("a fifth original")
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertEqual([r["kind"] for r in self.ledger()].count("quote"), 2)
+        self.assertEqual([r["kind"] for r in self.ledger()].count("post"), 4)
+
+    def test_the_quote_lane_is_settings(self):
+        self.configure(QUOTE_MIN_GAP_HOURS="1", QUOTE_AFTER_POST_MINUTES="10", X_QUOTES_MAX_PER_DAY="1")
+        self.original()
+        self.at(T0 + 11 * MINUTE)
+        self.quote(0)
+        self.at(T0 + 3 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            self.quote(1, "556")
+        self.assertEqual(caught.exception.detail["rule"], "quote_cap")
+
+    def test_a_thread_does_not_look_at_quotes(self):
+        self.quote(0)
+        self.at(T0 + 10 * MINUTE)
+        out = publish.thread({"anchor": "hn:1", "posts": ["one thing about moss", "another thing about moss"]})
+        self.assertEqual(out["sent"], 2)
+
+
 class DailyCapTest(Posting):
     """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the slots and
     the outward quote share them; replies are never counted."""
