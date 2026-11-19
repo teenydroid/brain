@@ -392,6 +392,39 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("details:", message)  # the turn says it in words
         self.assertNotIn('"in_reply_to"', message)
 
+    def test_a_comment_under_teenys_own_x_post_is_answered_not_let_go(self):
+        # 2026-11-17..19: 19 of 30 comments under Teeny's own X posts went
+        # unanswered by choice ("hype with no question in it, silence"),
+        # while comments on its own Moltbook posts carried "answer each one
+        # in this beat". The operator's "replies to comments on your own posts
+        # come first" lived only in playbooks/mentions.md, which the mind
+        # never reads.
+        conn = self.x_ledgers()
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('50', 'post', 'gm. coffee first', ?)",
+                     (T0 - 3600,))
+        conn.close()
+        stimuli.add("x", "mention", "51", "you're cooking 💯", who="ana", at=T0 - 120,
+                    payload={"conversation_id": "50", "created_at": "2026-09-14T06:58:00.000Z"})
+        stimuli.add("x", "mention", "61", "look at this coin", who="bo", at=T0 - 60,
+                    payload={"conversation_id": "70", "created_at": "2026-09-14T06:59:00.000Z"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        tick = _tick_module()
+        self.assertEqual(message.count(tick.X_OWN_THREAD), 1)
+        self.assertIn("@ana is answering your own post: answer them.", message)
+        self.assertNotIn("Your response to @ana — or let it go.", message)
+        # A tag in somebody else's thread keeps the old cue and no block of its own.
+        self.assertIn("Your response to @bo — or let it go.", message)
+
+    def test_a_beat_with_no_comment_under_an_own_x_post_has_no_own_thread_block(self):
+        self.x_ledgers().close()
+        stimuli.add("x", "mention", "61", "look at this coin", who="bo", payload={"conversation_id": "70"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertNotIn("Replies under your own X posts come first", message)
+
     def test_someone_new_on_x_has_never_talked_with_teeny(self):
         self.x_ledgers().close()
         stimuli.add("x", "mention", "9", "hello tiny robot", who="lewis")
