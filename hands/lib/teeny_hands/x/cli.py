@@ -9,11 +9,14 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  search QUERY [--max N] a recent search
   R  whoami                 the account's own id and username
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
-  R  slot                   whether an own post would pass the gap and the day's cap now: {open: true} or {why}
+  R  slot [--quote]         whether an original post (a quote, with --quote) would pass its lane's gap and the
+                            day's cap now: {open: true} or {why}
   R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted]
                             the newest original posts of the accounts in brain/x-peers.txt, screened
-  A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source, format}], "media_ids"?}:
-                            all kept, the top one quoted only when it clears the bar (x/peers.py)
+  R  peers trending [--max-age-hours H] [--stories N] [--per-story N] [--skip-quoted]
+                            the X posts behind today's top-ranked AI and tech stories (hands/trend top), screened
+  A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source?, format}], "media_ids"?,
+                            "meme"?}: all kept, the top one quoted only when it clears the bar (x/peers.py)
   R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
@@ -105,7 +108,7 @@ def _links(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _slot(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
-    return publish.slot()
+    return publish.slot(quote=args.quote)
 
 
 def _post(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -178,6 +181,17 @@ def _peers_report(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return peers.report(args.days)
 
 
+def _peers_trending(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return peers.trending(args.trend_max_age_hours, args.stories, args.per_story, skip_quoted=args.trend_skip_quoted)
+
+
+def _stories(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 10:
+        raise argparse.ArgumentTypeError("--stories is 1..10")
+    return number
+
+
 def _hours(value: str) -> float:
     number = float(value)
     if not 1 <= number <= 168:
@@ -241,7 +255,8 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--max", type=_max, default=None)
     verb("whoami", _whoami, "the account's own id and username")
     verb("links", _links, "today's link posts against the daily cap (reads the ledger only)")
-    verb("slot", _slot, "whether an own post would pass the gap and the day's cap now (reads the ledger only)")
+    verb("slot", _slot, "whether an original post (or a quote) would pass its lane's gap and cap now (reads the ledger only)"
+         ).add_argument("--quote", action="store_true", help="the quote lane, not the original posts'")
     reading = verb("peers", _peers, "the newest posts of the accounts in brain/x-peers.txt")
     reading.add_argument("--max-age-hours", type=_hours, default=8.0)
     reading.add_argument("--per-peer", type=_per_peer, default=2)
@@ -253,6 +268,13 @@ def parser() -> argparse.ArgumentParser:
     reported = peer_verbs.add_parser("report", help="per peer: touches, who answered, how the quote did")
     reported.add_argument("--days", type=_days, default=14)
     reported.set_defaults(handler=_peers_report, takes_body=False)
+    trend = peer_verbs.add_parser("trending", help="the X posts behind today's top-ranked AI and tech stories")
+    trend.add_argument("--max-age-hours", dest="trend_max_age_hours", type=_hours, default=peers.TREND_MAX_AGE_HOURS)
+    trend.add_argument("--stories", type=_stories, default=peers.TREND_STORIES)
+    trend.add_argument("--per-story", type=_per_peer, default=peers.TREND_POSTS_PER_STORY)
+    trend.add_argument("--skip-quoted", dest="trend_skip_quoted", action="store_true",
+                       help="leave out authors quoted in the last 7 days")
+    trend.set_defaults(handler=_peers_trending, takes_body=False)
     # One word, as a playbook's `hand:x <verb>` output names it (peer-quote).
     verb("peer-suggest", _peers_suggest, "up to 3 scored quote suggestions; the top one posted only past the bar",
          body=True)
