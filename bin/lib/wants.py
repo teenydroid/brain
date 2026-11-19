@@ -284,9 +284,10 @@ def _epoch(value: Any) -> float | None:
 
 
 def read_pr(url: Any) -> Json:
-    """The pull request's fate through `hands/gh pr` (a cached read):
-    {"state": "merged", "merged_at": epoch | None}, "declined" or "in-flight".
-    GitHub not answering, or answering out of shape, is in flight."""
+    """The pull request's fate through `hands/gh pr` (a cached read, which
+    prints {"ok": true, "pr": {...}}): {"state": "merged", "merged_at": epoch |
+    None}, "declined" or "in-flight". GitHub not answering, or answering out of
+    shape (no `pr` object), is in flight."""
     match = PR_URL.fullmatch(str(url or ""))
     if not match:
         return {"state": "in-flight"}
