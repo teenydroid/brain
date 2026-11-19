@@ -1227,7 +1227,8 @@ Every scheduled job is in one of two files:
     lines): a run with `ok: false` whose `failure` is not `provider` counts,
     a skip (an `ok` line with `skipped`, such as a spent budget) is no run
     and changes nothing, and the count stops at the first ok run or the first
-    provider failure. A failure within `ACT_RETRY_SECS` (120 s) of the next
+    provider failure; only the last `PLAYBOOK_LOOKBACK_SECS` (7 days) of runs
+    count. A failure within `ACT_RETRY_SECS` (120 s) of the next
     newer failure is folded into it, so cron's quick retries of one slot count
     once, and failures two minutes or more apart count separately. At
     `PLAYBOOK_ALARM_RUNS` (3, `secrets/teeny.env`) runs in a row it raises a
@@ -1236,7 +1237,9 @@ Every scheduled job is in one of two files:
     the times and one more thing: the class of the error, which is bin/act's
     own words up to the first colon, scrubbed. It never carries stderr, stdout
     or a draft, which can quote a stranger. The playbook's next ok run closes
-    the issue and sends `health · recovered`. Once drafts are answered
+    the issue and sends `health · recovered`; so does a week with no failed
+    run, for a playbook that was retired or unscheduled and so never gets an
+    ok run (the issue says why it closed). Once drafts are answered
     again, a slot they lost is made up once within its window: a
     `make_up_hours` job (the Moltbook evening audit) or a
     `catch_up` playbook (`bin/lib/catch_up.py`).

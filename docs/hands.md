@@ -1724,12 +1724,20 @@ adds. For each one:
 |---|---|
 | any new hand | `no new hand: a feature adds hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py` |
 | `hands/<name>` is an executable file | `hands/<name> is not an executable entry point` |
-| its package `hands/lib/teeny_hands/<name>/` has `hand.run(` in it | `... does not run through hand.run (the hand contract)` |
+| the entry point's text names its package (`teeny_hands.<name>`, or `from teeny_hands import <name>`) | `hands/<name> does not run its package teeny_hands.<name>` |
+| a module of `hands/lib/teeny_hands/<name>/` really calls the contract's `run`, read from its syntax tree: `hand.run(...)` with `hand` imported from `teeny_hands`, or `run` imported from `teeny_hands.hand`. A comment, a docstring or a string that says it does not count. A module that does not parse is named | `... does not run through hand.run (the hand contract)`, or `... <module> does not parse` |
 | `hands/tests/test_<name>.py` parses | `no hands/tests/test_<name>.py that parses` |
+| and asserts something: an `assert` statement or a call of a method named `assert*` | `hands/tests/test_<name>.py asserts nothing (no assert statement or self.assert* call)` |
 | those tests pass when the desk runs them itself, in the same Landlock jail as `ship` (`verify.run` with `start`, `top` and `pattern`, so only that file runs; no jail, no run, no pass) | `the tests of hands/<name> did not pass when the desk ran them: <the last 400 characters>` |
-| a playbook calls it: front matter with an input `run` whose first word is `hands/<name>`, or an `output` starting `hand:<name> ` (prose that mentions the hand does not count) | `no playbook calls hands/<name> (...)` |
+| a playbook calls it: front matter with an input `run` whose first word is `hands/<name>` (an input marked `optional = true` does not count: it may never run), or an `output` starting `hand:<name> ` (prose that mentions the hand does not count) | `no playbook calls hands/<name> (...)` |
 | `brain/cron.toml` runs a calling playbook as an enabled `bin/act <book>` job | `no playbook that calls hands/<name> is scheduled in brain/cron.toml` |
 | `docs/hands.md` has a `## ` heading holding `<name>` in backticks (evolve's `hand_section` rule, copied so the hand lib does not import `bin/lib/evolve.py`) | ``docs/hands.md has no `## `<name>`` section`` |
+
+These checks are cheap hardening against an empty shell (a stub, a test that
+asserts nothing), not proof that the hand is useful: a person's review and the
+use count a week after merge are the real gates. The changed paths are read
+without rename detection, so a new hand beside a deleted file is an add and a
+delete, never a rename that hides it.
 
 Anything missing raises `Refused` (exit 2, `rule: feature`, `missing`, `job_id`).
 The desk keeps that as `last_report_rejected` with the claim still open, so the

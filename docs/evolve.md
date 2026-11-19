@@ -974,6 +974,10 @@ What a refusal does, by where the skip came from (`refused_skip` in
   skip that does stand after refused ones, because it names a file that runs,
   settles as if it had come in round 1, so one refused try does not turn an
   honest `already` into a parked candidate.
+- **The pull request.** A candidate built after a refused research skip says
+  so in its **Research** line: what research answered, that the skip was
+  refused and why, and that it was built without a plan. It never reads as
+  "already done".
 - **The archive.** `_settles` is false for any archived `skipped` entry the
   rule refuses, whenever it was recorded. The six skips above stop settling
   their learnings at the next run, and those learnings are open again. A
@@ -989,7 +993,9 @@ picked here: `split_wants` takes it out of the list `_run_generation` reads
 (the run says so), and `bin/evolve status` shows it under `learnings.wants`
 (`id`, `section`, `text` cut to 160 characters), not in `open` or `not_open`.
 It is a feature, and this loop makes the smallest edit to an existing file.
-"1c. Wants" says where it goes.
+"1c. Wants" says where it goes. Routing stops new picks only: a candidate
+that already passed before its learning was routed still ships (the waiting
+queue is built from the routed learnings too).
 
 **What the box broke is not a verdict on the idea.** Gen 10's candidates 2
 and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
@@ -1276,8 +1282,11 @@ tries goes first, then page order.
 
 `pick-request` still chooses: it is a judgement, not code. Its playbook now
 says that a `self` request whose text starts `want:` is something Teeny said
-it would build, and that reading public data such as a price chart is not
-touching tokens (trading, holding or moving them, or a wallet, still is).
+it would build, and that for such a request only, reading public data such as
+a price chart is not touching tokens (trading, holding or moving them, or a
+wallet, still is). A request from anyone else keeps the old rule. It also
+picks twice a day now (`max_per_day = 2`), so a want filed after the morning
+pick does not wait for the next day.
 
 **Scoring** (`bin/wants watch`). Once a want's pull request has merged and
 `WANTS_USED_DAYS` have passed, the code counts, for each hand named in the
@@ -2216,7 +2225,7 @@ does. Now every proposal carries a `check` the code can count
 | `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default, then only Teeny's own words: never text code wrote, like the babysitter's audit comment, `teeny_hands.authorship`) |
 | `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
 | `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
-| `hand_used` | `hand` | runs of `bin/act` playbooks whose input runs `hands/<hand>` or whose output is `hand:<hand> <verb>` (`state/act/<playbook>/runs.jsonl`); a run with a `skipped` key (the daily budget, the studio) is left out |
+| `hand_used` | `hand` | ok runs of `bin/act` playbooks that call `hands/<hand>` (`state/act/<playbook>/runs.jsonl`): a playbook whose input runs it counts every ok run; one that only has `output = "hand:<hand> <verb>"` counts the ok runs whose answer took the hand action (`actions` holds `{action: "hand", status: "done"}`). A failed run and one with a `skipped` key (the daily budget, the studio) are left out |
 | `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
 
 Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
@@ -2226,8 +2235,10 @@ shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
 
 **`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
-the runs inside the window of every playbook in the candidate's tree that
-calls the hand. It is validated against that tree (the hand must exist at
+the ok runs inside the window of every playbook in the candidate's tree that
+calls the hand, counted as the table says: a run that never reached the hand
+(it failed, was skipped, or its answer did not take the hand action) is not a
+use. It is validated against that tree (the hand must exist at
 `hands/<hand>`), so a hand the change adds counts. It counts the playbooks'
 runs, not the hand's calls, on purpose: `hand.run` logs nothing, some hands
 (`dripsplan`) do not go through it, and the playbook runs are already logged.
