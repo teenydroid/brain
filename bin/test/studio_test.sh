@@ -434,6 +434,28 @@ check "the writer's turns ask for STUDIO_WRITER_MODEL" \
 check "the editor's turns ask for STUDIO_EDITOR_MODEL" \
   test "$(jq -r 'select(.agent_id == "editor") | .model_override' "$FAKE_CALLS" | sort -u)" = gemini-3.1-pro
 check "and the record names both, and the judges' model" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro", judge: "judge-model"} and .warnings == []' <<<"$(last_record)"
+# The preview of 2026-11-19: models set for one run, not at the spine's boot,
+# so the core had no window for them and refused every turn on them.
+reset
+mkdir -p "$scratch/ladder"
+printf '{"data": [{"id": "glm-5.3-flash", "context_length": 1048576}, {"id": "claude-fable-5.2", "context_length": 1000000}, {"id": "claude-opus-5.5", "context_length": 1000000}]}' \
+  >"$scratch/ladder/models"
+echo '[{"id": "glm-5.3-flash", "provider": "local-openai", "context_window": 1048576, "vision": false}]' >"$scratch/registry.json"
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_WRITER_MODEL=claude-fable-5.2 STUDIO_EDITOR_MODEL=claude-opus-5.5 \
+  FAKE_WINDOWS=1 FAKE_REGISTRY="$scratch/registry.json" LADDER_URL="file://$scratch/ladder" run)"
+check "studio models the core had no window for run every turn on themselves, none falling back" \
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && jq -e '.warnings | all(test(\"failed a turn\") | not)' <<<\"\$2\" >/dev/null &&
+    [ \"\$(jq -r '.model_override // \"none\"' '$FAKE_CALLS' | sort -u | paste -sd,)\" = claude-fable-5.2,claude-opus-5.5 ]" _ "$out" "$(last_record)"
+check "their windows are the endpoint's, added to the registry, nothing in it lost" \
+  jqe 'map({(.id): .context_window}) | add == {"glm-5.3-flash": 1048576, "claude-fable-5.2": 1000000, "claude-opus-5.5": 1000000}
+    and (.[0].vision == false)' "$scratch/registry.json"
+reset
+echo '[]' >"$scratch/registry.json"
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_WRITER_MODEL=not-listed FAKE_WINDOWS=1 FAKE_REGISTRY="$scratch/registry.json" \
+  LADDER_URL="file://$scratch/ladder" run)"
+check "a model the endpoint does not list is said on stderr, and its refused turn still falls back" \
+  bash -c "grep -q 'no window for not-listed' '$scratch/stderr' && jq -e '.warnings | any(test(\"not-listed failed a turn\"))' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+rm -f "$scratch/registry.json"
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "no model set asks for none (the core's default)" test "$(jq -r '.model_override // "none"' "$FAKE_CALLS" | sort -u)" = none
