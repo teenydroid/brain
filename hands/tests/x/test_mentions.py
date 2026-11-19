@@ -11,6 +11,7 @@ from .support import T0, Scratch, me
 from guard.support import FakeCore, result
 from teeny_hands import hand
 from teeny_hands.x import mentions
+from teeny_hands.x import posting_rules as rules
 
 MENTIONS = "/2/users/1000/mentions"
 
@@ -239,7 +240,7 @@ class PollIntervalTest(IngestBase):
         out = mentions.ingest()
         self.assertEqual(len(self.x.requests("GET", MENTIONS)), 1, "a second read of X five minutes later")
         self.assertEqual((out["read"], out["offered"], out["screened"]), (0, 1, {"pending": 1}))
-        self.assertEqual(out["poll"], {"skipped": True, "next_at": hand.iso(T0 + 86400.0)})
+        self.assertEqual(out["poll"], {"skipped": True, "next_at": rules.iso(T0 + 86400.0)})
         self.assertEqual(self.statuses(), {"11": "offered", "12": "offered"})
 
     def test_x_is_read_again_once_a_day_has_passed(self):
