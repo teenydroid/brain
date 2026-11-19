@@ -910,7 +910,8 @@ scoreboard's by-format results set skits beside the rest. In a slot named in
 `STUDIO_SKIT_SLOTS` the writer is asked for skits first, the best skit pitch
 and the best pitch in another format are always drafted, the best skit is
 tried first whatever the editor's ranking (the slot question is asked of
-it), and when it cannot be made (off, over budget, a hard line, the reel
+it; a no to a skit promoted past the tournament's winner is recorded as
+`skit_veto` and the winner gets its own slot question), and when it cannot be made (off, over budget, a hard line, the reel
 service down, a render that failed) no other skit is tried that run and the
 failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
