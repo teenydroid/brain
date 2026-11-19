@@ -1527,7 +1527,10 @@ def _follow_up(intent: Mapping[str, Any], parked: list[str]) -> Json:
     return stimuli.follow_up(hand.now() + float(hours) * 3600, about, ref=ref)
 
 
-def _drop_follow_up(intent: Mapping[str, Any]) -> Json:
+def _drop_follow_up(intent: Mapping[str, Any], parked: list[str] = ()) -> Json:
+    """Clears a waiting follow-up, by id or ref; never one about an answer
+    that stands refused (`parked`, this beat or the last): that thing is not
+    answered (rule 10)."""
     fid = intent.get("id")
     if isinstance(fid, str) and fid.strip().lstrip("#").isdigit():
         fid = int(fid.strip().lstrip("#"))
@@ -1536,6 +1539,12 @@ def _drop_follow_up(intent: Mapping[str, Any]) -> Json:
         if ref is None:
             raise ValueError("needs id or ref")
         fid = None
+    unsent = {stimuli.bare_ref(r) for r in parked}
+    for f in stimuli.follow_ups()["follow_ups"] if unsent else []:
+        about = stimuli.bare_ref(f["ref"]) if f.get("ref") else None
+        if about in unsent and (f["id"] == fid if fid is not None else about == stimuli.bare_ref(ref)):
+            raise ValueError(f"follow-up #{f['id']} is about {about}, and your answer to it was refused and was not "
+                             "sent: it is still unanswered, so the follow-up stays")
     dropped = stimuli.drop_follow_up(id=fid, ref=None if fid is not None else ref)
     if not dropped:
         raise ValueError(f"no follow-up waiting by {'id ' + str(fid) if fid is not None else 'ref ' + str(ref)}")
@@ -1821,6 +1830,7 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
     acted = 0
     parked = _parked(list(batch))
     set_now: list[int] = []  # follow-ups set this beat: an answer in the same beat leaves them be
+    comments: Json | None = None  # the Moltbook comment allowance, read at the beat's first comment
     if deadline is None:
         deadline = deadline_from(time.monotonic())
     for n, intent in enumerate(intents):
@@ -1840,10 +1850,16 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 entry.update(status="done", result=_follow_up(intent, parked))
                 set_now.append(entry["result"]["id"])
             elif do == "drop_follow_up":
-                entry.update(status="done", result=_drop_follow_up(intent))
+                entry.update(status="done", result=_drop_follow_up(intent, parked))
             elif do in ROUTES:
+                if do == "comment_moltbook" and comments is None:
+                    comments = _comment_allowance() or {}
                 if acted >= MAX_INTENTS:
                     entry.update(status="refused", result={"refused": f"at most {MAX_INTENTS} actions a beat"})
+                elif do == "comment_moltbook" and comments.get("left") == 0:
+                    # Refused here, before the guard reads a word (rule 10).
+                    entry.update(status="refused", result={"refused": _no_comments(comments) + "; it was not sent",
+                                                           "rule": "daily_cap"})
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
@@ -1903,6 +1919,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                                 **({"media_ids": media_ids} if media_ids else {})})
                     else:
                         _landed(entry, do, intent, code, out, parked, set_now)
+                    if do == "comment_moltbook" and entry["status"] == "done" and comments.get("left"):
+                        comments["left"] -= 1
             else:
                 entry.update(status="refused", result={"refused": f"no such intent {do!r}"})
         except ValueError as exc:
@@ -1993,6 +2011,10 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += (f"; it is build request #{request['id']}, {request['status']}: pick-request picks it at its next run"
                  " and the builder makes it at its next run after that; it ships as a pull request the operator"
                  " merges or closes")
+    if do in ROUTES and entry["status"] in ("refused", "error"):
+        # Said plainly: live, 2026-11-19, the next beat took eight refused
+        # answers as sent (rule 10).
+        text += "; not sent" + ("; what it answered is still unanswered" if do in ANSWERS else "")
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
