@@ -856,7 +856,8 @@ def _watch_playbooks(state: Json, now: float) -> Json:
     found = _playbook_runs(now)
     threshold = _setting_int("PLAYBOOK_ALARM_RUNS", PLAYBOOK_ALARM_RUNS)
     alarms: Json = dict(state.get("playbook_alarm") or {})
-    out: Json = {}
+    out: dict[str, str] = {}
+    problems: list[str] = []
     for book in sorted(set(alarms) | {b for b, f in found.items() if f["runs"] >= threshold}):
         now_found, alarm = found.get(book) or {"runs": 0, "ok_at": None}, alarms.get(book)
         if alarm and not now_found["runs"] and now_found["ok_at"] is not None:
@@ -868,11 +869,11 @@ def _watch_playbooks(state: Json, now: float) -> Json:
                                  "issue": alarm.get("issue")})
             alarms.pop(book)
             out[book] = "cleared"
-            if closed:
-                out[f"{book}_issue_error"] = closed["issue_error"]
+            problems += [f"{book}: {closed['issue_error']}"] if closed else []
         elif alarm:
             if not alarm.get("issue") and now_found["runs"]:
                 _open_issue(alarm, _playbook_issue(book, now_found))
+            problems += [f"{book}: {alarm['issue_error']}"] if alarm.get("issue_error") else []
             out[book] = "open"
         elif not state.get("failures"):
             alarm = alarms[book] = {"ref": f"playbook:{book}:{int(now_found['since'])}", "opened_at": now,
@@ -886,10 +887,10 @@ def _watch_playbooks(state: Json, now: float) -> Json:
                 payload={"playbook": book, "runs": now_found["runs"], "since": now_found["since"],
                          "error": now_found["error"], "issue": alarm["issue"]},
             )
+            problems += [f"{book}: {alarm['issue_error']}"] if alarm.get("issue_error") else []
             out[book] = "raised"
     state["playbook_alarm"] = alarms
-    return {"playbook_alarm": {k: v for k, v in out.items() if not k.endswith("_issue_error")} or None,
-            **{k: v for k, v in out.items() if k.endswith("_issue_error")}}
+    return {"playbook_alarm": out or None, "playbook_issue_error": "; ".join(problems) or None}
 
 
 # --- yesterday, as one stimulus (docs/roadmap.md, A4) ------------------------------------------

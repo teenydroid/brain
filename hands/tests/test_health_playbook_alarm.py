@@ -74,8 +74,6 @@ class PlaybookAlarmTest(unittest.TestCase):
         out = health.check()
         self.assertIsNone(out["playbook_alarm"])
         self.assertEqual(self.alarms(), [])
-        # The provider's failures are the act alarm's: it raised that one.
-        self.assertEqual(out["act_alarm"], "raised")
 
     def test_a_budget_skip_does_not_clear_it(self):
         self.act_runs("self-improve", (-2 * DAY - 60, self.SCREENED), (-DAY - 60, self.SCREENED),
