@@ -995,9 +995,15 @@ One run is one slot:
    four words with an example "after" in `writer.md` (`copies an
    example`). When every draft of a pitch fails, it is drafted once more,
    told which words failed. Each draft keeps `truth: {text, facts}`, the
-   body `hands/guard truth` takes: the hooked story first, then the item and
-   the storyline, so a number the story holds is sourced and the truth judge
-   checks every claim about it against what the story said.
+   body `hands/guard truth` takes: the hooked story first, then one plain
+   line made in code from its trend measure (`reach_line`: "This story is
+   being widely discussed: 147 posts by 84 authors on X in the last 19 hours
+   (Digg score 1044, rank 1 in AI)", or "discussed, but not widely" below a
+   Digg Score of 500 with 50 authors, or 500 points and 200 comments on
+   Hacker News), then the item and the storyline, so a number the story
+   holds is sourced, the truth judge checks every claim about it against
+   what the story said, and "everyone's talking about it" holds only for a
+   story that is.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
    stands, and for a hooked draft the story it joins and its trend measure
@@ -1036,7 +1042,13 @@ One run is one slot:
    before the posting rules. A truth or stranger no gets one rewrite turn by
    the writer, told the reason and what was unsupported or unclear, and is
    gated once more; a second no falls to the next draft of the ranking, which
-   faces the editor's slot question first (at most two fallbacks); a judge
+   faces the editor's slot question first, told that nothing has gone out
+   in the slot yet and never shown the draft that failed. At most two
+   fallbacks go through the gates; one the editor vetoes costs no fallback,
+   so every ranked draft can be asked. A draft on another story goes first
+   when it ranks within one meeting's win rate of the next sibling of a
+   story that failed. An empty slot's `reason` says what came of every
+   attempt. A judge
    that could not judge at all, a shut slot (gap, cap), a guard hold or a
    hands/x error ends it with the slot empty. For an image, the scene goes
    past the guard as text a machine is sent (surface `task`), then
@@ -1085,7 +1097,7 @@ are built at boot (§4a).
 |---|---|---|
 | `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/dream` (thread `teeny:dream`), `bin/reflect` by hand (`teeny:reflect`) | none |
 | `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
-| `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, the editor on no thread) | none |
+| `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, each editor turn on a fresh `studio:<run id>:editor:<n>`, since a turn with no thread resumes the agent's newest transcript) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |

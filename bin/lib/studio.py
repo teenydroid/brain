@@ -72,9 +72,12 @@ In order:
    stranger no gets one rewrite turn by the writer, told the gate's reason,
    and is gated again once; a second no, or the posting rules turning a
    draft away (a repeat, a link), falls to the next draft of the ranking
-   that the editor, asked the slot question again, does not veto, at most
-   MAX_FALLBACKS times. A shut slot or a guard hold ends it. An empty slot
-   is an outcome, never an error. A picture is made only after the words
+   that the editor, asked the slot question again (told nothing has gone
+   out yet, never shown the draft that failed), does not veto, at most
+   MAX_FALLBACKS times through the gates; a veto costs none
+   (`next_fallback` says the order). A shut slot or a guard hold ends it. An
+   empty slot is an outcome, never an error, and its reason says what came
+   of every attempt (`empty_reason`). A picture is made only after the words
    passed (`picture`), under hands/image's own caps; when it fails the post
    goes out as words alone only if they stand alone. With STUDIO_DRY=1 (and
    always under `--dry-run`) every step runs, the picture is only planned,
