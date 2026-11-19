@@ -33,7 +33,7 @@ class RoutesTest(unittest.TestCase):
         ("GET", f"/teeny/v1/cuts/{TASK}/cut.mp4"),
         ("HEAD", f"/teeny/v1/cuts/{TASK}/cut.mp4"),
         ("GET", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
-        ("HEAD", f"/teeny/v1/cuts/{TASK}/frame-5.jpg"),
+        ("HEAD", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
         ("DELETE", f"/teeny/v1/cuts/{TASK}"),
     ]
 
