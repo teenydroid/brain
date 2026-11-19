@@ -49,7 +49,7 @@ from .surplus import Surplus, SurplusError
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot')),
   status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'unknown')),
   prompt      TEXT NOT NULL,
   model       TEXT,
@@ -97,7 +97,7 @@ def _db():
     return conn
 
 
-KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')"
+KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
 
 
@@ -107,7 +107,8 @@ def allow_reel_kinds(conn) -> None:
     check: the table is rebuilt once, rows and columns as they are, with
     `reel` (a clip with voice and captions), `song` (a song as a video),
     `music` (a bought track), `meme` and `comic` (hands/meme's pictures with
-    words drawn on) allowed, and the status `unknown` (money was
+    words drawn on), `skit` (hands/video skit's cut) and `shot` (one of its
+    bought text-to-video clips) allowed, and the status `unknown` (money was
     committed and the outcome is not known: it counts as spent), as
     x/posting_rules.py does for threads.
 
