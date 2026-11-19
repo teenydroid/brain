@@ -466,3 +466,45 @@ class SkitSlotRunTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SkitVetoRunTest(unittest.TestCase):
+    """In a skit slot the editor's veto of the promoted skit is "the skit
+    cannot go out", not an empty slot: the veto is recorded, the skits are
+    dropped, and the tournament's own top draft gets its own slot question."""
+
+    setUp = SkitSlotRunTest.setUp
+    tearDown = SkitSlotRunTest.tearDown
+
+    def ask(self, root, agent, message, thread, model, secs):
+        if message.startswith("# studio: the slot"):
+            self.finals.append(message)
+            vetoed = '"skit"' in message
+            return 0, json.dumps({"verdict": "none" if vetoed else "pick",
+                                  "reason": "the skit is flat" if vetoed else "the post earns it"}), ""
+        return SkitSlotRunTest.ask(self, root, agent, message, thread, model, secs)
+
+    def test_a_vetoed_skit_falls_back_to_the_tournaments_top_draft(self):
+        self.finals = []
+        code, out = studio.run(self.args, self.env, ask=self.ask)
+        self.assertEqual((code, out["outcome"]), (0, "picked"), out)
+        record = json.loads((self.root / "state" / "studio" / "runs.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(record["skit_veto"]["reason"], "the skit is flat")
+        self.assertEqual(len(self.finals), 2)
+        self.assertEqual(record["final"]["verdict"], "pick")
+        self.assertEqual(record["pick"]["format"], "post")
+        self.assertEqual(record["publish"]["attempts"][0]["format"], "post")
+        self.assertNotIn("skit", [a["format"] for a in record["publish"]["attempts"]])
+        self.assertEqual(record["published"]["outcome"], "would_post")
+
+    def test_a_veto_of_the_post_after_the_skit_is_a_real_veto(self):
+        self.finals = []
+
+        def ask(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: the slot"):
+                self.finals.append(message)
+                return 0, json.dumps({"verdict": "none", "reason": "neither"}), ""
+            return SkitSlotRunTest.ask(self, root, agent, message, thread, model, secs)
+        code, out = studio.run(self.args, self.env, ask=ask)
+        self.assertEqual(out["outcome"], "vetoed")
+        self.assertEqual(len(self.finals), 2)
