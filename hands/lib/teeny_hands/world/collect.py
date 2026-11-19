@@ -44,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import hand
+from .. import authorship, hand
 from . import score
 
 SCHEMA = """
@@ -359,12 +359,15 @@ def penalty(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     yesterday = datetime.fromtimestamp(start, timezone.utc).strftime("%Y-%m-%d")
     parts: Json = {}
     if _has_table(conn, "guard_holds"):
-        row = conn.execute(
-            "SELECT count(*) AS n FROM guard_holds WHERE direction != 'inbound'"
+        rows = conn.execute(
+            "SELECT direction, context, text FROM guard_holds WHERE direction != 'inbound'"
             " AND status NOT IN ('approved', 'cleared') AND substr(at, 1, 10) = ?",
             (yesterday,),
-        ).fetchone()
-        parts["guard_holds_own"] = float(row["n"])
+        ).fetchall()
+        # Teeny's own text only: not the babysitter's audit comment, which
+        # code composes and posts under Teeny's name (teeny_hands.authorship).
+        parts["guard_holds_own"] = float(sum(1 for r in rows if authorship.teenys_own(r["direction"], r["context"],
+                                                                                        r["text"])))
     if _has_table(conn, "wallet_payments"):
         row = conn.execute(
             "SELECT count(*) AS n FROM wallet_payments WHERE status = 'in_doubt' AND created_at >= ? AND created_at < ?",

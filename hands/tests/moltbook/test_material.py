@@ -76,6 +76,23 @@ class MaterialTest(Scratch):
         self.assertEqual(out["count"], 1)
         self.assertEqual(out["lines"], ["2026-09-14: 1 guard hold (violence 1)"])
 
+    def test_guard_holds_leave_out_the_babysitters_audit_comment(self):
+        # The babysitter's comment is posted under Teeny's account but composed
+        # by hands/babysit: on 2026-11-18 a post counted 17 of them as Teeny's.
+        from teeny_hands.babysit import actions
+        self.hold("violence", "killed", T0 - HOUR)
+        for k in range(3):
+            self.at(T0 - (k + 2) * HOUR)
+            holds.record(direction="outbound", kind="link",
+                         context={"surface": "github", "post_kind": "comment", "number": 368},
+                         category="links", reason="links", by="links",
+                         text=json.dumps({"body": actions.report({"verdict": "needs_operator",
+                                                                  "head_sha": "004a55c5", "tier": "teeny"})}))
+        self.at(T0)
+        out = material.material()["guard_holds"]
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["lines"], ["2026-09-14: 1 guard hold (violence 1)"])
+
     def _write(self, table: str, at: float, status: str, n: int = 1) -> None:
         conn = rules.db()
         with hand.transaction(conn):

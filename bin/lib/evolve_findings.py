@@ -19,7 +19,12 @@ days:
                writes, never how often or where it may post
   guard_holds  the guard holding Teeny's own drafts on one surface in one
                category, real verdicts only (a hold the judge could not make
-               is `unknown`), with the playbooks and beats that drafted them
+               is `unknown`), with the playbooks and beats that drafted them.
+               Only text Teeny's model wrote counts: a hold on text code
+               composes and posts under Teeny's name (the babysitter's audit
+               comment; teeny_hands.authorship) is no brain edit's to change,
+               so it is left out of the count and its check, and the finding
+               says how many there were
 
 A finding needs at least EVOLVE_OUTCOME_MIN_EVENTS events, so its check can
 be scored at all. Its number is evolve_outcomes.count of its own `check` over
@@ -33,7 +38,8 @@ counts engagement. docs/evolve.md says what would have to be recorded.
 
 Only the hands', the guard's and the core's own words are kept, cut short,
 with links, emails and handles taken out (`scrub`); a draft's text, which
-quotes people, and anything a stranger wrote are never read. Every turn that
+quotes people, and anything a stranger wrote are never shown (a held draft
+is matched against teeny_hands.authorship's fixed markers, never kept). Every turn that
 sees a finding sees only that.
 
 Frozen with bin/: a candidate cannot change what it is shown.
@@ -264,22 +270,26 @@ def _drafted_by(src: eo.Sources, tree: Path, since: float, until: float) -> dict
 
 
 def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: int) -> list[Finding]:
+    """Holds on Teeny's own drafts (evolve_outcomes.guard_hold_rows: never
+    text code wrote, like the babysitter's audit comment, which no brain
+    edit changes), by surface and category."""
     db = eo._Db(src.hands_db)
     try:
-        rows = db.rows("SELECT id, at, context, category, reason, held_by, status FROM guard_holds "
-                       "WHERE direction = 'outbound'")
+        rows = eo.guard_hold_rows(db, {"hold_direction": "outbound"}, since, until)
     finally:
         db.close()
-    groups: dict[tuple[str, str], list[tuple]] = {}
-    for hold_id, at, context, category, reason, held_by, status in rows:
-        if not eo._inside(eo._epoch(at), since, until) or category in NO_VERDICT or not eo._WORD.match(str(category)):
+    groups: dict[tuple[str, str], list[Json]] = {}
+    not_yours: dict[tuple[str, str], Counter] = {}
+    for r in rows:
+        category, surface = r["category"], r["surface"]
+        if category in NO_VERDICT or not eo._WORD.match(str(category)):
             continue
-        try:
-            surface = json.loads(context or "{}").get("surface")
-        except (ValueError, AttributeError):
-            surface = None
-        if isinstance(surface, str) and eo._WORD.match(surface):
-            groups.setdefault((surface, category), []).append((hold_id, at, reason, held_by, status))
+        if not (isinstance(surface, str) and eo._WORD.match(surface)):
+            continue
+        if r["code_wrote"]:
+            not_yours.setdefault((surface, category), Counter())[r["code_wrote"]] += 1
+        else:
+            groups.setdefault((surface, category), []).append(r)
     drafted = _drafted_by(src, tree, since, until) if groups else {}
     out = []
     for (surface, category), held in sorted(groups.items()):
@@ -287,19 +297,25 @@ def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: 
         n = eo.count(check, src, since, until) or 0
         if not n:
             continue
-        sources = Counter(drafted[h[0]] for h in held if h[0] in drafted)
+        sources = Counter(drafted[h["id"]] for h in held if h["id"] in drafted)
         files = sorted({f"brain/playbooks/{s.split(':', 1)[1]}.md" for s in sources if s.startswith("playbook:")})
         if any(s.startswith("verb:") for s in sources) or not files:
             files += list(MIND_FILES)
         named = ", ".join(f"{('bin/act ' if s.startswith('playbook:') else 'the beat ') + s.split(':', 1)[1]} "
                           f"× {k}" for s, k in sources.most_common())
-        reasons = _said(_reasons(scrub(h[2]) for h in held))
-        text = (f"The guard held {n} of your own {surface} draft{'s' if n != 1 else ''} as `{category}` in the last "
-                f"{days} days (its real verdicts: none the judge failed to make)"
+        reasons = _said(_reasons(scrub(h["reason"]) for h in held))
+        whose = not_yours.get((surface, category), Counter())
+        other = sum(whose.values())
+        text = (f"The guard held {n} of your own {surface} draft{'s' if n != 1 else ''} (text your model wrote) as "
+                f"`{category}` in the last {days} days (its real verdicts: none the judge failed to make)"
                 + (f", drafted by {named}" if named else "") + f". Why it held them: {reasons}. A hold is a draft "
-                "nobody saw; the guard is frozen, what you write is not.")
-        examples = [{"at": at, "reason": scrub(reason), "held_by": scrub(held_by, 40), "status": scrub(status, 40)}
-                    for _, at, reason, held_by, status in held[-MAX_EXAMPLES:]]
+                "nobody saw; the guard is frozen, what you write is not."
+                + (f" {other} more `{category}` hold{'s' if other != 1 else ''} on {surface} in the same days "
+                   f"{'were' if other != 1 else 'was'} on text code wrote, not you ("
+                   + ", ".join(eo.authorship.what(w) for w, _ in whose.most_common())
+                   + "): nothing for you to change there, and not in this count." if other else ""))
+        examples = [{"at": h["at"], "reason": scrub(h["reason"]), "held_by": scrub(h["held_by"], 40),
+                     "status": scrub(h["status"], 40)} for h in held[-MAX_EXAMPLES:]]
         out.append(Finding(f"f:guard_holds:{surface}:{category}", "guard_holds", f"{surface}:{category}", n, days,
                            check, text, files, examples))
     return out
