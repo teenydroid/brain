@@ -11,10 +11,11 @@ import os
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from gh.support import T0, Scratch, git
 from teeny_hands import hand
-from teeny_hands.build import jobs, selfclone
+from teeny_hands.build import feature, jobs, selfclone, verify
 
 CHECKOUT = Path(__file__).resolve().parents[3]
 BUILD_SHIP = CHECKOUT / "bin" / "build-ship"
@@ -166,6 +167,114 @@ class SelfJobTest(SelfJobScratch):
         for bad in (None, {}, {"text": ""}, {"text": "x", "extra": 1}):
             with self.subTest(body=bad), self.assertRaises(hand.HandError):
                 jobs.propose_self(bad)
+
+    def test_a_second_self_proposal_is_refused_while_one_is_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        first = jobs.propose_self({"text": "say gm less often"})["id"]
+        for state in ("pending", "picked"):
+            with self.subTest(request=state), self.assertRaises(hand.Refused) as caught:
+                jobs.propose_self({"text": "something else"})
+            self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
+            self.assertIn(f"self request #{first} ({state})", caught.exception.detail["active"])
+            self.assertEqual(caught.exception.reason,
+                             f"one change to yourself is already in flight: {caught.exception.detail['active']}")
+            build_requests.pick({"id": first, "reason": "it reads flat"}) if state == "pending" else None
+        # Picked and built: the job is in flight, even with the request settled meanwhile.
+        job = jobs.next_job()["job"]
+        with self.assertRaises(hand.Refused) as caught:
+            jobs.propose_self({"text": "something else"})
+        self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nbriefer\n")
+        jobs.done({"job_id": job["job_id"], "status": "failed", "summary": "it did not work", "tests": "none"})
+        # Nothing is in flight once the job failed (and its request with it): the next may go.
+        second = jobs.propose_self({"text": "something else"})
+        self.assertEqual(second["status"], "pending")
+        self.assertEqual(len(build_requests.listing("pending")["requests"]), 1)
+
+    def test_a_skipped_or_shipped_self_request_is_not_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        rid = jobs.propose_self({"text": "say gm less often"})["id"]
+        build_requests.skip({"id": rid, "reason": "not now"})
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.self_in_flight(conn))
+            conn.execute("UPDATE build_requests SET status = 'shipped' WHERE id = ?", (rid,))
+            self.assertIsNone(jobs.self_in_flight(conn))
+            conn.execute("UPDATE build_requests SET status = 'picked' WHERE id = ?", (rid,))
+            self.assertIn(f"self request #{rid} (picked)", jobs.self_in_flight(conn))
+        finally:
+            conn.close()
+        jobs.propose_self  # a someone-else request never counts
+        build_requests.record("x", "1", "somebody", "build me a thing")
+        conn = jobs.db()
+        try:
+            conn.execute("UPDATE build_requests SET status = 'skipped' WHERE id = ?", (rid,))
+            self.assertIsNone(jobs.self_in_flight(conn))
+        finally:
+            conn.close()
+
+    def test_a_want_proposal_is_tagged_in_its_source_id(self):
+        from teeny_hands import requests as build_requests
+
+        out = jobs.propose_self({"text": "build the chart renderer", "want": "w:m15"})
+        self.assertEqual(out, {"id": out["id"], "status": "pending", "want": "w:m15"})
+        row = build_requests.get(out["id"])["request"]
+        self.assertRegex(row["source_id"], r"^want:w:m15:\d+\.\d{6}$")
+        conn = jobs.db()
+        try:
+            self.assertEqual(jobs.want_of(conn, out["id"]), "w:m15")
+            self.assertIsNone(jobs.want_of(conn, 9999))
+        finally:
+            conn.close()
+
+    def test_a_plain_proposal_keeps_its_old_source_id_and_has_no_want(self):
+        from teeny_hands import requests as build_requests
+
+        out = jobs.propose_self({"text": "say gm less often"})
+        self.assertEqual(out, {"id": out["id"], "status": "pending"})
+        self.assertRegex(build_requests.get(out["id"])["request"]["source_id"], r"^\d+\.\d{6}$")
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.want_of(conn, out["id"]))
+        finally:
+            conn.close()
+
+    def test_a_bad_want_id_is_refused(self):
+        from teeny_hands import requests as build_requests
+
+        for bad in ("m15", "w:", "w:UP", "w:has space", "w:" + "a" * 61, "", 15, None, ["w:m15"]):
+            with self.subTest(want=bad), self.assertRaises(hand.HandError):
+                jobs.propose_self({"text": "build the chart renderer", "want": bad})
+        self.assertEqual(build_requests.listing("pending")["requests"], [])
+        # The edges that are fine.
+        for good in ("w:m15", "w:" + "a" * 60, "w:g9:c1_x-y"):
+            with self.subTest(want=good):
+                self.assertEqual(jobs.propose_self({"text": "build it", "want": good})["want"], good)
+                conn = jobs.db()
+                try:
+                    conn.execute("UPDATE build_requests SET status = 'skipped'")
+                    conn.commit()
+                finally:
+                    conn.close()
+
+    def test_the_cli_refuses_a_second_proposal_with_exit_2_and_the_one_in_flight(self):
+        build = HANDS / "build"
+        env = {**os.environ, "TEENY_ROOT": str(self.root)}
+
+        def propose(body):
+            return subprocess.run([str(build), "self"], input=json.dumps(body), capture_output=True, text=True, env=env)
+
+        first = propose({"text": "build the chart renderer", "want": "w:m15"})
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(json.loads(first.stdout)["want"], "w:m15")
+        second = propose({"text": "build another", "want": "w:m16"})
+        self.assertEqual(second.returncode, 2, second.stderr)
+        out = json.loads(second.stdout)
+        self.assertEqual((out["ok"], out["rule"]), (False, "one_at_a_time"))
+        self.assertIn("self request #", out["active"])
+        self.assertTrue(out["refused"].startswith("one change to yourself is already in flight: "))
 
     def test_a_picked_self_request_starts_a_branch_from_a_freshly_pulled_main(self):
         selfclone.sync()
