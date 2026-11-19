@@ -281,7 +281,7 @@ class TickTest(unittest.TestCase):
         # The no-ops keep `idle`, which the reflection skips.
         self.assertTrue(asleep["asleep"] and asleep["idle"])
         self.assertTrue(busy["idle"])
-        self.assertEqual(asleep["waiting"], 1)
+        self.assertEqual(asleep["waiting"], 2)  # "gm again", and that its beat failed
         for r in self.runs():
             self.assertIn("at", r)
 
@@ -1721,7 +1721,8 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "111", "gm")
         got = self.tick()
         self.assertFalse(got["ok"])
-        self.assertEqual(stimuli.counts()["pending"], 1)
+        # The batch, and the outcome saying nothing was carried out.
+        self.assertEqual(stimuli.counts()["pending"], 2)
 
     def test_an_unusable_answer_is_asked_for_once_more_then_given_back(self):
         stimuli.add("x", "mention", "111", "gm")
@@ -1729,7 +1730,8 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertFalse(got["ok"])
         self.assertEqual(len(self.chats()), 2)
-        self.assertEqual(stimuli.counts()["pending"], 1)
+        # The batch, and the outcome saying nothing was carried out.
+        self.assertEqual(stimuli.counts()["pending"], 2)
 
     def test_a_second_try_that_parses_is_used(self):
         stimuli.add("x", "mention", "111", "gm")

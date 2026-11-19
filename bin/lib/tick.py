@@ -94,7 +94,7 @@
    that fails (the turn, or an answer not usable JSON twice) leaves a `hand`
    outcome for the next saying nothing was carried out, beside its batch
    put back: the failed answer's prose stays on the thread, and may say
-   otherwise.
+   otherwise. A quiet beat's failure leaves nothing (its moment is let go).
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -2258,7 +2258,8 @@ def _beat(deadline: float) -> Json:
             give_back(tick)
             out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items), **more}
             _record(out)
-            _failed_beat(tick, "your last turn failed before it answered, so nothing was carried out")
+            if kind != "quiet":
+                _failed_beat(tick, "your last turn failed before it answered, so nothing was carried out")
             return out
         try:
             thought, intents = parse(said)
@@ -2269,8 +2270,9 @@ def _beat(deadline: float) -> Json:
         give_back(tick)
         out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items), **more}
         _record(out)
-        _failed_beat(tick, "your last answer was not usable JSON, so nothing in it was carried out: nothing was sent, "
-                           "whatever it said. What it was about is in front of you again")
+        if kind != "quiet":
+            _failed_beat(tick, "your last answer was not usable JSON, so nothing in it was carried out: nothing was sent, "
+                               "whatever it said. What it was about is in front of you again")
         return out
     # Settled before acting: a beat that dies halfway must not hand the same
     # batch to the next one and answer it twice.
