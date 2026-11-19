@@ -2,15 +2,17 @@
 
   build_jobs(id, kind, request_id, slug, repo, text, workdir, status,
              claimed_at, finished_at, summary, tests, ship_attempts,
-             ship_error, shipped_at, repo_url, commit_url)
+             ship_error, shipped_at, repo_url, commit_url, rubric)
 
   kind     request (a build request someone made, `build_requests`, picked
            by somebody else), daily (Teeny's own small thing, at most one
            a UTC day, made only when no request is waiting: the idea it
            kept with `idea`, build/ideas.py, or the standing brief), or self (a
            change to Teeny's own repository: a request Teeny proposed with
-           `propose_self`, built in its clone and shipped as a pull request;
-           build/selfclone.py), fix (a red pull request of a self job back on
+           `propose_self`, one at a time, built in its clone and shipped as a
+           pull request; build/selfclone.py. A proposal that names a want is
+           a feature: an ok report is held to build/feature.py's rubric, kept
+           on the job as `rubric`), fix (a red pull request of a self job back on
            the desk, on its branch: A7), or upstream (one gap of
            docs/oh-gaps.md closed in a fork of OpenHuman and opened there as
            a disclosed pull request: build/upstream.py, A8)
@@ -58,6 +60,7 @@ from typing import Any, Mapping
 from .. import desk as _desk
 from .. import hand
 from .. import requests as build_requests
+from . import feature
 from . import ideas
 from . import verify
 from . import selfclone
@@ -128,6 +131,24 @@ UPSTREAM_RULES = (
     "closed already, report gave_up with why. When finished, write your report to report_to, once."
 )
 
+#: What a feature (a self job whose request names a want) is made of: the
+#: parts build/feature.py checks before the desk takes an ok report.
+FEATURE_REQUIRES = [
+    "a new hand: an executable hands/<name> and a package hands/lib/teeny_hands/<name>/ that runs through hand.run",
+    "tests: hands/tests/test_<name>.py, passing (the desk runs them itself, in a jail, and sends the report back if "
+    "they fail)",
+    "a playbook in brain/playbooks/ that calls the hand (an input `run = \"hands/<name> ...\"` or an output "
+    "`hand:<name> <verb>`)",
+    "that playbook scheduled in brain/cron.toml as `bin/act <playbook>`",
+    "a `## `<name>`` section in docs/hands.md",
+]
+#: The rules of a feature job: a self job's, and the one thing more.
+SELF_FEATURE_RULES = (
+    SELF_RULES + " This job is a feature: report ok only when the new hand, its tests, its docs/hands.md section and "
+    "a scheduled playbook that calls it are all in the clone; the desk checks each and sends the report back with "
+    "what is missing."
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS build_jobs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +181,8 @@ def db() -> sqlite3.Connection:
     and the columns added since a table was first made."""
     conn = hand.open_db(SCHEMA + build_requests.SCHEMA + ideas.SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(build_jobs)")}
-    for column, kind in (("pr_url", "TEXT"), ("verified", "TEXT"), ("parent_id", "INTEGER"), ("branch", "TEXT")):
+    for column, kind in (("pr_url", "TEXT"), ("verified", "TEXT"), ("parent_id", "INTEGER"), ("branch", "TEXT"),
+                         ("rubric", "TEXT")):
         if column not in have:
             try:
                 conn.execute(f"ALTER TABLE build_jobs ADD COLUMN {column} {kind}")
@@ -179,11 +201,12 @@ def _row(row: sqlite3.Row | None) -> Json | None:
     if row is None:
         return None
     out = {k: row[k] for k in row.keys() if row[k] is not None}
-    if isinstance(out.get("verified"), str):
-        try:
-            out["verified"] = json.loads(out["verified"])
-        except ValueError:
-            pass
+    for key in ("verified", "rubric"):
+        if isinstance(out.get(key), str):
+            try:
+                out[key] = json.loads(out[key])
+            except ValueError:
+                pass
     if "tests" in out:
         try:
             out["tests"] = json.loads(out["tests"])
@@ -207,8 +230,9 @@ def _today() -> str:
     return _dt.datetime.fromtimestamp(hand.now(), _dt.timezone.utc).strftime("%Y-%m-%d")
 
 
-def _offer(job: Json, resumed: bool = False) -> Json:
-    """What the builder gets for a job: what to build, where, and the rules."""
+def _offer(job: Json, resumed: bool = False, want: str | None = None) -> Json:
+    """What the builder gets for a job: what to build, where, and the rules.
+    A self job built for a WANT is a feature: it is told what that takes."""
     path = hand.root() / job["workdir"]
     path.mkdir(parents=True, exist_ok=True)
     offer = {
@@ -232,6 +256,9 @@ def _offer(job: Json, resumed: bool = False) -> Json:
     instructions = hand.root() / SELF_INSTRUCTIONS
     offer.update(branch=branch, base=selfclone.base_of(branch),
                  instructions=instructions.read_text() if instructions.is_file() else None)
+    if job["kind"] == "self" and want:
+        offer["feature"] = {"want": want, "requires": FEATURE_REQUIRES}
+        return {"job": offer, "rules": SELF_FEATURE_RULES}
     return {"job": offer, "rules": SELF_RULES}
 
 
@@ -268,27 +295,73 @@ def upstream_finished(branch: str) -> bool:
     return row is None or row["status"] not in ("claimed", "ok")
 
 
+#: A want's id (bin/wants): what a feature is built for.
+_WANT_ID = re.compile(r"^w:[a-z0-9:_-]{1,60}$")
+_WANT_SOURCE = re.compile(r"^want:(w:[a-z0-9:_-]{1,60}):[0-9.]+$")
+#: Where a self request is no longer waiting on the builder, and where a self
+#: job is finished: what is left is in flight (the mind's own check, bin/lib/tick.py).
+SELF_REQUEST_DONE = ("skipped", "shipped", "failed")
+SELF_JOB_DONE = ("failed", "shipped", "gave_up")
+
+
+def self_in_flight(conn: sqlite3.Connection) -> str | None:
+    """The change to itself still in flight, in words, or None: a `self`
+    build request not yet done, or a `self` job not finished."""
+    marks = ", ".join("?" * len(SELF_REQUEST_DONE))
+    row = conn.execute(f"SELECT id, status, text FROM build_requests WHERE source = ? AND status NOT IN ({marks})"
+                       " ORDER BY id LIMIT 1", (SELF_SOURCE, *SELF_REQUEST_DONE)).fetchone()
+    if row is not None:
+        return f"self request #{row['id']} ({row['status']}): {' '.join(str(row['text']).split())[:80]}"
+    marks = ", ".join("?" * len(SELF_JOB_DONE))
+    row = conn.execute(f"SELECT id, status, text FROM build_jobs WHERE kind = 'self' AND status NOT IN ({marks})"
+                       " ORDER BY id LIMIT 1", SELF_JOB_DONE).fetchone()
+    if row is not None:
+        return f"self job #{row['id']} ({row['status']}): {' '.join(str(row['text']).split())[:80]}"
+    return None
+
+
+def want_of(conn: sqlite3.Connection, request_id: int | None) -> str | None:
+    """The want a self request was proposed for (its source_id is
+    `want:<id>:<time>`), or None."""
+    if request_id is None:
+        return None
+    row = conn.execute("SELECT source_id FROM build_requests WHERE id = ? AND source = ?",
+                       (request_id, SELF_SOURCE)).fetchone()
+    found = _WANT_SOURCE.match(row["source_id"] or "") if row is not None else None
+    return found.group(1) if found else None
+
+
 def propose_self(body: Any) -> Json:
     """A change Teeny wants made to itself: a pending build request from
-    itself, picked (hands/requests pick) like any other."""
+    itself, picked (hands/requests pick) like any other. One at a time: it
+    is refused while another change to itself is in flight. A `want` (the id
+    bin/wants gave it) makes it a feature, held to the rubric when built."""
     if not isinstance(body, Mapping):
         raise hand.HandError("stdin must be a JSON object with text")
-    unknown = sorted(set(body) - {"text"})
+    unknown = sorted(set(body) - {"text", "want"})
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
     text = _text(body, "text")
+    want = body.get("want")
+    if "want" in body and not (isinstance(want, str) and _WANT_ID.match(want)):
+        raise hand.HandError('"want" must be a want id like w:m15 (w: then 1 to 60 of a-z 0-9 : _ -)')
     from ..gh.client import user
 
     conn = db()
     try:
         with hand.transaction(conn):
-            source_id = f"{hand.now():.6f}"
+            busy = self_in_flight(conn)
+            if busy:
+                raise hand.Refused(f"one change to yourself is already in flight: {busy}", rule="one_at_a_time",
+                                   active=busy)
+            stamp = f"{hand.now():.6f}"
+            source_id = f"want:{want}:{stamp}" if want else stamp
             build_requests.record(SELF_SOURCE, source_id, user(), text, conn=conn)
             row = conn.execute("SELECT id FROM build_requests WHERE source = ? AND source_id = ?",
                                (SELF_SOURCE, source_id)).fetchone()
     finally:
         conn.close()
-    return {"id": row["id"], "status": "pending"}
+    return {"id": row["id"], "status": "pending", **({"want": want} if want else {})}
 
 
 def _abandon_stale(conn: sqlite3.Connection) -> list[int]:
@@ -365,7 +438,8 @@ def next_job() -> Json:
                     "SELECT * FROM build_jobs WHERE status = 'claimed' ORDER BY id LIMIT 1"
                 ).fetchone()
                 if open_claim is not None:
-                    return {**_offer(_row(open_claim), resumed=True), "abandoned": abandoned}
+                    return {**_offer(_row(open_claim), resumed=True, want=want_of(conn, open_claim["request_id"])),
+                            "abandoned": abandoned}
                 request = conn.execute(
                     "SELECT r.* FROM build_requests r LEFT JOIN build_jobs j ON j.request_id = r.id"
                     " WHERE r.status = 'picked' AND j.id IS NULL ORDER BY r.created_at, r.id LIMIT 1"
@@ -426,10 +500,11 @@ def next_job() -> Json:
                 if idea is not None:
                     ideas.used(conn, idea["day"], cursor.lastrowid)
                 job = _row(conn.execute("SELECT * FROM build_jobs WHERE id = ?", (cursor.lastrowid,)).fetchone())
+                want = want_of(conn, request_id)
         finally:
             conn.close()
     assert job is not None
-    return {**_offer(job), "abandoned": abandoned, **({"waiting": waiting} if waiting else {})}
+    return {**_offer(job, want=want), "abandoned": abandoned, **({"waiting": waiting} if waiting else {})}
 
 
 def _plain_repo(name: Any) -> bool:
@@ -551,10 +626,19 @@ def done(body: Any) -> Json:
             elif status == "ok" and not (folder.is_dir() and any(folder.iterdir())):
                 raise hand.Refused(_with_stray("the workdir is empty; an ok job has something to ship",
                                                row["workdir"], row["claimed_at"]), job_id=job_id)
+            rubric = None
+            if status == "ok" and row["kind"] == "self" and want_of(conn, row["request_id"]):
+                # A feature: the clone is held to the rubric, and an ok that
+                # falls short goes back to the builder, who keeps the job.
+                found = feature.rubric(selfclone.worktree(), selfclone.changed_paths())
+                if not found["ok"]:
+                    raise hand.Refused("the feature is not complete: " + "; ".join(found["missing"]), rule="feature",
+                                       missing=found["missing"], job_id=job_id)
+                rubric = json.dumps(found)
             conn.execute(
-                "UPDATE build_jobs SET status = ?, summary = ?, tests = ?, finished_at = ?, repo = COALESCE(?, repo)"
-                " WHERE id = ?",
-                (status, summary, tests, hand.now(), repo, job_id),
+                "UPDATE build_jobs SET status = ?, summary = ?, tests = ?, finished_at = ?, repo = COALESCE(?, repo),"
+                " rubric = COALESCE(?, rubric) WHERE id = ?",
+                (status, summary, tests, hand.now(), repo, rubric, job_id),
             )
             if status == "failed" and row["request_id"] is not None:
                 _mark_request(conn, row["request_id"], "failed", summary or "the build failed")
