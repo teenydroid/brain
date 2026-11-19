@@ -147,9 +147,22 @@ KNOWN_FORMATS = ("post", "thread", "image", "meme")
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
 #: point of an explore run.
-SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit", "gallows", "tall tale")
+SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit", "gallows", "tall tale",
+          "threat")
+#: The shapes led by something Teeny invents about itself (a bit, free since
+#: 2026-11-19): of the pitches drafted, STUDIO_DRAFT_INVENTED (1) is always
+#: one of these when the pitches hold one, whatever the writer's ranking
+#: (`choose_drafted`). The dry run of 2026-11-19 ranked its one tall tale
+#: 7th of 11 and drafted only gallows, gallows and a scene.
+INVENTION_SHAPES = ("tall tale", "grudge", "lore bit", "threat")
+#: How many invention-led pitches the pitch turn asks for.
+INVENTION_PITCHES = 3
 #: The before/after pairs of writer.md, by their label.
-PAIRS = ("Confession", "Grudge", "Bet", "Scene", "Callback", "Real question", "Lore bit", "Gallows", "Tall tale")
+PAIRS = ("Confession", "Grudge", "Bet", "Scene", "Callback", "Real question", "Lore bit", "Gallows", "Tall tale",
+         "Threat")
+#: The pairs whose "after" is in the unhinged register (writer.md, "the
+#: voice"): every sample rereads at least one (`sample`).
+UNHINGED_PAIRS = ("Confession", "Grudge", "Bet", "Lore bit", "Tall tale", "Threat")
 #: One run in EXPLORE_EVERY is an explore run.
 EXPLORE_EVERY = 4
 #: A thread is 2 to THREAD_MAX posts.
@@ -248,6 +261,9 @@ class Config:
     formats: tuple[str, ...] = ("post", "thread", "image")
     pitches: int = 12
     draft_top: int = 3
+    #: Of the draft_top drafted, how many are kept for an invention-led
+    #: pitch (INVENTION_SHAPES) whenever the pitches hold one.
+    draft_invented: int = 1
     drafts_each: int = 3
     meetings: int = 3
     pairs_per_turn: int = 5
@@ -301,6 +317,7 @@ class Config:
         c.formats = tuple(f for f in dict.fromkeys(wanted) if f in KNOWN_FORMATS) or ("post",)
         c.pitches = _int(get("STUDIO_PITCHES"), 12, 1, 20)
         c.draft_top = _int(get("STUDIO_DRAFT_TOP"), 3, 1, 5)
+        c.draft_invented = _int(get("STUDIO_DRAFT_INVENTED"), 1, 0, 5)
         c.drafts_each = _int(get("STUDIO_DRAFTS_EACH"), 3, 1, 5)
         c.meetings = _int(get("STUDIO_MEETINGS"), 3, 1, 8)
         c.pairs_per_turn = _int(get("STUDIO_PAIRS_PER_TURN"), 5, 1, 20)
@@ -363,6 +380,15 @@ def recent_tags(desk: Json) -> set[str]:
     return tags
 
 
+def sample_pairs(rng: random.Random, n: int = 3) -> list[str]:
+    """N of writer.md's pairs to reread, at least one of them unhinged
+    (UNHINGED_PAIRS): when the draw holds none, its last is swapped for one."""
+    pairs = rng.sample(PAIRS, n)
+    if not set(pairs) & set(UNHINGED_PAIRS):
+        pairs[-1] = rng.choice(UNHINGED_PAIRS)
+    return pairs
+
+
 def sample(rng: random.Random, seed: int, desk: Json, brain: Path, formats: tuple[str, ...]) -> Json:
     """What this run shows the writer beyond the inputs, picked by its seed."""
     lines = lore_lines(brain)
@@ -371,7 +397,7 @@ def sample(rng: random.Random, seed: int, desk: Json, brain: Path, formats: tupl
     worst = [r for r in board.get("worst") or [] if isinstance(r, dict)]
     out: Json = {
         "lore": rng.sample(lines, min(3, len(lines))),
-        "pairs": rng.sample(PAIRS, 3),
+        "pairs": sample_pairs(rng),
         "best": [best[i] for i in sorted(rng.sample(range(len(best)), min(3, len(best))))],
         "worst": [worst[i] for i in sorted(rng.sample(range(len(worst)), min(2, len(worst))))],
         "explore": is_explore(seed),
@@ -656,20 +682,42 @@ def hooks_wanted(top: int) -> int:
     return -(-2 * top // 3)
 
 
-def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_outside: bool) -> tuple[list[str], Json]:
-    """The pitches to draft, in the writer's ranking order: with an outside
-    world to join, the best `hooks_wanted(top)` hooked pitches first, then
-    the best of the rest up to TOP, so a slot is never lost only because the
-    writer hooked too few. What was chosen and any shortfall, for the record."""
+def invention_led(shape: Any) -> bool:
+    """Whether a pitch's shape (free text) is one of INVENTION_SHAPES:
+    "Tall-Tale" and "a grudge against the kettle" are."""
+    said = re.sub(r"[-_\s]+", " ", shape.lower()) if isinstance(shape, str) else ""
+    return any(s in said for s in INVENTION_SHAPES)
+
+
+def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_outside: bool,
+                   invented: int = 0) -> tuple[list[str], Json]:
+    """The pitches to draft, in the writer's ranking order: first the best
+    INVENTED invention-led pitches (`invention_led`), wherever the writer
+    ranked them; then, with an outside world to join, the best hooked pitches
+    until `hooks_wanted(top)` of the chosen are hooked (a hooked tall tale
+    counts for both); then the best of the rest up to TOP, so a slot is never
+    lost only because the writer hooked too few. With no invention-led pitch
+    the reserve is filled like the rest. What was chosen and any shortfall,
+    for the record."""
+    invented = min(invented, top)
     want = hooks_wanted(top) if have_outside else 0
-    hooked = [p for p in ranked if by_id[p].get("hook")]
-    chosen = hooked[:want]
+    chosen = [p for p in ranked if invention_led(by_id[p].get("shape"))][:invented]
+    need = want - sum(1 for p in chosen if by_id[p].get("hook"))
+    chosen += [p for p in ranked if by_id[p].get("hook") and p not in chosen][:max(0, min(need, top - len(chosen)))]
     chosen += [p for p in ranked if p not in chosen][:top - len(chosen)]
     chosen = [p for p in ranked if p in chosen]
     note: Json = {"want_hooked": want, "hooked": sum(1 for p in chosen if by_id[p].get("hook"))}
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
                          "asked for: the rest were filled from the writer's ranking")
+    if invented:
+        note["want_invented"] = invented
+        note["invented"] = sum(1 for p in chosen if invention_led(by_id[p].get("shape")))
+        if note["invented"] < invented:
+            note["short_invented"] = (f"no invention-led pitch ({', '.join(INVENTION_SHAPES)}) to draft"
+                                      if not note["invented"] else
+                                      f"only {note['invented']} invention-led pitches to draft, of the {invented} "
+                                      "kept for them")
     return chosen, note
 
 
@@ -1104,8 +1152,14 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
         f"Formats: {formats}. A post is one text; a thread is 2 to {THREAD_MAX} posts; an image is a post with "
         "a picture of you (Teeny) in a scene you describe.",
         "Shapes: " + ", ".join(SHAPES) + ", or another you can name.",
+        f"At least {INVENTION_PITCHES} of your pitches are invention-led: a {', a '.join(INVENTION_SHAPES)}, led "
+        "by something absurd you claim about yourself (a crime you confess to, a threat to an appliance, a feud, a "
+        "delusion of grandeur, a wild prediction), with a real thing underneath. "
+        f"{'The best of them is' if cfg.draft_invented == 1 else 'The best of them are'} drafted whatever your ranking"
+        "." if cfg.draft_invented else "",
         "Shapes to lean on tonight: " + ", ".join(p.lower() for p in sampled["pairs"]) + ".",
     ]
+    parts = [p for p in parts if p]
     if "meme" in cfg.formats:
         parts.append(MEME_PITCH)
     if sampled["lore"]:
@@ -2297,6 +2351,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
                     "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
                                "judge": cfg.judge_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
+                               "draft_invented": cfg.draft_invented,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
                                "pairs_per_turn": cfg.pairs_per_turn, "budget_secs": cfg.budget_secs},
                     "warnings": list(cfg.warnings)}
@@ -2484,7 +2539,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     verdicts: list[Json] = []
     record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
     afters = example_afters(room.brain)
-    chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids))
+    chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids), cfg.draft_invented)
     if record["drafted"].get("short"):
         record["warnings"].append(record["drafted"]["short"])
     for p in shown_pitches:
