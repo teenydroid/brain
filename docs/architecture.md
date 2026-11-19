@@ -766,8 +766,12 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is at most four own posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), and the slots are ceilings, not quotas. Every own
+- X is at most four original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), plus at most two quotes a day in a lane of their own
+  (`X_QUOTES_MAX_PER_DAY`, three hours apart, `QUOTE_MIN_GAP_HOURS`, and 45
+  minutes after an original post, `QUOTE_AFTER_POST_MINUTES`): the day's
+  ceiling is 4 originals plus 2 quotes, and a quote never shuts an original
+  slot. The slots are ceilings, not quotas. Every own
   post names its `anchor` (the one item from its inputs it is about; a quote's
   is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
   anchor`) before it goes: a post that says nothing specific about its anchor
@@ -787,10 +791,14 @@ How the day's beats become the page every prompt carries:
   with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
   `show` skip when a brief is queued, so a brief takes the next free slot;
   `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
-  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
-  only at relevance 5 and at most once a day) is one of the four, so it needs
-  a slot the others left open: `hands/x peer-suggest` runs the same anchor
-  judge itself, against the quoted post, and a no is a skip kept in
+  slot`). The outward quote (`peer-quote`, 13:00, 19:00 and 22:00) is not one
+  of the four: it has the quote lane, and reacts to a peer's post or to one
+  of the X posts behind today's top-ranked stories (`hands/x peers
+  trending`, Digg's ranked feed, no X read) with a quote, an absurd one-line
+  bit, a meme (`bin/studio --meme`) or a visit, posted at a score of 4 or more
+  (how hard it hits a reader of the quoted post). `hands/x peer-suggest`
+  asks the quote judge (`hands/guard quote`: is it a reaction to the post?),
+  which fails open, in place of the anchor judge, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
 ## 4b. The studio: the writers' room
