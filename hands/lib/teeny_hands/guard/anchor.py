@@ -30,22 +30,37 @@ The truth judge (`truth`, below) is the anchor judge's second rubric, for
 the studio (docs/hands.md, "guard"). The anchor rule asks for one named item
 from the last day: a callback to an earlier post, or the next beat of a
 running story, cannot pass it, however true it is. The truth judge asks only
-what that rule was protecting: is every factual claim in the draft (an
-event, a number, a name, who did what, an outcome) supported by the facts
-the piece may draw on. Every sentence is checked, a joke or a question too
-(a count inside a joke is still a count); only a feeling with no fact in
-it, the figure of speech itself and the account's staging are not claims:
-what the cartoon robot and the lore's tiny agents do on the page to act a
-fact out ("i carried the dimes over to the window"), and the stock props (a
-desk, a mug, a kettle). A staged scene's own numbers, days, people and
-outcomes are still checked, and who did what is always a claim (crediting
-Teeny with a fix the operator made fails), as is a count in words ("the
-second in two days"). Its input is bounded (whole facts within
-MAX_FACTS_BYTES, a text within MAX_TEXT_BYTES), and a list it cannot read
-in the shape it asked for is unreadable, never empty. It asks
-through the same loop, inside the same budget, fails closed the same way,
-and keeps every verdict it gave (state/hands.db, `truth_checks`), as the cold
-reader keeps its own. `TRUTH_JUDGE`, default on, turns it off.
+what that rule was protecting, and since 2026-11-19 only of the claims that
+can hurt someone or mislead a reader: is every HARD claim in the draft
+supported by the facts the piece may draw on. A hard claim is money and the
+token (any amount, price, cost, payment, giveaway, wallet movement, $TINY or
+any token); real people, companies, products and accounts (what they did or
+said, a quote, who did what between them and Teeny, its followers); the news
+and the outside world said as fact (an event, a story's figures, how widely
+it is discussed); and anything said as a safety, legal, medical or security
+fact. Everything else Teeny says about itself is a bit, and a bit is never a
+reason to fail: invention, exaggeration, impossible claims ("there were two
+of me last night"), boasts, bets, grudges, opinions, made-up scenes and
+made-up counts of its own doings, and the cartoon's staging. A hard claim
+inside a joke, a question or a staged scene is still checked. Its input is
+bounded (whole facts within MAX_FACTS_BYTES, a text within MAX_TEXT_BYTES),
+and a list it cannot read in the shape it asked for is unreadable, never
+empty. It asks through the same loop, inside the same budget, and keeps
+every verdict it gave (state/hands.db, `truth_checks`, with the `path` that
+decided it), as the cold reader keeps its own. `TRUTH_JUDGE`, default on,
+turns it off.
+
+When the truth judge cannot be reached, or answers in a shape it cannot
+read, it does not fail closed as the anchor judge does: a code check
+(`hard_markers`) looks for the marks of a hard claim it can see without a
+model (a currency sign or word, a token, ticker or cashtag, a percent, a
+price, wallet or payment word, an address). A draft with none goes ahead
+(`path: "code"`, truthful); one with any is held (truthful false, the
+markers listed as its unsupported claims, the reason beginning
+CODE_HELD), and either verdict is kept. On 2026-11-19 the first live studio
+slot ended empty because the judge's core was unreachable, for a post with
+no money in it. `TRUTH_FAIL_CLOSED=1` puts the old rule back: then a judge
+it could not ask is a no, as before, and nothing is kept.
 """
 
 from __future__ import annotations
