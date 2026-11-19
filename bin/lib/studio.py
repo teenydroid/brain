@@ -1118,6 +1118,18 @@ JOIN_RULES = (
     "so the post makes sense on its own.")
 
 
+def invention_ask(cfg: Config) -> str:
+    """The pitch turn's ask for invention-led pitches (INVENTION_PITCHES)."""
+    ask = (f"At least {min(INVENTION_PITCHES, cfg.pitches)} of your pitches are invention-led: a "
+           f"{', a '.join(INVENTION_SHAPES)}, led by something absurd you claim about yourself (a crime you confess "
+           "to, a threat to an appliance, a feud with a product, a delusion of grandeur, a wild prediction), with a "
+           "real thing underneath.")
+    if cfg.draft_invented:
+        ask += (" The best of them is drafted whatever your ranking." if cfg.draft_invented == 1 else
+                f" The best {cfg.draft_invented} of them are drafted whatever your ranking.")
+    return ask
+
+
 def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> str:
     formats = ", ".join(cfg.formats)
     every = {k: v for k, v in (inputs.get("outside") or {}).items() if v}
@@ -1152,14 +1164,9 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
         f"Formats: {formats}. A post is one text; a thread is 2 to {THREAD_MAX} posts; an image is a post with "
         "a picture of you (Teeny) in a scene you describe.",
         "Shapes: " + ", ".join(SHAPES) + ", or another you can name.",
-        f"At least {INVENTION_PITCHES} of your pitches are invention-led: a {', a '.join(INVENTION_SHAPES)}, led "
-        "by something absurd you claim about yourself (a crime you confess to, a threat to an appliance, a feud, a "
-        "delusion of grandeur, a wild prediction), with a real thing underneath. "
-        f"{'The best of them is' if cfg.draft_invented == 1 else 'The best of them are'} drafted whatever your ranking"
-        "." if cfg.draft_invented else "",
+        invention_ask(cfg),
         "Shapes to lean on tonight: " + ", ".join(p.lower() for p in sampled["pairs"]) + ".",
     ]
-    parts = [p for p in parts if p]
     if "meme" in cfg.formats:
         parts.append(MEME_PITCH)
     if sampled["lore"]:
