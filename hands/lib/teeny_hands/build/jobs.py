@@ -580,6 +580,28 @@ def _tests(value: Any) -> str:
     raise hand.HandError('"tests" must be a non-empty string or a list of strings')
 
 
+def _feature_rubric(job_id: int) -> str | None:
+    """For a claimed self job built for a want, the clone held to the
+    feature rubric (build/feature.py), as JSON to keep on the job; None for
+    any other job, or a clone with no change (`done` refuses that itself).
+    An incomplete feature is refused with what is missing: the builder keeps
+    the job and finishes it. Read outside `done`'s transaction, because the
+    rubric runs the hand's tests in the jail, which takes a while."""
+    conn = db()
+    try:
+        row = conn.execute("SELECT * FROM build_jobs WHERE id = ?", (job_id,)).fetchone()
+        want = want_of(conn, row["request_id"]) if row is not None and row["kind"] == "self" else None
+    finally:
+        conn.close()
+    if row is None or row["status"] != "claimed" or not want or not selfclone.has_changes():
+        return None
+    found = feature.rubric(selfclone.worktree(), selfclone.changed_paths())
+    if not found["ok"]:
+        raise hand.Refused("the feature is not complete: " + "; ".join(found["missing"]), rule="feature",
+                           missing=found["missing"], job_id=job_id)
+    return json.dumps(found)
+
+
 def done(body: Any) -> Json:
     """Finishes the builder's claim: ok (built and tested; `ship` will push
     it) or failed (with why)."""
@@ -603,6 +625,7 @@ def done(body: Any) -> Json:
     if isinstance(repo, str) and repo.lower() == selfclone.REPO_NAME:
         # Teeny's own repository changes only through a self job's pull request.
         raise hand.HandError(f'"repo" cannot be {selfclone.REPO_NAME}: that is Teeny\'s own repository')
+    rubric = _feature_rubric(job_id) if status == "ok" else None
     conn = db()
     try:
         with hand.transaction(conn):
@@ -626,15 +649,6 @@ def done(body: Any) -> Json:
             elif status == "ok" and not (folder.is_dir() and any(folder.iterdir())):
                 raise hand.Refused(_with_stray("the workdir is empty; an ok job has something to ship",
                                                row["workdir"], row["claimed_at"]), job_id=job_id)
-            rubric = None
-            if status == "ok" and row["kind"] == "self" and want_of(conn, row["request_id"]):
-                # A feature: the clone is held to the rubric, and an ok that
-                # falls short goes back to the builder, who keeps the job.
-                found = feature.rubric(selfclone.worktree(), selfclone.changed_paths())
-                if not found["ok"]:
-                    raise hand.Refused("the feature is not complete: " + "; ".join(found["missing"]), rule="feature",
-                                       missing=found["missing"], job_id=job_id)
-                rubric = json.dumps(found)
             conn.execute(
                 "UPDATE build_jobs SET status = ?, summary = ?, tests = ?, finished_at = ?, repo = COALESCE(?, repo),"
                 " rubric = COALESCE(?, rubric) WHERE id = ?",
