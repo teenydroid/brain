@@ -220,7 +220,7 @@ class CostTest(IngestTest):
 
 class PollIntervalTest(IngestBase):
     """X's webhook delivers mentions as they are written, and every read of
-    the mentions timeline is a billed X call, so `ingest` reads X once a day
+    the mentions timeline is a billed X call, so `ingest` reads X once an hour
     as a backstop and otherwise works from what is already queued."""
 
     settings: dict[str, str] = {}
@@ -232,7 +232,7 @@ class PollIntervalTest(IngestBase):
                                                    "conversationId": "c" + post_id, "text": text},
                             {s: 0 for s in mentions.STATUSES}, hand.now(), screen=False)
 
-    def test_a_run_inside_the_day_does_not_read_x_and_still_offers_what_the_webhook_queued(self):
+    def test_a_run_inside_the_hour_does_not_read_x_and_still_offers_what_the_webhook_queued(self):
         self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
         mentions.ingest()
         self.queue_from_webhook("12", "gm teeny")
@@ -240,13 +240,13 @@ class PollIntervalTest(IngestBase):
         out = mentions.ingest()
         self.assertEqual(len(self.x.requests("GET", MENTIONS)), 1, "a second read of X five minutes later")
         self.assertEqual((out["read"], out["offered"], out["screened"]), (0, 1, {"pending": 1}))
-        self.assertEqual(out["poll"], {"skipped": True, "next_at": rules.iso(T0 + 86400.0)})
+        self.assertEqual(out["poll"], {"skipped": True, "next_at": rules.iso(T0 + 3600.0)})
         self.assertEqual(self.statuses(), {"11": "offered", "12": "offered"})
 
-    def test_x_is_read_again_once_a_day_has_passed(self):
+    def test_x_is_read_again_once_an_hour_has_passed(self):
         self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
         mentions.ingest()
-        self.at(T0 + 86400.0)
+        self.at(T0 + 3600.0)
         out = mentions.ingest()
         self.assertEqual(len(self.x.requests("GET", MENTIONS)), 2)
         self.assertNotIn("poll", out)
@@ -259,7 +259,7 @@ class PollIntervalTest(IngestBase):
         self.at(T0 + 300)
         self.assertEqual(mentions.ingest()["read"], 1)
 
-    def test_a_forced_poll_reads_x_inside_the_day(self):
+    def test_a_forced_poll_reads_x_inside_the_hour(self):
         self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
         mentions.ingest()
         self.at(T0 + 300)

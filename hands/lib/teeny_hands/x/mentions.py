@@ -2,10 +2,10 @@
 and offered to the core as inbound events (docs/hands.md, "ingest").
 
 X's webhook (x/webhook.py) queues each mention as it is written. `ingest`
-screens and offers what is queued on every run, and once a day
-(`X_MENTIONS_POLL_HOURS`, 24) also reads the account's mentions timeline
+screens and offers what is queued on every run, and once an hour
+(`X_MENTIONS_POLL_HOURS`, 1) also reads the account's mentions timeline
 (`/2/users/:id/mentions`) for anything the webhook lost: a read of X is
-billed, and a read every five minutes mostly paid for nothing. That read
+a call, and one every five minutes mostly found nothing. That read
 starts from a cursor kept in `x_cursor`, so a mention is fetched, and billed,
 once. Each new one becomes a row in `x_mentions`, unique on its post id:
 
@@ -215,12 +215,12 @@ POLL = "mentions_poll"
 #: Hours between two reads of the timeline, by default: X's webhook brings
 #: each mention as it is written, so the timeline is only the backstop for a
 #: delivery the webhook lost.
-DEFAULT_POLL_HOURS = 24.0
+DEFAULT_POLL_HOURS = 1.0
 
 
 def _poll_due(conn, now: float) -> float | None:
     """None when X's mentions timeline is read this run, else when it next
-    is. It is read when it never was, or `X_MENTIONS_POLL_HOURS` (24; 0 reads
+    is. It is read when it never was, or `X_MENTIONS_POLL_HOURS` (1; 0 reads
     it every run) have passed since the last read that X answered."""
     every = number_setting("X_MENTIONS_POLL_HOURS", DEFAULT_POLL_HOURS, 0.0, 168.0) * 3600.0
     row = conn.execute("SELECT at FROM x_cursor WHERE name = ?", (POLL,)).fetchone()
@@ -231,7 +231,7 @@ def _poll_due(conn, now: float) -> float | None:
 
 def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None, poll: bool = False) -> Mapping[str, Any]:
     """Screens what X's webhook queued and offers every pending mention; once
-    a day (`_poll_due`), or when `poll` forces it, it first reads X's mentions
+    an hour (`_poll_due`), or when `poll` forces it, it first reads X's mentions
     timeline for anything the webhook lost. The run in between makes no X
     call at all. Safe to run at any time and twice at once (a lock), and it
     never answers anyone."""

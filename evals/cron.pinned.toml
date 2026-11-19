@@ -21,8 +21,8 @@
 # catching it up (world-snapshot upserts the day's rows at its next run).
 
 # Screen and offer the mentions X's webhook queued, and answer the ones the
-# core has drafted (bin/mentions). X's own mentions timeline is read once a
-# day from here (X_MENTIONS_POLL_HOURS), not every five minutes.
+# core has drafted (bin/mentions). X's own mentions timeline is read once an
+# hour from here (X_MENTIONS_POLL_HOURS), not every five minutes.
 # Operator-owned: the brain shapes the answers through playbooks/mentions.md,
 # but not whether Teeny reads what is said to it.
 [jobs.mentions-inbound]

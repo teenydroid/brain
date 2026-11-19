@@ -2,8 +2,8 @@
 # The mentions loop, one cron run of it (evals/cron.pinned.toml):
 #
 #   1. `hands/x ingest`: the mentions X's webhook queued are screened by the
-#      inbound guard and offered (source x:mentions). X itself is read once a
-#      day (X_MENTIONS_POLL_HOURS), for a mention the webhook lost: the other
+#      inbound guard and offered (source x:mentions). X itself is read once an
+#      hour (X_MENTIONS_POLL_HOURS), for a mention the webhook lost: the other
 #      runs make no X call;
 #   2. `hands/x requests`: the stored mentions that ask Teeny to build
 #      something, into build_requests (no second call to X; one row each);
