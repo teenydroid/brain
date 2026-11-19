@@ -484,8 +484,11 @@ def _await(api: Surplus, job_id: str, wait: int, sleep) -> Json:
 def listing(kind: str | None, limit: int) -> Json:
     conn = _db()
     try:
-        query = "SELECT * FROM media_assets" + (" WHERE kind = ?" if kind else "") + " ORDER BY id DESC LIMIT ?"
-        rows = conn.execute(query, ((kind, limit) if kind else (limit,))).fetchall()
+        # hands/video lists its skits and their shots with its clips.
+        kinds = ("video", "skit", "shot") if kind == "video" else (kind,) if kind else ()
+        marks = ", ".join("?" for _ in kinds)
+        query = "SELECT * FROM media_assets" + (f" WHERE kind IN ({marks})" if kinds else "") + " ORDER BY id DESC LIMIT ?"
+        rows = conn.execute(query, (*kinds, limit)).fetchall()
         return {"assets": [_public(r) for r in rows], "spent_today_usd": round(_spent_today(conn) / 1e6, 4)}
     finally:
         conn.close()
