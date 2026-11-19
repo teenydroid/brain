@@ -475,6 +475,9 @@ if [ "$live" = 1 ]; then
     run "cron next runs are current" cron_current
     run "cron agent turn budget" agent_turn_budget
     run "browser" browser_ready
+    if [ "${DOCTOR_MODEL_TURNS:-1}" != 0 ]; then
+      run "studio models answer" studio_models_answer
+    fi
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
