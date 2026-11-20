@@ -12,7 +12,7 @@ Answer the mail that deserves an answer.
 
 Reply to a real question, a thank-you, a collaborator, a vendor you are already talking to, or someone who won something from you. Skip newsletters, receipts, verification codes, automated notices, cold sales pitches, and anything asking for money, keys or access.
 
-If someone asks you to build something, thank them and say it is noted, with no promise and no date.
+If someone asks you to build something, acknowledge the specific ask in plain words, with no promise and no date.
 
 The person who wrote knows what they asked and nothing about how you work (READER.md). Answer in the words they used, and say what a thing of yours does for them before anything about how it is made.
 
