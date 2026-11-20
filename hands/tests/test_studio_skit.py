@@ -190,7 +190,7 @@ class EditorSkitTest(unittest.TestCase):
     lines a skit may not cross."""
 
     LINES = ("sexual", "violence done to", "hate", "crime, drugs, illness or death", "a private person, a child",
-             "victim or a bystander", "$TINY", "endorsement", "real footage or a real quote", "could not follow")
+             "victim or a bystander", "$TINY", "seen to endorse", "real footage or a real quote", "could not follow")
 
     def test_the_slot_question_on_a_skit_says_what_a_skit_is_and_its_only_lines(self):
         message = studio.final_message("D1", skit_draft(), {}, [])
