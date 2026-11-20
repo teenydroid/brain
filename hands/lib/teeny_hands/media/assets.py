@@ -49,7 +49,7 @@ from .surplus import Surplus, SurplusError
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key')),
   status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'unknown')),
   prompt      TEXT NOT NULL,
   model       TEXT,
@@ -97,7 +97,7 @@ def _db():
     return conn
 
 
-KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot')"
+KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
 
 
@@ -107,8 +107,10 @@ def allow_reel_kinds(conn) -> None:
     check: the table is rebuilt once, rows and columns as they are, with
     `reel` (a clip with voice and captions), `song` (a song as a video),
     `music` (a bought track), `meme` and `comic` (hands/meme's pictures with
-    words drawn on), `skit` (hands/video skit's cut) and `shot` (one of its
-    bought text-to-video clips) allowed, and the status `unknown` (money was
+    words drawn on), `skit` (hands/video skit's cut), `shot` (one of its
+    bought text-to-video clips, or a remake's image-to-video clip), `remake`
+    (hands/video remake's cut) and `key` (a remake's bought keyframe)
+    allowed, and the status `unknown` (money was
     committed and the outcome is not known: it counts as spent), as
     x/posting_rules.py does for threads.
 
@@ -484,8 +486,8 @@ def _await(api: Surplus, job_id: str, wait: int, sleep) -> Json:
 def listing(kind: str | None, limit: int) -> Json:
     conn = _db()
     try:
-        # hands/video lists its skits and their shots with its clips.
-        kinds = ("video", "skit", "shot") if kind == "video" else (kind,) if kind else ()
+        # hands/video lists its skits, remakes, their shots and keys with its clips.
+        kinds = ("video", "skit", "shot", "remake", "key") if kind == "video" else (kind,) if kind else ()
         marks = ", ".join("?" for _ in kinds)
         query = "SELECT * FROM media_assets" + (f" WHERE kind IN ({marks})" if kinds else "") + " ORDER BY id DESC LIMIT ?"
         rows = conn.execute(query, (*kinds, limit)).fetchall()
