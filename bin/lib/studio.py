@@ -2819,14 +2819,13 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         if code != 0:
             room.warnings.append(f"the remake's source {source.get('url')} could not be marked used ({str(used)[:200]}): "
                                  "it could be chosen again")
-    # One take: one keyframe, the opening one; a key a shot only when the hand
-    # fell back to making the remake shot by shot.
-    per_shot = (keyed.get("one_take") or {}).get("per_shot_fallback") is True \
-        if isinstance(keyed.get("one_take"), dict) else False
-    want = len(shots) if per_shot else 1
+    # One take: one keyframe, the opening one. A key a shot is the hand's
+    # shot-by-shot path (MEDIA_REMAKE_PER_SHOT=1); its answer names no mode,
+    # so the number of keys says which it was.
+    per_shot = len(shots) > 1 and len(keys) == len(shots)
     note["one_take"] = not per_shot
-    if not keyed.get("remake_id") or len(keys) != want:
-        note["failed"] = f"{len(keys)} keyframes came back, not {want}" + (" (one a shot)" if per_shot else " (one take)")
+    if not keyed.get("remake_id") or len(keys) not in (1, len(shots)):
+        note["failed"] = f"{len(keys)} keyframes came back, not 1 (one take) or {len(shots)} (one a shot)"
         if keyed.get("remake_id"):
             _release_keys(room, note, keyed["remake_id"])
         return None
