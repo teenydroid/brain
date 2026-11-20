@@ -84,7 +84,7 @@ def _number(body: dict, name: str, default: Any, low: float, high: float, whole:
 
 
 def check_url(url: Any) -> dict[str, str]:
-    """{url, source, host}: the URL as it is passed on (no fragment), or a
+    """{url, source}: the URL as it is passed on (no fragment), or a
     RequestError. https, a host on the list as written (ASCII, no trailing
     dot), no userinfo, no port, no IP literal, no whitespace or controls."""
     if not isinstance(url, str) or not url.strip() or len(url) > MAX_URL:
@@ -107,7 +107,7 @@ def check_url(url: Any) -> dict[str, str]:
     if source is None:
         raise RequestError("url is a YouTube, TikTok or Instagram address")
     clean = urlunsplit(("https", host.lower(), parts.path, parts.query, ""))
-    return {"url": clean, "source": source, "host": host.lower()}
+    return {"url": clean, "source": source}
 
 
 # --- yt-dlp ---------------------------------------------------------------------------------
@@ -304,7 +304,7 @@ def check_listing(body: Any) -> dict[str, Any]:
 
 
 def check_fetch(body: Any) -> dict[str, Any]:
-    """{url, source, host, start, max_seconds, max_height, max_shots,
+    """{url, source, start, max_seconds, max_height, max_shots,
     min_shot, max_shot}, bounded, defaults filled."""
     body = _object(body, {"url", *FETCH_BOUNDS})
     out: dict[str, Any] = dict(check_url(body.get("url")))
