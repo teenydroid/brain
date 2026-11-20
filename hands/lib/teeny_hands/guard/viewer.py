@@ -569,6 +569,24 @@ def label_seen(label: str, texts: list[str]) -> int:
     return sum(1 for text in texts if readable(label, text))
 
 
+def _load_frames(frames: list[Any]) -> tuple[list[str], str | None, Any]:
+    """Each frame as the viewer is sent it, the first one's path under the
+    root, and a digest of them all. Bad when one cannot be given."""
+    pictures: list[str] = []
+    first = None
+    digest = hashlib.sha256()
+    for frame in frames:
+        path = resolve(frame)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise Bad(f"a frame could not be read ({type(exc).__name__})") from None
+        digest.update(data)
+        pictures.append(data_uri(data))
+        first = first or str(path.relative_to(hand.root().resolve()))
+    return pictures, first, digest
+
+
 def view_skit(frames: Any, label: Any, intent: Any, api: Any = None,
               sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
     """{ok, sees, labelled, prohibited, looks_real, reason, judged}: ok only
