@@ -1023,7 +1023,8 @@ class OneTakeTest(Fixture):
         self.env(MEDIA_REMAKE_MAX_USD_PER_SHOT="5.00")  # raised after the claim
         with self.assertRaises(hand.HandError):
             self.remake({"remake_id": made["remake_id"], "sound": SOUND})
-        self.assertEqual(len(self.api.deleted()), 2)  # each clip's job cancelled, over what is held for it
+        # Shot 1's job is cancelled, over what is held for it, and the remake stops there.
+        self.assertEqual(len(self.api.deleted()), 1)
 
     def test_with_the_per_shot_setting_every_frame_is_needed(self):
         self.env(MEDIA_REMAKE_PER_SHOT=1)

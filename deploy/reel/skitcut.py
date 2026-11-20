@@ -35,8 +35,10 @@ from typing import Any
 MAX_CLIPS = 4
 #: A remake's cut (with `trims`) may join this many.
 MAX_REMAKE_CLIPS = 6
-#: A trim is this long, in seconds.
+#: A trim is this long, in seconds; one clip (a remake's one take) up to
+#: TAKE_TRIM_SECONDS.
 TRIM_SECONDS = (1.0, 10.0)
+TAKE_TRIM_SECONDS = 30.0
 #: How short of its trim a clip may be: its last frame is held that long.
 MAX_PAD = 0.5
 MAX_LABEL = 80
@@ -100,10 +102,11 @@ def check_cut(body: Any) -> dict[str, Any]:
     if isinstance(volume, bool) or not isinstance(volume, int) or not BED_VOLUME_PCT[0] <= volume <= BED_VOLUME_PCT[1]:
         raise CutError(f"bed_volume_pct is {BED_VOLUME_PCT[0]} to {BED_VOLUME_PCT[1]}")
     if trims is not None:
+        longest = TAKE_TRIM_SECONDS if len(clips) == 1 else TRIM_SECONDS[1]
         if not isinstance(trims, list) or len(trims) != len(clips) or not all(
-                isinstance(t, (int, float)) and not isinstance(t, bool) and TRIM_SECONDS[0] <= t <= TRIM_SECONDS[1]
+                isinstance(t, (int, float)) and not isinstance(t, bool) and TRIM_SECONDS[0] <= t <= longest
                 for t in trims):
-            raise CutError(f"trims gives every clip {TRIM_SECONDS[0]} to {TRIM_SECONDS[1]} seconds")
+            raise CutError(f"trims gives every clip {TRIM_SECONDS[0]} to {longest} seconds")
         trims = [float(t) for t in trims]
     sound = body.get("sound")
     if sound is not None:
