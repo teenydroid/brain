@@ -281,7 +281,7 @@ class WriterSkitBriefTest(unittest.TestCase):
     def test_the_brief_asks_for_a_premise_three_beats_and_continuity(self):
         brief = self.brief()
         for bit in ("**A premise, not a pun.**", "**They drive every shot.**", "**Three beats", "sound off",
-                    "**Say it again in every shot.**", "**One action a shot.**", "six words"):
+                    "**Name them in every shot.**", "**One action a shot.**", "six words"):
             self.assertIn(bit, brief)
         # One short contrast drawn from the pun failure, on another story.
         self.assertIn("Bad:", brief)
