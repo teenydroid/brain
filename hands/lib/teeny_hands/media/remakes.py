@@ -20,7 +20,8 @@ about the words; what it holds, in code:
   counts, even one that failed after). Both must allow it, or nothing is
   asked of anyone (`off`, `per_day`).
 - **The money fences.** The runway tier; every shot reserves
-  `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.20) on its row under the media lock
+  `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.40: after a $0.10 key, Wan 3's 5 s
+  ceiling of $1.17 fits) on its row under the media lock
   before anything is bought, and all of them must fit under the shared
   `MEDIA_MAX_USD_PER_DAY` with everything else bought today (`budget`). A
   keyframe books its catalog estimate on a `key` row (an edit carries no
@@ -113,6 +114,9 @@ EDIT_MODELS = "nano-banana-2-edit,seedream-v5-pro-edit,muse-image-edit"
 REMAKE_MODELS = ("venice-wan-3-0-image-to-video,wan-2-7-image-to-video,kling-v3-standard-image-to-video,"
                  "kling-v3-pro-image-to-video,veo3-1-fast-image-to-video")
 MAX_SHOTS = 6
+#: What a shot reserves by default (MEDIA_REMAKE_MAX_USD_PER_SHOT): a $0.10
+#: key and Wan 3's 5 s ceiling ($1.17 at 720p) fit; six shots hold $8.40.
+PER_SHOT = "1.40"
 MAX_EDIT_ATTEMPTS = 2
 #: What a keyframe of unknown price books: nano-banana-2-edit's $0.10, the
 #: dearest edit measured (2026-11-20).
@@ -573,7 +577,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
     the_label = skits.label()
     edit_models = assets._models("MEDIA_REMAKE_EDIT_MODELS", EDIT_MODELS)
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
     limit, shared = _limits()
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "keys", "shots": len(job["shots"]),
@@ -708,7 +712,7 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
     ask = render_of(body)
     the_label = skits.label()
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
     limit, shared = _limits()
     job_params = shots.params("MEDIA_REMAKE_PARAMS")
     if hand.dry_run():
