@@ -7,9 +7,9 @@
     R  get ID                             one
   hands/video
     A  generate {prompt, image_prompt?}   a still of Teeny, animated as `prompt` says
-    A  skit {shots, aspect?, story, figures?, logline, wait_seconds?, bed?}
-                                          a parody video: one text-to-video job a shot, cut
-                                          with their own sound and the label (media/skits.py);
+    A  skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
+                                          a parody video: one take (one job, one script) or one
+                                          text-to-video job a shot, cut with the label (media/skits.py);
                                           off until MEDIA_SKIT_MAX_PER_DAY is set
     A  remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
                                           a remake's keyframes: each source shot's first frame

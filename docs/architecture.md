@@ -835,8 +835,9 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
        (fails: the words alone if the writer marked them alone, else the next draft)
    meme only: lines past the guard and the truth judge ──> hands/meme template ──> viewer check ──> hands/x upload --alt
-   skit only: logline and shots past the guard ──> hands/guard skit (code's hard lines, then the judge)
-       ──> hands/video skit (a text-to-video job a shot, cut and labelled on the reel service)
+   skit only: logline, look, setting, score, shots and the composed prompts past the guard
+       ──> hands/guard skit (code's hard lines, then the judge)
+       ──> hands/video skit (one take: one job, one multi-shot script; else a job a shot; cut and labelled on reel)
        ──> hands/guard view-skit (the frames) ──> hands/x upload (fails: never the words alone; the next draft,
        and in a skit slot the failed video costs none of the fallback budget)
                 │
@@ -899,16 +900,32 @@ refuses every one until the operator sets `MEDIA_SKIT_MAX_PER_DAY`) is the
 operator's absurd-video format: a trending story, the public figure it is
 about, an obviously impossible scene, one to four cinematic shots on video. A
 skit pitch must have a hook. Its draft carries the post's words and `skit:
-{story (the hook, set by code), figures, premise, logline, shots, aspect}`;
+{story (the hook, set by code), figures, premise, logline, look, setting,
+score, shots, aspect}`;
 `premise` is required (`skit_of`, `SKIT_PREMISE_MAX`): one line, what the
 figure really did or claimed in the story, so what they do in the video,
-shown to the editor and never rendered or posted. The drafting turn gives
-the craft (a premise from what the figure did, never a pun on a headline
-word; the figure driving every shot; three beats, set-up a stranger gets
-with the sound off, consequence, payoff; the figure's full name, wardrobe,
-prop and setting restated in every shot, since each is rendered alone; one
-action and at most one short line a shot; cinematography, an expensive
-absurd set, escalation) and the hard lines, and `writer.md` holds the
+shown to the editor and never rendered or posted. A shot's `seconds` over
+`SKIT_SHOT_MAX_SECS` (6) is cut to 6, never refused: a longer shot's
+reservation is over `MEDIA_SKIT_MAX_USD_PER_SHOT` on every video model and
+would fail the whole skit. `look` (one line a figure: hair, glasses,
+wardrobe, prop), `setting` (one line: place, light, lens) and `score` (one
+line: the single piece of music under the whole film) are required too
+(`skit_of`, `SKIT_HELD`; the guard's `shape` checks and keeps them): the
+video is one take of up to 20 s, three or four shots (`hands/video skit`,
+docs/hands.md: wan-3-0 at 720p with its sound first, then seedance-2-0 and
+wan-2-7), one job whose script states them once for the whole film, because shots
+rendered as separate jobs came back with a different face, lawn and
+soundtrack each (2026-11-20, "the videos don't connect"). The drafting
+turn gives the craft (a premise from what the figure did, never a pun on a
+headline word; the figure driving every shot; the impossible thing in
+frame in every shot, never a plain close-up or an ordinary setting that
+could pass for real footage (a paid one-take render, 2026-11-20, ended on
+a photoreal close-up in front of an ordinary office); three beats, set-up a
+stranger gets with the sound off, consequence, payoff; the constants said
+once as data and the shots saying only what changes, the figure's full
+name, the framing, the action, a line, spot sound effects, never their own
+music; one action and at most one short line a shot; cinematography, an
+expensive absurd set, escalation) and the hard lines, and `writer.md` holds the
 carve-out from "joke about the situation, never at someone" with worked
 examples and one pun-against-premise contrast (the first live skit slot,
 2026-11-19, drew three skits that were all a pun on the headline's
@@ -928,8 +945,12 @@ parody to those lines. The hard lines for real people (`hands/guard skit`; `docs
 run three times: code's half on every skit draft before the tournament
 (beside the copy and unsourced screens, which hold only its words to the
 facts: a shot's "35mm" is staging), code and the judge before any money is
-spent (the logline and every shot also past `hands/guard check` on the
-`task` surface), and the viewer on the cut's frames after. The label ("AI
+spent (the logline, the look, setting and score, every shot and the
+prompts the hand composes from them, the one-take script and each
+per-shot prompt, also past `hands/guard check` on the `task` surface; code's
+screen reads the same composed text, built by the same `guard/skit.py`
+functions the hand sends), and the viewer on the cut's frames after (a
+one-clip cut sampled evenly across its length, so every shot is seen). The label ("AI
 parody · @<X_BOT_USERNAME>") is set by the hand, burned in for the whole
 length by the reel front, and checked twice: the producer hands over no file
 the hand and the front do not both report labelled, and the viewer must read
@@ -1556,7 +1577,8 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     behind the `reel` compose profile. It reads `state/media/` and
     `brain/assets/` read-only and posts nothing. The front's own
     `POST /teeny/v1/cuts` (`deploy/reel/skitcut.py`) joins `hands/video
-    skit`'s shots with ffmpeg, keeping their sound, and burns in the label.
+    skit`'s shots with ffmpeg, keeping their sound (or takes its one take
+    as it is), and burns in the label.
   - `memegen`: known meme templates for `hands/meme template`: memegen
     (`vendor/memegen`, the upstream repository at a pinned commit, since it
     tags no releases; never edited) built by its own `Containerfile` and run

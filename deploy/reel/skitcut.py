@@ -48,8 +48,10 @@ SIZES = {"16:9": (1920, 1080), "9:16": (1068, 1900), "1:1": (1080, 1080)}
 FPS = 30
 #: The loudness every cut is evened out to (EBU R128, as most platforms play).
 LOUDNESS = "I=-16:TP=-1.5:LRA=11"
-#: Start, every shot's middle (up to six) and end: what the viewer takes at most.
-MAX_FRAMES = 8
+MAX_FRAMES = 6
+#: A remake's cut (with trims): start, every shot's middle (up to six) and
+#: end, within the 8 frames the viewer takes at most.
+MAX_REMAKE_FRAMES = 8
 MAX_SECONDS = 140
 FONT = "BeVietnamPro-Bold.ttf"
 CUT = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -69,8 +71,8 @@ class CutError(ValueError):
 
 
 def check_cut(body: Any) -> dict[str, Any]:
-    """{clips, label, aspect, bed, bed_volume, trims, sound}: the cut's job
-    with every field checked; CutError otherwise. Paths are the job's own
+    """{clips, label, aspect, bed, bed_volume}, and a remake's {trims,
+    sound}: the cut's job with every field checked; CutError otherwise. Paths are the job's own
     (`media/...`), for policy.resolve_source."""
     if not isinstance(body, dict):
         raise CutError("the body is a JSON object")
@@ -111,8 +113,9 @@ def check_cut(body: Any) -> dict[str, Any]:
             raise CutError("a cut with a sound takes no bed: the source's audio is the only sound")
         if trims is None:
             raise CutError("a cut with a sound trims every clip (trims)")
-    out = {"clips": list(clips), "label": label.strip(), "aspect": aspect, "bed": bed, "bed_volume": volume / 100,
-           "trims": trims, "sound": sound}
+    out = {"clips": list(clips), "label": label.strip(), "aspect": aspect, "bed": bed, "bed_volume": volume / 100}
+    if trims is not None:
+        out.update(trims=trims, sound=sound)
     return out
 
 
@@ -147,12 +150,21 @@ def _fit(clips: list[dict[str, Any]], trims: list[float]) -> tuple[list[int], li
     return frames, padded
 
 
-def frame_times(durations: list[float]) -> list[float]:
+def frame_times(durations: list[float], most: int = MAX_FRAMES) -> list[float]:
     """When to take the viewer's frames: just after the start, the middle of
-    every shot, and just before the end, at most MAX_FRAMES, in order."""
+    every shot, and just before the end, at most `most` (MAX_FRAMES), in
+    order. One clip (a one-take skit, every shot inside it) is sampled
+    evenly from just after its start to just before its end, `most` of
+    them, so the viewer sees every shot of it."""
     total = sum(durations)
     if total <= 0:
         return []
+    if len(durations) == 1:
+        first, last = min(0.4, total / 4), max(0.0, total - 0.4)
+        step = (last - first) / (most - 1)
+        if step < 0.2:
+            return [round(first, 2)]
+        return [round(first + i * step, 2) for i in range(most)]
     times = [min(0.4, total / 4)]
     at = 0.0
     for seconds in durations:
@@ -163,9 +175,9 @@ def frame_times(durations: list[float]) -> list[float]:
     for t in sorted(times):
         if not out or t - out[-1] >= 0.2:
             out.append(round(t, 2))
-    if len(out) > MAX_FRAMES:
-        step = (len(out) - 1) / (MAX_FRAMES - 1)
-        out = [out[round(i * step)] for i in range(MAX_FRAMES)]
+    if len(out) > most:
+        step = (len(out) - 1) / (most - 1)
+        out = [out[round(i * step)] for i in range(most)]
     return out
 
 
@@ -293,7 +305,7 @@ def render(sources: list[str], label: str, aspect: str, folder: str, font: str, 
         raise CutError(f"ffmpeg could not cut it ({type(exc).__name__})") from None
     seconds = probe(ffprobe, out)["seconds"]
     names = []
-    for n, at in enumerate(frame_times(lengths)):
+    for n, at in enumerate(frame_times(lengths, MAX_REMAKE_FRAMES if trims is not None else MAX_FRAMES)):
         name = f"frame-{n}.jpg"
         try:
             subprocess.run([ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-ss", f"{at:.2f}",

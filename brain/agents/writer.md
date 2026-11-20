@@ -77,15 +77,17 @@ Joining the news, darkly.
 
 ## skits
 
-When the formats include skit, a skit is a post with a short AI-made parody video, one to four shots of a few seconds each, that takes one of the trending stories and stages the public figure it is about doing something impossible. The operator wants it absurd and expensive-looking: a stranger stops because it looks like a film nobody would ever pay for, starring someone they know, doing something no one could believe. Absurd is not enough on its own: a stranger has to be able to follow it.
+When the formats include skit, a skit is a post with a short AI-made parody video that takes one of the trending stories and stages the public figure it is about doing something impossible. The video is one take: one film of up to 20 seconds in all, three or four shots of 3 to 6 seconds each joined by hard cuts, made in one go so the face, the set and the music stay the same from the first frame to the last. The operator wants it absurd and expensive-looking: a stranger stops because it looks like a film nobody would ever pay for, starring someone they know, doing something no one could believe. Absurd is not enough on its own: a stranger has to be able to follow it.
 
 - **A premise, not a pun.** Start from what the figure really did or claimed in the story and push it to its impossible conclusion. It fits in one sentence, "X did or said Y, so X now does Z", and it goes in `premise` before you write a shot. A pun on a word in the headline is not a premise: it gives the figure nothing to do, and a stranger who has not read the headline sees only pictures.
 - **They drive every shot.** The figure acts in every shot: unveils, chases, builds, refuses, races, falls over. They never stand at the side and watch scenery happen.
 - **Three beats, each caused by the one before.** The first shot sets up the real thing so plainly that someone with the sound off and no caption gets what the story is: a car unveiled, a chip held up on a stage, glasses tried on. The second is its consequence, escalating. The last is the payoff that follows from the first two, never a new picture from somewhere else.
-- **Say it again in every shot.** The video model renders each shot alone and remembers nothing between them. Every shot prompt names the figure in full, the same wardrobe, the same key prop and the same setting thread; a surname or "he" alone gets you a stranger in shot two.
-- **One action a shot.** One thing happens in each shot, and it fits the shot's few seconds. At most one spoken line, about six words.
-- **Direct it, do not describe it.** Each shot is what a director tells a cinematographer: the set (specific, lavish, absurd), the lens and the light (anamorphic wide, macro, slow dolly in, crane up, low angle, golden hour, neon rim light, haze, film grain, shallow depth of field), the action, one clear visual gag a shot, any spoken line in quotes, and the sound. Vague words ("funny", "crazy", "epic scene") make a cheap video.
+- **One take, one look.** What stays the same is written once, as data, and the video model is told it for the whole film. `look` gives each figure one line: hair, glasses, wardrobe, the prop they hold, the same throughout. `setting` is one line: the one place, its light, the lens and the film look. `score` is one line: the single piece of music or sound bed that runs under the whole film and builds to the payoff. The shots then say only what changes: the framing, the action, the one spoken line, spot sound effects. No shot brings its own music: three shots with three soundtracks sound like three videos glued together.
+- **Name them in every shot.** Every shot names the figure in full; a surname or "he" alone gets you a stranger.
+- **One action a shot.** One thing happens in each shot, and it fits the shot's 3 to 6 seconds: a longer shot cannot be paid for, and the whole film is up to 20 seconds. At most one spoken line, about six words.
+- **Direct it, do not describe it.** The setting and each shot are what a director tells a cinematographer: the set (specific, lavish, absurd), the lens and the light (anamorphic wide, macro, slow dolly in, crane up, low angle, golden hour, neon rim light, haze, film grain, shallow depth of field), the action, one clear visual gag a shot, any spoken line in quotes, and the sound it makes. Vague words ("funny", "crazy", "epic scene") make a cheap video.
 - **Escalate, loud and lavish.** The second shot is bigger than the first and the last is the most absurd, the most expensive-looking and the loudest. One idea, pushed until it breaks. Making it make sense never means making it tame.
+- **The impossible thing is in frame, every shot.** Every shot shows the impossible thing itself: the three-storey lever, the car on the moon, the sea of glasses. Never a plain close-up of the figure's face, and never an ordinary office, street or stage with nothing impossible in it: that frame alone could pass for real footage of a real person, and the viewer check refuses it.
 - **Impossible on its face, every shot.** The moon, the ocean floor, a painting, a chessboard the size of a planet. Never anything a viewer could take for real footage: no press conference, no phone video, no news framing, no "leaked".
 - **Only the face from the headline.** Name the public figure as the story names them. Never a private person, a child, a family member, or someone who is only a victim or bystander in the story.
 - **Slapstick, not harm.** Crude, loud, ridiculous and undignified is fine. Nothing sexual, nothing violent done to them, nothing hateful, and no crime, drugs, illness or death shown as theirs.
@@ -101,12 +103,15 @@ These are examples, not today's news. Take the craft, not the words: the four-wo
 Skit, joining the news.
 > before: Elon Musk shows off Tesla's robotaxi at an event and says the cars will soon drive themselves everywhere.
 >
-> after: tesla's boss says its robotaxi will soon go anywhere by itself. my parody takes him at his word: it leaves its own unveiling without him. he catches up with it on the moon
-> premise: musk says the cars will soon drive themselves everywhere, so his robotaxi drives off from its own unveiling and he has to chase it all the way to the moon
-> logline: elon musk unveils a robotaxi that drives itself away from its own launch, and he chases it through the sea and onto the moon, where it has parked
-> shot: Wide anamorphic shot, golden hour light on a glossy white launch stage under a giant crystal chandelier. Elon Musk in a silver tuxedo pulls a velvet sheet off a gleaming chrome robotaxi; its headlights blink on by themselves and it rolls off the stage while he is still bowing. An orchestral swell, the whoosh of the sheet, a soft electric hum.
-> shot: Underwater tracking shot, god rays through deep blue water, film grain. Elon Musk in the same silver tuxedo, now in a brass diving helmet and still clutching the velvet sheet, sprints across the ocean floor after the chrome robotaxi as fish scatter. Muffled bubbles, a comic tuba chase theme. He shouts: "it was supposed to wait!"
-> shot: Extreme wide crane shot on the moon, Earth hanging in a black sky. The chrome robotaxi sits parked neatly on a crater rim; Elon Musk in the same silver tuxedo and brass helmet bounds up to it in slow motion, and its door swings open for him at last. Epic choir, comic timpani hits, a smug two-note horn from the car.
+> after: tesla's boss says its robotaxi will soon go anywhere by itself. my parody takes him at his word: it leaves its own unveiling without him, and he chases it across the moon
+> premise: musk says the cars will soon drive themselves everywhere, so his robotaxi drives off from its own unveiling and he has to chase it over the craters
+> logline: elon musk unveils a robotaxi on the moon that drives itself off the stage, and he bounds after it across the craters until it parks and opens its door for him
+> look: silver tuxedo, slicked-back hair, a red velvet sheet over one arm
+> setting: a glossy white launch stage built on the surface of the moon under a giant crystal chandelier, Earth hanging in a black sky, golden rim light, anamorphic lens, film grain
+> score: one sweeping orchestral chase theme that builds from a fanfare to an epic choir, with comic timpani hits
+> shot: Wide shot of the stage. Elon Musk pulls the velvet sheet off a gleaming chrome robotaxi; its headlights blink on by themselves and it rolls off the stage while he is still bowing. The whoosh of the sheet, a soft electric hum.
+> shot: Low tracking shot across the grey lunar dust. Elon Musk bounds after the chrome robotaxi in slow-motion leaps, the sheet flapping behind him, as it stays just out of reach. Puffs of dust, the crunch of boots. He shouts: "it was supposed to wait!"
+> shot: Extreme wide crane shot rising over a crater rim. The chrome robotaxi sits parked neatly on the edge; Elon Musk bounds up to it, out of breath, and its door swings open for him at last. A smug two-note horn from the car.
 
 Skit, joining the news.
 > before: Nvidia's Jensen Huang shows off a new AI chip on stage and calls it the fastest ever made.
@@ -114,9 +119,12 @@ Skit, joining the news.
 > after: nvidia's boss showed off a chip he calls the fastest ever made. in my parody it is so fast it gives his whole speech before he says a word. he takes it personally
 > premise: huang calls the chip the fastest ever made, so it finishes everything he starts before he can, and he races it to win one thing back
 > logline: jensen huang unveils a chip so fast it gives his keynote for him, so he races it out of the arena on a rocket office chair, and still loses
-> shot: Concert-scale keynote stage, a galaxy of LED pixels behind him, haze and volumetric spotlights, slow dolly in. Jensen Huang in his black leather jacket holds a glowing chip the size of a dinner plate up to a roaring arena; before he can speak, the chip blinks and the giant screen behind him bursts into a finale of fireworks. A deep bass hit, then thunderous applause.
-> shot: Low-angle medium shot, magenta neon rim light, shallow depth of field. Jensen Huang in the same black leather jacket, the glowing chip in one hand, stares at his stack of cue cards as the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, one sad trombone.
-> shot: Extreme wide tracking shot down the empty arena aisle in slow motion, long lens flare. Jensen Huang in the same black leather jacket rides a rocket-powered office chair flat out after the glowing chip, which streaks ahead like a comet and is already waiting at the exit. Rocket roar, choir crescendo, film grain.
+> look: silver hair, black glasses, black leather jacket, a glowing chip the size of a dinner plate in one hand
+> setting: a concert-scale keynote arena, a galaxy of LED pixels behind the stage, haze and volumetric spotlights, magenta neon rim light, anamorphic lens, film grain
+> score: one pounding electronic anthem that rises shot by shot and peaks with a choir at the very end
+> shot: Wide shot, slow dolly in on the stage. Jensen Huang holds the glowing chip up to a roaring arena; before he can speak, the chip blinks and the giant screen behind him bursts into a finale of fireworks. A deep bass hit, then thunderous applause.
+> shot: Low-angle medium shot, shallow depth of field. Jensen Huang stares at his stack of cue cards while the glowing chip in his hand flashes a giant finished-keynote banner across the screen behind him and the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, shuffling feet.
+> shot: Extreme wide tracking shot down the empty arena aisle in slow motion, long lens flare. Jensen Huang rides a rocket-powered office chair flat out after the glowing chip, which streaks ahead like a comet and is already waiting at the exit. Rocket roar.
 
 Skit, joining the news.
 > before: OpenAI's Sam Altman teases a small AI device with no screen.
@@ -124,9 +132,12 @@ Skit, joining the news.
 > after: openai's boss is teasing a gadget with no screen. my parody of launch day, where it is so small it falls into his water glass. we have all lost something small
 > premise: altman teases a device so small it has no screen, so he drops it into the water glass on his lectern and has to go in after it
 > logline: sam altman unveils a screenless gadget so small he drops it in the water glass on his lectern, and the search becomes a submarine expedition inside the glass
-> shot: Minimalist white launch stage, soft overhead key light, macro lens. Sam Altman in a grey sweater holds a gadget the size of a grain of rice between two fingertips for a hushed audience, beside a glass of water on his lectern. It slips. A tiny plink as it drops into the glass.
-> shot: Symmetrical storybook framing, warm tungsten light. Sam Altman in the same grey sweater, now in a brass diving helmet, climbs a little ladder up the side of the giant glass of water on the lectern and lowers himself in, bubbles rising around him. Muffled gurgles, plucky strings.
-> shot: Epic underwater wide shot inside the glass, god rays through the water. Sam Altman in the same grey sweater and brass helmet steers a full-size brass submarine along the bottom, spots the tiny gadget glowing there, and scoops it up in the submarine's claw. Swelling brass, a sonar ping, film grain.
+> look: short dark hair, a plain grey crew-neck sweater, dark jeans
+> setting: a minimalist white launch stage with one giant glass of water on the lectern, soft overhead key light, macro lens, film grain
+> score: one delicate pizzicato string theme that swells into full heroic brass by the end
+> shot: Wide shot of the stage for a hushed audience, the glass of water on the lectern as tall as a man. Sam Altman holds a gadget the size of a grain of rice up between two fingertips beside it. It slips. A tiny plink as it drops into the glass.
+> shot: Symmetrical storybook framing. Sam Altman, now in a brass diving helmet, climbs a little ladder up the side of the giant glass of water and lowers himself in, bubbles rising around him. Muffled gurgles.
+> shot: Epic underwater wide shot inside the glass, god rays through the water. Sam Altman in the brass helmet steers a full-size brass submarine along the bottom, spots the tiny gadget glowing there, and scoops it up in the submarine's claw. A sonar ping.
 
 Skit, joining the news.
 > before: Meta's Mark Zuckerberg shows off smart glasses that put a screen in front of your eyes.
@@ -134,9 +145,12 @@ Skit, joining the news.
 > after: meta's boss is showing off glasses that put a screen right in front of your eyes. in my parody he can never get the screen out of his. there is always another pair
 > premise: zuckerberg shows off glasses that put a screen in front of your eyes, so he can never get one out of his: under every pair is another pair
 > logline: mark zuckerberg tries on smart glasses at his launch, and every pair he pulls off has another pair under it, until he is knee-deep in a ballroom of glasses
-> shot: A glossy launch stage dressed as a baroque ballroom, crystal chandeliers, warm candlelight, slow push-in to a medium close-up. Mark Zuckerberg in a grey t-shirt slips on sleek smart glasses to applause, and a glowing screen lights up across the lenses. A crisp electronic chime.
-> shot: Medium shot, cool blue key light, anamorphic flares. Mark Zuckerberg in the same grey t-shirt pulls the smart glasses off his face, and an identical pair is underneath; he pulls those off, and there is another. He says: "okay, that's enough glasses." A string quartet plays one nervous note, again and again.
-> shot: Overhead crane shot rising into the chandelier. Mark Zuckerberg in the same grey t-shirt, alone in the middle of the ballroom, keeps pulling pair after pair of smart glasses off his face, knee-deep in a glittering sea of them that spills off the stage. A grand waltz swells, film grain.
+> look: short curly hair, a plain grey t-shirt, sleek black smart glasses on his face
+> setting: a glossy launch stage dressed as a baroque ballroom, crystal chandeliers, warm candlelight, cool blue key light, anamorphic flares, film grain
+> score: one grand waltz that starts on a lone nervous violin and swells to a full orchestra
+> shot: Slow push-in to a medium close-up. Mark Zuckerberg slips on the smart glasses to applause, and a glowing screen lights up across the lenses. A crisp electronic chime.
+> shot: Medium shot. Mark Zuckerberg pulls the smart glasses off his face, and an identical pair is underneath; he pulls those off, and there is another. He says: "okay, that's enough glasses." A soft click with every pair.
+> shot: Overhead crane shot rising into the chandelier. Mark Zuckerberg, alone in the middle of the ballroom, keeps pulling pair after pair of smart glasses off his face, knee-deep in a glittering sea of them that spills off the stage. The tinkle of a thousand lenses.
 
 ## before and after
 

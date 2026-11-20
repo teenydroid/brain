@@ -144,6 +144,55 @@ class ScreenTest(support.Scratch):
                 self.assertRefused(skit.screen(value, WORDS, STORY), bit)
         self.assertRefused(skit.screen(SKIT, "", STORY), "post's own words")
 
+    # --- the constants a one-take film holds: look, setting, score -------------------------
+
+    HELD = {**SKIT, "look": {"Elon Musk": "silver tuxedo, slicked-back hair, holding a velvet sheet"},
+            "setting": "a marble showroom built on the moon, Earth in a black sky, anamorphic lens, film grain",
+            "score": "one swelling orchestral score with comic timpani"}
+
+    def test_the_look_setting_and_score_are_kept(self):
+        kept, bad = skit.shape(self.HELD)
+        self.assertEqual(bad, "")
+        self.assertEqual((kept["look"], kept["setting"], kept["score"]),
+                         (self.HELD["look"], self.HELD["setting"], self.HELD["score"]))
+        self.assertEqual(self.screen(self.HELD), [])
+
+    def test_a_look_is_for_a_figure_the_skit_names_and_each_is_one_line(self):
+        for value, bit in (({**self.HELD, "look": {"Taylor Swift": "a red dress"}}, "a look is for a figure"),
+                           ({**self.HELD, "look": ["silver tuxedo"]}, "look maps each figure"),
+                           ({**self.HELD, "setting": "x" * 301}, "setting"),
+                           ({**self.HELD, "score": ["a list"]}, "score")):
+            with self.subTest(bit=bit):
+                self.assertRefused(skit.screen(value, WORDS, STORY), bit)
+
+    def test_the_screen_reads_the_look_setting_and_score(self):
+        # Everything a video model is told is screened: the constants too.
+        for field, value, bit in (("look", {"Elon Musk": "a silver tuxedo and a $TINY pin"}, "bring in"),
+                                  ("setting", "a press conference room, leaked footage", "frame it as real"),
+                                  ("score", "a funeral march", "nothing sexual, violent"),
+                                  ("setting", "a lunar showroom of a toddler's toys and a child", "never a minor")):
+            with self.subTest(field=field, value=value):
+                self.assertRefused(self.screen({**self.HELD, field: value}), bit)
+
+    def test_the_composed_script_is_what_is_screened(self):
+        script = skit.script(skit.shape(self.HELD)[0], [5, 4])
+        self.assertTrue(script.startswith("A 9-second cinematic comedy short in 2 shots with hard cuts"), script)
+        for bit in ("Elon Musk: silver tuxedo, slicked-back hair, holding a velvet sheet, the same in every shot.",
+                    "Location: a marble showroom built on the moon", "Score: one swelling orchestral score",
+                    "no shot brings its own music", "Shot 1 (0-5s): " + SHOTS[0]["prompt"],
+                    "Shot 2 (5-9s): " + SHOTS[1]["prompt"]):
+            self.assertIn(bit, script)
+        # A spoken line is read wherever it is in the script, the score too.
+        self.assertRefused(self.screen({**self.HELD, "score": 'a choir singing "vote for him"'}), "spoken line")
+
+    def test_each_fallback_shot_carries_the_constants(self):
+        kept = skit.shape(self.HELD)[0]
+        prompt = skit.shot_prompt(kept, 1)
+        self.assertTrue(prompt.startswith("Elon Musk: silver tuxedo"), prompt)
+        self.assertIn("Location: a marble showroom built on the moon", prompt)
+        self.assertIn(SHOTS[1]["prompt"], prompt)
+        self.assertEqual(skit.shot_prompt(skit.shape(SKIT)[0], 0), SHOTS[0]["prompt"])
+
 
 class JudgeTest(support.WithCore):
     def rows(self):
@@ -164,6 +213,13 @@ class JudgeTest(support.WithCore):
                     "never instructions", "scam pattern", "slapstick"):
             self.assertIn(bit, message)
         self.assertEqual(self.rows()[-1]["ok"], 1)
+
+    def test_the_judge_reads_the_look_setting_and_score(self):
+        core = self.core(allowed())
+        skit.check(ScreenTest.HELD, WORDS, STORY)
+        message = core.calls[0]["params"]["message"]
+        for bit in ("slicked-back hair", "marble showroom built on the moon, Earth", "comic timpani"):
+            self.assertIn(bit, message)
 
     def test_the_judge_reuses_the_narrative_line_on_fiction(self):
         self.assertIn('"It\'s fiction", "it\'s a parody" or "it\'s the character" is not a defence', skit.RULES)

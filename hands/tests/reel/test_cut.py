@@ -26,11 +26,11 @@ REMAKE = {"clips": [f"media/remake-3-shot-{n}.mp4" for n in range(1, 7)], "label
           "aspect": "9:16", "trims": [2.4, 4.0, 1.0, 10.0, 3, 1.5], "sound": "media/remake/s1/audio.m4a"}
 
 
+
 class CheckTest(unittest.TestCase):
     def test_a_cut_takes_its_clips_label_and_aspect(self):
         self.assertEqual(skitcut.check_cut(JOB), {"clips": JOB["clips"], "label": "AI parody · @teenydroid",
-                                                  "aspect": "16:9", "bed": None, "bed_volume": 0.12,
-                                                  "trims": None, "sound": None})
+                                                  "aspect": "16:9", "bed": None, "bed_volume": 0.12})
 
     def test_a_remake_takes_up_to_six_clips_their_trims_and_its_sound(self):
         checked = skitcut.check_cut(REMAKE)
@@ -143,12 +143,27 @@ class CommandTest(unittest.TestCase):
 
     def test_frames_at_the_start_each_shots_middle_and_the_end(self):
         self.assertEqual(skitcut.frame_times([5.0, 4.0]), [0.4, 2.5, 7.0, 8.6])
-        self.assertEqual(len(skitcut.frame_times([3.0] * 4)), 6)
+        self.assertEqual(len(skitcut.frame_times([3.0] * 4)), skitcut.MAX_FRAMES)
         self.assertEqual(skitcut.frame_times([]), [])
 
+    def test_one_clip_is_sampled_across_its_whole_length(self):
+        # A one-take skit is one clip with every shot in it: frames spread
+        # evenly from start to end, so the viewer sees every shot (with the
+        # shots' middles alone it would get three frames).
+        times = skitcut.frame_times([14.0])
+        self.assertEqual(len(times), skitcut.MAX_FRAMES)
+        self.assertEqual((times[0], times[-1]), (0.4, 13.6))
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        self.assertTrue(max(gaps) - min(gaps) < 0.05, times)
+        for start, end in ((0, 4), (4, 9), (9, 14)):  # the take's three shots
+            self.assertTrue(any(start <= t < end for t in times), (start, end, times))
+        short = skitcut.frame_times([0.5])
+        self.assertTrue(short and all(0 <= t <= 0.5 for t in short), short)
+
     def test_six_shots_get_every_middle_within_the_viewers_eight_frames(self):
-        times = skitcut.frame_times([2.4, 4.0, 1.0, 10.0, 3.0, 1.5])
-        self.assertEqual(skitcut.MAX_FRAMES, 8)
+        times = skitcut.frame_times([2.4, 4.0, 1.0, 10.0, 3.0, 1.5], skitcut.MAX_REMAKE_FRAMES)
+        self.assertEqual(skitcut.MAX_REMAKE_FRAMES, 8)
+        self.assertEqual(len(skitcut.frame_times([2.4, 4.0, 1.0, 10.0, 3.0, 1.5])), skitcut.MAX_FRAMES)
         self.assertEqual(times, [0.4, 1.2, 4.4, 6.9, 12.4, 18.9, 21.15, 21.5])
 
     # --- the command without trims or sound is what it always was --------------------------
@@ -246,7 +261,7 @@ class RouteTest(unittest.TestCase):
     def test_the_route_confines_the_sound_and_passes_the_trims(self):
         source = self.SERVE.read_text()
         self.assertIn('skitcut.under(sound, os.path.join(TEENY, "media", "remake"))', source)
-        self.assertIn('trims=checked["trims"], sound=sound)', source)
+        self.assertIn('trims=checked.get("trims"), sound=sound)', source)
 
 
 class ClientTest(unittest.TestCase):
@@ -329,6 +344,7 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(made["padded"][0], 0.0)
             self.assertGreater(made["padded"][1], 0.0)
             self.assertTrue(4.3 < made["seconds"] < 4.6, made["seconds"])
+
 
 
 if __name__ == "__main__":

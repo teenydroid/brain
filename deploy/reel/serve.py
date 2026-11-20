@@ -187,7 +187,7 @@ def _cut(cut_id: str, checked: dict) -> dict:
         raise skitcut.CutError("a bed is an mp3, wav, m4a, aac, flac, ogg or opus file")
     # A remake's sound: the source's audio, really under media/remake/ once
     # symlinks are resolved.
-    sound = policy.resolve_source(TEENY, checked["sound"], policy.AUDIO_MAX_BYTES) if checked["sound"] else None
+    sound = policy.resolve_source(TEENY, checked["sound"], policy.AUDIO_MAX_BYTES) if checked.get("sound") else None
     if sound and (not skitcut.under(sound, os.path.join(TEENY, "media", "remake"))
                   or os.path.splitext(sound)[1].lower() not in policy.AUDIO_SUFFIXES):
         raise policy.JobError("a sound is an audio file under media/remake/")
@@ -195,7 +195,7 @@ def _cut(cut_id: str, checked: dict) -> dict:
     os.makedirs(folder)
     with CUTTING:
         return skitcut.render(sources, checked["label"], checked["aspect"], folder, os.path.join(FONTS, skitcut.FONT),
-                              bed=bed, bed_volume=checked["bed_volume"], trims=checked["trims"], sound=sound)
+                              bed=bed, bed_volume=checked["bed_volume"], trims=checked.get("trims"), sound=sound)
 
 
 @router.post("/teeny/v1/cuts")

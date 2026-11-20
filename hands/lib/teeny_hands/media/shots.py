@@ -60,9 +60,14 @@ _RESERVED = {"model", "prompt", "duration_seconds", "image_url"}
 
 
 class _Shot:
-    def __init__(self, n: int, row: int, prompt: str, seconds: int, models: list[str], image: str | None = None,
-                 floor: float | None = None, cap: int | None = None) -> None:
+    def __init__(self, n: int, row: int, prompt: str, seconds: int, models: list[str], name: str | None = None,
+                 image: str | None = None, floor: float | None = None, cap: int | None = None) -> None:
         self.n, self.row, self.prompt, self.seconds = n, row, prompt, seconds
+        #: The file's name after `<prefix>-<id>-`: `shot-<n>`, or a skit's `take`.
+        self.name = name or f"shot-{n}"
+        #: What the landed row's detail carries beyond the length and the tries.
+        self.extra: Json = {}
+        self.timed_out = False
         self.models = list(models)
         #: The keyframe this shot animates (a data URI, sent as image_url), if any.
         self.image = image
@@ -118,13 +123,13 @@ def params(name: str) -> dict[str, Json]:
 
 
 def request_body(model: str, prompt: str, seconds: int, aspect: str, params: dict[str, Json],
-                 image: str | None = None) -> Json:
+                 image: str | None = None, resolution_setting: str = "MEDIA_SKIT_RESOLUTION") -> Json:
     """One shot's job: {model, prompt, duration_seconds} (and `image_url`
     when the shot animates a keyframe), then the params' fields for every
     model ("*") and for this one, with {aspect}, {seconds} and {resolution}
-    (MEDIA_SKIT_RESOLUTION, 1080p) filled in. The model, the prompt, the
-    length and the image are always this hand's."""
-    resolution = (hand.setting("MEDIA_SKIT_RESOLUTION") or "1080p").strip()
+    (the setting `resolution_setting`, 720p) filled in. The model, the
+    prompt, the length and the image are always this hand's."""
+    resolution = (hand.setting(resolution_setting) or "720p").strip()
     body: Json = {"model": model, "prompt": prompt, "duration_seconds": seconds}
     if image is not None:
         body["image_url"] = image
@@ -264,12 +269,11 @@ def submit(api: Surplus, conn, parent_id: int, shot: _Shot, aspect: str, plan: P
     return False
 
 
-def poll(api: Surplus, conn, parent_id: int, shots: list[_Shot], aspect: str, plan: Plan, job_params: dict[str, Json],
-         wait: int, sleep, clock, sold: dict[str, list[int]] | None = None) -> None:
-    """Every shot's job to its end: done (the file saved and the row
-    finished at its real cost) or `failed` set. Any shot that cannot be made
-    cancels the rest."""
-    deadline = clock() + wait
+def poll(api: Surplus, conn, parent_id: int, shots: list[_Shot], plan: Plan, resubmit, wait: int, deadline: float,
+         sleep, clock) -> None:
+    """Every shot's job to its end, by `deadline`: done (the file saved and
+    the row finished at its real cost) or `failed` set. Any shot that cannot
+    be made cancels the rest. `resubmit(shot)` asks the shot's next model."""
     while True:
         running = [s for s in shots if s.job and not s.path and not s.failed]
         if not running or any(s.failed for s in shots):
@@ -289,7 +293,7 @@ def poll(api: Surplus, conn, parent_id: int, shots: list[_Shot], aspect: str, pl
                 _set(conn, shot.row, cost_micro=0)
                 shot.job, shot.cost = None, 0
                 if _refusal(said) or error.get("retryable", error.get("type") != "invalid_request"):
-                    if not submit(api, conn, parent_id, shot, aspect, plan, job_params, sold):
+                    if not resubmit(shot):
                         shot.failed = "no model could make it: " + "; ".join(shot.tried)
                 else:
                     shot.failed = "; ".join(shot.tried)
@@ -301,7 +305,7 @@ def poll(api: Surplus, conn, parent_id: int, shots: list[_Shot], aspect: str, pl
                     _cancel(api, shot.job)
                     shot.tried.append(f"{shot.model}: not done after {wait} s, cancelled")
                     shot.failed = f"not done after {wait} s"
-                    shot.job = None
+                    shot.job, shot.timed_out = None, True
             break
         sleep(POLL_SECONDS)
 
@@ -360,11 +364,12 @@ def land(api: Surplus, conn, parent_id: int, shot: _Shot, status: Json, plan: Pl
         _set(conn, shot.row, cost_micro=cost, estimated=0 if actual is not None else 1, status="unknown",
              error=shot.failed, done_at=hand.now())
         return
-    path = assets._media_dir() / f"{plan.prefix}-{parent_id}-shot-{shot.n}.mp4"
+    path = assets._media_dir() / f"{plan.prefix}-{parent_id}-{shot.name}.mp4"
     path.write_bytes(data)
     shot.path, shot.cost = str(path.relative_to(hand.root())), cost
     _set(conn, shot.row, status="done", path=shot.path, cost_micro=cost, estimated=0 if actual is not None else 1,
-         done_at=hand.now(), detail=json.dumps({"seconds": shot.asked, "tried": shot.tried}, ensure_ascii=False))
+         done_at=hand.now(), detail=json.dumps({"seconds": shot.asked, "tried": shot.tried, **shot.extra},
+                                               ensure_ascii=False))
 
 
 def _end_shots(conn, shots: list[_Shot]) -> None:
@@ -389,16 +394,18 @@ def stop_all(api: Surplus, conn, shots: list[_Shot]) -> None:
 
 def make(api: Surplus, conn, parent_id: int, shots: list[_Shot], aspect: str, plan: Plan, job_params: dict[str, Json],
          wait: int, sleep, clock, sold: dict[str, list[int]] | None) -> list[_Shot]:
-    """Every shot started, then all polled to their end; the shots that
-    were not made (empty when all landed). Whatever was not made is
-    cancelled and left failed."""
+    """Every shot started, then all polled to their end within `wait`; the
+    shots that were not made (empty when all landed). Whatever was not made
+    is cancelled and left failed."""
+    deadline = clock() + wait
     try:
         for shot in shots:
             if not submit(api, conn, parent_id, shot, aspect, plan, job_params, sold):
                 shot.failed = "no model could take it: " + ("; ".join(shot.tried) or "none configured")
                 break
         if not any(s.failed for s in shots):
-            poll(api, conn, parent_id, shots, aspect, plan, job_params, wait, sleep, clock, sold)
+            poll(api, conn, parent_id, shots, plan, lambda shot: submit(api, conn, parent_id, shot, aspect, plan,
+                                                                        job_params, sold), wait, deadline, sleep, clock)
     except _Stop as stop:
         for shot in shots:
             shot.failed = shot.failed or str(stop)
