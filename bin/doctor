@@ -555,8 +555,9 @@ fi
 # post, and the room falls back to the skit or the other formats. It says
 # whether hands/video will make any (MEDIA_REMAKE_MAX_PER_DAY 0 refuses every
 # one), whether a chart can be read at all (REMAKE_TIKTOK_ACCOUNTS or
-# YOUTUBE_API_KEY), and whether a six-shot remake's caps fit the shared daily
-# budget; --live asks the ingest service (INGEST_URL), which fetches the source.
+# YOUTUBE_API_KEY), whether one take's cap (MEDIA_REMAKE_MAX_USD_PER_TAKE)
+# fits the shared daily budget, and which models make the one take; --live
+# asks the ingest service (INGEST_URL), which fetches the source.
 if [ -f "$root/hands/lib/teeny_hands/guard/remake.py" ]; then
   remake_out="$(python3 -I -c '
 import sys, urllib.error, urllib.request
@@ -583,10 +584,11 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-# The hand's own default per shot when the setting is unset (hands/video remake-keys).
-shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", 1.40), number("MEDIA_MAX_USD_PER_DAY", 1.00)
-if 6 * shot > budget:
-    warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
+# A remake is one take (one job): the hand's own default take cap when unset.
+take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", 4.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if take > budget:
+    warns.append(f"MEDIA_REMAKE_MAX_USD_PER_TAKE ({take:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no remake fits a day")
+models = [m.strip() for m in (filed.get("MEDIA_REMAKE_ONE_TAKE_MODELS") or "venice-wan-3-0-image-to-video,wan-2-7-image-to-video").split(",") if m.strip()]
 try:
     from teeny_hands.remake.service import DEFAULT_URL as INGEST_DEFAULT
 except ImportError:
@@ -596,7 +598,9 @@ if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
 providers = ",".join(p for p, on in (("tiktok", accounts), ("youtube", youtube)) if on)
-said = f"on: {per_day} a day, up to {shot:.2f} USD a shot under {budget:.2f} USD a day; charts from {providers}; ingest at {url}"
+then = f" (then {', '.join(models[1:])})" if len(models) > 1 else ""
+said = (f"on: {per_day} a day, up to {take:.2f} USD a take under {budget:.2f} USD a day; one take on {models[0] if models else 'no model'}{then}; "
+        f"charts from {providers}; ingest at {url}")
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()
