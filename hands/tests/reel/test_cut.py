@@ -249,6 +249,47 @@ class RouteTest(unittest.TestCase):
         self.assertIn('trims=checked["trims"], sound=sound)', source)
 
 
+class ClientTest(unittest.TestCase):
+    """hands' client (teeny_hands.reel.service.Reel.cut) hands a remake's
+    trims and sound to the front as they are, on a loopback fake."""
+
+    def test_the_trims_and_the_sound_reach_the_front(self):
+        import json
+        import sys
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        from teeny_hands.reel.service import Reel
+
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen.append(json.loads(self.rfile.read(int(self.headers["content-length"]))))
+                body = json.dumps({"status": 200, "data": {"cut_id": "0e19deb3-7e54-4a71-b103-2e394ae488be",
+                                                           "sound": True, "trimmed": [2.4], "padded": [0.0]}}).encode()
+                self.send_response(200)
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            job = {"clips": ["media/remake-3-shot-1.mp4"], "label": "AI parody", "aspect": "9:16", "trims": [2.4],
+                   "sound": "media/remake/s1/audio.m4a"}
+            made = Reel(f"http://127.0.0.1:{server.server_address[1]}").cut(job, timeout=10)
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(seen, [job])
+        self.assertEqual((made["sound"], made["trimmed"], made["padded"]), (True, [2.4], [0.0]))
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg (the reel image has it)")
 class RenderTest(unittest.TestCase):
     def test_two_shots_one_silent_cut_with_their_sound_and_the_label(self):
