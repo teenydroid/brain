@@ -15,6 +15,10 @@ from teeny_hands import hand
 from teeny_hands.remake import charts, ledger
 from teeny_hands.remake.service import IngestError
 
+def vid(n):
+    return f"vid{n:08d}"
+
+
 KEY = "AIzaSyTESTKEY-0123456789abcdefghijklmnop"
 TT = "https://www.tiktok.com/@{}"
 
@@ -39,6 +43,9 @@ class Base(Scratch):
         self.secrets(f"REMAKE_TIKTOK_ACCOUNTS={','.join(accounts)}\n")
         for name, entries in lists.items():
             self.ingest.lists[TT.format(name)] = entries
+
+    def unavailable(self, got, provider):
+        return next(u for u in got["unavailable"] if u["provider"] == provider)
 
     def ids(self, got):
         return [c["id"] for c in got["candidates"]]
@@ -110,16 +117,17 @@ class YouTubeTest(Base):
         self.assertIn("regionCode=GB", self.asked_urls[1])
 
     def test_a_live_news_age_restricted_or_wrongly_long_video_is_left_out(self):
+        ok, short, long_ = vid(1), vid(2), vid(3)
         self.youtube_items = [
-            item("okokokokok1"),
-            item("livelivelive", live="live"), item("upcomingup1", live="upcoming"),
-            item("newsnewsnews", category="25"),
-            item("agedagedage1", rating={"ytRating": "ytAgeRestricted"}),
-            item("tooshort1111", duration="PT7S"), item("toolong11111", duration="PT3M1S"),
-            item("zerozerozero", duration="P0D"), item("longestok111", duration="PT3M"), item("shortestok11", duration="PT8S"),
-            item("hourhourhour", duration="PT1H"), item("junkjunkjunk", duration="soon"),
+            item(ok),
+            item(vid(10), live="live"), item(vid(11), live="upcoming"),
+            item(vid(12), category="25"),
+            item(vid(13), rating={"ytRating": "ytAgeRestricted"}),
+            item(vid(14), duration="PT7S"), item(vid(15), duration="PT3M1S"),
+            item(vid(16), duration="P0D"), item(long_, duration="PT3M"), item(short, duration="PT8S"),
+            item(vid(17), duration="PT1H"), item(vid(18), duration="soon"),
         ]
-        self.assertEqual(sorted(self.ids(self.top())), sorted(f"chart:yt:{i}" for i in ("okokokokok1", "longestok111", "shortestok11")))
+        self.assertEqual(sorted(self.ids(self.top())), sorted(f"chart:yt:{i}" for i in (ok, short, long_)))
 
     def test_the_key_is_in_the_request_and_nowhere_in_the_answer(self):
         self.youtube_items = [item("aaaaaaaaaaa")]
@@ -135,12 +143,12 @@ class YouTubeTest(Base):
         self.youtube_items = urllib.error.URLError(f"cannot reach https://www.googleapis.com/youtube/v3/videos?key={KEY}")
         got = self.top()
         self.assertEqual(got["candidates"], [])
-        self.assertEqual(got["unavailable"][0]["provider"], "youtube")
+        self.assertEqual(self.unavailable(got, "youtube")["reason"], "api")
         self.assertNotIn(KEY, json.dumps(got))
         self.youtube_items = RuntimeError(f"boom {KEY}")
         got = self.top("other")
         self.assertNotIn(KEY, json.dumps(got))
-        self.assertEqual(got["unavailable"][0]["reason"], "api")
+        self.assertEqual(self.unavailable(got, "youtube")["reason"], "api")
 
     def test_the_real_request_turns_an_http_error_into_its_status_and_reason_only(self):
         body = io.BytesIO(json.dumps({"error": {"errors": [{"reason": "quotaExceeded"}], "message": f"key {KEY}"}}).encode())
@@ -159,7 +167,7 @@ class YouTubeTest(Base):
     def test_an_answer_that_is_not_a_list_of_items_is_unavailable(self):
         self.get_json = lambda url: {"items": "nope"}
         got = charts.top("k", 15, ingest=self.ingest, get_json=self.get_json)
-        self.assertEqual(got["unavailable"][0]["provider"], "youtube")
+        self.assertEqual(self.unavailable(got, "youtube")["reason"], "api")
 
 
 class FilterTest(Base):

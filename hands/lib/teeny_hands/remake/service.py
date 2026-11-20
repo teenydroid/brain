@@ -117,7 +117,9 @@ class Ingest:
             raise IngestError(f"could not reach the ingest service ({type(getattr(exc, 'reason', exc)).__name__})") from None
         if len(raw) > limit:
             size = f"{limit // (1024 * 1024)} MB" if limit >= 1 << 20 else f"{limit // 1024} KB"
-            raise IngestError(f"the ingest service sent more than {size}")
+            # 413 is not a status it answered: it marks "too big", a refusal of
+            # the file, not a service that is down.
+            raise IngestError(f"the ingest service sent more than {size}", 413)
         return raw
 
     def _data(self, method: str, path: str, body: Any = None, timeout: float = 30.0) -> dict:

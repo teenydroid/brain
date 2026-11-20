@@ -318,7 +318,8 @@ class CacheTest(Base):
         self.assertTrue(self.study()["cached"])
 
     def test_an_unreadable_answer_is_not_kept_so_a_retry_asks_again(self):
-        self.vision = FakeVision(reply("nonsense"), reply(breakdown()))
+        # the first reading takes all three of the model's asks
+        self.vision = FakeVision(reply("nonsense"), reply("nonsense"), reply("nonsense"), reply(breakdown()))
         self.assertFalse(self.study()["usable"])
         self.assertFalse((self.folder() / "study.json").exists())
         self.assertTrue(self.study()["usable"])
@@ -406,7 +407,7 @@ class IngestTest(Base):
         shutil.rmtree(self.root / "state", ignore_errors=True)
 
     def test_a_file_over_its_cap_is_refused(self):
-        self.ingest.files = {"shot-1.jpg": IngestError("the ingest service sent more than 2 MB")}
+        self.ingest.files = {"shot-1.jpg": IngestError("the ingest service sent more than 2 MB", 413)}
         self.assertEqual(self.rule(), "fetch")
         self.assertEqual(self.ingest.deleted, [FETCH_ID])
 

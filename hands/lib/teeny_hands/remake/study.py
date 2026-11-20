@@ -120,6 +120,8 @@ def _input(body: Any) -> tuple[str | None, str | None]:
         if charts.parse_id(body["id"]) is None:
             raise hand.Refused("id is a chart id from `charts` (chart:tt:<id> or chart:yt:<id>)", rule="source")
         return body["id"], None
+    if not isinstance(body["url"], str):
+        raise hand.HandError("url is a string")
     if source_of(body["url"]) is None:
         raise hand.Refused("url is an https address on youtube.com, tiktok.com or instagram.com", rule="source")
     return None, body["url"]

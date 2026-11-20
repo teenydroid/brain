@@ -5,6 +5,7 @@ model). Nothing here uses the network, yt-dlp or ffmpeg."""
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -59,7 +60,8 @@ def entry(video_id: str, title: str = "a dance", views: int = 1000, seconds: flo
     published = None
     if hours_old is not None:
         published = dt.datetime.fromtimestamp(T0 - hours_old * 3600, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {"url": f"https://www.tiktok.com/@{uploader}/video/{video_id}", "video_id": video_id, "title": title,
+    account = re.sub(r"[^A-Za-z0-9_.]", "", uploader) or "x"
+    return {"url": f"https://www.tiktok.com/@{account}/video/{video_id}", "video_id": video_id, "title": title,
             "uploader": uploader, "seconds": seconds, "views": views, "published_at": published}
 
 
