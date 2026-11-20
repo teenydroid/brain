@@ -819,6 +819,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    outside first: hands/trend top (Digg's AI + tech stories and their X posts, once a slot)
        + HN search, top, show + listen digest (+ X search with STUDIO_OUTSIDE_X=1, 4 a day)
+       + 3 wildcards: strangers' premises from hands/chan sparks (STUDIO_CHAN=0 turns it off)
    then hands/story desk: what Teeny brings to it
    video slot with remake on: hands/remake charts (popular short videos; none only drops the remake option)
                 │
@@ -1021,6 +1022,16 @@ the original's title and creator and every shot's edit, motion and teeny,
 and is told what a remake is and its only lines (`REMAKE_EDITOR`,
 `REMAKE_FINAL`).
 
+`hands/khaby` is the same ingest side for a Khaby Lame video, not yet a
+studio format: `find` lists his account (`KHABY_ACCOUNTS`) through the
+ingest service as `remake charts` lists TikTok accounts, and `dissect`
+fetches one video with the study's fetch-and-pull code (`remake/source.py`)
+and sends it whole to a video-input model (`KHABY_DISSECT_MODEL`, no default
+until one is tried on the box) for a timeline: which seconds and frames are
+the setup clip and which his reaction, snapped to ingest's cuts, the
+reaction editable. It shares the remake ledger, so a video used by one
+pipeline is never offered to the other (docs/hands.md, "khaby").
+
 The remake's hard lines (`hands/guard remake`, `guard/remake.py`; the skit's
 lines, plus):
 
@@ -1179,7 +1190,15 @@ One run is one slot:
    through twitr, so at most $0.048 a day. A story two sources carry is kept
    once, by the first. Each outside item gets an id (`<source>:<id>`, Digg's
    as `trend:<short id>`, HN's as `hn-top:<id>`), is marked untrusted, and carries no handle and no
-   poster's name but a quoted X post's display name. Then `hands/story desk`.
+   poster's name but a quoted X post's display name. Then, unless
+   `STUDIO_CHAN=0`, the outside's randomness: `hands/chan sparks --max 3
+   --seed <the run's seed>` (docs/hands.md, "chan"), three premises
+   anonymous strangers posted on 4chan's worksafe boards, each screened by
+   the guard's lexicon in the hand, 2,000 bytes. They reach the pitch turn as
+   "wildcards" (`chan:<board>:<no>`, no link): never trending, never a hook,
+   for a pitch or two to collide with Teeny's own thing as its own absurd
+   belief or scheme, never as a fact. A run that cannot read them names
+   `chan-wildcard` in `inputs.unavailable` and goes on. Then `hands/story desk`.
    Every hand runs with `DRY_RUN=1` forced, each source optional and cut to
    fit (`bin/lib/act_fit.py`); one that gives nothing is named under
    `inputs.unavailable`, and `outside` in the record says what each gave or

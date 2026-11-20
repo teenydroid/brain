@@ -23,6 +23,10 @@ VIDEO = {"concepts": [{"title": "rent is a pulse", "logline": "a robot pays rent
                    "last_frame": "teeny signs it", "caption": "rent is a pulse"}}
 
 
+SPARK = {"id": "chan:x:1", "board": "x", "premise": "the moon is a hard drive and it is almost full",
+         "replies": 9}
+
+
 class FakeAsk:
     """Answers each voice in turn and records what it was shown."""
 
@@ -135,6 +139,60 @@ class ProgramTest(unittest.TestCase):
                 code = backroom.main(["--out", out, "rent"], {"TEENY_SECRETS": out})
             self.assertEqual(code, 1)
             self.assertIn("OPENROUTER_API_KEY", err.getvalue())
+
+    def run_main(self, argv, sparks):
+        out = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(out, ignore_errors=True))
+        env = {"BACKROOM_DREAMER_MODEL": "dream-m", "BACKROOM_INSTIGATOR_MODEL": "inst-m",
+               "BACKROOM_DISTILLER_MODEL": "distill-m", "TEENY_SECRETS": out}
+        ask, buf, err = FakeAsk(), io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err):
+            code = backroom.main(["--turns", "2", "--out", out, *argv], env, ask, sparks)
+        rooms = [json.loads((r / "room.json").read_text()) for r in sorted(Path(out).iterdir())]
+        return code, buf.getvalue(), err.getvalue(), ask, rooms
+
+    def test_a_wildcard_reaches_the_two_voices_and_is_kept_with_the_room(self):
+        asked = []
+
+        def sparks(n, seed):
+            asked.append(n)
+            return [SPARK]
+
+        code, text, _, ask, rooms = self.run_main(["--wildcard", "rent", "the newer model"], sparks)
+        self.assertEqual(code, 0)
+        self.assertEqual(asked, [2])
+        voices = [c[1] for c in ask.calls if c[0] != "distill-m"]
+        self.assertTrue(voices and all("the moon is a hard drive" in v and "not true and not news" in v
+                                       for v in voices))
+        distiller = [c[1] for c in ask.calls if c[0] == "distill-m"]
+        self.assertTrue(all("the moon is a hard drive" not in d for d in distiller))
+        self.assertTrue(all("never a fact and never news" in d for d in distiller))
+        self.assertEqual([r["wildcard"]["id"] for r in rooms], ["chan:x:1", "chan:x:1"])
+        self.assertEqual(sorted(r["idea"] for r in rooms), ["rent", "the newer model"])
+        self.assertIn("*wildcard: the moon is a hard drive", text)
+
+    def test_from_chan_opens_a_room_per_spark(self):
+        second = dict(SPARK, id="chan:lit:2", premise="every novel is one long apology")
+        code, _, _, _, rooms = self.run_main(["--from-chan", "2"], lambda n, seed: [SPARK, second][:n])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(r["idea"] for r in rooms), sorted(
+            backroom.fill(backroom.CHAN_IDEA, premise=p) for p in (SPARK["premise"], second["premise"])))
+        self.assertTrue(all(r["wildcard"] is None for r in rooms))
+
+    def test_a_hand_that_fails_or_finds_nothing_ends_the_run_before_any_room(self):
+        def broken(n, seed):
+            raise backroom.BackroomError("hands/chan failed: down")
+
+        code, _, err, ask, rooms = self.run_main(["--wildcard", "rent"], broken)
+        self.assertEqual((code, ask.calls, rooms), (1, [], []))
+        self.assertIn("hands/chan failed", err)
+        code, _, err, _, _ = self.run_main(["--from-chan", "1"], lambda n, seed: [])
+        self.assertEqual(code, 1)
+        self.assertIn("no sparks", err)
+
+    def test_from_chan_takes_no_idea_of_its_own(self):
+        with self.assertRaises(SystemExit):
+            self.run_main(["--from-chan", "1", "rent"], lambda n, seed: [SPARK])
 
     def test_every_format_renders(self):
         pieces = {"video": VIDEO["piece"], "clip": {"gag": "g", "beats": ["0-2s: a"], "summary": "s"},

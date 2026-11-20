@@ -190,6 +190,12 @@ hands/remake
 hands/lib/teeny_hands/remake/
 hands/tests/ingest/
 hands/tests/remake/
+# Khaby: the same ingest side for Khaby Lame's videos, sharing remake's fetch
+# code and ledger; the flags, the rules a dissect is held to and its day's cap
+# on its paid video call are the operator's, like the study's.
+hands/khaby
+hands/lib/teeny_hands/khaby/
+hands/tests/khaby/
 # Memes and comics: words drawn on pictures that go out under Teeny's name,
 # screened by the guard's lexicon, and Giphy search held to g and pg. The
 # fonts are licensed files (brain/assets/fonts/README.md).

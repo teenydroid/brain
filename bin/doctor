@@ -584,8 +584,8 @@ youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
 # The default for an unset shot cap, read from the hand code (media/remakes.py).
-from teeny_hands.media.remakes import MAX_USD_PER_SHOT
-shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(MAX_USD_PER_SHOT)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+from teeny_hands.media.remakes import PER_SHOT
+shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if 6 * shot > budget:
     warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
 url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
@@ -610,6 +610,70 @@ except Exception as exc:  # noqa: BLE001 - any failure is the same warning
 print(f"ok {said}, and it answers")
 ' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || remake_out="warn the check could not run: $(tail -n 1 <<<"$remake_out")"
   note "remakes" "${remake_out%% *}" "${remake_out#* }"
+fi
+
+# Khaby (hands/khaby find and dissect; docs/hands.md, "khaby"). A warning,
+# never a failure. It is off until the operator names a video-input model
+# (KHABY_DISSECT_MODEL has no default: which model takes a video is found by
+# trying one on the box), or the studio is told to use it. Once on, it says
+# whether dissect will run at all (KHABY_DISSECT_MAX_PER_DAY 0 refuses every
+# one), the provider and its key, the accounts find lists, and INGEST_URL;
+# --live asks the ingest service.
+if [ -f "$root/hands/lib/teeny_hands/khaby/dissect.py" ]; then
+  khaby_out="$(python3 -I -c '
+import sys, urllib.error, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+studio = "khaby" in [f.strip() for f in (filed.get("STUDIO_FORMATS") or "").split(",")]
+model = (filed.get("KHABY_DISSECT_MODEL") or "").strip()
+if not model:
+    if studio:
+        print("warn STUDIO_FORMATS names khaby, but KHABY_DISSECT_MODEL is not set: hands/khaby dissect refuses every video")
+    else:
+        print("ok off: KHABY_DISSECT_MODEL is not set, so hands/khaby dissect refuses every video")
+    sys.exit()
+try:
+    per_day = int(filed.get("KHABY_DISSECT_MAX_PER_DAY") or 3)
+except ValueError:
+    per_day = 3
+if per_day <= 0:
+    print(("warn" if studio else "ok") + " off: KHABY_DISSECT_MAX_PER_DAY is 0, so hands/khaby dissect refuses every video")
+    sys.exit()
+warns = []
+provider = (filed.get("KHABY_DISSECT_PROVIDER") or "surplus").strip().lower()
+key = {"surplus": "SURPLUS_API_KEY", "gemini": "GEMINI_API_KEY"}.get(provider)
+if key is None:
+    warns.append(f"KHABY_DISSECT_PROVIDER is {provider!r}, not surplus or gemini: dissect refuses every video")
+elif not (filed.get(key) or "").strip():
+    warns.append(f"{key} is not set, and KHABY_DISSECT_PROVIDER is {provider}: dissect refuses every video")
+accounts = [a.strip().lstrip("@") for a in (filed.get("KHABY_ACCOUNTS") or "khaby.lame").split(",") if a.strip()]
+if not accounts:
+    warns.append("KHABY_ACCOUNTS names no account: hands/khaby find lists nothing")
+url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
+if not url:
+    warns.append("INGEST_URL is not set: hands/khaby cannot list or fetch a video")
+if warns:
+    print("warn " + "; ".join(warns))
+    sys.exit()
+names = ",".join(accounts)
+said = f"on: {per_day} a day on {provider} {model}; accounts {names}; ingest at {url}"
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url, timeout=5) as answer:
+        answer.read(64)
+except urllib.error.HTTPError:
+    pass  # it answered, whatever it said to the bare address
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn the ingest service at {url} does not answer ({type(exc).__name__}): no video is dissected until it is up")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || khaby_out="warn the check could not run: $(tail -n 1 <<<"$khaby_out")"
+  note "khaby" "${khaby_out%% *}" "${khaby_out#* }"
 fi
 
 # hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
