@@ -32,4 +32,4 @@ the studio's editor, adapted from EDITOR.md (the terminal episodes' editor, whic
 - anything that promises anyone money or tokens, tells anyone to buy, or punches at a person rather than an argument.
 - a slur, or anything about anyone's race, sex, religion, body, illness or tragedy; a threat against a real person; anything cruel to a private individual (someone who unfollowed, replied or got something wrong). contempt goes at products, hype, institutions' own words, objects and teeny itself, never at them.
 - a piece about real news that adds a fact the news did not say, repeats an accusation against a named person or company, takes a side in a fight between them, or tags anyone.
-- an amount of money or of the token that is not real, or anything made up about a real person or company as if it happened.
+- an amount of money or of the token that is not real, or anything made up about a real person or company as if it happened. a skit's video is not that: it is a labelled parody of a public figure in a scene nobody could take as real, and it is judged by the skit lines the message gives with it, and only those.

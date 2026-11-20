@@ -491,6 +491,56 @@ print(f"ok {len(listed)} templates at {url}")
   note "meme service" "${meme_out%% *}" "${meme_out#* }"
 fi
 
+# Skits (hands/video skit; docs/hands.md, "video"): only when STUDIO_FORMATS
+# in secrets/teeny.env names skit. A warning, never a failure, like the meme
+# service's: a skit that cannot be made is no post, and the room falls back
+# to the other formats. It says whether hands/video will make any (it
+# refuses every skit while MEDIA_SKIT_MAX_PER_DAY is 0) and whether one shot
+# fits the shared daily budget; --live asks the reel service, which cuts and
+# labels every skit, for /ping.
+if [ -f "$root/hands/lib/teeny_hands/media/skits.py" ]; then
+  skit_out="$(python3 -I -c '
+import sys, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.reel.service import DEFAULT_URL
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "skit" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no skit")
+    sys.exit()
+def number(name, default):
+    try:
+        return float(filed.get(name) or default)
+    except ValueError:
+        return float(default)
+per_day = int(number("MEDIA_SKIT_MAX_PER_DAY", 0))
+if per_day <= 0:
+    print("warn STUDIO_FORMATS names skit, but MEDIA_SKIT_MAX_PER_DAY is 0: hands/video refuses every skit")
+    sys.exit()
+shot, budget = number("MEDIA_SKIT_MAX_USD_PER_SHOT", 1.60), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if shot > budget:
+    print(f"warn MEDIA_SKIT_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no skit fits a day")
+    sys.exit()
+url = (filed.get("REEL_URL") or DEFAULT_URL).rstrip("/")
+said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; cut at {url}"
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url + "/ping", timeout=5) as answer:
+        answer.read(64)
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    up = "docker compose -f deploy/compose.yaml --profile reel up -d --build reel"
+    print(f"warn the reel service at {url} does not answer ({type(exc).__name__}): no skit is made until it is up ({up})")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || skit_out="warn the check could not run: $(tail -n 1 <<<"$skit_out")"
+  note "skits" "${skit_out%% *}" "${skit_out#* }"
+fi
+
 # hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
 # the studio reads what AI X is talking about. TREND_DIGG_BIN in
 # secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one
@@ -545,9 +595,12 @@ except ValueError:
 fi
 
 commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
-out="$(jq -cn --argjson checks "$report" --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+# The report goes in on stdin, never as an argument: every playbook's check
+# carries the playbook, and past 128 KiB one argument is refused by the kernel
+# ("Argument list too long"), which left no state/doctor.json at all.
+out="$(printf '%s' "$report" | jq -c --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson live "$live" --argjson failed "$failed" \
-  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: $checks}')"
+  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: .}')"
 mkdir -p "$state"
 printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$state/doctor.json"
 printf '%s\n' "$out"

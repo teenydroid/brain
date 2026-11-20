@@ -1,14 +1,20 @@
-"""The X peer loop (docs/hands.md, "x peers"): Teeny's quotes into the
-communities around other crypto-AI projects, kept rare and specific.
+"""The X peer loop (docs/hands.md, "x peers"): Teeny's quotes of other
+people's posts, the one outward lane X's API allows (replies to strangers are
+barred), aimed at reactions a reader of the quoted post would stop for.
 
   peers           R  the newest original posts of the accounts in
                      brain/x-peers.txt, through the search cache, screened
+  peers trending  R  the X posts behind today's top-ranked AI and tech stories
+                     (hands/trend top: Digg's ranked leaderboards, never a
+                     keyword search), each looked up on X and screened as a
+                     peer's post is
   peer-suggest    A  up to 3 scored quote suggestions; all kept, the top one
-                     posted only when it clears every bar, the anchor judge's
-                     included (one word, as a playbook's `hand:x <verb>`
-                     output names it). With STUDIO=1 bin/act first asks the
-                     studio's editor about the top one and passes its no as
-                     `"vetoed": "<reason>"`: kept, not posted (rule `editor`)
+                     posted only when it clears every bar, the quote judge's
+                     included (guard/quote.py, which fails open; one word, as
+                     a playbook's `hand:x <verb>` output names it). With
+                     STUDIO=1 bin/act first asks the studio's editor about
+                     the top one and passes its no as `"vetoed": "<reason>"`:
+                     kept, not posted (rule `editor`)
   peers suggestions  R  what was suggested, posted and skipped, and why
   peers report    R  per peer: touches, who then spoke to Teeny, how the
                      quote did
@@ -19,8 +25,10 @@ comments, read by the same parser as brain/moltbook-peers.txt
 
 Tables, in state/hands.db:
 
-  x_peer_reads       the posts the last `peers` read returned: a suggestion
-                     may quote only one of them
+  x_peer_reads       every post a `peers` or `peers trending` read returned
+                     in the last READ_KEEP_HOURS (older rows are pruned at
+                     each read): a suggestion may quote only one of them. A
+                     read adds to it; it never replaces an earlier read
   x_peer_candidates  every suggestion, with what became of it
   x_peer_touches     every quote of a peer that went out (`publish` writes
                      it, whichever playbook quoted)
@@ -39,7 +47,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from .. import hand, peerfile
-from . import cache, mentions, open_db, twitr
+from . import cache, mentions, open_db
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 from .model import Json, SearchOptions
@@ -58,8 +66,23 @@ VISIT_DAYS = 7
 #: How long after a touch a mention counts as its answer.
 ANSWER_HOURS = 48
 MAX_CANDIDATES = 3
-FORMATS = ("quote", "visit")
-CANDIDATE_FIELDS = {"quote_of", "text", "relevance", "why", "source", "format", "image"}
+#: `quote`: a reaction in words; `bit`: one absurd, funny or unhinged line;
+#: `meme`: a meme picture (made by bin/act through bin/studio --meme) with
+#: very few words; `visit`: a drawing of Teeny dropping in.
+FORMATS = ("quote", "bit", "meme", "visit")
+CANDIDATE_FIELDS = {"quote_of", "text", "relevance", "why", "source", "format", "image", "meme"}
+#: The suggestion floor (PEER_QUOTE_MIN_RELEVANCE): how hard the quote hits
+#: a reader of the quoted post, 1 to 5.
+DEFAULT_MIN_RELEVANCE = 4
+#: How long a read's posts stay quotable.
+READ_KEEP_HOURS = 24.0
+#: `peers trending`: the leading stories read, the X posts taken from each,
+#: and how old a post may be.
+TREND_STORIES = 4
+TREND_POSTS_PER_STORY = 2
+TREND_MAX_AGE_HOURS = 24.0
+#: An X post's address, as Digg lists it: the handle and the post id.
+_STATUS_URL = re.compile(r"^https://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status/([0-9]{1,25})(?:[/?#].*)?$")
 
 _HANDLE = re.compile(r"^@?([A-Za-z0-9_]{1,15})$")
 
@@ -99,9 +122,21 @@ CREATE INDEX IF NOT EXISTS x_peer_touches_handle ON x_peer_touches (handle, at);
 """
 
 
+#: Columns added to x_peer_reads after it was first created: where the
+#: post came from (`peer`, `trend`) and, for a trending post, its story.
+READ_COLUMNS = {"source": "TEXT", "story": "TEXT", "post": "TEXT"}
+#: The peers' searches, one row each (`read`): what `reuse_hours` reads.
+SEARCH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS x_peer_searches (
+    at REAL NOT NULL
+);
+"""
+
+
 def _db() -> sqlite3.Connection:
-    conn = open_db(rules.SCHEMA + SCHEMA)
+    conn = open_db(rules.SCHEMA + SCHEMA + SEARCH_SCHEMA)
     rules.add_tag_columns(conn)
+    hand.add_columns(conn, "x_peer_reads", READ_COLUMNS)
     return conn
 
 
@@ -162,16 +197,53 @@ def _quoted_recently(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
     ids = {r[0] for r in conn.execute(
         "SELECT quote_author FROM x_posts WHERE kind = 'quote' AND quote_author IS NOT NULL AND created_at >= ?", (since,))}
     touched = {r[0].lower() for r in conn.execute("SELECT handle FROM x_peer_touches WHERE at >= ?", (since,))}
+    # A trending author is no peer, so no touch: their handle is on the suggestion that went out.
+    touched |= {r[0].lower() for r in conn.execute(
+        "SELECT author FROM x_peer_candidates WHERE status = 'posted' AND author IS NOT NULL AND at >= ?", (since,))}
     return ids, touched
 
 
-def read(max_age_hours: float = 8.0, per_peer: int = 2, skip_quoted: bool = False, x: XApi | None = None) -> Json:
+def _reused(conn: sqlite3.Connection, reuse_hours: float, max_age_hours: float, skip_quoted: bool) -> list[Json] | None:
+    """The posts of a peers search younger than `reuse_hours`, from the kept
+    reads, or None when there is none (then `read` searches). X bills a search
+    per post it returns, so the third run of the day draws on the second's
+    read instead of paying again. Held to what a fresh read is: the age, and
+    with `skip_quoted` the authors quoted since."""
+    if reuse_hours <= 0:
+        return None
+    now = hand.now()
+    last = conn.execute("SELECT max(at) FROM x_peer_searches").fetchone()[0]
+    if last is None or last < now - reuse_hours * 3600.0:
+        return None
+    quoted_ids, quoted_handles = _quoted_recently(conn) if skip_quoted else (set(), set())
+    since = now - max_age_hours * 3600.0
+    posts: list[Json] = []
+    for row in conn.execute("SELECT post FROM x_peer_reads WHERE source = 'peer' AND read_at >= ? AND post IS NOT NULL",
+                            (last - 60.0,)):
+        try:
+            post = json.loads(row[0])
+        except ValueError:
+            continue
+        created = _created(post)
+        if created is not None and created < since:
+            continue
+        if skip_quoted and (post.get("authorId") in quoted_ids or str(post.get("authorUsername") or "").lower() in quoted_handles):
+            continue
+        posts.append(post)
+    return sorted(posts, key=lambda p: int(p["id"]), reverse=True)
+
+
+def read(max_age_hours: float = 8.0, per_peer: int = 2, skip_quoted: bool = False, x: XApi | None = None,
+         reuse_hours: float = 0.0) -> Json:
     """Each peer's newest `per_peer` original posts of the last
     `max_age_hours`, newest first. One search per chunk of handles, through
     the search cache, from `start_time` on, so X bills only recent posts.
-    A post by anyone not on the list is dropped; each kept post is screened
-    by the inbound guard (as a mention is), and a held one never reaches a
-    drafting model. What it returns is kept as the last read."""
+    With `reuse_hours`, a search younger than that is not made again: its
+    kept posts are the answer (`reused: true`, `_reused`). A post by anyone
+    not on the list is dropped; each kept post is screened by the inbound
+    guard (as a mention is), and a held one never reaches a drafting model.
+    What it returns is added to the reads a suggestion may quote
+    (`_remember_read`)."""
     names, skipped = handles()
     out: Json = {"peers": names[:PEERS_MAX]}
     if len(names) > PEERS_MAX:
@@ -184,9 +256,17 @@ def read(max_age_hours: float = 8.0, per_peer: int = 2, skip_quoted: bool = Fals
         _remember_read(conn, [])
         out["posts"] = []
         return out
+    again = _reused(conn, reuse_hours, max_age_hours, skip_quoted)
+    if again is not None:
+        out["posts"] = again
+        out["reused"] = True
+        return out
     now = hand.now()
     since = now - max_age_hours * 3600.0
     reads = cache.reads(x)
+    with hand.transaction(conn):
+        conn.execute("DELETE FROM x_peer_searches WHERE at < ?", (now - 7 * 86400.0,))
+        conn.execute("INSERT INTO x_peer_searches (at) VALUES (?)", (now,))
     found: list[Json] = []
     errors: list[Json] = []
     for chunk, query in queries(names):
@@ -241,15 +321,114 @@ def read(max_age_hours: float = 8.0, per_peer: int = 2, skip_quoted: bool = Fals
     return out
 
 
-def _remember_read(conn: sqlite3.Connection, posts: Sequence[Mapping[str, Any]]) -> None:
-    """The last read replaces the one before: `suggest` quotes only from it."""
+def _remember_read(conn: sqlite3.Connection, posts: Sequence[Mapping[str, Any]], source: str = "peer") -> None:
+    """A read's posts join the ones `suggest` may quote, each for
+    READ_KEEP_HOURS from its newest read; rows older than that go. A read
+    never replaces another: on the box a candidate drafted from one read was
+    refused because a second `peers` call had replaced it (`not_read`)."""
     now = hand.now()
     with hand.transaction(conn):
-        conn.execute("DELETE FROM x_peer_reads")
+        conn.execute("DELETE FROM x_peer_reads WHERE read_at < ?", (now - READ_KEEP_HOURS * 3600.0,))
         conn.executemany(
-            "INSERT OR REPLACE INTO x_peer_reads (post_id, author_username, read_at) VALUES (?, ?, ?)",
-            [(p["id"], p.get("authorUsername"), now) for p in posts],
+            "INSERT OR REPLACE INTO x_peer_reads (post_id, author_username, read_at, source, story, post)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(p["id"], p.get("authorUsername"), now, source,
+              (p.get("story") or {}).get("title") if isinstance(p.get("story"), Mapping) else None,
+              json.dumps(dict(p), ensure_ascii=False)) for p in posts],
         )
+
+
+def _kept_post(conn: sqlite3.Connection, post_id: str) -> Json | None:
+    """The post as a read kept it (its text, its author), never asked of X."""
+    row = conn.execute("SELECT post FROM x_peer_reads WHERE post_id = ?", (post_id,)).fetchone()
+    try:
+        return json.loads(row[0]) if row and row[0] else None
+    except ValueError:
+        return None
+
+
+def _was_read(conn: sqlite3.Connection, post_id: str) -> bool:
+    since = hand.now() - READ_KEEP_HOURS * 3600.0
+    return conn.execute("SELECT 1 FROM x_peer_reads WHERE post_id = ? AND read_at >= ?", (post_id, since)).fetchone() is not None
+
+
+# --- the trending read --------------------------------------------------------------------------
+
+
+def trending(max_age_hours: float = TREND_MAX_AGE_HOURS, stories: int = TREND_STORIES,
+             per_story: int = TREND_POSTS_PER_STORY, skip_quoted: bool = False) -> Json:
+    """The X posts behind today's leading AI and tech stories (`hands/trend
+    top`, Digg's ranked leaderboards: a trend signal, never a keyword search),
+    as quotable material beside the peers' posts. It costs no X read: each
+    post's id and handle come from its `x.com/<handle>/status/<id>` address and
+    its text from Digg's own copy. Each is held to what a peer post is: not
+    the account's own (X_BOT_USERNAME), at most `max_age_hours` old, its
+    author left out when quoted in the last 7 days (`skip_quoted`), and
+    screened by the inbound guard, so a held one never reaches a drafting
+    model. What is left is added to the reads a suggestion may quote, its
+    text kept for the quote judge. The trend hand down or empty is
+    `{posts: [], unavailable}`, never an error: the peers still work. The
+    one X read a trending post ever costs is `publish.post`'s look-up of the
+    post it quotes, when a quote of it actually goes out."""
+    out: Json = {"posts": [], "source": "hands/trend top"}
+    try:
+        from ..trend import top as trend_top
+
+        board = trend_top.top(None, 10, stories, per_story)
+    except Exception as exc:  # noqa: BLE001 - another hand's outage is never this read's failure
+        out["unavailable"] = f"{type(exc).__name__}: {exc}"[:300]
+        return out
+    if board.get("unavailable"):
+        out["trend_unavailable"] = board["unavailable"]
+    conn = _db()
+    since = hand.now() - max_age_hours * 3600.0
+    own = (hand.setting("X_BOT_USERNAME", "teenydroid") or "teenydroid").lstrip("@").lower()
+    _, quoted_handles = _quoted_recently(conn) if skip_quoted else (set(), set())
+    found: list[Json] = []
+    seen: set[str] = set()
+    left_out: list[str] = []
+    for story in (board.get("stories") or [])[:stories]:
+        if not isinstance(story, Mapping):
+            continue
+        for listed in (story.get("posts") or [])[:per_story]:
+            if not isinstance(listed, Mapping):
+                continue
+            match = _STATUS_URL.match(str(listed.get("url") or ""))
+            text = listed.get("text")
+            if not match or match.group(2) in seen or not isinstance(text, str) or not text.strip():
+                continue
+            author, post_id = match.group(1), match.group(2)
+            seen.add(post_id)
+            if author.lower() == own:
+                continue
+            created = _created({"createdAt": listed.get("at")}) if listed.get("at") else None
+            if created is not None and created < since:
+                continue
+            if skip_quoted and author.lower() in quoted_handles:
+                if author not in left_out:
+                    left_out.append(author)
+                continue
+            post: Json = {"id": post_id, "text": text, "authorUsername": author}
+            if listed.get("by"):
+                post["authorName"] = listed["by"]
+            if listed.get("at"):
+                post["createdAt"] = listed["at"]
+            post["story"] = {k: story[k] for k in ("id", "title", "rank", "score") if k in story}
+            found.append(post)
+    held = 0
+    screened: list[Json] = []
+    for post in found:
+        if mentions._screen(post).kind == "allow":
+            screened.append(post)
+        else:
+            held += 1
+    _remember_read(conn, screened, source="trend")
+    out["posts"] = screened
+    if held:
+        out["held"] = held
+    if left_out:
+        out["quoted_recently"] = sorted(left_out, key=str.lower)
+    return out
 
 
 # --- suggest ----------------------------------------------------------------------------------
@@ -273,7 +452,7 @@ def _candidate(raw: Any) -> Json:
     if isinstance(quote_of, int) and not isinstance(quote_of, bool):
         quote_of = str(quote_of)
     if not rules.is_x_id(quote_of):
-        raise hand.HandError('"quote_of" must be a numeric X post id from the last peers read')
+        raise hand.HandError('"quote_of" must be a numeric X post id from a peers read')
     text = raw.get("text")
     if not isinstance(text, str) or not text.strip():
         raise hand.HandError('"text" must be a non-empty string')
@@ -296,7 +475,7 @@ def _candidate(raw: Any) -> Json:
 def _body(body: Any) -> tuple[list[Json], list[str]]:
     if not isinstance(body, Mapping):
         raise hand.HandError('stdin must be a JSON object with "candidates"')
-    unknown = sorted(set(body) - {"candidates", "media_ids", "vetoed"})
+    unknown = sorted(set(body) - {"candidates", "media_ids", "vetoed", "meme"})
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
     raw = body.get("candidates")
@@ -312,24 +491,29 @@ def _day_start(now: float) -> float:
     return now - (now % 86400.0)
 
 
-def _bar(conn: sqlite3.Connection, top: Json) -> tuple[str, str] | None:
+def _bar(conn: sqlite3.Connection, top: Json, media_ids: Sequence[str] = ()) -> tuple[str, str] | None:
     """Why the top suggestion is not posted, or None when it clears every
-    bar the posting rules do not already hold."""
-    floor = int(number_setting("PEER_QUOTE_MIN_RELEVANCE", 5, 1, 5))
+    bar the posting rules do not already hold. The score is how hard the
+    quote hits a reader of the quoted post (5: they would screenshot it or
+    argue with it; 1: agreement anyone could write), held to
+    PEER_QUOTE_MIN_RELEVANCE (4). `source` is optional."""
+    floor = int(number_setting("PEER_QUOTE_MIN_RELEVANCE", DEFAULT_MIN_RELEVANCE, 1, 5))
     if top["relevance"] < floor:
-        return "relevance", f"the best suggestion scored {top['relevance']} and only a {floor} is posted; kept, not posted"
-    if not top["source"]:
-        return "source", "the best suggestion names no first-hand source (a ledger row, a build, a memory); kept, not posted"
-    if not conn.execute("SELECT 1 FROM x_peer_reads WHERE post_id = ?", (top["quote_of"],)).fetchone():
-        return "not_read", f"post {top['quote_of']} was not in the last peers read; only a post it returned is quoted"
+        return "relevance", f"the best suggestion scored {top['relevance']} and only {floor} or more is posted; kept, not posted"
+    if not _was_read(conn, top["quote_of"]):
+        return "not_read", (f"post {top['quote_of']} was not in a peers read of the last {READ_KEEP_HOURS:g} hours; "
+                            "only a post one returned is quoted")
     now = hand.now()
-    cap = int(number_setting("PEER_QUOTES_MAX_PER_DAY", 1, 0, 4))
+    cap = rules.quote_cap()
     # `posting`: a run died between claiming the quote and recording it, so
-    # it may be out; it counts, rather than risk a second quote today.
-    sent = conn.execute("SELECT count(*) FROM x_peer_candidates WHERE status IN ('posted', 'posting') AND at >= ?",
-                        (_day_start(now),)).fetchone()[0]
+    # it may be out; it counts, rather than risk one quote too many today.
+    claimed = conn.execute("SELECT count(*) FROM x_peer_candidates WHERE status IN ('posted', 'posting') AND at >= ?",
+                           (_day_start(now),)).fetchone()[0]
+    sent = max(int(claimed), rules.quotes_today(conn))
     if sent >= cap:
-        return "daily", f"{sent} peer quote(s) went out today (UTC) and the cap is {cap}; the next is tomorrow"
+        return "daily", f"{sent} quote(s) went out today (UTC) and the cap (X_QUOTES_MAX_PER_DAY) is {cap}; the next is tomorrow"
+    if top["format"] == "meme" and not media_ids and not hand.dry_run():
+        return "meme", "the meme could not be made, and a meme quote is not posted without its picture; kept, not posted"
     if top["format"] == "visit":
         last = conn.execute("SELECT max(at) FROM x_peer_candidates WHERE status = 'posted' AND format = 'visit'").fetchone()[0]
         if last is not None and last > now - VISIT_DAYS * 86400.0:
@@ -337,29 +521,25 @@ def _bar(conn: sqlite3.Connection, top: Json) -> tuple[str, str] | None:
     return None
 
 
-def _anchored(top: Json, x: XApi | None) -> tuple[str, str] | None:
-    """Why the anchor judge (`hands/guard anchor`, which bin/act asks before a
-    `post` output) does not pass the top suggestion, or None when it does. A
-    quote is anchored on the post it quotes (`posting_rules.check_anchor`), so
-    the judge reads the draft against that post, the source and the why. A post
-    X cannot show is left to `publish.post`, which refuses it as `target`."""
-    from ..guard import anchor as anchor_judge
+def _reacts(conn: sqlite3.Connection, top: Json, meme: Any) -> tuple[str, str] | None:
+    """Why the quote judge (guard/quote.py) does not pass the top suggestion,
+    or None when it does. It replaced the anchor judge here (2026-11-19): that
+    one asks for first-hand material, so a joke or a meme could never pass
+    it. This one asks only whether a reader of the quoted post would read the
+    quote as a reaction to it, and it fails OPEN: unreachable or unreadable,
+    the quote goes ahead, because `publish.post` still puts every word through
+    the guard. The quoted post's text is the one the read kept
+    (`x_peer_reads`): judging costs no X read."""
+    from ..guard import quote as quote_judge
 
-    try:
-        quoted = cache.reads(x or twitr.client()).get_post(top["quote_of"])
-    except (XError, OSError):
-        quoted = None
-    if quoted is None:
+    quoted = _kept_post(conn, top["quote_of"]) or {}
+    lines = [line for line in (meme.get("lines") or []) if isinstance(line, str) and line.strip()] \
+        if isinstance(meme, Mapping) and isinstance(meme.get("lines"), list) else []
+    extra = ("a meme picture whose lines read: " + " / ".join(lines)) if lines and top["format"] == "meme" else ""
+    verdict = quote_judge.judge(top["text"], str(quoted.get("text") or ""), extra)
+    if verdict["reacts"]:
         return None
-    inputs = {
-        "quoted_post": {k: quoted[k] for k in ("id", "text", "authorUsername") if quoted.get(k)},
-        "source": top["source"],
-        "why": top["why"],
-    }
-    verdict = anchor_judge.judge(top["text"], top["quote_of"], inputs)
-    if verdict["anchored"]:
-        return None
-    return "anchor", f"not anchored: {verdict['reason'] or 'the anchor judge did not pass it'}; kept, not posted"
+    return "quote_judge", f"not a reaction to the post: {verdict['reason'] or 'the quote judge did not pass it'}; kept, not posted"
 
 
 def _author(conn: sqlite3.Connection, post_id: str) -> str | None:
@@ -381,8 +561,8 @@ def _vetoed(body: Any) -> str | None:
 def suggest(body: Any, x: XApi | None = None) -> Json:
     """Keeps every suggestion and posts the top one (the highest relevance,
     the first on a tie) through `publish.post` only when it clears the bar
-    (`_bar`) and every posting rule. A skip is not a failure: it is the
-    usual outcome."""
+    (`_bar`), the quote judge (`_reacts`) and every posting rule (a quote's
+    own lane: posting_rules, "The quote lane"). A skip is not a failure."""
     from . import publish
 
     candidates, media_ids = _body(body)
@@ -393,7 +573,7 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
     conn = _db()
     with hand.lock("x-peer-suggest"):
         bar = (("editor", f"the studio's editor passed on it: {vetoed}; kept, not posted") if vetoed else None) \
-            or _bar(conn, top) or _anchored(top, x)
+            or _bar(conn, top, media_ids) or _reacts(conn, top, body.get("meme"))
         status = "skipped" if bar else ("posting" if live else "kept")
         batch = secrets.token_hex(6)
         now = hand.now()

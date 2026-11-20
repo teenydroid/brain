@@ -766,8 +766,12 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is at most four own posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), and the slots are ceilings, not quotas. Every own
+- X is at most four original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), plus at most two quotes a day in a lane of their own
+  (`X_QUOTES_MAX_PER_DAY`, three hours apart, `QUOTE_MIN_GAP_HOURS`, and 45
+  minutes after an original post, `QUOTE_AFTER_POST_MINUTES`): the day's
+  ceiling is 4 originals plus 2 quotes, and a quote never shuts an original
+  slot. The slots are ceilings, not quotas. Every own
   post names its `anchor` (the one item from its inputs it is about; a quote's
   is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
   anchor`) before it goes: a post that says nothing specific about its anchor
@@ -787,10 +791,14 @@ How the day's beats become the page every prompt carries:
   with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
   `show` skip when a brief is queued, so a brief takes the next free slot;
   `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
-  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
-  only at relevance 5 and at most once a day) is one of the four, so it needs
-  a slot the others left open: `hands/x peer-suggest` runs the same anchor
-  judge itself, against the quoted post, and a no is a skip kept in
+  slot`). The outward quote (`peer-quote`, 13:00, 19:00 and 22:00) is not one
+  of the four: it has the quote lane, and reacts to a peer's post or to one
+  of the X posts behind today's top-ranked stories (`hands/x peers
+  trending`, Digg's ranked feed, no X read) with a quote, an absurd one-line
+  bit, a meme (`bin/studio --meme`) or a visit, posted at a score of 4 or more
+  (how hard it hits a reader of the quoted post). `hands/x peer-suggest`
+  asks the quote judge (`hands/guard quote`: is it a reaction to the post?),
+  which fails open, in place of the anchor judge, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
 ## 4b. The studio: the writers' room
@@ -818,7 +826,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
                 │
-   producer for the format (post | thread | image | meme)
+   producer for the format (post | thread | image | meme | skit)
                 │
    truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
        a no: one rewrite by the writer with the reason, gated once more
@@ -827,6 +835,10 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
        (fails: the words alone if the writer marked them alone, else the next draft)
    meme only: lines past the guard and the truth judge ──> hands/meme template ──> viewer check ──> hands/x upload --alt
+   skit only: logline and shots past the guard ──> hands/guard skit (code's hard lines, then the judge)
+       ──> hands/video skit (a text-to-video job a shot, cut and labelled on the reel service)
+       ──> hands/guard view-skit (the frames) ──> hands/x upload (fails: never the words alone; the next draft,
+       and in a skit slot the failed video costs none of the fallback budget)
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -882,6 +894,63 @@ back, so a studio meme always pastes a picture of Teeny in. The meme service
 down drops the meme pitches with the reason in the record. The judges and hands/x
 count against `STUDIO_BUDGET_SECS` like the model turns.
 
+A skit (`skit` in `STUDIO_FORMATS`; off by default, and `hands/video skit`
+refuses every one until the operator sets `MEDIA_SKIT_MAX_PER_DAY`) is the
+operator's absurd-video format: a trending story, the public figure it is
+about, an obviously impossible scene, one to four cinematic shots on video. A
+skit pitch must have a hook. Its draft carries the post's words and `skit:
+{story (the hook, set by code), figures, premise, logline, shots, aspect}`;
+`premise` is required (`skit_of`, `SKIT_PREMISE_MAX`): one line, what the
+figure really did or claimed in the story, so what they do in the video,
+shown to the editor and never rendered or posted. The drafting turn gives
+the craft (a premise from what the figure did, never a pun on a headline
+word; the figure driving every shot; three beats, set-up a stranger gets
+with the sound off, consequence, payoff; the figure's full name, wardrobe,
+prop and setting restated in every shot, since each is rendered alone; one
+action and at most one short line a shot; cinematography, an expensive
+absurd set, escalation) and the hard lines, and `writer.md` holds the
+carve-out from "joke about the situation, never at someone" with worked
+examples and one pun-against-premise contrast (the first live skit slot,
+2026-11-19, drew three skits that were all a pun on the headline's
+"raises", with the figure watching). Wherever the editor meets a skit (a
+compare batch holding one, every slot question on one) it is told what a
+skit is and its only lines (`SKIT_EDITOR`): a public figure from the story
+in an impossible scene, in a role the story never gave them, with the joke
+on them, is the point and no reason for a none; a skit loses only for
+something sexual, violence done to the figure, hate, crime, drugs, illness
+or death shown as theirs, a private person, child, family member, victim
+or bystander, the figure near Teeny, a token, a wallet, an investment or
+a product they are seen to endorse, a scene or line that could pass for real, or
+a skit a stranger could not follow at all. The slot question adds
+`SKIT_FINAL` (taste alone is not a none; a none names its `line`), and
+`STUDIO-EDITOR.md`'s "made up about a real person" line leaves a labelled
+parody to those lines. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
+run three times: code's half on every skit draft before the tournament
+(beside the copy and unsourced screens, which hold only its words to the
+facts: a shot's "35mm" is staging), code and the judge before any money is
+spent (the logline and every shot also past `hands/guard check` on the
+`task` surface), and the viewer on the cut's frames after. The label ("AI
+parody · @<X_BOT_USERNAME>") is set by the hand, burned in for the whole
+length by the reel front, and checked twice: the producer hands over no file
+the hand and the front do not both report labelled, and the viewer must read
+it on at least half the frames. A skit's words never go out without its
+video. A run's record keeps `published.skit` (the story, figures, logline,
+models, cost, asset and post id) and the post carries `format: skit`, so the
+scoreboard's by-format results set skits beside the rest. In a slot named in
+`STUDIO_SKIT_SLOTS` the writer is asked for skits first, the best skit pitch
+and the best pitch in another format are always drafted, the best skit is
+tried first whatever the editor's ranking (the slot question is asked of
+it; a no to it hands the slot question to the next-ranked skit, up to
+`SKIT_FINALS` (3) skits, and only then to the best draft in another
+format, whose no is a real veto; every refusal is kept in `skit_vetoes`,
+the first also as `skit_veto`), and when it cannot be made (off, over budget, a hard line, the reel
+service down, a render that failed) no other skit is tried that run and the
+failure uses none of the `MAX_FALLBACKS`, so the other formats still get
+their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
+the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
+`STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
+need: a skit slot wants `STUDIO_BUDGET_SECS=3600`.
+
 **The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
 (`bin/lib/studio_switch.py`): each studio cron job names its slot's old
 playbook (`--legacy x-quote | morning | take | growth | show`) and with
@@ -899,7 +968,9 @@ One run is one slot:
    (each sent per turn as `bin/ask --model`, i.e. `model_override`; unset
    is the core's model; the same one for both is a warning in the record),
    `STUDIO_FORMATS` (`post,thread,image`; `meme` too when the memegen
-   service is up), `STUDIO_PITCHES` (12),
+   service is up; `skit` when the reel service is up and the operator has
+   set the skit budget), `STUDIO_SKIT_SLOTS` (none), `STUDIO_SKIT_SECS`
+   (900), `STUDIO_PITCHES` (12),
    `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
@@ -1483,7 +1554,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
     and run behind `deploy/reel/serve.py`, on the compose network only,
     behind the `reel` compose profile. It reads `state/media/` and
-    `brain/assets/` read-only and posts nothing.
+    `brain/assets/` read-only and posts nothing. The front's own
+    `POST /teeny/v1/cuts` (`deploy/reel/skitcut.py`) joins `hands/video
+    skit`'s shots with ffmpeg, keeping their sound, and burns in the label.
   - `memegen`: known meme templates for `hands/meme template`: memegen
     (`vendor/memegen`, the upstream repository at a pinned commit, since it
     tags no releases; never edited) built by its own `Containerfile` and run

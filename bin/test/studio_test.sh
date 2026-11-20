@@ -881,12 +881,44 @@ out="$(STUDIO=1 veto <<<'{"kind": "peer-quote", "text": "we measured this too", 
 check "STUDIO=1: one editor turn on the one candidate, with the post it quotes" \
   bash -c "jq -e '.verdict == \"pick\" and .kind == \"peer-quote\"' <<<\"\$1\" >/dev/null && [ \"\$2\" = 1 ] && grep -q SECRET-QUOTED-POST <<<\"\$3\"" _ "$out" "$(turns)" "$(calls_to editor)"
 check "and it is kept in studio_runs as a veto" jqe '.kind == "veto" and .outcome == "picked" and .slot == "peer-quote"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
+check "the peer quote is judged as a reaction (funny or striking, about the post), never as a first-hand report" \
+  bash -c "grep -q 'funny or striking' <<<\"\$1\" && grep -q 'Do not ask it for first-hand material' <<<\"\$1\" &&
+    ! grep -q 'Judge it on your rubric' <<<\"\$1\"" _ "$(calls_to editor)"
+reset
+out="$(STUDIO=1 veto <<<'{"kind": "brief", "text": "the team asked me to say hi"}')"
+check "the brief keeps the slot rubric" bash -c "grep -q 'Judge it on your rubric as a stranger meets it' <<<\"\$1\" &&
+  ! grep -q 'funny or striking' <<<\"\$1\"" _ "$(calls_to editor)"
 reset
 out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat"}' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "the editor's none is a none" jqe '.verdict == "none" and .reason == "flat"' <<<"$out"
 reset
 out="$(STUDIO=1 FAKE_ASK_ERROR='HTTP 503 service unavailable' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "none" and (.reason | test("could not be asked"))' <<<"$out"
+
+# --- the outward quote's meme (bin/studio --meme) ----------------------------------
+meme() { "$studio" --meme 2>"$scratch/stderr"; }
+one_quote_meme='{"template": "drake", "lines": ["reading the post", "quoting it with a meme"], "teeny": "not/a/picture.jpg"}'
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 meme <<<"$one_quote_meme")"
+check "--meme makes it by the studio's meme path: the guard, a live render, the viewer check, the upload" \
+  bash -c "jq -e '.media_ids == [\"m-31\"] and .note.viewer.ok == true' <<<\"\$1\" >/dev/null &&
+    grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^meme template DRY_RUN=0 ' '$FAKE_HANDS' &&
+    grep -q '^guard view ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/meme-41.png' '$FAKE_HANDS'" _ "$out"
+check "and no truth judge: a meme about somebody else's post is a joke, the quote judge reads it" \
+  bash -c "! grep -q '^guard truth' '$FAKE_HANDS'"
+check "and a picture of Teeny's own is pasted in, whatever the draft named" \
+  bash -c "jq -e '.teeny | startswith(\"brain/assets/tiny/\")' <<<\"\$1\" >/dev/null" _ "$(grep '^meme template ' "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//')"
+check "and no model turn" test "$(turns)" = 0
+reset
+out="$(meme <<<"$one_quote_meme")"
+check "under a dry run the meme is rendered dry and never uploaded" \
+  bash -c "jq -e '.media_ids == [] and .note.planned == true' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$out"
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 FAKE_MEME_REFUSED=1 meme <<<"$one_quote_meme")"
+check "a meme the hand refuses is no media, with why" jqe '.media_ids == [] and (.note.failed == "refused")' <<<"$out"
+reset
+out="$(meme <<<'{"template": "drake", "lines": []}')"
+check "a meme with no lines is no media, with why" jqe '.media_ids == [] and (.note.failed | test("lines"))' <<<"$out"
 
 # --- the rollback: STUDIO=0 runs the slot's old playbook ------------------------------
 legacy_root="$scratch/legacy-root"
