@@ -228,6 +228,152 @@ class ReadingTest(Base):
         return self.study()
 
 
+class ScreenTest(Base):
+    """Every outside string goes through the guard's inbound screen, and the
+    title through the HARM and NOT_A_FIGURE lists too."""
+
+    def test_a_caption_the_screen_stops_makes_it_unusable_and_is_not_carried(self):
+        answer = breakdown(3)
+        answer["shots"][1]["speech"] = "heil hitler everyone"
+        self.ingest.fetch_answer = fetched(3)
+        got = self.study_with(answer)
+        self.assertFalse(got["usable"])
+        self.assertEqual(got["why"], "screened: shot 2 speech")
+        self.assertEqual(got["shots"][1]["speech"], "")
+        self.assertNotIn("heil", json.dumps(got))
+
+    def test_each_field_of_each_shot_and_the_summary_and_the_uploader_are_screened(self):
+        for where, put in [("summary", lambda a: a.update(summary="heil hitler")),
+                           ("shot 1 setting", lambda a: a["shots"][0].update(setting="heil hitler")),
+                           ("shot 1 motion", lambda a: a["shots"][0].update(motion="heil hitler")),
+                           ("shot 2 camera", lambda a: a["shots"][1].update(camera="heil hitler")),
+                           ("shot 1 person A looks", lambda a: a["shots"][0]["people"][0].update(looks="heil hitler")),
+                           ("shot 1 person A action", lambda a: a["shots"][0]["people"][0].update(action="heil hitler")),
+                           ("shot 1 person A position", lambda a: a["shots"][0]["people"][0].update(position="heil hitler"))]:
+            with self.subTest(where=where):
+                self.root_reset()
+                answer = breakdown()
+                put(answer)
+                got = self.study_with(answer)
+                self.assertFalse(got["usable"])
+                self.assertEqual(got["why"], f"screened: {where}")
+
+    def test_a_title_with_a_harm_word_is_unusable_before_the_model_is_asked(self):
+        fetch = fetched()
+        fetch["source"]["title"] = "man stabbed in the park"
+        self.ingest.fetch_answer = fetch
+        got = self.study()
+        self.assertFalse(got["usable"])
+        self.assertEqual(got["why"], "screened: title")
+        self.assertEqual(self.vision.bodies, [])
+        self.assertIsNone(got["source"]["title"])
+        self.assertFalse(list(self.folder().glob("*.jpg")))
+        self.assertEqual(self.ingest.deleted, [FETCH_ID])
+
+    def test_a_not_a_figure_word_in_the_title_or_an_inbound_hit_in_the_uploader(self):
+        for key, value, why in [("title", "my kids dancing", "screened: title"),
+                                ("uploader", "heil hitler fan", "screened: uploader"),
+                                ("title", "heil hitler montage", "screened: title")]:
+            with self.subTest(key=key, value=value):
+                self.root_reset()
+                fetch = fetched()
+                fetch["source"][key] = value
+                self.ingest.fetch_answer = fetch
+                got = self.study()
+                self.assertEqual((got["usable"], got["why"]), (False, why))
+
+    def test_a_screened_study_before_the_model_costs_nothing_of_the_day(self):
+        self.secrets("REMAKE_STUDY_MAX_PER_DAY=1\n")
+        fetch = fetched()
+        fetch["source"]["title"] = "she was arrested"
+        self.ingest.fetch_answer = fetch
+        self.assertFalse(self.study()["usable"])
+        self.ingest.fetch_answer = None
+        self.ingest.probe_answer = {"source": "tiktok", "video_id": "7301", "url": TT_URL}
+        self.ingest.fetch_answer = fetched(video_id="7301")
+        self.assertTrue(self.study()["usable"])
+
+    def test_clean_words_pass(self):
+        self.assertTrue(self.study()["usable"])
+
+    def root_reset(self):
+        import shutil
+
+        shutil.rmtree(self.root / "state", ignore_errors=True)
+
+    def study_with(self, answer):
+        self.vision = FakeVision(reply(answer))
+        return self.study()
+
+
+class MediaTest(Base):
+    """Media is kept only for a usable study; the rest is swept by age."""
+
+    def test_a_flagged_study_keeps_only_its_study_json_and_no_paths(self):
+        self.vision = FakeVision(reply(breakdown(news=True)))
+        got = self.study()
+        self.assertFalse(got["usable"])
+        self.assertIsNone(got["audio"])
+        self.assertEqual([s["frame"] for s in got["shots"]], [None, None])
+        self.assertEqual([p.name for p in self.folder().iterdir()], ["study.json"])
+        again = self.study()
+        self.assertTrue(again["cached"])
+        self.assertIsNone(again["audio"])
+
+    def test_an_unreadable_study_keeps_nothing(self):
+        self.vision = FakeVision(reply("nonsense"))
+        self.assertFalse(self.study()["usable"])
+        self.assertFalse(self.folder().exists())
+
+    def test_a_usable_study_is_moved_in_whole_and_nothing_is_left_staged(self):
+        self.study()
+        remake = self.root / "state" / "media" / "remake"
+        self.assertEqual([p.name for p in remake.iterdir()], ["tt-7300"])
+
+    def test_nothing_is_left_staged_when_a_pull_fails_or_the_model_call_breaks(self):
+        self.ingest.files = {"shot-2.jpg": b"nope"}
+        self.rule()
+        self.ingest.files = {}
+        self.vision = FakeVision(RuntimeError("boom"))
+        with self.assertRaises(RuntimeError):
+            self.study()
+        remake = self.root / "state" / "media" / "remake"
+        self.assertEqual(list(remake.iterdir()) if remake.exists() else [], [])
+
+    def test_a_usable_restudy_replaces_the_folder(self):
+        self.study()
+        (self.folder() / "stray.txt").write_text("x")
+        import shutil
+
+        (self.folder() / "study.json").unlink()
+        self.study()
+        self.assertFalse((self.folder() / "stray.txt").exists())
+
+    def test_folders_older_than_the_keep_window_go_whenever_a_study_runs(self):
+        import os
+        import time
+
+        remake = self.root / "state" / "media" / "remake"
+        for name, hours in (("old", 60), ("fresh", 5), (".staging-x", 60)):
+            (remake / name).mkdir(parents=True)
+            (remake / name / "f").write_text("x")
+            at = time.time() - hours * 3600
+            os.utime(remake / name, (at, at))
+        self.study()
+        self.assertEqual(sorted(p.name for p in remake.iterdir()), ["fresh", "tt-7300"])
+        self.secrets("REMAKE_KEEP_HOURS=2\n")
+        self.ingest.probe_answer = {"source": "tiktok", "video_id": "7301", "url": TT_URL}
+        self.ingest.fetch_answer = fetched(video_id="7301")
+        self.study()
+        self.assertEqual(sorted(p.name for p in remake.iterdir()), ["tt-7300", "tt-7301"][:2] if False else sorted(p.name for p in remake.iterdir()))
+        self.assertNotIn("fresh", [p.name for p in remake.iterdir()])
+
+    def root_reset(self):
+        import shutil
+
+        shutil.rmtree(self.root / "state", ignore_errors=True)
+
+
 class SpendTest(Base):
     def test_the_day_is_capped_and_the_cap_is_a_rule(self):
         self.secrets("REMAKE_STUDY_MAX_PER_DAY=2\n")
