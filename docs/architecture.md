@@ -905,8 +905,9 @@ count against `STUDIO_BUDGET_SECS` like the model turns.
 
 The video formats are made by one binary, `hands/video`, whose kinds of
 video are flavors (`teeny_hands/media/flavors/`, docs/hands.md, "image and
-video"): `clip`, `skit` and `remake`, each a group of steps (`hands/video
-skit make`, `hands/video remake keys|render|drop`), listed by `hands/video
+video"): `clip`, `skit`, `remake` and `khaby`, each a group of steps
+(`hands/video skit make`, `hands/video remake keys|render|drop`,
+`hands/video khaby keys|render|drop`), listed by `hands/video
 flavors` with the ledger kinds each books and whether it shares the one
 bought video a day. The studio still calls the old spellings (`video skit`,
 `video remake-keys`, `video remake`), which stay as aliases of those steps
@@ -1029,7 +1030,13 @@ and sends it whole to a video-input model (`KHABY_DISSECT_MODEL`, no default
 until one is tried on the box) for a timeline: which seconds and frames are
 the setup clip and which his reaction, snapped to ingest's cuts, the
 reaction editable. It shares the remake ledger, so a video used by one
-pipeline is never offered to the other (docs/hands.md, "khaby").
+pipeline is never offered to the other (docs/hands.md, "khaby"). The video
+itself is `hands/video khaby` (`media/khaby.py`, on the remake's machinery):
+`keys` reads the timeline and keys each reaction segment's first frame with
+Teeny in the man's place (setup segments cost nothing), `render` animates
+them and the reel cutter joins them between the source's own kept segments
+(`starts`), with the source's audio and the label. Off until
+`MEDIA_KHABY_MAX_PER_DAY` is set, and one of the shared videos a day.
 
 The remake's hard lines (`hands/guard remake`, `guard/remake.py`; the skit's
 lines, plus):

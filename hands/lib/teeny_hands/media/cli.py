@@ -23,6 +23,15 @@
     A  remake drop {remake_id}            a keyed remake let go unrendered: its shots'
                                           reservations released, its keys kept on the ledger
                                           (alias: remake-drop)
+    A  khaby keys {dissect, story?, logline, reactor?, segments: [{n, edit, motion}], wait_seconds?}
+                                          a khaby video's keyframes: each reaction segment of
+                                          hands/khaby dissect's timeline keyed with Teeny in the
+                                          man's place; kept segments cost nothing (media/khaby.py);
+                                          off until MEDIA_KHABY_MAX_PER_DAY is set (no alias)
+    A  khaby render {khaby_id, wait_seconds?}
+                                          the reactions animated and cut between the source's
+                                          kept segments with its audio and the label
+    A  khaby drop {khaby_id}              a keyed khaby video let go unrendered
     R  list [--max N]                     the videos made, newest first, and today's spend
     R  get ID                             one
 
