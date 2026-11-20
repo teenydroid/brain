@@ -2457,6 +2457,11 @@ SLOT_END = {"published": "posted", "empty": "empty", "vetoed": "empty", "skipped
             "picked": "empty"}
 
 
+#: The most videos a video slot asks the slot question of, best first, before
+#: it turns to the other formats (`room_run`).
+SKIT_FINALS = 3
+
+
 def video_finals(order: list[str], blind: dict[str, Json]) -> list[str]:
     """The videos a video slot asks the slot question of, in ORDER (the
     tournament's): the first SKIT_FINALS, with the best of each video format
