@@ -2925,26 +2925,51 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         # its order, is what it falls back to.
         order = [x for x in order if blind[x]["format"] == "skit"] + [x for x in order if blind[x]["format"] != "skit"]
         record["slot_order"] = order
+    first = ranked_drafts[0]["label"]
+
+    def slot_question(label: str, opening: str | None = None) -> tuple[str, str]:
+        answer = room.turn("editor", "final", final_message(label, blind[label], board, state_now,
+                                                            fallback=label != first and opening is None,
+                                                            opening=opening), None)
+        said: Json = {"label": label, "verdict": _str(answer.get("verdict"), 20).lower(),
+                      "reason": _str(answer.get("reason"), 400)}
+        if blind[label]["format"] == "skit" and _str(answer.get("line"), 200):
+            said["line"] = _str(answer.get("line"), 200)
+        record["final"] = said
+        return said["verdict"], said["reason"]
+
     top = order[0]
-    answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
-    verdict = _str(answer.get("verdict"), 20).lower()
-    reason = _str(answer.get("reason"), 400)
-    record["final"] = {"label": top, "verdict": verdict, "reason": reason}
-    promoted = room.skit_slot and blind[top]["format"] == "skit" and top != ranked_drafts[0]["label"]
-    others = [x for x in order if blind[x]["format"] != "skit"]
-    if verdict != "pick" and promoted and others:
-        # The skit went first only because this is a skit slot: the editor's
-        # no to it is "the skit cannot go out", not an empty slot. The skits
-        # are dropped and the tournament's own top draft is asked the slot
-        # question, as in any slot; a no there is a real veto.
-        record["skit_veto"] = {"label": top, "verdict": verdict, "reason": reason}
-        order = others
-        record["slot_order"] = order
-        top = order[0]
-        answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
-        verdict = _str(answer.get("verdict"), 20).lower()
-        reason = _str(answer.get("reason"), 400)
-        record["final"] = {"label": top, "verdict": verdict, "reason": reason}
+    if room.skit_slot and blind[top]["format"] == "skit":
+        # A skit slot asks the slot question of its best skits first
+        # (SKIT_FINALS), then of the tournament's best other draft. A no to
+        # a skit is "this skit cannot go out", never an empty skit slot
+        # while another draft is left; every one is kept in `skit_vetoes`
+        # (and the first as `skit_veto`). A no to the other draft after
+        # them is a real veto.
+        skits = [x for x in order if blind[x]["format"] == "skit"][:SKIT_FINALS]
+        others = [x for x in order if blind[x]["format"] != "skit"]
+        refused: list[Json] = []
+        for label in skits:
+            verdict, reason = slot_question(label, opening=SKIT_SLOT_OPENING if label != first and not refused
+                                            else None)
+            if verdict == "pick":
+                top = label
+                break
+            refused.append(dict(record["final"]))
+        if refused:
+            record["skit_veto"] = refused[0]
+            record["skit_vetoes"] = refused
+            gone = {r["label"] for r in refused}
+            order = [x for x in order if x not in gone]
+            if verdict != "pick":
+                # Every skit asked was refused: the skits left are dropped too.
+                order = others
+            record["slot_order"] = order
+            if verdict != "pick" and others:
+                top = others[0]
+                verdict, reason = slot_question(top)
+    else:
+        verdict, reason = slot_question(top)
     if verdict != "pick":
         record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})
         return 0
