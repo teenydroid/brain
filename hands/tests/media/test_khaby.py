@@ -239,10 +239,10 @@ class KhabyTest(unittest.TestCase):
             body(aspect="16:9"), body(video="state/media/x.mp4"), body(audio=None), body(shots=[]),
             {**body(), "segments": [{"n": 2, "edit": EDIT, "motion": MOTION, "seconds": 9.0}]},
             {**body(), "segments": [{"n": 2, "edit": EDIT, "motion": MOTION, "frame": "state/media/x.jpg"}]},
-            body(1), body(2, 2), body(), {**body(), "segments": []}, {**body(), "dissect": "../tt-7"},
+            body(1), body(2, 2), {**body(), "segments": [{"edit": EDIT, "motion": MOTION}]},
+            {**body(), "segments": []}, {**body(), "dissect": "../tt-7"}, {k: v for k, v in body().items() if k != "logline"},
             {**body(), "segments": [{"n": 2, "edit": "short", "motion": MOTION}]},
         ]
-        bad[8] = {**body(), "segments": [{"edit": EDIT, "motion": MOTION}]}
         for given in bad:
             with self.subTest(given=given):
                 self.refused(lambda: self.keys(given), "body")
