@@ -77,10 +77,11 @@ PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "remake", "h
 LABEL = "AI parody · @teenydroid"
 #: One take: one keyframe, the opening one, for the whole remake.
 KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04}],
-        "reserve_usd": 4.0, "cost_usd": 0.04, "one_take": {"per_shot_fallback": False}}
+        "reserve_usd": 4.0, "cost_usd": 0.04}
+#: The hand's real (not dry) answer names no mode: with MEDIA_REMAKE_PER_SHOT=1
+#: it simply answers a key a shot.
 PER_SHOT_KEYS = {**KEYS, "keys": KEYS["keys"] + [{"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m",
-                                                  "cost_usd": 0.04}],
-                 "one_take": {"per_shot_fallback": True}}
+                                                  "cost_usd": 0.04}]}
 MADE = {"asset": "state/media/remake-r1.mp4", "asset_id": 9, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
         "label": LABEL, "labelled": True, "one_take": True, "cost_usd": 1.5, "models": ["venice-wan-3-0-image-to-video"],
         "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [9], "sound": "model"}
