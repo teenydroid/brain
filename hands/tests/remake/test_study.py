@@ -103,7 +103,23 @@ class HappyPathTest(Base):
         self.assertEqual((folder / "audio.m4a").read_bytes(), M4A)
         self.assertEqual((folder / "shot-1.jpg").read_bytes(), JPEG)
         self.assertEqual(self.ingest.deleted, [FETCH_ID])
-        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": TT_URL})])
+        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": TT_URL, "max_seconds": 30.0, "max_shots": 6,
+                                                                  "min_shot": 1.0, "max_shot": 5.0})])
+
+    def test_the_fetch_caps_each_shot_to_one_video_clip(self):
+        # Each shot becomes one image-to-video clip of at most 5 s (Wan 3), so
+        # ingest splits longer shots; REMAKE_MAX_SHOT_SECONDS moves it, within
+        # 2 to 10 s (ingest wants max_shot at least twice min_shot).
+        for raw, want in (("", 5.0), ("3.5", 3.5), ("0.5", 2.0), ("20", 10.0), ("soon", 5.0)):
+            with self.subTest(raw=raw):
+                self.secrets(f"REMAKE_MAX_SHOT_SECONDS={raw}\n" if raw else "")
+                self.ingest.calls = []
+                study.study({"url": TT_URL}, ingest=self.ingest, api=FakeVision(reply(breakdown())),
+                            sleep=lambda s: None, fresh=True) if "fresh" in study.study.__code__.co_varnames else \
+                    self.study()
+                body = self.ingest.asked("fetch")[-1][1]
+                self.assertEqual((body["max_shot"], body["min_shot"], body["max_shots"], body["max_seconds"]),
+                                 (want, 1.0, 6, 30.0))
 
     def test_a_clip_with_no_sound_has_no_audio(self):
         self.ingest.fetch_answer = fetched(audio=False)
