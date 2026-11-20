@@ -19,6 +19,8 @@
                                           the remake: its keyframes animated, trimmed to the
                                           source's shots and cut with the source's audio and
                                           the label; replays what remake-keys stored
+    A  remake-drop {remake_id}             a keyed remake let go unrendered: its shots'
+                                          reservations released, its keys kept on the ledger
     R  list [--max N]                     the videos made, newest first, and today's spend
     R  get ID                             one
 
@@ -64,6 +66,8 @@ def parser(kind: str) -> argparse.ArgumentParser:
         verb("remake-keys", lambda a, body: remakes.generate_keys(body), "buy one remake's keyframes (JSON on stdin)",
              body=True)
         verb("remake", lambda a, body: remakes.generate_remake(body), "render one remake from its keyframes "
+             "(JSON on stdin)", body=True)
+        verb("remake-drop", lambda a, body: remakes.drop_remake(body), "let go of a remake's keys unrendered "
              "(JSON on stdin)", body=True)
     if kind == "image":
         verb("scenes", lambda a, _: assets.scenes(a.last), "the scenes of the last pictures, and the words they repeat").add_argument(
