@@ -113,18 +113,34 @@ Json = dict[str, Any]
 
 SKIT_MODELS = ("kling-v3-pro-text-to-video,seedance-2-0-text-to-video,wan-2-7-text-to-video,"
                "veo3-1-fast-text-to-video")
-#: The models a skit's one take is asked of, in order: only seedance-2-0 has
-#: been seen to follow a multi-shot script in one job, the same face, set and
-#: soundtrack across hard cuts (a paid test, 2026-11-20).
-ONE_TAKE_MODELS = "seedance-2-0-text-to-video"
-#: The longest one take: what the models sell (seedance 5 to 15 s).
-ONE_TAKE_MAX_SECONDS = 15
+#: The models a skit's one take is asked of, in order (MEDIA_SKIT_ONE_TAKE_MODELS):
+#: each was seen on a paid render on 2026-11-20 to follow a multi-shot script
+#: in one job, the same face, set and soundtrack across hard cuts. wan-3-0:
+#: 30 s, six shots, 1280x720 with audio; seedance-2-0: 15 s; wan-2-7: 15 s,
+#: 1280x720 with audio.
+ONE_TAKE_MODELS = "venice-wan-3-0-text-to-video,seedance-2-0-text-to-video,wan-2-7-text-to-video"
+#: The longest one take, by default (MEDIA_SKIT_ONE_TAKE_SECS), always snapped
+#: down to a length the model sells (wan-3-0 20; seedance-2-0 and wan-2-7 15),
+#: and shortened to fit the cap; ONE_TAKE_SECONDS_RANGE bounds the setting.
+ONE_TAKE_SECONDS = 20
+ONE_TAKE_SECONDS_RANGE = (5, 30)
 #: max_cost_usdc a second asked, in micro-USDC, where it is verified: the
 #: take is asked for the longest length whose ceiling fits its cap before it
-#: is submitted (seedance-2-0 15 s: max 5112000, billed 1420000, 2026-11-20).
-#: A model not listed is asked as long as the shots want, and shortened by
-#: its own answer's rate when that is over the cap.
-MAX_PER_SECOND = {"seedance-2-0-text-to-video": 340800}
+#: is submitted. 2026-11-20: wan-3-0 30 s at 720p max 7020000 (estimate
+#: 2730000, billed 3042000); seedance-2-0 15 s max 5112000 (billed 1420000);
+#: wan-2-7 15 s max 3267000 (billed 825000). A model not listed is asked at
+#: the limit, and shortened by its own answer's rate when that is over the cap.
+MAX_PER_SECOND = {"venice-wan-3-0-text-to-video": 234000, "seedance-2-0-text-to-video": 340800,
+                  "wan-2-7-text-to-video": 217800}
+#: The fields each one-take model is sent beyond {model, prompt,
+#: duration_seconds}, only those a paid render accepted (2026-11-20):
+#: wan-3-0 resolution, aspect_ratio and audio; seedance-2-0 resolution (it
+#: did not change the price); wan-2-7 none. MEDIA_SKIT_PARAMS is laid over
+#: these, so the operator can still change or add any.
+ONE_TAKE_PARAMS: dict[str, Json] = {
+    "venice-wan-3-0-text-to-video": {"resolution": "{resolution}", "aspect_ratio": "{aspect}", "audio": True},
+    "seedance-2-0-text-to-video": {"resolution": "{resolution}"},
+}
 ASPECTS = ("16:9", "9:16", "1:1")
 MAX_SHOTS = 4
 MAX_PROMPT = 900
@@ -235,13 +251,14 @@ def take_cap(per_shot: int, shots: int) -> int:
     return per_shot * shots
 
 
-def fit(asked: int, cap: int, sold: list[int] | None, rate: int | None) -> int | None:
-    """The take's length: the longest the model sells, at most `asked` and
-    ONE_TAKE_MAX_SECONDS, whose ceiling (`rate` a second, when known) fits
-    under `cap`; the least it sells when `asked` is under that and it fits.
+def fit(limit: int, cap: int, sold: list[int] | None, rate: int | None) -> int | None:
+    """The take's length: the longest the model sells, at most `limit`
+    (and the range's most), whose ceiling (`rate` a second, when known) fits
+    under `cap`; the least it sells when `limit` is under that and it fits.
     None when no length fits."""
-    top = min(asked, ONE_TAKE_MAX_SECONDS)
-    lengths = [t for t in (sorted(set(sold)) if sold else range(1, top + 1)) if t <= ONE_TAKE_MAX_SECONDS]
+    most = ONE_TAKE_SECONDS_RANGE[1]
+    top = min(limit, most)
+    lengths = [t for t in (sorted(set(sold)) if sold else range(1, top + 1)) if t <= most]
     affordable = [t for t in lengths if rate is None or t * rate <= cap]
     under = [t for t in affordable if t <= top]
     if under:
@@ -281,12 +298,25 @@ def _params() -> dict[str, Json]:
 _RESERVED = {"model", "prompt", "duration_seconds", "image_url"}
 
 
+def take_params(model: str, params: dict[str, Json]) -> dict[str, Json]:
+    """A one take's fields for `model`: its built-in verified ones
+    (ONE_TAKE_PARAMS), then the operator's MEDIA_SKIT_PARAMS over them."""
+    built = dict(ONE_TAKE_PARAMS.get(model) or {})
+    merged = {"*": dict(params.get("*") or {}), model: {**built, **(params.get(model) or {})}}
+    return merged
+
+
+def take_limit() -> int:
+    """The longest one take asked (MEDIA_SKIT_ONE_TAKE_SECS)."""
+    return hand.number("MEDIA_SKIT_ONE_TAKE_SECS", ONE_TAKE_SECONDS, *ONE_TAKE_SECONDS_RANGE)
+
+
 def request_body(model: str, prompt: str, seconds: int, aspect: str, params: dict[str, Json]) -> Json:
     """One shot's job: the fields generate_video already sends, then
     MEDIA_SKIT_PARAMS's for every model ("*") and for this one, with
     {aspect}, {seconds} and {resolution} filled in. The model, the prompt
     and the length are always this hand's."""
-    resolution = (hand.setting("MEDIA_SKIT_RESOLUTION") or "1080p").strip()
+    resolution = (hand.setting("MEDIA_SKIT_RESOLUTION") or "720p").strip()
     body: Json = {"model": model, "prompt": prompt, "duration_seconds": seconds}
     for scope in ("*", model):
         for key, value in (params.get(scope) or {}).items():
@@ -512,7 +542,7 @@ def _submit_take(api: Surplus, conn, skit_id: int, take: _Shot, job: Json, cap: 
     while take.models:
         model = take.models.pop(0)
         on_sale = (sold or {}).get(model)
-        seconds = fit(sum(asked), cap, on_sale, MAX_PER_SECOND.get(model))
+        seconds = fit(take_limit(), cap, on_sale, MAX_PER_SECOND.get(model))
         if seconds is None:
             take.tried.append(f"{model}: no length it sells fits the ${cap / 1e6:.2f} cap")
             continue
@@ -522,7 +552,8 @@ def _submit_take(api: Surplus, conn, skit_id: int, take: _Shot, job: Json, cap: 
             prompt = rules.script(held, lengths, style)
             try:
                 answer = api.call("POST", "/v1/video/generations",
-                                  request_body(model, prompt, seconds, job["aspect"], params), timeout=60,
+                                  request_body(model, prompt, seconds, job["aspect"], take_params(model, params)),
+                                  timeout=60,
                                   headers={"idempotency-key": f"teeny-skit-{skit_id}-take-{model}-{seconds}s"})
             except SurplusError as exc:
                 if exc.status in assets.FALLBACK_STATUSES or exc.status is None:
@@ -675,12 +706,12 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
                      "one_take": {"on": one_take, "models": take_models, "max_usd": round(cap / 1e6, 4)}}
         if one_take:
             asked = [s["seconds"] for s in job["shots"]]
-            seconds = fit(sum(asked), cap, None, MAX_PER_SECOND.get(take_models[0]))
+            seconds = fit(take_limit(), cap, None, MAX_PER_SECOND.get(take_models[0]))
             if seconds:
                 style = (hand.setting("MEDIA_SKIT_STYLE") or "").strip()
                 out["one_take"]["request"] = request_body(take_models[0], rules.script(held, split(seconds, asked),
                                                                                         style), seconds,
-                                                          job["aspect"], params)
+                                                          job["aspect"], take_params(take_models[0], params))
         return out
     if limit == 0:
         raise hand.Refused("skits are off: MEDIA_SKIT_MAX_PER_DAY is 0 (the operator turns them on and sets the "
