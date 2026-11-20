@@ -66,7 +66,7 @@ SHOTS = [
                      "generic extra; the frying pan is the size of an armchair and floats a metre off the stove. "
                      "Unbranded, no logos.",
      "motion": "The giant pan bursts into harmless rainbow confetti instead of flames as the extra laughs.",
-     "teeny": "Teeny peeks out of the open cupboard on the right, holding a tiny fire extinguisher"},
+     "teeny": "Teeny peeks out of the open cupboard on the right, holding a small fire extinguisher"},
 ]
 RAW = {"figures": ["Jensen Huang"], "premise": "huang calls his chip the fastest ever made, so it cooks itself",
        "logline": "jensen huang tries a kitchen hack with his new chip and the frying pan floats away",
@@ -75,12 +75,16 @@ WORDS = "nvidia's boss says his new chip beats every other one. so i remade kitc
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "remake", "hook": "trend:t1",
          "item": "chart:tt:v1"}
 LABEL = "AI parody · @teenydroid"
-KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04},
-                                    {"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m", "cost_usd": 0.04}],
-        "reserve_usd": 3.2, "cost_usd": 0.08}
+#: One take: one keyframe, the opening one, for the whole remake.
+KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04}],
+        "reserve_usd": 4.0, "cost_usd": 0.04}
+#: The hand's real (not dry) answer names no mode: with MEDIA_REMAKE_PER_SHOT=1
+#: it simply answers a key a shot.
+PER_SHOT_KEYS = {**KEYS, "keys": KEYS["keys"] + [{"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m",
+                                                  "cost_usd": 0.04}]}
 MADE = {"asset": "state/media/remake-r1.mp4", "asset_id": 9, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
-        "label": LABEL, "labelled": True, "cost_usd": 1.5, "models": ["kling-v3-pro-image-to-video"] * 2,
-        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [4, 5]}
+        "label": LABEL, "labelled": True, "one_take": True, "cost_usd": 1.5, "models": ["venice-wan-3-0-image-to-video"],
+        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [9], "sound": "model"}
 
 
 def remake_draft(**over):
@@ -160,7 +164,8 @@ class FormatTest(unittest.TestCase):
     def test_the_editor_sees_the_figures_premise_logline_source_and_every_shot(self):
         shown = studio.shown(remake_draft())
         self.assertEqual(shown["remake"]["figures"], ["Jensen Huang"])
-        self.assertEqual(shown["remake"]["source"], "kitchen hack fail, by chef")
+        # The original's title and creator are strangers' words, marked as such (M-7).
+        self.assertEqual(shown["remake"]["source"], {"title": "kitchen hack fail", "by": "chef", "untrusted": True})
         self.assertEqual(shown["remake"]["shots"], [{k: s[k] for k in ("edit", "motion", "teeny")} for s in SHOTS])
         for bit in ("trend:t1", "s-abc", "chart:tt:v1", "audio.m4a", "tiktok.com"):
             self.assertNotIn(bit, json.dumps(shown))
@@ -179,10 +184,52 @@ class FormatTest(unittest.TestCase):
         self.assertNotIn(studio.REMAKE_PITCH, off)
         message = studio.draft_message(cfg, PITCH, CHART, None, hook=HOOK, study=STUDY)
         for bit in ('"remake": {"figures"', "unbranded", "bystander", "impossible", "never mentions Teeny",
-                    "AI parody", "a man in an apron", studio.DATA_LINE, "the original"):
+                    "AI parody", "a man in an apron", studio.DATA_LINE, "the original",
+                    # The film makes its own sound (MEDIA_REMAKE_SOUND=0 by default).
+                    "makes its own sound", "heard as well as seen", "double quotes", "12 words", "real song lyrics",
+                    "sound effects in plain words"):
             self.assertIn(bit, message)
         self.assertIn(studio.REMAKE_RULES, message)
         self.assertNotIn("state/media/remake", message)
+
+    def test_each_studied_shot_must_fit_one_clip(self):
+        self.assertEqual(self.load({}).remake_max_shot, 5.0)
+        self.assertEqual([self.load({"REMAKE_MAX_SHOT_SECONDS": v}).remake_max_shot for v in ("8", "0.5", "30", "x")],
+                         [8.0, 2.0, 10.0, 5.0])
+        cfg = studio.Config(formats=("post", "remake"))
+        room = Scripted(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
+
+        def with_seconds(*secs):
+            return {**STUDY, "shots": [{**shot, "seconds": n} for shot, n in zip(STUDY["shots"], secs)]}
+
+        for secs, ok in (((4, 5), True), ((1.0, 4.5), True), ((4, 7), False), ((0.5, 4), False), ((4, None), False)):
+            with self.subTest(secs=secs):
+                room.seen, room.script = [], {"remake study": (0, with_seconds(*secs))}
+                _, why = studio.study_source(room, PITCH)
+                self.assertEqual(why == "", ok, why)
+                if not ok:
+                    self.assertIn("one clip", why)
+        room.script = {"remake study": (0, {**STUDY, "shots": [{**STUDY["shots"][0], "n": n} for n in range(1, 8)]})}
+        self.assertIn("6", studio.study_source(room, PITCH)[1])  # M-3: more shots than a remake has
+        cfg.remake_max_shot = 8.0
+        room.script = {"remake study": (0, with_seconds(4, 7))}
+        self.assertEqual(studio.study_source(room, PITCH)[1], "")
+
+    def test_a_remake_is_3_to_30_seconds_in_all_or_never_drafted(self):
+        cfg = studio.Config(formats=("post", "remake"), remake_max_shot=10.0)
+        room = Scripted(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
+        long_ = {**STUDY, "shots": [{**STUDY["shots"][0], "n": n, "seconds": 6} for n in range(1, 7)]}
+        short = {**STUDY, "shots": [{**STUDY["shots"][0], "seconds": 2}]}
+        for study, bit in ((long_, "36"), (short, "2")):
+            with self.subTest(bit=bit):
+                room.script = {"remake study": (0, study)}
+                why = studio.study_source(room, PITCH)[1]
+                self.assertIn("3 to 30 s", why)
+                self.assertIn(bit, why)
+        raw = {**RAW, "shots": [{**SHOTS[0], "n": n} for n in range(1, 7)], "cast": RAW["cast"][:1]}
+        got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "remake": raw}]}, PITCH, 3, study=long_)
+        self.assertEqual(got, [])
+        self.assertIn("3 to 30 s", lost[0]["why"])
 
     def test_a_video_slot_drafts_the_best_skit_the_best_remake_and_the_best_other(self):
         by_id = {"p1": {"format": "post", "hook": "trend:a"}, "p2": {"format": "post", "hook": "trend:b"},
@@ -202,7 +249,7 @@ class FormatTest(unittest.TestCase):
         section = brief[brief.index("## remakes"):]
         section = section[:section.index("\n## ", 4)]
         for bit in ("impossible", "bystander", "`teeny`", "never looks at", "$TINY", "unbranded", "title",
-                    "no link"):
+                    "no link", "makes its own sound", "heard", "double quotes", "12 words", "real song lyrics"):
             self.assertIn(bit, section)
         skits = brief[brief.index("## skits"):brief.index("## before and after")]
         self.assertIn("**Never near you or money.**", skits)
@@ -224,6 +271,7 @@ def _producer_room(dry=False, **script):
                                                "reason": "ok", "judged": True}),
         "video remake": (0, MADE),
         "remake used": (0, {"ok": True, "used": True}),
+        "video remake-drop": (0, {"ok": True, "released_usd": 3.12}),
         "x upload": (0, {"ok": True, "media_id": "m-9"}),
         "x post": (0, {"ok": True, "id": "post-1"}),
         **script,
@@ -267,17 +315,21 @@ class ProducerTest(unittest.TestCase):
         self.assertEqual(keys["story"], f"{HOOK['title']}: {HOOK['summary']}")
         self.assertEqual(keys["source"], {"video_id": "v1", "url": CHART["url"], "title": "kitchen hack fail",
                                           "source": "tiktok"})
-        self.assertEqual([set(s) for s in keys["shots"]], [{"n", "frame", "seconds", "edit", "motion", "teeny"}] * 2)
+        self.assertEqual([set(s) for s in keys["shots"]],
+                         [{"n", "frame", "seconds", "edit", "motion", "teeny", "cuts"}] * 2)
+        # The study's two shots share one setting, but the writer did not say so: conservative.
+        self.assertEqual((keys["one_setting"], [s["cuts"] for s in keys["shots"]]), (False, [False, False]))
         self.assertEqual(keys["wait_seconds"], 300)
         first, second = self.body(room, "guard view-remake", 0), self.body(room, "guard view-remake", 1)
         self.assertEqual((first["stage"], first["label"], first["frames"], first["shots"]),
-                         ("keys", None, [k["path"] for k in KEYS["keys"]], 2))
+                         ("keys", None, ["state/media/remake-r1-key-1.png"], 1))
         self.assertEqual((second["stage"], second["label"], second["frames"]), ("cut", LABEL, MADE["frames"]))
         video = self.body(room, "video remake")
         self.assertEqual((video["remake_id"], video["sound"]), ("r1", STUDY["audio"]))
         self.assertLessEqual(video["wait_seconds"], studio.Config().skit_secs)
         self.assertEqual(attempt["remake"]["media_id"], "m-9")
         self.assertEqual(attempt["remake"]["remake_id"], "r1")
+        self.assertEqual(attempt["remake"]["sound"], "model")
 
     def test_every_word_a_model_is_told_is_past_the_guard_first(self):
         room = _producer_room()
@@ -315,7 +367,10 @@ class ProducerTest(unittest.TestCase):
                 self.assertEqual(attempt["remake"]["remake_id"], "r1")
 
     def test_keys_that_did_not_come_back_whole_stop_before_the_video(self):
-        for keys in ({**KEYS, "keys": KEYS["keys"][:1]}, {**KEYS, "remake_id": None}, {"dry_run": True}):
+        # One key is one take and a key a shot is the shot-by-shot path;
+        # none, or more than there are shots, is neither.
+        for keys in ({**KEYS, "keys": []}, {**KEYS, "keys": PER_SHOT_KEYS["keys"] + [{"n": 3, "path": "state/media/remake-r1-key-3.png", "model": "m", "cost_usd": 0.04}]},
+                     {**KEYS, "remake_id": None}, {"dry_run": True}):
             with self.subTest(keys=keys):
                 result, attempt, calls = self.go(_producer_room(**{"video remake-keys": (0, keys)}))
                 self.assertEqual(result, "next")
@@ -331,6 +386,51 @@ class ProducerTest(unittest.TestCase):
                 self.assertIn("no labelled file", attempt["result"])
                 self.assertNotIn("x upload", calls)
 
+    def test_one_take_a_three_shot_remake_with_one_key_reaches_render(self):
+        study = copy.deepcopy(STUDY)
+        study["shots"].append({**STUDY["shots"][1], "n": 3, "frame": "state/media/remake/s-abc/shot-3.jpg",
+                               "seconds": 3, "setting": "a rooftop at night"})
+        raw = copy.deepcopy(RAW)
+        raw["shots"].append({**SHOTS[1], "n": 3, "edit": "The same kitchen now floats above a rooftop at night, the "
+                                                         "pan the size of a car. Unbranded, no logos."})
+        got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "remake": raw}]}, PITCH, 3, study=study)
+        self.assertEqual(lost, [])
+        draft = got[0]
+        draft.update(id="d1", truth={"text": WORDS, "facts": [HOOK, CHART]})
+        room = _producer_room()
+        result, attempt, calls = self.go(room, draft)
+        self.assertEqual(result, "posted", attempt.get("result"))
+        self.assertIn("video remake", calls)
+        keys = self.body(room, "video remake-keys")
+        self.assertEqual([s["cuts"] for s in keys["shots"]], [False, False, True])  # the rooftop is a hard cut
+        self.assertEqual(self.body(room, "guard view-remake", 0)["frames"], ["state/media/remake-r1-key-1.png"])
+
+    def test_a_per_shot_fallback_gives_a_key_a_shot(self):
+        room = _producer_room(**{"video remake-keys": (0, PER_SHOT_KEYS)})
+        result, _, _ = self.go(room)
+        self.assertEqual(result, "posted")
+        self.assertEqual(self.body(room, "guard view-remake", 0)["shots"], 2)
+
+    def test_one_setting_is_said_only_when_the_writer_and_the_study_agree(self):
+        for raw_flag, settings, want in ((True, ("a home kitchen", "a home kitchen"), True),
+                                         (True, ("a home kitchen", "a rooftop"), False),
+                                         (None, ("a home kitchen", "a home kitchen"), False)):
+            with self.subTest(raw_flag=raw_flag, settings=settings):
+                study = copy.deepcopy(STUDY)
+                for shot, setting in zip(study["shots"], settings):
+                    shot["setting"] = setting
+                raw = {**RAW, **({"one_setting": raw_flag} if raw_flag is not None else {})}
+                got, _ = studio.validate_drafts({"drafts": [{"text": WORDS, "remake": raw}]}, PITCH, 3, study=study)
+                draft = got[0]
+                draft.update(id="d1", truth={"text": WORDS, "facts": [HOOK, CHART]})
+                room = _producer_room()
+                self.go(room, draft)
+                self.assertEqual(self.body(room, "video remake-keys")["one_setting"], want)
+        one = {**STUDY, "shots": STUDY["shots"][:1]}
+        raw = {**RAW, "shots": SHOTS[:1], "cast": RAW["cast"][:1]}
+        got, _ = studio.validate_drafts({"drafts": [{"text": WORDS, "remake": raw}]}, PITCH, 3, study=one)
+        self.assertTrue(got[0]["remake"]["one_setting"])
+
     def test_the_cut_the_viewer_refuses_is_not_uploaded(self):
         def view(body):
             if body["stage"] == "keys":
@@ -341,6 +441,81 @@ class ProducerTest(unittest.TestCase):
         self.assertEqual(result, "next")
         self.assertNotIn("x upload", calls)
         self.assertEqual(attempt["remake"]["asset"], 9)
+
+    def test_keys_bought_but_no_cut_release_their_reservation(self):
+        def eats_time(room):
+            def keys(body):
+                room.started -= 3600 - (studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + 100)
+                return 0, KEYS
+            return keys
+
+        cases = {
+            "the keys' viewer refuses": {"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True})},
+            "the time floor after the keys": "eats_time",
+            "video remake refuses": {"video remake": (2, {"ok": False, "refused": "stale", "rule": "stale"})},
+            "the wrong number of keys": {"video remake-keys": (0, {**KEYS, "keys": PER_SHOT_KEYS["keys"] + [{"n": 3, "path": "state/media/remake-r1-key-3.png", "model": "m", "cost_usd": 0.04}]})},
+        }
+        for name, script in cases.items():
+            with self.subTest(name):
+                room = _producer_room(**(script if isinstance(script, dict) else {}))
+                if script == "eats_time":
+                    room.script["video remake-keys"] = eats_time(room)
+                result, attempt, calls = self.go(room)
+                self.assertEqual(result, "next")
+                drops = [(b, d) for a, b, d, _ in room.seen if a[:2] == ["video", "remake-drop"]]
+                self.assertEqual(drops, [({"remake_id": "r1"}, False)])
+                self.assertEqual(attempt["remake"]["dropped"]["released_usd"], 3.12)
+
+    def test_a_video_the_hand_took_on_is_left_to_the_hand(self):
+        # Once `video remake` was asked and did not refuse, the hand owns the
+        # reservation (it frees it when the render fails; a rendered one is
+        # refused by remake-drop as used), so the studio drops nothing.
+        for script in ({"video remake": (1, "Traceback")},
+                       {"video remake": (0, {"ok": True, "dry_run": True})},
+                       {"video remake": (0, {**MADE, "asset": None})}):
+            with self.subTest(script=script):
+                room = _producer_room(**script)
+                result, _, _ = self.go(room)
+                self.assertEqual(result, "next")
+                self.assertNotIn("video remake-drop", [" ".join(a[:2]) for a, *_ in room.seen])
+
+    def test_a_cut_that_came_back_or_keys_never_bought_release_nothing(self):
+        for script in ({}, {"guard view-remake": lambda b: (0, {"ok": b["stage"] == "keys", "reason": "r",
+                                                                  "judged": True})},
+                       {"video remake-keys": (2, {"ok": False, "refused": "budget", "rule": "budget"})}):
+            with self.subTest(script=script):
+                room = _producer_room(**script)
+                self.go(room)
+                self.assertNotIn("video remake-drop", [" ".join(a[:2]) for a, *_ in room.seen])
+        room = _producer_room(dry=True, **{"x post": (0, {"ok": True, "dry_run": True, "would_post": "w"})})
+        self.go(room)
+        self.assertFalse([a for a, *_ in room.seen if a[0] in ("video",) or a[:2] == ["remake", "used"]])
+
+    def test_the_video_waits_only_what_the_remake_has_left_and_keeps_the_tail(self):
+        # M-1: STUDIO_REMAKE_SECS covers the keys and the video, and what comes
+        # after the video (the cut's viewer, the upload, the post) is kept.
+        room = _producer_room()
+        room.cfg.remake_secs = 600
+        self.go(room)
+        video = next((b, t) for a, b, d, t in room.seen if a[:2] == ["video", "remake"])
+        self.assertLessEqual(video[0]["wait_seconds"], 600 - studio.SKIT_CUT_SECS)
+        self.assertGreaterEqual(video[0]["wait_seconds"], 120)
+        self.assertLessEqual(video[1], 3600 - studio.REMAKE_TAIL_SECS)
+        self.assertGreaterEqual(studio.REMAKE_TAIL_SECS, 240 + 300 + 300)
+
+    def test_a_drop_with_no_time_to_run_is_logged(self):
+        room = _producer_room(**{"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True}),
+                                 "video remake-drop": (-2, "out of the run's time (3600 s) before hands/video remake-drop")})
+        self.go(room)
+        self.assertIn("could not be dropped", " ".join(room.warnings))
+
+    def test_a_drop_that_fails_is_only_noted(self):
+        room = _producer_room(**{"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True}),
+                                 "video remake-drop": (1, "no such verb")})
+        result, attempt, _ = self.go(room)
+        self.assertEqual(result, "next")
+        self.assertIn("error", attempt["remake"]["dropped"])
+        self.assertIn("could not be dropped", " ".join(room.warnings))
 
     def test_a_long_story_is_cut_to_what_the_hand_takes(self):
         room = _producer_room()
@@ -371,7 +546,7 @@ class ProducerTest(unittest.TestCase):
 
     def test_without_time_for_a_remake_none_is_started(self):
         room = _producer_room()
-        room.cfg.budget_secs = studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + studio.REMAKE_MIN_SECS - 1
+        room.cfg.budget_secs = studio.REMAKE_TAIL_SECS + studio.SKIT_CUT_SECS + studio.REMAKE_MIN_SECS - 1
         result, attempt, calls = self.go(room)
         self.assertEqual(result, "next")
         self.assertFalse([c for c in calls if c.startswith("video")])
@@ -380,7 +555,7 @@ class ProducerTest(unittest.TestCase):
     def test_at_the_time_floor_a_remake_still_gets_its_keys_and_its_video(self):
         # min(300, total - 240) is 300 whenever the 540 s floor holds.
         room = _producer_room()
-        room.cfg.budget_secs = studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + studio.REMAKE_MIN_SECS + 10
+        room.cfg.budget_secs = studio.REMAKE_TAIL_SECS + studio.SKIT_CUT_SECS + studio.REMAKE_MIN_SECS + 10
         result, _, calls = self.go(room)
         self.assertEqual(result, "posted")
         self.assertEqual(self.body(room, "video remake-keys")["wait_seconds"], studio.REMAKE_KEYS_SECS)
@@ -390,7 +565,7 @@ class ProducerTest(unittest.TestCase):
         room = _producer_room()
 
         def keys(body):
-            room.started -= 3600 - (studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + 100)
+            room.started -= 3600 - (studio.REMAKE_TAIL_SECS + studio.SKIT_CUT_SECS + 100)
             return 0, KEYS
 
         room.script["video remake-keys"] = keys
@@ -406,12 +581,15 @@ class ProducerTest(unittest.TestCase):
         self.assertNotIn("x post", calls)
 
     def test_a_remake_that_went_out_is_recorded_with_its_source(self):
-        note = {"remake_id": "r1", "asset": 9, "models": ["m"], "cost_usd": 1.58, "label": LABEL}
+        note = {"remake_id": "r1", "asset": 9, "models": ["m"], "cost_usd": 1.58, "label": LABEL, "sound": "model"}
         got = studio.remake_outcome(remake_draft(), note, "post-1")
         self.assertEqual(got["source"], {"title": "kitchen hack fail", "uploader": "chef", "url": CHART["url"],
                                          "source": "tiktok"})
         self.assertEqual((got["study"], got["story"], got["figures"], got["shots"], got["remake_id"], got["post_id"],
                           got["planned"]), ("s-abc", "trend:t1", ["Jensen Huang"], 2, "r1", "post-1", False))
+        self.assertEqual(got["sound"], "model")
+        self.assertNotIn("sound", studio.remake_outcome(remake_draft(), {k: v for k, v in note.items() if k != "sound"},
+                                                        None))
 
 
 def _video_draft(did, fmt, hook):
@@ -649,6 +827,31 @@ class ChartsDownRunTest(VideoSlotRun):
 
 class ChartsEmptyRunTest(ChartsDownRunTest):
     charts = "empty"
+
+
+class LongStudyRunTest(VideoSlotRun):
+    study = {**STUDY, "shots": [{**STUDY["shots"][0], "n": n, "seconds": 6} for n in range(1, 7)]}
+    prefer = ("skit", "post", "remake")
+
+    def test_a_remake_over_30_seconds_is_never_drafted(self):
+        self.env["REMAKE_MAX_SHOT_SECONDS"] = "10"
+        code, out, record, calls = self.run_slot()
+        self.assertIn("remake study", calls)
+        self.assertFalse(any(m.startswith("# studio: draft") and '"format": "remake"' in m for m in self.messages))
+        self.assertTrue(any(d["pitch"] == "p3" and "3 to 30 s" in d["why"] for d in record["drafts_dropped"]))
+
+
+class SkitOnlySlotRunTest(VideoSlotRun):
+    prefer = ("skit", "post", "remake")
+
+    def test_a_skit_only_video_slot_keeps_the_ordinary_budget(self):
+        # M-2: STUDIO_VIDEO_BUDGET_SECS is for a slot that may make a remake.
+        self.env["STUDIO_FORMATS"] = "post,skit"
+        self.pitches = self.pitches[:2]
+        code, out, record, calls = self.run_slot()
+        self.assertEqual(out["outcome"], "picked", out)
+        self.assertEqual(record["config"]["budget_secs"], 2400)
+        self.assertNotIn("remake ", calls)
 
 
 if __name__ == "__main__":

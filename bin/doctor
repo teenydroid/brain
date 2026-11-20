@@ -555,8 +555,9 @@ fi
 # post, and the room falls back to the skit or the other formats. It says
 # whether hands/video will make any (MEDIA_REMAKE_MAX_PER_DAY 0 refuses every
 # one), whether a chart can be read at all (REMAKE_TIKTOK_ACCOUNTS or
-# YOUTUBE_API_KEY), and whether a six-shot remake's caps fit the shared daily
-# budget; --live asks the ingest service (INGEST_URL), which fetches the source.
+# YOUTUBE_API_KEY), whether one take's cap (MEDIA_REMAKE_MAX_USD_PER_TAKE)
+# fits the shared daily budget, and which models make the one take; --live
+# asks the ingest service (INGEST_URL), which fetches the source.
 if [ -f "$root/hands/lib/teeny_hands/guard/remake.py" ]; then
   remake_out="$(python3 -I -c '
 import sys, urllib.error, urllib.request
@@ -583,19 +584,32 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-# The default for an unset shot cap, read from the hand code (media/remakes.py).
-from teeny_hands.media.remakes import PER_SHOT
-shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
-if 6 * shot > budget:
-    warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
-url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
-if not url:
-    warns.append("INGEST_URL is not set: hands/remake study cannot fetch a source")
+# A remake is one take (one job): unset, the caps and models are those of the
+# hand itself (media/remakes.py). No apostrophes here: this is inside bash single quotes.
+from teeny_hands.media.remakes import ONE_TAKE_MODELS, PER_SHOT, PER_TAKE
+take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", float(PER_TAKE)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if take > budget:
+    warns.append(f"MEDIA_REMAKE_MAX_USD_PER_TAKE ({take:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no remake fits a day")
+# The per-shot path is the fallback (MEDIA_REMAKE_PER_SHOT=1): only then does the cap on a shot count.
+if (filed.get("MEDIA_REMAKE_PER_SHOT") or "").strip().lower() in ("1", "true", "yes", "on"):
+    shot = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT))
+    if 6 * shot > budget:
+        warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
+models = [m.strip() for m in (filed.get("MEDIA_REMAKE_ONE_TAKE_MODELS") or ONE_TAKE_MODELS).split(",") if m.strip()]
+try:
+    from teeny_hands.remake.service import DEFAULT_URL as INGEST_DEFAULT
+except ImportError:
+    INGEST_DEFAULT = "http://ingest:8090"
+url = ((filed.get("INGEST_URL") or "").strip() or INGEST_DEFAULT).rstrip("/")
 if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
 providers = ",".join(p for p, on in (("tiktok", accounts), ("youtube", youtube)) if on)
-said = f"on: {per_day} a day, up to {shot:.2f} USD a shot under {budget:.2f} USD a day; charts from {providers}; ingest at {url}"
+rest = ", ".join(models[1:])
+then = f" (then {rest})" if rest else ""
+first = models[0] if models else "no model"
+said = (f"on: {per_day} a day, up to {take:.2f} USD a take under {budget:.2f} USD a day; one take on {first}{then}; "
+        f"charts from {providers}; ingest at {url}")
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()

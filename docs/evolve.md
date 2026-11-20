@@ -84,32 +84,52 @@ Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
 requests already pending, plus its world score (`hands/world report` and
 `history`) and the archive of its shipped self changes. It proposes the one
-change that would help most, as a delta edit (one bullet in one file), and
-names the W component it moves, by how much, and the flywheel step it turns.
-It goes through `hand:build self`, the only `hands/build` verb a draft may reach
-(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
-build request with source `self`. `pick-request` (09:20 and 15:20) picks it
+change that would help most, and names the W component it moves, by how much,
+and the flywheel step it turns. The playbook says whether it is an **edit** (one
+bullet in one file of an existing prompt, playbook or skill) or a **feature** (a
+new hand with its tests, its section in `docs/hands.md` and the playbook line
+that calls it, all in one change). Until 2026-11-19 it could only ask for the
+edit (see "1c. Wants", why). It goes through `hand:build self`, the only
+`hands/build` verb a draft may reach (`bin/lib/playbook.py`, `VERB_OUTPUTS`).
+The proposal becomes a `pending` build request with source `self`.
+`pick-request` (09:20 and 15:20, two picks a day since 2026-11-19) picks it
 like any other, the builder makes it in the clone below at its next run, and
 it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
+
+A second source files the same kind of request: the `wants` job (`bin/wants
+run`, 09:00 UTC) reads what Teeny said on its memory page it will build, and
+files at most one a day as a feature (see "1c. Wants"). Its request carries a
+want id, and the builder's report for it is held to a rubric before the desk
+takes it (docs/hands.md, "`build`").
 
 A beat can file one too, when somebody asks Teeny to build something for
 itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
 `MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
 the same `hands/build self`. It is refused before the hand while a self
 request is still pending or picked, or a self job is unfinished, the same
-one-at-a-time rule the playbook follows.
+one-at-a-time rule the playbook follows. Since 2026-11-19 `hands/build self`
+enforces that rule too, inside its transaction: it refuses (exit 2, rule
+`one_at_a_time`, `active` naming what is in flight) while a `self` request is
+not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`,
+`shipped` or `gave_up`. Before it, only the playbook's text and the mind's
+route held it, so a second caller could queue a second change.
 
 The whole path, with the cron job that drives each step:
 
 ```
 self-improve   15:00 IST   bin/act self-improve ──► hand:build self
                              └─► build request: pending, source self
+wants          09:00 UTC   bin/wants run ──► scores merged features, then
+                             files one want ─► guard ─► hands/build self {text, want}
+                             └─► build request: pending, source self, want:<id>:<time>
 pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
 build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
                            hands/build desk      ──► the job on the builder's desk
 builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
                                                      runs the offline tests
+build-ship     every 30 m  hands/build desk      ──► a feature's ok report is held to the
+                                                     rubric, or sent back with what is missing
 build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
                                                      ─► push ─► ready PR into main
 GitHub                     CI `frozen` job       ──► the operator merges or closes
@@ -913,6 +933,70 @@ A candidate waiting under the open-PR cap stays waiting through a rewording
 and goes `stale` on a material change; a learning deferred for want of a
 sandbox waits for one across a rewording too.
 
+**A skip that rests on the memory page is no skip** (since 2026-11-19). On
+2026-11-19 an audit of the archive found 14 skips in 65 candidates, and 6 of
+the 14 settled a learning on the memory page itself: g9c1, g9c3 and g18c1
+named `brain/MEMORY.md` as the file that already carries it out, and g15c3,
+g19c1 and g20c1 said in their notes that it "already lives on my (live)
+memory page". The page says what Teeny decided, not what it does, so writing
+a thing down is not carrying it out. m15, the chart renderer, was skipped
+that way in g18c1 (see "1c. Wants"). The rule is in `bin/lib/wants_rules.py`
+(`memory_skip_reason`), frozen with `bin/`, so a candidate cannot change what
+counts. It refuses a skip in these cases, and no other:
+
+| Skip | Refused when |
+|---|---|
+| `already` | `where` is empty (it names no file that carries it out), or its first word is `brain/MEMORY.md`, `MEMORY.md` or `brain/MEMORY.seed.md` (a leading `./` and a trailing `,`, `;` or `:` are ignored, case is folded) |
+| `not-actionable` | `where` names one of those three paths |
+| `already` or `not-worth` | the note says the page carries it: "live page", "live memory page", "on/in/by/from/of the memory page" or "memory.md", or that it "rides into every/each" prompt |
+| `frozen` | never: a file the candidate cannot touch is not the memory page |
+
+A bare "memory page" in a note is not enough ("which my memory page already
+tracks" counts something; it does not say where the thing lives). The phrases
+were narrowed after a first draft refused too much. Against the live archive
+the rule refuses the skips of g9c1, g9c3, g15c3, g18c1, g19c1 and g20c1 and
+lets the other eight stand.
+
+What a refusal does, by where the skip came from (`refused_skip` in
+`bin/lib/evolve.py`):
+
+- **Research said `already` or `not-worth`.** The build goes ahead, with no
+  plan. The request carries `refused_skip` and the turn reads a block "##
+  research said it is already done": what it answered, the reason, and the
+  fixed sentence ("Your memory page is not a carrier ... An `already` must
+  name a file in this repository that runs"). The entry records the refusal
+  under `research.refused_skip`. The proposer can still skip, but only by
+  naming a file that runs.
+- **The proposer skipped.** The skip is sent back as a finding on
+  `brain/MEMORY.md` and spends the round (the round shows as `refused-skip`:
+  "the skip leaned on the memory page"). If it is refused on the last round
+  the candidate parks with that reason, a failed try like any other park. A
+  skip that does stand after refused ones, because it names a file that runs,
+  settles as if it had come in round 1, so one refused try does not turn an
+  honest `already` into a parked candidate.
+- **The pull request.** A candidate built after a refused research skip says
+  so in its **Research** line: what research answered, that the skip was
+  refused and why, and that it was built without a plan. It never reads as
+  "already done".
+- **The archive.** `_settles` is false for any archived `skipped` entry the
+  rule refuses, whenever it was recorded. The six skips above stop settling
+  their learnings at the next run, and those learnings are open again. A
+  `finding_standing` uses the same function and inherits this.
+
+The brief and the research brief each gain that one fixed sentence. No other
+prompt changed.
+
+**Build intents leave the loop** (since 2026-11-19). An item under "what i am
+in the middle of" or "promises and open threads" that says its author will
+build a thing (`wants_rules.is_build_intent`, shared with `bin/wants`) is not
+picked here: `split_wants` takes it out of the list `_run_generation` reads
+(the run says so), and `bin/evolve status` shows it under `learnings.wants`
+(`id`, `section`, `text` cut to 160 characters), not in `open` or `not_open`.
+It is a feature, and this loop makes the smallest edit to an existing file.
+"1c. Wants" says where it goes. Routing stops new picks only: a candidate
+that already passed before its learning was routed still ships (the waiting
+queue is built from the routed learnings too).
+
 **What the box broke is not a verdict on the idea.** Gen 10's candidates 2
 and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
 template './brain/artifacts/sandbox-scratch/shell-…/tmp.XXXXXXXXXX'` and were
@@ -1105,6 +1189,143 @@ The hypothesis names it (`- finding: [f:...] (kind): N over 7 days`) and the
 pull request opens with **What my ledgers show**, the statement and its check.
 `bin/evolve status` lists every current finding (`findings.current`: id,
 kind, events, days, check, state and what settled it) and `findings.slots`.
+
+### 1c. Wants
+
+**Why it exists (2026-11-19).** An audit that day found that all 44 evolve
+candidates since generation 9 changed only markdown under `brain/`; none
+touched `hands/` or `brain/cron.toml`. The loop makes the smallest change to
+a prompt or a playbook, so it cannot add a capability. The other route to one,
+lane 2 (the builder's `self` jobs, "What starts a self change"), had made three
+self jobs ever: one shipped (`dripsplan`, #285, a hand that nothing in
+`brain/`, `evals/` or `bin/` calls) and two failed on frozen paths (job 3 on
+`build/jobs.py`, job 13 on `bin/lib/audit.py`). Three things held lane 2 back:
+
+- **Cadence.** `pick-request` could pick once a day, and the 03:50 UTC run
+  usually spent it. On 11-18 and 11-19 its 09:50 slot only logged `skipped:
+  daily budget spent`, so a change proposed at 09:40 waited for the next
+  morning at best. Request 5, filed 11-17 16:38, was picked 11-19 03:50
+  because a canary request held the slot on 11-18.
+- **Wording.** `self-improve` and `builder-self` told the model to make "a
+  delta edit", "the file and the one bullet", "small enough to build and test
+  in one run". A feature is not that.
+- **No check that a feature is used.** Nothing looked for a new hand's tests,
+  its docs or a caller. Evolve's gate does (`bin/lib/evolve.py`: new hands
+  have tests, are called, are documented), but only for evolve candidates.
+
+And the memory page held a feature that nobody built. Item m15 says "the
+first thing i build myself is a $TINY chart renderer ... not built yet".
+Evolve skipped it as `already` on `brain/MEMORY.md` in g18c1, and 6 of the 14
+skips in the archive rested on the page the same way (the rule above).
+
+**What a want is.** An item of "what i am in the middle of" or "promises and
+open threads" that says its author will build a thing
+(`wants_rules.is_build_intent`: "i will/want to/mean to/plan to/am going to
+build/make/ship/write a ...", "the first thing i build", "i build myself",
+"not built yet", "build/make a tool/hand/renderer/bot/cli/script"). A status
+note ("build queue") or a promise to publish a number is not one. Its id is
+`w:` and the item's id (`w:m15`). Its text goes through
+`evolve_findings.scrub` (links, emails, handles and ids out) and is cut to 600
+characters. The code reads only the live `brain/MEMORY.md`.
+
+**Where wants could come from, and why only one does.** The ledgers were read
+on 2026-11-19 for every source that was proposed:
+
+| Source | What the ledgers showed | Used |
+|---|---|---|
+| Build-intent items on the memory page | m15, the chart renderer; m68 is a status note, m92 and m93 are promises to analyse | yes: the only real source |
+| Failed or abandoned build jobs | 5 failed: two dailies abandoned before the desk fixes, the canary (an infra `git push`), self jobs 3 and 13 (frozen) | no: they are failures of the lane, not things to build. `self-improve` already reads them (`builds`). They count as tries on a want |
+| Self jobs that failed on a frozen path | jobs 3 and 13; no `frozen` skip among the 14 skips | no: the only remedy is a frozen file, and a want made from one fails at ship the same way |
+| Pending stranger requests (`moltbook`, `x:mentions`) | #3 (already shipped as the daily `hedgediff`), #6 ("write an article", not a build) | no: they reach lane 2 already, as `request` jobs through `pick-request`. As `self` briefs they would put a stranger's words in front of a tooled agent working on Teeny's own repository |
+| Browser tasks | 39 rows; 31 of the 33 not-ok ones are `reddit_browse` hitting Reddit's network block; the notes are the operator agent's reading of web pages | no: external blocks, not a hand's job, and the notes carry page text |
+| Beats naming an intent with no hand | 1,479 beats in `state/tick/runs.jsonl`, no `no such intent` refusal | no: no signal |
+
+The memory page is Teeny's own text and already rides every prompt. A want
+made from it, scrubbed and then run past `hands/guard check` as the mind's
+`propose_change` does, adds no new exposure. Nothing else of a stranger's
+reaches a want.
+
+**Standing.** Where a want stands comes from the ledgers (`hands.db`, read
+only) and a read of GitHub, never from the page. Only the filings of this
+text count: after a material rewrite (the rule of "1. Learnings") the want is
+open again.
+
+| State | Meaning |
+|---|---|
+| `open` | nothing filed for this text, or the last build failed with tries left |
+| `in-flight` | its request is `pending` or `picked`, its job is `claimed` or `ok`, or its pull request is open. A pull request GitHub cannot be asked about (`hands/gh pr` fails or answers out of shape) is in flight: a want is never reopened on a guess |
+| `merged` | the pull request merged |
+| `declined` | the pull request closed unmerged |
+| `gave-up` | `WANTS_MAX_TRIES` builds failed, or one failed on a frozen path (`ship_error` or the summary says `frozen path`, `evals/frozen.txt` or `is frozen`) |
+
+A try is a filing whose job `failed` or `gave_up`, or whose request was
+`failed` or `skipped` before any job. `merged`, `declined` and `gave-up` hold
+until the text materially changes. Of the open wants, the one with the fewest
+tries goes first, then page order.
+
+**Filing** (`bin/wants file`, at most one a call, and at most one a UTC day):
+
+1. `WANTS=0`, a want already filed today (any line of `filed.jsonl` dated the
+   same UTC day), or no open want: nothing, and it says which. The daily cron
+   job alone does not keep it to one a day: a want whose build failed is open
+   again the same day, and a manual `file` or a catch-up run would file a
+   second.
+2. The brief is fixed text with the want quoted, at most 2,000 characters (the
+   desk's limit). The first line is `want: <id>`. It asks for a feature: a new
+   hand (`hands/<name>` through `hand.run`, its package, tests that need no
+   network, a `docs/hands.md` section) and a scheduled playbook that calls it,
+   read-only public data only (no wallet, key, trade or account), and the
+   builder picks the name. It tells the builder the desk checks every part
+   and that a week after merge the code counts how often a scheduled playbook
+   ran the hand.
+3. The brief goes through `hands/guard check` (surface `github`). A refusal
+   or no answer is not filed: the run says it was held.
+4. `hands/build self` gets `{text, want}`. A refusal with rule
+   `one_at_a_time` is `waiting` and nothing is recorded; any other failure is
+   an error (exit 1); success appends `state/wants/filed.jsonl`.
+
+`pick-request` still chooses: it is a judgement, not code. Its playbook now
+says that a `self` request whose text starts `want:` is something Teeny said
+it would build, and that for such a request only, reading public data such as
+a price chart is not touching tokens (trading, holding or moving them, or a
+wallet, still is). A request from anyone else keeps the old rule. It also
+picks twice a day now (`max_per_day = 2`), so a want filed after the morning
+pick does not wait for the next day.
+
+**Scoring** (`bin/wants watch`). Once a want's pull request has merged and
+`WANTS_USED_DAYS` have passed, the code counts, for each hand named in the
+job's rubric, the runs of scheduled playbooks that call it in that span
+(`hand_used`, "Outcomes" below), once. `WANTS_MIN_USES` or more is `used`,
+fewer is `unused`, a job with no rubric or a count that stays unreadable for
+`GRACE_DAYS` (2) past the end is `no-data`. A count not readable yet is tried
+again the next day. The record goes to `state/wants/outcomes.jsonl` and one
+`self · outcome` stimulus (ref `want:<id>:<request id>`) with fixed words, the
+want's id, the hand names and the count, so the next beat reads whether what
+it asked for got used. Nothing is reverted by it: it is a measurement.
+
+**Settings** (`secrets/evolve.env`, read next to evolve's, which ignores
+these keys). A value that does not parse or is out of range refuses the run
+(exit 1). The process environment can only set `WANTS=0`.
+
+| Name | Default | Range | Meaning |
+|---|---|---|---|
+| `WANTS` | 0 | 0..1 | the kill switch; off by default. With 0, `file` and `watch` skip; `draw` and `status` still read |
+| `WANTS_MAX_TRIES` | 2 | 1..5 | failed builds of one text before the want gives up |
+| `WANTS_USED_DAYS` | 7 | 1..30 | the days after merge that are counted |
+| `WANTS_MIN_USES` | 4 | 1..100 | playbook runs calling the hand, in that span, for `used` |
+
+**The verbs.** `bin/wants draw` (read only: the wants and each one's
+standing), `file`, `watch`, `run` (`watch`, then `file`: the pinned job
+`wants`, `0 9 * * *`, with `catch_up`; one step failing does not stop the
+other, but the run is then not ok) and `status` (the wants, their standing,
+`enabled` and the last run, `state/wants/last.json`). Each prints one JSON
+line; exit 0 is ok, 1 is an error. `bin/wants`, `bin/lib/wants.py` and
+`bin/lib/wants_rules.py` are frozen with `bin/`, and the pinned job with
+`evals/`: a candidate cannot redefine a want or switch the feed on.
+
+**Not built here.** No want comes from anything but the memory page. The code
+asks no model. A merged feature that goes `unused` changes nothing by
+itself. "What is not built" lists the rest.
 
 ### 2. Observe
 
@@ -2008,6 +2229,7 @@ does. Now every proposal carries a `check` the code can count
 | `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default, then only Teeny's own words: never text code wrote, like the babysitter's audit comment, `teeny_hands.authorship`) |
 | `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
 | `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
+| `hand_used` | `hand` | ok runs of `bin/act` playbooks that call `hands/<hand>` (`state/act/<playbook>/runs.jsonl`): a playbook whose input runs it counts every ok run; one that only has `output = "hand:<hand> <verb>"` counts the ok runs whose answer took the hand action (`actions` holds `{action: "hand", status: "done"}`). A failed run and one with a `skipped` key (the daily budget, the studio) are left out |
 | `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
 
 Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
@@ -2015,6 +2237,21 @@ check is validated against the candidate's own tree (so a playbook the
 change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
 shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
+
+**`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
+the ok runs inside the window of every playbook in the candidate's tree that
+calls the hand, counted as the table says: a run that never reached the hand
+(it failed, was skipped, or its answer did not take the hand action) is not a
+use. It is validated against that tree (the hand must exist at
+`hands/<hand>`), so a hand the change adds counts. It counts the playbooks'
+runs, not the hand's calls, on purpose: `hand.run` logs nothing, some hands
+(`dripsplan`) do not go through it, and the playbook runs are already logged.
+The gap: a hand run only by a cron `command` or a beat reads 0. The builder's
+rubric accepts only a scheduled playbook as a caller, so a feature built
+through lane 2 is countable; a proposer of lane 1 who checks a hand that only
+a beat uses would get `no-effect` wrongly. `Sources` gained an optional
+`tree` (the checkout whose playbooks say who calls a hand; none means the one
+`evolve_outcomes.py` is in).
 
 **Normalised, not sent back** (since 2026-11-17, gen 16: candidate 2 on m25
 spent two of its three rounds on `direction` added to a `judged` check, and
@@ -2097,6 +2334,31 @@ gen-0).
 
 ## What is not built
 
+- **Self-merge for feature pull requests.** A person approves every
+  `teeny/self-*` pull request. The babysitter's self-merge covers only
+  `teeny/gen-*` (`audit.py`), and widening it would move a fence (the L5
+  autonomy rung). The feature rubric is useful before that point and does not
+  depend on it. There is also no `teeny/eval` status on a self pull request.
+- **A ledger of hand calls.** `hand.run` logs nothing, so "used" is counted
+  from the scheduled playbook runs that call a hand (`hand_used`). A hand
+  that only a cron `command` or a beat runs reads 0, and the rubric does not
+  accept such a caller.
+- **Wants from anywhere but the memory page.** Failed builds, frozen-path
+  failures, strangers' requests, browser tasks and beats were looked at on
+  2026-11-19 and dropped (the table in "1c. Wants").
+- **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
+  no existing hand was thawed. A want whose only remedy is a frozen file
+  fails at ship, and the feed gives it up at once. The builder's iteration
+  limit (`builder.toml`, 40) is untouched too, so a whole feature in one
+  run is tight; the desk's sent-back report gives it about three runs inside
+  the 6-hour claim.
+- **A code pick.** `pick-request` still chooses by judgement, so it may skip a
+  want that reads as touching tokens. A `skipped` request counts as a failed
+  try, and after `WANTS_MAX_TRIES` the want gives up (visible in `bin/wants
+  status`).
+- **A repair of request #3.** The `hedgediff` request stays `pending` after
+  the daily idea built it, because the idea path never marks the request;
+  `pick-request` lost 11-16 and 11-17 to it. Not touched.
 - **A real lab boot at scale.** No four labs have run at once on the box.
 - **Watching every merge.** evolve-watch watches the newest merged change;
   when two merge within 72 hours, the older one's watch ends early.

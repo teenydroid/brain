@@ -118,6 +118,7 @@ import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
 import sandbox as sandbox_lib  # noqa: E402
+import wants_rules  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -824,7 +825,25 @@ def attempts_on(entries: Mapping[str, Json], item: Learning) -> list[Json]:
     return [e for e in history(entries, item.id) if carries(e, item)]
 
 
+def refused_skip(why: Any, where: Any, note: Any) -> str | None:
+    """Why a skip is no skip, or None when it stands (wants_rules): one that
+    rests on the memory page, or an `already` that names no file. 2026-11-19:
+    six of the archive's fourteen skips (g9c1, g9c3, g15c3, g18c1, g19c1,
+    g20c1) settled a learning on "it is on my page"; writing it down is not
+    carrying it out."""
+    return wants_rules.memory_skip_reason(str(why or ""), str(where or ""), str(note or ""))
+
+
+def _refused(entry: Mapping[str, Any]) -> bool:
+    skip = entry.get("skip") if entry.get("verdict") == "skipped" else None
+    return isinstance(skip, Mapping) and refused_skip(skip.get("why"), skip.get("where"), skip.get("note")) is not None
+
+
 def _settles(entry: Mapping[str, Any]) -> bool:
+    """Whether ENTRY settles its learning. A skip refused by `refused_skip`
+    never does, archived before the rule or not: its learning is open again."""
+    if _refused(entry):
+        return False
     return entry.get("verdict") in SETTLED or (entry.get("verdict") == DRY_SETTLED and dry_run())
 
 
@@ -1005,6 +1024,20 @@ def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None
         if got.state == "open":
             out.append((pick_key(item, got), item))
     return [item for _, item in sorted(out, key=lambda p: p[0])]
+
+
+def split_wants(learnings: list[Learning]) -> tuple[list[Learning], list[Learning]]:
+    """The learnings this loop picks, and those it leaves to the builder
+    (bin/wants): an item in a WANT_SECTION that says Teeny will build a
+    thing (wants_rules.is_build_intent). 2026-11-19: m15, "the first thing i
+    build myself is a chart renderer", was settled here as `already` on the
+    memory page; a feature is a build, not a delta edit to a playbook."""
+    kept: list[Learning] = []
+    routed: list[Learning] = []
+    for item in learnings:
+        want = item.section in wants_rules.WANT_SECTIONS and wants_rules.is_build_intent(item.text)
+        (routed if want else kept).append(item)
+    return kept, routed
 
 
 def standing_brief(item: Learning, got: Standing) -> Json:
@@ -1764,6 +1797,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "- `already`: something you run already carries it out; `where` names the file.\n"
         "- `frozen`: carrying it out needs a frozen path; `where` names it, and the operator gets an issue.\n"
         "- `not-actionable`: it is a fact or a feeling, not something a playbook, prompt or job could do.\n"
+        + wants_rules.REFUSED_SKIP_NOTE + "\n"
         + ("A skip is kept with the finding, so you are not asked again until its number grows (or, for "
            "`already`, for some days)." if finding else
            "A skip is kept with the learning, so you are not asked again until you rewrite it."),
@@ -1825,6 +1859,9 @@ def render_evolver_request(request: Json) -> str:
     planned = research_text(request.get("research"))
     if planned:
         parts.append(planned)
+    refused = refused_skip_text(request.get("refused_skip"))
+    if refused:
+        parts.append(refused)
     if request.get("tried"):
         parts.append(tried_text(request["tried"]))
     fixes = findings_text(request)
@@ -1890,6 +1927,9 @@ def render_request(request: Json) -> str:
     planned = research_text(request.get("research"))
     if planned:
         parts.append(planned)
+    refused = refused_skip_text(request.get("refused_skip"))
+    if refused:
+        parts.append(refused)
     if request.get("tried"):
         parts.append(tried_text(request["tried"]))
     fixes = findings_text(request)
@@ -2427,6 +2467,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "- `already`: something you run already carries it out; `read` names the file that does.\n"
         "- `not-worth`: no change to the repository would make you act on it better (it is a fact or a feeling, "
         "or what it would cost outweighs it); `why` says so.\n"
+        + wants_rules.REFUSED_SKIP_NOTE + "\n"
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
@@ -2514,6 +2555,16 @@ def render_evolver_research(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     parts.append(RESEARCH_ANSWER)
     return "\n\n".join(parts)
+
+
+def refused_skip_text(refused: Mapping[str, Any] | None) -> str | None:
+    """What the build is told when its research's skip was refused."""
+    if not refused:
+        return None
+    return ("## research said it is already done\n\n"
+            f"Before this turn you answered `{refused.get('verdict')}`: {refused.get('why')}\n\n"
+            f"That is no skip: {refused.get('reason')}. " + wants_rules.REFUSED_SKIP_NOTE + " So make the change, or "
+            "skip it as `already` with `where` naming that file.")
 
 
 def research_text(research: Mapping[str, Any] | None) -> str | None:
@@ -4775,6 +4826,8 @@ def round_line(rec: Mapping[str, Any]) -> str:
         line = f"the reviewer asked for changes ({len(findings)} finding(s))"
     elif outcome == "unusable":
         line = "the reviewer's answer could not be used"
+    elif outcome == "refused-skip":
+        line = "the skip leaned on the memory page"
     elif outcome == "approved":
         line = "approved by the reviewer"
         if rec.get("eval"):
@@ -4789,7 +4842,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 tried: Any = None, budget: SearchBudget | None = None, *, reviewer: Reviewer,
                 same_learning: Iterable[str] = ()) -> Json:
     """Candidate I, for LEARNING: worktree, research (research_one: `already`
-    and `not-worth` end it as a skip), then up to EVOLVE_REVISE_ROUNDS rounds
+    and `not-worth` end it as a skip, unless the skip rests on the memory
+    page: refused_skip), then up to EVOLVE_REVISE_ROUNDS rounds
     of build, hard gate, checks and review. A frozen path, an oversized
     change or SOUL+CONTEXT past its cap is `rejected` for good, and a
     near-duplicate is dropped; a failed check, a reviewer's revision, or
@@ -4825,6 +4879,16 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                 budget or SearchBudget(gdir))
     if research is not None:
         entry["research"] = research_record(research, gen, i)
+        refused = None if research["verdict"] == "build" else refused_skip(
+            research["verdict"], (research.get("read") or [""])[0], research["why"])
+        if refused:
+            # 2026-11-19: a skip that rests on the memory page is no skip.
+            # The build goes ahead without a plan, told why; the proposer
+            # may still skip, naming a file that runs.
+            say(f"candidate {i}: research said {research['verdict']}, but {refused}; built anyway")
+            entry["research"]["refused_skip"] = refused
+            request["refused_skip"] = {"verdict": research["verdict"], "why": research["why"], "reason": refused}
+            research = {**research, "verdict": "build", "plan": ""}
         if research["verdict"] != "build":
             entry.update(verdict="skipped", skip={"why": research["verdict"],
                                                   "where": (research.get("read") or [""])[0],
@@ -4864,6 +4928,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 else list(rec.get("findings") or [])
             rejected = rec.get("rejected")
             unusable += rec["outcome"] == "unusable"
+            if rec["outcome"] == "refused-skip" and rnd == rounds_max and findings:
+                parked_why = f"round {rnd}: the skip leaned on the memory page: {findings[0]['problem']}"[:300]
             last_patch = rec.get("diff") or last_patch
             continue
         if rnd > 1:
@@ -4886,9 +4952,28 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 if rec.get("patch"):
                     _apply(tree, (gdir / rec["patch"]).read_text(encoding="utf-8"))
         except Skipped as skip:
-            if rnd == 1:
+            refused = refused_skip(skip.why, skip.where, skip.note)
+            if refused:
+                # 2026-11-19: a skip that rests on the memory page is sent
+                # back as a finding, and spends the round; refused on the
+                # last one, the candidate parks (a failed try, like any park).
+                say(f"candidate {i}: the skip ({skip.why}) leaned on the memory page; sent back")
+                if rec is None:
+                    rec = {"round": rnd, "proposal": {"skip": skip.note, "why": skip.why, "where": skip.where}}
+                    rounds.append(rec)
+                findings = [{"file": "brain/MEMORY.md", "problem": refused,
+                             "fix": "make the change in a playbook, prompt, skill or job that runs, or skip naming "
+                                    "that file"}]
+                keep(rec, "refused-skip", findings)
+                if rnd == rounds_max:
+                    parked_why = f"round {rnd}: the skip leaned on the memory page: {refused}"[:300]
+                continue
+            if rnd == 1 or all(r.get("outcome") == "refused-skip" for r in rounds[:rnd - 1]):
+                # A skip that names a file, after refused ones only, is the
+                # answer the finding asked for: it settles like a first one.
                 entry.update(verdict="skipped", skip={"why": skip.why, "where": skip.where, "note": skip.note},
-                             gate={"ok": False, "checks": []})
+                             gate={"ok": False, "checks": []},
+                             **({"rounds": [round_line(r) for r in rounds if r.get("outcome")]} if rnd > 1 else {}))
                 return entry
             parked_why = f"round {rnd}: the builder skipped ({skip.why}): {skip.note}"[:300]
             break
@@ -5380,7 +5465,14 @@ def research_summary(cand: Mapping[str, Any]) -> str | None:
         return None
     if research.get("error"):
         return f"**Research**: none usable ({str(research['error'])[:200]}); built without a plan."
-    out = f"**Research**: {research.get('verdict')}. {str(research.get('why') or '').strip()}"
+    why = str(research.get("why") or "").strip()
+    if research.get("refused_skip"):
+        # 2026-11-19: a refused skip is built anyway; the body says so, not
+        # that the learning is already carried out.
+        out = (f"**Research**: said `{research.get('verdict')}` ({why}); that skip was refused "
+               f"({research['refused_skip']}), so it was built without a plan.")
+    else:
+        out = f"**Research**: {research.get('verdict')}. {why}"
     if research.get("plan"):
         out += "\n\n> " + "\n> ".join(str(research["plan"]).splitlines())
     if research.get("dropped"):
@@ -6091,10 +6183,14 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     entries = archive()
     if not dry_run():
         refresh_prs(entries, publisher)
-    learnings = read_learnings()
+    learnings, routed = split_wants(read_learnings())
+    if routed:
+        say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
-    queue = waiting(entries, [*learnings, *findings])
+    # Routing stops new picks only: a candidate that passed before its
+    # learning was routed still ships.
+    queue = waiting(entries, [*learnings, *routed, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
@@ -6660,7 +6756,7 @@ def status() -> Json:
     generation (and each waiting one) is."""
     entries = archive()
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
-    learnings = read_learnings()
+    learnings, routed = split_wants(read_learnings())
     try:
         cfg: Config | None = load_config()
         cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
@@ -6687,7 +6783,10 @@ def status() -> Json:
                                for item in open_learnings(entries, learnings, cooloff)],
                       "not_open": [standing_brief(item, stood[item.id]) for item in learnings
                                    if stood[item.id].state != "open"],
-                      "by_state": states},
+                      "by_state": states,
+                      # Things to build: the builder's (bin/wants), never picked here.
+                      "wants": [{"id": item.id, "section": item.section, "text": item.text[:160]}
+                                for item in routed]},
         "findings": {"slots": cfg["EVOLVE_FINDING_SLOTS"] if cfg is not None else None,
                      "current": [{**standing_brief(f, got), "kind": f.kind, "events": f.events, "days": f.days,
                                   "check": evolve_outcomes.describe(f.check), "text": f.text[:300]}

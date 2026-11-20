@@ -76,6 +76,8 @@ KINDS = {
                 "thread; moltbook: post, comment) and text that `contains` a literal",
     "actions": "what a hand did: x `like`; moltbook `upvote-post`, `upvote-comment`, `follow`; gh `comment`, "
                "`open-issue`, `close-issue`, `open-pr`, `push`, `create-repo`",
+    "hand_used": "runs of `bin/act` playbooks whose input or output calls `hands/<hand>` (a run the daily "
+                 "budget or the studio skipped is left out)",
     "judged": "only when nothing above can count it: a judge reads samples of what you sent on `surface` "
               "(narrowed like outbound) before and after, against your expected move",
 }
@@ -86,6 +88,7 @@ FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "guard_holds": {"hold_direction": False, "category": False, "surface": False},
     "outbound": {"surface": True, "kind_of": False, "contains": False},
     "actions": {"surface": True, "verb": True},
+    "hand_used": {"hand": True},
     "judged": {"surface": True, "kind_of": False, "contains": False},
 }
 DIRECTIONS = ("fall", "rise", "zero")
@@ -266,6 +269,11 @@ def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
         if out["job"] not in jobs:
             raise BadCheck(f"there is no cron job {out['job'][:40]} in brain/cron.toml or the pinned schedule")
         out["command"] = jobs[out["job"]]
+    if kind == "hand_used":
+        if not _NAME.match(out["hand"]):
+            raise BadCheck(f"the check's hand is a name like bounty, not {out['hand'][:40]!r}")
+        if not (tree / "hands" / out["hand"]).exists():
+            raise BadCheck(f"there is no hand {out['hand']} (hands/{out['hand']})")
     if kind == "guard_holds":
         if out.get("hold_direction", "outbound") not in ("outbound", "inbound"):
             raise BadCheck("the check's hold_direction is outbound or inbound")
@@ -301,6 +309,7 @@ def describe(check: Any) -> str:
                                  + (f" on {c['surface']}" if c.get("surface") else ""),
         "outbound": lambda c: f"{c.get('surface')} {c.get('kind_of') or 'sends'}",
         "actions": lambda c: f"{c.get('surface')} {c.get('verb')}",
+        "hand_used": lambda c: f"runs of playbooks that call hands/{c.get('hand')}",
         "judged": lambda c: f"what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of") else ""),
     }[kind](check)
     literals = check.get("contains")
@@ -355,6 +364,7 @@ class Sources:
     tick_runs: Path
     cron_failures: Callable[[tuple[str, ...], float, float], list[float] | None]
     infra: re.Pattern
+    tree: Path | None = None  # the checkout whose playbooks say who calls a hand; None: the one this file is in
 
 
 def _epoch(value: Any) -> float | None:
@@ -449,6 +459,30 @@ def _refusal_rule(result: Any) -> str | None:
     return HELD_RULE if result.get("refused") == HELD_RULE else None
 
 
+def _callers(tree: Path, hand: str) -> dict[str, bool]:
+    """The playbooks in TREE whose input runs `hands/<hand>` or whose output
+    is `hand:<hand> ...`, by name, each with whether the hand is called from
+    an input (its run calls it whenever it is ok) rather than only through
+    its output (it calls it only when the model's answer takes the hand
+    action). A playbook whose front matter cannot be read calls nothing."""
+    names = {}
+    for path in sorted((tree / "brain" / "playbooks").glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+            if not text.startswith("+++"):
+                continue
+            head = tomllib.loads(text.split("+++", 2)[1])
+        except (OSError, ValueError):  # tomllib.TOMLDecodeError and a bad encoding are both ValueErrors
+            continue
+        runs = [i.get("run") for i in head.get("inputs") or [] if isinstance(i, Mapping)]
+        via_input = any(isinstance(r, str) and r.split()[:1] == [f"hands/{hand}"] for r in runs)
+        output = head.get("output")
+        via_output = isinstance(output, str) and output.split()[:1] == [f"hand:{hand}"]
+        if via_input or via_output:
+            names[path.stem] = via_input
+    return names
+
+
 def act_failure(run: Mapping[str, Any], infra: re.Pattern) -> str | None:
     """What a bin/act run that failed said (its error, the core's stderr
     and its failed actions), when the failure is the playbook's: None for a
@@ -528,6 +562,16 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
                              and r.get("status") == "refused" and _refusal_rule(r.get("result")) == check["rule"]
                              and (not check.get("verb") or r.get("do") == check["verb"]))
         return n
+    if kind == "hand_used":
+        tree = src.tree or Path(__file__).resolve().parents[2]
+        # A use is a run that finished ok (a failed one, or a skipped one, never
+        # reached the hand) and, for a playbook that calls the hand only
+        # through its output, whose answer took the hand action: bin/act
+        # records each as {action: "hand", status: "done"} in `actions`.
+        return sum(1 for book, via_input in _callers(tree, check["hand"]).items() for run in _act_runs(src, book)
+                   if run.get("ok") is True and "skipped" not in run and _inside(_epoch(run.get("at")), since, until)
+                   and (via_input or any(isinstance(a, Mapping) and a.get("action") == "hand"
+                                         and a.get("status") == "done" for a in run.get("actions") or [])))
     db = _Db(src.hands_db)
     try:
         if not db.ok:

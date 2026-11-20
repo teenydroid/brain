@@ -9,6 +9,9 @@ import base64
 import contextlib
 import io
 import json
+import os
+import shutil
+import stat
 
 from .support import FETCH_ID, JPEG, M4A, MP4, FakeIngest, Scratch, entry, fetched
 from teeny_hands import hand
@@ -103,7 +106,39 @@ class HappyPathTest(Base):
         self.assertEqual((folder / "audio.m4a").read_bytes(), M4A)
         self.assertEqual((folder / "shot-1.jpg").read_bytes(), JPEG)
         self.assertEqual(self.ingest.deleted, [FETCH_ID])
-        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": TT_URL})])
+        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": TT_URL, "max_seconds": 30.0, "max_shots": 6,
+                                                                  "min_shot": 1.0, "max_shot": 5.0})])
+
+    def test_the_fetch_caps_each_shot_to_one_video_clip(self):
+        # Each shot becomes one image-to-video clip of at most 5 s (Wan 3), so
+        # ingest splits longer shots; REMAKE_MAX_SHOT_SECONDS moves it, within
+        # 2 to 10 s (ingest wants max_shot at least twice min_shot).
+        for raw, want in (("", 5.0), ("3.5", 3.5), ("0.5", 2.0), ("20", 10.0), ("soon", 5.0)):
+            with self.subTest(raw=raw):
+                self.secrets("REMAKE_STUDY_MAX_PER_DAY=50\n" + (f"REMAKE_MAX_SHOT_SECONDS={raw}\n" if raw else ""))
+                shutil.rmtree(self.folder(), ignore_errors=True)  # no kept study: it fetches again
+                self.ingest.calls = []
+                self.vision = FakeVision(reply(breakdown()))
+                self.study()
+                body = self.ingest.asked("fetch")[-1][1]
+                self.assertEqual((body["max_shot"], body["min_shot"], body["max_shots"], body["max_seconds"]),
+                                 (want, 1.0, 6, 30.0))
+
+    def test_a_kept_study_is_readable_by_the_reel_service(self):
+        # The spine writes state/media as uid 1000 and the reel container reads
+        # it as uid 10001: a 0700 staging folder moved into place left the
+        # cut's sound unreadable ("the reel service answered 400: file does
+        # not exist", the live run of 2026-11-20). Whatever the umask.
+        old = os.umask(0o077)
+        try:
+            self.study()
+        finally:
+            os.umask(old)
+        for folder in (self.folder(), self.folder().parent):
+            mode = folder.stat().st_mode
+            self.assertTrue(mode & stat.S_IROTH and mode & stat.S_IXOTH, (folder, oct(mode)))
+        for path in self.folder().iterdir():
+            self.assertTrue(path.stat().st_mode & stat.S_IROTH, (path.name, oct(path.stat().st_mode)))
 
     def test_a_clip_with_no_sound_has_no_audio(self):
         self.ingest.fetch_answer = fetched(audio=False)
@@ -131,7 +166,8 @@ class HappyPathTest(Base):
         charts.top("k", 5, ingest=self.ingest, get_json=lambda url: {})
         got = self.study({"id": "chart:tt:7300"})
         self.assertEqual(got["study_id"], "tt-7300")
-        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": "https://www.tiktok.com/@alice/video/7300"})])
+        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": "https://www.tiktok.com/@alice/video/7300",
+                                                                  **study.fetch_limits()})])
         self.assertEqual(self.ingest.asked("probe"), [])
 
 

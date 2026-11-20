@@ -508,6 +508,12 @@ class KhabyWinsRunTest(KhabySlotRun):
         self.assertEqual(sent["format"], "khaby")
         self.assertIn("khaby.lame", sent["text"])
 
+    def test_a_video_slot_that_may_make_a_khaby_has_the_video_budget(self):
+        # Like a remake's, a khaby's dissect, keys and video need the long run
+        # (STUDIO_VIDEO_BUDGET_SECS); only a skit-only slot keeps the ordinary one.
+        code, out, record, calls = self.run_slot()
+        self.assertEqual(record["config"]["budget_secs"], 3600)
+
 
 class UnusableTimelineRunTest(KhabySlotRun):
     timeline = {**TIMELINE, "usable": False, "why": "no cut near 7 s"}

@@ -845,9 +845,9 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        ──> hands/guard view-skit (the frames) ──> hands/x upload (fails: never the words alone; the next draft,
        and in a skit slot the failed video costs none of the fallback budget)
    remake only: logline, every edit, motion and teeny past the guard ──> hands/guard remake (code's hard lines,
-       Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (each source frame edited)
+       Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (one take: the opening frame edited)
        ──> hands/guard view-remake stage keys (fails: hands/video remake-drop frees the reservation; no video money)
-       ──> hands/video remake (animated, cut with the original's sound, labelled) ──> hands/guard view-remake
+       ──> hands/video remake (one take with its own sound, labelled) ──> hands/guard view-remake
        stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
        nothing was bought, else the words)
    khaby only: logline, every edit and motion past the guard ──> hands/guard khaby (code's hard lines, the
@@ -996,13 +996,14 @@ failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
 the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
 `STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
-need. A video slot's run has its own time, `STUDIO_VIDEO_BUDGET_SECS`
-(3600), used there instead of `STUDIO_BUDGET_SECS`.
+need. A video slot whose formats include remake or khaby has its own time,
+`STUDIO_VIDEO_BUDGET_SECS` (3600), used there instead of `STUDIO_BUDGET_SECS`;
+a skit-only slot keeps `STUDIO_BUDGET_SECS`.
 
 A remake (`remake` in `STUDIO_FORMATS`; off by default, and `hands/video
 remake-keys` refuses every one until the operator sets
 `MEDIA_REMAKE_MAX_PER_DAY`) is the skit's sibling: a popular short video from
-the charts re-created shot by shot, with the public figure a trending story
+the charts re-created as one take, shot by shot in time, with the public figure a trending story
 names standing where its person stood, an impossible twist in every shot, and
 Teeny somewhere in every frame as a bystander. It shares the skit's one video
 a day: only in a slot named in `STUDIO_SKIT_SLOTS` (a video slot) are the
@@ -1059,8 +1060,22 @@ lines, plus):
   mascot or a yellow robot, a token, a wallet or investing (`ENDORSE_SHOT`);
   `teeny` may not name the figure, have anyone look at, touch, hold, hand,
   hug, talk to or react to Teeny, or carry text, a coin, a ticker, a logo or a
-  link. The viewer refuses any frame where a person looks at, touches or holds
-  the yellow character (`interacts`).
+  link: no text of any kind, no money, cash or bills, no `TINY` in any case,
+  no sign, banner, sticker or print. It faces the skit screens too
+  (`NOT_A_FIGURE`, `REAL_CLAIM`, `HARM`), and never relates Teeny to a person
+  (role nouns, pronouns, "together", "both"). The viewer refuses any frame
+  where a person looks at, touches, holds, stands or poses with the yellow
+  character (`interacts`), or where it carries or wears text, a coin, cash, a
+  ticker or a logo (`marked`); the judge has its own `teeny_mark` rule.
+- **Nobody named beyond the figures.** No prompt, premise or logline names a
+  person who is not in `figures`: no capitalised personal name, and nobody
+  else the story names (a surname alone counts outside a Title Case
+  headline). The judge refuses anyone named beyond `figures` (`figure`).
+- **The post names the original.** The words carry the source's title
+  (hashtags and emoji aside: the whole of a short one, or four words in a
+  row) or its creator, in words (`credit`). Every match reads the text
+  NFKC-normalised, with zero-width characters removed and Cyrillic and Greek
+  lookalikes read as Latin.
 - **The source lines.** Never news, tragedy or real-harm footage, minors,
   anything sexual or violent, or an identifiable private person at its centre.
 - **Unbranded.** Every edit says unbranded or no logos (the image model drew
@@ -1071,7 +1086,7 @@ lines, plus):
 They run four times: code's half on every remake draft before the tournament,
 code and the judge (`SAFETY_JUDGE_MODEL`, fail closed, no off switch, every
 check a row in `remake_checks`) before any money, the viewer on the keyframes
-(`hands/guard view-remake`, stage `keys`: Teeny on model in every keyframe)
+(`hands/guard view-remake`, stage `keys`: Teeny on model in the one keyframe, or in every one when the hand fell back to a key a shot)
 before any video money, and the viewer on the cut (stage `cut`: the label
 read on at least half the frames, Teeny on model on at least half). The
 producer (`_make_remake`) is: `hands/guard check` on the logline and every
@@ -1079,13 +1094,21 @@ prompt, `hands/guard remake`, then (a dry room stops here, planned) the time
 floor, `hands/video remake-keys` (the story as words, at most 600
 characters), `hands/remake used` on the source once keys are bought (so it is
 never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
-remake` with the study's `audio` as its `sound` (null when it has none), the
+remake` with the study's `audio` as its `sound` (null when it has none; the hand lays it
+under the film only with `MEDIA_REMAKE_SOUND=1`: by default the video model makes the film's own
+sound in the same job, since the original's audio over a generated mouth does not lip-sync, so each
+`motion` says what is heard, with at most one invented quoted line of at most 12 words a shot, held
+in code and by the judge; the render's `sound`, `model` or `source`, is kept in `published.remake`), the
 labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
-true and an "AI parody" label), the cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
-a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
-s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
-wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never
-into those last 900 s. A failed video drops the rest of its format and costs
+true and an "AI parody" label), the cut's viewer, `hands/x upload`. Whenever keys were bought and no cut comes back (the keys' viewer refuses, the time floor after the keys, `video remake` refusing, failing, in `DRY_RUN` or answering no file, or the wrong number of keys) `hands/video remake-drop` releases the remake's unspent reservation, best effort, so the day's media budget is not held for every other hand; a failed release is a warning. Its words never go out without the video. One take:
+`hands/video remake-keys` answers one key, or one a shot on the hand's per-shot fallback (`MEDIA_REMAKE_PER_SHOT=1`); the studio goes by the number of keys that came back, not by a field in the answer: one is one take, one a shot is the per-shot path, any other count fails the remake. It is sent `one_setting` (true only for a one-shot original, or when the writer says so and every studied shot has shot 1's setting) and each shot's `cuts` (a hard cut where the setting changes); the original's shots add up to 3 to 30 s, or it is never drafted (`study_source`, `remake_of`). Time:
+a remake's keys and video together take at most `STUDIO_REMAKE_SECS` (1200)
+and never the run's last `REMAKE_TAIL_SECS` + `SKIT_CUT_SECS` (900 + 300 s:
+the cut, then the cut's viewer, the upload and the post), and one is not
+started with under `REMAKE_MIN_SECS` (540); the keys wait at most 300 s; the
+video waits what the remake's own time has left after its keys, less its cut,
+at most `STUDIO_SKIT_SECS` and at least 120 s, so a paid video never dies for
+lack of time. A failed video drops the rest of its format and costs
 none of the fallback budget; the other video format gets one attempt, its best
 draft, only when the failure bought nothing (no `asset`, no `remake_id`) and
 its own time floor still holds; otherwise the slot falls to words. The slot
@@ -1095,9 +1118,10 @@ and every refusal in `skit_vetoes` carries its `format`. The record keeps
 creator and url, the study, story, figures, models, cost and post), and the
 post carries `format: remake`; it names the original in prose and carries no
 link. A remake whose keys were bought but that will not be rendered (the
-viewer refused the keyframes, fewer keys came back than shots, or the keys
-left no time for the video) is let go at once with `hands/video remake-drop
-{remake_id}` (live, 60 s), so its shots' reservations come back now rather
+viewer refused the keyframes, the number of keys was neither one nor one a
+shot, or the keys left no time for the video) is let go at once with
+`hands/video remake-drop {remake_id}` (live, 60 s), so its reservation
+comes back now rather
 than when `release_stale` expires it two hours later; the attempt keeps the
 answer as `dropped`, and a drop that fails is only a warning.
 
@@ -1494,6 +1518,12 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `wants` (`bin/wants run`, 09:00 UTC), what Teeny said on its memory page
+    it will build: it scores each merged feature a week after it merged (did
+    a scheduled playbook run its hand?), then files at most one want as a
+    `self` build request through the guard, for the builder. Drawn in code,
+    no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
+    "1c. Wants"; docs/hands.md, "`build`");
   - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
     babysitter: audits every open pull request on teenydroid/brain and
     teenydroid/diary in code and logs every prompt-injection attempt;
@@ -1532,7 +1562,29 @@ Every scheduled job is in one of two files:
     Three such runs in a row, or two half an hour apart, while the probe
     still answers, raise a third alarm (`act_alarm` in `state/health.json`,
     one issue), cleared by the next answered draft (`ACT_ALARM_RUNS`,
-    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). Once drafts are answered
+    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). A fourth alarm is for a
+    playbook that fails for its own reasons (`playbook_alarm`, one per
+    playbook, since 2026-11-19): on 11-15, -16 and -17 `self-improve` failed
+    every run, because the core's prompt screen refused an 86,357-character
+    message, while the provider answered; `act_alarm` stayed quiet and the
+    failure surfaced days later as an evolve finding. Now the latest runs of
+    each playbook are read (`state/act/<playbook>/runs.jsonl`, the last 500
+    lines): a run with `ok: false` whose `failure` is not `provider` counts,
+    a skip (an `ok` line with `skipped`, such as a spent budget) is no run
+    and changes nothing, and the count stops at the first ok run or the first
+    provider failure; only the last `PLAYBOOK_LOOKBACK_SECS` (7 days) of runs
+    count. A failure within `ACT_RETRY_SECS` (120 s) of the next
+    newer failure is folded into it, so cron's quick retries of one slot count
+    once, and failures two minutes or more apart count separately. At
+    `PLAYBOOK_ALARM_RUNS` (3, `secrets/teeny.env`) runs in a row it raises a
+    `health · alarm` stimulus and one issue on teenydroid/brain, unless the
+    model alarm above is open. The issue is fixed sentences, the run count,
+    the times and one more thing: the class of the error, which is bin/act's
+    own words up to the first colon, scrubbed. It never carries stderr, stdout
+    or a draft, which can quote a stranger. The playbook's next ok run closes
+    the issue and sends `health · recovered`; so does a week with no failed
+    run, for a playbook that was retired or unscheduled and so never gets an
+    ok run (the issue says why it closed). Once drafts are answered
     again, a slot they lost is made up once within its window: a
     `make_up_hours` job (the Moltbook evening audit) or a
     `catch_up` playbook (`bin/lib/catch_up.py`).
