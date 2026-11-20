@@ -210,15 +210,17 @@ def take_cap(per_shot: int, shots: int) -> int:
 def fit(asked: int, cap: int, sold: list[int] | None, rate: int | None) -> int | None:
     """The take's length: the longest the model sells, at most `asked` and
     ONE_TAKE_MAX_SECONDS, whose ceiling (`rate` a second, when known) fits
-    under `cap`; the least it sells when even `asked` is under that, if
-    that fits. None when no length fits."""
+    under `cap`; the least it sells when `asked` is under that and it fits.
+    None when no length fits."""
     top = min(asked, ONE_TAKE_MAX_SECONDS)
-    lengths = sorted(set(sold)) if sold else list(range(1, top + 1))
-    fits = [t for t in lengths if rate is None or t * rate <= cap]
-    under = [t for t in fits if t <= top]
+    lengths = [t for t in (sorted(set(sold)) if sold else range(1, top + 1)) if t <= ONE_TAKE_MAX_SECONDS]
+    affordable = [t for t in lengths if rate is None or t * rate <= cap]
+    under = [t for t in affordable if t <= top]
     if under:
         return under[-1]
-    return fits[0] if fits and fits[0] <= ONE_TAKE_MAX_SECONDS and not [t for t in lengths if t <= top] else None
+    if lengths and lengths[0] > top and affordable and affordable[0] == lengths[0]:
+        return lengths[0]
+    return None
 
 
 def split(total: int, asked: list[int]) -> list[int]:
@@ -616,24 +618,46 @@ def _end_shots(conn, shots: list[_Shot]) -> None:
                                                                        or "not made")[:1000], done_at=hand.now())
 
 
+def _one_take(models: list[str], shots: int) -> bool:
+    """Whether a skit of this many shots is made as one take: on unless
+    MEDIA_SKIT_ONE_TAKE is off, with a one-take model, and two shots or
+    more (one shot is one job either way)."""
+    return hand.flag("MEDIA_SKIT_ONE_TAKE", True) and bool(models) and shots >= 2
+
+
 def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep=time.sleep,
                   clock=time.monotonic) -> Json:
     job = job_of(body)
     the_label = label()
     models = assets._models("MEDIA_SKIT_MODELS", SKIT_MODELS)
+    take_models = assets._models("MEDIA_SKIT_ONE_TAKE_MODELS", ONE_TAKE_MODELS)
     per_shot = assets._usd("MEDIA_SKIT_MAX_USD_PER_SHOT", "1.60")
     limit = hand.number("MEDIA_SKIT_MAX_PER_DAY", 0, 0, 10)
     params = _params()
+    n_shots = len(job["shots"])
+    one_take = _one_take(take_models, n_shots)
+    cap = take_cap(per_shot, n_shots)
+    held = _held(job)
     if hand.dry_run():
-        return {"dry_run": True, "would_generate": "skit", "shots": job["shots"], "aspect": job["aspect"],
-                "models": models, "label": the_label, "max_usd_per_shot": per_shot / 1e6,
-                "reserve_usd": round(per_shot * len(job["shots"]) / 1e6, 4), "enabled": limit > 0,
-                "requests": [request_body(models[0], s["prompt"], s["seconds"], job["aspect"], params)
-                             for s in job["shots"]] if models else []}
+        out: Json = {"dry_run": True, "would_generate": "skit", "shots": job["shots"], "aspect": job["aspect"],
+                     "models": models, "label": the_label, "max_usd_per_shot": per_shot / 1e6,
+                     "reserve_usd": round(cap / 1e6, 4), "enabled": limit > 0,
+                     "requests": [request_body(models[0], rules.shot_prompt(held, n), s["seconds"], job["aspect"],
+                                               params) for n, s in enumerate(job["shots"])] if models else [],
+                     "one_take": {"on": one_take, "models": take_models, "max_usd": round(cap / 1e6, 4)}}
+        if one_take:
+            asked = [s["seconds"] for s in job["shots"]]
+            seconds = fit(sum(asked), cap, None, MAX_PER_SECOND.get(take_models[0]))
+            if seconds:
+                style = (hand.setting("MEDIA_SKIT_STYLE") or "").strip()
+                out["one_take"]["request"] = request_body(take_models[0], rules.script(held, split(seconds, asked),
+                                                                                        style), seconds,
+                                                          job["aspect"], params)
+        return out
     if limit == 0:
         raise hand.Refused("skits are off: MEDIA_SKIT_MAX_PER_DAY is 0 (the operator turns them on and sets the "
                            "budget in secrets/teeny.env)", rule="off")
-    if not models:
+    if not models and not one_take:
         raise hand.HandError("no skit model is configured (MEDIA_SKIT_MODELS)")
     wait = hand.number("MEDIA_SKIT_WAIT_SECONDS", 900, 60, 1700)
     if job["wait"] is not None:
@@ -649,22 +673,48 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
         raise hand.HandError(f"the reel service, which cuts and labels a skit, is not answering, so nothing was "
                              f"bought ({exc})") from None
     api = api or Surplus()
+    skit_id, rows = _claim(job, per_shot, limit, the_label, take=one_take)
     # The lengths each model sells, read once: a shot is asked for the one
     # nearest its own (veo sells 4, 6 and 8 s; seedance 5 to 15).
-    skit_id, rows = _claim(job, per_shot, limit, the_label)
     sold = lengths(api)
-    shots = [_Shot(n, row, s["prompt"], s["seconds"], models) for n, (row, s) in enumerate(zip(rows, job["shots"]), 1)]
+    deadline = clock() + wait
     conn = assets._db()
     cut_id = None
     written: list[Any] = []
+    shots: list[_Shot] = []
+    take: _Shot | None = None
     try:
         try:
-            for shot in shots:
-                if not _submit(api, conn, skit_id, shot, job["aspect"], per_shot, params, sold):
-                    shot.failed = "no model could take it: " + ("; ".join(shot.tried) or "none configured")
-                    break
-            if not any(s.failed for s in shots):
-                _poll(api, conn, skit_id, shots, job["aspect"], per_shot, params, wait, sleep, clock, sold)
+            if one_take:
+                # One job for the whole film: one script, one face, one set,
+                # one score. Any trouble another model or the per-shot render
+                # could get past falls back to one job a shot, in the same
+                # reservation.
+                take = _Shot(0, rows[0], held and rules.script(held), sum(s["seconds"] for s in job["shots"]),
+                             take_models, name="take")
+                shots = [take]
+                if _submit_take(api, conn, skit_id, take, job, cap, params, sold):
+                    _poll(api, conn, skit_id, shots, lambda t: _submit_take(api, conn, skit_id, t, job, cap, params,
+                                                                            sold), wait, deadline, sleep, clock)
+                elif not take.failed:
+                    take.failed = "no one-take model could take it: " + ("; ".join(take.tried) or "none configured")
+                if take.failed and not take.path and take.cost == 0 and not take.timed_out and models:
+                    why = f"the one take could not be had, so one job a shot: {take.failed}"
+                    take.tried.append(why)
+                    rows = _swap(conn, skit_id, take.row, job, per_shot, take.failed)
+                    shots = []
+                    take = None
+            if take is None:
+                shots = [_Shot(n, row, rules.shot_prompt(held, n - 1), s["seconds"], models)
+                         for n, (row, s) in enumerate(zip(rows, job["shots"]), 1)]
+                for shot in shots:
+                    if not _submit(api, conn, skit_id, shot, job["aspect"], per_shot, params, sold):
+                        shot.failed = "no model could take it: " + ("; ".join(shot.tried) or "none configured")
+                        break
+                if not any(s.failed for s in shots):
+                    _poll(api, conn, skit_id, shots,
+                          lambda s: _submit(api, conn, skit_id, s, job["aspect"], per_shot, params, sold),
+                          wait, deadline, sleep, clock)
         except _Stop as stop:
             for shot in shots:
                 shot.failed = shot.failed or str(stop)
@@ -675,11 +725,13 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
                     _cancel(api, shot.job)
                     shot.job = None
             _end_shots(conn, shots)
-            why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
+            why = "; ".join(f"{'the one take' if s is take else f'shot {s.n}'}: {s.failed or 'not made'}"
+                            for s in failed)[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the skit was not made: {why}", asset_id=skit_id,
                                  spent_usd=round(sum(s.cost for s in shots if s.path) / 1e6, 4))
-        # Every shot is in: the cut, with its label, on the reel service.
+        # Every shot is in (or the one take): the cut, with its label, on
+        # the reel service. One clip is cut as it is, label burned in.
         cut_job: Json = {"clips": [reels._service_path(reels.resolve(s.path, "a shot")) for s in shots],
                          "label": the_label, "aspect": job["aspect"]}
         if bed:
@@ -715,7 +767,8 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
         cost = sum(s.cost for s in shots)
         detail = {"story": job["story"], "figures": job["figures"], "logline": job["logline"], "aspect": job["aspect"],
                   "label": the_label, "labelled": True, "shots": [s.row for s in shots],
-                  "models": [s.model for s in shots], "shot_lengths": [s.asked for s in shots],
+                  "one_take": take is not None, "models": [s.model for s in shots],
+                  "shot_lengths": take.extra["lengths"] if take is not None else [s.asked for s in shots],
                   "cost_usd": round(cost / 1e6, 6), "frames": frames,
                   "seconds": info.get("seconds") or made.get("seconds"), "shot_seconds": made.get("shots"),
                   "shot_audio": made.get("audio"), "bed": bed}
