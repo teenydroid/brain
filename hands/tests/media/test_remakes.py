@@ -535,6 +535,25 @@ class RemakeTest(unittest.TestCase):
         self.assertTrue(body["image_url"].startswith("data:image/png;base64,"))
 
 
+class VerbTest(unittest.TestCase):
+    def test_hands_video_has_both_verbs_and_hands_image_neither(self):
+        from teeny_hands.media import cli
+
+        for verb, handler in (("remake-keys", remakes.generate_keys), ("remake", remakes.generate_remake)):
+            args = cli.parser("video").parse_args([verb])
+            self.assertTrue(args.takes_body)
+            seen = []
+            original = getattr(remakes, handler.__name__)
+            setattr(remakes, handler.__name__, lambda body: seen.append(body) or {})
+            try:
+                args.handler(args, {"x": 1})
+            finally:
+                setattr(remakes, handler.__name__, original)
+            self.assertEqual(seen, [{"x": 1}])
+        with self.assertRaises(SystemExit):
+            cli.parser("image").parse_args(["remake"])
+
+
 class KindsTest(unittest.TestCase):
     """A ledger made before remakes checks `kind` against a list without
     `remake` and `key`: it is rebuilt once, every row kept."""
