@@ -656,7 +656,8 @@ if not url:
 if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
-said = f"on: {per_day} a day on {provider} {model}; accounts {\",\".join(accounts)}; ingest at {url}"
+names = ",".join(accounts)
+said = f"on: {per_day} a day on {provider} {model}; accounts {names}; ingest at {url}"
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()
