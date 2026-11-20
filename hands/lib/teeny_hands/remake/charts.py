@@ -99,6 +99,8 @@ def _get_json(url: str, timeout: float = 20.0) -> Json:
             reason = word if isinstance(word, str) and re.fullmatch(r"[A-Za-z]{1,40}", word) else ""
         except (ValueError, OSError, AttributeError):
             pass
+        finally:
+            exc.close()
         raise ProviderError(f"the YouTube API answered {exc.code}" + (f" ({reason})" if reason else "")) from None
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise ProviderError(f"could not reach the YouTube API ({type(getattr(exc, 'reason', exc)).__name__})") from None
@@ -203,9 +205,12 @@ def _youtube(get_json: Callable[[str], Json], key: str | None) -> list[Json]:
         if not isinstance(video_id, str) or not _YT_ID.fullmatch(video_id):
             continue
         rating = details.get("contentRating") if isinstance(details.get("contentRating"), dict) else {}
+        length = _iso_duration(details.get("duration"))
+        if length is None:  # the chart always has one; a video without is not read
+            continue
         found.append({"id": f"chart:yt:{video_id}", "video_id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}",
                       "source": "youtube", "title": snippet.get("title"), "by": snippet.get("channelTitle"),
-                      "seconds": _iso_duration(details.get("duration")), "views": _count(stats.get("viewCount")),
+                      "seconds": length, "views": _count(stats.get("viewCount")),
                       "age_hours": _age_hours(snippet.get("publishedAt")), "provider": "youtube",
                       "live": snippet.get("liveBroadcastContent") not in (None, "none"),
                       "news": snippet.get("categoryId") == NEWS_CATEGORY,
