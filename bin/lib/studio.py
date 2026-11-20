@@ -165,9 +165,9 @@ from formats.skit import (  # noqa: E402,F401
 from formats.remake import (  # noqa: E402,F401
     REMAKE_BODY, REMAKE_CHARTS_MAX, REMAKE_DROP_SECS, REMAKE_EDITOR, REMAKE_FINAL, REMAKE_KEYS_SECS,
     REMAKE_KEYS_SPARE, REMAKE_MIN_SECS, REMAKE_PITCH, REMAKE_RULES, REMAKE_SHAPE, REMAKE_SLOT_LINE,
-    REMAKE_SLOT_OPENING, REMAKE_STORY_MAX, REMAKE_STUDIES, REMAKE_STUDY_SECS, STUDY_KEYS, _drop_remake,
-    _make_remake, _remake_rules, _remake_time, chart_items, load_charts, remake_of, remake_outcome, remake_screen,
-    study_for_writer, study_source)
+    REMAKE_SLOT_OPENING, REMAKE_STORY_MAX, REMAKE_STUDIES, REMAKE_STUDY_SECS, REMAKE_TAIL_SECS,
+    REMAKE_TOTAL_SECS, STUDY_KEYS, _drop_remake, _make_remake, _remake_rules, _remake_time, _setting, chart_items,
+    load_charts, remake_of, remake_outcome, remake_screen, study_for_writer, study_seconds, study_source)
 
 # --- the switches --------------------------------------------------------------------
 
@@ -357,6 +357,9 @@ class Config:
     #: together (STUDIO_REMAKE_SECS).
     video_budget_secs: int = 3600
     remake_secs: int = 1200
+    #: The longest a remake's studied shot may be (REMAKE_MAX_SHOT_SECONDS,
+    #: what hands/remake study asks ingest to cut to): one image-to-video clip.
+    remake_max_shot: float = 5.0
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -417,6 +420,11 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
+        try:
+            shot = float(get("REMAKE_MAX_SHOT_SECONDS") or 5.0)
+        except ValueError:
+            shot = 5.0
+        c.remake_max_shot = max(2.0, min(shot if shot == shot else 5.0, 10.0))
         if c.skit_slots and not any(f in c.formats for f in video_formats()):
             c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no " +
                               " and no ".join(video_formats()) + ": those slots run as any other")
@@ -2400,9 +2408,11 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in video_formats())
-    if room.skit_slot:
-        # A video slot's run has its own time (STUDIO_VIDEO_BUDGET_SECS): the
-        # room's turns, then a skit's render or a remake's keys and video.
+    if room.skit_slot and "remake" in cfg.formats:
+        # A video slot that may make a remake has its own time
+        # (STUDIO_VIDEO_BUDGET_SECS): the room's turns, the source's study,
+        # then a remake's keys and video, or a skit's render. A skit-only
+        # slot keeps STUDIO_BUDGET_SECS, as before.
         cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,

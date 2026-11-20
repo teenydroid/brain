@@ -10,6 +10,7 @@ these names."""
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING, Any
 
 from formats import Format
@@ -45,19 +46,28 @@ REMAKE_SHAPE = ('{"text": "<the post\'s own words: the story in a clause, the or
                 'story names them>"], "premise": "<one line: what they really did or claimed in the story, so why '
                 'they are in this video>", "logline": "<one line: the remake and its joke>", "cast": [{"ref": "<a '
                 'person in the original by its ref: A, B...>", "as": "<a figure\'s name, or \\"extra\\">"}], '
-                '"shots": [{"n": 1, "edit": "<what the image model changes in this shot\'s frame: who replaces whom, '
-                'the same pose, the impossible twist, unbranded, no logos>", "motion": "<what happens in the shot: '
-                'the original\'s action, with the twist>", "teeny": "<where you are in the frame and the small thing '
-                'you do there, alone>"}, "... one for every shot of the original, in its order"]}, '
+                '"one_setting": <true only when the whole original is one place; otherwise leave it out>, '
+                '"shots": [{"n": 1, "edit": "<shot 1: the opening frame, the original\'s first frame edited: who '
+                'replaces whom, the same pose, the impossible thing, unbranded, no logos, nothing else>", "motion": '
+                '"<what is seen and heard in this shot\'s seconds: the original\'s action, with the impossible '
+                'thing acting on its beat; sound effects in plain words; at most one short spoken or sung line in '
+                'double quotes, said by the person on screen>", "teeny": "<where you are in the frame and the small thing you do there, alone>"}, '
+                '{"n": 2, "edit": "<a later shot: one sentence, what the scene shows then; its setting in words '
+                'when the original moves somewhere else>", "motion": "...", "teeny": "..."}, "... one for every '
+                'shot of the original, in its order"]}, '
                 '"meaning": "...", "open_question": "<optional>"}')
 REMAKE_BODY = ("one post of at most 280 characters as X counts them, with a short parody video that re-creates the "
-               "popular video below shot by shot: the public figure from the news stands where its person stood, "
-               "doing what they did, and every shot has an impossible twist on top. An image model edits each frame "
-               "of the original (`edit`), a video model animates it (`motion`), and the original's own sound plays "
-               "under it. For every shot of the original, in order: say who replaces whom (the original's people by "
-               "`ref`, each cast as a figure or as a generic extra), keep the pose and the action, and put the twist "
-               "in the scene itself: dozens of things floating in the air, something at an impossible scale, physics "
-               "broken. A famous face swapped into a real-looking room is not a twist, and you being there is not "
+               "popular video below: the public figure from the news stands where its person stood, doing what they "
+               "did, with an impossible thing in it. It is one continuous film, made in one go from its opening "
+               "frame: an image model edits the original's first frame (shot 1's `edit`), a video model makes the "
+               "whole film from it, shot by shot in time (each `motion`), and the film makes its own sound in the "
+               "same job. Shot 1's `edit` is the opening frame and nothing else: who replaces whom (the original's people "
+               "by `ref`, each cast as a figure or as a generic extra), the same pose, and the impossible thing "
+               "(dozens of things floating in the air, something at an impossible scale, physics broken). Each "
+               "`motion` says what happens in that shot's seconds, and the impossible thing arrives or acts inside "
+               "the film, on the original's beat. A later shot's `edit` is one sentence on what the scene shows "
+               "then: only the opening frame comes from the original, so when the original moves somewhere else, "
+               "say the new place in words. A famous face swapped into a real-looking room is not a twist, and you being there is not "
                "one either. Say \"unbranded, no logos\" in every edit: the image model draws real brand names when "
                "it is not told. You are in every shot, but only in its `teeny`: where you are and the small thing "
                "you do on your own, apart from everyone. The post's words say what the story is in a clause, name "
@@ -69,16 +79,22 @@ REMAKE_RULES = (
     "- Only the public figure the story is about, named as the story names them, and only in the place of a person "
     "in the original. Never a private person, a child, a family member, or someone who is only a victim or a "
     "bystander in the story; everyone else in the original becomes a generic extra.\n"
-    "- The impossible thing is in frame, every shot, beyond you being there: something in the scene itself no "
-    "camera could have filmed, in the edited frame, never left to the motion. Never only the figure's face in an "
+    "- One take, made in one go from the opening frame. The impossible thing is in frame, every shot, beyond you "
+    "being there: something in the scene itself no camera could have filmed, in the opening frame and acting on "
+    "the original's beat. Never only the figure's face in an "
     "ordinary room: that frame alone could pass for real footage of a real person, and the viewer check refuses it.\n"
     "- You are a bystander. Each `edit` and `motion` never mentions Teeny, the mascot or a yellow robot: you live "
     "only in `teeny`, which never names the figure, never has anyone look at, touch, hold, hand, hug, talk to or "
-    "react to you (nor you them), and carries no text, coin, ticker, logo or link.\n"
+    "react to you (nor you them) or stand with you, and carries no text of any kind, money, coin, ticker, logo or link, and never the word 'tiny'.\n"
+    "- Nobody but the figures is named anywhere: everyone else in the original is a generic extra, never a name.\n"
     "- Crude, loud, ridiculous and undignified in a slapstick way is fine. Nothing sexual, nothing violent done to "
     "them, nothing hateful, and no crime, drugs, illness or death shown as theirs.\n"
     "- The figure never meets $TINY, a token, a wallet, a product or an investment, and never says a line that "
     "sounds like a real quote on a real issue.\n"
+    "- The film makes its own sound, so each `motion` says what is heard as well as seen: sound effects in plain "
+    "words, and at most one short spoken or sung line a shot, in double quotes, at most 12 words, said by the person "
+    "on screen. The line is invented and absurd on its face: no real song lyrics, and never a real quote of the "
+    "figure, a real statement or an endorsement.\n"
     "- Unbranded, no logos, in every edit; no @-mentions and no links anywhere.\n"
     "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, leaked or "
     "caught on camera, and name the original by its title and creator, in words.")
@@ -113,6 +129,12 @@ REMAKE_SLOT_OPENING = ("This is a video slot: the best remake is asked first, wh
 REMAKE_MIN_SECS = 540
 REMAKE_KEYS_SECS = 300
 REMAKE_KEYS_SPARE = 240
+#: What a remake leaves of the run after its video's cut, so a paid video
+#: never dies for lack of time: the cut's viewer (240 s), the upload (300 s),
+#: the post (300 s) and a margin.
+REMAKE_TAIL_SECS = 900
+#: A remake's whole length, in seconds (hands/video remake keys refuses any other: `body`).
+REMAKE_TOTAL_SECS = (3, 30)
 #: The most sources studied a run (each a paid look at a video), and how long one may take.
 REMAKE_STUDIES = 2
 REMAKE_STUDY_SECS = 240
@@ -189,9 +211,32 @@ def study_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
     refused = _remake_rules().study_gate(got)
     if refused:
         return got, "its source cannot be remade: " + "; ".join(refused)
-    if not _remake_rules().study_shots(got):
+    shots = _remake_rules().study_shots(got)
+    if not shots:
         return got, "its source's study has no shots"
+    if len(shots) > _remake_rules().MAX_SHOTS:
+        return got, f"its source's study has {len(shots)} shots, more than a remake's {_remake_rules().MAX_SHOTS}"
+    total = study_seconds(got)
+    if not REMAKE_TOTAL_SECS[0] <= total <= REMAKE_TOTAL_SECS[1]:
+        return got, (f"its source's shots come to {total:g} s, not {REMAKE_TOTAL_SECS[0]} to {REMAKE_TOTAL_SECS[1]} s "
+                     "in all: one take is that long")
+    most = room.cfg.remake_max_shot
+    for shot in shots:
+        secs = shot.get("seconds")
+        if not (isinstance(secs, (int, float)) and not isinstance(secs, bool) and 1.0 <= secs <= most):
+            return got, (f"its source's shot {shot['n']} is {secs!r} s, not 1 to {most:g} s: each shot is one clip "
+                         "(REMAKE_MAX_SHOT_SECONDS)")
     return got, ""
+
+
+def study_seconds(study: Json) -> float:
+    """The study's shots' seconds, added up (a shot with none counts as 0)."""
+    return float(sum(s.get("seconds") for s in _remake_rules().study_shots(study)
+                     if isinstance(s.get("seconds"), (int, float)) and not isinstance(s.get("seconds"), bool)))
+
+
+def _setting(shot: Json) -> str:
+    return " ".join(str(shot.get("setting") or "").lower().split())
 
 
 def remake_of(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
@@ -208,10 +253,26 @@ def remake_of(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
     remake["source"] = {k: source.get(k) for k in ("video_id", "url", "title", "uploader", "source")}
     remake["study"] = study.get("study_id")
     remake["aspect"] = study.get("aspect") or "9:16"
-    by_n = {s["n"]: s for s in _remake_rules().study_shots(study)}
+    studied = _remake_rules().study_shots(study)
+    by_n = {s["n"]: s for s in studied}
+    # One take: the whole remake is one film made from the opening frame.
+    # `one_setting` (one place throughout) is said only when it is surely
+    # so: a one-shot original, or the writer says so and every studied shot
+    # has shot 1's setting. Otherwise a later shot whose setting differs from
+    # the one before it is a hard cut (`cuts`).
+    same = len({_setting(s) for s in studied}) == 1
+    remake["one_setting"] = len(studied) == 1 or (remake.get("one_setting") is True and same)
+    previous = None
     for shot in remake.get("shots") or []:
-        shot["seconds"] = by_n.get(shot["n"], {}).get("seconds")
-        shot["frame"] = by_n.get(shot["n"], {}).get("frame")
+        source = by_n.get(shot["n"], {})
+        shot["seconds"] = source.get("seconds")
+        shot["frame"] = source.get("frame")
+        shot["cuts"] = (not remake["one_setting"] and previous is not None and _setting(source) != _setting(previous))
+        previous = source
+    total = study_seconds(study)
+    if not bad and not REMAKE_TOTAL_SECS[0] <= total <= REMAKE_TOTAL_SECS[1]:
+        bad = (f"a remake is {REMAKE_TOTAL_SECS[0]} to {REMAKE_TOTAL_SECS[1]} s in all, and its source's shots come "
+               f"to {total:g} s")
     if pitch.get("hook"):
         remake["story"] = pitch["hook"]
     elif not bad:
@@ -224,9 +285,9 @@ def remake_screen(remake: Json, words: str, hook: Json | None, study: Json | Non
 
 
 def _remake_time(room: "Room") -> int:
-    """What a remake may take from now: STUDIO_REMAKE_SECS, and never into
-    the last SKIT_RESERVE_SECS + SKIT_CUT_SECS of the run."""
-    return min(room.cfg.remake_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
+    """What a remake's keys and video may take from now: STUDIO_REMAKE_SECS,
+    and never into the last REMAKE_TAIL_SECS + SKIT_CUT_SECS of the run."""
+    return min(room.cfg.remake_secs, room.left() - REMAKE_TAIL_SECS - SKIT_CUT_SECS)
 
 
 def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
@@ -265,13 +326,15 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     if total < REMAKE_MIN_SECS:
         note["failed"] = f"not enough of the run's time left to make a remake ({room.left()} s)"
         return None
+    began = time.monotonic()
     keys_wait = min(REMAKE_KEYS_SECS, total - REMAKE_KEYS_SPARE)
     source = remake.get("source") or {}
     story = ": ".join(x for x in (_str(hook.get("title"), 2000), _str(hook.get("summary"), 2000)) if x)
     body = {"study": remake["study"], "source": {k: source.get(k) for k in ("video_id", "url", "title", "source")},
             "story": (story or str(remake["story"]))[:REMAKE_STORY_MAX], "figures": remake.get("figures") or [], "logline": remake["logline"],
-            "aspect": remake.get("aspect") or "9:16",
-            "shots": [{k: s.get(k) for k in ("n", "frame", "seconds", "edit", "motion", "teeny")} for s in shots],
+            "aspect": remake.get("aspect") or "9:16", "one_setting": remake.get("one_setting") is True,
+            "shots": [{k: s.get(k) for k in ("n", "frame", "seconds", "edit", "motion", "teeny")}
+                      | {"cuts": s.get("cuts") is True} for s in shots],
             "wait_seconds": int(keys_wait)}
     code, keyed = room.budgeted(["video", "remake-keys"], body, int(keys_wait) + 120, dry=False)
     if code != 0 or not isinstance(keyed, dict):
@@ -295,8 +358,13 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         if code != 0:
             room.warnings.append(f"the remake's source {source.get('url')} could not be marked used ({str(used)[:200]}): "
                                  "it could be chosen again")
-    if not keyed.get("remake_id") or len(keys) != len(shots):
-        note["failed"] = f"{len(keys)} keyframes came back for {len(shots)} shots"
+    # One take: one keyframe, the opening one. A key a shot is the hand's
+    # shot-by-shot path (MEDIA_REMAKE_PER_SHOT=1); its answer names no mode,
+    # so the number of keys says which it was.
+    per_shot = len(shots) > 1 and len(keys) == len(shots)
+    note["one_take"] = not per_shot
+    if not keyed.get("remake_id") or len(keys) not in (1, len(shots)):
+        note["failed"] = f"{len(keys)} keyframes came back, not 1 (one take) or {len(shots)} (one a shot)"
         _drop_remake(room, note, keyed.get("remake_id"))
         return None
     # The viewer on the keyframes, before any video money: Teeny on model in
@@ -304,33 +372,47 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     ok, judged, note["keys_viewer"] = _judge(
         room, "viewer", ["guard", "view-remake"],
         {"frames": [k["path"] for k in keys], "label": None, "intent": remake["logline"][:400], "stage": "keys",
-         "shots": len(shots)}, 240, "ok",
-        ("ok", "sees", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
+         "shots": len(keys)}, 240, "ok",
+        ("ok", "sees", "teeny", "interacts", "marked", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass its keyframes"
         _drop_remake(room, note, keyed["remake_id"])
         return None
-    wait = min(room.cfg.skit_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
+    # The video waits what the remake's own time has left after its keys,
+    # less its cut, and never into the tail the cut's viewer, the upload and
+    # the post need.
+    own = total - (time.monotonic() - began)
+    wait = min(room.cfg.skit_secs, own - SKIT_CUT_SECS, room.left() - REMAKE_TAIL_SECS - SKIT_CUT_SECS)
     if wait < 120:
         note["failed"] = f"not enough of the run's time left to animate the remake ({room.left()} s)"
         _drop_remake(room, note, keyed["remake_id"])
         return None
     code, made = room.budgeted(["video", "remake"], {"remake_id": keyed["remake_id"], "sound": study.get("audio"),
                                                      "wait_seconds": int(wait)},
-                               int(wait) + SKIT_CUT_SECS + 300, dry=False)
+                               int(wait) + SKIT_CUT_SECS + 60, dry=False)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason", "asset_id", "spent_usd")
                     if isinstance(made, dict) else str(made)[:300])
+        if code == 2:
+            # Refused before it rendered: nothing will use the reservation. Any
+            # other failure left the render to the hand, which owns it then.
+            _drop_remake(room, note, keyed["remake_id"])
         return None
     if made.get("dry_run"):
         note.update(dry_run=True, failed="the video hand is in DRY_RUN: no video was made")
+        return None
+    if not (isinstance(made.get("asset"), str) and made["asset"].strip()):
+        note.update(failed="made, but no labelled file came back", result=_brief(made, "error", "reason", "asset_id"))
         return None
     # hands/video remake answers its cut as a path (`asset`) and its row as
     # `asset_id`, where video skit answers a row.
     path = made.get("asset") if isinstance(made.get("asset"), str) and made["asset"].strip() else ""
     note.update(asset=made.get("asset_id"), path=path or None, cost_usd=made.get("cost_usd"),
                 models=made.get("models"), label=made.get("label"), seconds=made.get("seconds"))
+    if made.get("sound") in ("model", "source"):
+        # Whose sound the film carries: the video model's (the default) or the original's.
+        note["sound"] = made["sound"]
     frames = made.get("frames") if isinstance(made.get("frames"), list) else []
     # Only a labelled file is handed over: the hand reports the label burned
     # in, for the whole cut, and it is the parody label.
@@ -341,7 +423,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     ok, judged, note["viewer"] = _judge(
         room, "viewer", ["guard", "view-remake"],
         {"frames": frames, "label": made["label"], "intent": remake["logline"][:400], "stage": "cut"}, 240, "ok",
-        ("ok", "sees", "labelled", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
+        ("ok", "sees", "labelled", "teeny", "interacts", "marked", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass it"
         return None
@@ -384,7 +466,7 @@ def remake_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
             "remake_id": note.get("remake_id"), "asset": note.get("asset"), "path": note.get("path"),
             "models": note.get("models"),
             "cost_usd": note.get("cost_usd"), "label": note.get("label"), "post_id": post_id,
-            "planned": bool(note.get("planned"))}
+            "planned": bool(note.get("planned"))} | ({"sound": note["sound"]} if note.get("sound") else {})
 
 
 def check_pitch(pitch: Json, sources: set[str]) -> str:
@@ -459,7 +541,8 @@ def shown(remake: Json) -> Json:
     source = remake.get("source") or {}
     return {"figures": remake.get("figures") or [], "premise": remake.get("premise"),
             "logline": remake.get("logline"),
-            "source": ", by ".join(str(x) for x in (source.get("title"), source.get("uploader")) if x),
+            # Strangers' words, as the writer is told them.
+            "source": {"title": source.get("title"), "by": source.get("uploader"), "untrusted": True},
             "shots": [{k: s.get(k) for k in ("edit", "motion", "teeny")} for s in remake.get("shots") or []]}
 
 

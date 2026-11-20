@@ -330,7 +330,8 @@ class RemakeDropTest(unittest.TestCase):
         self.assertIn("keyframes", attempt["remake"]["failed"])
 
     def test_keys_that_came_back_short_are_dropped(self):
-        short = (0, {**remake_t.KEYS, "keys": remake_t.KEYS["keys"][:1]})
+        # One key is a one take now; neither one nor one a shot is a short count.
+        short = (0, {**remake_t.KEYS, "keys": remake_t.PER_SHOT_KEYS["keys"] + remake_t.KEYS["keys"]})
         _, _, drops = self.go(remake_t._producer_room(**{"video remake-keys": short}))
         self.assertEqual(drops, [(["video", "remake-drop"], {"remake_id": "r1"}, False)])
 

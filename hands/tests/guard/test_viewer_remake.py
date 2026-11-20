@@ -28,8 +28,8 @@ def frames(texts, prohibited=False, looks_real=False, sees=SEEN):
                  "looks_real": looks_real})
 
 
-def teeny(on, interacts=False):
-    return chat({"reason": "the yellow figure on the shelf", "teeny": on, "interacts": interacts})
+def teeny(on, interacts=False, marked=False):
+    return chat({"reason": "the yellow figure on the shelf", "teeny": on, "interacts": interacts, "marked": marked})
 
 
 class ViewRemakeBase(support.Scratch):
@@ -74,6 +74,9 @@ class KeysTest(ViewRemakeBase):
         self.assertIn(viewer.FRAMES.format(n=3), self.api.text(0))
         self.assertIn("character sheet", self.api.text(1))
         self.assertIn("look at, touch or hold the yellow character", self.api.text(1))
+        self.assertIn("stand or pose with it", self.api.text(1))
+        self.assertIn("readable text, a coin, cash, a ticker or a logo", self.api.text(1))
+        self.assertFalse(out["marked"])
         self.assertEqual(self.api.images(1)[0]["image_url"]["url"], "data:image/jpeg;base64," + b"sheet".hex())
         row = self.checks()[-1]
         self.assertEqual((row["stage"], row["ok"], row["on_model"]), ("done", 1, 1))
@@ -89,6 +92,16 @@ class KeysTest(ViewRemakeBase):
         self.assertFalse(out["ok"])
         self.assertTrue(out["interacts"])
         self.assertIn("looks at, touches or holds", out["reason"])
+
+    def test_teeny_carrying_text_money_or_a_logo_is_refused(self):
+        out = self.check(frames(["", "", ""]), teeny([True] * 3, marked=True), chat(SAME))
+        self.assertFalse(out["ok"])
+        self.assertTrue(out["marked"])
+        self.assertIn("Teeny carries or wears", out["reason"])
+
+    def test_an_answer_without_the_mark_question_fails_closed(self):
+        out = self.check(frames(["", "", ""]), chat({"reason": "r", "teeny": [True] * 3, "interacts": False}))
+        self.assertEqual((out["ok"], out["reason"]), (False, viewer.UNREADABLE))
 
     def test_a_real_looking_or_prohibited_keyframe_is_refused(self):
         out = self.check(frames(["", "", ""], looks_real=True), teeny([True] * 3), chat(SAME))
