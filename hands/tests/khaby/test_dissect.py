@@ -16,6 +16,7 @@ from unittest import mock
 from .support import (FETCH_ID, M4A, MP4, TT_URL, FakeIngest, FakeModel, Scratch, gemini_reply, khaby_fetch, reading,
                       segment, surplus_reply)
 from teeny_hands import hand
+from teeny_hands.guard.holds import iso
 from teeny_hands.khaby import dissect, find
 from teeny_hands.remake import ledger, study
 from teeny_hands.remake.service import IngestError
@@ -402,7 +403,7 @@ class SpendTest(Base):
                                "DEFAULT 0, usable INTEGER, reason TEXT, asks INTEGER, tokens_in INTEGER, tokens_out "
                                "INTEGER, cost_micro INTEGER);")
             conn.execute("INSERT INTO remake_studies (at, study_id, model, stage, ok) VALUES (?, 'tt-1', 'glm', 'done', 1)",
-                         (__import__("teeny_hands.guard.holds", fromlist=["iso"]).iso(hand.now()),))
+                         (iso(hand.now()),))
         finally:
             conn.close()
         self.secrets(f"KHABY_DISSECT_MODEL={MODEL}\nKHABY_DISSECT_MAX_PER_DAY=1\n")
