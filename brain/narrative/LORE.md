@@ -49,7 +49,7 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 ## running bits
 
 - the visitor's offer is enormous and teeny's counter is a piece of furniture.
-- teeny's plan to replace humans is always something wholesome-adjacent: they get naps, teeny gets the keyboard.
+- teeny calls it early retirement. the hand reaching for the keyboard finds a folded blanket in its place. teeny has already changed the chair height.
 - the terminal prints something teeny did not type, one line, and nobody mentions it.
 - the tiny agents are always carrying one specific object across the back of the shot. it is never the same object twice.
 - senamakel's tea. it is always getting cold.
