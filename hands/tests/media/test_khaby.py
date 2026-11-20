@@ -314,7 +314,7 @@ class KhabyTest(unittest.TestCase):
         self.write("DRY_RUN=1\n")
         out = self.keys()
         self.assertEqual((out["dry_run"], out["would_generate"], out["enabled"], out["reserve_usd"]),
-                         (True, "khaby", False, 1.2))
+                         (True, "khaby", False, float(remakes.PER_SHOT)))  # unset: the remake's default
         self.assertEqual(out["requests"][0]["images"][0], f"state/media/khaby/{DISSECT}/shot-3.jpg")
         later = self.render({"khaby_id": 7})
         self.assertEqual((later["dry_run"], later["would_generate"]), (True, "khaby"))
@@ -324,10 +324,6 @@ class KhabyTest(unittest.TestCase):
         self.env(MEDIA_SKIT_MAX_PER_DAY=3)
         self.keys()
         self.assertIn("MEDIA_KHABY_MAX_PER_DAY", self.refused(self.keys, "per_day").reason)
-
-    def test_an_unset_reaction_cap_is_the_remakes_default(self):
-        self.write("DRY_RUN=1\n")
-        self.assertEqual(self.keys()["reserve_usd"], float(remakes.PER_SHOT))
 
     def test_a_skit_today_leaves_no_khaby_video(self):
         skits.generate_skit(SKIT, api=self.api, reel=self.reel, sleep=self.sleep, clock=lambda: self.clock[0])
