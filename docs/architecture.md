@@ -820,13 +820,15 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    outside first: hands/trend top (Digg's AI + tech stories and their X posts, once a slot)
        + HN search, top, show + listen digest (+ X search with STUDIO_OUTSIDE_X=1, 4 a day)
    then hands/story desk: what Teeny brings to it
+   video slot with remake on: hands/remake charts (popular short videos; none only drops the remake option)
                 │
    writer: 12 pitches, each hooked to a story or naming an item ──> 3 drafts x the best 3
-       (2 of the 3 hooked) ──> 280 + unsourced-number screen
+       (2 of the 3 hooked; in a video slot the best skit, remake and other) ──> 280 + unsourced-number screen
+       remake pitch: hands/remake study on its chart video first (at most 2 a run; unusable: the next remake pitch)
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
                 │
-   producer for the format (post | thread | image | meme | skit)
+   producer for the format (post | thread | image | meme | skit | remake)
                 │
    truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
        a no: one rewrite by the writer with the reason, gated once more
@@ -839,6 +841,12 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        ──> hands/video skit (a text-to-video job a shot, cut and labelled on the reel service)
        ──> hands/guard view-skit (the frames) ──> hands/x upload (fails: never the words alone; the next draft,
        and in a skit slot the failed video costs none of the fallback budget)
+   remake only: logline, every edit, motion and teeny past the guard ──> hands/guard remake (code's hard lines,
+       Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (each source frame edited)
+       ──> hands/guard view-remake stage keys (fails: stop before any video money)
+       ──> hands/video remake (animated, cut with the original's sound, labelled) ──> hands/guard view-remake
+       stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
+       nothing was bought, else the words)
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -949,7 +957,91 @@ failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
 the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
 `STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
-need: a skit slot wants `STUDIO_BUDGET_SECS=3600`.
+need. A video slot's run has its own time, `STUDIO_VIDEO_BUDGET_SECS`
+(3600), used there instead of `STUDIO_BUDGET_SECS`.
+
+A remake (`remake` in `STUDIO_FORMATS`; off by default, and `hands/video
+remake-keys` refuses every one until the operator sets
+`MEDIA_REMAKE_MAX_PER_DAY`) is the skit's sibling: a popular short video from
+the charts re-created shot by shot, with the public figure a trending story
+names standing where its person stood, an impossible twist in every shot, and
+Teeny somewhere in every frame as a bystander. It shares the skit's one video
+a day: only in a slot named in `STUDIO_SKIT_SLOTS` (a video slot) are the
+charts read (`hands/remake charts`, a read; a failure or an empty chart only
+takes the remake option away, `remake` leaves the run's formats and a warning
+says why), and whichever video pitch wins is the one made. A remake pitch has
+both an `item` (a chart id, `chart:tt:<id>` or `chart:yt:<id>`) and a `hook`
+(the trending story that names its cast); a chart id is no other format's
+item. In a video slot the best skit pitch, the best remake pitch and the best
+pitch in another format are all drafted (`choose_drafted`, `video_first`;
+with fewer than three drafted, the better-ranked video and one other).
+Before a remake pitch's writer turn its source is studied (`hands/remake
+study`, inside the run's time, at most `REMAKE_STUDIES` (2) a run): a study
+that fails, is not `usable` or has any of its flags (`minors`, `news`,
+`tragedy`, `sexual`, `violence`, `identifiable_private`) true drops the pitch,
+and the next remake pitch in the ranking takes its place. The study's shots
+(who is in each by `ref`, the setting, what happens, the camera, anything
+said) go into the draft turn as untrusted outside text, never its paths. The
+writer returns `{text, remake: {figures, premise, logline, cast: [{ref, as}],
+shots: [{n, edit, motion, teeny}]}}`; the studio, never the writer, sets
+`source`, `study`, `story`, `aspect` and each shot's `seconds` and `frame`
+from the study (`remake_of`). The editor sees the figures, premise, logline,
+the original's title and creator and every shot's edit, motion and teeny,
+and is told what a remake is and its only lines (`REMAKE_EDITOR`,
+`REMAKE_FINAL`).
+
+The remake's hard lines (`hands/guard remake`, `guard/remake.py`; the skit's
+lines, plus):
+
+- **Every shot impossible beyond Teeny.** Measured with the live viewer
+  model on 2026-11-20: a plain swap of a named figure into a source frame is
+  judged `looks_real: true` and refused; the same frame with an impossible
+  twist (dozens of graphics cards floating, armchair-sized boxing gloves) is
+  not. Teeny's presence is no twist. The viewer's `looks_real` stays on.
+- **Teeny a bystander, in its own field only.** This is the one exception to
+  the skit rule that keeps Teeny out of any shot with a real person (which
+  still holds for skits). `edit` and `motion` may not mention Teeny, the
+  mascot or a yellow robot, a token, a wallet or investing (`ENDORSE_SHOT`);
+  `teeny` may not name the figure, have anyone look at, touch, hold, hand,
+  hug, talk to or react to Teeny, or carry text, a coin, a ticker, a logo or a
+  link. The viewer refuses any frame where a person looks at, touches or holds
+  the yellow character (`interacts`).
+- **The source lines.** Never news, tragedy or real-harm footage, minors,
+  anything sexual or violent, or an identifiable private person at its centre.
+- **Unbranded.** Every edit says unbranded or no logos (the image model drew
+  real brand names on the floating objects); the logo screen stays.
+- **The money lines are unchanged**, in the shots and in the words
+  (`ENDORSE_WORDS`).
+
+They run four times: code's half on every remake draft before the tournament,
+code and the judge (`SAFETY_JUDGE_MODEL`, fail closed, no off switch, every
+check a row in `remake_checks`) before any money, the viewer on the keyframes
+(`hands/guard view-remake`, stage `keys`: Teeny on model in every keyframe)
+before any video money, and the viewer on the cut (stage `cut`: the label
+read on at least half the frames, Teeny on model on at least half). The
+producer (`_make_remake`) is: `hands/guard check` on the logline and every
+prompt, `hands/guard remake`, then (a dry room stops here, planned) the time
+floor, `hands/video remake-keys`, the keys' viewer, `hands/video remake` with
+the study's audio as its `sound`, the labelled-file check as a skit's, the
+cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
+a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
+s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
+wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never
+into those last 900 s. A failed video drops the rest of its format and costs
+none of the fallback budget; the other video format gets one attempt, its best
+draft, only when the failure bought nothing (no `asset`, no `remake_id`) and
+its own time floor still holds; otherwise the slot falls to words. The slot
+question in a video slot covers the best of each video format (`video_finals`),
+and every refusal in `skit_vetoes` carries its `format`. The record keeps
+`studies`, `remake_charts` and `published.remake` (the original's title,
+creator and url, the study, story, figures, models, cost and post), and the
+post carries `format: remake`; it names the original in prose and carries no
+link.
+
+`bin/studio` itself sets no outer time limit: cron starts it `--detach`ed
+(`bin/lib/detach.py`, which only starts it), the shim `exec`s python with no
+`timeout`, and the run bounds itself by its budget; 3600 s fits between slots
+five hours apart, so nothing else needed raising.
 
 **The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
 (`bin/lib/studio_switch.py`): each studio cron job names its slot's old
@@ -969,8 +1061,11 @@ One run is one slot:
    is the core's model; the same one for both is a warning in the record),
    `STUDIO_FORMATS` (`post,thread,image`; `meme` too when the memegen
    service is up; `skit` when the reel service is up and the operator has
-   set the skit budget), `STUDIO_SKIT_SLOTS` (none), `STUDIO_SKIT_SECS`
-   (900), `STUDIO_PITCHES` (12),
+   set the skit budget; `remake` when the reel and ingest services are up,
+   a chart provider is configured and the remake budget is set),
+   `STUDIO_SKIT_SLOTS` (none: the video slots), `STUDIO_SKIT_SECS` (900),
+   `STUDIO_VIDEO_BUDGET_SECS` (3600, a video slot's run), `STUDIO_REMAKE_SECS`
+   (1200), `STUDIO_PITCHES` (12),
    `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
