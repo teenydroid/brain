@@ -168,7 +168,7 @@ def _tiktok(ingest: Any, unavailable: list[Json]) -> list[Json]:
             found.append({"id": f"chart:tt:{video_id}", "video_id": video_id, "url": url, "source": "tiktok",
                           "title": e.get("title"), "by": e.get("uploader") or name, "seconds": _seconds(e.get("seconds")),
                           "views": _count(e.get("views")), "age_hours": _age_hours(e.get("published_at")),
-                          "provider": "tiktok", "live": False, "news": False})
+                          "provider": "tiktok", "live": False, "news": False, "restricted": False})
     if failures:
         unavailable.append({"provider": "tiktok", "reason": "ingest", "error": clean_text("; ".join(failures), 300)})
     return found
@@ -208,7 +208,8 @@ def _youtube(get_json: Callable[[str], Json], key: str | None) -> list[Json]:
                       "seconds": _iso_duration(details.get("duration")), "views": _count(stats.get("viewCount")),
                       "age_hours": _age_hours(snippet.get("publishedAt")), "provider": "youtube",
                       "live": snippet.get("liveBroadcastContent") not in (None, "none"),
-                      "news": snippet.get("categoryId") == NEWS_CATEGORY or rating.get("ytRating") == "ytAgeRestricted"})
+                      "news": snippet.get("categoryId") == NEWS_CATEGORY,
+                      "restricted": rating.get("ytRating") == "ytAgeRestricted"})
     return found
 
 
@@ -216,7 +217,7 @@ def _youtube(get_json: Callable[[str], Json], key: str | None) -> list[Json]:
 
 
 def _keep_raw(c: Json, max_age: float) -> bool:
-    if c["live"] or c["news"]:
+    if c["live"] or c["news"] or c["restricted"]:
         return False
     if c["seconds"] is not None and not MIN_SECONDS <= c["seconds"] <= MAX_SECONDS:
         return False
@@ -236,7 +237,7 @@ def _ranked(candidates: list[Json]) -> list[Json]:
         if have is None or (c["views"] or 0) > (have["views"] or 0):
             best[c["id"]] = c
     ordered = sorted(best.values(), key=lambda c: -(c["views"] or 0))
-    return [{**{k: v for k, v in c.items() if k not in ("video_id", "live", "news")}, "rank": n}
+    return [{**{k: v for k, v in c.items() if k not in ("video_id", "live", "news", "restricted")}, "rank": n}
             for n, c in enumerate(ordered, 1)]
 
 
