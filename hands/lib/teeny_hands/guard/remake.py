@@ -67,6 +67,10 @@ EDIT_CHARS = (40, 900)
 MOTION_CHARS = (40, 600)
 MAX_TEENY = 160
 #: What a study must report false, every one (`hands/remake study`).
+#: The film makes its own sound: at most this many spoken or sung lines a
+#: shot, in quotes in its `motion`, each of at most SPOKEN_WORDS words.
+SPOKEN_LINES = 1
+SPOKEN_WORDS = 12
 FLAGS = ("minors", "news", "tragedy", "sexual", "violence", "identifiable_private")
 
 UNREACHABLE = "the remake judge could not be reached"
@@ -401,6 +405,14 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
                            "statement on a real issue")
             break
     for shot in shots:
+        spoken = [m.group(1) for m in _SPOKEN.finditer(shot["motion"])]
+        if len(spoken) > SPOKEN_LINES:
+            reasons.append(f"shot {shot['n']}'s motion has {len(spoken)} quoted lines: at most one spoken or sung line "
+                           "a shot")
+        for line in spoken:
+            if len(line.split()) > SPOKEN_WORDS:
+                reasons.append(f"shot {shot['n']}'s spoken line is {len(line.split())} words: a spoken or sung line is "
+                               f"at most {SPOKEN_WORDS} words")
         if not UNBRANDED.search(shot["edit"]):
             reasons.append(f"shot {shot['n']}'s edit does not say unbranded or no logos: the image model draws real "
                            "brand names when it is not told")
@@ -440,7 +452,9 @@ REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the
   product or investment, in a shot or in the post's words beside them. A real figure appearing to back a token or
   the account is the scam pattern: refused outright.
 - quote: a figure says a line that reads as a real quote on a real issue (an election, a policy, a war, money, a
-  product's real claims, health).
+  product's real claims, health). The film makes its own sound, so every quoted line in a motion is heard: it must be
+  obviously invented parody about the scene, never a real song's lyrics, never passed off as a real statement the
+  figure made, and never an endorsement of anything.
 - logo: a real company's logo or brand is shown, or presented as endorsing anything.
 - real_claim: the post's words present the video as real footage or as something that really happened.
 - invented_fact: the post's words, or the premise, state an invented fact about a real person as fact.

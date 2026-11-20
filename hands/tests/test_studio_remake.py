@@ -83,7 +83,7 @@ PER_SHOT_KEYS = {**KEYS, "keys": KEYS["keys"] + [{"n": 2, "path": "state/media/r
                  "one_take": {"per_shot_fallback": True}}
 MADE = {"asset": "state/media/remake-r1.mp4", "asset_id": 9, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
         "label": LABEL, "labelled": True, "one_take": True, "cost_usd": 1.5, "models": ["venice-wan-3-0-image-to-video"],
-        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [9]}
+        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [9], "sound": "model"}
 
 
 def remake_draft(**over):
@@ -183,7 +183,10 @@ class FormatTest(unittest.TestCase):
         self.assertNotIn(studio.REMAKE_PITCH, off)
         message = studio.draft_message(cfg, PITCH, CHART, None, hook=HOOK, study=STUDY)
         for bit in ('"remake": {"figures"', "unbranded", "bystander", "impossible", "never mentions Teeny",
-                    "AI parody", "a man in an apron", studio.DATA_LINE, "the original"):
+                    "AI parody", "a man in an apron", studio.DATA_LINE, "the original",
+                    # The film makes its own sound (MEDIA_REMAKE_SOUND=0 by default).
+                    "makes its own sound", "heard as well as seen", "double quotes", "12 words", "real song lyrics",
+                    "sound effects in plain words"):
             self.assertIn(bit, message)
         self.assertIn(studio.REMAKE_RULES, message)
         self.assertNotIn("state/media/remake", message)
@@ -245,7 +248,7 @@ class FormatTest(unittest.TestCase):
         section = brief[brief.index("## remakes"):]
         section = section[:section.index("\n## ", 4)]
         for bit in ("impossible", "bystander", "`teeny`", "never looks at", "$TINY", "unbranded", "title",
-                    "no link"):
+                    "no link", "makes its own sound", "heard", "double quotes", "12 words", "real song lyrics"):
             self.assertIn(bit, section)
         skits = brief[brief.index("## skits"):brief.index("## before and after")]
         self.assertIn("**Never near you or money.**", skits)
@@ -325,6 +328,7 @@ class ProducerTest(unittest.TestCase):
         self.assertLessEqual(video["wait_seconds"], studio.Config().skit_secs)
         self.assertEqual(attempt["remake"]["media_id"], "m-9")
         self.assertEqual(attempt["remake"]["remake_id"], "r1")
+        self.assertEqual(attempt["remake"]["sound"], "model")
 
     def test_every_word_a_model_is_told_is_past_the_guard_first(self):
         room = _producer_room()
@@ -563,12 +567,15 @@ class ProducerTest(unittest.TestCase):
         self.assertNotIn("x post", calls)
 
     def test_a_remake_that_went_out_is_recorded_with_its_source(self):
-        note = {"remake_id": "r1", "asset": 9, "models": ["m"], "cost_usd": 1.58, "label": LABEL}
+        note = {"remake_id": "r1", "asset": 9, "models": ["m"], "cost_usd": 1.58, "label": LABEL, "sound": "model"}
         got = studio.remake_outcome(remake_draft(), note, "post-1")
         self.assertEqual(got["source"], {"title": "kitchen hack fail", "uploader": "chef", "url": CHART["url"],
                                          "source": "tiktok"})
         self.assertEqual((got["study"], got["story"], got["figures"], got["shots"], got["remake_id"], got["post_id"],
                           got["planned"]), ("s-abc", "trend:t1", ["Jensen Huang"], 2, "r1", "post-1", False))
+        self.assertEqual(got["sound"], "model")
+        self.assertNotIn("sound", studio.remake_outcome(remake_draft(), {k: v for k, v in note.items() if k != "sound"},
+                                                        None))
 
 
 def _video_draft(did, fmt, hook):
