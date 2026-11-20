@@ -61,6 +61,14 @@ class CheckTest(unittest.TestCase):
                 with self.assertRaises(skitcut.CutError):
                     skitcut.check_cut(body)
 
+    def test_one_clip_may_be_trimmed_to_thirty_seconds_several_to_ten(self):
+        one = {**REMAKE, "clips": REMAKE["clips"][:1], "trims": [30.0]}
+        self.assertEqual(skitcut.check_cut(one)["trims"], [30.0])
+        for body in ({**one, "trims": [30.5]}, {**REMAKE, "clips": REMAKE["clips"][:2], "trims": [12.0, 3.0]}):
+            with self.subTest(body=body):
+                with self.assertRaises(skitcut.CutError):
+                    skitcut.check_cut(body)
+
     def test_a_sound_must_really_be_under_the_remake_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             remake = os.path.join(tmp, "media", "remake")
@@ -254,6 +262,11 @@ class CommandTest(unittest.TestCase):
         no_stream_length = {"streams": [{"codec_type": "video"}], "format": {"duration": "4.0"}}
         self.assertEqual(skitcut._probed(no_stream_length)["video_seconds"], 4.0)
 
+    def test_one_trimmed_take_is_sampled_evenly_over_the_viewers_eight_frames(self):
+        times = skitcut.frame_times([11.7], skitcut.MAX_REMAKE_FRAMES)
+        self.assertEqual(len(times), 8)
+        self.assertEqual((times[0], times[-1]), (0.4, 11.3))
+
     def test_a_clip_short_of_its_trim_by_over_half_a_second_is_refused(self):
         short = [{"path": "/s/1.mp4", "audio": True, "seconds": 3.4}]
         with self.assertRaises(skitcut.CutError):
@@ -355,6 +368,27 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(made["padded"][0], 0.0)
             self.assertGreater(made["padded"][1], 0.0)
             self.assertTrue(4.3 < made["seconds"] < 4.6, made["seconds"])
+
+    def test_a_one_take_remake_cut_to_its_length_with_the_source_sound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            take, out, sound = os.path.join(tmp, "take.mp4"), os.path.join(tmp, "cut"), os.path.join(tmp, "audio.m4a")
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=24:duration=15",
+                            "-f", "lavfi", "-i", "sine=frequency=440:duration=15", "-shortest", take], check=True)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=13",
+                            "-c:a", "aac", sound], check=True)
+            os.makedirs(out)
+            font = next((str(p) for p in Path("/MoneyPrinterTurbo/resource/fonts").glob("*.ttf")), None) or \
+                str(REPO / "vendor" / "moneyprinter" / "resource" / "fonts" / skitcut.FONT)
+            made = skitcut.render([take], "AI parody · @teenydroid", "16:9", out, font, trims=[12.0], sound=sound)
+            self.assertEqual((made["sound"], made["trimmed"], made["padded"], len(made["frames"])),
+                             (True, [12.0], [0.0], skitcut.MAX_REMAKE_FRAMES))
+            self.assertTrue(11.9 < made["seconds"] < 12.1, made["seconds"])
+            lengths = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+                                      "-of", "csv=p=0", os.path.join(out, "cut.mp4")], capture_output=True,
+                                     text=True).stdout.split()
+            for line in lengths:
+                kind, seconds = line.split(",")
+                self.assertTrue(11.9 < float(seconds) < 12.1, (kind, seconds))
 
 
 

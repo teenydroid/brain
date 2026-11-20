@@ -40,6 +40,10 @@ WAN3_SOLD = [2, 5, 10, 15, 20, 25, 30]
 #: Most tests hold the machinery to $1.20 a shot (their arithmetic: $1.10
 #: left after a $0.10 key); the default, $1.40, has its own tests.
 PINNED_CAP = "MEDIA_REMAKE_MAX_USD_PER_SHOT=1.20\n"
+#: The per-shot tests' one-take model: always out of sellers, so the take
+#: is never had and the per-shot path (MEDIA_REMAKE_PER_SHOT=1) runs.
+NO_TAKE = "no-take-image-to-video"
+TAKE1, TAKE2 = remakes.ONE_TAKE_MODELS.split(",")
 
 
 def png(width: int, height: int) -> bytes:
@@ -101,7 +105,7 @@ class FakeEdits(FakeSurplus):
         return [b for m, p, b, h in self.calls if p == "/v1/images/edits"]
 
     def videos(self):
-        return [b for m, p, b, h in self.calls if p == "/v1/video/generations" and m == "POST"]
+        return [b for m, p, b, h in self.calls if p == "/v1/video/generations" and m == "POST" and b["model"] != NO_TAKE]
 
 
 def shot(n, seconds, **extra):
@@ -118,7 +122,9 @@ KEYS = {"study": "s1", "source": {"video_id": "abc123", "url": "https://www.yout
 SOUND = "state/media/remake/s1/audio.m4a"
 
 
-class RemakeTest(unittest.TestCase):
+class Fixture(unittest.TestCase):
+    """A checkout with a study's frames and audio, Teeny's sheet, fakes."""
+
     def setUp(self):
         import tempfile
 
@@ -193,6 +199,18 @@ class RemakeTest(unittest.TestCase):
             return assets._spent_today(conn)
         finally:
             conn.close()
+
+
+
+class RemakeTest(Fixture):
+    """The per-shot path, as it was before one take (MEDIA_REMAKE_PER_SHOT=1):
+    a key a shot, a clip a shot, cut together. The one take is tried first
+    and never had here (NO_TAKE)."""
+
+    def setUp(self):
+        super().setUp()
+        self.env(MEDIA_REMAKE_PER_SHOT=1, MEDIA_REMAKE_ONE_TAKE_MODELS=NO_TAKE)
+        self.api.fail[NO_TAKE] = SurplusError("Surplus answered 503: no healthy sellers", 503)
 
     # --- off, dry runs, and the day's caps -------------------------------------------------
 
@@ -413,7 +431,8 @@ class RemakeTest(unittest.TestCase):
         self.assertTrue(videos[0]["prompt"].startswith(KEYS["shots"][0]["motion"]))
         self.assertIn("no cuts", videos[0]["prompt"])
         self.assertEqual([b["duration_seconds"] for b in videos], [5, 5])
-        keys = [h["idempotency-key"] for m, p, b, h in self.api.calls if p == "/v1/video/generations" and m == "POST"]
+        keys = [h["idempotency-key"] for m, p, b, h in self.api.calls
+                if p == "/v1/video/generations" and m == "POST" and b["model"] != NO_TAKE]
         self.assertEqual(keys, [f"teeny-remake-{rid}-shot1-{I2V1}", f"teeny-remake-{rid}-shot2-{I2V1}"])
         [cut] = self.reel.jobs
         self.assertEqual(cut, {"clips": [f"media/remake-{rid}-shot-1.mp4", f"media/remake-{rid}-shot-2.mp4"],
@@ -828,6 +847,205 @@ class RemakeTest(unittest.TestCase):
         self.keys()
         os.environ["TEENY_NOW"] = str(T0 + remakes.STALE_SECONDS + 1)
         self.assertTrue(self.skit()["labelled"])
+
+
+def take_shots(*seconds, **extra):
+    return [shot(n, s, **extra) for n, s in enumerate(seconds, 1)]
+
+
+class OneTakeTest(Fixture):
+    """The default: one keyframe (shot 1's), one image-to-video job for the
+    whole remake from a script of every shot's time range, one clip cut to
+    the remake's length with the source's sound. No mix of jobs."""
+
+    def setUp(self):
+        super().setUp()
+        text = (self.root / "secrets" / "teeny.env").read_text()
+        self.write(text.replace(f"MEDIA_REMAKE_MODELS={MODELS}\n", "").replace(PINNED_CAP, ""))
+        self.api.catalog = {"data": [{"id": WAN3, "durations_seconds": WAN3_SOLD},
+                                     {"id": TAKE1, "durations_seconds": WAN3_SOLD}]}
+
+    def test_the_defaults(self):
+        self.assertEqual((TAKE1, TAKE2), (WAN3, WAN27))
+        self.assertEqual(remakes.PER_TAKE, "4.00")
+        self.assertEqual(remakes.REMAKE_MAX_PER_SECOND[WAN3], 234000)
+
+    def test_one_keyframe_is_bought_for_every_shot_and_only_its_frame_is_read(self):
+        (self.root / "state" / "media" / "remake" / "s1" / "shot-2.jpg").unlink()
+        body = {**KEYS, "shots": [shot(1, 2.4), {k: v for k, v in shot(2, 4.0).items() if k != "frame"}]}
+        out = self.keys(body)
+        [edit] = self.api.edits()
+        self.assertIn("shot 1", edit["prompt"])
+        self.assertEqual([(k["n"], k["model"]) for k in out["keys"]], [(1, EDIT1)])
+        self.assertEqual((out["cost_usd"], out["reserve_usd"]), (0.1, 3.9))  # $4.00 a take, less the key
+        [take] = self.rows("shot")
+        self.assertEqual((take["status"], take["cost_micro"]), ("pending", 3900000))
+        self.assertTrue(json.loads(take["detail"])["one_take"])
+        [row] = self.rows("remake")
+        stored = json.loads(row["detail"])["shots"]
+        self.assertEqual([(s["n"], s["seconds"], s["motion"], s["edit"]) for s in stored],
+                         [(n, sec, shot(n, sec)["motion"], shot(n, sec)["edit"]) for n, sec in ((1, 2.4), (2, 4.0))])
+
+    def test_the_first_frame_is_still_needed(self):
+        (self.root / "state" / "media" / "remake" / "s1" / "shot-1.jpg").unlink()
+        with self.assertRaises(hand.Refused):
+            self.keys()
+        self.assertEqual((self.api.calls, self.rows()), ([], []))
+
+    def test_the_remake_is_three_to_thirty_seconds(self):
+        for seconds in ((2.0,), (1.0, 1.5), (10.0, 10.0, 10.0, 1.0)):
+            with self.subTest(seconds=seconds):
+                with self.assertRaises(hand.Refused) as caught:
+                    self.keys({**KEYS, "shots": take_shots(*seconds)})
+                self.assertEqual(caught.exception.detail["rule"], "body")
+        self.assertEqual(self.api.calls, [])
+
+    def test_the_remake_is_one_job_from_the_one_keyframe_on_a_script(self):
+        made, out = self.both()
+        rid = made["remake_id"]
+        [take] = self.api.videos()
+        key = assets._data_uri(self.root / made["keys"][0]["path"])
+        self.assertEqual({k: take[k] for k in ("model", "image_url", "duration_seconds", "resolution", "aspect_ratio",
+                                               "audio")},
+                         {"model": WAN3, "image_url": key, "duration_seconds": 10, "resolution": "720p",
+                          "aspect_ratio": "9:16", "audio": False})  # 6.4 s of source: Wan 3's 10 s
+        script = take["prompt"]
+        self.assertTrue(script.startswith("One continuous 10 second take, no cuts, locked-off camera."), script)
+        first, second = KEYS["shots"]
+        self.assertIn(f"0 to 2.4 seconds: {first['motion']}", script)
+        self.assertIn(f"2.4 to 10 seconds: The scene now shows: {second['edit']}. {second['motion']}", script)
+        self.assertLess(script.index("0 to 2.4"), script.index("2.4 to 10"))
+        self.assertTrue(script.endswith(remakes.TAKE_TAIL), script)
+        for words in ("only watches", "never looks at the yellow character", "No text, no captions, no logos"):
+            self.assertIn(words, remakes.TAKE_TAIL)
+        [cut] = self.reel.jobs
+        self.assertEqual(cut, {"clips": [f"media/remake-{rid}-take.mp4"], "label": "AI parody · @teenydroid",
+                               "aspect": "9:16", "trims": [6.4], "sound": "media/remake/s1/audio.m4a"})
+        self.assertEqual((out["models"], out["one_take"], out["cost_usd"]), ([WAN3], True, 0.55))
+        [row] = self.rows("shot")
+        self.assertEqual((row["status"], row["cost_micro"], row["prompt"]), ("done", 450000, script))
+        self.assertTrue(json.loads(row["detail"])["one_take"])
+        self.assertEqual(self.spent(), 550000)
+
+    def test_hard_cuts_only_where_the_setting_changes(self):
+        cases = [({}, {}, False), ({}, {"cuts": True}, True), ({"one_setting": True}, {}, False),
+                 ({"one_setting": False}, {}, True), ({"one_setting": False}, {"cuts": False}, False)]
+        for top, second, cut in cases:
+            with self.subTest(top=top, second=second):
+                self.setUp()
+                made = self.keys({**KEYS, **top, "shots": [shot(1, 2.4), shot(2, 4.0, **second)]})
+                self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+                script = self.api.videos()[0]["prompt"]
+                self.assertEqual("Hard cut." in script, cut, script)
+                self.assertEqual(script.startswith("One continuous 10 second take, no cuts"), not cut, script)
+                self.tearDown()
+        self.setUp()
+
+    def test_the_take_is_the_shortest_length_on_sale_that_covers_the_remake(self):
+        made = self.keys({**KEYS, "shots": take_shots(5.0, 5.0, 2.0)})
+        self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertEqual(self.api.videos()[0]["duration_seconds"], 15)
+        self.assertEqual(self.reel.jobs[0]["trims"], [12.0])
+
+    def test_a_length_whose_ceiling_cannot_fit_the_take_cap_is_never_asked(self):
+        # 16 s of source: 20 s on Wan 3 can cost $4.68 and on wan-2-7 $4.36,
+        # over the $3.90 left of the take's $4.00 after its key.
+        self.api.catalog["data"].append({"id": TAKE2, "durations_seconds": [5, 10, 15, 20]})
+        made = self.keys({**KEYS, "shots": take_shots(8.0, 8.0)})
+        with self.assertRaises(hand.HandError) as caught:
+            self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertIn("one take", str(caught.exception))
+        self.assertEqual(self.api.videos(), [])
+
+    def test_a_take_quoted_over_what_is_left_is_cancelled_and_the_next_model_asked(self):
+        self.api.maxes[WAN3] = 3950000  # over the $3.90 left
+        made, out = self.both()
+        self.assertEqual([b["model"] for b in self.api.videos()], [WAN3, WAN27])
+        self.assertEqual(len(self.api.deleted()), 1)
+        self.assertEqual(out["models"], [WAN27])
+
+    def test_no_mix_of_jobs_by_default_a_take_no_model_makes_fails_the_remake(self):
+        for model in (TAKE1, TAKE2):
+            self.api.jobs[model] = ["running", "failed"]
+        made = self.keys()
+        with self.assertRaises(hand.HandError) as caught:
+            self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertIn("one take", str(caught.exception))
+        self.assertEqual([b["model"] for b in self.api.videos()], [TAKE1, TAKE2])  # never a clip a shot
+        [row] = self.rows("remake")
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual([(s["status"], s["cost_micro"]) for s in self.rows("shot")], [("failed", 0)])
+        self.assertEqual(self.spent(), 100000)  # the key stays bought
+        self.assertEqual(self.reel.jobs, [])
+
+    def test_with_the_per_shot_setting_a_take_no_model_makes_falls_back_to_a_clip_a_shot(self):
+        self.env(MEDIA_REMAKE_PER_SHOT=1)
+        for model in (TAKE1, TAKE2):
+            self.api.jobs[model] = ["running", "failed"]
+        made, out = self.both()
+        self.assertEqual([k["n"] for k in made["keys"]], [1, 2])  # every shot keyed for the fallback
+        self.assertEqual(made["reserve_usd"], 3.8)  # max($4.00, 2 x $1.40), less two keys
+        models = [b["model"] for b in self.api.videos()]
+        self.assertEqual(models[:2], [TAKE1, TAKE2])
+        self.assertEqual(len(models), 4)
+        rid = made["remake_id"]
+        [cut] = self.reel.jobs
+        self.assertEqual((cut["clips"], cut["trims"]),
+                         ([f"media/remake-{rid}-shot-1.mp4", f"media/remake-{rid}-shot-2.mp4"], [2.4, 4.0]))
+        self.assertFalse(out["one_take"])
+        take, *clips = self.rows("shot")
+        self.assertEqual((take["status"], take["cost_micro"]), ("failed", 0))
+        self.assertEqual([(c["status"], c["cost_micro"]) for c in clips], [("done", 450000)] * 2)
+
+    def test_with_the_per_shot_setting_every_frame_is_needed(self):
+        self.env(MEDIA_REMAKE_PER_SHOT=1)
+        (self.root / "state" / "media" / "remake" / "s1" / "shot-2.jpg").unlink()
+        with self.assertRaises(hand.Refused):
+            self.keys()
+        self.assertEqual(self.api.calls, [])
+
+    def test_a_billed_take_whose_file_never_came_keeps_its_cost_and_is_not_redone(self):
+        self.env(MEDIA_REMAKE_PER_SHOT=1)
+        self.api.artifact_errors, self.api.stuck = [SurplusError("the download answered 502", 502)], True
+        made = self.keys()
+        with self.assertRaises(hand.HandError):
+            self.remake({"remake_id": made["remake_id"], "sound": SOUND, "wait_seconds": 300})
+        self.assertEqual([b["model"] for b in self.api.videos()], [WAN3])  # no fallback once billed
+        [take] = self.rows("shot")
+        self.assertEqual((take["status"], take["cost_micro"]), ("unknown", 450000))
+
+    def test_the_render_still_takes_only_the_id_the_sound_and_a_wait(self):
+        made = self.keys()
+        for extra in ({"shots": KEYS["shots"]}, {"cuts": True}, {"one_setting": True}, {"seconds": 15}):
+            with self.subTest(extra=extra):
+                with self.assertRaises(hand.Refused):
+                    self.remake({"remake_id": made["remake_id"], "sound": SOUND, **extra})
+        self.assertEqual(self.api.videos(), [])
+
+    def test_a_drop_releases_the_takes_reservation(self):
+        made = self.keys()
+        self.assertEqual(remakes.drop_remake({"remake_id": made["remake_id"]})["released_usd"], 3.9)
+        self.assertEqual(self.spent(), 100000)
+
+    def test_a_stale_take_is_released_by_the_next_budget_check(self):
+        self.keys()
+        os.environ["TEENY_NOW"] = str(T0 + remakes.STALE_SECONDS + 1)
+        assets.generate_image({"prompt": "Teeny waves"}, api=self.api)
+        self.assertEqual([(s["status"], s["cost_micro"]) for s in self.rows("shot")], [("failed", 0)])
+
+    def test_the_day_caps_hold_for_the_take(self):
+        self.keys()
+        with self.assertRaises(hand.Refused) as caught:
+            self.keys()
+        self.assertEqual(caught.exception.detail["rule"], "per_day")
+
+    def test_a_dry_run_keys_one_frame_and_reserves_the_take(self):
+        self.env(DRY_RUN=1)
+        out = self.keys()
+        self.assertEqual(len(out["requests"]), 1)
+        self.assertEqual((out["reserve_usd"], out["one_take"]["on"], out["one_take"]["models"]),
+                         (4.0, True, [TAKE1, TAKE2]))
+        self.assertEqual(self.api.calls, [])
 
 
 class VerbTest(unittest.TestCase):
