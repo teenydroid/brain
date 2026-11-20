@@ -193,6 +193,20 @@ class ReadTest(unittest.TestCase):
 
 
 class ArgvTest(unittest.TestCase):
+    def test_every_input_is_restricted_to_files_and_pipes(self):
+        every = {
+            "ffprobe": shots.ffprobe_argv("ffprobe", "/d/x.mp4"),
+            "scene": shots.scene_argv("ffmpeg", "/d/x.mp4"),
+            "excerpt": shots.excerpt_argv("ffmpeg", "/d/x.mp4", "/d/o.mp4", 0, 5, 30, 720),
+            "audio": shots.audio_argv("ffmpeg", "/d/x.mp4", "/d/a.m4a", 5),
+            "frame": shots.frame_argv("ffmpeg", "/d/x.mp4", "/d/f.jpg", 1.0),
+        }
+        for name, argv in every.items():
+            with self.subTest(name=name):
+                at = argv.index("-protocol_whitelist")
+                self.assertEqual(argv[at + 1], "file,pipe")
+                self.assertLess(at, argv.index("-i") if "-i" in argv else len(argv))
+
     def test_scene_detection_reads_a_file_to_nothing(self):
         argv = shots.scene_argv("ffmpeg", "/d/x/ex.mp4")
         self.assertEqual(argv[0], "ffmpeg")

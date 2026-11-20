@@ -116,6 +116,34 @@ class ArgvTest(unittest.TestCase):
                 for option in ("--no-exec", "--ignore-config", "--no-cache-dir", "--socket-timeout"):
                     self.assertIn(option, argv)
 
+    def test_only_the_site_extractors_run_never_the_generic_one(self):
+        # The generic extractor follows redirects and og:video to any host,
+        # past the allowlist that only vets the first URL.
+        for name, argv in self.every().items():
+            with self.subTest(name=name):
+                value = argv[argv.index("--use-extractors") + 1]
+                names = value.split(",")
+                self.assertNotIn("generic", value.lower())
+                self.assertNotIn("default", names)
+                self.assertNotIn("all", names)
+                self.assertFalse(any(n.startswith("-") for n in names))
+                for family in ("youtube.*", "tiktok.*", "instagram.*"):
+                    self.assertIn(family, names)
+                self.assertLess(argv.index("--use-extractors"), argv.index("--"))
+
+    def test_a_probe_or_download_of_an_account_page_takes_one_item_only(self):
+        probe = policy.probe_argv(self.URL)
+        self.assertIn("--flat-playlist", probe)
+        self.assertEqual(probe[probe.index("--playlist-items") + 1], "1")
+        download = policy.download_argv(self.URL, "/d/dl.%(ext)s", 720)
+        self.assertEqual(download[download.index("--playlist-items") + 1], "1")
+        self.assertEqual(download[download.index("--max-downloads") + 1], "1")
+
+    def test_the_format_has_a_size_filter_and_the_cap_is_also_in_bytes(self):
+        fmt = policy.download_argv(self.URL, "/d/dl.%(ext)s", 480)[policy.download_argv(self.URL, "/d/dl.%(ext)s", 480).index("-f") + 1]
+        self.assertIn(f"[filesize<?{policy.MAX_DOWNLOAD}]", fmt)
+        self.assertEqual(policy.MAX_DOWNLOAD_BYTES, 150 * 1024 * 1024)
+
     def test_a_single_video_never_becomes_a_playlist_but_a_listing_does(self):
         self.assertIn("--no-playlist", policy.probe_argv(self.URL))
         self.assertIn("--no-playlist", policy.download_argv(self.URL, "/d/dl.%(ext)s", 720))
@@ -155,6 +183,21 @@ class ArgvTest(unittest.TestCase):
         self.assertNotIn("proxy.example", text)
 
 
+    def test_the_proxys_user_password_and_bare_password_are_all_taken_out(self):
+        proxy = "http://alice:hunter2@proxy.example:3128"
+        for text in ("auth failed for alice:hunter2", "bad password hunter2 for the proxy", "via proxy.example:3128 refused",
+                     f"ProxyError({proxy})"):
+            with self.subTest(text=text):
+                out = policy.scrub(text, proxy)
+                self.assertNotIn("hunter2", out)
+                self.assertNotIn("proxy.example", out)
+
+    def test_a_proxy_is_valid_or_not(self):
+        self.assertTrue(policy.proxy_ok("socks5h://u:p@10.0.0.1:1080"))
+        for bad in ("--exec=id", "file:///x", "http://h:1 --x", "", None, 5):
+            self.assertFalse(policy.proxy_ok(bad))
+
+
 class RefusalTest(unittest.TestCase):
     def info(self, **more):
         return {"id": "abc", "title": "t", "duration": 30, "age_limit": 0, "is_live": False, **more}
@@ -168,6 +211,11 @@ class RefusalTest(unittest.TestCase):
                      {"duration": "long"}):
             with self.subTest(more=more):
                 self.assertIsInstance(policy.refusal(self.info(**more)), str)
+
+    def test_a_page_that_is_a_list_and_not_one_video_is_refused(self):
+        for kind in ("playlist", "multi_video"):
+            with self.subTest(kind=kind):
+                self.assertIn("list", policy.refusal(self.info(_type=kind)))
 
     def test_ten_minutes_exactly_is_the_longest(self):
         self.assertIsNone(policy.refusal(self.info(duration=600)))
