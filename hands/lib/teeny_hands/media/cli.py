@@ -87,7 +87,7 @@ def parser(kind: str, registry: Mapping[str, flavors.Flavor] | None = None) -> a
             for step in flavor.steps:
                 verb(step.name, step.handler, step.help, body=step.takes_body, under=steps)
         for alias, (name, step_name) in ALIASES.items():
-            step = next(s for s in registry[name].steps if s.name == step_name)
+            step = registry[name].step(step_name)
             verb(alias, step.handler, f"{name} {step_name}, the old spelling", body=step.takes_body)
     else:
         verb("generate", lambda a, body: assets.generate_image(body), f"make one {kind} (JSON on stdin)", body=True)
