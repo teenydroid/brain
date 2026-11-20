@@ -284,26 +284,10 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     sold = lengths(api)
     shots = [_Shot(n, row, s["prompt"], s["seconds"], models) for n, (row, s) in enumerate(zip(rows, job["shots"]), 1)]
     conn = assets._db()
-    cut_id = None
-    written: list[Any] = []
+    cuts: list[str] = []
     try:
-        try:
-            for shot in shots:
-                if not _submit(api, conn, skit_id, shot, job["aspect"], per_shot, params, sold):
-                    shot.failed = "no model could take it: " + ("; ".join(shot.tried) or "none configured")
-                    break
-            if not any(s.failed for s in shots):
-                _poll(api, conn, skit_id, shots, job["aspect"], per_shot, params, wait, sleep, clock, sold)
-        except _Stop as stop:
-            for shot in shots:
-                shot.failed = shot.failed or str(stop)
-        failed = [s for s in shots if s.failed or not s.path]
+        failed = _shots.make(api, conn, skit_id, shots, job["aspect"], plan(per_shot), params, wait, sleep, clock, sold)
         if failed:
-            for shot in shots:
-                if shot.job and not shot.path:
-                    _cancel(api, shot.job)
-                    shot.job = None
-            _end_shots(conn, shots)
             why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the skit was not made: {why}", asset_id=skit_id,
@@ -314,29 +298,9 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
         if bed:
             cut_job.update(bed=bed, bed_volume_pct=hand.number("REEL_BED_VOLUME_PCT", 12, 1, 60))
         try:
-            made = reel.cut(cut_job, timeout=hand.number("MEDIA_SKIT_CUT_SECONDS", 300, 60, 900))
-            cut_id = made["cut_id"]
-            if made.get("labelled") is not True or made.get("label") != the_label:
-                raise ReelError(f"the cut came back without its label ({made.get('label')!r}): nothing is handed over")
-            data = reel.cut_file(cut_id, "cut.mp4", MAX_BYTES)
-            info = reels.verify(data)
-            path = assets._media_dir() / f"skit-{skit_id}.mp4"
-            path.write_bytes(data)
-            written.append(path)
-            frames = []
-            for name in made.get("frames") or []:
-                picture = reel.cut_file(cut_id, name, FRAME_MAX_BYTES)
-                if not picture.startswith(b"\xff\xd8\xff"):
-                    raise ReelError("a frame of the cut is not a JPEG")
-                frame = assets._media_dir() / f"skit-{skit_id}-{name}"
-                frame.write_bytes(picture)
-                written.append(frame)
-                frames.append(str(frame.relative_to(hand.root())))
-            if not frames:
-                raise ReelError("the cut came back with no frames for the viewer")
+            made, info, path, frames = _shots.keep_cut(reel, cut_job, f"skit-{skit_id}", the_label,
+                                                       hand.number("MEDIA_SKIT_CUT_SECONDS", 300, 60, 900), cuts)
         except (ReelError, hand.HandError, hand.Refused, KeyError, TypeError) as exc:
-            for item in written:
-                reels._unlink(item)
             why = f"the cut failed: {getattr(exc, 'reason', None) or exc}"[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the skit was not made: {why}", asset_id=skit_id,
@@ -356,22 +320,8 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     except BaseException:
         # Whatever stopped it, a shot still marked pending is cancelled and
         # left failed, never counted twice.
-        try:
-            for shot in shots:
-                if shot.job and not shot.path:
-                    _cancel(api, shot.job)
-                    shot.job = None
-            _end_shots(conn, shots)
-            row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (skit_id,)).fetchone()
-            if row and row["status"] == "pending":
-                assets._finish(conn, skit_id, status="failed", cost_micro=0, error="stopped")
-        except Exception:  # noqa: BLE001 - the original failure is what the caller needs
-            pass
+        _shots.abandon(api, conn, skit_id, shots)
         raise
     finally:
-        if cut_id:
-            try:
-                reel.cut_delete(cut_id)
-            except Exception:  # noqa: BLE001 - cleanup must never mask the outcome
-                pass
+        _shots.drop_cuts(reel, cuts)
         conn.close()

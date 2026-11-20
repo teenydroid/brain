@@ -44,6 +44,7 @@ from .surplus import Surplus, SurplusError
 Json = dict[str, Any]
 
 MAX_BYTES = 200 * 1024 * 1024
+FRAME_MAX_BYTES = 5 * 1024 * 1024
 POLL_SECONDS = 10.0
 #: A job's bill can land a little after it says succeeded (seedance-2-0 on
 #: 2026-11-19): read once more after this pause before booking the reservation.
@@ -405,3 +406,69 @@ def make(api: Surplus, conn, parent_id: int, shots: list[_Shot], aspect: str, pl
     if failed:
         stop_all(api, conn, shots)
     return failed
+
+
+def abandon(api: Surplus, conn, parent_id: int, shots: list[_Shot]) -> None:
+    """Whatever stopped a format: every shot still running cancelled and
+    left failed, never counted twice, and the parent row, if still
+    pending, failed. Never raises: the original failure is what the caller
+    needs."""
+    try:
+        stop_all(api, conn, shots)
+        row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (parent_id,)).fetchone()
+        if row and row["status"] == "pending":
+            assets._finish(conn, parent_id, status="failed", cost_micro=0, error="stopped")
+    except Exception:  # noqa: BLE001 - the original failure is what the caller needs
+        pass
+
+
+def keep_cut(reel: Any, cut_job: Json, name: str, the_label: str, timeout: int,
+             cuts: list[str]) -> tuple[Json, Json, Any, list[str]]:
+    """The cut made on the reel service and kept: (what the service
+    answered, reels.verify's info, the mp4's path, the frames' paths), as
+    state/media/<name>.mp4 and <name>-frame-N.jpg. The cut's id goes into
+    `cuts` as soon as it is known, for drop_cuts. A cut not reported
+    labelled with exactly `the_label`, a render that is not a sound mp4, a
+    frame that is not a JPEG, or no frames at all is never kept: ReelError,
+    and whatever was written is removed."""
+    from ..reel import reels
+    from ..reel.service import ReelError
+
+    written: list[Any] = []
+    try:
+        made = reel.cut(cut_job, timeout=timeout)
+        cut_id = made["cut_id"]
+        cuts.append(cut_id)
+        if made.get("labelled") is not True or made.get("label") != the_label:
+            raise ReelError(f"the cut came back without its label ({made.get('label')!r}): nothing is handed over")
+        data = reel.cut_file(cut_id, "cut.mp4", MAX_BYTES)
+        info = reels.verify(data)
+        path = assets._media_dir() / f"{name}.mp4"
+        path.write_bytes(data)
+        written.append(path)
+        frames = []
+        for frame_name in made.get("frames") or []:
+            picture = reel.cut_file(cut_id, frame_name, FRAME_MAX_BYTES)
+            if not picture.startswith(b"\xff\xd8\xff"):
+                raise ReelError("a frame of the cut is not a JPEG")
+            frame = assets._media_dir() / f"{name}-{frame_name}"
+            frame.write_bytes(picture)
+            written.append(frame)
+            frames.append(str(frame.relative_to(hand.root())))
+        if not frames:
+            raise ReelError("the cut came back with no frames for the viewer")
+        return made, info, path, frames
+    except BaseException:
+        for item in written:
+            reels._unlink(item)
+        raise
+
+
+def drop_cuts(reel: Any, cuts: list[str]) -> None:
+    """The service's copies of the cuts deleted; cleanup never masks the
+    outcome."""
+    for cut_id in cuts:
+        try:
+            reel.cut_delete(cut_id)
+        except Exception:  # noqa: BLE001 - cleanup must never mask the outcome
+            pass
