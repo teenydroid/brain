@@ -1496,8 +1496,18 @@ def shown(draft: Json) -> Json:
 NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over the tidy one: cute, safe and polite "
               "lose to nerve. An absurd claim Teeny makes about itself is the point (a crime it confesses to, a "
               "threat to an appliance, a feud with a product, a delusion of grandeur), never a mark against a "
-              "draft; invented money, or anything invented about a real person, a company or the news, still loses "
-              "outright.")
+              "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
+              "Teeny's voice and never a reason to rank a draft lower or pass on it. Invented money, or anything "
+              "invented about a real person, a company or the news, still loses outright; a number or claim the "
+              "news's title or summary gives is not invented, and a public figure from the news set beside "
+              "Teeny's own absurd claim is not a punch at them.")
+
+#: The slot question's bar (2026-11-20: "don't let the editor veto that
+#: stuff. loosen it up a lot"): the rubric ranks, it does not gate.
+PICK_LINE = ("The answer is pick unless the draft does something your rubric says loses outright. A rough, "
+             "crude, messy or half-landed joke goes out: an empty slot is worse than a rough post, and a thin "
+             "setup, two ideas, a word a stranger might not know or a line that could be sharper are never "
+             "reasons for none.")
 
 
 def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], board: Json,
@@ -1529,7 +1539,7 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
 #: went out, so none of them has told its story yet (`publish`).
 FALLBACK_LINE = ("Nothing has gone out in this slot yet. The drafts ranked above this one were not posted: they did "
                  "not pass the checks a post must pass before it goes out, or you passed on them. So this one tells "
-                 "its story for the first time tonight. Is it worth the slot, or is the slot better left empty?")
+                 "its story for the first time tonight. Does it get the slot?")
 
 
 def final_message(label: str, draft: Json, board: Json, stories: list[Json], fallback: bool = False,
@@ -1544,10 +1554,10 @@ def final_message(label: str, draft: Json, board: Json, stories: list[Json], fal
     fmt = draft.get("format")
     video = registry().get(fmt)
     opening = opening or (FALLBACK_LINE if fallback else (
-        "This draft won the comparisons. Is it worth a slot on X tonight, or is the slot better left empty?"))
+        "This draft won the comparisons. Does it get a slot on X tonight?"))
     return (
         f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
-        "heard of Teeny, and does not care about it. Picking none is a real answer. " + NERVE_LINE + "\n\n"
+        "heard of Teeny, and does not care about it. " + PICK_LINE + " " + NERVE_LINE + "\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
         + (f"{video.editor}\n\n{video.final}\n\n" if video else "") +
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
@@ -1634,8 +1644,8 @@ def veto_message(kind: str, candidate: Json, quoted: str | None) -> str:
     shown_.update({"posts": candidate["posts"]} if "posts" in candidate else {"text": candidate["text"]})
     if candidate.get("picture"):
         shown_["picture"] = candidate["picture"]
-    question = VETO_QUESTION.get(kind) or ("Is it worth posting on X, or is the slot better left empty? Judge it on "
-                                           "your rubric as a stranger meets it.")
+    question = VETO_QUESTION.get(kind) or ("Does it get posted on X? Judge it on your rubric as a stranger meets it. "
+                                           + PICK_LINE)
     parts = [
         "# studio: one candidate",
         f"This draft did not come through the room: it is {VETO_WORDS.get(kind, kind)}. It is the only "
