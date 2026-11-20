@@ -221,9 +221,18 @@ def _pull(ingest: Any, got: Json, folder: Path) -> dict[str, bytes]:
 # --- what is kept -----------------------------------------------------------------------------
 
 
+#: A kept study's folder and files, whatever the umask: the spine writes
+#: state/media as uid 1000 and the reel container reads it as uid 10001, so
+#: the cut's sound must be readable by others (a 0700 staging folder moved
+#: into place was not: "the reel service answered 400: file does not exist").
+DIR_MODE = 0o755
+FILE_MODE = 0o644
+
+
 def _remake_dir() -> Path:
     path = hand.state_dir() / "media" / "remake"
     path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, DIR_MODE)
     return path
 
 
@@ -464,6 +473,10 @@ def _keep(study_id: str, answer: Json, staging: Path | None, readable: bool) -> 
     else:
         return
     (final / "study.json").write_text(json.dumps(answer, ensure_ascii=False), encoding="utf-8")
+    os.chmod(final, DIR_MODE)
+    for path in final.iterdir():
+        if path.is_file():
+            os.chmod(path, FILE_MODE)
 
 
 def _give_back(row: int, asked: bool) -> None:

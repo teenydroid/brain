@@ -9,7 +9,9 @@ import base64
 import contextlib
 import io
 import json
+import os
 import shutil
+import stat
 
 from .support import FETCH_ID, JPEG, M4A, MP4, FakeIngest, Scratch, entry, fetched
 from teeny_hands import hand
@@ -121,6 +123,22 @@ class HappyPathTest(Base):
                 body = self.ingest.asked("fetch")[-1][1]
                 self.assertEqual((body["max_shot"], body["min_shot"], body["max_shots"], body["max_seconds"]),
                                  (want, 1.0, 6, 30.0))
+
+    def test_a_kept_study_is_readable_by_the_reel_service(self):
+        # The spine writes state/media as uid 1000 and the reel container reads
+        # it as uid 10001: a 0700 staging folder moved into place left the
+        # cut's sound unreadable ("the reel service answered 400: file does
+        # not exist", the live run of 2026-11-20). Whatever the umask.
+        old = os.umask(0o077)
+        try:
+            self.study()
+        finally:
+            os.umask(old)
+        for folder in (self.folder(), self.folder().parent):
+            mode = folder.stat().st_mode
+            self.assertTrue(mode & stat.S_IROTH and mode & stat.S_IXOTH, (folder, oct(mode)))
+        for path in self.folder().iterdir():
+            self.assertTrue(path.stat().st_mode & stat.S_IROTH, (path.name, oct(path.stat().st_mode)))
 
     def test_a_clip_with_no_sound_has_no_audio(self):
         self.ingest.fetch_answer = fetched(audio=False)
