@@ -542,8 +542,8 @@ class PromptsTest(unittest.TestCase):
         examples = brief[brief.index("## before and after"):brief.index("## your answer")]
         afters = [line for line in examples.splitlines() if line.startswith("> after:")]
         self.assertGreaterEqual(len(afters), 6)
-        # One per shape the room samples (studio.PAIRS): 9 since the tall tale.
-        self.assertLessEqual(len(afters), 9)
+        # One per shape the room samples (studio.PAIRS): 10 since the threat.
+        self.assertLessEqual(len(afters), 10)
         for line in afters:
             self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
                                         r"evolve|cron|hands?/", line, re.I), line)

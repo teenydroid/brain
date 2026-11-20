@@ -522,11 +522,31 @@ make_media() { # KIND BODY -> sets one_id (empty when it failed) and one_note (J
   one_id="$(jq -r '.media_id' <<<"$up")"
   one_note="$(jq -cn --arg k "$kind" --argjson g "$gen" --argjson u "$up" '{kind: $k, asset: $g.asset.id, path: $g.asset.path, cost_usd: $g.asset.cost_usd, media_id: $u.media_id}')"
 }
+# A meme ("meme": {template, lines, teeny?} on the draft, when the playbook
+# allows `meme`) is made by the studio's own meme path (bin/studio --meme: its
+# lines past the guard, hands/meme template with a picture of Teeny pasted in,
+# the viewer check, hands/x upload), never by a path of bin/act's own. One
+# that cannot be made leaves no media and says why; the hand decides what a
+# post without it is (hands/x peer-suggest does not post a meme quote bare).
+make_meme() { # ITEM -> sets media_ids and media_note
+  local item="$1" got
+  if ! got="$(jq -c '.meme | {template, lines} + (if (.teeny | type) == "string" then {teeny} else {} end)' <<<"$item" |
+    "$TEENY_ROOT/bin/studio" --meme 2>>"$dir/ask.err")" || ! jq -e '.media_ids | type == "array"' <<<"$got" >/dev/null 2>&1; then
+    media_note="$(jq -cn --arg g "${got:0:500}" '{kind: "meme", skipped: "not made", result: ($g | try fromjson catch $g)}')"
+    return 0
+  fi
+  media_ids="$(jq -c '.media_ids' <<<"$got")"
+  media_note="$(jq -c '{kind: "meme"} + (.note // {})' <<<"$got")"
+}
 attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: one note, or {images: [notes]})
   local item="$1" prompts prompt body notes='[]'
   media_ids='[]'
   media_note='null'
   shots_note=null
+  if jq -e --argjson k "$media_kinds" '($k | index("meme")) and (.meme | type) == "object"' <<<"$item" >/dev/null; then
+    make_meme "$item"
+    return 0
+  fi
   if jq -e --argjson k "$media_kinds" '($k | index("video")) and (.video | type) == "string" and .video != ""' <<<"$item" >/dev/null; then
     body="$(jq -c '{prompt: .video} + (if (.image | type) == "string" and .image != "" then {image_prompt: .image} else {} end)' <<<"$item")"
     make_media video "$body"
@@ -736,7 +756,10 @@ while IFS= read -r item; do
       # A playbook's own hand did not come with the posting rules hands/x
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
-      body="$(jq -c 'del(.action, .image, .images, .video, .shots, .vetoed)' <<<"$item")"
+      # A meme's template and lines stay on the body for a playbook that may
+      # carry one (the quote judge reads its lines); the picture is made below.
+      body="$(jq -c --argjson k "$media_kinds" 'del(.action, .image, .images, .video, .shots, .vetoed)
+        | if ($k | index("meme")) and (.meme | type) == "object" then .meme = (.meme | {template, lines}) else del(.meme) end' <<<"$item")"
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
@@ -772,14 +795,18 @@ while IFS= read -r item; do
         # post it quotes; its no rides to the hand, which keeps the
         # suggestions and posts none.
         veto_body="$(jq -c --arg k "$veto_kind" --argjson inputs "$inputs" --argjson item "$item" '
-          (if ($item.image | type) == "string" and $item.image != "" then {picture: $item.image} else {} end) as $pic
+          (if ($item.image | type) == "string" and $item.image != "" then {picture: $item.image}
+           elif ($item.meme | type) == "object" and ($item.meme.lines | type) == "array"
+           then {picture: ("a meme (\($item.meme.template // "a known template")) with Teeny pasted in, reading: "
+                           + ([$item.meme.lines[] | strings] | join(" / ")))}
+           else {} end) as $pic
           | if $k == "peer-quote" then
               ((.candidates // []) | if type == "array" then . else [] end | to_entries
                 | map(select(.value | type == "object"))
                 | sort_by([-((.value.relevance | tonumber? // 0)), .key]) | .[0].value) as $top
               | if ($top | type) != "object" or ($top.text | type) != "string" or $top.text == "" then null
                 else {kind: $k, text: $top.text,
-                      quoted: ([$inputs.peers? | .. | objects | select(((.id? // "") | tostring) == (($top.quote_of // "") | tostring))
+                      quoted: ([$inputs.peers?, $inputs.trending? | .. | objects | select(((.id? // "") | tostring) == (($top.quote_of // "") | tostring))
                                 | .text? | strings][0] // "")} + $pic end
             elif (.text | type) == "string" and .text != "" then {kind: $k, text: .text} + $pic
             else null end' <<<"$body")"

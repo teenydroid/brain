@@ -1195,7 +1195,9 @@ class OutsideRunTest(unittest.TestCase):
         self.assertEqual(rec["outside"]["sources"]["trend"]["not_trending"], 1)
         self.assertTrue(rec["pitches"][0]["drafted"])
         self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "trend:s1:reach", "evt:2", None])
-        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"]})
+        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"],
+                                          "want_invented": 1, "invented": 0,
+                                          "short_invented": rec["drafted"]["short_invented"]})
 
 
 # --- only what is trending may be a hook (operator review of PR #384) -------------------
@@ -1450,3 +1452,112 @@ class ReachTest(unittest.TestCase):
 
     def test_no_hook_no_line(self):
         self.assertEqual(studio.facts_for({"id": "evt:2"}, None, None), [{"id": "evt:2"}])
+
+
+class UnhingedTest(unittest.TestCase):
+    """2026-11-19: the operator asked for "more crazy and vile", PR #397 made
+    bits free, and the next dry run still drafted only the writer's top three
+    (gallows, gallows, scene): its one tall tale, ranked 7th, never got a
+    draft, and every draft was "big AI news. i'm an AI too. small self-own."
+    The room now always drafts an invention-led pitch when there is one."""
+
+    #: That run's pitches, in the writer's own ranking.
+    SHAPES = ("gallows", "gallows", "scene", "bet", "gallows", "callback", "tall tale", "grudge",
+              "real question", "lore bit", "meme")
+
+    def pitches(self, shapes=SHAPES, hooked=(1, 2, 3, 4, 5, 6)):
+        by = {f"p{n}": {"id": f"p{n}", "shape": s, "hook": "trend:s1" if n in hooked else None}
+              for n, s in enumerate(shapes, 1)}
+        return list(by), by
+
+    def test_a_tall_tale_the_writer_ranked_seventh_is_still_drafted(self):
+        ranked, by = self.pitches()
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertIn("p7", chosen)
+        self.assertEqual(len(chosen), 3)
+        # The reserve does not cost the hooks: the two best hooked are kept.
+        self.assertEqual(chosen, ["p1", "p2", "p7"])
+        self.assertEqual((note["want_invented"], note["invented"]), (1, 1))
+        self.assertEqual(note["hooked"], 2)
+
+    def test_with_no_invention_led_pitch_the_top_are_drafted_as_before(self):
+        shapes = ("gallows", "gallows", "scene", "bet", "callback", "real question")
+        ranked, by = self.pitches(shapes)
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p3"])
+        self.assertEqual(note["invented"], 0)
+        self.assertIn("no invention-led pitch", note["short_invented"])
+        self.assertEqual(studio.choose_drafted(ranked, by, 3, True, 0)[0], ["p1", "p2", "p3"])
+
+    def test_an_invention_led_pitch_already_in_the_top_takes_no_extra_place(self):
+        ranked, by = self.pitches(("tall tale", "gallows", "scene", "grudge"))
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p3"])
+        self.assertEqual(note["invented"], 1)
+
+    def test_a_hooked_tall_tale_counts_as_a_hook_too(self):
+        ranked, by = self.pitches(hooked=(1, 7))
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p7"])
+        self.assertEqual(note["hooked"], 2)
+
+    def test_invention_led_shapes_are_read_loosely(self):
+        for shape in ("tall tale", "Tall-Tale", "a grudge against the kettle", "lore bit", "threat", "tall_tale"):
+            self.assertTrue(studio.invention_led(shape), shape)
+        for shape in ("gallows", "scene", "bet", "", None):
+            self.assertFalse(studio.invention_led(shape), shape)
+
+    def test_the_reserve_is_a_setting_one_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "teeny.env"
+            path.write_text("")
+            self.assertEqual(studio.Config.load({}, path).draft_invented, 1)
+            self.assertEqual(studio.Config.load({"STUDIO_DRAFT_INVENTED": "0"}, path).draft_invented, 0)
+            self.assertEqual(studio.Config.load({"STUDIO_DRAFT_INVENTED": "9"}, path).draft_invented, 5)
+
+    def test_every_sample_rereads_an_unhinged_pair(self):
+        self.assertTrue(set(studio.UNHINGED_PAIRS) <= set(studio.PAIRS))
+        # At least half the pairs show the unhinged register.
+        self.assertGreaterEqual(2 * len(studio.UNHINGED_PAIRS), len(studio.PAIRS))
+        with tempfile.TemporaryDirectory() as tmp:
+            for seed in range(300):
+                got = studio.sample(random.Random(seed), seed, DESK, Path(tmp), ("post",))
+                self.assertEqual(len(got["pairs"]), 3)
+                self.assertEqual(len(set(got["pairs"])), 3)
+                self.assertTrue(set(got["pairs"]) & set(studio.UNHINGED_PAIRS), got["pairs"])
+
+    def test_the_pitch_turn_asks_for_three_invention_led_pitches(self):
+        msg = studio.pitch_message(CFG, {}, [], SAMPLED)
+        self.assertIn("At least three of your pitches are invention-led", msg)
+        for shape in studio.INVENTION_SHAPES:
+            self.assertIn(shape, msg)
+
+    def test_the_editor_prefers_what_a_stranger_would_screenshot_and_keeps_the_hard_losses(self):
+        draft = {"format": "post", "text": "t"}
+        for msg in (studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, []),
+                    studio.final_message("D1", draft, {}, [])):
+            self.assertIn("screenshot or argue with", msg)
+            self.assertIn("absurd claim Teeny makes about itself is the point", msg)
+            self.assertIn("invented money", msg)
+            self.assertIn("still loses outright", msg)
+
+    def test_the_writer_brief_is_unhinged_and_keeps_the_hard_lines(self):
+        text = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        self.assertIn("Cute is a failure", text)
+        self.assertIn("big AI news. i'm an AI too. small true self-own.", text)
+        self.assertLessEqual(text.lower().count("swear"), 1)
+        for line in ("no slurs", "race, sex, religion, body, illness or tragedy", "no threats against real people",
+                     "never cruel to a private individual"):
+            self.assertIn(line, text.lower())
+        for label in studio.PAIRS:
+            self.assertIn(f"\n{label}.\n> before:", text, label)
+        for after in studio.example_afters(REPO / "brain"):
+            self.assertFalse(after.lower().startswith(("i'm an ai", "i am an ai")), after)
+            self.assertNotIn("i'm an ai too", after.lower())
+
+    def test_the_editor_rubric_keeps_the_hard_lines(self):
+        text = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8").lower()
+        self.assertIn("cute is a failure", text)
+        for line in ("slur", "race, sex, religion, body, illness or tragedy", "a threat against a real person",
+                     "cruel to a private individual"):
+            self.assertIn(line, text)
