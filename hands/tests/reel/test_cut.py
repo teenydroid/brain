@@ -149,7 +149,7 @@ class CommandTest(unittest.TestCase):
     def test_six_shots_get_every_middle_within_the_viewers_eight_frames(self):
         times = skitcut.frame_times([2.4, 4.0, 1.0, 10.0, 3.0, 1.5])
         self.assertEqual(skitcut.MAX_FRAMES, 8)
-        self.assertEqual(times, [0.4, 1.2, 4.4, 6.9, 12.4, 18.9, 20.65, 21.5])
+        self.assertEqual(times, [0.4, 1.2, 4.4, 6.9, 12.4, 18.9, 21.15, 21.5])
 
     # --- the command without trims or sound is what it always was --------------------------
 
