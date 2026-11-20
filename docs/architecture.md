@@ -911,12 +911,16 @@ would fail the whole skit. `look` (one line a figure: hair, glasses,
 wardrobe, prop), `setting` (one line: place, light, lens) and `score` (one
 line: the single piece of music under the whole film) are required too
 (`skit_of`, `SKIT_HELD`; the guard's `shape` checks and keeps them): the
-video is one take of up to 20 s (`hands/video skit`, docs/hands.md), one
-job whose script states them once for the whole film, because shots
+video is one take of up to 20 s, three or four shots (`hands/video skit`,
+docs/hands.md: wan-3-0 at 720p with its sound first, then seedance-2-0 and
+wan-2-7), one job whose script states them once for the whole film, because shots
 rendered as separate jobs came back with a different face, lawn and
 soundtrack each (2026-11-20, "the videos don't connect"). The drafting
 turn gives the craft (a premise from what the figure did, never a pun on a
-headline word; the figure driving every shot; three beats, set-up a
+headline word; the figure driving every shot; the impossible thing in
+frame in every shot, never a plain close-up or an ordinary setting that
+could pass for real footage (a paid one-take render, 2026-11-20, ended on
+a photoreal close-up in front of an ordinary office); three beats, set-up a
 stranger gets with the sound off, consequence, payoff; the constants said
 once as data and the shots saying only what changes, the figure's full
 name, the framing, the action, a line, spot sound effects, never their own
