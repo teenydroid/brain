@@ -236,6 +236,19 @@ class CommandTest(unittest.TestCase):
                                                       trims=[3.9], sound="/m/a.m4a")))
 
 
+class RouteTest(unittest.TestCase):
+    """serve.py's cut route, checked from its source (importing it needs
+    upstream): a remake's sound is resolved, confined to media/remake/ with
+    its symlinks resolved, and handed to render with the trims."""
+
+    SERVE = REPO / "deploy" / "reel" / "serve.py"
+
+    def test_the_route_confines_the_sound_and_passes_the_trims(self):
+        source = self.SERVE.read_text()
+        self.assertIn('skitcut.under(sound, os.path.join(TEENY, "media", "remake"))', source)
+        self.assertIn('trims=checked["trims"], sound=sound)', source)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg (the reel image has it)")
 class RenderTest(unittest.TestCase):
     def test_two_shots_one_silent_cut_with_their_sound_and_the_label(self):
