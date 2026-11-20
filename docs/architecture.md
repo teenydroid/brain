@@ -902,7 +902,10 @@ skit pitch must have a hook. Its draft carries the post's words and `skit:
 {story (the hook, set by code), figures, premise, logline, shots, aspect}`;
 `premise` is required (`skit_of`, `SKIT_PREMISE_MAX`): one line, what the
 figure really did or claimed in the story, so what they do in the video,
-shown to the editor and never rendered or posted. The drafting turn gives
+shown to the editor and never rendered or posted. A shot's `seconds` over
+`SKIT_SHOT_MAX_SECS` (6) is cut to 6, never refused: a longer shot's
+reservation is over `MEDIA_SKIT_MAX_USD_PER_SHOT` on every video model and
+would fail the whole skit. The drafting turn gives
 the craft (a premise from what the figure did, never a pun on a headline
 word; the figure driving every shot; three beats, set-up a stranger gets
 with the sound off, consequence, payoff; the figure's full name, wardrobe,

@@ -86,6 +86,17 @@ class FormatTest(unittest.TestCase):
                 self.assertEqual(got, [])
                 self.assertIn("premise", lost[0]["why"])
 
+    def test_a_shot_asking_for_more_than_six_seconds_is_cut_to_six_not_refused(self):
+        # 2026-11-20: an 8 s shot on kling-v3-pro reserves $1.924, over the
+        # $1.60 a shot the live cap allows, so the whole skit would fail.
+        shots = [{**SHOTS[0], "seconds": 8}, {**SHOTS[1], "seconds": 5}]
+        got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": {**RAW, "shots": shots}}]}, PITCH, 3)
+        self.assertEqual(lost, [])
+        self.assertEqual([s.get("seconds") for s in got[0]["skit"]["shots"]], [studio.SKIT_SHOT_MAX_SECS, 5])
+        self.assertEqual(studio.SKIT_SHOT_MAX_SECS, 6)
+        self.assertIn("3 to 6", studio.SKIT_SHAPE)
+        self.assertIn("3 to 6 seconds", (REPO / "brain" / "agents" / "writer.md").read_text())
+
     def test_the_story_is_the_pitchs_hook_never_the_writers(self):
         got, _ = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": {**RAW, "story": "trend:other"}}]}, PITCH, 3)
         self.assertEqual(got[0]["skit"]["story"], "trend:t1")
