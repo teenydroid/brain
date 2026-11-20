@@ -180,7 +180,7 @@ async def create_reel(request: Request):
 
 
 def _cut(cut_id: str, checked: dict) -> dict:
-    """One skit's cut, in its own folder. Runs in a worker thread."""
+    """One skit's or remake's cut, in its own folder. Runs in a worker thread."""
     sources = [policy.resolve_source(TEENY, path) for path in checked["clips"]]
     bed = policy.resolve_source(TEENY, checked["bed"], policy.AUDIO_MAX_BYTES) if checked["bed"] else None
     if bed and os.path.splitext(bed)[1].lower() not in policy.AUDIO_SUFFIXES:
