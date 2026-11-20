@@ -27,7 +27,9 @@ plain code in policy.py (no upstream import), which hands/tests/reel tests.
    each shot's own sound (upstream drops a material's audio), evens the
    loudness, lays an optional bed under it and burns the label into a
    corner for the whole length, then takes frames for the viewer check.
-   One cut at a time, in a folder of its own on the storage volume, served
+   A remake's cut (hands/video remake) joins up to six image-to-video
+   clips, each trimmed to its source shot (`trims`), with the source's
+   audio from media/remake/ as the only sound (`sound`). One cut at a time, in a folder of its own on the storage volume, served
    back (`GET /teeny/v1/cuts/{id}/cut.mp4`, `.../frame-N.jpg`) until
    hands/video deletes it (`DELETE /teeny/v1/cuts/{id}`).
 5. Cleanup: a task's staged files go when hands/reel deletes the task; at
