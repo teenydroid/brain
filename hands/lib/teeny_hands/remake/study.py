@@ -32,14 +32,18 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from .. import hand
 from ..guard import viewer
+from ..guard.screen import INBOUND, screen_text
+from ..guard.skit import HARM, NOT_A_FIGURE
 from . import charts, ledger
 from .service import Ingest, IngestError, clean_text, source_of
 
@@ -47,6 +51,7 @@ Json = dict[str, Any]
 
 DEFAULT_MODEL = "glm-5.3-flash"
 DEFAULT_MAX_PER_DAY = 3
+DEFAULT_KEEP_HOURS = 48
 MAX_SOURCE_BYTES = 60 * 1024 * 1024
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
 MAX_FRAME_BYTES = 2 * 1024 * 1024
@@ -198,26 +203,83 @@ def _magic(name: str, data: bytes) -> bool:
     return data[4:8] == b"ftyp"
 
 
-def _pull(ingest: Any, got: Json, study_id: str) -> dict[str, bytes]:
-    """Every file of the fetch into the study's folder, each within its cap
-    and with the bytes its name says; the frames' bytes, by name."""
-    folder = _folder(study_id)
-    shutil.rmtree(folder, ignore_errors=True)
-    folder.mkdir(parents=True)
+def _pull(ingest: Any, got: Json, folder: Path) -> dict[str, bytes]:
+    """Every file of the fetch into `folder` (a staging folder), each within
+    its cap and with the bytes its name says; the frames' bytes, by name."""
     frames: dict[str, bytes] = {}
-    try:
-        for name in got["files"]:
-            limit = MAX_SOURCE_BYTES if name == "source.mp4" else MAX_AUDIO_BYTES if name == "audio.m4a" else MAX_FRAME_BYTES
-            data = ingest.file(got["fetch_id"], name, limit)
-            if not data or len(data) > limit or not _magic(name, data):
-                raise _Problem("fetch", f"the ingest service's {name} is not the file it says")
-            (folder / name).write_bytes(data)
-            if name.endswith(".jpg"):
-                frames[name] = data
-    except BaseException:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
+    for name in got["files"]:
+        limit = MAX_SOURCE_BYTES if name == "source.mp4" else MAX_AUDIO_BYTES if name == "audio.m4a" else MAX_FRAME_BYTES
+        data = ingest.file(got["fetch_id"], name, limit)
+        if not data or len(data) > limit or not _magic(name, data):
+            raise _Problem("fetch", f"the ingest service's {name} is not the file it says")
+        (folder / name).write_bytes(data)
+        if name.endswith(".jpg"):
+            frames[name] = data
     return frames
+
+
+# --- what is kept -----------------------------------------------------------------------------
+
+
+def _remake_dir() -> Path:
+    path = hand.state_dir() / "media" / "remake"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def sweep() -> None:
+    """Removes study folders (and staging leftovers) not touched for
+    REMAKE_KEEP_HOURS (48). Runs whenever a study does; the files' own times
+    are real, so the real clock is the one to read."""
+    cutoff = time.time() - hand.number("REMAKE_KEEP_HOURS", DEFAULT_KEEP_HOURS, 1, 24 * 365) * 3600
+    for entry in _remake_dir().iterdir():
+        try:
+            if entry.is_dir() and entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry, ignore_errors=True)
+        except OSError:
+            pass
+
+
+# --- the screen -------------------------------------------------------------------------------
+
+
+def _tripped(text: Any, title: bool = False) -> bool:
+    """Whether the guard's inbound screen stops the text (a title: or a word
+    of the HARM or NOT_A_FIGURE lists)."""
+    if not isinstance(text, str) or not text:
+        return False
+    if title and (HARM.search(text) or NOT_A_FIGURE.search(text)):
+        return True
+    return screen_text(text, INBOUND) is not None
+
+
+def _screen_source(source: Json) -> list[str]:
+    """The source's own words the screen stops, blanked, and which."""
+    hit = []
+    for key in ("title", "uploader"):
+        if _tripped(source.get(key), title=key == "title"):
+            source[key] = None
+            hit.append(key)
+    return hit
+
+
+def _screen_reading(reading: Json) -> list[str]:
+    """The model's words the screen stops, blanked, and where each was."""
+    hit = []
+    if _tripped(reading["summary"]):
+        reading["summary"] = ""
+        hit.append("summary")
+    for n, shot in enumerate(reading["shots"], 1):
+        for person in shot["people"]:
+            for key in ("looks", "action", "position"):
+                if _tripped(person[key]):
+                    person[key] = ""
+                    hit.append(f"shot {n} person {person['ref']} {key}")
+        for key in ("speech", "setting", "motion", "camera"):
+            if _tripped(shot[key]):
+                shot[key] = ""
+                hit.append(f"shot {n} {key}")
+    return hit
 
 
 # --- the reading ------------------------------------------------------------------------------
@@ -265,6 +327,7 @@ def study(body: Any, ingest: Any = None, api: Any = None, sleep: Callable[[float
     a `rule`; a video the model's reading cannot vouch for is `usable: false`
     with `why`, not an error."""
     chart_id, url = _input(body)
+    sweep()
     limit = hand.number("REMAKE_STUDY_MAX_PER_DAY", DEFAULT_MAX_PER_DAY, 0, 50)
     if limit == 0:
         raise hand.Refused("remake study is off (REMAKE_STUDY_MAX_PER_DAY=0)", rule="off")
