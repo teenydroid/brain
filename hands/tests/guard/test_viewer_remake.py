@@ -73,7 +73,7 @@ class KeysTest(ViewRemakeBase):
         self.assertIn("looks_real", self.api.text(0))
         self.assertIn(viewer.FRAMES.format(n=3), self.api.text(0))
         self.assertIn("character sheet", self.api.text(1))
-        self.assertIn("looks at, touches or holds", self.api.text(1))
+        self.assertIn("look at, touch or hold the yellow character", self.api.text(1))
         self.assertEqual(self.api.images(1)[0]["image_url"]["url"], "data:image/jpeg;base64," + b"sheet".hex())
         row = self.checks()[-1]
         self.assertEqual((row["stage"], row["ok"], row["on_model"]), ("done", 1, 1))
