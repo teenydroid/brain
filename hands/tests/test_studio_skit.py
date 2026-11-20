@@ -29,7 +29,9 @@ SHOTS = [
     {"prompt": "Low-angle close-up, cool rim light: Musk plays chess against the robotaxi's robotic arm and the "
                "board grows to the size of a planet. He mutters: \"best of three.\" Comic timpani."},
 ]
-RAW = {"figures": ["Elon Musk"], "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
+PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
+RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
+       "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "shots": SHOTS, "aspect": "16:9"}
 WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "skit", "hook": "trend:t1", "item": None}
@@ -72,7 +74,17 @@ class FormatTest(unittest.TestCase):
         draft = skit_draft()
         self.assertEqual(draft["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
                                          "shots": [{"prompt": SHOTS[0]["prompt"]}, {"prompt": SHOTS[1]["prompt"]}],
-                                         "aspect": "16:9", "story": "trend:t1"})
+                                         "aspect": "16:9", "story": "trend:t1", "premise": PREMISE})
+
+    def test_a_skit_needs_its_premise_what_they_really_did_and_what_they_do_in_it(self):
+        # 2026-11-19: three skits on "raises" were a pun on a headline word, and
+        # the figure only watched. The premise says the real thing first.
+        for raw in ({k: v for k, v in RAW.items() if k != "premise"}, {**RAW, "premise": "  "},
+                    {**RAW, "premise": ["a list"]}, {**RAW, "premise": "x" * (studio.SKIT_PREMISE_MAX + 1)}):
+            with self.subTest(premise=raw.get("premise")):
+                got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": raw}]}, PITCH, 3)
+                self.assertEqual(got, [])
+                self.assertIn("premise", lost[0]["why"])
 
     def test_the_story_is_the_pitchs_hook_never_the_writers(self):
         got, _ = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": {**RAW, "story": "trend:other"}}]}, PITCH, 3)
@@ -113,7 +125,7 @@ class FormatTest(unittest.TestCase):
 
     def test_the_editor_sees_the_figures_logline_and_shots_never_the_story_id(self):
         shown = studio.shown(skit_draft())
-        self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
+        self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "premise": PREMISE, "logline": RAW["logline"],
                                          "shots": [SHOTS[0]["prompt"], SHOTS[1]["prompt"]]})
         self.assertNotIn("trend:t1", json.dumps(shown))
 
