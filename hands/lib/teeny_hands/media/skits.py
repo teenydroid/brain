@@ -690,7 +690,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
                 # one score. Any trouble another model or the per-shot render
                 # could get past falls back to one job a shot, in the same
                 # reservation.
-                take = _Shot(0, rows[0], held and rules.script(held), sum(s["seconds"] for s in job["shots"]),
+                take = _Shot(0, rows[0], rules.script(held), sum(s["seconds"] for s in job["shots"]),
                              take_models, name="take")
                 shots = [take]
                 if _submit_take(api, conn, skit_id, take, job, cap, params, sold):
