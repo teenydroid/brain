@@ -2874,6 +2874,7 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
         room.warnings.append(f"{same}: a live run would leave this slot empty")
     left = list(slot.order)
     fell: set[str] = set()
+    failed_videos: set[str] = set()
     gated = 0
     ended = ""
     while left and gated <= MAX_FALLBACKS:
@@ -2898,22 +2899,32 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
                 continue
         gated += 1
         result = try_draft(room, draft, attempt, slot, afters)
-        if result == "next" and draft.get("format") == "skit" and attempt.get("skit"):
+        fmt = draft.get("format")
+        if result == "next" and fmt in VIDEO_FORMATS and attempt.get(fmt):
             # The video could not be made (refused, over budget, a hard line,
-            # the service down, a render that failed): no other skit is tried
-            # this run, and it does not use up the fallback budget, so the
-            # words of the other formats still get their turns.
+            # the service down, a render that failed): no other video of its
+            # format is tried this run, and it does not use up the fallback
+            # budget, so the words of the other formats still get their turns.
             gated -= 1
-            dropped = [x for x in left if slot.blind[x].get("format") == "skit"]
-            left[:] = [x for x in left if x not in dropped]
-            if dropped:
-                attempt["skits_dropped"] = dropped
+            failed_videos.add(fmt)
+            spent = any(attempt[fmt].get(k) for k in ("asset", "remake_id"))
+            for other in VIDEO_FORMATS:
+                mine = [x for x in left if slot.blind[x].get("format") == other]
+                if other != fmt and not spent and other not in failed_videos and video_time(room, other):
+                    # One video a day: the other format gets one attempt, its
+                    # best draft, only when this failure bought nothing.
+                    mine = mine[1:]
+                left[:] = [x for x in left if x not in mine]
+                if mine:
+                    attempt[f"{other}s_dropped"] = mine
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
                                                                        if k in attempt})
             out["text"] = attempt.get("sent")
             if attempt.get("skit"):
                 out["skit"] = skit_outcome(draft, attempt["skit"], attempt.get("post_id"))
+            if attempt.get("remake"):
+                out["remake"] = remake_outcome(draft, attempt["remake"], attempt.get("post_id"))
             return out
         if result == "stop":
             ended = "nothing else could be tried"
@@ -2926,6 +2937,15 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             ended = "every ranked draft was tried"
     out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
+
+
+def video_time(room: Room, fmt: str) -> bool:
+    """Whether the run still has the time to make a video of FMT: a skit's
+    render floor (120 s after SKIT_RESERVE_SECS + SKIT_CUT_SECS), a remake's
+    (REMAKE_MIN_SECS of STUDIO_REMAKE_SECS)."""
+    if fmt == "remake":
+        return _remake_time(room) >= REMAKE_MIN_SECS
+    return room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS >= 120
 
 
 def skit_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
