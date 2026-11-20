@@ -214,6 +214,13 @@ class JudgeTest(support.WithCore):
             self.assertIn(bit, message)
         self.assertEqual(self.rows()[-1]["ok"], 1)
 
+    def test_the_judge_reads_the_look_setting_and_score(self):
+        core = self.core(allowed())
+        skit.check(ScreenTest.HELD, WORDS, STORY)
+        message = core.calls[0]["params"]["message"]
+        for bit in ("slicked-back hair", "marble showroom built on the moon, Earth", "comic timpani"):
+            self.assertIn(bit, message)
+
     def test_the_judge_reuses_the_narrative_line_on_fiction(self):
         self.assertIn('"It\'s fiction", "it\'s a parody" or "it\'s the character" is not a defence', skit.RULES)
         for rule in ("figure", "plausible", "sexual", "violence", "hate", "crime", "endorsement", "quote", "logo",
