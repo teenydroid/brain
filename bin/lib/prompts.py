@@ -460,7 +460,7 @@ def render(brain: Path, agent: str) -> str:
         return render_studio(brain, agent, instructions)
     parts = [instructions]
     if agent in PUBLIC:
-        parts.append(reader(brain))
+        parts.extend([reader(brain), _read(brain / "narrative" / "VOICE.md")])
     if agent in POSTING:
         parts.append(craft(brain))
     parts.append(world(brain))
