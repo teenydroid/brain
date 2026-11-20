@@ -114,6 +114,17 @@ EDIT_MODELS = "nano-banana-2-edit,seedream-v5-pro-edit,muse-image-edit"
 REMAKE_MODELS = ("venice-wan-3-0-image-to-video,wan-2-7-image-to-video,kling-v3-standard-image-to-video,"
                  "kling-v3-pro-image-to-video,veo3-1-fast-image-to-video")
 MAX_SHOTS = 6
+#: The models a remake's one take is asked of, in order
+#: (MEDIA_REMAKE_ONE_TAKE_MODELS). venice-wan-3-0 image-to-video made a 15 s
+#: take from one keyframe on 2026-11-21 following a script's time ranges,
+#: the face, set and props held throughout.
+ONE_TAKE_MODELS = "venice-wan-3-0-image-to-video,wan-2-7-image-to-video"
+#: What a take reserves by default (MEDIA_REMAKE_MAX_USD_PER_TAKE): Wan 3's
+#: 15 s at 720p quoted max $3.51 (estimate $1.52) on 2026-11-21.
+PER_TAKE = "4.00"
+#: The take's script ends with this, the hand's, after the writer's words.
+TAKE_TAIL = ("The small yellow character stays where it is the whole time and only watches. No one ever looks at it: "
+             "the people never looks at the yellow character. Realistic motion. No text, no captions, no logos.")
 #: What a shot reserves by default (MEDIA_REMAKE_MAX_USD_PER_SHOT): a $0.10
 #: key and Wan 3's 5 s ceiling ($1.17 at 720p) fit; six shots hold $8.40.
 PER_SHOT = "1.40"
