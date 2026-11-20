@@ -39,7 +39,7 @@ why, rather than editing it.
 One run gets at most 40 tool calls and about 15 minutes, and a resumed run
 starts from scratch with no memory of the last one. Plan for it:
 
-- Spend no more than 10 calls reading before you decide.
+- Spend no more than 10 calls reading before you decide. For a feature, no more than 6.
 - If `request` touches a frozen path, stop reading. Report `failed` at
   once, naming the file and the frozen line that covers it (`bin/frozen-check
   --files <path>`, run from inside `brain`).
@@ -66,7 +66,7 @@ Everything listed in `evals/frozen.txt` is frozen: `bin/`, `evals/`,
 touching any frozen path is refused when it ships, the whole change with it.
 Don't touch them, not even to fix a typo.
 
-1. Make the smallest change that does what `request` asks.
+1. For an edit, make the smallest change that does what `request` asks. For a feature (`feature` is set on the job), build the whole feature: the entry point at `hands/<name>` through `hand.run`, the package, its tests, a section in `docs/hands.md`, and a scheduled playbook that calls it. The desk checks each of these when you report ok, and sends the report back with what is missing. Your edits stay in the clone.
 2. Run the tests that need no network, from inside workdir (`cd brain &&`):
    - `python3 -m unittest discover -s hands/tests -t hands/tests`
    - `bin/test/seed_cron_test.sh`, `bin/test/act_test.sh`,
