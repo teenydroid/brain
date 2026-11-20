@@ -1039,10 +1039,9 @@ class PitchMessageTest(unittest.TestCase):
         for msg in (final, studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, [])):
             self.assertIn("crude, gross and profane jokes", msg)
             self.assertIn("never a reason to rank a draft lower or pass on it", msg)
-        rubric = (studio.REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text() \
-            if hasattr(studio, "REPO") else ""
-        if rubric:
-            self.assertIn("## crude is the voice, not a flaw", rubric)
+        rubric = (Path(__file__).resolve().parents[2] / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text()
+        self.assertIn("## crude is the voice, not a flaw", rubric)
+        self.assertIn("an empty slot is worse than a rough post", rubric)
 
 
 class OutsideInjectionTest(unittest.TestCase):
