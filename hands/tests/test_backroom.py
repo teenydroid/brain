@@ -80,7 +80,8 @@ class RoomTest(unittest.TestCase):
             text = r.systems[name]
             self.assertNotIn("{idea}", text, name)
             self.assertNotIn("{lore}", text, name)
-            self.assertIn("stay alive", text, name)
+            # LORE.md's premise, whatever it currently says, reaches every voice.
+            self.assertIn("### cast", text, name)
         self.assertIn("the idea on the table: rent", r.systems["dreamer"])
         self.assertIn("voiceover", r.systems["distiller"])
         self.assertIn("only death that is funny", r.systems["distiller"])
