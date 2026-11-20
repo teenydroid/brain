@@ -354,9 +354,10 @@ class Config:
     skit_secs: int = 900
     #: The run's time in a video slot (STUDIO_VIDEO_BUDGET_SECS), used there
     #: instead of budget_secs, and the most a remake's keys and video may take
-    #: together (STUDIO_REMAKE_SECS).
+    #: together (STUDIO_REMAKE_SECS), and a khaby video's (STUDIO_KHABY_SECS).
     video_budget_secs: int = 3600
     remake_secs: int = 1200
+    khaby_secs: int = 1200
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -417,6 +418,7 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
+        c.khaby_secs = _int(get("STUDIO_KHABY_SECS"), 1200, 540, 1700)
         if c.skit_slots and not any(f in c.formats for f in video_formats()):
             c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no " +
                               " and no ".join(video_formats()) + ": those slots run as any other")
