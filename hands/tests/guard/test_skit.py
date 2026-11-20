@@ -88,6 +88,15 @@ class ScreenTest(support.Scratch):
                 prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk {bit} beside a chrome robotaxi"
                 self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual, violent")
 
+    def test_an_executive_is_not_an_execution(self):
+        prompt = ("A marble showroom on the moon, slow dolly in: Elon Musk, Tesla's chief executive, slips on a "
+                  "banana peel among a crowd of executives in matching silver tuxedos. Comic timpani.")
+        self.assertEqual(self.screen(with_shot(prompt)), [])
+        for bit in ("executed", "an execution", "they execute him"):
+            with self.subTest(bit=bit):
+                prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk is {bit} beside a chrome robotaxi"
+                self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual, violent")
+
     def test_slapstick_stays_in(self):
         prompt = ("A marble showroom on the moon, slow dolly in: Elon Musk slips on a banana peel, takes a custard "
                   "pie to the face and pratfalls into a ball pit shaped like a robotaxi. Comic timpani.")

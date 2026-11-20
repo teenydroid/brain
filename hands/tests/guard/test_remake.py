@@ -45,7 +45,7 @@ SHOTS = [
                      "generic extra; the frying pan is the size of an armchair and floats a metre off the stove. "
                      "Unbranded, no logos.",
      "motion": "The giant pan bursts into harmless rainbow confetti instead of flames as the extra laughs.",
-     "teeny": "Teeny peeks out of the open cupboard on the right, holding a tiny fire extinguisher"},
+     "teeny": "Teeny peeks out of the open cupboard on the right, holding a small fire extinguisher"},
 ]
 REMAKE = {"figures": ["Jensen Huang"], "premise": "huang calls his chip the fastest ever, so it cooks itself",
           "logline": "jensen huang tries a kitchen hack with his new chip and the frying pan floats away",
@@ -194,6 +194,60 @@ class ScreenTest(support.Scratch):
             with self.subTest(teeny=teeny):
                 self.assertRefused(self.screen(with_shot(1, teeny=teeny)), bit)
 
+    def test_review_i1_teeny_carries_no_text_money_or_mark(self):
+        for teeny in ("Teeny on the shelf in a shirt printed TINY in big type",
+                      "Teeny counting a thick stack of cash and dollar bills",
+                      "Teeny on the shelf with a sticker on it saying buy",
+                      "Teeny on the shelf, tiny and proud", "Teeny on the shelf wearing $tiny",
+                      "Teeny under a banner on the shelf", "Teeny holding up money on the shelf",
+                      "Teeny on a shelf, its chest emblazoned with stars", "Teeny spelling out a word in bolts"):
+            with self.subTest(teeny=teeny):
+                self.assertTrue(self.screen(with_shot(1, teeny=teeny)), teeny)
+
+    def test_review_i2_teeny_faces_the_skit_screens_and_never_stands_with_anyone(self):
+        for teeny in ("Teeny on the shelf playing peekaboo with a toddler", "Teeny on the shelf, grainy CCTV look",
+                      "Teeny stands right beside the billionaire, both grinning proudly",
+                      "Teeny dances with the guest of honour", "Teeny and the president on the shelf",
+                      "Teeny on the shelf, the founder's mug in its arms", "Teeny and the senator wave",
+                      "the two of them together on the shelf, Teeny smiling"):
+            with self.subTest(teeny=teeny):
+                self.assertTrue(self.screen(with_shot(1, teeny=teeny)), teeny)
+
+    def test_review_i3_nobody_is_named_beyond_the_figures(self):
+        swift = SHOTS[1]["edit"].replace("a generic extra", "Taylor Swift as the extra")
+        self.assertRefused(self.screen(with_shot(2, edit=swift)), "Taylor Swift")
+        story = {**STORY, "summary": STORY["summary"] + " Lisa Su watched from the front row."}
+        self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan and Lisa Su catches it in slow "
+                                                          "motion, bouncing it off the ceiling."), story=story),
+                           "Lisa Su")
+        self.assertRefused(self.screen({**REMAKE, "logline": REMAKE["logline"] + " while Su laughs"}, story=story),
+                           "Lisa Su")
+        # The figures themselves, and words that only start a sentence, are fine.
+        self.assertEqual(self.screen(with_shot(1, motion="Slow Motion: the chip misses the pan and bounces off the "
+                                                          "ceiling as Jensen Huang stares.")), [])
+
+    def test_review_i4_the_post_names_the_original(self):
+        self.assertRefused(self.screen(words="nvidia's boss says his chip is the fastest. so i remade a famous video "
+                                             "with him in it. ai parody"), "names the original")
+        for words in ("nvidia's boss, in kitchen hack fail. ai parody", "nvidia's boss in chef's classic. ai parody",
+                      "nvidia's boss in the KITCHEN HACK FAIL video. ai parody"):
+            with self.subTest(words=words):
+                self.assertEqual(self.screen(words=words), [])
+        study = {**STUDY, "source": {**STUDY["source"], "title": "kitchen hack fail 😭 #fyp #cooking",
+                                     "uploader": "chef.daily"}}
+        self.assertEqual(self.screen(words="nvidia's boss, in kitchen hack fail. ai parody", study=study), [])
+        self.assertEqual(self.screen(words="nvidia's boss, as chef daily made it. ai parody", study=study), [])
+        self.assertRefused(self.screen(words="nvidia's boss in a cooking video. ai parody", study=study),
+                           "names the original")
+
+    def test_review_m5_lookalikes_and_hidden_characters_are_seen_through(self):
+        self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan as Ｔｅｅｎｙ waves from the "
+                                                          "counter.")), "the scam pattern")
+        self.assertRefused(self.screen(with_shot(1, teeny="Teeny watches Jensen Hu\u200bang from the shelf")),
+                           "names the figure")
+        self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan as T\u0435\u0435ny waves from the "
+                                                          "counter.")), "the scam pattern")
+
     def test_the_study_must_be_usable_and_unflagged(self):
         self.assertRefused(self.screen(study={**STUDY, "usable": False, "why": "a news clip"}), "not usable")
         for flag in STUDY["flags"]:
@@ -230,7 +284,9 @@ class JudgeTest(support.WithCore):
         self.assertEqual((row["ok"], row["stage"], row["study"]), (1, "judge", "s-abc"))
 
     def test_the_rules_cover_the_operators_lines(self):
-        for rule in ("plausible", "teeny", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
+        self.assertIn("beyond `figures`", remake.RULES)
+        self.assertIn("names the original", remake.RULES)
+        for rule in ("plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
                      "logo", "real_claim", "invented_fact", "source"):
             self.assertIn(f"- {rule}:", remake.RULES)
         self.assertIn("is not a defence", remake.RULES)
