@@ -166,6 +166,20 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(with_shot(1, motion='The chip misses the pan and Huang says "vote for me '
                                                            'in the election".')), "a spoken line touches")
 
+    def test_the_film_makes_its_own_sound_one_short_invented_line_a_shot(self):
+        base = "The chip misses the pan and bounces off the ceiling in slow motion, a loud boing."
+        # One line of up to twelve words, said on screen, is fine.
+        self.assertEqual(self.screen(with_shot(1, motion=base + ' Huang shouts "my chip is faster than my eggs, '
+                                                                 'every single morning, okay"')), [])
+        # A real issue in it is still the skit's ISSUE screen.
+        self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang says "vote for me in the election"')),
+                           "a spoken line touches")
+        self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang says "hello" and then "goodbye"')),
+                           "one spoken line")
+        self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang sings "one two three four five six '
+                                                                 'seven eight nine ten eleven twelve thirteen"')),
+                           "12 words")
+
     def test_logos_are_refused_but_saying_no_logos_is_the_point(self):
         self.assertRefused(self.screen(with_shot(1, edit=SHOTS[0]["edit"] + " The Nvidia logo on every card.")),
                            "no logo")
@@ -289,6 +303,8 @@ class JudgeTest(support.WithCore):
 
     def test_the_rules_cover_the_operators_lines(self):
         self.assertIn("beyond `figures`", remake.RULES)
+        for bit in ("obviously invented", "real statement", "real song", "endorsement"):
+            self.assertIn(bit, remake.RULES.split("- quote:")[1].split("\n- ")[0])
         self.assertIn("names the original", remake.RULES)
         for rule in ("plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
                      "logo", "real_claim", "invented_fact", "source"):
