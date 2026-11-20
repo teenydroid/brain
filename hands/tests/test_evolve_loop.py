@@ -1389,6 +1389,10 @@ class SidecarTrust(LoopCase):
             nonlocal folder
             tree.mkdir()
             (tree / "empty").mkdir()
+            (tree / "empty" / "test_ok.py").write_text(
+                "import unittest\nclass Pass(unittest.TestCase):\n    def test_pass(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
             folder = tree.parent
 
         def run_once(_):
