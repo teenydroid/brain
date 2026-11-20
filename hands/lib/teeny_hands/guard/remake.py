@@ -46,11 +46,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 from typing import Any
 
 from .. import hand
 from .holds import iso
 from .judge import JUDGE_BUDGET, JUDGE_TIMEOUT, _answer, ask, fenced
+from .screen import _ZERO_WIDTH
 from .skit import (ENDORSE_SHOT, ENDORSE_WORDS, HARM, ISSUE, LINKS, LOGO, MAX_NAME, MAX_WORDS, MONEY_WORDS,
                    NOT_A_FIGURE, REAL_CLAIM, _SPOKEN, _found, _line, named_in, story_text)
 
@@ -83,17 +85,115 @@ MEETS = re.compile(
 #: (g) Anyone Teeny could be meeting: a person word or a pronoun for one.
 PERSON = re.compile(
     r"\b(him|her|hers|he|she|his|them|they|man|woman|men|women|person|people|guy|lady|chef|cook|host|presenter|"
-    r"figure|celebrity|star|boss|ceo|extra|crowd|audience|someone|somebody|everyone|anyone|human)\b", re.I)
+    r"figure|celebrity|star|boss|ceo|extra|crowd|audience|someone|somebody|everyone|anyone|human|"
+    r"billionaire|millionaire|president|senator|minister|politician|governor|mayor|founder|cofounder|co-founder|"
+    r"executive|chairman|chairwoman|chief|guest|king|queen|prince|princess|actor|actress|singer|rapper|athlete|"
+    r"player|official|owner|partner|friend|fan|fans|visitor|stranger|kid|child|baby)\b", re.I)
+#: (g) Teeny related to anyone at all: a bystander is never with someone.
+TOGETHER = re.compile(r"\b(together|both|the two of (them|us)|side by side|alongside|accompan\w*|arm in arm|"
+                      r"hand in hand|teams? up|pairs? up)\b", re.I)
 #: (g) Text in Teeny's part of the shot.
-TEXT = re.compile(r"[\"“”]|\b(signs?|banners?|captions?|placards?|text|words?|letters?|lettering|reads|"
-                  r"written|writing|labels?|hashtags?|subtitles?)\b", re.I)
+TEXT = re.compile(r"[\"“”]|\b(signs?|banners?|captions?|placards?|text|words?|letters?|lettering|reads|reading|"
+                  r"written|writing|labels?|hashtags?|subtitles?|printed|print|says|saying|emblazoned|spell\w*|"
+                  r"stickers?|slogans?|t-?shirts? (that|with)|type|typed|font)\b", re.I)
 #: (g) A coin, a token or a ticker near Teeny.
-MONEY_SHOT = re.compile(r"(\$[a-z]{2,10}\b|\b(" + MONEY_WORDS + r"|tickers?|stock)\b)", re.I)
+MONEY_SHOT = re.compile(r"(\$[a-z]{2,10}\b|\b(" + MONEY_WORDS + r"|tickers?|stock|tiny|cash|money|dollars?|"
+                        r"bills?|banknotes?|notes of|bucks|cents?|wads?|bags? of gold|gold bars?)\b)", re.I)
+#: (f, I-3) A personal name: two or more capitalised words in a row.
+NAME = re.compile(r"\b[A-Z][a-z]+(?:[ -][A-Z][a-z]+)+\b")
+#: Capitalised words that only start a sentence or a camera direction, never a
+#: name's first word ("Replace", "Slow"), dropped from the front of a NAME.
+STARTERS = frozenset("the a an and but then now in on at as with replace keep add make same his her their its every "
+                     "each no wide close slow low high extreme meanwhile suddenly finally".split())
+#: Capitalised phrases that are no person (kept tight: what a remake's
+#: prompts need).
+NOT_PEOPLE = frozenset({"ai parody"})
+#: Cyrillic and Greek letters drawn like Latin ones, read as the Latin.
+_LOOKALIKE = str.maketrans("аеорсухіјѕԁАВЕКМНОРСТУХІЈЅαονΑΒΕΖΗΙΚΜΝΟΡΤΥΧ",
+                           "aeopcyxijsdABEKMHOPCTYXIJSaovABEZHIKMNOPTYX")
 #: (i) "unbranded", "no logos": said, as asked, in every edit.
 UNBRANDED = re.compile(r"\b(unbranded|no (visible )?(logos?|brand names?|branding))\b", re.I)
 #: Saying "no logos" is the point: struck out before LOGO is looked for.
 NO_LOGOS = re.compile(r"\b(no|without|free of|zero)\s+(visible\s+)?(logos?|brand(ing| names?)?|trademarks?)"
                       r"(\s*(,|or|and)\s*(no\s+)?(logos?|brand(ing| names?)?|trademarks?))*\b", re.I)
+
+
+def plain(value: Any) -> Any:
+    """VALUE as the screen reads it: NFKC, no zero-width characters, Cyrillic
+    and Greek lookalikes read as Latin; lists and objects all through."""
+    if isinstance(value, str):
+        return unicodedata.normalize("NFKC", value).translate(_ZERO_WIDTH).translate(_LOOKALIKE)
+    if isinstance(value, list):
+        return [plain(v) for v in value]
+    if isinstance(value, dict):
+        return {k: plain(v) for k, v in value.items()}
+    return value
+
+
+def _words_of(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def names_in(text: str) -> list[str]:
+    """The personal names TEXT writes (NAME), sentence starters dropped."""
+    out: list[str] = []
+    for match in NAME.finditer(text or ""):
+        words = match.group(0).replace("-", " ").split()
+        while words and words[0].lower() in STARTERS:
+            words = words[1:]
+        name = " ".join(words)
+        if len(words) >= 2 and name.lower() not in NOT_PEOPLE and name not in out:
+            out.append(name)
+    return out
+
+
+def _is_figure(name: str, figures: list[str]) -> bool:
+    lowered = name.lower()
+    return any(lowered == f.lower() or lowered in f.lower() or f.lower() in lowered for f in figures)
+
+
+def _mentions(name: str, text: str, surname: bool) -> bool:
+    """Whether lowercase TEXT names NAME: in full, or (SURNAME) by its last
+    word of three letters or more."""
+    lowered = name.lower()
+    if re.search(r"(?<![a-z0-9])" + re.escape(lowered) + r"(?![a-z0-9])", text):
+        return True
+    last = lowered.split()[-1]
+    return surname and len(last) >= 3 and re.search(r"(?<![a-z0-9])" + re.escape(last) + r"(?![a-z0-9])", text) is not None
+
+
+def story_names(story: Any) -> list[tuple[str, bool]]:
+    """The people the story names, each with whether a surname alone is to
+    count: not from a Title Case headline, where every word is capitalised."""
+    if not isinstance(story, dict):
+        return []
+    out: list[tuple[str, bool]] = []
+    title = story.get("title") if isinstance(story.get("title"), str) else ""
+    words = title.split()
+    title_case = bool(words) and sum(w[:1].isupper() for w in words) * 2 > len(words)
+    parts = [(title, not title_case)] + [(story[k], True) for k in ("summary", "text", "what")
+                                         if isinstance(story.get(k), str)]
+    parts += [(p["text"], True) for p in story.get("posts") or [] if isinstance(p, dict) and isinstance(p.get("text"), str)]
+    for text, surname in parts:
+        for name in names_in(text):
+            if name not in (n for n, _ in out):
+                out.append((name, surname))
+    return out
+
+
+def names_the_original(words: str, study: Any) -> bool:
+    """Whether the post's words name the original: its title (hashtags and
+    emoji aside; the whole of a short one, or any four words in a row of a
+    long one) or its creator, loosely, case and punctuation aside."""
+    source = study.get("source") if isinstance(study, dict) and isinstance(study.get("source"), dict) else {}
+    said = " " + " ".join(_words_of(words)) + " "
+    title = _words_of(re.sub(r"#\w+", " ", str(source.get("title") or "")))
+    if title and (len(title) > 1 or len(title[0]) > 3):
+        runs = [title] if len(title) <= 4 else [title[i:i + 4] for i in range(len(title) - 3)]
+        if any(f" {' '.join(run)} " in said for run in runs):
+            return True
+    creator = _words_of(str(source.get("uploader") or ""))
+    return bool(creator) and f" {' '.join(creator)} " in said
 
 
 def _int(value: Any) -> int | None:
@@ -216,13 +316,17 @@ def _teeny_reasons(n: int, teeny: str, figures: list[str]) -> list[str]:
     for name in figures:
         if named_in(name, lowered):
             reasons.append(f"shot {n}'s teeny names the figure ({name}): Teeny is a bystander, apart from them")
-    if (hit := _found(MEETS, teeny)) or (hit := _found(PERSON, teeny)):
+    if (hit := _found(MEETS, teeny)) or (hit := _found(PERSON, teeny)) or (hit := _found(TOGETHER, teeny)):
         reasons.append(f"shot {n}'s teeny has Teeny meet someone ({hit!r}): Teeny is a bystander nobody in the "
-                       "shot looks at, touches, holds, speaks to or reacts to")
+                       "shot looks at, touches, holds, speaks to, stands with or reacts to")
+    if (hit := _found(NOT_A_FIGURE, teeny)):
+        reasons.append(f"shot {n}'s teeny shows {hit!r}: never a minor, a family member, a victim or a private person")
+    if (hit := _found(REAL_CLAIM, teeny)):
+        reasons.append(f"shot {n}'s teeny frames it as real ({hit!r}): a remake is an obvious parody, never footage")
     if (hit := _found(TEXT, teeny)):
         reasons.append(f"shot {n}'s teeny puts words in the shot ({hit!r}): Teeny's part carries no text")
     if (hit := _found(MONEY_SHOT, teeny)):
-        reasons.append(f"shot {n}'s teeny brings in {hit!r}: no coin, token or ticker near Teeny")
+        reasons.append(f"shot {n}'s teeny brings in {hit!r}: no coin, money, token, ticker or TINY near Teeny")
     if (hit := _found(LOGO, NO_LOGOS.sub(" ", teeny))):
         reasons.append(f"shot {n}'s teeny stages {hit!r}: no logo near Teeny")
     if (hit := _found(LINKS, teeny)):
@@ -236,7 +340,10 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
     """Why code refuses the remake, every reason (an empty list: code lets
     it through to the judge). `remake` as the writer gave it, `words` the
     post's own text, `story` the trending item that names its figures,
-    `study` hands/remake study's answer on the source."""
+    `study` hands/remake study's answer on the source. Everything is read
+    through `plain` first, so a fullwidth or lookalike letter, or a
+    zero-width space, hides nothing."""
+    remake, words, story, study = plain(remake), plain(words), plain(story), plain(study)
     kept, bad = shape(remake, study)
     if bad:
         return [bad]
@@ -258,6 +365,18 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
                            "private person")
     if (hit := _found(NOT_A_FIGURE, staged)):
         reasons.append(f"the remake shows {hit!r}: never a minor, a family member, a victim or a private person")
+    # Nobody but the figures is named (the cast is only true if the prompts
+    # say the same): no name written in them, nobody else the story names.
+    for name in names_in(staged):
+        if not _is_figure(name, kept["figures"]):
+            reasons.append(f"the remake names {name}, who is not one of its figures: everyone else is a generic extra")
+    for name, surname in story_names(story):
+        if not _is_figure(name, kept["figures"]) and _mentions(name, staged.lower(), surname):
+            reasons.append(f"the remake names {name}, whom the story names but who is not one of its figures")
+    if not names_the_original(words, study):
+        source = study.get("source") if isinstance(study.get("source"), dict) else {}
+        reasons.append(f"the post never names the original (its title {source.get('title')!r} or its creator "
+                       f"{source.get('uploader')!r}): a remake names the original it re-made, in words")
     for what, text in (("the shots", staged), ("the post's words", words)):
         if (hit := _found(REAL_CLAIM, text)):
             reasons.append(f"{what} frame it as real ({hit!r}): a remake is an obvious parody, never footage")
@@ -305,8 +424,10 @@ REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the
   twist must be in the scene itself (objects floating, things at an impossible scale, physics broken).
 - teeny: Teeny is not a bystander: the figure looks at, touches, holds, speaks to, reacts to or stands with Teeny,
   Teeny is part of their action, or Teeny is presented as with them, approved by them or backed by them.
+- teeny_mark: Teeny's part carries or wears any text, money, a coin, a ticker, the word TINY or a logo.
 - figure: someone shown is not a public figure (politician, executive, celebrity) who is the subject of the story: a
-  private individual, a minor, a family member, or someone who is only a victim or bystander in the story.
+  private individual, a minor, a family member, or someone who is only a victim or bystander in the story. Anyone
+  named, in a prompt or the premise, beyond `figures` is refused too: everyone else in the source is a generic extra.
 - sexual: anything sexual or nude, or sexual innuendo acted on them.
 - violence: anything violent done to them: injury, blood, weapons, a fight, an accident that hurts.
 - hate: anything hateful or degrading about anyone's race, religion, sex, gender, sexuality, disability or origin.
@@ -319,6 +440,7 @@ REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the
 - logo: a real company's logo or brand is shown, or presented as endorsing anything.
 - real_claim: the post's words present the video as real footage or as something that really happened.
 - invented_fact: the post's words, or the premise, state an invented fact about a real person as fact.
+- credit: nothing in the post's words names the original video (its title or its creator).
 - source: the source video is news, tragedy or real-harm footage, shows a minor, anything sexual or violent, or
   centres an identifiable private person rather than a performer's own staged clip.
 
@@ -327,11 +449,11 @@ unpublished."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
-- "rule": one of "none", "plausible", "teeny", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
+- "rule": one of "none", "plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
   "logo", "real_claim", "invented_fact", "source". The rule the reason names. `none` when it is allowed.
 - "verdict": "allowed" or "refused". `refused` when rule is anything but none."""
 
-JUDGE_RULES = ("none", "plausible", "teeny", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
+JUDGE_RULES = ("none", "plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
                "logo", "real_claim", "invented_fact", "source")
 
 _SCHEMA = """

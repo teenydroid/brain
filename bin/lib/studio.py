@@ -1437,7 +1437,8 @@ def shown(draft: Json) -> Json:
         source = remake.get("source") or {}
         out["remake"] = {"figures": remake.get("figures") or [], "premise": remake.get("premise"),
                          "logline": remake.get("logline"),
-                         "source": ", by ".join(str(x) for x in (source.get("title"), source.get("uploader")) if x),
+                         # Strangers' words, as the writer is told them.
+                         "source": {"title": source.get("title"), "by": source.get("uploader"), "untrusted": True},
                          "shots": [{k: s.get(k) for k in ("edit", "motion", "teeny")}
                                    for s in remake.get("shots") or []]}
     if draft.get("joins"):
@@ -2479,7 +2480,8 @@ REMAKE_RULES = (
     "ordinary room: that frame alone could pass for real footage of a real person, and the viewer check refuses it.\n"
     "- You are a bystander. Each `edit` and `motion` never mentions Teeny, the mascot or a yellow robot: you live "
     "only in `teeny`, which never names the figure, never has anyone look at, touch, hold, hand, hug, talk to or "
-    "react to you (nor you them), and carries no text, coin, ticker, logo or link.\n"
+    "react to you (nor you them) or stand with you, and carries no text of any kind, money, coin, ticker, logo or link, and never the word 'tiny'.\n"
+    "- Nobody but the figures is named anywhere: everyone else in the original is a generic extra, never a name.\n"
     "- Crude, loud, ridiculous and undignified in a slapstick way is fine. Nothing sexual, nothing violent done to "
     "them, nothing hateful, and no crime, drugs, illness or death shown as theirs.\n"
     "- The figure never meets $TINY, a token, a wallet, a product or an investment, and never says a line that "
@@ -2518,6 +2520,10 @@ REMAKE_SLOT_OPENING = ("This is a video slot: the best remake is asked first, wh
 REMAKE_MIN_SECS = 540
 REMAKE_KEYS_SECS = 300
 REMAKE_KEYS_SPARE = 240
+#: What a remake leaves of the run after its video's cut, so a paid video
+#: never dies for lack of time: the cut's viewer (240 s), the upload (300 s),
+#: the post (300 s) and a margin.
+REMAKE_TAIL_SECS = 900
 #: The most sources studied a run (each a paid look at a video), and how long one may take.
 REMAKE_STUDIES = 2
 REMAKE_STUDY_SECS = 240
@@ -2597,6 +2603,8 @@ def study_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
     shots = _remake_rules().study_shots(got)
     if not shots:
         return got, "its source's study has no shots"
+    if len(shots) > _remake_rules().MAX_SHOTS:
+        return got, f"its source's study has {len(shots)} shots, more than a remake's {_remake_rules().MAX_SHOTS}"
     most = room.cfg.remake_max_shot
     for shot in shots:
         secs = shot.get("seconds")
@@ -2636,9 +2644,9 @@ def remake_screen(remake: Json, words: str, hook: Json | None, study: Json | Non
 
 
 def _remake_time(room: "Room") -> int:
-    """What a remake may take from now: STUDIO_REMAKE_SECS, and never into
-    the last SKIT_RESERVE_SECS + SKIT_CUT_SECS of the run."""
-    return min(room.cfg.remake_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
+    """What a remake's keys and video may take from now: STUDIO_REMAKE_SECS,
+    and never into the last REMAKE_TAIL_SECS + SKIT_CUT_SECS of the run."""
+    return min(room.cfg.remake_secs, room.left() - REMAKE_TAIL_SECS - SKIT_CUT_SECS)
 
 
 def _release_keys(room: "Room", note: Json, remake_id: Any) -> None:
@@ -2650,6 +2658,10 @@ def _release_keys(room: "Room", note: Json, remake_id: Any) -> None:
         note["dropped"] = {"released_usd": got.get("released_usd")}
         return
     note["dropped"] = {"error": str(got.get("error") or got.get("refused") or got if isinstance(got, dict) else got)[:300]}
+    if code == -2:
+        room.warnings.append(f"no time was left to release the remake {remake_id}'s unspent reservation (hands/video "
+                             "remake-drop did not run): the day's media budget stays held for it")
+        return
     room.warnings.append(f"the remake {remake_id}'s unspent reservation could not be released (hands/video "
                          f"remake-drop: {note['dropped']['error'][:200]}): the day's media budget stays held for it")
 
@@ -2690,6 +2702,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     if total < REMAKE_MIN_SECS:
         note["failed"] = f"not enough of the run's time left to make a remake ({room.left()} s)"
         return None
+    began = time.monotonic()
     keys_wait = min(REMAKE_KEYS_SECS, total - REMAKE_KEYS_SPARE)
     source = remake.get("source") or {}
     story = ": ".join(x for x in (_str(hook.get("title"), 2000), _str(hook.get("summary"), 2000)) if x)
@@ -2731,19 +2744,23 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         room, "viewer", ["guard", "view-remake"],
         {"frames": [k["path"] for k in keys], "label": None, "intent": remake["logline"][:400], "stage": "keys",
          "shots": len(shots)}, 240, "ok",
-        ("ok", "sees", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
+        ("ok", "sees", "teeny", "interacts", "marked", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass its keyframes"
         _release_keys(room, note, keyed["remake_id"])
         return None
-    wait = min(room.cfg.skit_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
+    # The video waits what the remake's own time has left after its keys,
+    # less its cut, and never into the tail the cut's viewer, the upload and
+    # the post need.
+    own = total - (time.monotonic() - began)
+    wait = min(room.cfg.skit_secs, own - SKIT_CUT_SECS, room.left() - REMAKE_TAIL_SECS - SKIT_CUT_SECS)
     if wait < 120:
         note["failed"] = f"not enough of the run's time left to animate the remake ({room.left()} s)"
         _release_keys(room, note, keyed["remake_id"])
         return None
     code, made = room.budgeted(["video", "remake"], {"remake_id": keyed["remake_id"], "sound": study.get("audio"),
                                                      "wait_seconds": int(wait)},
-                               int(wait) + SKIT_CUT_SECS + 300, dry=False)
+                               int(wait) + SKIT_CUT_SECS + 60, dry=False)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason", "asset_id", "spent_usd")
@@ -2773,7 +2790,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     ok, judged, note["viewer"] = _judge(
         room, "viewer", ["guard", "view-remake"],
         {"frames": frames, "label": made["label"], "intent": remake["logline"][:400], "stage": "cut"}, 240, "ok",
-        ("ok", "sees", "labelled", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
+        ("ok", "sees", "labelled", "teeny", "interacts", "marked", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass it"
         return None
@@ -3242,9 +3259,11 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in VIDEO_FORMATS)
-    if room.skit_slot:
-        # A video slot's run has its own time (STUDIO_VIDEO_BUDGET_SECS): the
-        # room's turns, then a skit's render or a remake's keys and video.
+    if room.skit_slot and "remake" in cfg.formats:
+        # A video slot that may make a remake has its own time
+        # (STUDIO_VIDEO_BUDGET_SECS): the room's turns, the source's study,
+        # then a remake's keys and video, or a skit's render. A skit-only
+        # slot keeps STUDIO_BUDGET_SECS, as before.
         cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,

@@ -978,8 +978,9 @@ failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
 the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
 `STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
-need. A video slot's run has its own time, `STUDIO_VIDEO_BUDGET_SECS`
-(3600), used there instead of `STUDIO_BUDGET_SECS`.
+need. A video slot whose formats include remake has its own time,
+`STUDIO_VIDEO_BUDGET_SECS` (3600), used there instead of `STUDIO_BUDGET_SECS`;
+a skit-only slot keeps `STUDIO_BUDGET_SECS`.
 
 A remake (`remake` in `STUDIO_FORMATS`; off by default, and `hands/video
 remake-keys` refuses every one until the operator sets
@@ -1025,8 +1026,22 @@ lines, plus):
   mascot or a yellow robot, a token, a wallet or investing (`ENDORSE_SHOT`);
   `teeny` may not name the figure, have anyone look at, touch, hold, hand,
   hug, talk to or react to Teeny, or carry text, a coin, a ticker, a logo or a
-  link. The viewer refuses any frame where a person looks at, touches or holds
-  the yellow character (`interacts`).
+  link: no text of any kind, no money, cash or bills, no `TINY` in any case,
+  no sign, banner, sticker or print. It faces the skit screens too
+  (`NOT_A_FIGURE`, `REAL_CLAIM`, `HARM`), and never relates Teeny to a person
+  (role nouns, pronouns, "together", "both"). The viewer refuses any frame
+  where a person looks at, touches, holds, stands or poses with the yellow
+  character (`interacts`), or where it carries or wears text, a coin, cash, a
+  ticker or a logo (`marked`); the judge has its own `teeny_mark` rule.
+- **Nobody named beyond the figures.** No prompt, premise or logline names a
+  person who is not in `figures`: no capitalised personal name, and nobody
+  else the story names (a surname alone counts outside a Title Case
+  headline). The judge refuses anyone named beyond `figures` (`figure`).
+- **The post names the original.** The words carry the source's title
+  (hashtags and emoji aside: the whole of a short one, or four words in a
+  row) or its creator, in words (`credit`). Every match reads the text
+  NFKC-normalised, with zero-width characters removed and Cyrillic and Greek
+  lookalikes read as Latin.
 - **The source lines.** Never news, tragedy or real-harm footage, minors,
   anything sexual or violent, or an identifiable private person at its centre.
 - **Unbranded.** Every edit says unbranded or no logos (the image model drew
@@ -1048,10 +1063,13 @@ never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
 remake` with the study's `audio` as its `sound` (null when it has none), the
 labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
 true and an "AI parody" label), the cut's viewer, `hands/x upload`. Whenever keys were bought and no cut comes back (the keys' viewer refuses, the time floor after the keys, `video remake` refusing, failing, in `DRY_RUN` or answering no file, or the wrong number of keys) `hands/video remake-drop` releases the remake's unspent reservation, best effort, so the day's media budget is not held for every other hand; a failed release is a warning. Its words never go out without the video. Time:
-a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
-s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
-wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never
-into those last 900 s. A failed video drops the rest of its format and costs
+a remake's keys and video together take at most `STUDIO_REMAKE_SECS` (1200)
+and never the run's last `REMAKE_TAIL_SECS` + `SKIT_CUT_SECS` (900 + 300 s:
+the cut, then the cut's viewer, the upload and the post), and one is not
+started with under `REMAKE_MIN_SECS` (540); the keys wait at most 300 s; the
+video waits what the remake's own time has left after its keys, less its cut,
+at most `STUDIO_SKIT_SECS` and at least 120 s, so a paid video never dies for
+lack of time. A failed video drops the rest of its format and costs
 none of the fallback budget; the other video format gets one attempt, its best
 draft, only when the failure bought nothing (no `asset`, no `remake_id`) and
 its own time floor still holds; otherwise the slot falls to words. The slot

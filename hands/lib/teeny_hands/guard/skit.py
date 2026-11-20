@@ -105,7 +105,7 @@ HARM = re.compile(
     r"seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|kiss(es|ing)?|grop\w*|"
     r"gun|guns|rifle|pistol|firearm|bullet|knife|stab\w*|blood\w*|gore|wounds?|wounded|injur\w*|beat(s|en|ing)? up|"
     r"punch(es|ed|ing)?|kick(s|ed|ing)? (him|her|them)|strangl\w*|chok(e|es|ed|ing)|hang(s|ed|ing)? (him|her)|"
-    r"noose|execut\w*|behead\w*|tortur\w*|assault\w*|attack(s|ed|ing)? (him|her|them)|kill\w*|murder\w*|"
+    r"noose|execut(e|es|ed|ing|ions?|ioners?)|behead\w*|tortur\w*|assault\w*|attack(s|ed|ing)? (him|her|them)|kill\w*|murder\w*|"
     r"dead|dies|dying|died|death|corpse|funeral|coffin|grave|suicid\w*|overdos\w*|"
     r"drugs?|cocaine|heroin|meth|weed|marijuana|pills|high on|drunk|wasted|"
     r"cancer|disease|sick|illness|hospital|ambulance|"
