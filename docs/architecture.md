@@ -822,6 +822,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        + 3 wildcards: strangers' premises from hands/chan sparks (STUDIO_CHAN=0 turns it off)
    then hands/story desk: what Teeny brings to it
    video slot with remake on: hands/remake charts (popular short videos; none only drops the remake option)
+   video slot with khaby on: hands/khaby find (his videos; none only drops the khaby option)
                 │
    writer: 12 pitches, each hooked to a story or naming an item ──> 3 drafts x the best 3
        (2 of the 3 hooked; in a video slot the best skit, remake and other) ──> 280 + unsourced-number screen
@@ -849,6 +850,11 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        ──> hands/video remake (one take with its own sound, labelled) ──> hands/guard view-remake
        stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
        nothing was bought, else the words)
+   khaby only: logline, every edit and motion past the guard ──> hands/guard khaby (code's hard lines, the
+       timeline's gate, then the judge) ──> hands/video khaby keys (each reaction's first frame, Teeny in his place)
+       ──> hands/khaby used ──> hands/guard view-khaby stage keys (fails: hands/video khaby drop) ──> hands/video
+       khaby render (setup kept, reactions animated, the source's sound, labelled) ──> hands/guard view-khaby
+       stage cut ──> hands/x upload
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -990,7 +996,7 @@ failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
 the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
 `STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
-need. A video slot whose formats include remake has its own time,
+need. A video slot whose formats include remake or khaby has its own time,
 `STUDIO_VIDEO_BUDGET_SECS` (3600), used there instead of `STUDIO_BUDGET_SECS`;
 a skit-only slot keeps `STUDIO_BUDGET_SECS`.
 
@@ -1024,8 +1030,8 @@ the original's title and creator and every shot's edit, motion and teeny,
 and is told what a remake is and its only lines (`REMAKE_EDITOR`,
 `REMAKE_FINAL`).
 
-`hands/khaby` is the same ingest side for a Khaby Lame video, not yet a
-studio format: `find` lists his account (`KHABY_ACCOUNTS`) through the
+`hands/khaby` is the same ingest side for a Khaby Lame video, read by the
+`khaby` format (below): `find` lists his account (`KHABY_ACCOUNTS`) through the
 ingest service as `remake charts` lists TikTok accounts, and `dissect`
 fetches one video with the study's fetch-and-pull code (`remake/source.py`)
 and sends it whole to a video-input model (`KHABY_DISSECT_MODEL`, no default
@@ -1119,10 +1125,46 @@ comes back now rather
 than when `release_stale` expires it two hours later; the attempt keeps the
 answer as `dropped`, and a drop that fails is only a warning.
 
+A khaby (`khaby` in `STUDIO_FORMATS`; off by default, and `hands/video khaby
+keys` refuses every one until the operator sets `MEDIA_KHABY_MAX_PER_DAY`;
+`bin/lib/formats/khaby.py`) answers a Khaby Lame video: his silly,
+over-complicated setup clip is kept exactly as filmed and his wordless
+deadpan reaction is re-made with Teeny standing in his place, the post's
+words joining it to a trending story. Only in a video slot, as a remake: his
+videos are found at the start of the run (`hands/khaby find`, a read; none
+found only drops the option, with a warning), and a khaby pitch names one as
+its `item` and a trending story as its `hook`. Before its writer turn the
+video is dissected (`hands/khaby dissect`, a paid read, at most
+`KHABY_DISSECTS` (2) a run) and held to `guard.khaby.timeline_gate`
+(`usable`, every flag reported and false, a reaction to re-make, an account
+to credit); one refused hands its place to the next khaby pitch. The writer
+is told the timeline as untrusted data (the title, the account, the joke,
+each segment's role, length and `what`, his beats) and returns `{text, khaby:
+{logline, segments: [{n, edit, motion}]}}` for exactly the timeline's
+reaction segments; the studio, never the writer, sets the source, the
+dissect, the aspect, the story, the setup and each reaction's length from the
+timeline (`khaby_of`). The hard lines (`hands/guard khaby`,
+`guard/khaby.py`, on the skit's and the remake's lists): Teeny alone in the
+man's place, nobody else drawn in; no real person named or drawn (Khaby
+never named in what a model is told, nor anyone the story names); nothing
+sexual, violent or degrading; no token, price or product; the words never
+call it real, carry no link or handle, and credit the source account by its
+name, in words. They run in code before the tournament, in code and through
+the judge (a row in `khaby_checks`) before any money, and through the viewer
+(`hands/guard view-khaby`: the keyframes with Teeny on model in each; the cut
+with the label on at least half its frames and Teeny on model in at least
+one, its `looks_real` asked of the made part only, since the setup is
+real footage). The producer (`_make_khaby`) is the remake's order on
+`hands/video khaby keys`, `hands/khaby used`, `hands/video khaby render
+{khaby_id}` and `hands/video khaby drop` (every path that ends after keys
+were bought and before the render), with `STUDIO_KHABY_SECS` (1200) and the
+remake's floor. The record keeps `khaby_finds`, `studies` and
+`published.khaby`; the post carries `format: khaby`.
+
 ### Formats
 
 Each video format is one module in `bin/lib/formats/` (`skit.py`,
-`remake.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
+`remake.py`, `khaby.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
 `formats.REGISTRY` lists them in order; `VIDEO_FORMATS` is
 `tuple(formats.REGISTRY)`. `bin/lib/studio.py` holds no `if fmt == ...` of
 its own: wherever a video format matters it walks the registry, which it
@@ -1139,7 +1181,10 @@ a failed one). A format made from things it reads itself also gives
 drops it from the run's formats), `sources_name`, `sources_part` (the pitch
 turn's list), `foreign_item`, `item_is_source`, `prepare` with
 `prepare_max` and `prepare_full` (a remake's study, capped a run) and
-`study_part` (the draft turn's section). The `Room` the hooks are handed,
+`study_part` (the draft turn's section). `always_named` (false for khaby)
+keeps a later format out of the lists the studio says whether or not one of
+it is at hand (the compare turn's `judge_line`s, a video slot's note on none
+pitched), so the prompts of a run that does not offer it stay as they were. The `Room` the hooks are handed,
 its hand calls and the required gate `_judge` live in
 `bin/lib/studio_room.py`, so a format imports them without importing the
 studio; `studio.py` re-exports them and every format name it had

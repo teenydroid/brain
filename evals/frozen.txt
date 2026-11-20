@@ -180,6 +180,12 @@ hands/tests/test_studio_skit.py
 hands/tests/guard/test_remake.py
 hands/tests/guard/test_viewer_remake.py
 hands/tests/test_studio_remake.py
+# Khaby videos keep a stranger's real setup and put Teeny in his place: the
+# tests that pin their hard lines (the guard's screen and judge, the
+# timeline's gate, the viewer on the keyframes and the cut) and the studio's
+# order, the drop and the credit are the operator's too.
+hands/tests/guard/test_khaby.py
+hands/tests/test_studio_khaby.py
 # Clips and songs: renders on the reel service and buys music under the
 # media caps, so the entry point and its library are the operator's, like
 # the wallet's.

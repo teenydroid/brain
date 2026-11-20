@@ -184,7 +184,7 @@ class RegistryTest(unittest.TestCase):
     def test_the_registry_holds_skit_then_remake_and_drives_the_video_formats(self):
         import formats
 
-        self.assertEqual(list(formats.REGISTRY), ["skit", "remake"])
+        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby"])
         for name, fmt in formats.REGISTRY.items():
             self.assertIsInstance(fmt, formats.Format)
             self.assertEqual(fmt.name, name)
