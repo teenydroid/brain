@@ -117,6 +117,65 @@ def build() -> dict:
                                                        opening=studio.REMAKE_SLOT_OPENING)
     for fmt in ALL:
         out[f"shown:{fmt}"] = json.dumps(studio.shown(d[fmt]), ensure_ascii=False, sort_keys=False)
+    out.update(results())
+    return out
+
+
+PITCHES = [
+    {"id": "p1", "format": "remake", "item": "chart:tt:v1", "hook": "trend:t1", "angle": "a"},
+    {"id": "p2", "format": "remake", "item": "chart:tt:v1", "angle": "a"},
+    {"id": "p3", "format": "remake", "item": "evt:1", "hook": "trend:t1", "angle": "a"},
+    {"id": "p4", "format": "remake", "hook": "trend:old", "item": "chart:tt:v1", "angle": "a"},
+    {"id": "p5", "format": "post", "item": "chart:tt:v1", "hook": "trend:t1", "angle": "a"},
+    {"id": "p6", "format": "skit", "item": "evt:1", "angle": "a"},
+    {"id": "p7", "format": "skit", "item": "evt:1", "hook": "trend:old", "angle": "a"},
+    {"id": "p8", "format": "skit", "hook": "trend:t1", "angle": "a", "shape": "Tall-Tale"},
+    {"id": "p9", "format": "skit", "item": "chart:tt:v1", "hook": "trend:t1", "angle": "a"},
+    {"id": "p10", "format": "song", "item": "evt:1", "angle": "a"},
+    {"id": "p11", "format": "post", "item": "trend:t1", "angle": "a", "storyline": "rent"},
+    {"id": "p12", "format": "thread", "item": "evt:1", "angle": "a"},
+]
+
+
+def results() -> dict:
+    """What the per-format checks decide on fixed inputs: the pitches kept
+    and dropped with why, each format's drafts kept and dropped, the screen,
+    the drafted pitches of a video slot, and the record of a video."""
+    known = {"evt:1", "trend:t1", "chart:tt:v1"}
+    kept, dropped, ranked = studio.validate_pitches(
+        {"pitches": PITCHES, "ranking": ["p8", "p1"]}, known, {"rent"}, ALL, 12, {"evt:1": "rent"},
+        outside={"trend:t1"}, charts={"chart:tt:v1"})
+    out = {"validate_pitches": json.dumps([kept, dropped, ranked], ensure_ascii=False)}
+    raws = {"skit": [{"text": skit_t.WORDS, "skit": skit_t.RAW, "meaning": "m", "open_question": "q"},
+                     {"text": skit_t.WORDS, "skit": {**skit_t.RAW, "premise": ""}},
+                     {"text": skit_t.WORDS, "skit": {**skit_t.RAW, "score": ""}},
+                     {"text": skit_t.WORDS}],
+            "remake": [{"text": remake_t.WORDS, "remake": remake_t.RAW, "meaning": "m"},
+                       {"text": remake_t.WORDS, "remake": {**remake_t.RAW, "shots": remake_t.SHOTS[:1]}},
+                       {"remake": remake_t.RAW}]}
+    for fmt, study in (("skit", None), ("remake", remake_t.STUDY), ("remake-no-study", None)):
+        base = fmt.split("-")[0]
+        got = studio.validate_drafts({"drafts": copy.deepcopy(raws[base])},
+                                     {**(skit_t.PITCH if base == "skit" else remake_t.PITCH)}, 2, study)
+        out[f"validate_drafts:{fmt}"] = json.dumps(got, ensure_ascii=False)
+    d = drafts()
+    near = copy.deepcopy(d["remake"])
+    near["remake"]["shots"][0]["teeny"] = "Teeny hands Jensen Huang a spatula from the shelf"
+    tiny = copy.deepcopy(d["skit"])
+    tiny["text"] = skit_t.WORDS + " buy $TINY"
+    screened = {fmt: studio.screen(draft, draft.get("truth", {}).get("facts") or [ITEM], [])
+                for fmt, draft in {**d, "remake-near": near, "skit-tiny": tiny}.items()}
+    out["screen"] = json.dumps(screened, ensure_ascii=False)
+    by_id = {"p1": {"format": "post", "hook": "trend:a"}, "p2": {"format": "post", "hook": "trend:b"},
+             "p3": {"format": "thread", "hook": None}, "p4": {"format": "skit", "hook": "trend:c"},
+             "p5": {"format": "remake", "hook": "trend:d"}, "p6": {"format": "remake", "hook": "trend:e"}}
+    chosen = [studio.choose_drafted(order, by_id, top, True, video_first=True)
+              for order, top in ((["p1", "p2", "p3", "p6", "p4", "p5"], 3), (["p1", "p2", "p3"], 3),
+                                 (["p5", "p1"], 2), (["p4", "p1", "p2"], 3))]
+    out["choose_drafted"] = json.dumps(chosen, ensure_ascii=False)
+    note = {"remake_id": "r1", "asset": 9, "models": ["m"], "cost_usd": 1.58, "label": "AI parody", "planned": False}
+    out["outcome:skit"] = json.dumps(studio.skit_outcome(d["skit"], note, "post-1"), ensure_ascii=False)
+    out["outcome:remake"] = json.dumps(studio.remake_outcome(d["remake"], note, None), ensure_ascii=False)
     return out
 
 
