@@ -324,7 +324,6 @@ def _give_back(row: int, asked: bool) -> None:
         ledger.release(row)
 
 
-
 def _assemble(study_id: str, url: str, got: Json, source: Json, reading: Json | None, failure: str, spend: Any,
               screened: list[str]) -> Json:
     reasons = []
