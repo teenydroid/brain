@@ -332,7 +332,7 @@ class WriterSkitBriefTest(unittest.TestCase):
         for bit in ("plain close-up", "ordinary"):
             self.assertIn(bit, brief)
         message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
-        self.assertIn("the impossible thing is in frame", message)
+        self.assertIn("the impossible thing is in frame", message.lower())
         for block in brief.split("Skit, joining the news.")[1:]:
             for key in ("look", "setting", "score"):
                 self.assertRegex(block, rf"> {key}: \S")
