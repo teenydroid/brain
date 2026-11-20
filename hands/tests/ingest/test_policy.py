@@ -105,8 +105,10 @@ class ArgvTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(argv[0], "yt-dlp")
                 self.assertFalse({"sh", "bash", "-c", "/bin/sh"} & set(argv))
+                url = argv[-1]
                 for word in argv[:-2]:
-                    self.assertNotIn("http", word.split("=")[-1].lower().split(":")[0] if word.startswith("--") else "")
+                    self.assertNotIn(url, word)
+                    self.assertFalse(word.startswith("https://") and word != "https://x")
 
     def test_the_safety_options_are_always_there(self):
         for name, argv in self.every().items():
