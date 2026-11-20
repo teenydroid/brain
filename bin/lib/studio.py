@@ -1422,6 +1422,7 @@ def shown(draft: Json) -> Json:
     if draft.get("skit"):
         out["skit"] = {"figures": draft["skit"].get("figures") or [], "premise": draft["skit"].get("premise"),
                        "logline": draft["skit"].get("logline"),
+                       **{k: draft["skit"][k] for k in SKIT_HELD if draft["skit"].get(k)},
                        "shots": [s.get("prompt") for s in draft["skit"].get("shots") or []]}
     if draft.get("remake"):
         remake = draft["remake"]
@@ -2165,7 +2166,7 @@ def _make_meme(room: Room, draft: Json, note: Json, truth: bool = True) -> list[
 
 SKIT_PITCH = ("A skit is a post with a short AI-made parody video: take one of the trending stories and stage the "
               "public figure it is about (the executive, the politician, the celebrity in the headline) in an "
-              "obviously impossible, absurd, expensive-looking scene, one to four cinematic shots. Its premise is "
+              "obviously impossible, absurd, expensive-looking scene, three or four cinematic shots. Its premise is "
               "what that figure really did or claimed in the story, pushed to an impossible end: \"X did Y, so X "
               "now does Z\", never a pun on a word in the headline. Pitch one when a story has a famous face and a "
               "picture in it so ridiculous a stranger would stop scrolling. A skit always has a hook.")
@@ -2175,28 +2176,36 @@ SKIT_SLOT_LINE = ("This is a skit slot. Pitch at least three skits on the bigges
 SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the public figure(s) from the story, '
               'as the story names them>"], "premise": "<one line: what they really did or claimed in the story, '
               'so what they do in the video>", "logline": "<one line: the impossible scene and its joke>", '
-              '"shots": [{"prompt": "<one shot, rendered alone: the figure\'s full name, wardrobe, prop and '
-              'setting again, lens and light and look, the one thing they do, at most one short spoken line in '
-              'quotes, the sound>", "seconds": <3 to 10, optional>}, "... 1 to 4 shots: set-up, consequence, '
+              '"look": {"<each figure, as in figures>": "<one line: hair, glasses, wardrobe, the prop they hold, '
+              'the same in every shot>"}, "setting": "<one line: the one place, its light, the lens and the film '
+              'look>", "score": "<one line: the one piece of music or sound bed under the whole film>", '
+              '"shots": [{"prompt": "<one shot: the framing, the figure\'s full name and the one thing they do, '
+              'at most one short spoken line in quotes, spot sound effects; never the look, the setting or any '
+              'music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
               'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
-SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of one to four shots "
-             "(each a few seconds) that stages the public figure from the news in an obviously impossible scene. "
-             "Start from the premise, not a pun: what the figure really did or claimed in the story, pushed to "
-             "its impossible conclusion, said in one sentence (\"X did Y, so X now does Z\"). The figure drives "
-             "every shot: they act, never stand and watch the scenery. Three beats with cause and effect: the "
-             "first shot sets up the real thing so plainly that someone with the sound off and no caption gets "
-             "what the story is; the second is its consequence, escalating; the last is the payoff that follows "
-             "from the first two, never a new unrelated picture. The video model renders each shot alone and "
-             "remembers nothing, so every shot prompt says again the figure's full name, the same wardrobe, the "
-             "same key prop and the same setting thread. One action a shot that fits its seconds, and at most "
-             "one short spoken line (about six words). The video is where the money is: write each shot as a "
-             "film director briefs a cinematographer, in rich concrete words: the set (expensive, specific, "
-             "absurd: a marble boardroom on the ocean floor, a gold-plated launch pad in a cathedral), the lens "
-             "and the light (anamorphic wide, macro, dolly in, low angle, golden hour, neon rim light, film "
-             "grain, shallow depth of field), the action and its visual gag, and the sound it makes. The shots "
-             "escalate: the second is bigger than the first, the last is the most absurd, loud and lavish. The "
-             "post's own words say what the story is in a clause and frame the video as your parody, never as "
-             "real footage")
+SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of three or four shots "
+             "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
+             "The video is made as one take: one film of up to 20 seconds in all, its shots joined by hard cuts, "
+             "with the same face, the same set and one continuous score throughout. Start from the premise, not a "
+             "pun: what the figure really did or claimed in the story, pushed to its impossible conclusion, said "
+             "in one sentence (\"X did Y, so X now does Z\"). The figure drives every shot: they act, never stand "
+             "and watch the scenery. The impossible thing is in frame in every shot: never a plain close-up of the "
+             "figure, and never an ordinary room or street that could pass for real footage. Three beats with cause and effect: the first shot sets up the real thing so "
+             "plainly that someone with the sound off and no caption gets what the story is; the second is its "
+             "consequence, escalating; the last is the payoff that follows from the first two, never a new "
+             "unrelated picture. What holds across the film is said once, as data: `look`, one line a figure "
+             "(hair, glasses, wardrobe, the prop they hold); `setting`, one line (the one place, its light, the "
+             "lens, the film look); `score`, one line (the single piece of music or sound bed under the whole "
+             "film). The shots then say only what changes: the framing, the figure's full name and the one thing "
+             "they do, at most one short spoken line (about six words), and spot sound effects. No shot brings "
+             "its own music: the score is the only music. One action a shot that fits its seconds. The video is "
+             "where the money is: write the setting and each shot as a film director briefs a cinematographer, "
+             "in rich concrete words: the set (expensive, specific, absurd: a marble boardroom on the ocean "
+             "floor, a gold-plated launch pad in a cathedral), the lens and the light (anamorphic wide, macro, "
+             "dolly in, low angle, golden hour, neon rim light, film grain, shallow depth of field), the action "
+             "and its visual gag, and the sound it makes. The shots escalate: the second is bigger than the "
+             "first, the last is the most absurd, loud and lavish. The post's own words say what the story is "
+             "in a clause and frame the video as your parody, never as real footage")
 SKIT_RULES = (
     "The skit's own rules, on top of those (a skit is the one place a real person is staged, and only like this):\n"
     "- Only the public figure the story is about: the executive, the politician, the celebrity in the "
@@ -2217,8 +2226,19 @@ SKIT_RULES = (
 #: its cut may take on the reel service.
 SKIT_RESERVE_SECS = 600
 SKIT_CUT_SECS = 300
+#: The longest shot the studio hands on, in seconds (`skit_of`). A longer
+#: `seconds` is cut to this, never refused: on kling-v3-pro a 6 s shot
+#: quoted $0.7215 (about $1.44 reserved, under MEDIA_SKIT_MAX_USD_PER_SHOT's
+#: $1.60) while an 8 s one needed $1.924 reserved, which
+#: hands/lib/teeny_hands/media/skits.py cancels, failing the whole skit to a
+#: text fallback; every other model is priced about the same (2026-11-20).
+SKIT_SHOT_MAX_SECS = 6
 #: The longest premise kept (`skit_of`): one line.
 SKIT_PREMISE_MAX = 300
+#: What a skit holds as data across its whole film (`skit_of` requires them;
+#: the guard's shape checks and keeps them): each figure's look, the
+#: setting, the score.
+SKIT_HELD = ("look", "setting", "score")
 #: The most skits a skit slot asks the slot question of, best first, before
 #: it turns to the other formats (`room_run`).
 SKIT_FINALS = 3
@@ -2278,6 +2298,9 @@ def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
     figure really did, so what they do in the video) is the studio's, not
     the guard's: it is shown to the editor and never rendered or posted."""
     skit, bad = _skit_rules().shape(raw)
+    for shot in skit.get("shots") or []:
+        if shot.get("seconds", 0) > SKIT_SHOT_MAX_SECS:
+            shot["seconds"] = SKIT_SHOT_MAX_SECS
     premise = raw.get("premise") if isinstance(raw, dict) else None
     premise = " ".join(premise.split()) if isinstance(premise, str) else ""
     if premise:
@@ -2287,6 +2310,15 @@ def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
                "they do in the video")
     elif not bad and len(premise) > SKIT_PREMISE_MAX:
         bad = f"a skit's premise is one line of at most {SKIT_PREMISE_MAX} characters"
+    if not bad:
+        missing = [f for f in skit.get("figures") or [] if f not in (skit.get("look") or {})]
+        if missing or not skit.get("look"):
+            bad = ("a skit needs a look for each figure: one line, hair, glasses, wardrobe and prop, the same in "
+                   "every shot" + (f" (none for {', '.join(missing)})" if missing else ""))
+        elif not skit.get("setting"):
+            bad = "a skit needs its setting: one line, the one place, its light and lens, for the whole film"
+        elif not skit.get("score"):
+            bad = "a skit needs its score: one line, the one piece of music under the whole film"
     if pitch.get("hook"):
         skit["story"] = pitch["hook"]
     elif not bad:
@@ -2307,12 +2339,25 @@ def _make_skit(room: Room, draft: Json, note: Json) -> list[str] | None:
         note["failed"] = "the draft has no skit, or no story it stages"
         return None
     # Every word a video model is told is past the guard's screen and judge,
-    # as a scene is (the `task` surface).
-    for n, text in enumerate([skit["logline"], *shots]):
+    # as a scene is (the `task` surface): the logline, each constant, each
+    # shot, and the prompts hands/video composes from them (the one-take
+    # script, with the shots' own lengths, and each per-shot prompt, its
+    # fallback), built by the same guard code it uses.
+    rules = _skit_rules()
+    try:
+        composed = [rules.script(skit), *(rules.shot_prompt(skit, n) for n in range(len(shots)))]
+    except (KeyError, TypeError, AttributeError):
+        note["failed"] = "the draft's skit could not be composed into a script"
+        return None
+    texts = [("logline", skit["logline"]), *((f"look of {k}", v) for k, v in (skit.get("look") or {}).items()),
+             *((k, skit[k]) for k in ("setting", "score") if skit.get(k)),
+             *((f"shot {n}", t) for n, t in enumerate(shots, 1)), ("one-take script", composed[0]),
+             *((f"shot {n} prompt", t) for n, t in enumerate(composed[1:], 1))]
+    for what, text in texts:
         code, checked = room.budgeted(["guard", "check"], {"text": text, "surface": "task"}, 120)
         if not (code == 0 and isinstance(checked, dict) and isinstance(checked.get("text"), str)):
-            note.update(failed="the guard held its " + ("logline" if n == 0 else f"shot {n}"),
-                        guard=_brief(checked, "refused", "rule", "category", "error"))
+            note.update(failed=f"the guard held its {what}", guard=_brief(checked, "refused", "rule", "category",
+                                                                           "error"))
             return None
     # The hard lines for real people: code's screen, then the skit judge, on
     # the logline, every shot and the words that would go out with it. Before
@@ -2331,7 +2376,8 @@ def _make_skit(room: Room, draft: Json, note: Json) -> list[str] | None:
         note["failed"] = f"not enough of the run's time left to render a skit ({room.left()} s)"
         return None
     body = {"shots": skit["shots"], "aspect": skit.get("aspect") or "16:9", "story": skit["story"],
-            "figures": skit.get("figures") or [], "logline": skit["logline"], "wait_seconds": int(wait)}
+            "figures": skit.get("figures") or [], "logline": skit["logline"], "wait_seconds": int(wait),
+            **{k: skit[k] for k in SKIT_HELD if skit.get(k)}}
     code, made = room.budgeted(["video", "skit"], body, int(wait) + SKIT_CUT_SECS + 300, dry=False)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
@@ -2420,8 +2466,9 @@ REMAKE_RULES = (
     "- Only the public figure the story is about, named as the story names them, and only in the place of a person "
     "in the original. Never a private person, a child, a family member, or someone who is only a victim or a "
     "bystander in the story; everyone else in the original becomes a generic extra.\n"
-    "- Impossible on its face, in every shot, beyond you being there: something in the scene no camera could have "
-    "filmed. Nothing a viewer could take for real footage, a real statement or a real event.\n"
+    "- The impossible thing is in frame, every shot, beyond you being there: something in the scene itself no "
+    "camera could have filmed, in the edited frame, never left to the motion. Never only the figure's face in an "
+    "ordinary room: that frame alone could pass for real footage of a real person, and the viewer check refuses it.\n"
     "- You are a bystander. Each `edit` and `motion` never mentions Teeny, the mascot or a yellow robot: you live "
     "only in `teeny`, which never names the figure, never has anyone look at, touch, hold, hand, hug, talk to or "
     "react to you (nor you them), and carries no text, coin, ticker, logo or link.\n"
