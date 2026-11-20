@@ -77,6 +77,7 @@ import time
 from typing import Any
 
 from .. import hand
+from ..guard import skit as rules
 from . import assets
 from .surplus import Surplus, SurplusError
 
@@ -84,11 +85,24 @@ Json = dict[str, Any]
 
 SKIT_MODELS = ("kling-v3-pro-text-to-video,seedance-2-0-text-to-video,wan-2-7-text-to-video,"
                "veo3-1-fast-text-to-video")
+#: The models a skit's one take is asked of, in order: only seedance-2-0 has
+#: been seen to follow a multi-shot script in one job, the same face, set and
+#: soundtrack across hard cuts (a paid test, 2026-11-20).
+ONE_TAKE_MODELS = "seedance-2-0-text-to-video"
+#: The longest one take: what the models sell (seedance 5 to 15 s).
+ONE_TAKE_MAX_SECONDS = 15
+#: max_cost_usdc a second asked, in micro-USDC, where it is verified: the
+#: take is asked for the longest length whose ceiling fits its cap before it
+#: is submitted (seedance-2-0 15 s: max 5112000, billed 1420000, 2026-11-20).
+#: A model not listed is asked as long as the shots want, and shortened by
+#: its own answer's rate when that is over the cap.
+MAX_PER_SECOND = {"seedance-2-0-text-to-video": 340800}
 ASPECTS = ("16:9", "9:16", "1:1")
 MAX_SHOTS = 4
 MAX_PROMPT = 900
 MAX_LOGLINE = 300
 MAX_FIGURES = 3
+MAX_LOOK, MAX_SETTING, MAX_SCORE = 200, 300, 200
 MAX_BYTES = 200 * 1024 * 1024
 FRAME_MAX_BYTES = 5 * 1024 * 1024
 POLL_SECONDS = 10.0
@@ -124,7 +138,8 @@ def job_of(body: Any) -> Json:
     """The skit as this hand takes it, every field checked."""
     if not isinstance(body, dict):
         raise hand.Refused("skit takes a JSON object", rule="body")
-    unknown = sorted(set(body) - {"shots", "aspect", "story", "figures", "logline", "wait_seconds", "bed"})
+    unknown = sorted(set(body) - {"shots", "aspect", "story", "figures", "logline", "wait_seconds", "bed", "look",
+                                  "setting", "score"})
     if unknown:
         raise hand.Refused(f"not taken here: {', '.join(unknown)}", rule="body")
     shots = body.get("shots")
@@ -156,8 +171,68 @@ def job_of(body: Any) -> Json:
     bed = body.get("bed")
     if bed is not None and (not isinstance(bed, str) or not bed.strip()):
         raise hand.Refused("bed is the path of a music file", rule="body")
-    return {"shots": kept, "aspect": aspect, "story": _text(body, "story", 80), "figures": [f.strip() for f in figures],
-            "logline": _text(body, "logline", MAX_LOGLINE), "wait": wait, "bed": bed}
+    figures = [f.strip() for f in figures]
+    look = body.get("look") or {}
+    if not isinstance(look, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in
+                                             look.items()):
+        raise hand.Refused("look maps a figure to one line", rule="body")
+    looks = {}
+    for name, line in look.items():
+        figure = next((f for f in figures if f.lower() == " ".join(name.split()).lower()), None)
+        if figure is None:
+            raise hand.Refused("a look is for a figure the skit names", rule="body")
+        line = " ".join(line.split())
+        if len(line) > MAX_LOOK:
+            raise hand.Refused(f"a look is at most {MAX_LOOK} characters", rule="body")
+        looks[figure] = line
+    return {"shots": kept, "aspect": aspect, "story": _text(body, "story", 80), "figures": figures,
+            "logline": _text(body, "logline", MAX_LOGLINE), "wait": wait, "bed": bed, "look": looks,
+            "setting": _text(body, "setting", MAX_SETTING, required=False),
+            "score": _text(body, "score", MAX_SCORE, required=False)}
+
+
+def _held(job: Json) -> Json:
+    """The skit as the guard's composer takes it (guard/skit.py, `script`
+    and `shot_prompt`): the same function the guard's screen runs, so what
+    is screened is what is sent."""
+    out: Json = {"figures": job["figures"], "shots": job["shots"]}
+    for key in ("look", "setting", "score"):
+        if job.get(key):
+            out[key] = job[key]
+    return out
+
+
+def take_cap(per_shot: int, shots: int) -> int:
+    """The most one take may cost: what the shots it replaces may."""
+    return per_shot * shots
+
+
+def fit(asked: int, cap: int, sold: list[int] | None, rate: int | None) -> int | None:
+    """The take's length: the longest the model sells, at most `asked` and
+    ONE_TAKE_MAX_SECONDS, whose ceiling (`rate` a second, when known) fits
+    under `cap`; the least it sells when even `asked` is under that, if
+    that fits. None when no length fits."""
+    top = min(asked, ONE_TAKE_MAX_SECONDS)
+    lengths = sorted(set(sold)) if sold else list(range(1, top + 1))
+    fits = [t for t in lengths if rate is None or t * rate <= cap]
+    under = [t for t in fits if t <= top]
+    if under:
+        return under[-1]
+    return fits[0] if fits and fits[0] <= ONE_TAKE_MAX_SECONDS and not [t for t in lengths if t <= top] else None
+
+
+def split(total: int, asked: list[int]) -> list[int]:
+    """`total` seconds shared among the shots in proportion to what each
+    asked (largest remainder; a tie goes to the later shot, the payoff)."""
+    whole = sum(asked)
+    if whole == total:
+        return list(asked)
+    exact = [total * a / whole for a in asked]
+    out = [int(x) for x in exact]
+    order = sorted(range(len(asked)), key=lambda i: (-(exact[i] - out[i]), -i))
+    for i in order[:total - sum(out)]:
+        out[i] += 1
+    return out
 
 
 def _params() -> dict[str, Json]:
@@ -249,10 +324,11 @@ def _count_today(conn) -> int:
     ).fetchone()["n"]
 
 
-def _claim(job: Json, per_shot: int, limit: int, the_label: str) -> tuple[int, list[int]]:
+def _claim(job: Json, per_shot: int, limit: int, the_label: str, take: bool = False) -> tuple[int, list[int]]:
     """The caps, then the skit's row and a row a shot carrying its
-    reservation, under the media lock, so every other media hand's budget
-    check sees the money from here on."""
+    reservation (or, for one take, one row carrying all the shots'), under
+    the media lock, so every other media hand's budget check sees the money
+    from here on."""
     from .. import runway
 
     with hand.lock("media"):
@@ -282,19 +358,41 @@ def _claim(job: Json, per_shot: int, limit: int, the_label: str) -> tuple[int, l
                     " VALUES ('skit', 'pending', ?, 'post', 0, 1, ?, ?)",
                     (job["logline"], json.dumps(detail, ensure_ascii=False, sort_keys=True), hand.now()),
                 ).lastrowid
-                shots = [conn.execute(
-                    "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated,"
-                    " created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
-                    (shot["prompt"], skit_id, per_shot, hand.now()),
-                ).lastrowid for shot in job["shots"]]
+                if take:
+                    return skit_id, [_shot_row(conn, skit_id, rules.script(_held(job)), need)]
+                held = _held(job)
+                shots = [_shot_row(conn, skit_id, rules.shot_prompt(held, n), per_shot) for n in range(len(job["shots"]))]
             return skit_id, shots
         finally:
             conn.close()
 
 
+def _shot_row(conn, skit_id: int, prompt: str, reserve: int) -> int:
+    return conn.execute(
+        "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated,"
+        " created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
+        (prompt, skit_id, reserve, hand.now()),
+    ).lastrowid
+
+
+def _swap(conn, skit_id: int, take_row: int, job: Json, per_shot: int, why: str) -> list[int]:
+    """One take that could not be had, for a row a shot: in one transaction
+    under the media lock, so the money held never drops below what the
+    shots reserve (the take held all of it)."""
+    held = _held(job)
+    with hand.lock("media"):
+        with hand.transaction(conn):
+            conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE id = ?",
+                         (why[:1000], hand.now(), take_row))
+            return [_shot_row(conn, skit_id, rules.shot_prompt(held, n), per_shot) for n in range(len(job["shots"]))]
+
+
 class _Shot:
-    def __init__(self, n: int, row: int, prompt: str, seconds: int, models: list[str]) -> None:
+    def __init__(self, n: int, row: int, prompt: str, seconds: int, models: list[str], name: str | None = None) -> None:
         self.n, self.row, self.prompt, self.seconds = n, row, prompt, seconds
+        self.name = name or f"shot-{n}"
+        self.extra: Json = {}
+        self.timed_out = False
         self.models = list(models)
         self.tried: list[str] = []
         self.model: str | None = None
@@ -369,12 +467,71 @@ def _submit(api: Surplus, conn, skit_id: int, shot: _Shot, aspect: str, per_shot
     return False
 
 
-def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per_shot: int, params: dict[str, Json],
-          wait: int, sleep, clock, sold: dict[str, list[int]] | None = None) -> None:
+def _submit_take(api: Surplus, conn, skit_id: int, take: _Shot, job: Json, cap: int, params: dict[str, Json],
+                 sold: dict[str, list[int]] | None = None) -> bool:
+    """The one take on the next one-take model that takes it, at the longest
+    length whose ceiling fits `cap`; False when none is left (the caller
+    falls back to one job a shot). A job whose max_cost_usdc is still over
+    the cap is cancelled and asked once more, shortened at that job's own
+    rate. A seller's trouble, a content refusal or a request the model will
+    not take (400, 413, 422) moves to the next model, since the per-shot
+    render may still be had; no credit or a bad key stops the skit."""
+    style = (hand.setting("MEDIA_SKIT_STYLE") or "").strip()
+    asked = [s["seconds"] for s in job["shots"]]
+    held = _held(job)
+    while take.models:
+        model = take.models.pop(0)
+        on_sale = (sold or {}).get(model)
+        seconds = fit(sum(asked), cap, on_sale, MAX_PER_SECOND.get(model))
+        if seconds is None:
+            take.tried.append(f"{model}: no length it sells fits the ${cap / 1e6:.2f} cap")
+            continue
+        retried = False
+        while seconds is not None:
+            lengths = split(seconds, asked)
+            prompt = rules.script(held, lengths, style)
+            try:
+                answer = api.call("POST", "/v1/video/generations",
+                                  request_body(model, prompt, seconds, job["aspect"], params), timeout=60,
+                                  headers={"idempotency-key": f"teeny-skit-{skit_id}-take-{model}-{seconds}s"})
+            except SurplusError as exc:
+                if exc.status in assets.FALLBACK_STATUSES or exc.status is None:
+                    take.tried.append(f"{model}: {exc}")
+                elif exc.status in REFUSAL_STATUSES and _refusal(str(exc)):
+                    take.tried.append(f"{model}: refused ({exc})")
+                elif exc.status in (400, 413, 422):
+                    take.tried.append(f"{model}: would not take the script ({exc})")
+                else:
+                    take.tried.append(f"{model}: {exc}")
+                    raise _Stop(f"the one take: {exc}") from None
+                break
+            job_id = str((answer or {}).get("id") or "") if isinstance(answer, dict) else ""
+            if not job_id:
+                take.tried.append(f"{model}: the answer named no job")
+                break
+            estimate = _micros(answer.get("estimated_cost_usdc"))
+            most = _micros(answer.get("max_cost_usdc"))
+            charge = most if most is not None else estimate
+            if charge is not None and charge > cap:
+                _cancel(api, job_id)
+                take.tried.append(f"{model}: {seconds} s up to ${charge / 1e6:.3f}, over the ${cap / 1e6:.2f} cap")
+                shorter = fit(seconds - 1, cap, on_sale, -(-charge // seconds)) if seconds > 1 and not retried else None
+                seconds, retried = shorter, True
+                continue
+            take.model, take.job, take.asked, take.prompt = model, job_id, seconds, prompt
+            take.cost = charge if charge is not None else cap
+            take.extra = {"one_take": True, "lengths": lengths, "shots": len(asked)}
+            _set(conn, take.row, model=model, job_id=job_id, cost_micro=take.cost, estimated=1, prompt=prompt,
+                 detail=json.dumps({"seconds": seconds, "tried": take.tried, **take.extra}, ensure_ascii=False))
+            return True
+    return False
+
+
+def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], resubmit, wait: int, deadline: float, sleep,
+          clock) -> None:
     """Every shot's job to its end: done (the file saved and the row
     finished at its real cost) or `failed` set. Any shot that cannot be made
-    cancels the rest."""
-    deadline = clock() + wait
+    cancels the rest. `resubmit(shot)` asks the shot's next model."""
     while True:
         running = [s for s in shots if s.job and not s.path and not s.failed]
         if not running or any(s.failed for s in shots):
@@ -394,7 +551,7 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per
                 _set(conn, shot.row, cost_micro=0)
                 shot.job, shot.cost = None, 0
                 if _refusal(said) or error.get("retryable", error.get("type") != "invalid_request"):
-                    if not _submit(api, conn, skit_id, shot, aspect, per_shot, params, sold):
+                    if not resubmit(shot):
                         shot.failed = "no model could make it: " + "; ".join(shot.tried)
                 else:
                     shot.failed = "; ".join(shot.tried)
@@ -406,7 +563,7 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], aspect: str, per
                     _cancel(api, shot.job)
                     shot.tried.append(f"{shot.model}: not done after {wait} s, cancelled")
                     shot.failed = f"not done after {wait} s"
-                    shot.job = None
+                    shot.job, shot.timed_out = None, True
             break
         sleep(POLL_SECONDS)
 
@@ -441,11 +598,12 @@ def _land(api: Surplus, conn, skit_id: int, shot: _Shot, status: Json, sleep=tim
         _set(conn, shot.row, cost_micro=cost, estimated=0 if actual is not None else 1, status="unknown",
              error=shot.failed, done_at=hand.now())
         return
-    path = assets._media_dir() / f"skit-{skit_id}-shot-{shot.n}.mp4"
+    path = assets._media_dir() / f"skit-{skit_id}-{shot.name}.mp4"
     path.write_bytes(data)
     shot.path, shot.cost = str(path.relative_to(hand.root())), cost
     _set(conn, shot.row, status="done", path=shot.path, cost_micro=cost, estimated=0 if actual is not None else 1,
-         done_at=hand.now(), detail=json.dumps({"seconds": shot.asked, "tried": shot.tried}, ensure_ascii=False))
+         done_at=hand.now(), detail=json.dumps({"seconds": shot.asked, "tried": shot.tried, **shot.extra},
+                                               ensure_ascii=False))
 
 
 def _end_shots(conn, shots: list[_Shot]) -> None:
