@@ -595,9 +595,12 @@ except ValueError:
 fi
 
 commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
-out="$(jq -cn --argjson checks "$report" --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+# The report goes in on stdin, never as an argument: every playbook's check
+# carries the playbook, and past 128 KiB one argument is refused by the kernel
+# ("Argument list too long"), which left no state/doctor.json at all.
+out="$(printf '%s' "$report" | jq -c --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson live "$live" --argjson failed "$failed" \
-  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: $checks}')"
+  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: .}')"
 mkdir -p "$state"
 printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$state/doctor.json"
 printf '%s\n' "$out"

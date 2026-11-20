@@ -31,6 +31,11 @@
             no money or token marker; TRUTH_FAIL_CLOSED=1 makes it a no). Off
             (TRUTH_JUDGE=0) it is truthful true with judged false, so a
             caller that needs a judgment checks `judged`
+  quote     stdin {"text", "quoted", "with"?} -> {"reacts", "reason", "judged"}:
+            whether a reader of the quoted post would read the quote as a
+            reaction to it (quote.py; hands/x peer-suggest asks). Fails OPEN:
+            off (QUOTE_JUDGE=0), unreachable or unreadable is reacts true with
+            judged false; only a clear no is reacts false
   clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
             "vague", "reason", "judged"}: whether someone who has never heard of Teeny
             could say the post back with nothing to ask about (clarity.py;
@@ -69,7 +74,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds, skit, viewer
+from . import anchor, clarity, gate, holds, quote, skit, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -127,6 +132,10 @@ def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if not isinstance(name, str) or not name.strip():
         raise hand.HandError("anchor must name the item the post is about")
     return anchor.judge(body["text"], name.strip(), body.get("inputs"))
+
+
+def quote_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    return quote.cli_body(body)
 
 
 def truth_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -346,8 +355,8 @@ def parser() -> argparse.ArgumentParser:
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
     for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
-                          ("clarity", clarity_check), ("view", view_check), ("skit", skit_check),
-                          ("view-skit", view_skit_check)):
+                          ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
+                          ("skit", skit_check), ("view-skit", view_skit_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")

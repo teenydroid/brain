@@ -195,7 +195,7 @@ environment forces a rehearsal.
 | `DRY_RUN` | On unless set to `0`. |
 | `TEENY_INBOX` | `mind` (the default): mentions and mail go to the one inbox `bin/tick` reads. `core`: the older per-surface path. |
 | `X_BOT_USERNAME`, `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`, `X_BEARER_TOKEN` | X API v2: OAuth 1.0a for writes, the bearer for reads. `X_API_SECRET` also signs the webhook. |
-| `POST_MIN_GAP_HOURS`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules. |
+| `POST_MIN_GAP_HOURS`, `X_QUOTES_MAX_PER_DAY`, `QUOTE_MIN_GAP_HOURS`, `QUOTE_AFTER_POST_MINUTES`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules (quotes have their own lane: docs/hands.md, "x"). |
 | `MAX_EMOJI_PER_POST`, `SAFETY_JUDGE`, `LINK_ALLOWLIST` | The guard. |
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
