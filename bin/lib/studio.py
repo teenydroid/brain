@@ -1188,29 +1188,24 @@ def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -
 
 def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
     """Why the draft is dropped before the tournament; "" when it is not. A
-    skit's words, logline and shots also face its hard lines in code
-    (`skit_screen`), and a remake's its own (`remake_screen`, with its
-    source's study); their shots are staging, so only their words are held
+    video's words, logline and shots also face its format's hard lines in
+    code (`Format.screen`: `skit_screen`, and a remake's `remake_screen` with
+    its source's study); its shots are staging, so only its words are held
     to the facts' numbers and days."""
     text = "\n\n".join(texts_of(draft) + meme_lines(draft))
-    skit = draft.get("skit") if draft.get("format") == "skit" else None
-    remake = draft.get("remake") if draft.get("format") == "remake" else None
-    copied = copies_example("\n\n".join([text, (skit or remake or {}).get("logline") or ""]), afters)
+    video = registry().get(draft.get("format"))
+    piece = draft.get(video.name) if video else None
+    copied = copies_example("\n\n".join([text, (piece or {}).get("logline") or ""]), afters)
     if copied:
         return f"copies an example: {copied!r}"
     loose = unsourced(text, facts)
     if loose:
         return "unsourced: " + json.dumps(loose)
-    if skit is not None:
+    if video and piece is not None:
         hook = next((f for f in facts if isinstance(f, dict) and f.get("id") == draft.get("hook")), None)
-        refused = skit_screen(skit, draft.get("text") or "", hook)
+        refused = video.screen(draft, draft.get("text") or "", hook)
         if refused:
-            return "a skit's hard line: " + "; ".join(refused)
-    if remake is not None:
-        hook = next((f for f in facts if isinstance(f, dict) and f.get("id") == draft.get("hook")), None)
-        refused = remake_screen(remake, draft.get("text") or "", hook, draft.get("study"))
-        if refused:
-            return "a remake's hard line: " + "; ".join(refused)
+            return f"a {video.name}'s hard line: " + "; ".join(refused)
     return ""
 
 
