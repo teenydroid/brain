@@ -159,7 +159,7 @@ class ScreenTest(support.Scratch):
 
     def test_a_look_is_for_a_figure_the_skit_names_and_each_is_one_line(self):
         for value, bit in (({**self.HELD, "look": {"Taylor Swift": "a red dress"}}, "a look is for a figure"),
-                           ({**self.HELD, "look": ["silver tuxedo"]}, "a look"),
+                           ({**self.HELD, "look": ["silver tuxedo"]}, "look maps each figure"),
                            ({**self.HELD, "setting": "x" * 301}, "setting"),
                            ({**self.HELD, "score": ["a list"]}, "score")):
             with self.subTest(bit=bit):
