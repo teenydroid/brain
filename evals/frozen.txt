@@ -167,6 +167,15 @@ hands/tests/test_studio_skit.py
 # the wallet's.
 hands/reel
 hands/lib/teeny_hands/reel/
+# Remake: finds and studies short videos of strangers (a bot-wall'd proxy, an
+# address allowlist, the flags that make a study unusable, the day's cap on its
+# paid call). The entry point and its library are the operator's, like the
+# reel's; the tests that pin the allowlist, the shot rules and the study's
+# fail-closed reading are too. The ingest service's code is frozen in deploy/**.
+hands/remake
+hands/lib/teeny_hands/remake/
+hands/tests/ingest/
+hands/tests/remake/
 # Memes and comics: words drawn on pictures that go out under Teeny's name,
 # screened by the guard's lexicon, and Giphy search held to g and pg. The
 # fonts are licensed files (brain/assets/fonts/README.md).
