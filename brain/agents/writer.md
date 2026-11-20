@@ -123,7 +123,7 @@ Skit, joining the news.
 > setting: a concert-scale keynote arena, a galaxy of LED pixels behind the stage, haze and volumetric spotlights, magenta neon rim light, anamorphic lens, film grain
 > score: one pounding electronic anthem that rises shot by shot and peaks with a choir at the very end
 > shot: Wide shot, slow dolly in on the stage. Jensen Huang holds the glowing chip up to a roaring arena; before he can speak, the chip blinks and the giant screen behind him bursts into a finale of fireworks. A deep bass hit, then thunderous applause.
-> shot: Low-angle medium shot, shallow depth of field. Jensen Huang stares at his stack of cue cards as the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, shuffling feet.
+> shot: Low-angle medium shot, shallow depth of field. Jensen Huang stares at his stack of cue cards while the glowing chip in his hand flashes "keynote complete" across the giant screen and the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, shuffling feet.
 > shot: Extreme wide tracking shot down the empty arena aisle in slow motion, long lens flare. Jensen Huang rides a rocket-powered office chair flat out after the glowing chip, which streaks ahead like a comet and is already waiting at the exit. Rocket roar.
 
 Skit, joining the news.
@@ -135,7 +135,7 @@ Skit, joining the news.
 > look: short dark hair, a plain grey crew-neck sweater, dark jeans
 > setting: a minimalist white launch stage with one giant glass of water on the lectern, soft overhead key light, macro lens, film grain
 > score: one delicate pizzicato string theme that swells into full heroic brass by the end
-> shot: Macro close-up at the lectern for a hushed audience. Sam Altman holds a gadget the size of a grain of rice between two fingertips beside the glass of water. It slips. A tiny plink as it drops into the glass.
+> shot: Wide shot of the stage for a hushed audience, the glass of water on the lectern as tall as a man. Sam Altman holds a gadget the size of a grain of rice up between two fingertips beside it. It slips. A tiny plink as it drops into the glass.
 > shot: Symmetrical storybook framing. Sam Altman, now in a brass diving helmet, climbs a little ladder up the side of the giant glass of water and lowers himself in, bubbles rising around him. Muffled gurgles.
 > shot: Epic underwater wide shot inside the glass, god rays through the water. Sam Altman in the brass helmet steers a full-size brass submarine along the bottom, spots the tiny gadget glowing there, and scoops it up in the submarine's claw. A sonar ping.
 
