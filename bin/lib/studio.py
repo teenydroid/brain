@@ -2626,6 +2626,19 @@ def _remake_time(room: "Room") -> int:
     return min(room.cfg.remake_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
 
 
+def _release_keys(room: "Room", note: Json, remake_id: Any) -> None:
+    """Keys were bought and no cut will come of them: hands/video remake-drop
+    releases the remake's unspent reservation, or the day's media budget
+    stays pinned for every other hand. Best effort: a failure is noted."""
+    code, got = room.budgeted(["video", "remake-drop"], {"remake_id": remake_id}, 60, dry=False)
+    if code == 0 and isinstance(got, dict) and got.get("ok") is not False:
+        note["dropped"] = {"released_usd": got.get("released_usd")}
+        return
+    note["dropped"] = {"error": str(got.get("error") or got.get("refused") or got if isinstance(got, dict) else got)[:300]}
+    room.warnings.append(f"the remake {remake_id}'s unspent reservation could not be released (hands/video "
+                         f"remake-drop: {note['dropped']['error'][:200]}): the day's media budget stays held for it")
+
+
 def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     remake = draft.get("remake") or {}
     study = draft.get("study") or {}
@@ -2694,6 +2707,8 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
                                  "it could be chosen again")
     if not keyed.get("remake_id") or len(keys) != len(shots):
         note["failed"] = f"{len(keys)} keyframes came back for {len(shots)} shots"
+        if keyed.get("remake_id"):
+            _release_keys(room, note, keyed["remake_id"])
         return None
     # The viewer on the keyframes, before any video money: Teeny on model in
     # every one, nobody meeting it, nothing prohibited or real-looking.
@@ -2704,10 +2719,12 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         ("ok", "sees", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass its keyframes"
+        _release_keys(room, note, keyed["remake_id"])
         return None
     wait = min(room.cfg.skit_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
     if wait < 120:
         note["failed"] = f"not enough of the run's time left to animate the remake ({room.left()} s)"
+        _release_keys(room, note, keyed["remake_id"])
         return None
     code, made = room.budgeted(["video", "remake"], {"remake_id": keyed["remake_id"], "sound": study.get("audio"),
                                                      "wait_seconds": int(wait)},
@@ -2716,9 +2733,15 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason", "asset_id", "spent_usd")
                     if isinstance(made, dict) else str(made)[:300])
+        _release_keys(room, note, keyed["remake_id"])
         return None
     if made.get("dry_run"):
         note.update(dry_run=True, failed="the video hand is in DRY_RUN: no video was made")
+        _release_keys(room, note, keyed["remake_id"])
+        return None
+    if not (isinstance(made.get("asset"), str) and made["asset"].strip()):
+        note.update(failed="made, but no labelled file came back", result=_brief(made, "error", "reason", "asset_id"))
+        _release_keys(room, note, keyed["remake_id"])
         return None
     # hands/video remake answers its cut as a path (`asset`) and its row as
     # `asset_id`, where video skit answers a row.

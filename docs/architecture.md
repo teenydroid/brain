@@ -1047,7 +1047,7 @@ characters), `hands/remake used` on the source once keys are bought (so it is
 never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
 remake` with the study's `audio` as its `sound` (null when it has none), the
 labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
-true and an "AI parody" label), the cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
+true and an "AI parody" label), the cut's viewer, `hands/x upload`. Whenever keys were bought and no cut comes back (the keys' viewer refuses, the time floor after the keys, `video remake` refusing, failing, in `DRY_RUN` or answering no file, or the wrong number of keys) `hands/video remake-drop` releases the remake's unspent reservation, best effort, so the day's media budget is not held for every other hand; a failed release is a warning. Its words never go out without the video. Time:
 a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
 s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
 wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never

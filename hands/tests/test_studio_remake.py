@@ -224,6 +224,7 @@ def _producer_room(dry=False, **script):
                                                "reason": "ok", "judged": True}),
         "video remake": (0, MADE),
         "remake used": (0, {"ok": True, "used": True}),
+        "video remake-drop": (0, {"ok": True, "released_usd": 3.12}),
         "x upload": (0, {"ok": True, "media_id": "m-9"}),
         "x post": (0, {"ok": True, "id": "post-1"}),
         **script,
@@ -341,6 +342,52 @@ class ProducerTest(unittest.TestCase):
         self.assertEqual(result, "next")
         self.assertNotIn("x upload", calls)
         self.assertEqual(attempt["remake"]["asset"], 9)
+
+    def test_keys_bought_but_no_cut_release_their_reservation(self):
+        def eats_time(room):
+            def keys(body):
+                room.started -= 3600 - (studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + 100)
+                return 0, KEYS
+            return keys
+
+        cases = {
+            "the keys' viewer refuses": {"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True})},
+            "the time floor after the keys": "eats_time",
+            "video remake refuses": {"video remake": (2, {"ok": False, "refused": "stale", "rule": "stale"})},
+            "video remake errors": {"video remake": (1, "Traceback")},
+            "video remake under DRY_RUN": {"video remake": (0, {"ok": True, "dry_run": True})},
+            "no cut came back": {"video remake": (0, {**MADE, "asset": None})},
+            "the wrong number of keys": {"video remake-keys": (0, {**KEYS, "keys": KEYS["keys"][:1]})},
+        }
+        for name, script in cases.items():
+            with self.subTest(name):
+                room = _producer_room(**(script if isinstance(script, dict) else {}))
+                if script == "eats_time":
+                    room.script["video remake-keys"] = eats_time(room)
+                result, attempt, calls = self.go(room)
+                self.assertEqual(result, "next")
+                drops = [(b, d) for a, b, d, _ in room.seen if a[:2] == ["video", "remake-drop"]]
+                self.assertEqual(drops, [({"remake_id": "r1"}, False)])
+                self.assertEqual(attempt["remake"]["dropped"]["released_usd"], 3.12)
+
+    def test_a_cut_that_came_back_or_keys_never_bought_release_nothing(self):
+        for script in ({}, {"guard view-remake": lambda b: (0, {"ok": b["stage"] == "keys", "reason": "r",
+                                                                  "judged": True})},
+                       {"video remake-keys": (2, {"ok": False, "refused": "budget", "rule": "budget"})}):
+            with self.subTest(script=script):
+                room = _producer_room(**script)
+                self.go(room)
+                self.assertNotIn("video remake-drop", [" ".join(a[:2]) for a, *_ in room.seen])
+        room = _producer_room(dry=True, **{"x post": (0, {"ok": True, "dry_run": True, "would_post": "w"})})
+        self.go(room)
+        self.assertFalse([a for a, *_ in room.seen if a[0] in ("video",) or a[:2] == ["remake", "used"]])
+
+    def test_a_drop_that_fails_is_only_noted(self):
+        room = _producer_room(**{"video remake": (1, "Traceback"), "video remake-drop": (1, "no such verb")})
+        result, attempt, _ = self.go(room)
+        self.assertEqual(result, "next")
+        self.assertIn("error", attempt["remake"]["dropped"])
+        self.assertIn("could not be released", " ".join(room.warnings))
 
     def test_a_long_story_is_cut_to_what_the_hand_takes(self):
         room = _producer_room()
