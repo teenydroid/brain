@@ -549,6 +549,67 @@ print(f"ok {said}, and it answers")
   note "skits" "${skit_out%% *}" "${skit_out#* }"
 fi
 
+# Remakes (hands/remake, hands/video remake-keys and remake; docs/architecture.md,
+# "The studio"): only when STUDIO_FORMATS in secrets/teeny.env names remake. A
+# warning, never a failure, like the skits': a remake that cannot be made is no
+# post, and the room falls back to the skit or the other formats. It says
+# whether hands/video will make any (MEDIA_REMAKE_MAX_PER_DAY 0 refuses every
+# one), whether a chart can be read at all (REMAKE_TIKTOK_ACCOUNTS or
+# YOUTUBE_API_KEY), and whether a six-shot remake's caps fit the shared daily
+# budget; --live asks the ingest service (INGEST_URL), which fetches the source.
+if [ -f "$root/hands/lib/teeny_hands/guard/remake.py" ]; then
+  remake_out="$(python3 -I -c '
+import sys, urllib.error, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "remake" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no remake")
+    sys.exit()
+def number(name, default):
+    try:
+        return float(filed.get(name) or default)
+    except ValueError:
+        return float(default)
+warns = []
+per_day = int(number("MEDIA_REMAKE_MAX_PER_DAY", 0))
+if per_day <= 0:
+    print("warn STUDIO_FORMATS names remake, but MEDIA_REMAKE_MAX_PER_DAY is 0: hands/video refuses every remake")
+    sys.exit()
+accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if a.strip()]
+youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
+if not accounts and not youtube:
+    warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
+shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", 1.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if 6 * shot > budget:
+    warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
+url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
+if not url:
+    warns.append("INGEST_URL is not set: hands/remake study cannot fetch a source")
+if warns:
+    print("warn " + "; ".join(warns))
+    sys.exit()
+providers = ",".join(p for p, on in (("tiktok", accounts), ("youtube", youtube)) if on)
+said = f"on: {per_day} a day, up to {shot:.2f} USD a shot under {budget:.2f} USD a day; charts from {providers}; ingest at {url}"
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url, timeout=5) as answer:
+        answer.read(64)
+except urllib.error.HTTPError:
+    pass  # it answered, whatever it said to the bare address
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn the ingest service at {url} does not answer ({type(exc).__name__}): no source is studied until it is up")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || remake_out="warn the check could not run: $(tail -n 1 <<<"$remake_out")"
+  note "remakes" "${remake_out%% *}" "${remake_out#* }"
+fi
+
 # hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
 # the studio reads what AI X is talking about. TREND_DIGG_BIN in
 # secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one

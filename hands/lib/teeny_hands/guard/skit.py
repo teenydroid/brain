@@ -111,12 +111,13 @@ HARM = re.compile(
     r"cancer|disease|sick|illness|hospital|ambulance|"
     r"arrest\w*|handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
     r"fraud\w*|scam\w*|nazi\w*|swastika|slur\w*|racis\w*)\b", re.I)
+#: (d) Any token, coin or money product, as words: ENDORSE_SHOT's money half,
+#: shared with a remake's Teeny (guard/remake.py, MONEY_SHOT).
+MONEY_WORDS = (r"\$?tiny token|tiny coin|tokens?|coins?|crypto\w*|memecoin\w*|bitcoin|btc|ethereum|solana|nfts?|"
+               r"airdrop\w*|presale|giveaway\w*|wallets?|seed phrase|invest\w*|stock tip|shares in|buy now|"
+               r"to the moon|pump\w*|price target|guarantee\w*|link in bio|promo code|discount code")
 #: (d) Teeny, its token and any money product, in the shots or the logline.
-ENDORSE_SHOT = re.compile(
-    r"(\$[a-z]{2,10}\b|\b(teeny|teenydroid|\$?tiny token|tiny coin|mascot|yellow robot|tokens?|coins?|crypto\w*|"
-    r"memecoin\w*|bitcoin|btc|ethereum|solana|nfts?|airdrop\w*|presale|giveaway\w*|wallets?|seed phrase|"
-    r"invest\w*|stock tip|shares in|buy now|to the moon|pump\w*|price target|guarantee\w*|"
-    r"link in bio|promo code|discount code)\b)", re.I)
+ENDORSE_SHOT = re.compile(r"(\$[a-z]{2,10}\b|\b(teeny|teenydroid|mascot|yellow robot|" + MONEY_WORDS + r")\b)", re.I)
 #: (d) In the post's own words: no token pitch beside a real figure. (Teeny's
 #: wallet is part of who it is, and may be named in its own voice.)
 ENDORSE_WORDS = re.compile(

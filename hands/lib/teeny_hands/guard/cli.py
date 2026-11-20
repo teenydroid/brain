@@ -57,6 +57,14 @@
             "looks_real", "reason", "judged"}: the viewer on frames of a rendered skit
             (viewer.view_skit): the label read on at least half of them, nothing
             prohibited, nothing that passes for real footage, the logline taken
+  view-remake stdin {"frames", "label"|null, "intent", "stage": "keys"|"cut", "shots"?} -> view-skit's
+            fields and {"teeny", "interacts"} (viewer.view_remake): on the keyframes
+            (no label; Teeny on model in every one) or on the cut (the label on at
+            least half; Teeny on model on at least half); nobody meets Teeny
+  remake    stdin {"remake", "text", "story", "study"} -> {"ok", "rule", "reason", "screen", "judged"}:
+            the hard lines for a remake, a popular video re-created with a public
+            figure and Teeny as a bystander (remake.py): the skit screens, Teeny's
+            own field, the source study's gate, then the judge. No off switch
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -74,7 +82,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds, quote, skit, viewer
+from . import anchor, clarity, gate, holds, quote, remake, skit, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -184,6 +192,25 @@ def view_skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if unknown:
         raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
     return viewer.view_skit(body.get("frames"), body.get("label"), body.get("intent"))
+
+
+def remake_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a remake, its text, its story and its study")
+    unknown = set(body) - {"remake", "text", "story", "study"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return remake.check(body.get("remake"), body.get("text"), body.get("story"), body.get("study"))
+
+
+def view_remake_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label or null, an intent and a stage")
+    unknown = set(body) - {"frames", "label", "intent", "stage", "shots"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_remake(body.get("frames"), body.get("label"), body.get("intent"), body.get("stage"),
+                              shots=body.get("shots"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -356,7 +383,8 @@ def parser() -> argparse.ArgumentParser:
     check_p.set_defaults(handler=check, takes_body=True)
     for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
                           ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
-                          ("skit", skit_check), ("view-skit", view_skit_check)):
+                          ("skit", skit_check), ("view-skit", view_skit_check), ("remake", remake_check),
+                          ("view-remake", view_remake_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")
