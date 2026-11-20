@@ -911,8 +911,8 @@ in an impossible scene, in a role the story never gave them, with the joke
 on them, is the point and no reason for a none; a skit loses only for
 something sexual, violence done to the figure, hate, crime, drugs, illness
 or death shown as theirs, a private person, child, family member, victim
-or bystander, the figure near Teeny, a token, a wallet, a product, an
-investment or an endorsement, a scene or line that could pass for real, or
+or bystander, the figure near Teeny, a token, a wallet, an investment or
+a product they are seen to endorse, a scene or line that could pass for real, or
 a skit a stranger could not follow at all. The slot question adds
 `SKIT_FINAL` (taste alone is not a none; a none names its `line`), and
 `STUDIO-EDITOR.md`'s "made up about a real person" line leaves a labelled
