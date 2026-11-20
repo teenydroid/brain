@@ -17,7 +17,6 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
-from teeny_hands.remake.service import IngestError  # noqa: E402
 
 T0 = 1_795_000_000.0  # 2026-11-18T11:06:40Z
 
