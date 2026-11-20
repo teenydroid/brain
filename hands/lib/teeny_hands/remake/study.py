@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -42,9 +41,7 @@ from typing import Any, Callable
 
 from .. import hand
 from ..guard import viewer
-from ..guard.screen import INBOUND, screen_text
-from ..guard.skit import HARM, NOT_A_FIGURE
-from . import charts, ledger
+from . import charts, ledger, source as fetching
 from .service import Ingest, IngestError, clean_text, source_of
 
 Json = dict[str, Any]
@@ -52,22 +49,23 @@ Json = dict[str, Any]
 DEFAULT_MODEL = "glm-5.3-flash"
 DEFAULT_MAX_PER_DAY = 3
 DEFAULT_KEEP_HOURS = 48
-MAX_SOURCE_BYTES = 60 * 1024 * 1024
-MAX_AUDIO_BYTES = 15 * 1024 * 1024
-MAX_FRAME_BYTES = 2 * 1024 * 1024
-MAX_SHOTS = 9
+#: The fetch's caps and names, kept here under the names the study had them by.
+MAX_SOURCE_BYTES = fetching.MAX_SOURCE_BYTES
+MAX_AUDIO_BYTES = fetching.MAX_AUDIO_BYTES
+MAX_FRAME_BYTES = fetching.MAX_FRAME_BYTES
+MAX_SHOTS = fetching.MAX_SHOTS
+FLAGS = fetching.FLAGS
+CODES = fetching.CODES
+ASPECTS = fetching.ASPECTS
+SOURCE_CAPS = fetching.SOURCE_CAPS
 MAX_PEOPLE = 4
-FLAGS = ("minors", "news", "tragedy", "sexual", "violence", "identifiable_private")
-CODES = {"youtube": "yt", "tiktok": "tt", "instagram": "ig"}
-ASPECTS = ("16:9", "9:16", "1:1")
+#: The folder root under state/media/.
+ROOT = "remake"
 #: Caps on the model's words, in characters.
 CAPS = {"summary": 400, "looks": 200, "position": 100, "action": 200, "setting": 200, "motion": 200, "camera": 120,
         "speech": 240}
-SOURCE_CAPS = {"title": 300, "uploader": 100, "category": 60, "published_at": 40}
 
-_NAME = re.compile(r"source\.mp4|audio\.m4a|shot-[1-9]\.jpg")
-_FETCH_ID = re.compile(r"[0-9a-f]{32}")
-_VIDEO_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}")
+_VIDEO_ID = fetching.VIDEO_ID
 _REF = re.compile(r"[A-Z]")
 
 PROMPT = """You are looking at {n} frames, in order. Each is one frame from a different shot of one short video: frame k is shot k. The shots last, in seconds: {lengths}.
@@ -93,21 +91,9 @@ SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence
  "summary": "", "flags": {"minors": false, "news": false, "tragedy": false, "sexual": false, "violence": false, "identifiable_private": false}}"""
 
 
-class _Problem(Exception):
-    """The study stopped under a rule: `rule` and the message."""
-
-    def __init__(self, rule: str, message: str) -> None:
-        super().__init__(message)
-        self.rule = rule
-
-
-def _rule_of(exc: IngestError) -> str:
-    """The rule an ingest failure is: down, busy or broken is `ingest`; a
-    request it will not take is `source`; the rest (it tried and could not,
-    or would not take that video) is `fetch`."""
-    if exc.status is None or exc.status == 429 or exc.status >= 500:
-        return "ingest"
-    return "source" if exc.status == 400 else "fetch"
+_Problem = fetching.Problem
+_rule_of = fetching.rule_of
+_tripped = fetching.tripped
 
 
 def model() -> str:
@@ -133,11 +119,11 @@ def _input(body: Any) -> tuple[str | None, str | None]:
 
 
 def _folder(study_id: str) -> Path:
-    return hand.state_dir() / "media" / "remake" / study_id
+    return hand.state_dir() / "media" / ROOT / study_id
 
 
 def _rel(study_id: str, name: str) -> str:
-    return f"state/media/remake/{study_id}/{name}"
+    return fetching.rel(ROOT, study_id, name)
 
 
 def _cached(study_id: str) -> Json | None:
@@ -150,117 +136,18 @@ def _cached(study_id: str) -> Json | None:
     return {**kept, "cached": True, "cost_usd": 0.0}
 
 
-# --- the fetch --------------------------------------------------------------------------------
-
-
-def _number(value: Any, low: float, high: float) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and low <= value <= high
-
-
-def _checked_fetch(got: Any, video_id: str) -> Json:
-    """The ingest service's fetch answer, or a `fetch` problem when it is not
-    the shape (and the video) asked for."""
-    def bad(why: str) -> _Problem:
-        return _Problem("fetch", f"the ingest service's fetch is not usable: {why}")
-
-    if not isinstance(got, dict) or not isinstance(got.get("fetch_id"), str) or not _FETCH_ID.fullmatch(got["fetch_id"]):
-        raise bad("no fetch id")
-    files, shots, source, excerpt = got.get("files"), got.get("shots"), got.get("source"), got.get("excerpt")
-    if not isinstance(files, list) or not all(isinstance(f, str) and _NAME.fullmatch(f) for f in files) or "source.mp4" not in files:
-        raise bad("its files")
-    if not isinstance(shots, list) or not 1 <= len(shots) <= MAX_SHOTS:
-        raise bad("its shots")
-    for n, shot in enumerate(shots, 1):
-        if not isinstance(shot, dict) or shot.get("n") != n or isinstance(shot.get("n"), bool) \
-                or not _number(shot.get("seconds"), 0.01, 60) or shot.get("frame") != f"shot-{n}.jpg" \
-                or shot["frame"] not in files:
-            raise bad(f"shot {n}")
-    if not isinstance(source, dict) or source.get("video_id") != video_id:
-        raise bad("it is not the video asked for")
-    if not isinstance(excerpt, dict) or not _number(excerpt.get("start"), 0, 3600) or not _number(excerpt.get("seconds"), 0.01, 120):
-        raise bad("its excerpt")
-    if got.get("aspect") not in ASPECTS or not _number(got.get("fps"), 1, 240):
-        raise bad("its aspect or frame rate")
-    return got
-
-
-def _source_fields(got: Json, url: str) -> Json:
-    source = got["source"]
-    out: Json = {"source": source.get("source") if source.get("source") in CODES else None,
-                 "video_id": source["video_id"], "url": source["url"] if source_of(source.get("url")) else url}
-    for key, cap in SOURCE_CAPS.items():
-        out[key] = clean_text(source.get(key), cap) or None
-    for key in ("seconds", "views", "age_limit", "width", "height"):
-        value = source.get(key)
-        out[key] = value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-    out["live"] = source.get("live") is True
-    return out
-
-
-def _magic(name: str, data: bytes) -> bool:
-    if name.endswith(".jpg"):
-        return data[:3] == b"\xff\xd8\xff"
-    return data[4:8] == b"ftyp"
-
-
-def _pull(ingest: Any, got: Json, folder: Path) -> dict[str, bytes]:
-    """Every file of the fetch into `folder` (a staging folder), each within
-    its cap and with the bytes its name says; the frames' bytes, by name."""
-    frames: dict[str, bytes] = {}
-    for name in got["files"]:
-        limit = MAX_SOURCE_BYTES if name == "source.mp4" else MAX_AUDIO_BYTES if name == "audio.m4a" else MAX_FRAME_BYTES
-        data = ingest.file(got["fetch_id"], name, limit)
-        if not data or len(data) > limit or not _magic(name, data):
-            raise _Problem("fetch", f"the ingest service's {name} is not the file it says")
-        (folder / name).write_bytes(data)
-        if name.endswith(".jpg"):
-            frames[name] = data
-    return frames
-
-
-# --- what is kept -----------------------------------------------------------------------------
+# --- what is kept and the screen --------------------------------------------------------------
 
 
 def _remake_dir() -> Path:
-    path = hand.state_dir() / "media" / "remake"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return fetching.media_dir(ROOT)
 
 
 def sweep() -> None:
     """Removes study folders (and staging leftovers) not touched for
-    REMAKE_KEEP_HOURS (48). Runs whenever a study does; the files' own times
-    are real, so the real clock is the one to read."""
-    cutoff = time.time() - hand.number("REMAKE_KEEP_HOURS", DEFAULT_KEEP_HOURS, 1, 24 * 365) * 3600
-    for entry in _remake_dir().iterdir():
-        try:
-            if entry.is_dir() and entry.stat().st_mtime < cutoff:
-                shutil.rmtree(entry, ignore_errors=True)
-        except OSError:
-            pass
+    REMAKE_KEEP_HOURS (48). Runs whenever a study does."""
+    fetching.sweep(ROOT, hand.number("REMAKE_KEEP_HOURS", DEFAULT_KEEP_HOURS, 1, 24 * 365))
 
-
-# --- the screen -------------------------------------------------------------------------------
-
-
-def _tripped(text: Any, title: bool = False) -> bool:
-    """Whether the guard's inbound screen stops the text (a title: or a word
-    of the HARM or NOT_A_FIGURE lists)."""
-    if not isinstance(text, str) or not text:
-        return False
-    if title and (HARM.search(text) or NOT_A_FIGURE.search(text)):
-        return True
-    return screen_text(text, INBOUND) is not None
-
-
-def _screen_source(source: Json) -> list[str]:
-    """The source's own words the screen stops, blanked, and which."""
-    hit = []
-    for key in ("title", "uploader"):
-        if _tripped(source.get(key), title=key == "title"):
-            source[key] = None
-            hit.append(key)
-    return hit
 
 
 def _screen_reading(reading: Json) -> list[str]:
@@ -371,15 +258,15 @@ def _run(ingest: Any, api: Any, sleep: Callable[[float], None], clock: Callable[
     try:
         got = ingest.fetch({"url": url})
         fetch_id = got.get("fetch_id") if isinstance(got, dict) else None
-        got = _checked_fetch(got, video_id)
-        source = _source_fields(got, url)
-        screened = _screen_source(source)
+        got = fetching.checked_fetch(got, video_id)
+        source = fetching.source_fields(got, url)
+        screened = fetching.screen_source(source)
         reading: Json | None = None
         failure = ""
         frames: dict[str, bytes] = {}
         if not screened:
             staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=_remake_dir()))
-            frames = _pull(ingest, got, staging)
+            frames = fetching.pull(ingest, got, staging)
         _forget(ingest, fetch_id)
         fetch_id = None
         if not screened:
@@ -424,18 +311,10 @@ def _run(ingest: Any, api: Any, sleep: Callable[[float], None], clock: Callable[
 
 
 def _keep(study_id: str, answer: Json, staging: Path | None, readable: bool) -> None:
-    """What a study leaves on disk: a usable one, its media moved whole out of
-    staging beside its study.json; an unusable one, only its study.json (no
-    media); one that could not be read, nothing."""
-    final = _folder(study_id)
-    shutil.rmtree(final, ignore_errors=True)
-    if answer["usable"] and staging is not None:
-        os.replace(staging, final)
-    elif readable:
-        final.mkdir(parents=True)
-    else:
-        return
-    (final / "study.json").write_text(json.dumps(answer, ensure_ascii=False), encoding="utf-8")
+    """What a study leaves on disk (source.keep): a usable one, its media
+    beside its study.json; an unusable one, only its study.json; one that
+    could not be read, nothing."""
+    fetching.keep(_folder(study_id), "study.json", answer, staging, readable)
 
 
 def _give_back(row: int, asked: bool) -> None:
@@ -447,11 +326,7 @@ def _give_back(row: int, asked: bool) -> None:
         ledger.release(row)
 
 
-def _forget(ingest: Any, fetch_id: str) -> None:
-    try:
-        ingest.delete(fetch_id)
-    except IngestError:
-        pass  # the service's own sweep removes it within the hour
+_forget = fetching.forget
 
 
 def _assemble(study_id: str, url: str, got: Json, source: Json, reading: Json | None, failure: str, spend: Any,
