@@ -1378,6 +1378,37 @@ class SidecarTrust(LoopCase):
         self.assertIsNone(code)
         self.assertIn("stopped during the job", why)
 
+    def test_cleanup_unpublishes_the_job_before_removing_its_acknowledgement(self):
+        jobs = self.jobs()
+        work = self.root / "work"
+        folder = None
+        replayed = []
+        remove_tree = evolve.sandbox_lib.shutil.rmtree
+
+        def fill(tree):
+            nonlocal folder
+            tree.mkdir()
+            (tree / "empty").mkdir()
+            folder = tree.parent
+
+        def run_once(_):
+            self.assertTrue(evolve.sandbox_lib.serve_one(jobs, work))
+
+        def during_cleanup(path, *args, **kwargs):
+            if Path(path) == folder:
+                # Model recursive deletion after ack.json is removed but before
+                # job.json is removed. The runner must no longer see a request.
+                (folder / "ack.json").unlink(missing_ok=True)
+                replayed.append(evolve.sandbox_lib.serve_one(jobs, work))
+            return remove_tree(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(evolve.sandbox_lib.shutil, "rmtree", side_effect=during_cleanup):
+            code, output, why = evolve.sandbox_lib.submit(jobs, fill, ["discover", "-s", "empty"], 5,
+                                                           wait=run_once)
+        self.assertEqual((code, why), (0, None), output)
+        self.assertEqual(replayed, [False])
+        self.assertEqual(list((jobs / "jobs").iterdir()), [])
+
     def test_a_linked_or_foreign_folder_is_refused_before_anything_is_written(self):
         jobs = self.jobs()
         elsewhere = self.root / "elsewhere"
