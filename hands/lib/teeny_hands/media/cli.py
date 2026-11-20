@@ -81,7 +81,7 @@ def parser(kind: str, registry: Mapping[str, flavors.Flavor] | None = None) -> a
         for flavor in registry.values():
             group = verbs.add_parser(flavor.name, help=flavor.summary)
             if flavor.default_step is not None:
-                default = next(s for s in flavor.steps if s.name == flavor.default_step)
+                default = flavor.step(flavor.default_step)
                 group.set_defaults(handler=default.handler, takes_body=default.takes_body)
             steps = group.add_subparsers(dest=f"{flavor.name}_step")
             for step in flavor.steps:
