@@ -171,12 +171,25 @@ from formats.remake import (  # noqa: E402,F401
 
 # --- the switches --------------------------------------------------------------------
 
-#: The formats the studio can make today, each with its producer (`publish`).
-#: A pitch in any other is dropped; later formats arrive behind STUDIO_FORMATS.
-KNOWN_FORMATS = ("post", "thread", "image", "meme", "skit", "remake")
-#: The formats whose piece is a video: one a day between them, in the skit
-#: slot (STUDIO_SKIT_SLOTS), and their words never go out without it.
-VIDEO_FORMATS = ("skit", "remake")
+#: The formats the studio makes itself, each with its producer (`publish`).
+WORD_FORMATS = ("post", "thread", "image", "meme")
+#: The formats whose piece is a video, one module each (bin/lib/formats/): one
+#: a day between them, in the skit slot (STUDIO_SKIT_SLOTS), and their words
+#: never go out without it. Read through `video_formats()` at call time.
+VIDEO_FORMATS = tuple(formats.REGISTRY)
+#: The formats the studio can make today. A pitch in any other is dropped;
+#: later formats arrive behind STUDIO_FORMATS.
+KNOWN_FORMATS = (*WORD_FORMATS, *VIDEO_FORMATS)
+
+
+def video_formats() -> tuple[str, ...]:
+    """The video formats as registered now (`formats.REGISTRY`, in order)."""
+    return tuple(formats.REGISTRY)
+
+
+def known_formats() -> tuple[str, ...]:
+    return (*WORD_FORMATS, *video_formats())
+
 #: Drafts tried after the pick when it cannot go out (`publish`).
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
@@ -354,10 +367,11 @@ class Config:
             c.warnings.append(f"the writer and the editor run on the same model ({same}): "
                               "set STUDIO_EDITOR_MODEL to another, or the editor judges its own voice")
         wanted = [f.strip() for f in (get("STUDIO_FORMATS") or "post,thread,image").split(",") if f.strip()]
-        unknown = [f for f in wanted if f not in KNOWN_FORMATS]
+        known = known_formats()
+        unknown = [f for f in wanted if f not in known]
         if unknown:
             c.warnings.append(f"STUDIO_FORMATS names formats the studio cannot make yet: {', '.join(unknown)}")
-        c.formats = tuple(f for f in dict.fromkeys(wanted) if f in KNOWN_FORMATS) or ("post",)
+        c.formats = tuple(f for f in dict.fromkeys(wanted) if f in known) or ("post",)
         c.pitches = _int(get("STUDIO_PITCHES"), 12, 1, 20)
         c.draft_top = _int(get("STUDIO_DRAFT_TOP"), 3, 1, 5)
         c.draft_invented = _int(get("STUDIO_DRAFT_INVENTED"), 1, 0, 5)
@@ -379,9 +393,9 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
-        if c.skit_slots and not any(f in c.formats for f in VIDEO_FORMATS):
-            c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no skit and no remake: "
-                              "those slots run as any other")
+        if c.skit_slots and not any(f in c.formats for f in video_formats()):
+            c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no " +
+                              " and no ".join(video_formats()) + ": those slots run as any other")
         return c
 
 
