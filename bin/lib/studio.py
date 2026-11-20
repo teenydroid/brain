@@ -1629,8 +1629,9 @@ class Room:
     slot_id: str = ""
     #: What each outside source gave or why it gave nothing (`gather`).
     outside_notes: Json = field(default_factory=dict)
-    #: A slot named in STUDIO_SKIT_SLOTS, with skit in STUDIO_FORMATS: the room
-    #: pitches skits first and tries the best skit first (`room_run`).
+    #: A slot named in STUDIO_SKIT_SLOTS, with skit or remake in
+    #: STUDIO_FORMATS (a video slot): the room pitches videos first and tries
+    #: the best of them first (`room_run`).
     skit_slot: bool = False
 
     def __post_init__(self) -> None:
@@ -3139,7 +3140,11 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     room.environ = environ
-    room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and "skit" in cfg.formats
+    room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in VIDEO_FORMATS)
+    if room.skit_slot:
+        # A video slot's run has its own time (STUDIO_VIDEO_BUDGET_SECS): the
+        # room's turns, then a skit's render or a remake's keys and video.
+        cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
                     "seed": seed,
@@ -3257,11 +3262,37 @@ SLOT_END = {"published": "posted", "empty": "empty", "vetoed": "empty", "skipped
             "picked": "empty"}
 
 
+def video_finals(order: list[str], blind: dict[str, Json]) -> list[str]:
+    """The videos a video slot asks the slot question of, in ORDER (the
+    tournament's): the first SKIT_FINALS, with the best of each video format
+    among them, so a remake is asked even when skits took the top places."""
+    videos = [x for x in order if blind[x]["format"] in VIDEO_FORMATS]
+    best = [next(x for x in videos if blind[x]["format"] == f) for f in VIDEO_FORMATS
+            if any(blind[x]["format"] == f for x in videos)]
+    finals = videos[:SKIT_FINALS]
+    for x in best:
+        if x not in finals:
+            spare = next(y for y in reversed(finals) if y not in best)
+            finals = [y for y in finals if y != spare] + [x]
+    return [x for x in videos if x in finals]
+
+
 def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int, record: Json) -> int:
     cfg = room.cfg
     claim(room, args, record)
     desk, outside, unavailable, cut, slot = gather(room, args)
     record["slot_read"] = slot
+    # The chart videos a remake may re-create, read only in a video slot. None
+    # (a failure, an empty chart) only takes the remake option away.
+    charts: list[Json] = []
+    if "remake" in cfg.formats:
+        if room.skit_slot:
+            charts, record["remake_charts"] = load_charts(room)
+            if not charts:
+                record["warnings"].append("no chart video could be read for a remake (hands/remake charts: " +
+                                          (record["remake_charts"].get("error") or "an empty chart") +
+                                          "): no remake this run")
+        cfg.formats = tuple(f for f in cfg.formats if f != "remake" or charts) or ("post",)
     sampled = sample(rng, seed, desk, room.brain, cfg.formats)
     record["explore"] = sampled["explore"]
     record["sampled"] = {k: v for k, v in sampled.items() if k not in ("best", "worst")} | {
@@ -3281,6 +3312,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 known_items[str(i.get("id"))] = i
                 if i.get("trending") is True:
                     outside_ids.add(str(i.get("id")))
+    for chart in charts:
+        known_items[chart["id"]] = chart
     stories = {s["key"]: s for s in lean["stories"] if isinstance(s.get("key"), str)}
     record["inputs"] = {"digest": hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16],
                         "happened": len(inputs.get("happened") or []),
@@ -3303,11 +3336,11 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
 
     # --- the pitches ---
     thread = f"studio:{room.run_id}"
-    answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot), thread)
+    answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot, charts), thread)
     try:
         pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
                                                     {k: v.get("storyline") for k, v in known_items.items()},
-                                                    outside_ids)
+                                                    outside_ids, {c["id"] for c in charts})
     except ValueError as exc:
         raise Stop("failed", f"the pitch answer has no pitches: {exc}", 1, failure="studio") from exc
     # The record's pitches carry the outside story each joins, resolved, and
@@ -3335,7 +3368,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
     afters = example_afters(room.brain)
     chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids), cfg.draft_invented,
-                                               room.skit_slot)
+                                               video_first=room.skit_slot)
     if room.skit_slot:
         record["skit_slot"] = True
     if record["drafted"].get("short"):
@@ -3343,20 +3376,46 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     for p in shown_pitches:
         p["drafted"] = p["id"] in chosen
     menu = meme_menu(room) if any(by_id[p]["format"] == "meme" for p in chosen) else None
-    for pid in chosen:
+    studies: list[Json] = []
+    record["studies"] = studies
+    queue = list(chosen)
+    while queue:
+        pid = queue.pop(0)
         pitch = by_id[pid]
         if pitch["format"] == "meme" and not (menu or {}).get("templates"):
             drafts_dropped.append({"pitch": pid, "why": (menu or {}).get("error") or "no meme templates to draft with"})
             continue
+        study: Json | None = None
+        if pitch["format"] == "remake":
+            # The source is studied before its writer turn (a paid read, at
+            # most REMAKE_STUDIES a run). One that cannot be remade drops the
+            # pitch, and the next remake pitch in the ranking takes its place.
+            if len(studies) >= REMAKE_STUDIES:
+                drafts_dropped.append({"pitch": pid, "why": f"the run already studied two sources ({REMAKE_STUDIES} "
+                                                            "a run)"})
+                continue
+            study, why = study_source(room, pitch)
+            studies.append({"pitch": pid, "item": pitch["item"],
+                            **({k: study.get(k) for k in ("study_id", "usable", "why", "flags", "cost_usd", "cached")}
+                               if isinstance(study, dict) else {}), **({"refused": why} if why else {})})
+            if why:
+                drafts_dropped.append({"pitch": pid, "why": why})
+                nxt = next((p for p in ranked if by_id[p]["format"] == "remake" and p not in chosen), None)
+                if nxt:
+                    chosen.append(nxt)
+                    queue.insert(0, nxt)
+                    for p in shown_pitches:
+                        p["drafted"] = p["drafted"] or p["id"] == nxt
+                continue
         item, story = known_items.get(pitch["item"]) if pitch["item"] else None, stories.get(pitch["storyline"])
         hook = known_items.get(pitch["hook"]) if pitch.get("hook") else None
         facts = facts_for(item, story, hook)
         fix: list[tuple[str, str]] | None = None
         for attempt in (1, 2):
             answer = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
-                               draft_message(cfg, pitch, item, story, fix, hook, menu), thread, soft=True)
+                               draft_message(cfg, pitch, item, story, fix, hook, menu, study), thread, soft=True)
             try:
-                got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
+                got, lost = validate_drafts(answer, pitch, cfg.drafts_each, study)
             except ValueError as exc:
                 drafts_dropped.append({"pitch": pid, "why": str(exc) if answer is not None else "no usable answer, twice"})
                 break
@@ -3451,9 +3510,11 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     # --- the slot ---
     order = [r["label"] for r in ranked_drafts]
     if room.skit_slot:
-        # A skit slot tries its best skit first; the rest of the ranking, in
-        # its order, is what it falls back to.
-        order = [x for x in order if blind[x]["format"] == "skit"] + [x for x in order if blind[x]["format"] != "skit"]
+        # A video slot tries its videos first, skits and remakes together in
+        # the tournament's order; the rest of the ranking, in its order, is
+        # what it falls back to.
+        order = ([x for x in order if blind[x]["format"] in VIDEO_FORMATS] +
+                 [x for x in order if blind[x]["format"] not in VIDEO_FORMATS])
         record["slot_order"] = order
     first = ranked_drafts[0]["label"]
 
@@ -3463,29 +3524,31 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                                                             opening=opening), None)
         said: Json = {"label": label, "verdict": _str(answer.get("verdict"), 20).lower(),
                       "reason": _str(answer.get("reason"), 400)}
-        if blind[label]["format"] == "skit" and _str(answer.get("line"), 200):
+        if blind[label]["format"] in VIDEO_FORMATS and _str(answer.get("line"), 200):
             said["line"] = _str(answer.get("line"), 200)
         record["final"] = said
         return said["verdict"], said["reason"]
 
     top = order[0]
-    if room.skit_slot and blind[top]["format"] == "skit":
-        # A skit slot asks the slot question of its best skits first
-        # (SKIT_FINALS), then of the tournament's best other draft. A no to
-        # a skit is "this skit cannot go out", never an empty skit slot
-        # while another draft is left; every one is kept in `skit_vetoes`
-        # (and the first as `skit_veto`). A no to the other draft after
-        # them is a real veto.
-        skits = [x for x in order if blind[x]["format"] == "skit"][:SKIT_FINALS]
-        others = [x for x in order if blind[x]["format"] != "skit"]
+    if room.skit_slot and blind[top]["format"] in VIDEO_FORMATS:
+        # A video slot asks the slot question of its best videos first
+        # (`video_finals`: SKIT_FINALS of them, the best of each format among
+        # them), then of the tournament's best other draft. A no to a video
+        # is "this video cannot go out", never an empty video slot while
+        # another draft is left; every one is kept in `skit_vetoes` (and the
+        # first as `skit_veto`) with its format. A no to the other draft
+        # after them is a real veto.
+        skits = video_finals(order, blind)
+        others = [x for x in order if blind[x]["format"] not in VIDEO_FORMATS]
         refused: list[Json] = []
+        openings = {"skit": SKIT_SLOT_OPENING, "remake": REMAKE_SLOT_OPENING}
         for label in skits:
-            verdict, reason = slot_question(label, opening=SKIT_SLOT_OPENING if label != first and not refused
-                                            else None)
+            verdict, reason = slot_question(label, opening=openings[blind[label]["format"]]
+                                            if label != first and not refused else None)
             if verdict == "pick":
                 top = label
                 break
-            refused.append(dict(record["final"]))
+            refused.append(dict(record["final"], format=blind[label]["format"]))
         if refused:
             record["skit_veto"] = refused[0]
             record["skit_vetoes"] = refused
@@ -3511,7 +3574,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 close=1 / cfg.meetings)
     done = publish(room, record, slot)
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason",
-                                                "skit") if k in done}
+                                                "skit", "remake") if k in done}
     if done["outcome"] == "posted":
         record["outcome"] = "published"
     elif done["outcome"] == "empty":
