@@ -614,7 +614,7 @@ SECOND = {"figures": ["Elon Musk"], "premise": "musk said the car drives itself,
                     {"prompt": "Underwater wide shot, god rays: Elon Musk in a silver tuxedo and a brass diving helmet "
                                "runs across the ocean floor after the chrome robotaxi, waving the sheet."}],
           "aspect": "16:9"}
-SECOND_WORDS = "tesla says the robotaxi will drive itself everywhere. in my parody it starts with leaving him behind"
+SECOND_WORDS = "tesla's robotaxi is meant to drive itself, so my cartoon has it ditch him at the start. parody"
 
 
 class NextSkitRunTest(unittest.TestCase):
