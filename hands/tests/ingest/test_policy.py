@@ -108,7 +108,7 @@ class ArgvTest(unittest.TestCase):
                 url = argv[-1]
                 for word in argv[:-2]:
                     self.assertNotIn(url, word)
-                    self.assertFalse(word.startswith("https://") and word != "https://x")
+                    self.assertFalse(word.startswith("https://"))
 
     def test_the_safety_options_are_always_there(self):
         for name, argv in self.every().items():
