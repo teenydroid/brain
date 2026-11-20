@@ -81,8 +81,9 @@ from .. import hand
 from . import assets, shots as _shots
 # The shot machinery lives in media/shots.py, shared with media/remakes.py;
 # every name it had here is still here.
-from .shots import (BILL_SECONDS, FRAME_MAX_BYTES, MAX_BYTES, POLL_SECONDS, REFUSAL, REFUSAL_STATUSES, _RESERVED, _Shot, _Stop,  # noqa: F401
-                    _cancel, _end_shots, _micros, _refusal, _set, lengths, snap)
+from .shots import (BILL_SECONDS, FRAME_MAX_BYTES, MAX_BYTES, POLL_SECONDS, REFUSAL,  # noqa: F401
+                    REFUSAL_STATUSES, _RESERVED, _Shot, _Stop, _cancel, _end_shots, _micros, _refusal, _set,
+                    lengths, snap)
 from .surplus import Surplus, SurplusError  # noqa: F401
 
 Json = dict[str, Any]
