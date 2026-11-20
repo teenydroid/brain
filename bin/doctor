@@ -598,8 +598,10 @@ if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
 providers = ",".join(p for p, on in (("tiktok", accounts), ("youtube", youtube)) if on)
-then = f" (then {', '.join(models[1:])})" if len(models) > 1 else ""
-said = (f"on: {per_day} a day, up to {take:.2f} USD a take under {budget:.2f} USD a day; one take on {models[0] if models else 'no model'}{then}; "
+rest = ", ".join(models[1:])
+then = f" (then {rest})" if rest else ""
+first = models[0] if models else "no model"
+said = (f"on: {per_day} a day, up to {take:.2f} USD a take under {budget:.2f} USD a day; one take on {first}{then}; "
         f"charts from {providers}; ingest at {url}")
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
