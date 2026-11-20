@@ -46,7 +46,7 @@ each reaction. What differs:
 
 Off by default: `MEDIA_KHABY_MAX_PER_DAY` is 0, and a khaby video is one of
 the `MEDIA_SKIT_MAX_PER_DAY` videos a day skits, remakes and khaby videos
-share (the flavor registry). `MEDIA_KHABY_MAX_USD_PER_SHOT` ($1.20),
+share (the flavor registry). `MEDIA_KHABY_MAX_USD_PER_SHOT` ($1.40),
 `MEDIA_KHABY_EDIT_MODELS`, `MEDIA_KHABY_MODELS`,
 `MEDIA_KHABY_KEYS_WAIT_SECONDS` (300), `MEDIA_KHABY_STYLE`,
 `MEDIA_KHABY_PARAMS` and `MEDIA_KHABY_RESOLUTION` mirror the remake's.
@@ -81,8 +81,9 @@ CLIP_SECONDS = remakes.SHOT_SECONDS
 #: A kept piece of the source, as the cutter trims it (skitcut.SOURCE_TRIM_SECONDS).
 KEPT_SECONDS = (0.1, 60.0)
 REACTORS = ("teeny",)
-#: What a reaction reserves by default (MEDIA_KHABY_MAX_USD_PER_SHOT).
-PER_SHOT = "1.20"
+#: What a reaction reserves by default (MEDIA_KHABY_MAX_USD_PER_SHOT): the
+#: remake's, so a $0.10 keyframe leaves room for the first model's 5 s clip.
+PER_SHOT = remakes.PER_SHOT
 EDIT_MODELS = remakes.EDIT_MODELS
 MODELS = remakes.REMAKE_MODELS
 STALE_SECONDS = remakes.STALE_SECONDS
