@@ -4,6 +4,7 @@ source's own audio and a burned-in label (docs/hands.md, "video").
 
   hands/video remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
   hands/video remake      {remake_id, sound, wait_seconds?}
+  hands/video remake-drop {remake_id}                  -> {remake_id, released_usd}
 
 A sibling of the skit (media/skits.py). hands/remake study has already cut
 the source into shots and written each shot's first frame and the source's
@@ -34,9 +35,16 @@ about the words; what it holds, in code:
   refuses an id that is unknown, already rendered or being rendered,
   failed, or older than STALE_SECONDS (2 hours), and a sound that is not
   state/media/remake/<that remake's study>/audio.m4a.
-- **Keys bought, never rendered.** A remake left pending past
-  STALE_SECONDS is failed by the next remake verb: its keys keep what they
-  cost on the ledger, and its shots' unspent reservations are released.
+- **Keys bought, never rendered.** remake-drop lets a keyed remake go at
+  once (the studio turned its keyframes down); one left pending past
+  STALE_SECONDS is let go by the next media budget check
+  (assets.release_stale: images, videos, skits, remakes). Either way its
+  keys keep what they cost on the ledger, a shot never submitted gives its
+  reservation back, and one that was submitted (a render whose process
+  died) is `unknown` and keeps what it may cost.
+- **Midnight.** The rows are dated when the keys are bought: a remake
+  keyed before 00:00 UTC and rendered after counts, money and day cap, on
+  the day it was keyed.
 - **The cutter first.** The reel service must answer before either verb
   buys anything.
 - **The label.** skits.label(), "AI parody · @<X_BOT_USERNAME>", set here,
@@ -50,17 +58,24 @@ and the shot's `teeny`), and `MEDIA_REMAKE_STYLE` (STYLE by default). The
 models are `MEDIA_REMAKE_EDIT_MODELS` in order; a content refusal (Surplus
 answers 400 `request_rejected`, "violates the content policy") or a seller's
 trouble moves the shot to the next, at most MAX_EDIT_ATTEMPTS edits a shot;
-any other refusal (no credit) stops the remake. The shots' edits run in
-parallel, within `MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one shot that
-cannot be keyed stops the others from trying again, and the remake fails.
+any other refusal (no credit) stops the remake. An edit is held to what is
+left of its shot's cap, and starts only while EDIT_TIMEOUT is left of
+`MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one that gets no answer may still
+be made and billed, so it is booked as bought (`unknown`). The shots' edits
+run in parallel; one shot that cannot be keyed stops the others from
+trying again, and the remake fails.
 
 The render: one `POST /v1/video/generations` a shot with {model, prompt:
 the shot's `motion` and MOTION_TAIL, image_url: the keyframe,
-duration_seconds}, plus `MEDIA_REMAKE_PARAMS` (as MEDIA_SKIT_PARAMS), on the
-first of `MEDIA_REMAKE_MODELS` that takes it, asked for the shortest length
-the model sells that covers the source shot (a model that sells none moves
-the shot on), and polled, landed and cancelled by media/shots.py as a
-skit's shots are (`MEDIA_SKIT_WAIT_SECONDS`). Verified on Surplus
+duration_seconds}, plus REMAKE_PARAMS (venice-wan-3-0: resolution
+`MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and audio only
+when the cut keeps the clips' sound) under `MEDIA_REMAKE_PARAMS`, on the
+first of `MEDIA_REMAKE_MODELS` that takes it (venice-wan-3-0 first: it sells
+2, 5, 10, 15 to 30 s), asked for the shortest length the model sells that
+covers the source shot (a model that sells none, or whose verified ceiling
+for it, REMAKE_MAX_PER_SECOND, cannot fit what is left of the shot's cap,
+moves the shot on unasked), and polled, landed and cancelled by
+media/shots.py as a skit's shots are (`MEDIA_SKIT_WAIT_SECONDS`). Verified on Surplus
 (2026-11-20): kling-v3-standard-image-to-video takes a keyframe with a real
 face, 5 s quoted $0.49 (ceiling $0.98) and billed $0.49. The cut: each clip
 trimmed to its source shot (`trims`), the source's audio as the only sound
