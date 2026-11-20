@@ -583,12 +583,15 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", 1.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+# The hand's own default per shot when the setting is unset (hands/video remake-keys).
+shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", 1.40), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if 6 * shot > budget:
     warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
-url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
-if not url:
-    warns.append("INGEST_URL is not set: hands/remake study cannot fetch a source")
+try:
+    from teeny_hands.remake.service import DEFAULT_URL as INGEST_DEFAULT
+except ImportError:
+    INGEST_DEFAULT = "http://ingest:8090"
+url = ((filed.get("INGEST_URL") or "").strip() or INGEST_DEFAULT).rstrip("/")
 if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
