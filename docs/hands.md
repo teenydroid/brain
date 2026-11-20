@@ -917,6 +917,52 @@ act there is `watch_hn` (see "The mind's issues, browser tasks and new
 mail"). Tables: `hn_watch` (item_id, title, note, added_at, last_seen),
 `hn_cache`.
 
+## `chan`: 4chan, read only, for strangers' premises
+
+Teeny never posts to 4chan. It reads it for randomness: the conspiracies,
+theories and odd questions anonymous strangers post, as raw material for
+`bin/backroom` and the studio's wildcards. 4chan's API
+(`https://a.4cdn.org`, [docs](https://github.com/4chan/4chan-API)) is read
+only and takes no key; every call goes through `teeny_hands/rest.py` with no
+key sent, follows no redirect and names no URL in an error. The API's rules
+ask for at most one request a second: one process waits
+`CHAN_MIN_INTERVAL_MS` (1100) between requests, and the read cache
+(`chan_cache`: catalogs 10 min, threads 5 min) keeps most from being made.
+
+**The fence.** Only the worksafe boards in `client.SAFE_BOARDS` are ever
+read: /x/ (paranormal, conspiracies), /lit/, /sci/, /his/, /tv/, /g/, /biz/,
+/ck/, /diy/, /out/, /an/, /mu/, /tg/, /co/, /v/. A board outside it is an
+error before any request. `CHAN_BOARDS` narrows the default set (x, lit,
+sci, tv, g, diy; /his/ is left out of it because its liveliest threads were
+race and religion arguments) and can never widen it: /pol/, /b/, /r9k/ and
+the adult boards cannot be put in.
+
+**What leaves the hand.** A comment is HTML: it reaches a reader as plain
+text, `<br>` a new line, greentext kept, `>>123` reply links and every
+address and key-like string taken out (`teeny_hands/scrub.py`). Every
+premise and post is screened by the guard's lexicon at its strictest
+reading (outbound, as if Teeny said it) and a post with any match, even one
+the guard would pass to its judge, is dropped and only counted
+(`dropped.screened`). Pinned and closed threads (`dropped.pinned`), a
+board's standing "General" threads (`dropped.general`) and premises under 24
+characters (`dropped.empty`) are dropped too. No name, tripcode, poster id,
+country or picture is ever read out. Every answer is `untrusted`.
+
+| Verb | | Does |
+|---|---|---|
+| `boards` | R | The boards Teeny may read, each `{board, about, default}`. |
+| `catalog BOARD [--max N]` | R | A board's liveliest threads (15, at most 50), most replies first: `{id, board, no, premise, replies, age_hours, link}`. A premise is the thread's subject and first post on one line, at most 280 characters. |
+| `thread BOARD NO [--max N]` | R | The first post and the first replies (20, at most 100), in order: `{no, op, subject, text, age_hours}`. |
+| `sparks [--boards a,b] [--max N] [--seed S]` | R | N random premises (3, at most 20) across the boards, drawn from each board's 40 liveliest threads, weighted towards the lively ones, never two from one thread. A seed makes the draw repeatable. A board that cannot be read is named in `unavailable` and the rest answer; none readable is an error. |
+
+**Who reads it.** `bin/backroom --wildcard` collides each idea with one
+spark, and `--from-chan N` opens N rooms on sparks alone (bin/lib/backroom.py;
+BACKROOM.md's distiller keeps a premise only as Teeny's own absurd belief or
+scheme, never as a claim about a real person, group or event). `bin/studio`
+reads three a run, seeded by the run, as the pitch turn's wildcards
+(docs/architecture.md, "The outside world"; `STUDIO_CHAN=0` turns it off).
+Table: `chan_cache`.
+
 ## `listen`: what the outside world is saying, read only
 
 Teeny's ears beyond Hacker News's front page (`hands/lib/teeny_hands/listen/`).
