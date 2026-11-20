@@ -10,6 +10,11 @@ the study's own ledger rows, and post nothing.
                         its shots studied by a vision model: who and what is
                         in each, and whether it is usable at all
 
+  W  used               (JSON on stdin: {video_id, source, url, title?, study_id?})
+                        marks a video as made into a remake, so charts leaves
+                        it out and study refuses it; a dry room only says
+                        what it would mark
+
 A refusal is exit 2 with `rule`, one of off, per_day, source, fetch, ingest.
 """
 
@@ -19,7 +24,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import charts, study
+from . import charts, ledger, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -46,6 +51,7 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--max", type=_bounded(1, 50, "--max"), default=15)
     top.add_argument("--fresh", action="store_true", help="ask the providers again even when the slot is cached")
     verb("study", lambda a, body: study.study(body), "study one video (JSON on stdin)", body=True)
+    verb("used", lambda a, body: ledger.record_use(body), "mark a video as made into a remake (JSON on stdin)", body=True)
     return root
 
 

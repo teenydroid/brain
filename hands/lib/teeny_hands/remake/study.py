@@ -366,52 +366,76 @@ def _run(ingest: Any, api: Any, sleep: Callable[[float], None], clock: Callable[
         raise _Problem("per_day", f"today's {limit} studies are used up (REMAKE_STUDY_MAX_PER_DAY)")
     asked = False
     fetch_id = None
+    staging: Path | None = None
+    spend = viewer.Spend()
     try:
         got = ingest.fetch({"url": url})
         fetch_id = got.get("fetch_id") if isinstance(got, dict) else None
         got = _checked_fetch(got, video_id)
-        frames = _pull(ingest, got, study_id)
-        if fetch_id:
-            try:
-                ingest.delete(fetch_id)
-            except IngestError:
-                pass  # the service's own sweep removes it within the hour
-            fetch_id = None
-        shots = got["shots"]
-        n = len(shots)
-        lengths = ", ".join(f"shot {s['n']} {s['seconds']:g}" for s in shots)
-        text = f"{PROMPT.format(n=n, lengths=lengths, people=MAX_PEOPLE)}\n\n{SHAPE}"
-        pictures = [_data_uri(frames[s["frame"]]) for s in shots]
-        if api is None:
-            from ..media.surplus import Surplus
+        source = _source_fields(got, url)
+        screened = _screen_source(source)
+        reading: Json | None = None
+        failure = ""
+        frames: dict[str, bytes] = {}
+        if not screened:
+            staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=_remake_dir()))
+            frames = _pull(ingest, got, staging)
+        _forget(ingest, fetch_id)
+        fetch_id = None
+        if not screened:
+            shots = got["shots"]
+            n = len(shots)
+            lengths = ", ".join(f"shot {s['n']} {s['seconds']:g}" for s in shots)
+            text = f"{PROMPT.format(n=n, lengths=lengths, people=MAX_PEOPLE)}\n\n{SHAPE}"
+            pictures = [_data_uri(frames[s["frame"]]) for s in shots]
+            if api is None:
+                from ..media.surplus import Surplus
 
-            api = Surplus()
-        spend = viewer.Spend()
-        asked = True
-        reading, failure = viewer._ask(api, name, "frames", text, pictures, _reader(n), spend, clock, sleep,
-                                       max_tokens=min(4000, 1000 + 400 * n))
+                api = Surplus()
+            asked = True
+            reading, failure = viewer._ask(api, name, "frames", text, pictures, _reader(n), spend, clock, sleep,
+                                           max_tokens=min(4000, 1000 + 400 * n))
+            if reading is not None:
+                screened = _screen_reading(reading)
+        answer = _assemble(study_id, url, got, source, reading, failure, spend, screened)
+        _keep(study_id, answer, staging, readable=reading is not None or bool(screened))
+        staging = None
     except _Problem as problem:
         _give_back(row, asked)
-        if fetch_id:
-            _forget(ingest, fetch_id)
         raise hand.Refused(str(problem), rule=problem.rule) from None
     except IngestError as exc:
         _give_back(row, asked)
-        if fetch_id:
-            _forget(ingest, fetch_id)
         raise hand.Refused(str(exc), rule=_rule_of(exc)) from None
     except BaseException:
         _give_back(row, asked)
+        raise
+    finally:
         if fetch_id:
             _forget(ingest, fetch_id)
-        raise
-    answer = _assemble(study_id, url, got, reading, failure, spend)
-    ledger.finish(row, stage="done" if reading else "read", ok=int(reading is not None), usable=int(answer["usable"]),
-                  reason=answer["why"][:300], asks=spend.asks, tokens_in=spend.tokens_in, tokens_out=spend.tokens_out,
-                  cost_micro=spend.cost_micro)
-    if reading is not None:
-        (_folder(study_id) / "study.json").write_text(json.dumps(answer, ensure_ascii=False), encoding="utf-8")
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+    if not asked:
+        ledger.release(row)
+    else:
+        ledger.finish(row, stage="done" if reading else "read", ok=int(reading is not None),
+                      usable=int(answer["usable"]), reason=answer["why"][:300], asks=spend.asks,
+                      tokens_in=spend.tokens_in, tokens_out=spend.tokens_out, cost_micro=spend.cost_micro)
     return {**answer, "cached": False}
+
+
+def _keep(study_id: str, answer: Json, staging: Path | None, readable: bool) -> None:
+    """What a study leaves on disk: a usable one, its media moved whole out of
+    staging beside its study.json; an unusable one, only its study.json (no
+    media); one that could not be read, nothing."""
+    final = _folder(study_id)
+    shutil.rmtree(final, ignore_errors=True)
+    if answer["usable"] and staging is not None:
+        os.replace(staging, final)
+    elif readable:
+        final.mkdir(parents=True)
+    else:
+        return
+    (final / "study.json").write_text(json.dumps(answer, ensure_ascii=False), encoding="utf-8")
 
 
 def _give_back(row: int, asked: bool) -> None:
@@ -427,24 +451,33 @@ def _forget(ingest: Any, fetch_id: str) -> None:
     try:
         ingest.delete(fetch_id)
     except IngestError:
-        pass
+        pass  # the service's own sweep removes it within the hour
 
 
-def _assemble(study_id: str, url: str, got: Json, reading: Json | None, failure: str, spend: Any) -> Json:
-    shots = []
-    for i, shot in enumerate(got["shots"]):
-        seen = reading["shots"][i] if reading else {"people": [], "setting": "", "motion": "", "camera": "", "speech": ""}
-        shots.append({"n": shot["n"], "start": shot.get("start"), "seconds": shot["seconds"],
-                      "frame": _rel(study_id, shot["frame"]), **seen})
-    if reading is None:
-        flags: Json = {name: None for name in FLAGS}
-        usable, why = False, f"the study could not be read: {clean_text(failure, 300)}"
-    else:
+def _assemble(study_id: str, url: str, got: Json, source: Json, reading: Json | None, failure: str, spend: Any,
+              screened: list[str]) -> Json:
+    reasons = []
+    flags: Json = {name: None for name in FLAGS}
+    if reading is not None:
         flags = reading["flags"]
         raised = [name.replace("_", " ") for name in FLAGS if flags[name]]
-        usable, why = not raised, f"flagged: {', '.join(raised)}" if raised else ""
-    return {"study_id": study_id, "source": _source_fields(got, url),
+        if raised:
+            reasons.append(f"flagged: {', '.join(raised)}")
+    elif not screened:
+        reasons.append(f"the study could not be read: {clean_text(failure, 300)}")
+    if screened:
+        reasons.append(f"screened: {', '.join(screened)}")
+    usable = not reasons
+    empty = {"people": [], "setting": "", "motion": "", "camera": "", "speech": ""}
+    shots = []
+    for i, shot in enumerate(got["shots"]):
+        seen = reading["shots"][i] if reading else empty
+        shots.append({"n": shot["n"], "start": shot.get("start"), "seconds": shot["seconds"],
+                      "frame": _rel(study_id, shot["frame"]) if usable else None, **seen})
+    has_audio = "audio.m4a" in got["files"]
+    cost = round(spend.cost_micro / 1_000_000, 6) if spend.cost_micro is not None else (0.0 if not spend.asks else None)
+    return {"study_id": study_id, "source": source,
             "excerpt": {"start": got["excerpt"]["start"], "seconds": got["excerpt"]["seconds"]},
-            "aspect": got["aspect"], "audio": _rel(study_id, "audio.m4a") if "audio.m4a" in got["files"] else None,
+            "aspect": got["aspect"], "audio": _rel(study_id, "audio.m4a") if usable and has_audio else None,
             "shots": shots, "summary": reading["summary"] if reading else "", "flags": flags, "usable": usable,
-            "why": why, "cost_usd": round(spend.cost_micro / 1_000_000, 6) if spend.cost_micro is not None else None}
+            "why": "; ".join(reasons), "cost_usd": cost}

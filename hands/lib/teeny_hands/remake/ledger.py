@@ -15,11 +15,13 @@ A study that never reached the model is released, and so does not count.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any
 
 from .. import hand
 from ..guard.holds import iso
+from .service import HOSTS, clean_text, source_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS remake_sources (
@@ -134,3 +136,34 @@ def release(row_id: int) -> None:
             conn.close()
     except (sqlite3.Error, OSError):
         pass
+
+
+_VIDEO_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}")
+_STUDY_ID = re.compile(r"(tt|yt|ig)-[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}")
+
+
+def record_use(body: Any) -> dict[str, Any]:
+    """`hands/remake used`: {video_id, source, url, title?, study_id?} marked
+    as made into a remake, so charts leaves it out and study refuses it. In a
+    dry room it says what it would mark and writes nothing."""
+    allowed = {"video_id", "source", "url", "title", "study_id"}
+    if not isinstance(body, dict) or set(body) - allowed:
+        raise hand.HandError("used takes one JSON object on stdin: {video_id, source, url, title?, study_id?}")
+    video_id, source, url = body.get("video_id"), body.get("source"), body.get("url")
+    if not isinstance(video_id, str) or not _VIDEO_ID.fullmatch(video_id):
+        raise hand.HandError("video_id is a plain video id")
+    if source not in set(HOSTS.values()):
+        raise hand.HandError("source is youtube, tiktok or instagram")
+    if source_of(url) != source:
+        raise hand.HandError(f"url is an https address on {source}")
+    title = body.get("title")
+    if title is not None and not isinstance(title, str):
+        raise hand.HandError("title is a string")
+    study_id = body.get("study_id")
+    if study_id is not None and (not isinstance(study_id, str) or not _STUDY_ID.fullmatch(study_id)):
+        raise hand.HandError("study_id is a study id from `study`")
+    mark = {"video_id": video_id, "source": source, "url": url, "title": clean_text(title, 300) or None,
+            "study_id": study_id}
+    if hand.dry_run():
+        return {"dry_run": True, "would_mark": mark}
+    return {"marked": mark_used(**mark)}
