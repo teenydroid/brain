@@ -328,7 +328,8 @@ check "the pitch message leads with the outside world" bash -c "msg=\"\$1\"; o=\
 check "and who posted on Hacker News is left out of it" bash -c "! grep -q 'someone' <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
 check "the hooked pitch keeps its story in the record" jqe '.pitches | map(select(.id == "p1"))[0] | .hook == "trend:s1" and .hook_item.title == "an AI lab hired a new chief scientist" and .drafted == true' <<<"$rec"
 check "and its drafts carry the story in their truth facts" jqe '.drafts | map(select(.pitch == "p1")) | length == 3 and all(.hook == "trend:s1" and .truth.facts[0].id == "trend:s1" and .truth.facts[0].posts[0].text == "big hire for the lab")' <<<"$rec"
-check "two of the three drafted pitches are hooked" jqe '.drafted == {want_hooked: 2, hooked: 2}' <<<"$rec"
+check "two of the three drafted pitches are hooked" jqe '.drafted | .want_hooked == 2 and .hooked == 2' <<<"$rec"
+check "and one is invention-led: the grudge (p5) is drafted" jqe '(.drafted | .want_invented == 1 and .invented == 1 and (has("short_invented") | not)) and (.pitches | map(select(.id == "p5"))[0].drafted == true)' <<<"$rec"
 check "and the draft message gives the writer the story and the rules for it" bash -c "grep -q '## the news it joins' <<<\"\$1\" && grep -q 'No @-mentions' <<<\"\$1\"" _ "$(step_msgs '# studio: draft')"
 check "but not the paid X search, which is off by default, and says so" \
   bash -c "! grep -q '^x search ' '$FAKE_HANDS' && jq -e '.inputs.skipped | any(test(\"STUDIO_OUTSIDE_X=1\"))' <<<\"\$1\" >/dev/null" _ "$rec"
