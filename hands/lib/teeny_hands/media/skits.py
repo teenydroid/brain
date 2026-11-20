@@ -1,8 +1,9 @@
-"""Skits: short, absurd, cinematic parody videos bought on Surplus, one
-text-to-video job a shot, cut together with each shot's own sound and a
+"""Skits: short, absurd, cinematic parody videos bought on Surplus, made as
+one take (one text-to-video job for the whole film) or, when that cannot be
+had, one job a shot cut together with each shot's own sound, always with a
 burned-in label (docs/hands.md, "video").
 
-  hands/video skit {shots, aspect?, story, figures?, logline, wait_seconds?, bed?}
+  hands/video skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
 
 bin/studio's `skit` format calls this only after the skit passed its hard
 lines (`hands/guard skit`: code's screen, then the judge), and looks at the
@@ -33,7 +34,32 @@ screen. What it does hold, in code:
   set here, never by the caller, and a cut the service does not report as
   labelled with exactly that label is not handed over (`unlabelled`).
 
+One take (the default for two shots or more; `MEDIA_SKIT_ONE_TAKE=0` turns
+it off): shots rendered as separate jobs come back with a different face,
+set and soundtrack each, because the model remembers nothing between jobs
+(2026-11-20, a three-shot kling skit). So the whole skit is one job: one
+multi-shot script (guard/skit.py, `script`, the same code the guard's screen
+reads: a header with the film's length, hard cuts, one continuous score and
+the cast's `look`, the `setting` and the `score` held throughout, then each
+shot with its time range) on the first of `MEDIA_SKIT_ONE_TAKE_MODELS`
+(seedance-2-0-text-to-video: the one model seen to follow such a script, a
+paid test on 2026-11-20, 15 s billed $1.42 with a $5.112 ceiling). Its
+length is the shots' together, at most ONE_TAKE_MAX_SECONDS (15) and what
+the model sells, cut to the longest whose ceiling (MAX_PER_SECOND, when the
+model's is known) fits the take's cap, the per-shot cap times the shots it
+replaces ($4.80 for three: 14 s on seedance), the shots shortened in
+proportion; a job quoted over the cap anyway is cancelled and asked once
+more at its own rate. The take reserves that cap on one `shot` row, the
+same money its shots would have. A content refusal, a seller's trouble, a
+script the model will not take, no length that fits, or a job that fails
+without a bill, with no one-take model left, swaps that row for a row a shot
+in one transaction (the money held never drops) and renders the skit one
+job a shot below, in the time left. No credit or a bad key stops the skit;
+a take past the wait, or one billed whose file never came, fails it.
+
 The shots: each is one `POST /v1/video/generations` with the shot's prompt
+(guard/skit.py, `shot_prompt`: the look and the setting in front of it, the
+score after it, so even a render that remembers nothing gets the same cast)
 (and MEDIA_SKIT_STYLE after it, when set) and `duration_seconds`
 (`MEDIA_SKIT_SHOT_SECONDS`, 5, unless the shot names its own, snapped to
 the nearest length the model sells, ties going longer, from the catalog's
@@ -57,11 +83,13 @@ shot's job is started before any is waited on, then all are polled together
 until `wait_seconds` (at most `MEDIA_SKIT_WAIT_SECONDS`, 900) runs out; a
 shot that cannot be made cancels the others still running.
 
-The ledger is generate_video's: one `media_assets` row a shot (kind `shot`,
-`source_id` the skit's row) with its model, job, quote and then real cost,
-and a failed one costs nothing; one row for the skit (kind `skit`, cost 0:
+The ledger is generate_video's: one `media_assets` row a shot, or one for
+the take (kind `shot`, `source_id` the skit's row; the take's `detail` says
+`one_take` and the lengths of its shots) with its model, job, quote and
+then real cost, and a failed one costs nothing; one row for the skit (kind `skit`, cost 0:
 the shots carry the money) with the cut's path and, in `detail`, the story,
-the figures, the logline, the label, the models and what it all cost. A
+the figures, the logline, the label, whether it was one take, the models
+and what it all cost. A
 shot left pending by a process that died keeps its reservation, which
 counts as spent.
 
