@@ -616,13 +616,15 @@ def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
             if row is None:
                 raise hand.Refused(f"no remake {ask['remake_id']}", rule="remake_id")
             detail = _detail(row)
-            if row["status"] == "done" or detail.get("stage") == "rendering":
+            if row["status"] == "done":
                 raise hand.Refused(f"remake {row['id']} is already rendered", rule="used")
             if row["status"] == "failed" and str(row["error"] or "").startswith("expired"):
                 raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
                                    rule="stale")
             if row["status"] != "pending":
                 raise hand.Refused(f"remake {row['id']} failed: {row['error']}", rule="failed")
+            if detail.get("stage") == "rendering":
+                raise hand.Refused(f"remake {row['id']} is being rendered", rule="used")
             if row["created_at"] < hand.now() - STALE_SECONDS:
                 _release(conn, row["id"], "expired: its keys were never rendered")
                 raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
