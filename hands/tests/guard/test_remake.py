@@ -220,8 +220,9 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan and Lisa Su catches it in slow "
                                                           "motion, bouncing it off the ceiling."), story=story),
                            "Lisa Su")
-        self.assertRefused(self.screen({**REMAKE, "logline": REMAKE["logline"] + " while Su laughs"}, story=story),
-                           "Lisa Su")
+        story = {**story, "summary": story["summary"] + " Satya Nadella sat beside him."}
+        self.assertRefused(self.screen({**REMAKE, "logline": REMAKE["logline"] + " while nadella laughs"},
+                                       story=story), "Satya Nadella")
         # The figures themselves, and words that only start a sentence, are fine.
         self.assertEqual(self.screen(with_shot(1, motion="Slow Motion: the chip misses the pan and bounces off the "
                                                           "ceiling as Jensen Huang stares.")), [])
