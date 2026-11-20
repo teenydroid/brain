@@ -1,46 +1,59 @@
-"""Remakes: a popular short re-made shot by shot with public figures and
-Teeny as a bystander, by keyframe swap, bought on Surplus and cut with the
+"""Remakes: a popular short re-made with public figures and Teeny as a
+bystander, as ONE take: one keyframe (the source's first frame edited into
+the new cast plus Teeny), one image-to-video job for the whole remake from a
+script of every shot's time range, cut to the source's length with the
 source's own audio and a burned-in label (docs/hands.md, "video").
 
-  hands/video remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
-  hands/video remake      {remake_id, sound, wait_seconds?}
-  hands/video remake-drop {remake_id}                  -> {remake_id, released_usd}
+  hands/video remake keys   {study, source, story, figures?, logline, aspect?, one_setting?, shots, wait_seconds?}
+  hands/video remake render {remake_id, sound, wait_seconds?}
+  hands/video remake drop   {remake_id}                  -> {remake_id, released_usd}
+  (the old verbs remake-keys, remake and remake-drop are aliases)
 
-A sibling of the skit (media/skits.py). hands/remake study has already cut
-the source into shots and written each shot's first frame and the source's
-audio under state/media/remake/<study>/; bin/studio's `remake` format calls
-these verbs only after the remake passed its hard lines, and between them
-looks at the keyframes (the cheap money) before the clips (the expensive
-money) are bought. Like the skit, this hand makes no judgment of its own
-about the words; what it holds, in code:
+A sibling of the skit (media/skits.py), and one take for the same reason
+(#405): jobs made apart remember nothing of each other, so a face, a set or
+a prop drifts from one to the next. hands/remake study has already cut the
+source into shots and written their first frames and the source's audio
+under state/media/remake/<study>/; bin/studio's `remake` format calls these
+verbs only after the remake passed its hard lines, and between them looks
+at the keyframe (the cheap money) before the take (the expensive money) is
+bought. Like the skit, this hand makes no judgment of its own about the
+words; what it holds, in code:
 
 - **Off by default.** `MEDIA_REMAKE_MAX_PER_DAY` is 0 unless the operator
   sets it; and a remake is one of the `MEDIA_SKIT_MAX_PER_DAY` videos a day
   that skits and remakes share (a remake or a skit that bought anything
   counts, even one that failed after). Both must allow it, or nothing is
   asked of anyone (`off`, `per_day`).
-- **The money fences.** The runway tier; every shot reserves
-  `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.40: after a $0.10 key, Wan 3's 5 s
-  ceiling of $1.17 fits) on its row under the media lock
-  before anything is bought, and all of them must fit under the shared
-  `MEDIA_MAX_USD_PER_DAY` with everything else bought today (`budget`). A
-  keyframe books its catalog estimate on a `key` row (an edit carries no
-  quote and no bill; an unknown price books KEY_UNKNOWN_MICRO, the dearest
-  edit measured) and lowers its shot's reservation by the same amount, so
-  the clip may cost only what is left: an image-to-video job whose
-  `max_cost_usdc` is over that is cancelled and the next model asked.
-- **Two verbs, one set of words.** remake-keys stores everything the render
-  needs (the motion prompts, the source shots' lengths, the aspect, the
-  keyframes, the study) on its rows; remake takes only the remake's id, its
-  sound and a wait, so it can never be handed words nobody screened. It
-  refuses an id that is unknown, already rendered or being rendered,
-  failed, or older than STALE_SECONDS (2 hours), and a sound that is not
+- **The money fences.** The runway tier; the remake reserves
+  `MEDIA_REMAKE_MAX_USD_PER_TAKE` ($4.00: Wan 3's 15 s at 720p can cost
+  $3.51) on the take's row under the media lock before anything is bought,
+  under the shared `MEDIA_MAX_USD_PER_DAY` with everything else bought today
+  (`budget`). The keyframe books its catalog estimate on a `key` row (an edit
+  carries no quote and no bill; an unknown price books KEY_UNKNOWN_MICRO,
+  the dearest edit measured) and comes off that reservation, so the take may
+  cost only what is left: a length whose verified ceiling
+  (REMAKE_MAX_PER_SECOND) cannot fit is never asked, and a job whose
+  `max_cost_usdc` is over it is cancelled and the next model asked.
+- **No mix of jobs.** A take no one-take model can make fails the remake:
+  the reservation released, the key's cost kept. Only with
+  `MEDIA_REMAKE_PER_SHOT=1` (off by default) is every shot keyed and, when
+  the take cannot be had (unbilled, inside the wait), the remake made a clip
+  a shot instead, each shot holding `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.40)
+  less its key, the take's row swapped for theirs in one transaction under
+  the media lock (the claim held the larger of the two, so the money held
+  never rises).
+- **Two verbs, one set of words.** remake keys stores everything the render
+  needs (each shot's motion, edit, length and cut, the aspect, the key, the
+  study) on its rows; remake render takes only the remake's id, its sound
+  and a wait, so it can never be handed words nobody screened. It refuses
+  an id that is unknown, already rendered or being rendered, failed, or
+  older than STALE_SECONDS (2 hours), and a sound that is not
   state/media/remake/<that remake's study>/audio.m4a.
-- **Keys bought, never rendered.** remake-drop lets a keyed remake go at
-  once (the studio turned its keyframes down); one left pending past
+- **Keys bought, never rendered.** remake drop lets a keyed remake go at
+  once (the studio turned its keyframe down); one left pending past
   STALE_SECONDS is let go by the next media budget check
   (assets.release_stale: images, videos, skits, remakes). Either way its
-  keys keep what they cost on the ledger, a shot never submitted gives its
+  key keeps what it cost on the ledger, a take never submitted gives its
   reservation back, and one that was submitted (a render whose process
   died) is `unknown` and keeps what it may cost.
 - **Midnight.** The rows are dated when the keys are bought: a remake
@@ -51,42 +64,56 @@ about the words; what it holds, in code:
 - **The label.** skits.label(), "AI parody · @<X_BOT_USERNAME>", set here,
   never by the caller, and checked on the cut as for a skit.
 
-The keys: each source frame and Teeny's character sheet go to
-`POST /v1/images/edits` as `images: [frame, sheet]` (two data URIs), with a
-prompt this hand frames around the writer's `edit`: what the two images
-are, the edit, Teeny's clause (assets.CHARACTER, then "Exactly one Teeny,"
-and the shot's `teeny`), and `MEDIA_REMAKE_STYLE` (STYLE by default). The
-models are `MEDIA_REMAKE_EDIT_MODELS` in order; a content refusal (Surplus
-answers 400 `request_rejected`, "violates the content policy") or a seller's
-trouble moves the shot to the next, at most MAX_EDIT_ATTEMPTS edits a shot;
-any other refusal (no credit) stops the remake. An edit is held to what is
-left of its shot's cap, and starts only while EDIT_TIMEOUT is left of
-`MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one that gets no answer may still
-be made and billed, so it is booked as bought (`unknown`). The shots' edits
-run in parallel; one shot that cannot be keyed stops the others from
-trying again, and the remake fails.
+The remake runs TOTAL_SECONDS (3 to 30), the sum of its shots' (1 to 10
+each, 1 to 6 shots); only shot 1's frame is read (all of them with
+MEDIA_REMAKE_PER_SHOT=1).
 
-The render: one `POST /v1/video/generations` a shot with {model, prompt:
-the shot's `motion` and MOTION_TAIL, image_url: the keyframe,
-duration_seconds}, plus REMAKE_PARAMS (venice-wan-3-0: resolution
-`MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and audio only
-when the cut keeps the clips' sound) under `MEDIA_REMAKE_PARAMS`, on the
-first of `MEDIA_REMAKE_MODELS` that takes it (venice-wan-3-0 first: it sells
-2, 5, 10, 15 to 30 s), asked for the shortest length the model sells that
-covers the source shot (a model that sells none, or whose verified ceiling
-for it, REMAKE_MAX_PER_SECOND, cannot fit what is left of the shot's cap,
-moves the shot on unasked), and polled, landed and cancelled by
-media/shots.py as a skit's shots are (`MEDIA_SKIT_WAIT_SECONDS`). Verified on Surplus
-(2026-11-20): kling-v3-standard-image-to-video takes a keyframe with a real
-face, 5 s quoted $0.49 (ceiling $0.98) and billed $0.49. The cut: each clip
-trimmed to its source shot (`trims`), the source's audio as the only sound
-(`sound`; with none, or MEDIA_REMAKE_SOUND=0, each clip keeps its own,
-trimmed), and the label (deploy/reel/skitcut.py).
+The key: shot 1's frame and Teeny's character sheet go to
+`POST /v1/images/edits` as `images: [frame, sheet]` (two data URIs) with the
+remake's `aspect_ratio`, and a prompt this hand frames around the writer's
+`edit`: what the two images are, the edit, Teeny's clause
+(assets.CHARACTER, then "Exactly one Teeny," and the shot's `teeny`), and
+`MEDIA_REMAKE_STYLE` (STYLE by default). A keyframe more than SHAPE_SLACK
+off the remake's shape is bought and no use: booked, and the next model
+asked. The models are `MEDIA_REMAKE_EDIT_MODELS` in order; a content refusal
+(Surplus answers 400 `request_rejected`, "violates the content policy") or a
+seller's trouble moves to the next, at most MAX_EDIT_ATTEMPTS edits a shot;
+any other refusal (no credit) stops the remake. An edit is held to what is
+left of its cap, and starts only while EDIT_TIMEOUT is left of
+`MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one that gets no answer may still
+be made and billed, so it is booked as bought (`unknown`). With the per-shot
+fallback, the shots' edits run in parallel and one shot that cannot be
+keyed stops the others.
+
+The take: one `POST /v1/video/generations` {model, prompt: take_script,
+image_url: the key, duration_seconds} plus REMAKE_PARAMS (venice-wan-3-0:
+resolution `MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and
+audio only when the cut keeps the clip's sound) under
+`MEDIA_REMAKE_PARAMS`, on the first of `MEDIA_REMAKE_ONE_TAKE_MODELS`
+(venice-wan-3-0, then wan-2-7 image-to-video) that takes it, asked for the
+shortest length the model sells that covers the whole remake (Wan 3 sells 2,
+5, 10, 15 to 30 s), and polled, landed and cancelled by media/shots.py
+(`MEDIA_SKIT_WAIT_SECONDS`). The script (take_script, the style of the
+skit's guard/skit.py `script`): one continuous take, no cuts, locked-off
+camera (hard cuts only into a shot marked `cuts`, or between every shot
+with `one_setting: false`); each shot's time range in the source's seconds
+with its motion, and after the first what the scene now shows (its edit),
+the last range running to the take's end; then TAKE_TAIL. Made by hand on
+2026-11-21: Wan 3 image-to-video, 15 s at 720p, quoted $1.52 (ceiling
+$3.51), done in 285 s, followed the time ranges and held the face, set and
+props. The cut: the one clip trimmed to the remake's length (`trims`), the
+source's audio as the only sound (`sound`; with none, or
+MEDIA_REMAKE_SOUND=0, the clip keeps its own), and the label
+(deploy/reel/skitcut.py). The per-shot fallback is the render this hand
+made before one take: a job a shot from each shot's key, `MEDIA_REMAKE_MODELS`
+in order, each clip trimmed to its shot.
 
 The ledger: a `remake` row (cost 0; its `detail` holds the study, source,
-story, figures, logline, aspect, label, the shots' words and lengths, the
-keys, and once cut the frames and what it all cost), a `key` row a bought
-keyframe and a `shot` row a clip, each `source_id` the remake's row.
+story, figures, logline, aspect, label, the shots' words, lengths and cuts,
+the keys, whether it was one take, and once cut the frames and what it all
+cost), a `key` row a bought keyframe, and one `shot` row for the take
+(`detail.one_take`; with the fallback, then a `shot` row a clip), each
+`source_id` the remake's row.
 
 DRY_RUN (on by default) answers what would be made and calls nothing.
 """
