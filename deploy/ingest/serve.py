@@ -49,6 +49,7 @@ import shots  # noqa: E402
 PROBE_SECONDS = 90
 DOWNLOAD_SECONDS = 420
 FFMPEG_SECONDS = 240
+SOCKET_TIMEOUT = 30.0
 MIME = {".mp4": "video/mp4", ".m4a": "audio/mp4", ".jpg": "image/jpeg"}
 
 Runner = Callable[[list[str], float], tuple[int, str, str]]
@@ -84,6 +85,11 @@ class Service:
         self.fetches = self.root / "fetches"
         self.fetches.mkdir(parents=True, exist_ok=True)
         self.proxy = proxy or None
+        if self.proxy and not policy.proxy_ok(self.proxy):
+            # Said once, never with the value (it may hold a login).
+            print("ingest: INGEST_PROXY_URL is set but is not a proxy address (http, https, socks5 or socks5h); "
+                  "it is ignored", file=sys.stderr)
+            self.proxy = None
         self.run = runner
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
         self._busy = threading.Lock()
@@ -189,9 +195,12 @@ class Service:
         code, _, err = self.run(policy.download_argv(checked["url"], str(folder / "dl.%(ext)s"), checked["max_height"],
                                                      self.proxy), DOWNLOAD_SECONDS)
         downloaded = sorted(folder.glob("dl.*"))
-        if code != 0 or not downloaded:
+        # 101 is yt-dlp's "stopped at --max-downloads 1": the one file is there.
+        if code not in (0, 101) or not downloaded:
             raise Failure(422, f"yt-dlp could not download it: {self._last_line(err)}")
         original = downloaded[0]
+        if original.stat().st_size > policy.MAX_DOWNLOAD_BYTES:
+            raise Failure(422, f"the download is too big (over {policy.MAX_DOWNLOAD})")
         clip = self._probe_file(original)
         fps = float(shots.fps_text(clip["fps"]))
         wanted = min(checked["max_seconds"], clip["seconds"] - checked["start"])
@@ -270,11 +279,13 @@ class Service:
 # --- http -------------------------------------------------------------------------------------
 
 
-def make_server(service: Service, host: str, port: int) -> ThreadingHTTPServer:
+def make_server(service: Service, host: str, port: int, timeout: float = SOCKET_TIMEOUT) -> ThreadingHTTPServer:
     jobs = {"probe": service.probe, "listing": service.listing, "fetch": service.fetch}
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "teeny-ingest"
+        #: A client that goes quiet mid-request is dropped, not waited on.
+        timeout = SOCKET_TIMEOUT_SECONDS
         protocol_version = "HTTP/1.1"
 
         def log_message(self, *args: Any) -> None:  # the access log would carry the URLs asked for

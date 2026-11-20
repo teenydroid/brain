@@ -43,6 +43,12 @@ MAX_BODY_BYTES = 8 * 1024
 MAX_VIDEO_SECONDS = 600
 #: yt-dlp's --max-filesize for one download.
 MAX_DOWNLOAD = "150M"
+MAX_DOWNLOAD_BYTES = 150 * 1024 * 1024
+#: The only extractors yt-dlp may use (names as `--list-extractors` gives them
+#: in the pinned version, checked 2026-11-20): the YouTube, TikTok and
+#: Instagram families. Never `generic`, which follows redirects and og:video
+#: to any host, past the allowlist that only vets the first URL.
+EXTRACTORS = "youtube.*,tiktok.*,instagram.*,vm.tiktok,TikTok,Instagram,InstagramIOS,YoutubeYtBe"
 SOCKET_TIMEOUT = "20"
 MAX_TEXT = 300
 
@@ -119,15 +125,21 @@ def _proxy_args(proxy: Any) -> list[str]:
     return []
 
 
+def proxy_ok(proxy: Any) -> bool:
+    """Whether `proxy` is a proxy address yt-dlp may be given."""
+    return isinstance(proxy, str) and _PROXY_URL.fullmatch(proxy.strip()) is not None
+
+
 def _common(proxy: Any) -> list[str]:
     return ["yt-dlp", "--ignore-config", "--no-exec", "--no-cache-dir", "--no-warnings", "--no-color",
-            "--socket-timeout", SOCKET_TIMEOUT, "--retries", "2", *_proxy_args(proxy)]
+            "--use-extractors", EXTRACTORS, "--socket-timeout", SOCKET_TIMEOUT, "--retries", "2", *_proxy_args(proxy)]
 
 
 def probe_argv(url: str, proxy: Any = None) -> list[str]:
     """yt-dlp for one video's metadata as one JSON object on stdout."""
     url = check_url(url)["url"]
-    return [*_common(proxy), "--no-playlist", "--skip-download", "--dump-single-json", "--", url]
+    return [*_common(proxy), "--no-playlist", "--flat-playlist", "--playlist-items", "1", "--skip-download",
+            "--dump-single-json", "--", url]
 
 
 def listing_argv(url: str, limit: int, proxy: Any = None) -> list[str]:
@@ -146,8 +158,11 @@ def download_argv(url: str, template: str, max_height: int, proxy: Any = None) -
     url = check_url(url)["url"]
     if isinstance(max_height, bool) or not isinstance(max_height, int) or not 144 <= max_height <= 2160:
         raise RequestError("max_height is a whole number of pixels")
-    fmt = f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b"
-    return [*_common(proxy), "--no-playlist", "--max-filesize", MAX_DOWNLOAD, "-f", fmt, "-S", f"res:{max_height}",
+    size = f"[filesize<?{MAX_DOWNLOAD}]"
+    height = f"[height<={max_height}]"
+    fmt = f"bv*{height}{size}+ba{size}/b{height}{size}/bv*{size}+ba{size}/b{size}"
+    return [*_common(proxy), "--no-playlist", "--playlist-items", "1", "--max-downloads", "1",
+            "--max-filesize", MAX_DOWNLOAD, "-f", fmt, "-S", f"res:{max_height}",
             "--merge-output-format", "mp4", "--no-part", "--no-progress", "-o", template, "--", url]
 
 
@@ -156,9 +171,21 @@ def scrub(text: Any, *secrets_to_hide: Any) -> str:
     other address with a user or a password in it) taken out, at most MAX_TEXT
     characters."""
     out = str(text)
+    hide: list[str] = []
     for secret in secrets_to_hide:
-        if isinstance(secret, str) and secret:
-            out = out.replace(secret, "[proxy]")
+        if not isinstance(secret, str) or not secret:
+            continue
+        hide.append(secret)
+        try:
+            parts = urlsplit(secret)
+            if parts.password:
+                hide += [f"{parts.username}:{parts.password}", parts.password]
+            if parts.hostname:
+                hide += [f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname]
+        except ValueError:
+            pass
+    for secret in sorted(set(hide), key=len, reverse=True):
+        out = out.replace(secret, "[proxy]")
     out = _USERINFO.sub("[proxy]", out)
     out = _CONTROL.sub(" ", out)
     return " ".join(out.split())[:MAX_TEXT]
@@ -171,6 +198,8 @@ def refusal(info: Any) -> str | None:
     """Why yt-dlp's `info` is not a video to take, or None."""
     if not isinstance(info, dict):
         return "no video information"
+    if info.get("_type") in ("playlist", "multi_video"):
+        return "a list of videos, not one video"
     if info.get("is_live") is True or info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
         return "a live stream"
     age = info.get("age_limit")

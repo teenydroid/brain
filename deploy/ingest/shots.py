@@ -164,17 +164,20 @@ def aspect(width: int, height: int) -> str:
 # --- command lines --------------------------------------------------------------------------
 
 _QUIET = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
+#: ffmpeg and ffprobe read files and pipes only: never a network protocol a
+#: playlist or a container could name.
+_FILES_ONLY = ["-protocol_whitelist", "file,pipe"]
 
 
 def ffprobe_argv(ffprobe: str, path: str) -> list[str]:
-    return [ffprobe, "-v", "error", "-show_entries",
+    return [ffprobe, "-v", "error", *_FILES_ONLY, "-show_entries",
             "stream=codec_type,width,height,avg_frame_rate,r_frame_rate:format=duration", "-of", "json", path]
 
 
 def scene_argv(ffmpeg: str, src: str) -> list[str]:
     """ffmpeg reading `src` to nothing, logging the frames whose scene score
     is over the threshold (showinfo, on stderr)."""
-    return [ffmpeg, "-hide_banner", "-nostdin", "-nostats", "-i", src, "-an", "-vf",
+    return [ffmpeg, "-hide_banner", "-nostdin", "-nostats", *_FILES_ONLY, "-i", src, "-an", "-vf",
             f"select='gt(scene,{SCENE_THRESHOLD})',showinfo", "-f", "null", "-"]
 
 
@@ -183,18 +186,18 @@ def excerpt_argv(ffmpeg: str, src: str, out: str, start: float, seconds: float, 
     """The part of `src` from `start` for `seconds`, re-encoded at `fps` and
     at most `max_height` high (even sides), with its sound when `audio`."""
     sound = ["-c:a", "aac", "-b:a", "128k", "-ar", "44100"] if audio else ["-an"]
-    return [ffmpeg, *_QUIET, "-ss", f"{start:.3f}", "-i", src, "-t", f"{seconds:.3f}", "-vf",
+    return [ffmpeg, *_QUIET, *_FILES_ONLY, "-ss", f"{start:.3f}", "-i", src, "-t", f"{seconds:.3f}", "-vf",
             f"scale=-2:'trunc(min({max_height},ih)/2)*2'", "-r", fps_text(fps), "-c:v", "libx264", "-preset",
             "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", *sound, "-movflags", "+faststart", out]
 
 
 def audio_argv(ffmpeg: str, src: str, out: str, seconds: float) -> list[str]:
     """The sound of `src`, as AAC, for exactly `seconds`."""
-    return [ffmpeg, *_QUIET, "-i", src, "-t", f"{seconds:.3f}", "-vn", "-c:a", "aac", "-b:a", "128k", out]
+    return [ffmpeg, *_QUIET, *_FILES_ONLY, "-i", src, "-t", f"{seconds:.3f}", "-vn", "-c:a", "aac", "-b:a", "128k", out]
 
 
 def frame_argv(ffmpeg: str, src: str, out: str, at: float) -> list[str]:
     """One JPEG of `src` at `at` seconds, its longer side at most FRAME_SIDE."""
     side = FRAME_SIDE
     scale = f"scale=w='if(gt(iw,ih),min({side},iw),-2)':h='if(gt(iw,ih),-2,min({side},ih))'"
-    return [ffmpeg, *_QUIET, "-ss", f"{at:.3f}", "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "3", out]
+    return [ffmpeg, *_QUIET, *_FILES_ONLY, "-ss", f"{at:.3f}", "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "3", out]
