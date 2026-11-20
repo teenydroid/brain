@@ -456,7 +456,7 @@ def _refused(exc: SurplusError) -> bool:
 
 
 def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, models: list[str], per_shot: int,
-         price, deadline: float, clock, stop: threading.Event) -> Json:
+         price, deadline: float, clock, stop: threading.Event, aspect: str) -> Json:
     """One shot's keyframe: at most MAX_EDIT_ATTEMPTS edits, model after
     model. {n, path, model, cost} or {n, failed}; _Stop for a refusal every
     model would give. Writes on a connection of its own (it runs in a
@@ -483,8 +483,12 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
                 continue
             attempts += 1
             try:
+                # The remake's own shape is asked for: left to choose, an
+                # edit of a 9:16 frame came back landscape (2026-11-20), and
+                # the cut would then crop the cast out of it.
                 answer = api.call("POST", "/v1/images/edits", {"model": model, "prompt": prompt,
                                                                "images": [frame, reference],
+                                                               "aspect_ratio": aspect,
                                                                "response_format": "b64_json"},
                                   timeout=EDIT_TIMEOUT)
             except SurplusError as exc:
@@ -538,7 +542,7 @@ def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], re
     def run(i: int) -> None:
         try:
             results[i] = _key(api, remake_id, specs[i], frames[i], reference, models, per_shot, price, deadline,
-                              clock, stop)
+                              clock, stop, aspect)
         except _Stop as exc:
             results[i] = {"n": specs[i]["n"], "failed": str(exc)}
         except BaseException as exc:  # noqa: BLE001 - reported as the shot's failure
