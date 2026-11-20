@@ -493,6 +493,21 @@ printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=
 doctor || true
 check "a take cap over the daily budget warns" \
   grep -q '^warn remakes: MEDIA_REMAKE_MAX_USD_PER_TAKE (6.00 USD) is over MEDIA_MAX_USD_PER_DAY (5.00 USD)' "$scratch/doctor.log"
+# The per-shot path is the fallback (MEDIA_REMAKE_PER_SHOT=1): only then does
+# a shot's cap count. Unset, it is the hand's own default (media/remakes.py,
+# PER_SHOT), so six of them are over a day a cent short of six.
+shot_default="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from teeny_hands.media.remakes import PER_SHOT as m; print(f"{float(m):.2f}")' "$repo/hands/lib")"
+short_day="$(python3 -c "print(f'{6 * $shot_default - 0.01:.2f}')")"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_PER_SHOT=1\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with the per-shot fallback on, six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT (1.00 USD)' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_PER_SHOT=1\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_MAX_USD_PER_DAY=%s\n' "$short_day" >"$root/secrets/teeny.env"
+doctor || true
+check "an unset shot cap is the hand's own default" grep -q "^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ($shot_default USD)" "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with the per-shot fallback off, a shot's cap is not warned about" \
+  sh -c '! grep -q "MEDIA_REMAKE_MAX_USD_PER_SHOT" "$1"' _ "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=3.00\n' >"$root/secrets/teeny.env"
 doctor || true
 check "with no take cap set, the hand's own 4.00 USD counts" \

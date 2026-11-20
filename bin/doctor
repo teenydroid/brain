@@ -584,11 +584,18 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-# A remake is one take (one job): unset, the take cap is what the hand itself uses.
-take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", 4.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+# A remake is one take (one job): unset, the caps and models are those of the
+# hand itself (media/remakes.py). No apostrophes here: this is inside bash single quotes.
+from teeny_hands.media.remakes import ONE_TAKE_MODELS, PER_SHOT, PER_TAKE
+take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", float(PER_TAKE)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if take > budget:
     warns.append(f"MEDIA_REMAKE_MAX_USD_PER_TAKE ({take:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no remake fits a day")
-models = [m.strip() for m in (filed.get("MEDIA_REMAKE_ONE_TAKE_MODELS") or "venice-wan-3-0-image-to-video,wan-2-7-image-to-video").split(",") if m.strip()]
+# The per-shot path is the fallback (MEDIA_REMAKE_PER_SHOT=1): only then does the cap on a shot count.
+if (filed.get("MEDIA_REMAKE_PER_SHOT") or "").strip().lower() in ("1", "true", "yes", "on"):
+    shot = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT))
+    if 6 * shot > budget:
+        warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
+models = [m.strip() for m in (filed.get("MEDIA_REMAKE_ONE_TAKE_MODELS") or ONE_TAKE_MODELS).split(",") if m.strip()]
 try:
     from teeny_hands.remake.service import DEFAULT_URL as INGEST_DEFAULT
 except ImportError:

@@ -453,9 +453,6 @@ class ProducerTest(unittest.TestCase):
             "the keys' viewer refuses": {"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True})},
             "the time floor after the keys": "eats_time",
             "video remake refuses": {"video remake": (2, {"ok": False, "refused": "stale", "rule": "stale"})},
-            "video remake errors": {"video remake": (1, "Traceback")},
-            "video remake under DRY_RUN": {"video remake": (0, {"ok": True, "dry_run": True})},
-            "no cut came back": {"video remake": (0, {**MADE, "asset": None})},
             "the wrong number of keys": {"video remake-keys": (0, {**KEYS, "keys": PER_SHOT_KEYS["keys"] + [{"n": 3, "path": "state/media/remake-r1-key-3.png", "model": "m", "cost_usd": 0.04}]})},
         }
         for name, script in cases.items():
@@ -468,6 +465,19 @@ class ProducerTest(unittest.TestCase):
                 drops = [(b, d) for a, b, d, _ in room.seen if a[:2] == ["video", "remake-drop"]]
                 self.assertEqual(drops, [({"remake_id": "r1"}, False)])
                 self.assertEqual(attempt["remake"]["dropped"]["released_usd"], 3.12)
+
+    def test_a_video_the_hand_took_on_is_left_to_the_hand(self):
+        # Once `video remake` was asked and did not refuse, the hand owns the
+        # reservation (it frees it when the render fails; a rendered one is
+        # refused by remake-drop as used), so the studio drops nothing.
+        for script in ({"video remake": (1, "Traceback")},
+                       {"video remake": (0, {"ok": True, "dry_run": True})},
+                       {"video remake": (0, {**MADE, "asset": None})}):
+            with self.subTest(script=script):
+                room = _producer_room(**script)
+                result, _, _ = self.go(room)
+                self.assertEqual(result, "next")
+                self.assertNotIn("video remake-drop", [" ".join(a[:2]) for a, *_ in room.seen])
 
     def test_a_cut_that_came_back_or_keys_never_bought_release_nothing(self):
         for script in ({}, {"guard view-remake": lambda b: (0, {"ok": b["stage"] == "keys", "reason": "r",
@@ -494,17 +504,18 @@ class ProducerTest(unittest.TestCase):
         self.assertGreaterEqual(studio.REMAKE_TAIL_SECS, 240 + 300 + 300)
 
     def test_a_drop_with_no_time_to_run_is_logged(self):
-        room = _producer_room(**{"video remake": (1, "Traceback"),
+        room = _producer_room(**{"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True}),
                                  "video remake-drop": (-2, "out of the run's time (3600 s) before hands/video remake-drop")})
         self.go(room)
-        self.assertIn("no time was left to release", " ".join(room.warnings))
+        self.assertIn("could not be dropped", " ".join(room.warnings))
 
     def test_a_drop_that_fails_is_only_noted(self):
-        room = _producer_room(**{"video remake": (1, "Traceback"), "video remake-drop": (1, "no such verb")})
+        room = _producer_room(**{"guard view-remake": (0, {"ok": False, "reason": "no", "judged": True}),
+                                 "video remake-drop": (1, "no such verb")})
         result, attempt, _ = self.go(room)
         self.assertEqual(result, "next")
         self.assertIn("error", attempt["remake"]["dropped"])
-        self.assertIn("could not be released", " ".join(room.warnings))
+        self.assertIn("could not be dropped", " ".join(room.warnings))
 
     def test_a_long_story_is_cut_to_what_the_hand_takes(self):
         room = _producer_room()
