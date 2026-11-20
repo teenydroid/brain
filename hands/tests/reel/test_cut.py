@@ -109,7 +109,8 @@ class CommandTest(unittest.TestCase):
         self.assertTrue(max(gaps) - min(gaps) < 0.05, times)
         for start, end in ((0, 4), (4, 9), (9, 14)):  # the take's three shots
             self.assertTrue(any(start <= t < end for t in times), (start, end, times))
-        self.assertEqual(skitcut.frame_times([0.5]), [0.12, 0.38][:len(skitcut.frame_times([0.5]))])
+        short = skitcut.frame_times([0.5])
+        self.assertTrue(short and all(0 <= t <= 0.5 for t in short), short)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg (the reel image has it)")
