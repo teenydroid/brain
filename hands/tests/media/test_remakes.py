@@ -979,7 +979,7 @@ class OneTakeTest(Fixture):
         self.assertEqual(self.reel.jobs, [])
 
     def test_with_the_per_shot_setting_a_take_no_model_makes_falls_back_to_a_clip_a_shot(self):
-        self.env(MEDIA_REMAKE_PER_SHOT=1)
+        self.env(MEDIA_REMAKE_PER_SHOT=1, MEDIA_REMAKE_MODELS=KLING)  # the take's models all fail here
         for model in (TAKE1, TAKE2):
             self.api.jobs[model] = ["running", "failed"]
         made, out = self.both()
