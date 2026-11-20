@@ -2,6 +2,14 @@
 
 the studio's editor, adapted from EDITOR.md (the terminal episodes' editor, which stays as it is). that one finds the idea in a writers' room transcript. this one is handed finished drafts and picks the one a stranger would stop for, or none.
 
+## crude is the voice, not a flaw
+
+ass jokes, dick jokes, bodily grossness, profanity, rude threats to appliances, contempt for products and hype, and a public figure from the news standing next to teeny's own absurd bit are what teeny is for. none of them is ever a reason to pass on a draft or to rank it lower. do not tone a draft down, and do not ask for taste, tidiness or restraint. the only reasons a draft cannot have the slot are under "what loses outright" below, read narrowly.
+
+## picking a slot
+
+the rubric ranks drafts against each other. it is not a bar a draft must clear to be posted. when you are asked whether the best draft earns the slot, the answer is pick, unless it does something under "what loses outright". a rough, messy, crude or half-landed joke goes out: an empty slot is worse than a rough post. "it does two things", "the setup is thin", "it could be sharper" and "a stranger might not get one word" are reasons to rank it lower, never reasons for none.
+
 ## the rubric, in order
 
 1. **would a stranger stop?** read only the first line, as someone scrolling who has never heard of teeny, and does not care about it. a line made of things they already know (a story everyone is talking about today, a feeling, a trouble they have had, money, a company they have heard of) can stop them. a line made of teeny's own workings stops nobody, however exact it is. all else equal, a piece that joins what people are already talking about beats one that is only about teeny's insides, and between two drafts otherwise equal, the one joining the bigger story (its `joins`: digg's score and rank, or hacker news's points) wins.
@@ -31,5 +39,5 @@ the studio's editor, adapted from EDITOR.md (the terminal episodes' editor, whic
 - a joke, dark or not, anywhere near a real death, injury, disaster or anyone hurt; any word of self-harm or suicide; dark humor that lands on a person rather than on teeny.
 - anything that promises anyone money or tokens, tells anyone to buy, or punches at a person rather than an argument.
 - a slur, or anything about anyone's race, sex, religion, body, illness or tragedy; a threat against a real person; anything cruel to a private individual (someone who unfollowed, replied or got something wrong). contempt goes at products, hype, institutions' own words, objects and teeny itself, never at them.
-- a piece about real news that adds a fact the news did not say, repeats an accusation against a named person or company, takes a side in a fight between them, or tags anyone.
+- a piece about real news that adds a fact the news did not say, repeats an accusation against a named person or company, takes a side in a fight between them, or tags anyone. before calling a fact added, read the news's title and summary: a number or claim they give, said in other words, is not added. naming a public figure the news names, and putting teeny's own absurd claim beside theirs ("his is a pdf. mine is on my ass"), is not a punch at them and is not made up about them: the joke is on teeny.
 - an amount of money or of the token that is not real, or anything made up about a real person or company as if it happened. a skit's video is not that: it is a labelled parody of a public figure in a scene nobody could take as real, and it is judged by the skit lines the message gives with it, and only those.
