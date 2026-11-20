@@ -245,6 +245,10 @@ def shape(raw: Any, study: Any) -> tuple[dict[str, Any], str]:
         return kept, f"a remake's premise is one line of 1 to {MAX_PREMISE} characters"
     if not kept["logline"] or len(kept["logline"]) > MAX_LOGLINE:
         return kept, f"a remake's logline is one line of 1 to {MAX_LOGLINE} characters"
+    if "one_setting" in raw:
+        if not isinstance(raw["one_setting"], bool):
+            return kept, "a remake's one_setting is true or false: whether the whole original is one place"
+        kept["one_setting"] = raw["one_setting"]
     if not isinstance(study, dict):
         return kept, "a remake needs its study: the source video's shots and the people in them"
     source = study_shots(study)

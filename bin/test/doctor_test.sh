@@ -489,21 +489,22 @@ check "and warns that hands/video refuses every remake" grep -q '^warn remakes: 
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\n' >"$root/secrets/teeny.env"
 doctor || true
 check "no chart provider warns" grep -q '^warn remakes: .*REMAKE_TIKTOK_ACCOUNTS.*YOUTUBE_API_KEY' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_TAKE=6.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
 doctor || true
-check "six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=8.00\n' >"$root/secrets/teeny.env"
+check "a take cap over the daily budget warns" \
+  grep -q '^warn remakes: MEDIA_REMAKE_MAX_USD_PER_TAKE (6.00 USD) is over MEDIA_MAX_USD_PER_DAY (5.00 USD)' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=3.00\n' >"$root/secrets/teeny.env"
 doctor || true
-check "with no shot cap set, six shots count at the hand's own 1.40 USD" \
-  grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT (1.40 USD) is over MEDIA_MAX_USD_PER_DAY (8.00 USD)' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=9.00\n' >"$root/secrets/teeny.env"
+check "with no take cap set, the hand's own 4.00 USD counts" \
+  grep -q '^warn remakes: MEDIA_REMAKE_MAX_USD_PER_TAKE (4.00 USD) is over MEDIA_MAX_USD_PER_DAY (3.00 USD)' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
 doctor || true
-check "with no INGEST_URL, the hand's own address is named" \
-  grep -q '^ok   remakes: on: 1 a day, up to 1.40 USD a shot under 9.00 USD a day; charts from youtube; ingest at http://ingest:8090' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+check "remakes on say their caps, one take and its models, charts and ingest" \
+  grep -q '^ok   remakes: on: 1 a day, up to 4.00 USD a take under 6.00 USD a day; one take on venice-wan-3-0-image-to-video (then wan-2-7-image-to-video); charts from tiktok; ingest at http://ingest:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=9.00\nMEDIA_REMAKE_ONE_TAKE_MODELS=wan-2-7-image-to-video\n' >"$root/secrets/teeny.env"
 doctor || true
-check "remakes on say their caps, charts and ingest" \
-  grep -q '^ok   remakes: on: 1 a day, up to 1.00 USD a shot under 6.00 USD a day; charts from tiktok; ingest at http://ingest:8080' "$scratch/doctor.log"
+check "with no INGEST_URL, the hand's own address is named, and its own one-take models" \
+  grep -q '^ok   remakes: on: 1 a day, up to 4.00 USD a take under 9.00 USD a day; one take on wan-2-7-image-to-video; charts from youtube; ingest at http://ingest:8090' "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=20\nINGEST_URL=http://127.0.0.1:9\n' \
   >"$root/secrets/teeny.env"
 live_doctor || true

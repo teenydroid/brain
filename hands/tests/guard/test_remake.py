@@ -76,6 +76,8 @@ class ShapeTest(support.Scratch):
         self.assertEqual([s["n"] for s in kept["shots"]], [1, 2])
         self.assertEqual(kept["cast"], [{"ref": "A", "as": "Jensen Huang"}, {"ref": "B", "as": "extra"}])
         self.assertEqual(set(kept["shots"][0]), {"n", "edit", "motion", "teeny"})
+        self.assertNotIn("one_setting", kept)
+        self.assertIs(remake.shape({**REMAKE, "one_setting": True}, STUDY)[0]["one_setting"], True)
 
     def test_the_shape_is_held(self):
         cases = [
@@ -87,6 +89,7 @@ class ShapeTest(support.Scratch):
             ({**REMAKE, "premise": "x" * 301}, None, "premise"),
             ({**REMAKE, "logline": ""}, None, "logline"),
             ({**REMAKE, "logline": "x" * 301}, None, "logline"),
+            ({**REMAKE, "one_setting": "yes"}, None, "one_setting"),
             (with_shot(1, edit="too short"), None, "edit"),
             (with_shot(1, edit="x" * 901), None, "edit"),
             (with_shot(1, motion="too short"), None, "motion"),
