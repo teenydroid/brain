@@ -184,6 +184,27 @@ class FormatTest(unittest.TestCase):
         self.assertIn(studio.REMAKE_RULES, message)
         self.assertNotIn("state/media/remake", message)
 
+    def test_each_studied_shot_must_fit_one_clip(self):
+        self.assertEqual(self.load({}).remake_max_shot, 5.0)
+        self.assertEqual([self.load({"REMAKE_MAX_SHOT_SECONDS": v}).remake_max_shot for v in ("8", "0.5", "30", "x")],
+                         [8.0, 2.0, 10.0, 5.0])
+        cfg = studio.Config(formats=("post", "remake"))
+        room = Scripted(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
+
+        def with_seconds(*secs):
+            return {**STUDY, "shots": [{**shot, "seconds": n} for shot, n in zip(STUDY["shots"], secs)]}
+
+        for secs, ok in (((4, 5), True), ((1.0, 4.5), True), ((4, 7), False), ((0.5, 4), False), ((4, None), False)):
+            with self.subTest(secs=secs):
+                room.seen, room.script = [], {"remake study": (0, with_seconds(*secs))}
+                _, why = studio.study_source(room, PITCH)
+                self.assertEqual(why == "", ok, why)
+                if not ok:
+                    self.assertIn("one clip", why)
+        cfg.remake_max_shot = 8.0
+        room.script = {"remake study": (0, with_seconds(4, 7))}
+        self.assertEqual(studio.study_source(room, PITCH)[1], "")
+
     def test_a_video_slot_drafts_the_best_skit_the_best_remake_and_the_best_other(self):
         by_id = {"p1": {"format": "post", "hook": "trend:a"}, "p2": {"format": "post", "hook": "trend:b"},
                  "p3": {"format": "thread", "hook": None}, "p4": {"format": "skit", "hook": "trend:c"},

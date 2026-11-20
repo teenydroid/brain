@@ -113,7 +113,7 @@ class HappyPathTest(Base):
         # 2 to 10 s (ingest wants max_shot at least twice min_shot).
         for raw, want in (("", 5.0), ("3.5", 3.5), ("0.5", 2.0), ("20", 10.0), ("soon", 5.0)):
             with self.subTest(raw=raw):
-                self.secrets(f"REMAKE_MAX_SHOT_SECONDS={raw}\n" if raw else "")
+                self.secrets("REMAKE_STUDY_MAX_PER_DAY=50\n" + (f"REMAKE_MAX_SHOT_SECONDS={raw}\n" if raw else ""))
                 shutil.rmtree(self.folder(), ignore_errors=True)  # no kept study: it fetches again
                 self.ingest.calls = []
                 self.vision = FakeVision(reply(breakdown()))
@@ -148,7 +148,8 @@ class HappyPathTest(Base):
         charts.top("k", 5, ingest=self.ingest, get_json=lambda url: {})
         got = self.study({"id": "chart:tt:7300"})
         self.assertEqual(got["study_id"], "tt-7300")
-        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": "https://www.tiktok.com/@alice/video/7300"})])
+        self.assertEqual(self.ingest.asked("fetch"), [("fetch", {"url": "https://www.tiktok.com/@alice/video/7300",
+                                                                  **study.fetch_limits()})])
         self.assertEqual(self.ingest.asked("probe"), [])
 
 

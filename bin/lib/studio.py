@@ -305,6 +305,9 @@ class Config:
     #: together (STUDIO_REMAKE_SECS).
     video_budget_secs: int = 3600
     remake_secs: int = 1200
+    #: The longest a remake's studied shot may be (REMAKE_MAX_SHOT_SECONDS,
+    #: what hands/remake study asks ingest to cut to): one image-to-video clip.
+    remake_max_shot: float = 5.0
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -363,6 +366,11 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
+        try:
+            shot = float(get("REMAKE_MAX_SHOT_SECONDS") or 5.0)
+        except ValueError:
+            shot = 5.0
+        c.remake_max_shot = max(2.0, min(shot if shot == shot else 5.0, 10.0))
         if c.skit_slots and not any(f in c.formats for f in VIDEO_FORMATS):
             c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no skit and no remake: "
                               "those slots run as any other")
@@ -2586,8 +2594,15 @@ def study_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
     refused = _remake_rules().study_gate(got)
     if refused:
         return got, "its source cannot be remade: " + "; ".join(refused)
-    if not _remake_rules().study_shots(got):
+    shots = _remake_rules().study_shots(got)
+    if not shots:
         return got, "its source's study has no shots"
+    most = room.cfg.remake_max_shot
+    for shot in shots:
+        secs = shot.get("seconds")
+        if not (isinstance(secs, (int, float)) and not isinstance(secs, bool) and 1.0 <= secs <= most):
+            return got, (f"its source's shot {shot['n']} is {secs!r} s, not 1 to {most:g} s: each shot is one clip "
+                         "(REMAKE_MAX_SHOT_SECONDS)")
     return got, ""
 
 
