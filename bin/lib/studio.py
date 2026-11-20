@@ -2086,7 +2086,7 @@ def _make_meme(room: Room, draft: Json, note: Json, truth: bool = True) -> list[
 
 SKIT_PITCH = ("A skit is a post with a short AI-made parody video: take one of the trending stories and stage the "
               "public figure it is about (the executive, the politician, the celebrity in the headline) in an "
-              "obviously impossible, absurd, expensive-looking scene, one to four cinematic shots. Its premise is "
+              "obviously impossible, absurd, expensive-looking scene, three or four cinematic shots. Its premise is "
               "what that figure really did or claimed in the story, pushed to an impossible end: \"X did Y, so X "
               "now does Z\", never a pun on a word in the headline. Pitch one when a story has a famous face and a "
               "picture in it so ridiculous a stranger would stop scrolling. A skit always has a hook.")
@@ -2101,15 +2101,16 @@ SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the pu
               'look>", "score": "<one line: the one piece of music or sound bed under the whole film>", '
               '"shots": [{"prompt": "<one shot: the framing, the figure\'s full name and the one thing they do, '
               'at most one short spoken line in quotes, spot sound effects; never the look, the setting or any '
-              'music again>", "seconds": <3 to 6, optional>}, "... 1 to 4 shots: set-up, consequence, '
+              'music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
               'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
-SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of one to four shots "
+SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of three or four shots "
              "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
-             "The video is made as one take: one film of at most 15 seconds in all, its shots joined by hard cuts, "
+             "The video is made as one take: one film of up to 20 seconds in all, its shots joined by hard cuts, "
              "with the same face, the same set and one continuous score throughout. Start from the premise, not a "
              "pun: what the figure really did or claimed in the story, pushed to its impossible conclusion, said "
              "in one sentence (\"X did Y, so X now does Z\"). The figure drives every shot: they act, never stand "
-             "and watch the scenery. Three beats with cause and effect: the first shot sets up the real thing so "
+             "and watch the scenery. The impossible thing is in frame in every shot: never a plain close-up of the "
+             "figure, and never an ordinary room or street that could pass for real footage. Three beats with cause and effect: the first shot sets up the real thing so "
              "plainly that someone with the sound off and no caption gets what the story is; the second is its "
              "consequence, escalating; the last is the payoff that follows from the first two, never a new "
              "unrelated picture. What holds across the film is said once, as data: `look`, one line a figure "
