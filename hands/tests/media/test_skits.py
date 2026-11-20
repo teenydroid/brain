@@ -511,7 +511,7 @@ THREE = {"shots": [{"prompt": "Wide: Jensen Huang grips a three-storey brass lev
          "score": "one continuous orchestral score that builds to a choir, then one elevator ding"}
 
 
-class OneTakeTest(SkitTest):
+class OneTakeTest(unittest.TestCase):
     """The default: a skit of two or more shots is one job, one multi-shot
     script on the one-take model (seedance-2-0, the one verified to keep a
     face, a set and a soundtrack across hard cuts in one job), capped at
@@ -520,9 +520,11 @@ class OneTakeTest(SkitTest):
 
     ONE_TAKE = ""
     CATALOG = SkitTest.CATALOG
+    tearDown, write, env, sleep = SkitTest.tearDown, SkitTest.write, SkitTest.env, SkitTest.sleep
+    skit, rows, spent = SkitTest.skit, SkitTest.rows, SkitTest.spent
 
     def setUp(self):
-        super().setUp()
+        SkitTest.setUp(self)
         self.api.catalog = self.CATALOG
         self.api.rates[SEEDANCE] = SEEDANCE_RATE
 
