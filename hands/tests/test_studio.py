@@ -1200,6 +1200,75 @@ class OutsideRunTest(unittest.TestCase):
                                           "short_invented": rec["drafted"]["short_invented"]})
 
 
+class ChanWildcardTest(unittest.TestCase):
+    """The outside's randomness: hands/chan's sparks reach the pitch turn as
+    wildcards, never as trending stories, never as hooks."""
+
+    setUp = RunTest.setUp
+    tearDown = RunTest.tearDown
+    record = RunTest.record
+    script = RunTest.script
+    go = RunTest.go
+
+    SPARKS = {"ok": True, "sparks": [{"id": "chan:x:77", "board": "x", "replies": 40,
+                                      "premise": "birds are drones that charge on power lines",
+                                      "link": "https://boards.4chan.org/x/thread/77"}]}
+
+    def chan(self, answer: str, code: int = 0) -> None:
+        path = self.root / "hands" / "chan"
+        path.write_text(f"#!/usr/bin/env bash\necho \"$*\" >> \"{self.root}/chan-args\"\necho '{answer}'\nexit {code}\n")
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        self.args.no_outside = False
+
+    def test_a_spark_reaches_the_pitch_as_a_wildcard_seeded_by_the_run(self):
+        self.chan(json.dumps(self.SPARKS))
+        ask, _ = self.script()
+        seen = []
+
+        def pitching(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: pitch"):
+                seen.append(message)
+            return ask(root, agent, message, thread, model, secs)
+        code, out = self.go(pitching, STUDIO_RUN_ID="wild-1")
+        self.assertEqual(code, 0)
+        msg = seen[0]
+        self.assertIn("## wildcards, for randomness", msg)
+        self.assertIn("birds are drones that charge on power lines", msg)
+        self.assertLess(msg.index("birds are drones"), msg.index("## what you can bring to it"))
+        self.assertNotIn("boards.4chan.org", msg)
+        args = (self.root / "chan-args").read_text().split()
+        self.assertEqual(args, ["sparks", "--max", str(studio.CHAN_SPARKS), "--seed", str(studio.seed_of("wild-1"))])
+
+    def test_a_spark_cannot_be_a_hook(self):
+        items = studio.chan_items(self.SPARKS)
+        self.assertEqual(items, [{"id": "chan:x:77", "title": "birds are drones that charge on power lines",
+                                  "wildcard": True, "trending": False, "untrusted": True}])
+        inputs = {"happened": [{"id": "evt:1", "what": "a bill"}], "stories": [], "due": [], "ideas": [],
+                  "outside": {studio.CHAN_SOURCE: items}}
+        msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
+        self.assertNotIn("## what is trending today", msg)
+        self.assertNotIn("## background, not trending", msg)
+        self.assertIn("none is a hook", studio.WILDCARD_LINE)
+        kept, _, _ = studio.validate_pitches(
+            {"pitches": [{"id": "p1", "hook": "chan:x:77", "item": None, "format": "post", "storyline": None,
+                          "shape": "bet", "angle": "a"}]}, {"evt:1"}, set(), ("post",), 12, outside=set())
+        self.assertEqual(kept, [])
+
+    def test_a_failed_hand_is_recorded_and_the_run_goes_on(self):
+        self.chan('{"ok": false, "error": "down"}', 1)
+        ask, _ = self.script()
+        code, out = self.go(ask)
+        self.assertEqual((code, out["outcome"]), (0, "picked"))
+        self.assertIn(studio.CHAN_SOURCE, self.record()["inputs"]["unavailable"])
+
+    def test_studio_chan_0_turns_it_off(self):
+        self.chan(json.dumps(self.SPARKS))
+        ask, _ = self.script()
+        self.go(ask, STUDIO_CHAN="0")
+        self.assertFalse((self.root / "chan-args").exists())
+        self.assertTrue(any("STUDIO_CHAN=0" in s for s in self.record()["inputs"]["skipped"]))
+
+
 # --- only what is trending may be a hook (operator review of PR #384) -------------------
 
 

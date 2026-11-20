@@ -2,8 +2,9 @@
 nobody watching, and a third reads the transcript and finishes the best of
 it into a piece (brain/narrative/BACKROOM.md).
 
-    bin/backroom [--format F] [--turns N] [--out DIR] IDEA...
+    bin/backroom [--format F] [--turns N] [--out DIR] [--wildcard] IDEA...
     echo IDEA | bin/backroom [--format F]
+    bin/backroom --from-chan N [--format F]
 
 Ideas in, output out. Each IDEA gets its own room (several run at once).
 F is one of FORMATS (default `video`). The room alternates the instigator
@@ -15,8 +16,14 @@ Prints each room's result as markdown, and keeps each room in
 state/backroom/<stamp>-<slug>/: transcript.md, room.json (transcript,
 concepts, piece, models).
 
-Nothing here posts, pays, or reaches a hand: the backroom only writes
-files. What it makes is raw material for the studio and for the operator;
+The outside's randomness (hands/chan, 4chan read only): `--wildcard`
+gives each room one random premise an anonymous stranger posted, a
+conspiracy or a theory, for the two voices to collide with the idea;
+`--from-chan N` opens N rooms whose ideas are such premises. A premise is
+raw material: never a fact, never quoted, never credited (BACKROOM.md).
+
+Nothing here posts or pays, and the one hand it reaches is hands/chan's
+read: the backroom only writes files. What it makes is raw material for the studio and for the operator;
 whatever goes public still goes through the studio's gates and the guard.
 
 The models (env, then secrets/teeny.env, then the default): BACKROOM_DREAMER_MODEL
@@ -31,9 +38,11 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -93,6 +102,19 @@ FORMATS: dict[str, tuple[str, str]] = {
 }
 
 
+#: Opens a room's idea when the idea is a stranger's premise (--from-chan).
+CHAN_IDEA = "a premise an anonymous stranger posted on a forum, raw material and not a fact: {premise}"
+#: What the two voices read when the room has a wildcard (--wildcard).
+WILDCARD = ("\n\nthe wildcard, thrown in from outside: a premise an anonymous stranger posted on a forum. "
+            "it is not true and not news. collide it with the idea, twist it into teeny's own absurd belief "
+            "or scheme, or throw it out if it is dead: \"{premise}\"")
+#: How many sparks one call asks hands/chan for, at most.
+MAX_SPARKS = 8
+
+#: sparks(n, seed) -> up to n of hands/chan's sparks ({id, board, premise, ...}).
+Sparks = Callable[[int, str], list[Json]]
+
+
 class BackroomError(Exception):
     pass
 
@@ -141,6 +163,8 @@ class Room:
     systems: dict[str, str]
     transcript: list[Json] = field(default_factory=list)
     stopped_by: str | None = None
+    #: hands/chan's spark the room collides the idea with, if any.
+    wildcard: Json | None = None
 
 
 def view(transcript: list[Json], speaker: str) -> list[Json]:
@@ -169,6 +193,8 @@ def run_room(room: Room, ask: Ask) -> Room:
 
 def transcript_md(room: Room) -> str:
     lines = [f"# backroom: {room.idea}", "", f"format: {room.fmt}", ""]
+    if room.wildcard:
+        lines += [f"wildcard ({room.wildcard.get('id')}): {room.wildcard.get('premise')}", ""]
     for line in room.transcript:
         lines += [f"**{line['speaker']}**", "", line["text"], ""]
     return "\n".join(lines)
@@ -331,42 +357,99 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:48] or "idea"
 
 
-def make_room(idea: str, fmt: str, turns: int, brain: Path, models: dict[str, str]) -> Room:
+def make_room(idea: str, fmt: str, turns: int, brain: Path, models: dict[str, str],
+              wildcard: Json | None = None) -> Room:
     what, _ = FORMATS[fmt]
     rules = f"what a {fmt} is: {what}"
     lore = lore_block(brain)
-    systems = {name: fill(text, idea=idea, format=f"{fmt}: {what}", lore=lore, format_rules=rules)
+    # The wildcard rides with the idea, so the two voices read it where they
+    # read the idea; the distiller never sees the idea, only the transcript.
+    table = idea + (fill(WILDCARD, premise=str(wildcard.get("premise") or "")) if wildcard else "")
+    systems = {name: fill(text, idea=table, format=f"{fmt}: {what}", lore=lore, format_rules=rules)
                for name, text in agent_prompts(brain).items()}
-    return Room(idea=idea, fmt=fmt, turns=turns, models=models, systems=systems)
+    return Room(idea=idea, fmt=fmt, turns=turns, models=models, systems=systems, wildcard=wildcard)
 
 
-def one(idea: str, args: argparse.Namespace, brain: Path, out_root: Path, models: dict[str, str], ask: Ask) -> str:
-    room = run_room(make_room(idea, args.format, args.turns, brain, models), ask)
+def chan_sparks(root: Path, environ: dict[str, str]) -> Sparks:
+    """hands/chan sparks, as a function. A hand that fails is a BackroomError."""
+
+    def sparks(n: int, seed: str) -> list[Json]:
+        argv = [str(root / "hands" / "chan"), "sparks", "--max", str(min(n, MAX_SPARKS)), "--seed", seed]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=120, env=environ)
+            got = json.loads((done.stdout.strip().splitlines() or ["{}"])[-1])
+        except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+            raise BackroomError(f"hands/chan could not be read: {exc}") from None
+        if not isinstance(got, dict) or not got.get("ok"):
+            raise BackroomError(f"hands/chan failed: {str(got.get('error') if isinstance(got, dict) else got)[:200]}")
+        return [s for s in got.get("sparks") or [] if isinstance(s, dict) and s.get("premise")]
+
+    return sparks
+
+
+def one(idea: str, args: argparse.Namespace, brain: Path, out_root: Path, models: dict[str, str], ask: Ask,
+        wildcard: Json | None = None) -> str:
+    room = run_room(make_room(idea, args.format, args.turns, brain, models, wildcard), ask)
     got = distill(room, ask)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    keep = out_root / f"{stamp}-{slug(idea)}"
+    # Rooms run at once and ideas can share their first words (every
+    # --from-chan idea opens the same way): a digest keeps them apart.
+    digest = hashlib.sha256(f"{idea}\0{(room.wildcard or {}).get('id', '')}".encode()).hexdigest()[:6]
+    keep = out_root / f"{stamp}-{slug(idea)}-{digest}"
     keep.mkdir(parents=True, exist_ok=True)
     (keep / "transcript.md").write_text(transcript_md(room), encoding="utf-8")
     (keep / "room.json").write_text(json.dumps({
         "idea": idea, "format": room.fmt, "models": room.models, "stopped_by": room.stopped_by,
+        "wildcard": room.wildcard,
         "transcript": room.transcript, **got}, ensure_ascii=False, indent=2), encoding="utf-8")
-    return result_md(room, got) + f"\n*kept in {keep}*\n"
+    head = f"*wildcard: {room.wildcard['premise']}*\n\n" if room.wildcard else ""
+    return head + result_md(room, got) + f"\n*kept in {keep}*\n"
 
 
-def main(argv: list[str], environ: dict[str, str] | None = None, ask: Ask | None = None) -> int:
+def main(argv: list[str], environ: dict[str, str] | None = None, ask: Ask | None = None,
+         sparks: Sparks | None = None) -> int:
     environ = dict(os.environ if environ is None else environ)
     parser = argparse.ArgumentParser(prog="bin/backroom", description="ideas in, output out")
     parser.add_argument("ideas", nargs="*", help="one room per idea; none reads one idea from stdin")
     parser.add_argument("--format", default="video", choices=sorted(FORMATS))
     parser.add_argument("--turns", type=int, default=TURNS)
     parser.add_argument("--out", help="where rooms are kept (default state/backroom)")
+    parser.add_argument("--wildcard", action="store_true",
+                        help="collide each idea with a random stranger's premise from hands/chan")
+    parser.add_argument("--from-chan", type=int, default=0, metavar="N",
+                        help=f"open N rooms (1 to {MAX_SPARKS}) whose ideas are strangers' premises from hands/chan")
     args = parser.parse_args(argv)
     if not 2 <= args.turns <= MAX_TURNS:
         parser.error(f"--turns is 2 to {MAX_TURNS}")
-    ideas = [i.strip() for i in args.ideas if i.strip()] or [sys.stdin.read().strip()]
-    if not all(ideas):
-        parser.error("no idea given")
+    if args.from_chan and not 1 <= args.from_chan <= MAX_SPARKS:
+        parser.error(f"--from-chan is 1 to {MAX_SPARKS}")
+    if args.from_chan and (args.ideas or args.wildcard):
+        parser.error("--from-chan takes its ideas from hands/chan: give no IDEA and no --wildcard")
     root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
+    sparks = sparks or chan_sparks(root, environ)
+    seed = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    wildcards: list[Json | None]
+    try:
+        if args.from_chan:
+            found = sparks(args.from_chan, seed)
+            if not found:
+                raise BackroomError("hands/chan gave no sparks")
+            ideas = [fill(CHAN_IDEA, premise=s["premise"]) for s in found]
+            wildcards = [None] * len(ideas)
+        else:
+            ideas = [i.strip() for i in args.ideas if i.strip()] or [sys.stdin.read().strip()]
+            if not all(ideas):
+                parser.error("no idea given")
+            wildcards = [None] * len(ideas)
+            if args.wildcard:
+                found = sparks(len(ideas), seed)
+                if not found:
+                    raise BackroomError("hands/chan gave no sparks for --wildcard")
+                # Fewer sparks than ideas: they go round again.
+                wildcards = [found[i % len(found)] for i in range(len(ideas))]
+    except BackroomError as exc:
+        print(f"[backroom] {exc}", file=sys.stderr)
+        return 1
     brain = Path(environ.get("TEENY_BRAIN") or root / "brain")
     secrets_file = Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env"
     out_root = Path(args.out) if args.out else Path(environ.get("TEENY_STATE") or root / "state") / "backroom"
@@ -376,7 +459,8 @@ def main(argv: list[str], environ: dict[str, str] | None = None, ask: Ask | None
     try:
         ask = ask or provider(environ, secrets_file)
         with cf.ThreadPoolExecutor(min(4, len(ideas))) as pool:
-            futures = [pool.submit(one, idea, args, brain, out_root, models, ask) for idea in ideas]
+            futures = [pool.submit(one, idea, args, brain, out_root, models, ask, wild)
+                       for idea, wild in zip(ideas, wildcards)]
             failed = 0
             for idea, future in zip(ideas, futures):
                 try:

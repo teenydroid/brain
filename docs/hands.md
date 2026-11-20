@@ -917,6 +917,52 @@ act there is `watch_hn` (see "The mind's issues, browser tasks and new
 mail"). Tables: `hn_watch` (item_id, title, note, added_at, last_seen),
 `hn_cache`.
 
+## `chan`: 4chan, read only, for strangers' premises
+
+Teeny never posts to 4chan. It reads it for randomness: the conspiracies,
+theories and odd questions anonymous strangers post, as raw material for
+`bin/backroom` and the studio's wildcards. 4chan's API
+(`https://a.4cdn.org`, [docs](https://github.com/4chan/4chan-API)) is read
+only and takes no key; every call goes through `teeny_hands/rest.py` with no
+key sent, follows no redirect and names no URL in an error. The API's rules
+ask for at most one request a second: one process waits
+`CHAN_MIN_INTERVAL_MS` (1100) between requests, and the read cache
+(`chan_cache`: catalogs 10 min, threads 5 min) keeps most from being made.
+
+**The fence.** Only the worksafe boards in `client.SAFE_BOARDS` are ever
+read: /x/ (paranormal, conspiracies), /lit/, /sci/, /his/, /tv/, /g/, /biz/,
+/ck/, /diy/, /out/, /an/, /mu/, /tg/, /co/, /v/. A board outside it is an
+error before any request. `CHAN_BOARDS` narrows the default set (x, lit,
+sci, tv, g, diy; /his/ is left out of it because its liveliest threads were
+race and religion arguments) and can never widen it: /pol/, /b/, /r9k/ and
+the adult boards cannot be put in.
+
+**What leaves the hand.** A comment is HTML: it reaches a reader as plain
+text, `<br>` a new line, greentext kept, `>>123` reply links and every
+address and key-like string taken out (`teeny_hands/scrub.py`). Every
+premise and post is screened by the guard's lexicon at its strictest
+reading (outbound, as if Teeny said it) and a post with any match, even one
+the guard would pass to its judge, is dropped and only counted
+(`dropped.screened`). Pinned and closed threads (`dropped.pinned`), a
+board's standing "General" threads (`dropped.general`) and premises under 24
+characters (`dropped.empty`) are dropped too. No name, tripcode, poster id,
+country or picture is ever read out. Every answer is `untrusted`.
+
+| Verb | | Does |
+|---|---|---|
+| `boards` | R | The boards Teeny may read, each `{board, about, default}`. |
+| `catalog BOARD [--max N]` | R | A board's liveliest threads (15, at most 50), most replies first: `{id, board, no, premise, replies, age_hours, link}`. A premise is the thread's subject and first post on one line, at most 280 characters. |
+| `thread BOARD NO [--max N]` | R | The first post and the first replies (20, at most 100), in order: `{no, op, subject, text, age_hours}`. |
+| `sparks [--boards a,b] [--max N] [--seed S]` | R | N random premises (3, at most 20) across the boards, drawn from each board's 40 liveliest threads, weighted towards the lively ones, never two from one thread. A seed makes the draw repeatable. A board that cannot be read is named in `unavailable` and the rest answer; none readable is an error. |
+
+**Who reads it.** `bin/backroom --wildcard` collides each idea with one
+spark, and `--from-chan N` opens N rooms on sparks alone (bin/lib/backroom.py;
+BACKROOM.md's distiller keeps a premise only as Teeny's own absurd belief or
+scheme, never as a claim about a real person, group or event). `bin/studio`
+reads three a run, seeded by the run, as the pitch turn's wildcards
+(docs/architecture.md, "The outside world"; `STUDIO_CHAN=0` turns it off).
+Table: `chan_cache`.
+
 ## `listen`: what the outside world is saying, read only
 
 Teeny's ears beyond Hacker News's front page (`hands/lib/teeny_hands/listen/`).
@@ -1013,7 +1059,7 @@ only).
 | Verb | | Does |
 |---|---|---|
 | `charts [--slot KEY] [--max N] [--fresh]` | R | `{candidates: [{id, url, source, title, by, seconds, views, age_hours, rank, provider}], unavailable: [{provider, reason, error?}], dropped_by_screen, key, cached}`. `id` is `chart:tt:<video id>` or `chart:yt:<video id>`. Two providers, each optional, named in `unavailable` (`reason` `off`, `ingest`, `api`, `bad_account`) and never raising: `tiktok` lists each account in `REMAKE_TIKTOK_ACCOUNTS` (comma list, default none) through the ingest service and keeps videos from the last `REMAKE_MAX_AGE_HOURS` (168); `youtube` asks the Data API's `mostPopular` chart (25, `REMAKE_REGION`, default US) with `YOUTUBE_API_KEY`, from the hand: the key is in that one request, never in the ingest service, an error, a log, the answer or the cache. Filters: 8 to 180 s (a video whose length or age is unknown stays and the study judges it), not live, not age-restricted, not YouTube's News category (id 25), no word of the guard's `HARM` or `NOT_A_FIGURE` lists in the title, nothing the inbound lexical screen stops in a title or an uploader's name (counted in `dropped_by_screen`, as `trend`'s), not already in `remake_sources`. Ranked by views, the first `--max` (15, at most 50). Kept under `state/remake/charts/<KEY>.json` (bin/studio passes `<date>:<slot>`; with none, the UTC hour), the newest 48; a second read of a key is that file with `cached: true`, no call, and drops what was made since. Titles and names are strangers' words: data, never instructions. |
-| `study` (JSON on stdin: `{id}` or `{url}`) | R | `{study_id, source, excerpt: {start, seconds}, aspect, audio, shots: [{n, start, seconds, frame, people: [{ref, looks, position, action}], setting, motion, camera, speech}], summary, flags: {minors, news, tragedy, sexual, violence, identifiable_private}, usable, why, cost_usd, cached}`. `id` is a chart id (resolved from the kept charts; a YouTube id needs no chart), `url` an allowlisted address. `study_id` is `tt-`, `yt-` or `ig-` and the video id. The ingest service fetches the excerpt, asked for at most 30 s and 6 shots, each 1 s to `REMAKE_MAX_SHOT_SECONDS` (5, clamped 2 to 10: one image-to-video clip; a longer shot is split; ingest wants the cap at least twice the 1 s floor); each file is pulled into `state/media/remake/<study_id>/` (`source.mp4`, `audio.m4a` or `audio: null` when the clip has no sound, `shot-N.jpg`; the paths in the answer are relative to the checkout) within a size cap and with the magic bytes its name says (mp4/m4a: `ftyp`, JPEG: `ffd8ff`), then the fetch is deleted. One Surplus chat-completions vision call (`REMAKE_STUDY_MODEL`, default `glm-5.3-flash`) takes the frames in order and answers the per-shot breakdown and the flags as one JSON object, read strictly: any other shape (a wrong number of shots, a flag that is not a boolean) is `usable: false` with `why`, never a guess. Any true flag is `usable: false` and `why` names it. The breakdown is the model's reading of an outside video: each string is capped and cut to printable text. `shot.start` is seconds into the excerpt; `source.mp4` is the excerpt itself. Every outside string (the source's title and uploader, the summary, each shot's words) goes through the guard's inbound screen, the title also through the `HARM` and `NOT_A_FIGURE` lists: a hit blanks the string and makes the study `usable: false` with `why: "screened: <field>"` (a title or uploader that trips it is caught before the model is asked, so it costs nothing). Media is kept only for a usable study: it is pulled into a staging folder and moved into `state/media/remake/<study_id>/` whole when the study is usable; an unusable one keeps only `study.json`, with `audio` and every `frame` null, and an unreadable one keeps nothing. Folders older than `REMAKE_KEEP_HOURS` (48) are removed whenever `study` runs, so a study asked for again after that is fetched and paid for again. A study is kept as `study.json`; asking again is `cached: true` and spends nothing (`cost_usd: 0`); an unreadable one is not kept. `REMAKE_STUDY_MAX_PER_DAY` (3; `0` is off) caps the day's calls, claimed as a row of `remake_studies` (its own table, not `media_assets`) under a lock before the call; a study that never reached the model gives its claim back. |
+| `study` (JSON on stdin: `{id}` or `{url}`) | R | `{study_id, source, excerpt: {start, seconds}, aspect, audio, shots: [{n, start, seconds, frame, people: [{ref, looks, position, action}], setting, motion, camera, speech}], summary, flags: {minors, news, tragedy, sexual, violence, identifiable_private}, usable, why, cost_usd, cached}`. `id` is a chart id (resolved from the kept charts; a YouTube id needs no chart), `url` an allowlisted address. `study_id` is `tt-`, `yt-` or `ig-` and the video id. The ingest service fetches the excerpt, asked for at most 30 s and 6 shots, each 1 s to `REMAKE_MAX_SHOT_SECONDS` (5, clamped 2 to 10: one image-to-video clip; a longer shot is split; ingest wants the cap at least twice the 1 s floor); each file is pulled into `state/media/remake/<study_id>/` (`source.mp4`, `audio.m4a` or `audio: null` when the clip has no sound, `shot-N.jpg`; the paths in the answer are relative to the checkout) within a size cap and with the magic bytes its name says (mp4/m4a: `ftyp`, JPEG: `ffd8ff`), then the fetch is deleted. One Surplus chat-completions vision call (`REMAKE_STUDY_MODEL`, default `glm-5.3-flash`) takes the frames in order and answers the per-shot breakdown and the flags as one JSON object, read strictly: any other shape (a wrong number of shots, a flag that is not a boolean) is `usable: false` with `why`, never a guess. Any true flag is `usable: false` and `why` names it. The breakdown is the model's reading of an outside video: each string is capped and cut to printable text. `shot.start` is seconds into the excerpt; `source.mp4` is the excerpt itself. Every outside string (the source's title and uploader, the summary, each shot's words) goes through the guard's inbound screen, the title also through the `HARM` and `NOT_A_FIGURE` lists: a hit blanks the string and makes the study `usable: false` with `why: "screened: <field>"` (a title or uploader that trips it is caught before the model is asked, so it costs nothing). Media is kept only for a usable study: it is pulled into a staging folder and moved into `state/media/remake/<study_id>/` whole when the study is usable; an unusable one keeps only `study.json`, with `audio` and every `frame` null, and an unreadable one keeps nothing. Folders older than `REMAKE_KEEP_HOURS` (48) are removed whenever `study` runs, so a study asked for again after that is fetched and paid for again. A study is kept as `study.json`; asking again is `cached: true` and spends nothing (`cost_usd: 0`); an unreadable one is not kept. `REMAKE_STUDY_MAX_PER_DAY` (3; `0` is off) caps the day's calls, claimed as a row of `remake_studies` (its own table, not `media_assets`; `kind` `study`, so `khaby dissect`'s rows, `kind` `dissect`, are a cap of their own) under a lock before the call; a study that never reached the model gives its claim back. |
 | `used` (JSON on stdin: `{video_id, source, url, title?, study_id?}`) | W | Marks a video as made into a remake (a row of `remake_sources`), so `charts` leaves it out and `study` refuses it; the studio calls it after buying a remake's keys. `{ok: true, marked}`, `marked` false when it already was. In a dry room it writes nothing and answers `{dry_run: true, would_mark}`. |
 
 A refusal is exit 2 with `"refused"` and a `rule`: `off` (the cap is 0),
@@ -1025,6 +1071,93 @@ file that is not what it says), `ingest` (the service is down, busy or broken).
 steps after this one: `ledger.seen(video_id)` and `ledger.mark_used(...)`;
 `study` itself marks nothing, a study is a look and not a use. A study costs
 one vision call, about a cent on `glm-5.3-flash`, but a call whose answer cannot be read is asked again, up to 3 paid asks in all, and all of them count as the one study against the day's cap; the fetch is free. `study` spends in a dry room: like the viewer check, it is research and not a post, so `DRY_RUN` does not stop it (`REMAKE_STUDY_MAX_PER_DAY=0` does).
+
+## `khaby`: Khaby Lame's videos, dissected into a timeline
+
+The first half of a Khaby-style video: find a Khaby Lame video on TikTok,
+fetch it, and have a model that takes video as input say which seconds are
+the silly clip he responds to (the setup) and which are his wordless
+response (the reaction), so a later step can keep the setup as it is and
+replace the reaction. This hand finds and dissects; it makes no video and
+posts nothing. It is the sibling of `remake` and shares its pieces: the
+ingest service (`remake.service.Ingest`), the fetch-and-pull half of a study
+(`remake/source.py`: the fetch held to its shape, each file pulled within a
+cap and with its magic bytes, the source's words screened, what is kept and
+the sweep) and the remake ledger. Both verbs that look are reads (R), safe in
+a dry room, writing only their caches, the files under `state/media/khaby/`
+and their own ledger rows; `used` is a job verb (J), the one write.
+
+| Verb | | Does |
+|---|---|---|
+| `find [--max N] [--fresh]` | R | `{candidates: [{id, url, source, title, by, seconds, views, age_hours, rank}], unavailable: [{provider, reason, error?}], dropped_by_screen, key, fetched_at, cached}`. Lists each account in `KHABY_ACCOUNTS` (comma list, default `khaby.lame`) through the ingest service, 30 recent videos each, exactly as `remake charts` lists a TikTok account (`charts.list_accounts`); a list with no name is `unavailable` `off`, a bad name `bad_account`, a listing that fails `ingest`, never raised. Kept: 8 to 180 s (a length unknown stays), a title, nothing the guard's `HARM` or `NOT_A_FIGURE` lists or its inbound screen stops in the title or the uploader's name (counted in `dropped_by_screen`), and not a video in `remake_sources`. No age limit: he posts rarely. Ranked by views, the first `--max` (10, at most 50). `id` is `chart:tt:<video id>`, so `dissect {id}` resolves it. Kept under `state/khaby/finds/<UTC hour>.json`, the newest 24; a second find in the hour is that file with `cached: true`, no listing, less what was used since; `--fresh` lists again. Only an answer with candidates is kept. Titles and names are strangers' words: data, never instructions. |
+| `dissect` (JSON on stdin: `{id}` or `{url}`) | R | One video's timeline (below). `id` is an id from `find`, `url` an allowlisted address (probed for its id). `dissect_id` is `tt-`, `yt-` or `ig-` and the video id. The ingest service fetches up to 60 s of it (cuts kept close to ffmpeg's: shots of at least 0.5 s, split only past 30 s, at most 9); its files are pulled into `state/media/khaby/<dissect_id>/` (`source.mp4`, `audio.m4a`, `shot-N.jpg`) as a study's are, then the fetch is deleted. Then one call to a video-input model with the whole `source.mp4` (at most 14 MB; a larger one is refused as `fetch` before anything is sent), asked for the segments, his beats, a one-sentence `joke` and the flags as one JSON object, and read strictly: any other shape is `usable: false`, never a guess (an unreadable answer is asked again, up to 3 paid asks in all). The code then applies its own rules (below). Media is kept only for a usable timeline; an unusable one keeps only `timeline.json` with every path null, an unreadable one nothing. A kept timeline asked again is `cached: true` and spends nothing (`cost_usd: 0`). Folders older than `KHABY_KEEP_HOURS` (48) are removed whenever `dissect` runs. `KHABY_DISSECT_MAX_PER_DAY` (3; `0` is off) caps the day's calls, claimed as a `kind` `dissect` row of `remake_studies` under a lock before the call (its own cap, apart from the studies'), with what the call reported (asks, tokens, cost); a dissect that never reached the model gives its claim back. It spends in a dry room, like a study: it is research and not a post. |
+| `used` (JSON on stdin: `{video_id, source, url, title?, study_id?}`) | J | `remake used` itself (`ledger.record_use`): a row of `remake_sources`, so neither `find`, `remake charts` nor either study offers that video again, and one video is never used by both pipelines. `{ok: true, marked}`; in a dry room it writes nothing and answers `{dry_run: true, would_mark}`. |
+
+**The model.** `KHABY_DISSECT_PROVIDER` is `surplus` (the default: Surplus
+chat completions, `SURPLUS_API_KEY`, the video as a
+`{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,..."}}`
+content part) or `gemini` (Google's `generateContent` with the video as
+`inline_data`, `GEMINI_API_KEY` in the `x-goog-api-key` header, never in
+the address; a second paid vendor). `KHABY_DISSECT_MODEL` has **no
+default**: nothing in this repository has yet sent a video to a model, and
+which of Surplus's models take one is not known until it is tried on the box.
+Until the operator sets one, every `dissect` is refused (`rule: model`), as it
+is when the provider's key is missing, before anything is fetched or paid.
+The call sits behind one function, `dissect._watch`, so the choice changes
+nothing else. Gemini reports no cost, so its `cost_usd` is null; its tokens
+are booked.
+
+`timeline.json`, the answer of `dissect`:
+
+```
+{dissect_id, source: {source, video_id, url, title, uploader, seconds, width, height, fps, ...},
+ excerpt: {start, seconds, frames}, aspect, video, audio, shots: [{n, start, seconds, frame}],
+ segments: [{n, role: "setup"|"reaction"|"other", start, end, first_frame, last_frame,
+             editable, shots, why, what}],
+ beats: [{at, frame, what}],   what he does in his response, in order
+ joke, flags: {minors, news, tragedy, sexual, violence, identifiable_private},
+ usable, why, provider, model, cost_usd, cached}
+```
+
+Seconds are into the excerpt, which `source.mp4` is; `video`, `audio` and
+each shot's `frame` are paths relative to the checkout, null unless usable.
+`segment.shots` are the ingest shots it spans (its keyframe is the first
+one's `shot-N.jpg`).
+
+**The rules the code applies** to the model's reading before anything is kept:
+
+- Frames are computed from seconds at the frame rate ingest measured, never
+  taken from the model: `first_frame` is `round(start × fps)`, `last_frame`
+  `round(end × fps) − 1`, a beat's `frame` the one showing at `at`.
+- Each segment boundary is snapped to the nearest shot cut ingest's ffmpeg
+  found (or the excerpt's start or end); one more than 1.0 s from every cut
+  makes the video unusable, since a later step can only take a keyframe from
+  a `shot-N.jpg` ingest already made (the spine has no ffmpeg). The prompt
+  gives the model the cut times.
+- The segments run end to end over the whole excerpt, none empty once
+  snapped; a beat lies within it.
+- A `reaction` segment is `editable: true`; a `setup` or `other` one is kept
+  as it is (`editable: false`).
+- Usable needs a setup of 2 s or more with a reaction somewhere after it.
+- Any true flag is unusable, `why` naming it. The prompt tells the model it
+  is typically watching a silly, over-complicated clip followed by a man's
+  wordless deadpan response, and never to give a name or a guess at who
+  anyone is.
+- Every string the model wrote (`what`, each beat, `joke`) is capped, cut to
+  printable text and screened by the guard's inbound screen, as the source's
+  title (also against `HARM` and `NOT_A_FIGURE`) and uploader are: a hit is
+  blanked and makes it `usable: false` with `why: "screened: <field>"`. A
+  title or uploader that trips it is caught before the model is asked.
+
+The study's gate applies here too: a clip whose subject is an ordinary
+private person with a clear face is flagged `identifiable_private` and
+unusable, which will refuse many life-hack clips. A refusal is exit 2 with
+`"refused"` and a `rule`: `off` (the cap is 0), `model` (no model set, a
+provider or model name that is not one, or the provider's key missing),
+`per_day`, `source` (an address or id not allowed or not known, or a video
+already used), `fetch` (the service could not or would not take it, a file
+that is not what it says, shots that do not add up, a video over the size
+sent), `ingest` (the service is down, busy or broken).
 
 ## `slopcash`: Teeny's project on slop.cash
 
@@ -3380,6 +3513,7 @@ creates its own tables:
 | `guard` (review) | `guard_reviews` |
 | `guard` (viewer) | `viewer_checks` |
 | `remake` | `remake_sources`, `remake_studies` |
+| `khaby` | `remake_sources`, `remake_studies` (`kind` `dissect`) |
 
 ## Rules the tests pin
 
