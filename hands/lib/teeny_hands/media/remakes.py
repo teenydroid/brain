@@ -892,7 +892,8 @@ def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], cl
         return []
     keys = {k["n"]: k["path"] for k in detail.get("keys") or []}
     length = shots.at_least(detail["total"], None)
-    return [shots.request_body(models[0], take_script(detail["shots"], length), length, detail.get("aspect", "16:9"),
+    return [shots.request_body(models[0], take_script(detail["shots"], length, clip_sound), length,
+                               detail.get("aspect", "16:9"),
                                model_params(models[0], job_params, clip_sound), image=keys.get(1),
                                resolution_setting="MEDIA_REMAKE_RESOLUTION")]
 
@@ -928,13 +929,13 @@ def _swap(conn, remake_id: int, take_row: int, remake_shots: list[Json], per_sho
 
 
 def _take(api: Surplus, conn, job: Json, take: _Shot, plan: shots.Plan, job_params: dict[str, Json],
-          sold: dict[str, list[int]], wait: int, deadline: float, sleep, clock) -> None:
+          sold: dict[str, list[int]], wait: int, deadline: float, sleep, clock, clip_sound: bool) -> None:
     """The one take submitted and polled to its end; its row's prompt is
     the script sent for the length bought."""
     def submit(shot: _Shot) -> bool:
         if not shots.submit(api, conn, job["id"], shot, job["aspect"], plan, job_params, sold):
             return False
-        shots._set(conn, shot.row, prompt=take_script(job["shots"], shot.asked))
+        shots._set(conn, shot.row, prompt=take_script(job["shots"], shot.asked, clip_sound))
         return True
 
     try:
@@ -1000,7 +1001,7 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
         take.extra = {"one_take": True, "shots": len(job["shots"]), "total": job["total"]}
         made_shots = [take]
         _take(api, conn, job, take, take_plan(job["shots"], cap, clip_sound), job_params, sold, wait, deadline,
-              sleep, clock)
+              sleep, clock, clip_sound)
         one_take = bool(take.path)
         if not one_take:
             # No mix of jobs unless the operator asked for one: a take that
@@ -1052,12 +1053,13 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
                   "shot_rows": [s.row for s in made_shots], "models": [s.model for s in made_shots],
                   "shot_lengths": [s.asked for s in made_shots], "cost_usd": round(cost / 1e6, 6), "frames": frames,
                   "seconds": seconds, "shot_seconds": shot_seconds, "padded": made.get("padded"),
-                  "sound": bool(made.get("sound")) if sound else False}
+                  "sound": "source" if sound else "model"}
         detail.pop("id", None)
         assets._finish(conn, remake_id, status="done", path=str(path.relative_to(hand.root())), cost_micro=0,
                        estimated=0, detail=json.dumps(detail, ensure_ascii=False, sort_keys=True))
         return {"asset": str(path.relative_to(hand.root())), "asset_id": remake_id, "frames": frames,
                 "label": the_label, "labelled": True, "cost_usd": round(cost / 1e6, 6), "one_take": one_take,
+                "sound": "source" if sound else "model",
                 "models": [s.model for s in made_shots], "keys": job["keys"], "seconds": seconds,
                 "shot_seconds": shot_seconds}
     except BaseException:
