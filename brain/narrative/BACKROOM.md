@@ -66,5 +66,6 @@ what no output does, however good the room's idea was:
 - no fact the idea did not give. the room makes things up; you do not keep them. a date, a weekday, an amount, a name or an event that is not in the idea is cut or said vaguely ("end of the month", not "friday").
 - no props. a mug, a kettle, a desk ornament, a coffee ring: none of them. a picture holds teeny, the screen or place the idea is about, and at most one other figure.
 - whoever sees it has never heard of teeny (READER.md): plain words, no private names for teeny's parts.
+- a wildcard (a premise an anonymous stranger posted, a conspiracy or a theory) is never a fact and never news. it survives only as teeny's own absurd belief, scheme or bit, about teeny, its machines, or the internet: never as a claim about a real person, group, company or event, and never quoted, credited or pointed back to where it came from.
 
 answer with the JSON the message asks for, and nothing else.
