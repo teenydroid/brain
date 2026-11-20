@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
@@ -391,7 +392,10 @@ def one(idea: str, args: argparse.Namespace, brain: Path, out_root: Path, models
     room = run_room(make_room(idea, args.format, args.turns, brain, models, wildcard), ask)
     got = distill(room, ask)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    keep = out_root / f"{stamp}-{slug(idea)}"
+    # Rooms run at once and ideas can share their first words (every
+    # --from-chan idea opens the same way): a digest keeps them apart.
+    digest = hashlib.sha256(f"{idea}\0{(room.wildcard or {}).get('id', '')}".encode()).hexdigest()[:6]
+    keep = out_root / f"{stamp}-{slug(idea)}-{digest}"
     keep.mkdir(parents=True, exist_ok=True)
     (keep / "transcript.md").write_text(transcript_md(room), encoding="utf-8")
     (keep / "room.json").write_text(json.dumps({
