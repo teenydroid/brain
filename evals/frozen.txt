@@ -167,11 +167,11 @@ hands/tests/test_studio_skit.py
 # the wallet's.
 hands/reel
 hands/lib/teeny_hands/reel/
-# Remake: finds and studies short videos of strangers (a bot-wall'd proxy, an
-# address allowlist, the flags that make a study unusable, the day's cap on its
-# paid call). The entry point and its library are the operator's, like the
-# reel's; the tests that pin the allowlist, the shot rules and the study's
-# fail-closed reading are too. The ingest service's code is frozen in deploy/**.
+# Remake: finds and studies short videos made by strangers. What it will fetch
+# (the address allowlist, in deploy/** with the ingest service), the flags that
+# make a study unusable and the day's cap on its paid call are the operator's,
+# like the reel's. The entry point and its library are frozen here, and so are
+# the tests that pin the allowlist, the shot rules and the study's reading.
 hands/remake
 hands/lib/teeny_hands/remake/
 hands/tests/ingest/
