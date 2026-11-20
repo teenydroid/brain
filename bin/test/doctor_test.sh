@@ -528,6 +528,22 @@ printf 'KHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\
 doctor || true
 check "khaby on says its cap, model, accounts and ingest" \
   grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080' "$scratch/doctor.log"
+# The studio side: STUDIO_FORMATS naming khaby while the video hand is off.
+printf 'STUDIO_FORMATS=post,khaby\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
+  >"$root/secrets/teeny.env"
+check "the khaby format with the video hand off passes" doctor
+check "and warns that hands/video refuses every khaby video" \
+  grep -q '^warn khaby: STUDIO_FORMATS names khaby, but MEDIA_KHABY_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nKHABY_ACCOUNTS=,\n' \
+  >"$root/secrets/teeny.env"
+doctor || true
+check "the khaby format with no account and no ingest warns of both" \
+  grep -q '^warn khaby: KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
+  >"$root/secrets/teeny.env"
+doctor || true
+check "the khaby format on says the studio makes one a day" \
+  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080; the studio makes up to 1 a day' "$scratch/doctor.log"
 rm -f "$root/secrets/teeny.env"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
