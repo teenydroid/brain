@@ -98,6 +98,19 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(len(skitcut.frame_times([3.0] * 4)), skitcut.MAX_FRAMES)
         self.assertEqual(skitcut.frame_times([]), [])
 
+    def test_one_clip_is_sampled_across_its_whole_length(self):
+        # A one-take skit is one clip with every shot in it: frames spread
+        # evenly from start to end, so the viewer sees every shot (with the
+        # shots' middles alone it would get three frames).
+        times = skitcut.frame_times([14.0])
+        self.assertEqual(len(times), skitcut.MAX_FRAMES)
+        self.assertEqual((times[0], times[-1]), (0.4, 13.6))
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        self.assertTrue(max(gaps) - min(gaps) < 0.05, times)
+        for start, end in ((0, 4), (4, 9), (9, 14)):  # the take's three shots
+            self.assertTrue(any(start <= t < end for t in times), (start, end, times))
+        self.assertEqual(skitcut.frame_times([0.5]), [0.12, 0.38][:len(skitcut.frame_times([0.5]))])
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg (the reel image has it)")
 class RenderTest(unittest.TestCase):
