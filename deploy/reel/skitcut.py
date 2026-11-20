@@ -143,9 +143,10 @@ def _fit(clips: list[dict[str, Any]], trims: list[float]) -> tuple[list[int], li
     frames = trim_frames(trims)
     padded = []
     for n, (clip, count) in enumerate(zip(clips, frames), 1):
-        short = count / FPS - clip["seconds"]
+        picture = clip.get("video_seconds", clip["seconds"])
+        short = count / FPS - picture
         if short > MAX_PAD + 1e-6:
-            raise CutError(f"clip {n} runs {clip['seconds']:.2f} s, {short:.2f} s short of its trim")
+            raise CutError(f"clip {n}'s picture runs {picture:.2f} s, {short:.2f} s short of its trim")
         padded.append(round(max(0.0, short), 3))
     return frames, padded
 
@@ -263,19 +264,33 @@ def _quote(path: str) -> str:
     return path
 
 
-def probe(ffprobe: str, path: str) -> dict[str, Any]:
-    """{audio, video, seconds} of one clip, from ffprobe."""
+def _probed(info: dict[str, Any]) -> dict[str, Any]:
+    """{audio, video, seconds, video_seconds} from ffprobe's JSON: `seconds`
+    the container's length, `video_seconds` the picture's own (a clip's
+    sound can run past its last frame), the container's when the stream
+    does not say."""
+    streams = info.get("streams") or []
+    kinds = {s.get("codec_type") for s in streams}
+    seconds = float((info.get("format") or {}).get("duration") or 0)
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
     try:
-        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type:format=duration",
-                              "-of", "json", path], capture_output=True, text=True, timeout=60, check=True).stdout
-        info = json.loads(out)
-        kinds = {s.get("codec_type") for s in info.get("streams") or []}
-        seconds = float((info.get("format") or {}).get("duration") or 0)
-    except (subprocess.SubprocessError, OSError, ValueError) as exc:
-        raise CutError(f"a clip could not be read ({type(exc).__name__})") from None
+        video_seconds = float(video.get("duration") or 0) or seconds
+    except (TypeError, ValueError):
+        video_seconds = seconds
     if "video" not in kinds or seconds <= 0:
         raise CutError("a clip has no picture")
-    return {"audio": "audio" in kinds, "video": True, "seconds": seconds}
+    return {"audio": "audio" in kinds, "video": True, "seconds": seconds, "video_seconds": video_seconds}
+
+
+def probe(ffprobe: str, path: str) -> dict[str, Any]:
+    """{audio, video, seconds, video_seconds} of one clip, from ffprobe."""
+    try:
+        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type,duration:format=duration",
+                              "-of", "json", path], capture_output=True, text=True, timeout=60, check=True).stdout
+        info = json.loads(out)
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        raise CutError(f"a clip could not be read ({type(exc).__name__})") from None
+    return _probed(info)
 
 
 def render(sources: list[str], label: str, aspect: str, folder: str, font: str, bed: str | None = None,
