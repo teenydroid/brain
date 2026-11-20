@@ -203,8 +203,8 @@ def _cut(cut_id: str, checked: dict) -> dict:
     os.makedirs(folder)
     with CUTTING:
         return skitcut.render(sources, checked["label"], checked["aspect"], folder, os.path.join(FONTS, skitcut.FONT),
-                              bed=bed, bed_volume=checked["bed_volume"], starts=checked.get("starts"),
-                              trims=checked.get("trims"), sound=sound)
+                              bed=bed, bed_volume=checked["bed_volume"],
+                              starts=checked.get("starts"), trims=checked.get("trims"), sound=sound)
 
 
 @router.post("/teeny/v1/cuts")
