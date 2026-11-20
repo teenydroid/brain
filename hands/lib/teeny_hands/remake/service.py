@@ -68,6 +68,16 @@ def source_of(url: Any) -> str | None:
     return HOSTS.get(host.lower())
 
 
+def clean_text(value: Any, limit: int) -> str:
+    """Text from outside (a title, an uploader, a model's reading of a
+    video) as one plain line: whitespace collapsed, everything that is not
+    printable text (controls, escapes, bidirectional and zero-width marks)
+    removed, at most `limit` characters. Anything but a string is empty."""
+    if not isinstance(value, str):
+        return ""
+    return "".join(ch for ch in " ".join(value.split()) if ch.isprintable())[:limit].strip()
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401 - urllib's hook
         return None
