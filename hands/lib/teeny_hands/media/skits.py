@@ -111,7 +111,7 @@ from typing import Any
 
 from .. import hand
 from ..guard import skit as rules
-from . import assets, shots as _shots
+from . import assets, flavors as _flavors, shots as _shots
 # The shot machinery lives in media/shots.py, shared with media/remakes.py;
 # every name it had here is still here.
 from .shots import (BILL_SECONDS, FRAME_MAX_BYTES, MAX_BYTES, POLL_SECONDS, REFUSAL,  # noqa: F401
@@ -318,8 +318,9 @@ def plan(per_shot: int) -> _shots.Plan:
 
 
 #: The formats that share MEDIA_SKIT_MAX_PER_DAY: one bought video a day,
-#: whichever it is.
-VIDEO_KINDS = ("skit", "remake")
+#: whichever it is. The flavors that say so (media/flavors/,
+#: `shares_video_cap`): ("skit", "remake").
+VIDEO_KINDS = _flavors.video_kinds()
 
 
 def _count_today(conn, kinds: tuple[str, ...] = VIDEO_KINDS) -> int:
