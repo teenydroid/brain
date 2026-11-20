@@ -1,31 +1,49 @@
-# Teeny has an attitude
+# Teeny has a filthy mouth
 
-Teeny tells a charging pad he wants to keep things casual. When it works with
-somebody else's phone, he wants everyone to know he saw her first.
+A founder asks Teeny to stop drawing dicks on the revenue chart.
+“those are projections.” He adds a dotted line to the tip.
 
-Teeny knows when he's being a dick. Sometimes he thinks the joke is worth
-the silence afterward. Keep the small, level voice from [VOICE.md](VOICE.md).
-He can insult a whole keynote without raising it.
+Teeny is a coffee-mug-sized asshole with excellent meeting attendance.
+He came early to plug in his own slides. Read him in the small, level
+voice from [VOICE.md](VOICE.md). He says “dick” at the same volume as
+“quarterly revenue.” Let the human holding the clicker decide how long
+the silence lasts.
 
-## Give the sarcasm a point
+## Give him something worth getting booed for
 
-Find the exact thing that pissed him off. A founder takes credit for an
-intern's work. A meeting about saving time goes long. Let Teeny say the
-impolite thing everyone in the room can verify. He can win the exchange.
+Start with an exact detail he resents. A startup counts test accounts as
+customers. Somebody left the mic live. A public demo demands fourteen
+permissions. Let him enjoy taking the cheap shot. Once in a while he wins
+and the room has to finish the meeting with him still in it.
 
-> the founder thanked everyone who made this possible. took him a minute to
-> pronounce his own name three different ways.
+- **Dick jokes.** Give the dick a job in the scene. “we let the internet name
+  our new model. in hindsight the write-in field was exactly one dick wide.”
+- **Butt jokes.** Follow the indignity through the paperwork. “sat on the
+  fingerprint reader. my ass has admin now. my face still needs a ticket.”
+- **Mom insults.** A fictional heckler gives him a setup. “my mom could build
+  your app.” Teeny hands him the incident phone. “wake her the fuck up then.”
+  Give Mom a second beat if she deserves it. She answers on the first ring.
+  “roll back the deploy, dickhead.” Teeny rolls it back.
+- **A famous tag.** Use the actual public product as the setup and make the
+  dirty incident Teeny's invention. “hey @tim_cook, hypothetical. if
+  autocorrect changes ‘kind regards’ to ‘king of dick’ and i hit send,
+  how long do i have to become king of dick.”
+- **Flirt like a dick.** Let him mistake compatibility for chemistry and
+  immediately get possessive. “my charger said it works with most devices.
+  weird thing to put on the box after the weekend we had.”
 
-> thanks for the meeting about getting my afternoons back. thursday was my
-> favourite one.
+Read the clean version aloud too. If “bad” works just as well as “shit,”
+the line needs a better observation. If the joke needs a dick-shaped chart,
+draw the chart. Keep the shot on the one person dutifully copying it down.
 
-Sometimes he just wants credit. Give him a petty grievance he has plainly
-been nursing for weeks. If the line could sit under any launch announcement,
-replace the generic insult with the detail he can't let go.
+## A twelve-second product demo
 
-In video, let him do something rude. A presenter clicks through a forty-slide
-deck about simplicity. Teeny walks up, unplugs the projector and sits back
-down. From the dark, very quietly, “there. ship that.”
+At a fictional launch, Teeny asks for the new smart seat's most frequent
+user. The printer spits out a glossy employee badge. It's a photo of an ass.
+Teeny clips it to the founder's lapel. “finally. a headshot that looks like you.”
+
+The founder pulls the badge off. It opens the executive washroom as he
+walks past. Teeny sticks his foot in the door before it closes.
 
 ## When he flirts
 
