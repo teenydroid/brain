@@ -891,11 +891,32 @@ refuses every one until the operator sets `MEDIA_SKIT_MAX_PER_DAY`) is the
 operator's absurd-video format: a trending story, the public figure it is
 about, an obviously impossible scene, one to four cinematic shots on video. A
 skit pitch must have a hook. Its draft carries the post's words and `skit:
-{story (the hook, set by code), figures, logline, shots, aspect}`; the
-drafting turn gives the craft (cinematography, an expensive absurd set, one
-gag a shot, escalation) and the hard lines, and `writer.md` holds the
+{story (the hook, set by code), figures, premise, logline, shots, aspect}`;
+`premise` is required (`skit_of`, `SKIT_PREMISE_MAX`): one line, what the
+figure really did or claimed in the story, so what they do in the video,
+shown to the editor and never rendered or posted. The drafting turn gives
+the craft (a premise from what the figure did, never a pun on a headline
+word; the figure driving every shot; three beats, set-up a stranger gets
+with the sound off, consequence, payoff; the figure's full name, wardrobe,
+prop and setting restated in every shot, since each is rendered alone; one
+action and at most one short line a shot; cinematography, an expensive
+absurd set, escalation) and the hard lines, and `writer.md` holds the
 carve-out from "joke about the situation, never at someone" with worked
-examples. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
+examples and one pun-against-premise contrast (the first live skit slot,
+2026-11-19, drew three skits that were all a pun on the headline's
+"raises", with the figure watching). Wherever the editor meets a skit (a
+compare batch holding one, every slot question on one) it is told what a
+skit is and its only lines (`SKIT_EDITOR`): a public figure from the story
+in an impossible scene, in a role the story never gave them, with the joke
+on them, is the point and no reason for a none; a skit loses only for
+something sexual, violence done to the figure, hate, crime, drugs, illness
+or death shown as theirs, a private person, child, family member, victim
+or bystander, the figure near Teeny, a token, a wallet, a product, an
+investment or an endorsement, a scene or line that could pass for real, or
+a skit a stranger could not follow at all. The slot question adds
+`SKIT_FINAL` (taste alone is not a none; a none names its `line`), and
+`STUDIO-EDITOR.md`'s "made up about a real person" line leaves a labelled
+parody to those lines. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
 run three times: code's half on every skit draft before the tournament
 (beside the copy and unsourced screens, which hold only its words to the
 facts: a shot's "35mm" is staging), code and the judge before any money is
@@ -911,8 +932,10 @@ scoreboard's by-format results set skits beside the rest. In a slot named in
 `STUDIO_SKIT_SLOTS` the writer is asked for skits first, the best skit pitch
 and the best pitch in another format are always drafted, the best skit is
 tried first whatever the editor's ranking (the slot question is asked of
-it; a no to a skit promoted past the tournament's winner is recorded as
-`skit_veto` and the winner gets its own slot question), and when it cannot be made (off, over budget, a hard line, the reel
+it; a no to it hands the slot question to the next-ranked skit, up to
+`SKIT_FINALS` (3) skits, and only then to the best draft in another
+format, whose no is a real veto; every refusal is kept in `skit_vetoes`,
+the first also as `skit_veto`), and when it cannot be made (off, over budget, a hard line, the reel
 service down, a render that failed) no other skit is tried that run and the
 failure uses none of the `MAX_FALLBACKS`, so the other formats still get
 their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
