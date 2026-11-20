@@ -11,6 +11,7 @@ at `/srv/teeny`:
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 | `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
+| `ingest` | Short videos to study for `hands/remake`: a pinned yt-dlp and ffmpeg behind `deploy/ingest/serve.py`. No key, no mount of Teeny's. Behind the `ingest` profile. | none; compose network only (`http://ingest:8090`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
