@@ -524,7 +524,7 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
 
 
 def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], reference: str, models: list[str],
-          per_shot: int, wait: int, clock) -> list[Json]:
+          per_shot: int, wait: int, clock, aspect: str) -> list[Json]:
     """Every shot keyed in parallel: one result a shot, in order."""
     prices: dict[str, int] = {}
     pricing = threading.Lock()
@@ -605,7 +605,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
     specs = [{**s, "row": row} for s, row in zip(job["shots"], rows)]
     conn = assets._db()
     try:
-        results = _keys(api, remake_id, specs, frames, reference, edit_models, per_shot, wait, clock)
+        results = _keys(api, remake_id, specs, frames, reference, edit_models, per_shot, wait, clock, job["aspect"])
         failed = [r for r in results if "failed" in r]
         if failed:
             why = "; ".join(f"shot {r['n']}: {r['failed']}" for r in failed)[:1000]
