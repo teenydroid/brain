@@ -1022,6 +1022,16 @@ the original's title and creator and every shot's edit, motion and teeny,
 and is told what a remake is and its only lines (`REMAKE_EDITOR`,
 `REMAKE_FINAL`).
 
+`hands/khaby` is the same ingest side for a Khaby Lame video, not yet a
+studio format: `find` lists his account (`KHABY_ACCOUNTS`) through the
+ingest service as `remake charts` lists TikTok accounts, and `dissect`
+fetches one video with the study's fetch-and-pull code (`remake/source.py`)
+and sends it whole to a video-input model (`KHABY_DISSECT_MODEL`, no default
+until one is tried on the box) for a timeline: which seconds and frames are
+the setup clip and which his reaction, snapped to ingest's cuts, the
+reaction editable. It shares the remake ledger, so a video used by one
+pipeline is never offered to the other (docs/hands.md, "khaby").
+
 The remake's hard lines (`hands/guard remake`, `guard/remake.py`; the skit's
 lines, plus):
 

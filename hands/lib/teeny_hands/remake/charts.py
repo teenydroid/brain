@@ -148,10 +148,22 @@ def _iso_duration(value: Any) -> float | None:
     return float(days * 86400 + hours * 3600 + minutes * 60 + seconds)
 
 
+def account_names(text: str | None) -> list[str]:
+    """The account names of a comma list setting, `@` and blanks aside."""
+    return [n.strip().lstrip("@") for n in (text or "").split(",") if n.strip()]
+
+
 def _tiktok(ingest: Any, unavailable: list[Json]) -> list[Json]:
-    names = [n.strip().lstrip("@") for n in (hand.setting("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if n.strip()]
+    names = account_names(hand.setting("REMAKE_TIKTOK_ACCOUNTS"))
     if not names:
         raise Unavailable("off")
+    return list_accounts(ingest, names, unavailable)
+
+
+def list_accounts(ingest: Any, names: list[str], unavailable: list[Json], per_account: int = PER_ACCOUNT) -> list[Json]:
+    """Each TikTok account's recent videos, through the ingest service, as
+    raw candidates (unfiltered); a bad name or a failed listing is named
+    under `unavailable`, never raised. hands/khaby find lists the same way."""
     found: list[Json] = []
     failures: list[str] = []
     for name in names:
@@ -159,7 +171,7 @@ def _tiktok(ingest: Any, unavailable: list[Json]) -> list[Json]:
             unavailable.append({"provider": "tiktok", "reason": "bad_account", "error": clean_text(name, 40)})
             continue
         try:
-            entries = ingest.listing(f"https://www.tiktok.com/@{name}", PER_ACCOUNT)
+            entries = ingest.listing(f"https://www.tiktok.com/@{name}", per_account)
         except IngestError as exc:
             failures.append(str(exc))
             continue
