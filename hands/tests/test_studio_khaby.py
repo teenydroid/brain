@@ -149,7 +149,7 @@ class FormatTest(unittest.TestCase):
         self.assertEqual((cfg.formats, cfg.khaby_secs, cfg.remake_secs), (("post", "khaby"), 1200, 1200))
         self.assertFalse(any("STUDIO_SKIT_SLOTS" in w for w in cfg.warnings))
         self.assertEqual(self.load({"STUDIO_KHABY_SECS": "900"}).khaby_secs, 900)
-        self.assertEqual(self.load({"STUDIO_KHABY_SECS": "60"}).khaby_secs, 1200)
+        self.assertEqual(self.load({"STUDIO_KHABY_SECS": "60"}).khaby_secs, 540)
 
     def test_a_khaby_pitch_names_a_find_and_the_trending_story_it_joins(self):
         known = {"evt:1", "trend:t1", "chart:tt:v7"}
