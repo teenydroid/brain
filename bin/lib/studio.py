@@ -195,6 +195,12 @@ def video_formats() -> tuple[str, ...]:
 def known_formats() -> tuple[str, ...]:
     return (*WORD_FORMATS, *video_formats())
 
+
+def given_sources(sources: dict[str, Any] | None, charts: Any = None) -> dict[str, Any]:
+    """What the video formats read for themselves, by format: `sources`, with
+    a remake's charts given by their old keyword (`charts=`) as well."""
+    return {**formats.named(charts=charts), **(sources or {})}
+
 #: Drafts tried after the pick when it cannot go out (`publish`).
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
@@ -676,7 +682,7 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     it casts. What a format read for itself (`sources`, by format; a
     remake's charts may come as `charts`) is no other format's item."""
     outside = outside or set()
-    sources = {**formats.named(charts=charts), **(sources or {})}
+    sources = given_sources(sources, charts)
     owner = {i: name for name, ids in sources.items() for i in ids}
     video = registry()
     if isinstance(answer, list):
