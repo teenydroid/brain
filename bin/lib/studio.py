@@ -1703,17 +1703,17 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     it could not be made. One scene is made once a slot: a fallback with the
     same scene reuses what came of it (`Room.pictures`), the picture or its
     failure, so a refusal is never bought twice."""
-    scene = draft.get("image") or (json.dumps(draft["meme"], sort_keys=True) if draft.get("meme") else "") or (
-        json.dumps(draft["skit"], sort_keys=True) if draft.get("skit") else "") or (
-        json.dumps(draft["remake"], sort_keys=True) if draft.get("remake") else "")
+    videos = registry()
+    scene = draft.get("image") or (json.dumps(draft["meme"], sort_keys=True) if draft.get("meme") else "") or next(
+        (json.dumps(draft[name], sort_keys=True) for name in videos if draft.get(name)), "")
     if scene in room.pictures:
         made, before = room.pictures[scene]
         attempt["picture"] = {**before, "reused": True}
         return list(made) if made is not None else None
     note: Json = {"scene": scene}
     attempt["picture"] = note
-    made = {"meme": _make_meme, "skit": _make_skit, "remake": _make_remake}.get(draft.get("format"),
-                                                                                 _make_picture)(room, draft, note)
+    makers = {"meme": _make_meme, **{name: video.make for name, video in videos.items()}}
+    made = makers.get(draft.get("format"), _make_picture)(room, draft, note)
     room.pictures[scene] = (made, {k: v for k, v in note.items()})
     return made
 
@@ -1950,7 +1950,7 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     is shut or held, a judge could not judge, the time ran out, or hands/x
     may have posted: no other draft either)."""
     fmt = draft.get("format")
-    if fmt not in KNOWN_FORMATS:
+    if fmt not in known_formats():
         attempt["result"] = f"no producer for the format {fmt!r}: no post"
         return "next"
     failed, verdict, attempt["gates"], judged = gates(room, draft)
@@ -1973,7 +1973,7 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
         draft = again
         attempt["rewritten"] = True
     media_ids: list[str] = []
-    if fmt in VIDEO_FORMATS:
+    if fmt in registry():
         made = picture(room, draft, attempt)
         attempt[fmt] = attempt.pop("picture")
         if made is None:
@@ -2119,15 +2119,16 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
         gated += 1
         result = try_draft(room, draft, attempt, slot, afters)
         fmt = draft.get("format")
-        if result == "next" and fmt in VIDEO_FORMATS and attempt.get(fmt):
+        videos = registry()
+        if result == "next" and fmt in videos and attempt.get(fmt):
             # The video could not be made (refused, over budget, a hard line,
             # the service down, a render that failed): no other video of its
             # format is tried this run, and it does not use up the fallback
             # budget, so the words of the other formats still get their turns.
             gated -= 1
             failed_videos.add(fmt)
-            spent = any(attempt[fmt].get(k) for k in ("asset", "remake_id"))
-            for other in VIDEO_FORMATS:
+            spent = any(attempt[fmt].get(k) for k in videos[fmt].spent)
+            for other in videos:
                 mine = [x for x in left if slot.blind[x].get("format") == other]
                 if other != fmt and not spent and other not in failed_videos and video_time(room, other):
                     # One video a day: the other format gets one attempt, its
@@ -2140,10 +2141,9 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
                                                                        if k in attempt})
             out["text"] = attempt.get("sent")
-            if attempt.get("skit"):
-                out["skit"] = skit_outcome(draft, attempt["skit"], attempt.get("post_id"))
-            if attempt.get("remake"):
-                out["remake"] = remake_outcome(draft, attempt["remake"], attempt.get("post_id"))
+            for name, video in videos.items():
+                if attempt.get(name):
+                    out[name] = video.outcome(draft, attempt[name], attempt.get("post_id"))
             return out
         if result == "stop":
             ended = "nothing else could be tried"
@@ -2159,12 +2159,12 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
 
 
 def video_time(room: Room, fmt: str) -> bool:
-    """Whether the run still has the time to make a video of FMT: a skit's
+    """Whether the run still has the time to make a video of FMT, by its
+    format's floor (`Format.time` against `Format.min_secs`): a skit's
     render floor (120 s after SKIT_RESERVE_SECS + SKIT_CUT_SECS), a remake's
     (REMAKE_MIN_SECS of STUDIO_REMAKE_SECS)."""
-    if fmt == "remake":
-        return _remake_time(room) >= REMAKE_MIN_SECS
-    return room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS >= 120
+    video = registry()[fmt]
+    return video.time(room) >= video.min_secs
 
 
 def story_of(draft: Json) -> str:
