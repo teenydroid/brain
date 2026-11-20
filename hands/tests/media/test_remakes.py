@@ -692,7 +692,7 @@ class RemakeTest(unittest.TestCase):
                 made = self.keys()
                 with self.assertRaises(hand.HandError):
                     self.remake({"remake_id": made["remake_id"], "sound": SOUND})
-                self.assertEqual(self.api.downloads, 1)
+                self.assertEqual(self.api.downloads, 2)  # once a shot, never again
                 self.tearDown()
         self.setUp()
 
