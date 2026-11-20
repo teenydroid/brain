@@ -189,6 +189,16 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(os.listdir(os.path.join(self.tmp.name, "fetches")), [])
         self.assertFalse(any(c[0] == "ffmpeg" for c in self.fake.calls))
 
+    def test_yt_dlps_stop_at_one_download_is_a_success(self):
+        inner = self.fake
+
+        def stopped(argv, timeout):
+            code, out, err = inner(argv, timeout)
+            return (101 if argv[0] == "yt-dlp" and "--max-downloads" in argv else code), out, err
+
+        got = serve.Service(self.tmp.name, runner=stopped).fetch({"url": URL})
+        self.assertIn("source.mp4", got["files"])
+
     def test_a_page_that_is_a_list_of_videos_is_not_a_probe(self):
         self.fake.info = {"_type": "playlist", "id": "someone", "duration": 30, "entries": []}
         with self.assertRaises(serve.Failure) as caught:

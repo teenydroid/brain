@@ -113,7 +113,7 @@ class ArgvTest(unittest.TestCase):
     def test_the_safety_options_are_always_there(self):
         for name, argv in self.every().items():
             with self.subTest(name=name):
-                for option in ("--no-exec", "--ignore-config", "--no-cache-dir", "--socket-timeout"):
+                for option in ("--no-exec", "--ignore-config", "--no-cache-dir", "--socket-timeout", "--use-extractors"):
                     self.assertIn(option, argv)
 
     def test_only_the_site_extractors_run_never_the_generic_one(self):
