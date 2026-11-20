@@ -28,6 +28,13 @@ class RoutesTest(unittest.TestCase):
         ("GET", f"/api/v1/download/{TASK}/final-1.mp4"),
         ("HEAD", f"/api/v1/download/{TASK}/final-1.mp4"),
         ("GET", "/ping"),
+        # A skit's cut (deploy/reel/skitcut.py): made, fetched, deleted.
+        ("POST", "/teeny/v1/cuts"),
+        ("GET", f"/teeny/v1/cuts/{TASK}/cut.mp4"),
+        ("HEAD", f"/teeny/v1/cuts/{TASK}/cut.mp4"),
+        ("GET", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
+        ("HEAD", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
+        ("DELETE", f"/teeny/v1/cuts/{TASK}"),
     ]
 
     def test_only_the_routes_hands_reel_uses_are_open(self):
@@ -75,6 +82,14 @@ class RoutesTest(unittest.TestCase):
             "/",
             "/ping/",
             "",
+            "/teeny/v1/cuts/",
+            f"/teeny/v1/cuts/{TASK}/",
+            f"/teeny/v1/cuts/{TASK}/label.txt",
+            f"/teeny/v1/cuts/{TASK}/frame-10.jpg",
+            f"/teeny/v1/cuts/{TASK}/../../tasks",
+            f"/teeny/v1/cuts/{TASK.upper()}/cut.mp4",
+            f"/teeny/v1/cuts/{TASK}%2Fcut.mp4",
+            "/teeny/v1/cuts/------------------------------------/cut.mp4",
         ]
         for path in shut:
             for method in ("GET", "POST", "DELETE", "HEAD"):
@@ -292,7 +307,7 @@ class ServeUsesPolicyTest(unittest.TestCase):
         self.assertIn("policy.check_job(", source)
         self.assertIn("sweep(-1)", source)
         self.assertIn("policy.MAX_BODY_BYTES", source)
-        self.assertIn("COPY --from=teeny serve.py policy.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
+        self.assertIn("COPY --from=teeny serve.py policy.py skitcut.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
 
 
 if __name__ == "__main__":

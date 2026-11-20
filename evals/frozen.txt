@@ -153,11 +153,49 @@ hands/lib/teeny_hands/listen/
 hands/lib/teeny_hands/trend/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
+# Skits stage real public figures on video: the tests that pin the hard
+# lines (the guard's screen and judge, the viewer on the frames), the caps
+# and the label are the operator's, like the wallet's. The code is frozen
+# above (guard/, media/) and in deploy/** (the reel front's cutter).
+hands/tests/guard/test_skit.py
+hands/tests/guard/test_viewer_skit.py
+hands/tests/media/test_skits.py
+# Remakes stage real public figures too, and share the skits' day cap and
+# cutter: the tests that pin their caps, keys and label are the operator's
+# (the code is frozen above, in media/).
+hands/tests/media/test_remakes.py
+# hands/video's flavors route every skit and remake verb, old and new
+# spellings, and set which kinds share the day cap (code in media/, above).
+hands/tests/media/test_flavors.py
+hands/tests/reel/test_cut.py
+hands/tests/test_studio_skit.py
+# Remakes put real public figures into famous videos with Teeny in frame:
+# the tests that pin their hard lines (the guard's screen and judge, Teeny
+# as a bystander, the source study's gate, the viewer on the keyframes and
+# the cut) and the studio's order and time floors are the operator's too.
+hands/tests/guard/test_remake.py
+hands/tests/guard/test_viewer_remake.py
+hands/tests/test_studio_remake.py
 # Clips and songs: renders on the reel service and buys music under the
 # media caps, so the entry point and its library are the operator's, like
 # the wallet's.
 hands/reel
 hands/lib/teeny_hands/reel/
+# Remake: finds and studies short videos made by strangers. What it will fetch
+# (the address allowlist, in deploy/** with the ingest service), the flags that
+# make a study unusable and the day's cap on its paid call are the operator's,
+# like the reel's. The entry point and its library are frozen here, and so are
+# the tests that pin the allowlist, the shot rules and the study's reading.
+hands/remake
+hands/lib/teeny_hands/remake/
+hands/tests/ingest/
+hands/tests/remake/
+# Khaby: the same ingest side for Khaby Lame's videos, sharing remake's fetch
+# code and ledger; the flags, the rules a dissect is held to and its day's cap
+# on its paid video call are the operator's, like the study's.
+hands/khaby
+hands/lib/teeny_hands/khaby/
+hands/tests/khaby/
 # Memes and comics: words drawn on pictures that go out under Teeny's name,
 # screened by the guard's lexicon, and Giphy search held to g and pg. The
 # fonts are licensed files (brain/assets/fonts/README.md).

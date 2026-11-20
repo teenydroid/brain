@@ -2,16 +2,24 @@
 "Invariants every hand port must keep"). `publish` runs them after the
 guard and before DRY_RUN; nothing else in the hand posts.
 
-- The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
-  post less than `POST_MIN_GAP_HOURS` after the last one, less
+- The gap between original posts (crates/teeny-cadence/src/cadence.rs): an
+  original post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
   minutes drawing before they post), is refused. Five hours by default:
   brain/cron.toml has four post slots a day, each a ceiling that skips when it
-  has nothing anchored to say, and the outward quote (`peer-suggest`) is one of
-  the four. Posts an hour apart are the repetitive-publishing shape the ranker
-  demotes. Replies are never subject to it: they are conversations, not slots.
-- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
-  Replies to mentions are not posts and are never counted.
+  has nothing anchored to say. Posts an hour apart are the
+  repetitive-publishing shape the ranker demotes. Replies are never subject
+  to it: they are conversations, not slots. Quotes are not either: they have
+  their own lane (below), so a quote never shuts a studio slot.
+- At most `X_POSTS_MAX_PER_DAY` original posts a UTC day (4 by default).
+  Quotes and replies to mentions are not counted.
+- The quote lane (`check_gap` and `check_daily_cap` with kind `quote`): a
+  quote of a post goes out at least `QUOTE_MIN_GAP_HOURS` (3) after the
+  previous quote, less the same tolerance, at least
+  `QUOTE_AFTER_POST_MINUTES` (45) after the newest original post, and at
+  most `X_QUOTES_MAX_PER_DAY` (2) a UTC day. So the day's ceiling is 4
+  originals plus 2 quotes. The spacing holds one way only: an original post
+  never waits for a quote.
 - A thread (`hands/x thread`, 2 to 5 posts) is one own post: its head is
   recorded as kind `post` and counts against the gap and the cap once; every
   later post is recorded as kind `thread` (a continuation, `in_reply_to` the
@@ -67,10 +75,19 @@ from .model import utf16_length
 
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
-#: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
+#: Original posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
 #: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
 DEFAULT_POSTS_MAX_PER_DAY = 4
 DEFAULT_POST_MIN_GAP_HOURS = 5.0
+#: The quote lane: quotes a UTC day (X_QUOTES_MAX_PER_DAY), the hours from
+#: one quote to the next (QUOTE_MIN_GAP_HOURS), and the minutes a quote waits
+#: after the newest original post (QUOTE_AFTER_POST_MINUTES).
+DEFAULT_QUOTES_MAX_PER_DAY = 2
+DEFAULT_QUOTE_MIN_GAP_HOURS = 3.0
+DEFAULT_QUOTE_AFTER_POST_MINUTES = 45.0
+#: The ledger kinds of each lane: a thread's head is kind `post`; its
+#: continuations (`thread`) and replies are in neither.
+LANES = {"post": "post", "quote": "quote"}
 #: No second quote of one author inside this many days.
 PEER_ROTATION_DAYS = 7
 #: The longest anchor kept: an id, a URL or "pr 212", never a paragraph.
@@ -368,37 +385,88 @@ def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
 # --- the gap between own posts -----------------------------------------------------------------
 
 
-def check_gap(conn: sqlite3.Connection) -> None:
-    """Whether an own post may go out now. Run under the posting lock, so the
-    answer still holds when the post is recorded."""
-    min_gap = number_setting("POST_MIN_GAP_HOURS", DEFAULT_POST_MIN_GAP_HOURS, 0.0, 48.0) * 3600.0
-    tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
-    last = conn.execute(
-        "SELECT id, created_at FROM x_posts WHERE kind IN ('post', 'quote') ORDER BY created_at DESC LIMIT 1"
+def _lane(kind: str) -> str:
+    if kind not in LANES:
+        raise ValueError(f"no posting lane for kind {kind!r}")
+    return LANES[kind]
+
+
+def _last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT id, created_at FROM x_posts WHERE kind = ? ORDER BY created_at DESC LIMIT 1", (kind,)
     ).fetchone()
-    if last is None:
+
+
+def _too_soon(rule: str, last: sqlite3.Row, wait: float, what: str) -> hand.Refused:
+    posted_at, next_at = iso(last["created_at"]), iso(last["created_at"] + wait)
+    return hand.Refused(
+        f"cadence: too soon after {what} {last['id']} ({posted_at}); next slot at {next_at}. "
+        "Nothing was published; do not post again before then.",
+        rule=rule,
+        last_post_id=last["id"],
+        last_posted_at=posted_at,
+        next_at=next_at,
+    )
+
+
+def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
+    """Whether an own post of `kind` may go out now. Run under the posting
+    lock, so the answer still holds when the post is recorded. An original
+    post (`post`, a thread's head) looks only at original posts; a quote
+    looks at the previous quote (QUOTE_MIN_GAP_HOURS, less the tolerance) and
+    the newest original post (QUOTE_AFTER_POST_MINUTES), never the other way
+    round."""
+    tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
+    now = hand.now()
+    if _lane(kind) == "post":
+        min_gap = number_setting("POST_MIN_GAP_HOURS", DEFAULT_POST_MIN_GAP_HOURS, 0.0, 48.0) * 3600.0
+        last = _last(conn, "post")
+        if last is not None and now - last["created_at"] + tolerance < min_gap:
+            raise _too_soon("gap", last, min_gap, "post")
         return
-    since = hand.now() - last["created_at"]
-    if since + tolerance < min_gap:
-        posted_at, next_at = iso(last["created_at"]), iso(last["created_at"] + min_gap)
-        raise hand.Refused(
-            f"cadence: too soon after post {last['id']} ({posted_at}); next slot at {next_at}. "
-            "Nothing was published; do not post again before then.",
-            rule="gap",
-            last_post_id=last["id"],
-            last_posted_at=posted_at,
-            next_at=next_at,
-        )
+    quote_gap = number_setting("QUOTE_MIN_GAP_HOURS", DEFAULT_QUOTE_MIN_GAP_HOURS, 0.0, 24.0) * 3600.0
+    last = _last(conn, "quote")
+    if last is not None and now - last["created_at"] + tolerance < quote_gap:
+        raise _too_soon("quote_gap", last, quote_gap, "quote")
+    spacing = number_setting("QUOTE_AFTER_POST_MINUTES", DEFAULT_QUOTE_AFTER_POST_MINUTES, 0.0, 600.0) * 60.0
+    last = _last(conn, "post")
+    if last is not None and now - last["created_at"] < spacing:
+        raise _too_soon("quote_gap", last, spacing, "post")
 
 
-def check_daily_cap(conn: sqlite3.Connection) -> None:
-    """Own posts and quotes today (UTC), against `X_POSTS_MAX_PER_DAY`. Run
-    under the posting lock with the gap. Replies are not counted."""
-    cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
+def quotes_today(conn: sqlite3.Connection) -> int:
+    """Quotes in the own-post ledger this UTC day."""
+    now = hand.now()
+    return int(conn.execute("SELECT count(*) FROM x_posts WHERE kind = 'quote' AND created_at >= ?",
+                            (now - (now % 86400.0),)).fetchone()[0])
+
+
+def quote_cap() -> int:
+    """`X_QUOTES_MAX_PER_DAY`: the one setting for quotes a UTC day, read by
+    the posting rule and by `peer-suggest`'s early skip."""
+    return int(number_setting("X_QUOTES_MAX_PER_DAY", DEFAULT_QUOTES_MAX_PER_DAY, 0, 12))
+
+
+def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
+    """Own posts of `kind`'s lane today (UTC): original posts against
+    `X_POSTS_MAX_PER_DAY`, quotes against `X_QUOTES_MAX_PER_DAY`. Run under
+    the posting lock with the gap. Replies are not counted."""
     now = hand.now()
     day_start = now - (now % 86400.0)
+    if _lane(kind) == "quote":
+        cap, sent = quote_cap(), quotes_today(conn)
+        if sent >= cap:
+            raise hand.Refused(
+                f"{sent} quote(s) went out today (UTC) and the cap is {cap}. Nothing was published; "
+                "the next quote is tomorrow.",
+                rule="quote_cap",
+                sent_today=sent,
+                cap=cap,
+            )
+        return
+    cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
     sent = conn.execute(
-        "SELECT count(*) FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?", (day_start,)
+        "SELECT count(*) FROM x_posts WHERE kind = 'post' AND created_at >= ?", (day_start,)
     ).fetchone()[0]
     if sent >= cap:
         raise hand.Refused(

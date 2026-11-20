@@ -454,6 +454,82 @@ check "--live warns, never fails, when the meme service is down" \
   test "$(jq -r '.checks[] | select(.check == "meme service") | .status' "$root/state/doctor.json")" = warn
 check "and says how to bring it up" grep -q '^warn meme service: no templates from .*--profile memegen up -d memegen' "$scratch/doctor.log"
 
+# Skits: named only when STUDIO_FORMATS has skit, never a failure; says when
+# hands/video would refuse every one, or when no shot fits the day's budget.
+fresh; doctor || true
+check "skits are off while no format names them" grep -q '^ok   skits: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,skit\n' >"$root/secrets/teeny.env"
+check "a boot with the skit format but no skit budget passes" doctor
+check "and warns that hands/video refuses every skit" grep -q '^warn skits: .*MEDIA_SKIT_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_SKIT_MAX_USD_PER_SHOT=1.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a shot cap over the daily budget warns" grep -q '^warn skits: MEDIA_SKIT_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "skits on say their caps, one take and its model, and where they are cut" \
+  grep -q '^ok   skits: on: 2 a day, up to 1.60 USD a shot, 2 shot(s) under 4.50 USD a day; one take on venice-wan-3-0-text-to-video (then seedance-2-0-text-to-video, wan-2-7-text-to-video), up to 20 s at 720p, one job a shot if it cannot be had; cut at http://reel:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nMEDIA_SKIT_ONE_TAKE=0\n' >"$root/secrets/teeny.env"
+doctor || true
+check "and say when one take is off" grep -q '^ok   skits: on: .*; one take off: one job a shot; cut at' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nREEL_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when the reel service is down" \
+  test "$(jq -r '.checks[] | select(.check == "skits") | .status' "$root/state/doctor.json")" = warn
+rm -f "$root/secrets/teeny.env"
+
+# Remakes: named only when STUDIO_FORMATS has remake, never a failure; says
+# when hands/video would refuse every one, when no chart can be read, when six
+# shots would not fit the day's budget, and (--live) when ingest is down.
+fresh; doctor || true
+check "remakes are off while no format names them" grep -q '^ok   remakes: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,remake\n' >"$root/secrets/teeny.env"
+check "a boot with the remake format but no remake budget passes" doctor
+check "and warns that hands/video refuses every remake" grep -q '^warn remakes: .*MEDIA_REMAKE_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\n' >"$root/secrets/teeny.env"
+doctor || true
+check "no chart provider warns" grep -q '^warn remakes: .*REMAKE_TIKTOK_ACCOUNTS.*YOUTUBE_API_KEY' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+# Unset, a shot's cap is the hand's own default (media/remakes.py,
+# PER_SHOT), so six of them are over a day a cent short of six.
+shot_default="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from teeny_hands.media.remakes import PER_SHOT as m; print(f"{float(m):.2f}")' "$repo/hands/lib")"
+short_day="$(python3 -c "print(f'{6 * $shot_default - 0.01:.2f}')")"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=%s\n' "$short_day" >"$root/secrets/teeny.env"
+doctor || true
+check "an unset shot cap is the hand's own default" grep -q "^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ($shot_default USD)" "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+doctor || true
+check "remakes on say their caps, charts and ingest" \
+  grep -q '^ok   remakes: on: 1 a day, up to 1.00 USD a shot under 6.00 USD a day; charts from tiktok; ingest at http://ingest:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=20\nINGEST_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when ingest does not answer" \
+  grep -q '^warn remakes: the ingest service at http://127.0.0.1:9 does not answer' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
+
+# Khaby: off until a video model is named, never a failure; says when the cap,
+# the provider's key, the accounts or INGEST_URL would stop it.
+fresh; doctor || true
+check "khaby is off while no video model is named" grep -q '^ok   khaby: off: KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,khaby\n' >"$root/secrets/teeny.env"
+check "a boot with the khaby format but no model passes" doctor
+check "and warns that dissect refuses every video" grep -q '^warn khaby: .*KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_MAX_PER_DAY=0\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a zero cap is off" grep -q '^ok   khaby: off: KHABY_DISSECT_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_PROVIDER=gemini\nKHABY_ACCOUNTS=,\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a missing key, no account and no ingest warn" \
+  grep -q '^warn khaby: GEMINI_API_KEY is not set.*KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+doctor || true
+check "khaby on says its cap, model, accounts and ingest" \
+  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
+
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash

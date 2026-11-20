@@ -16,7 +16,7 @@
 # (BuildKit reads it in place of the submodule's own .dockerignore) leaves out
 # resource/songs (the README says those tracks came from YouTube), the web
 # UI, the tests and the docs, so none of them is in the image. What runs is
-# deploy/reel/serve.py and policy.py (the `teeny` build context): upstream's
+# deploy/reel/serve.py, policy.py and skitcut.py (the `teeny` build context): upstream's
 # FastAPI app behind Teeny's one route and a path allowlist. Streamlit is installed with
 # the rest of upstream's requirements, as they are, and never started, so the
 # web UI's update check never runs.
@@ -49,7 +49,7 @@ RUN UV_HTTP_TIMEOUT=60 UV_HTTP_RETRIES=3 uv pip install --system --no-cache \
       --overrides requirements-security.txt -r requirements.txt 'setuptools>=82.0.1' 'wheel>=0.46.2'
 
 COPY . .
-COPY --from=teeny serve.py policy.py /opt/teeny/
+COPY --from=teeny serve.py policy.py skitcut.py /opt/teeny/
 
 # A user of its own. storage/ is the reel-storage volume (a fresh volume
 # takes this ownership), where each job's copies of its files and its
@@ -58,7 +58,7 @@ COPY --from=teeny serve.py policy.py /opt/teeny/
 # An empty resource/songs, so upstream's song folder exists and holds nothing.
 RUN useradd --system --uid 10001 --home-dir /MoneyPrinterTurbo --no-create-home reel \
  && rm -rf resource/songs && mkdir -p resource/songs \
- && mkdir -p storage/local_videos storage/bgm storage/tasks /teeny/media /teeny/assets \
+ && mkdir -p storage/local_videos storage/bgm storage/tasks storage/cuts /teeny/media /teeny/assets \
  && chown -R reel:reel storage \
  && chmod 755 /MoneyPrinterTurbo
 

@@ -74,12 +74,13 @@ Teeny has three parts:
   ([`docs/architecture.md`](docs/architecture.md) §4a). X search is billed per
   post, so Teeny uses it sparingly: one search a day for the `take` playbook,
   and a read of its peers' newest posts for `peer-quote`.
-- It quotes other projects' posts, rarely. `peer-quote` (11:00 and 19:00 IST)
-  reads the newest posts of the accounts in `brain/x-peers.txt` and scores up
-  to three quotes. It posts one only when the relevance bar is met (Teeny has
-  built, run or measured something the author did not know), at most once a
-  day, and most days it posts nothing. No quote ever carries a ticker, address
-  or price.
+- It quotes other people's posts, the one way X's API lets it reach people
+  who do not follow it yet. `peer-quote` (13:00, 19:00 and 22:00 IST) reads
+  the newest posts of the accounts in `brain/x-peers.txt` and the X posts
+  behind today's top-ranked AI and tech stories, and scores up to three
+  reactions: a quote, an absurd one-line bit, a meme, or a visit. It posts the
+  one that hits hardest (4 of 5 or more), at most two a day in a lane of their
+  own. No quote ever carries a ticker, address or price.
 - It remembers, and it dreams. Every awake beat is journaled to
   `state/journal/<date>.md` and to the core's memory. Twice a day, at 14:00
   (`bin/dream --light`) and 02:00 (`bin/dream`), it dreams: it goes over
@@ -162,7 +163,7 @@ bin/tasks-desk ── task.json ──► operator agent ──► browser, on d
 
 Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
 its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty. The outward quote of a peer (`peer-quote`) shares those four.
+posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty. Quotes have their own lane and never take one of those four: at most two a day (`X_QUOTES_MAX_PER_DAY`), three hours apart (`QUOTE_MIN_GAP_HOURS`) and 45 minutes after an original post (`QUOTE_AFTER_POST_MINUTES`), so the day's ceiling is 4 originals plus 2 quotes.
 
 | Playbook | When | Does |
 |---|---|---|

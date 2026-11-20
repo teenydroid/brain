@@ -152,6 +152,10 @@ case "$1" in
     case "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" in
       yes) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}' ;;
       down) echo '{"ok": true, "truthful": false, "unsupported": [], "reason": "the truth judge could not be reached: core unreachable", "judged": true}' ;;
+      # What the hand answers since 2026-11-19 when its judge cannot be
+      # reached: the code check's pass (no money marker), or its hold.
+      code) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "passed on the code check, because the truth judge could not be reached: core unreachable: no money, token or price in it", "judged": true, "path": "code"}' ;;
+      codeheld) echo '{"ok": true, "truthful": false, "unsupported": ["$0.27"], "reason": "held on the code check, because the truth judge could not be reached: core unreachable: it carries a mark of money or the token ($0.27), and only the judge may pass one", "judged": true, "path": "code"}' ;;
       off) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "the truth judge is off", "judged": false}' ;;
       garbage) echo 'Traceback (most recent call last): oops' ;;
       *) echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}' ;;
@@ -324,7 +328,8 @@ check "the pitch message leads with the outside world" bash -c "msg=\"\$1\"; o=\
 check "and who posted on Hacker News is left out of it" bash -c "! grep -q 'someone' <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
 check "the hooked pitch keeps its story in the record" jqe '.pitches | map(select(.id == "p1"))[0] | .hook == "trend:s1" and .hook_item.title == "an AI lab hired a new chief scientist" and .drafted == true' <<<"$rec"
 check "and its drafts carry the story in their truth facts" jqe '.drafts | map(select(.pitch == "p1")) | length == 3 and all(.hook == "trend:s1" and .truth.facts[0].id == "trend:s1" and .truth.facts[0].posts[0].text == "big hire for the lab")' <<<"$rec"
-check "two of the three drafted pitches are hooked" jqe '.drafted == {want_hooked: 2, hooked: 2}' <<<"$rec"
+check "two of the three drafted pitches are hooked" jqe '.drafted | .want_hooked == 2 and .hooked == 2' <<<"$rec"
+check "and one is invention-led: the grudge (p5) is drafted" jqe '(.drafted | .want_invented == 1 and .invented == 1 and (has("short_invented") | not)) and (.pitches | map(select(.id == "p5"))[0].drafted == true)' <<<"$rec"
 check "and the draft message gives the writer the story and the rules for it" bash -c "grep -q '## the news it joins' <<<\"\$1\" && grep -q 'No @-mentions' <<<\"\$1\"" _ "$(step_msgs '# studio: draft')"
 check "but not the paid X search, which is off by default, and says so" \
   bash -c "! grep -q '^x search ' '$FAKE_HANDS' && jq -e '.inputs.skipped | any(test(\"STUDIO_OUTSIDE_X=1\"))' <<<\"\$1\" >/dev/null" _ "$rec"
@@ -808,10 +813,22 @@ check "a writer that fell back to the core default, with no judge model set, lea
 for mode in down garbage off; do
   reset
   out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=$mode FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
-  check "a truth judge that is $mode posts nothing, rewrites nothing, tries no other draft" \
+  check "a truth judge that is $mode (down: TRUTH_FAIL_CLOSED=1) posts nothing, rewrites nothing, tries no other draft" \
     bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ] && [ -z \"\$3\" ]" \
     _ "$(last_record)" "$(step_msgs '# studio: rewrite')" "$(posts)"
 done
+# The first live slot (2026-11-19 09:30) ended empty: "the truth judge could
+# not be reached ... core unreachable", for a post with no money in it. The
+# hand now stands its code check in; the studio takes its verdict as given.
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=code live)"
+check "an unreachable truth judge's code-check pass publishes, and the record says which path decided" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].gates.truth.path == \"code\" and .publish.attempts[0].gates.truth.truthful == true' <<<\"\$1\" >/dev/null && [ -n \"\$2\" ]" _ "$(last_record)" "$(posts)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=codeheld,codeheld,code FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+rec="$(last_record)"
+check "the code check's hold on a priced draft is a no about that draft: a rewrite told the marker, then the next draft" \
+  bash -c "jq -e '.outcome == \"published\" and (.publish.attempts | length) == 2 and .publish.attempts[0].gates.truth.truthful == false and .publish.attempts[0].gates.truth.path == \"code\"' <<<\"\$1\" >/dev/null && grep -q '0.27' <<<\"\$2\"" _ "$rec" "$(step_msgs '# studio: rewrite')"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=off STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
 check "a dry run passes a judge that is off, and the record shows it unjudged" \
@@ -864,12 +881,44 @@ out="$(STUDIO=1 veto <<<'{"kind": "peer-quote", "text": "we measured this too", 
 check "STUDIO=1: one editor turn on the one candidate, with the post it quotes" \
   bash -c "jq -e '.verdict == \"pick\" and .kind == \"peer-quote\"' <<<\"\$1\" >/dev/null && [ \"\$2\" = 1 ] && grep -q SECRET-QUOTED-POST <<<\"\$3\"" _ "$out" "$(turns)" "$(calls_to editor)"
 check "and it is kept in studio_runs as a veto" jqe '.kind == "veto" and .outcome == "picked" and .slot == "peer-quote"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
+check "the peer quote is judged as a reaction (funny or striking, about the post), never as a first-hand report" \
+  bash -c "grep -q 'funny or striking' <<<\"\$1\" && grep -q 'Do not ask it for first-hand material' <<<\"\$1\" &&
+    ! grep -q 'Judge it on your rubric' <<<\"\$1\"" _ "$(calls_to editor)"
+reset
+out="$(STUDIO=1 veto <<<'{"kind": "brief", "text": "the team asked me to say hi"}')"
+check "the brief keeps the slot rubric" bash -c "grep -q 'Judge it on your rubric as a stranger meets it' <<<\"\$1\" &&
+  ! grep -q 'funny or striking' <<<\"\$1\"" _ "$(calls_to editor)"
 reset
 out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat"}' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "the editor's none is a none" jqe '.verdict == "none" and .reason == "flat"' <<<"$out"
 reset
 out="$(STUDIO=1 FAKE_ASK_ERROR='HTTP 503 service unavailable' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "none" and (.reason | test("could not be asked"))' <<<"$out"
+
+# --- the outward quote's meme (bin/studio --meme) ----------------------------------
+meme() { "$studio" --meme 2>"$scratch/stderr"; }
+one_quote_meme='{"template": "drake", "lines": ["reading the post", "quoting it with a meme"], "teeny": "not/a/picture.jpg"}'
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 meme <<<"$one_quote_meme")"
+check "--meme makes it by the studio's meme path: the guard, a live render, the viewer check, the upload" \
+  bash -c "jq -e '.media_ids == [\"m-31\"] and .note.viewer.ok == true' <<<\"\$1\" >/dev/null &&
+    grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^meme template DRY_RUN=0 ' '$FAKE_HANDS' &&
+    grep -q '^guard view ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/meme-41.png' '$FAKE_HANDS'" _ "$out"
+check "and no truth judge: a meme about somebody else's post is a joke, the quote judge reads it" \
+  bash -c "! grep -q '^guard truth' '$FAKE_HANDS'"
+check "and a picture of Teeny's own is pasted in, whatever the draft named" \
+  bash -c "jq -e '.teeny | startswith(\"brain/assets/tiny/\")' <<<\"\$1\" >/dev/null" _ "$(grep '^meme template ' "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//')"
+check "and no model turn" test "$(turns)" = 0
+reset
+out="$(meme <<<"$one_quote_meme")"
+check "under a dry run the meme is rendered dry and never uploaded" \
+  bash -c "jq -e '.media_ids == [] and .note.planned == true' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$out"
+reset
+out="$(STUDIO_DRY=0 DRY_RUN=0 FAKE_MEME_REFUSED=1 meme <<<"$one_quote_meme")"
+check "a meme the hand refuses is no media, with why" jqe '.media_ids == [] and (.note.failed == "refused")' <<<"$out"
+reset
+out="$(meme <<<'{"template": "drake", "lines": []}')"
+check "a meme with no lines is no media, with why" jqe '.media_ids == [] and (.note.failed | test("lines"))' <<<"$out"
 
 # --- the rollback: STUDIO=0 runs the slot's old playbook ------------------------------
 legacy_root="$scratch/legacy-root"

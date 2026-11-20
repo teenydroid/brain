@@ -110,15 +110,17 @@ def link_budget() -> Json:
     return rules.link_budget(_db())
 
 
-def slot() -> Json:
-    """Whether an own post would pass the gap and the day's cap now: {open:
-    true}, or {why} with the refusal it would get. A read of the ledger: it
-    writes nothing and calls no one. A post job reads it as a required input,
-    so a shut slot skips the run before the model turn (bin/act)."""
+def slot(quote: bool = False) -> Json:
+    """Whether an original post (with `quote`, a quote) would pass its lane's
+    gap and day's cap now: {open: true}, or {why} with the refusal it would
+    get. A read of the ledger: it writes nothing and calls no one. A post job
+    reads it as a required input, so a shut slot skips the run before the
+    model turn (bin/act); the outward quote reads `slot --quote`."""
     conn = _db()
+    kind = "quote" if quote else "post"
     try:
-        rules.check_gap(conn)
-        rules.check_daily_cap(conn)
+        rules.check_gap(conn, kind)
+        rules.check_daily_cap(conn, kind)
     except hand.Refused as refused:
         return {"why": refused.reason}
     return {"open": True}
@@ -126,7 +128,7 @@ def slot() -> Json:
 
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: its anchor, guard, 280, attachments, then the
-    gap under the process-wide posting lock, so two jobs firing in the same
+    gap of its lane (a quote's own, `rules.check_gap`) under the process-wide posting lock, so two jobs firing in the same
     minute cannot both read the ledger before either is recorded. `approved`:
     a released hold, which skips the guard only (the anchor still holds).
     The lab tags and the producer's tags (`rules.studio_tags`) are kept
@@ -150,8 +152,9 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
-        rules.check_gap(conn)
-        rules.check_daily_cap(conn)
+        # A quote has its own lane (posting_rules, "The quote lane").
+        rules.check_gap(conn, kind)
+        rules.check_daily_cap(conn, kind)
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
@@ -247,8 +250,8 @@ def thread(body: Any, x: XApi | None = None) -> Json:
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
-        rules.check_gap(conn)
-        rules.check_daily_cap(conn)
+        rules.check_gap(conn, "post")
+        rules.check_daily_cap(conn, "post")
         rules.check_repeat(conn, "\n".join(texts))
         rules.check_repeat(conn, texts[0])
         rules.check_link_budget(conn, "\n".join(texts))

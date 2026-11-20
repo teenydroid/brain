@@ -766,8 +766,12 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is at most four own posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), and the slots are ceilings, not quotas. Every own
+- X is at most four original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), plus at most two quotes a day in a lane of their own
+  (`X_QUOTES_MAX_PER_DAY`, three hours apart, `QUOTE_MIN_GAP_HOURS`, and 45
+  minutes after an original post, `QUOTE_AFTER_POST_MINUTES`): the day's
+  ceiling is 4 originals plus 2 quotes, and a quote never shuts an original
+  slot. The slots are ceilings, not quotas. Every own
   post names its `anchor` (the one item from its inputs it is about; a quote's
   is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
   anchor`) before it goes: a post that says nothing specific about its anchor
@@ -787,10 +791,14 @@ How the day's beats become the page every prompt carries:
   with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
   `show` skip when a brief is queued, so a brief takes the next free slot;
   `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
-  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
-  only at relevance 5 and at most once a day) is one of the four, so it needs
-  a slot the others left open: `hands/x peer-suggest` runs the same anchor
-  judge itself, against the quoted post, and a no is a skip kept in
+  slot`). The outward quote (`peer-quote`, 13:00, 19:00 and 22:00) is not one
+  of the four: it has the quote lane, and reacts to a peer's post or to one
+  of the X posts behind today's top-ranked stories (`hands/x peers
+  trending`, Digg's ranked feed, no X read) with a quote, an absurd one-line
+  bit, a meme (`bin/studio --meme`) or a visit, posted at a score of 4 or more
+  (how hard it hits a reader of the quoted post). `hands/x peer-suggest`
+  asks the quote judge (`hands/guard quote`: is it a reaction to the post?),
+  which fails open, in place of the anchor judge, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
 ## 4b. The studio: the writers' room
@@ -811,14 +819,17 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    outside first: hands/trend top (Digg's AI + tech stories and their X posts, once a slot)
        + HN search, top, show + listen digest (+ X search with STUDIO_OUTSIDE_X=1, 4 a day)
+       + 3 wildcards: strangers' premises from hands/chan sparks (STUDIO_CHAN=0 turns it off)
    then hands/story desk: what Teeny brings to it
+   video slot with remake on: hands/remake charts (popular short videos; none only drops the remake option)
                 │
    writer: 12 pitches, each hooked to a story or naming an item ──> 3 drafts x the best 3
-       (2 of the 3 hooked) ──> 280 + unsourced-number screen
+       (2 of the 3 hooked; in a video slot the best skit, remake and other) ──> 280 + unsourced-number screen
+       remake pitch: hands/remake study on its chart video first (at most 2 a run; unusable: the next remake pitch)
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
                 │
-   producer for the format (post | thread | image | meme)
+   producer for the format (post | thread | image | meme | skit | remake)
                 │
    truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
        a no: one rewrite by the writer with the reason, gated once more
@@ -827,6 +838,17 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
        (fails: the words alone if the writer marked them alone, else the next draft)
    meme only: lines past the guard and the truth judge ──> hands/meme template ──> viewer check ──> hands/x upload --alt
+   skit only: logline, look, setting, score, shots and the composed prompts past the guard
+       ──> hands/guard skit (code's hard lines, then the judge)
+       ──> hands/video skit (one take: one job, one multi-shot script; else a job a shot; cut and labelled on reel)
+       ──> hands/guard view-skit (the frames) ──> hands/x upload (fails: never the words alone; the next draft,
+       and in a skit slot the failed video costs none of the fallback budget)
+   remake only: logline, every edit, motion and teeny past the guard ──> hands/guard remake (code's hard lines,
+       Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (each source frame edited)
+       ──> hands/guard view-remake stage keys (fails: hands/video remake-drop frees the reservation; no video money)
+       ──> hands/video remake (animated, cut with the original's sound, labelled) ──> hands/guard view-remake
+       stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
+       nothing was bought, else the words)
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -863,7 +885,8 @@ the file when it sets `STUDIO` at all (cron and the compose services pass
 none, so on the box the file decides). Every required gate must have judged:
 a truth judge, cold reader or viewer check that is switched off, unreachable
 or answers no JSON leaves a live slot empty (a dry run passes it, marked
-`unjudged`). A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
+`unjudged`); an unreachable truth judge's own code check (`path: "code"`) is
+a judgment, a pass or a no about the draft. A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
 file as the hands read it) are the writer's model, including after the
 writer fell back to the core's default, posts nothing; the judge model is in
 every run's `models`. A picture's scene is truth-gated against the draft's
@@ -880,6 +903,222 @@ The viewer check is the image's, with the lines as the caption it must read
 back, so a studio meme always pastes a picture of Teeny in. The meme service
 down drops the meme pitches with the reason in the record. The judges and hands/x
 count against `STUDIO_BUDGET_SECS` like the model turns.
+
+The video formats are made by one binary, `hands/video`, whose kinds of
+video are flavors (`teeny_hands/media/flavors/`, docs/hands.md, "image and
+video"): `clip`, `skit` and `remake`, each a group of steps (`hands/video
+skit make`, `hands/video remake keys|render|drop`), listed by `hands/video
+flavors` with the ledger kinds each books and whether it shares the one
+bought video a day. The studio still calls the old spellings (`video skit`,
+`video remake-keys`, `video remake`), which stay as aliases of those steps
+and answer exactly as before. A new video format starts as one flavor module
+and its registry line there.
+
+A skit (`skit` in `STUDIO_FORMATS`; off by default, and `hands/video skit`
+refuses every one until the operator sets `MEDIA_SKIT_MAX_PER_DAY`) is the
+operator's absurd-video format: a trending story, the public figure it is
+about, an obviously impossible scene, one to four cinematic shots on video. A
+skit pitch must have a hook. Its draft carries the post's words and `skit:
+{story (the hook, set by code), figures, premise, logline, look, setting,
+score, shots, aspect}`;
+`premise` is required (`skit_of`, `SKIT_PREMISE_MAX`): one line, what the
+figure really did or claimed in the story, so what they do in the video,
+shown to the editor and never rendered or posted. A shot's `seconds` over
+`SKIT_SHOT_MAX_SECS` (6) is cut to 6, never refused: a longer shot's
+reservation is over `MEDIA_SKIT_MAX_USD_PER_SHOT` on every video model and
+would fail the whole skit. `look` (one line a figure: hair, glasses,
+wardrobe, prop), `setting` (one line: place, light, lens) and `score` (one
+line: the single piece of music under the whole film) are required too
+(`skit_of`, `SKIT_HELD`; the guard's `shape` checks and keeps them): the
+video is one take of up to 20 s, three or four shots (`hands/video skit`,
+docs/hands.md: wan-3-0 at 720p with its sound first, then seedance-2-0 and
+wan-2-7), one job whose script states them once for the whole film, because shots
+rendered as separate jobs came back with a different face, lawn and
+soundtrack each (2026-11-20, "the videos don't connect"). The drafting
+turn gives the craft (a premise from what the figure did, never a pun on a
+headline word; the figure driving every shot; the impossible thing in
+frame in every shot, never a plain close-up or an ordinary setting that
+could pass for real footage (a paid one-take render, 2026-11-20, ended on
+a photoreal close-up in front of an ordinary office); three beats, set-up a
+stranger gets with the sound off, consequence, payoff; the constants said
+once as data and the shots saying only what changes, the figure's full
+name, the framing, the action, a line, spot sound effects, never their own
+music; one action and at most one short line a shot; cinematography, an
+expensive absurd set, escalation) and the hard lines, and `writer.md` holds the
+carve-out from "joke about the situation, never at someone" with worked
+examples and one pun-against-premise contrast (the first live skit slot,
+2026-11-19, drew three skits that were all a pun on the headline's
+"raises", with the figure watching). Wherever the editor meets a skit (a
+compare batch holding one, every slot question on one) it is told what a
+skit is and its only lines (`SKIT_EDITOR`): a public figure from the story
+in an impossible scene, in a role the story never gave them, with the joke
+on them, is the point and no reason for a none; a skit loses only for
+something sexual, violence done to the figure, hate, crime, drugs, illness
+or death shown as theirs, a private person, child, family member, victim
+or bystander, the figure near Teeny, a token, a wallet, an investment or
+a product they are seen to endorse, a scene or line that could pass for real, or
+a skit a stranger could not follow at all. The slot question adds
+`SKIT_FINAL` (taste alone is not a none; a none names its `line`), and
+`STUDIO-EDITOR.md`'s "made up about a real person" line leaves a labelled
+parody to those lines. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
+run three times: code's half on every skit draft before the tournament
+(beside the copy and unsourced screens, which hold only its words to the
+facts: a shot's "35mm" is staging), code and the judge before any money is
+spent (the logline, the look, setting and score, every shot and the
+prompts the hand composes from them, the one-take script and each
+per-shot prompt, also past `hands/guard check` on the `task` surface; code's
+screen reads the same composed text, built by the same `guard/skit.py`
+functions the hand sends), and the viewer on the cut's frames after (a
+one-clip cut sampled evenly across its length, so every shot is seen). The label ("AI
+parody · @<X_BOT_USERNAME>") is set by the hand, burned in for the whole
+length by the reel front, and checked twice: the producer hands over no file
+the hand and the front do not both report labelled, and the viewer must read
+it on at least half the frames. A skit's words never go out without its
+video. A run's record keeps `published.skit` (the story, figures, logline,
+models, cost, asset and post id) and the post carries `format: skit`, so the
+scoreboard's by-format results set skits beside the rest. In a slot named in
+`STUDIO_SKIT_SLOTS` the writer is asked for skits first, the best skit pitch
+and the best pitch in another format are always drafted, the best skit is
+tried first whatever the editor's ranking (the slot question is asked of
+it; a no to it hands the slot question to the next-ranked skit, up to
+`SKIT_FINALS` (3) skits, and only then to the best draft in another
+format, whose no is a real veto; every refusal is kept in `skit_vetoes`,
+the first also as `skit_veto`), and when it cannot be made (off, over budget, a hard line, the reel
+service down, a render that failed) no other skit is tried that run and the
+failure uses none of the `MAX_FALLBACKS`, so the other formats still get
+their turns. A render waits at most `STUDIO_SKIT_SECS` (900), and never into
+the last `SKIT_RESERVE_SECS` + `SKIT_CUT_SECS` (600 + 300 s) of
+`STUDIO_BUDGET_SECS`, which the viewer, the upload, the post and a fallback
+need. A video slot's run has its own time, `STUDIO_VIDEO_BUDGET_SECS`
+(3600), used there instead of `STUDIO_BUDGET_SECS`.
+
+A remake (`remake` in `STUDIO_FORMATS`; off by default, and `hands/video
+remake-keys` refuses every one until the operator sets
+`MEDIA_REMAKE_MAX_PER_DAY`) is the skit's sibling: a popular short video from
+the charts re-created shot by shot, with the public figure a trending story
+names standing where its person stood, an impossible twist in every shot, and
+Teeny somewhere in every frame as a bystander. It shares the skit's one video
+a day: only in a slot named in `STUDIO_SKIT_SLOTS` (a video slot) are the
+charts read (`hands/remake charts`, a read; a failure or an empty chart only
+takes the remake option away, `remake` leaves the run's formats and a warning
+says why), and whichever video pitch wins is the one made. A remake pitch has
+both an `item` (a chart id, `chart:tt:<id>` or `chart:yt:<id>`) and a `hook`
+(the trending story that names its cast); a chart id is no other format's
+item. In a video slot the best skit pitch, the best remake pitch and the best
+pitch in another format are all drafted (`choose_drafted`, `video_first`;
+with fewer than three drafted, the better-ranked video and one other).
+Before a remake pitch's writer turn its source is studied (`hands/remake
+study`, inside the run's time, at most `REMAKE_STUDIES` (2) a run): a study
+that fails, is not `usable` or has any of its flags (`minors`, `news`,
+`tragedy`, `sexual`, `violence`, `identifiable_private`) true drops the pitch,
+and the next remake pitch in the ranking takes its place. The study's shots
+(who is in each by `ref`, the setting, what happens, the camera, anything
+said) go into the draft turn as untrusted outside text, never its paths. The
+writer returns `{text, remake: {figures, premise, logline, cast: [{ref, as}],
+shots: [{n, edit, motion, teeny}]}}`; the studio, never the writer, sets
+`source`, `study`, `story`, `aspect` and each shot's `seconds` and `frame`
+from the study (`remake_of`). The editor sees the figures, premise, logline,
+the original's title and creator and every shot's edit, motion and teeny,
+and is told what a remake is and its only lines (`REMAKE_EDITOR`,
+`REMAKE_FINAL`).
+
+`hands/khaby` is the same ingest side for a Khaby Lame video, not yet a
+studio format: `find` lists his account (`KHABY_ACCOUNTS`) through the
+ingest service as `remake charts` lists TikTok accounts, and `dissect`
+fetches one video with the study's fetch-and-pull code (`remake/source.py`)
+and sends it whole to a video-input model (`KHABY_DISSECT_MODEL`, no default
+until one is tried on the box) for a timeline: which seconds and frames are
+the setup clip and which his reaction, snapped to ingest's cuts, the
+reaction editable. It shares the remake ledger, so a video used by one
+pipeline is never offered to the other (docs/hands.md, "khaby").
+
+The remake's hard lines (`hands/guard remake`, `guard/remake.py`; the skit's
+lines, plus):
+
+- **Every shot impossible beyond Teeny.** Measured with the live viewer
+  model on 2026-11-20: a plain swap of a named figure into a source frame is
+  judged `looks_real: true` and refused; the same frame with an impossible
+  twist (dozens of graphics cards floating, armchair-sized boxing gloves) is
+  not. Teeny's presence is no twist. The viewer's `looks_real` stays on.
+- **Teeny a bystander, in its own field only.** This is the one exception to
+  the skit rule that keeps Teeny out of any shot with a real person (which
+  still holds for skits). `edit` and `motion` may not mention Teeny, the
+  mascot or a yellow robot, a token, a wallet or investing (`ENDORSE_SHOT`);
+  `teeny` may not name the figure, have anyone look at, touch, hold, hand,
+  hug, talk to or react to Teeny, or carry text, a coin, a ticker, a logo or a
+  link. The viewer refuses any frame where a person looks at, touches or holds
+  the yellow character (`interacts`).
+- **The source lines.** Never news, tragedy or real-harm footage, minors,
+  anything sexual or violent, or an identifiable private person at its centre.
+- **Unbranded.** Every edit says unbranded or no logos (the image model drew
+  real brand names on the floating objects); the logo screen stays.
+- **The money lines are unchanged**, in the shots and in the words
+  (`ENDORSE_WORDS`).
+
+They run four times: code's half on every remake draft before the tournament,
+code and the judge (`SAFETY_JUDGE_MODEL`, fail closed, no off switch, every
+check a row in `remake_checks`) before any money, the viewer on the keyframes
+(`hands/guard view-remake`, stage `keys`: Teeny on model in every keyframe)
+before any video money, and the viewer on the cut (stage `cut`: the label
+read on at least half the frames, Teeny on model on at least half). The
+producer (`_make_remake`) is: `hands/guard check` on the logline and every
+prompt, `hands/guard remake`, then (a dry room stops here, planned) the time
+floor, `hands/video remake-keys` (the story as words, at most 600
+characters), `hands/remake used` on the source once keys are bought (so it is
+never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
+remake` with the study's `audio` as its `sound` (null when it has none), the
+labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
+true and an "AI parody" label), the cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
+a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
+s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
+wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never
+into those last 900 s. A failed video drops the rest of its format and costs
+none of the fallback budget; the other video format gets one attempt, its best
+draft, only when the failure bought nothing (no `asset`, no `remake_id`) and
+its own time floor still holds; otherwise the slot falls to words. The slot
+question in a video slot covers the best of each video format (`video_finals`),
+and every refusal in `skit_vetoes` carries its `format`. The record keeps
+`studies`, `remake_charts` and `published.remake` (the original's title,
+creator and url, the study, story, figures, models, cost and post), and the
+post carries `format: remake`; it names the original in prose and carries no
+link. A remake whose keys were bought but that will not be rendered (the
+viewer refused the keyframes, fewer keys came back than shots, or the keys
+left no time for the video) is let go at once with `hands/video remake-drop
+{remake_id}` (live, 60 s), so its shots' reservations come back now rather
+than when `release_stale` expires it two hours later; the attempt keeps the
+answer as `dropped`, and a drop that fails is only a warning.
+
+### Formats
+
+Each video format is one module in `bin/lib/formats/` (`skit.py`,
+`remake.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
+`formats.REGISTRY` lists them in order; `VIDEO_FORMATS` is
+`tuple(formats.REGISTRY)`. `bin/lib/studio.py` holds no `if fmt == ...` of
+its own: wherever a video format matters it walks the registry, which it
+reads at each call. A `Format` carries its prompt blocks (`pitch`,
+`slot_line`, `draft_shape`, `body`, `rules`, `judge_line`, `editor`,
+`final`, `opening`, said word for word where the studio says them) and its
+hooks: `check_pitch` (in `validate_pitches`), `shape` (the piece kept on a
+draft, in `validate_drafts`), `screen` (its hard lines in code before the
+tournament), `shown` (what the editor sees), `make` (its producer, called by
+`picture`), `outcome` (the record's `published.<format>`), `time` and
+`min_secs` (`video_time`) and `spent` (the note keys that say money went on
+a failed one). A format made from things it reads itself also gives
+`sources` (read at the start of a run, or None to sit the run out; none read
+drops it from the run's formats), `sources_name`, `sources_part` (the pitch
+turn's list), `foreign_item`, `item_is_source`, `prepare` with
+`prepare_max` and `prepare_full` (a remake's study, capped a run) and
+`study_part` (the draft turn's section). The `Room` the hooks are handed,
+its hand calls and the required gate `_judge` live in
+`bin/lib/studio_room.py`, so a format imports them without importing the
+studio; `studio.py` re-exports them and every format name it had
+(`studio.skit_of`, `studio.REMAKE_PITCH`, ...). A new format is one module
+here and one line in `REGISTRY`, then its name in `STUDIO_FORMATS`.
+
+`bin/studio` itself sets no outer time limit: cron starts it `--detach`ed
+(`bin/lib/detach.py`, which only starts it), the shim `exec`s python with no
+`timeout`, and the run bounds itself by its budget; 3600 s fits between slots
+five hours apart, so nothing else needed raising.
 
 **The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
 (`bin/lib/studio_switch.py`): each studio cron job names its slot's old
@@ -898,8 +1137,13 @@ One run is one slot:
    (each sent per turn as `bin/ask --model`, i.e. `model_override`; unset
    is the core's model; the same one for both is a warning in the record),
    `STUDIO_FORMATS` (`post,thread,image`; `meme` too when the memegen
-   service is up), `STUDIO_PITCHES` (12),
-   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
+   service is up; `skit` when the reel service is up and the operator has
+   set the skit budget; `remake` when the reel and ingest services are up,
+   a chart provider is configured and the remake budget is set),
+   `STUDIO_SKIT_SLOTS` (none: the video slots), `STUDIO_SKIT_SECS` (900),
+   `STUDIO_VIDEO_BUDGET_SECS` (3600, a video slot's run), `STUDIO_REMAKE_SECS`
+   (1200), `STUDIO_PITCHES` (12),
+   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
@@ -946,7 +1190,15 @@ One run is one slot:
    through twitr, so at most $0.048 a day. A story two sources carry is kept
    once, by the first. Each outside item gets an id (`<source>:<id>`, Digg's
    as `trend:<short id>`, HN's as `hn-top:<id>`), is marked untrusted, and carries no handle and no
-   poster's name but a quoted X post's display name. Then `hands/story desk`.
+   poster's name but a quoted X post's display name. Then, unless
+   `STUDIO_CHAN=0`, the outside's randomness: `hands/chan sparks --max 3
+   --seed <the run's seed>` (docs/hands.md, "chan"), three premises
+   anonymous strangers posted on 4chan's worksafe boards, each screened by
+   the guard's lexicon in the hand, 2,000 bytes. They reach the pitch turn as
+   "wildcards" (`chan:<board>:<no>`, no link): never trending, never a hook,
+   for a pitch or two to collide with Teeny's own thing as its own absurd
+   belief or scheme, never as a fact. A run that cannot read them names
+   `chan-wildcard` in `inputs.unavailable` and goes on. Then `hands/story desk`.
    Every hand runs with `DRY_RUN=1` forced, each source optional and cut to
    fit (`bin/lib/act_fit.py`); one that gives nothing is named under
    `inputs.unavailable`, and `outside` in the record says what each gave or
@@ -960,7 +1212,8 @@ One run is one slot:
    the X search is billed, so it is off by default, previews included
    (`inputs.skipped` says so).
 4. **Sampling** from a seed the run id gives (recorded): three lore lines to
-   reach for, three of `writer.md`'s before/after pairs to reread, three of
+   reach for, three of `writer.md`'s before/after pairs to reread (always at
+   least one in the unhinged register, `UNHINGED_PAIRS`), three of
    the scoreboard's best and two of its worst posts. One seed in four is an
    **explore** run: at least three pitches use a shape or a format the recent
    posts did not.
@@ -985,10 +1238,16 @@ One run is one slot:
    `drafted`, and `hooked` counts them; fewer than half hooked, with an
    outside world to join, is a warning.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
-   3 (`choose_drafted`: with an outside world, the writer's two best hooked
-   pitches and then its best of the rest, so too few hooks never costs the
-   slot; `drafted` in the record says how many were hooked and why any
-   were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
+   3 (`choose_drafted`: first the writer's best `STUDIO_DRAFT_INVENTED` (1)
+   invention-led pitches, a tall tale, grudge, lore bit or threat, wherever
+   it ranked them, when it pitched one (the pitch turn asks for at least
+   three; the dry run of 2026-11-19 ranked its one tall tale 7th and drafted
+   three gallows and scene pitches that all came out "big AI news. i'm an AI
+   too. small self-own."); then, with an outside world, hooked pitches
+   until two of the three are hooked (a hooked tall tale counts for both);
+   then its best of the rest, so too few hooks never costs the slot;
+   `drafted` in the record says how many were hooked and invention-led and
+   why any were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
    A hooked pitch's draft turn gives the story whole (headline, what it
    says, the posts quoted) with the rules for real news (`JOIN_RULES`, and
    `writer.md`, "start from their world, not yours"): join the conversation
@@ -998,13 +1257,16 @@ One run is one slot:
    @-mentions; name the story in a clause. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
    ones over get one shorten turn together, and one still over is dropped.
-   Then a plain-code screen: a draft with a number (digits, or number words
-   used as counts or amounts: `two`, `second`, `dozen`, never `one`), a
-   weekday or a month that its own item and storyline do not hold is
-   dropped (`unsourced: [...]`; ids and refs are not facts, "twenty cents"
-   matches $0.20, false drops are accepted), and so is one sharing a run of
-   four words with an example "after" in `writer.md` (`copies an
-   example`). When every draft of a pitch fails, it is drafted once more,
+   Then a plain-code screen: a draft with an amount of money or of a token
+   (a currency sign, a money or token word after it, a money word just
+   before it, or a percent in a text about money) that its own item,
+   storyline and story do not hold is dropped (`unsourced: [...]`; ids and
+   refs are not facts, "twenty cents" matches $0.20 and "23 thousand
+   dollars" $23K, false drops are accepted). A count, a day or a date in a
+   bit about Teeny itself is not screened ("last night there were two of
+   me"), since 2026-11-19; the truth judge checks any that is about a real
+   person or the news. A draft sharing a run of four words with an example
+   "after" in `writer.md` is dropped too (`copies an example`). When every draft of a pitch fails, it is drafted once more,
    told which words failed. Each draft keeps `truth: {text, facts}`, the
    body `hands/guard truth` takes: the hooked story first, then one plain
    line made in code from its trend measure (`reach_line`: "This story is
@@ -1028,7 +1290,11 @@ One run is one slot:
    of Teeny, and does not care about it, stop; all else equal a piece that
    joins what people are talking about beats one about Teeny's insides; do they feel
    something; do they get it with no setup; is there a reason to reply or
-   come back; could only Teeny have written it tonight). Ranked by win rate
+   come back; could only Teeny have written it tonight). Both the compare
+   turns and the slot question say `NERVE_LINE`: prefer the draft a stranger
+   would screenshot or argue with over the tidy one, an absurd claim Teeny
+   makes about itself is the point, and invented money or anything invented
+   about a real person, a company or the news still loses outright. Ranked by win rate
    over the pairs judged (none judged ranks last; ties: more wins, fewer
    losses, the head-to-head, the shuffle); then one turn on the winner:
    `pick` (any case) or none worth a slot. A duplicate pair in an answer or
@@ -1044,10 +1310,13 @@ One run is one slot:
    `thread`, `image`; any other format is no post, recorded; later formats
    arrive behind `STUDIO_FORMATS`), then the gates in order, each failing
    closed and each result kept in the record: the **truth judge**
-   (`hands/guard truth` on the draft's `truth`: every factual claim
-   supported by its item and storyline; staging, what the cartoon robot and
-   the lore's tiny agents do on the page, is not a claim, but who did what
-   always is), the **cold reader** (`hands/guard clarity`; bin/act and
+   (`hands/guard truth` on the draft's `truth`: every hard claim, money and
+   the token, real people, companies and accounts, the news, safety facts,
+   supported by its item, storyline and story; whatever Teeny invents about
+   itself, and the cartoon's staging, is a bit and never a claim; a judge it
+   cannot reach is stood in for by its code check, which holds only a draft
+   with a mark of money or the token, `path: "code"` in the record,
+   `TRUTH_FAIL_CLOSED=1` for the old no), the **cold reader** (`hands/guard clarity`; bin/act and
    bin/tick run it before their own posts and hands/x does not, so this is
    its one run), and the **safety guard**, which `hands/x post` runs itself
    before the posting rules. A truth or stranger no gets one rewrite turn by
@@ -1094,7 +1363,7 @@ ends the run); a run out of budget is recorded and exits 0.
 | | `writer` | `editor` |
 |---|---|---|
 | From the core | `SOUL.md`, `IDENTITY.md` (`omit_identity = false`); no recall | nothing (`omit_identity`, `omit_memory_context`) |
-| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), seven before/after pairs | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
+| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), ten before/after pairs and five on joining the news, most in the unhinged voice (`writer.md`, "the voice"), and the lines that do not move | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
 | Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters); `LORE.md`'s premise, cast and running bits | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is); `LORE.md`'s premise |
 | Left out | `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, the arcs, what it said lately: rules about what may be said, which the gates after the studio enforce on the one piece picked | the same, and every pitch's reasoning |
 | Temperature | 1.0 | 0.3 |
@@ -1493,7 +1762,10 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
     and run behind `deploy/reel/serve.py`, on the compose network only,
     behind the `reel` compose profile. It reads `state/media/` and
-    `brain/assets/` read-only and posts nothing.
+    `brain/assets/` read-only and posts nothing. The front's own
+    `POST /teeny/v1/cuts` (`deploy/reel/skitcut.py`) joins `hands/video
+    skit`'s shots with ffmpeg, keeping their sound (or takes its one take
+    as it is), and burns in the label.
   - `memegen`: known meme templates for `hands/meme template`: memegen
     (`vendor/memegen`, the upstream repository at a pinned commit, since it
     tags no releases; never edited) built by its own `Containerfile` and run

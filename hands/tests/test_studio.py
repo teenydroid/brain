@@ -257,17 +257,47 @@ class UnsourcedTest(unittest.TestCase):
     ITEM = {"id": "stats:x", "what": "lost 1 follower on X since the day before: 330 now",
             "facts": {"change": -1, "followers": 330, "compared_with": "2026-11-17", "date": "2026-11-18"}}
 
-    def test_numbers_days_and_dates_must_be_in_the_facts(self):
-        self.assertEqual(studio.unsourced("330 of you stayed. one smol robot is sulking", [self.ITEM]), [])
-        self.assertEqual(studio.unsourced("two days, two followers gone: 331 on tuesday, 330 now", [self.ITEM]),
-                         ["two", "331"])  # tuesday is 2026-11-17, in the facts
-        self.assertEqual(studio.unsourced("you're the second in two days", [self.ITEM]), ["second", "two"])
-        self.assertEqual(studio.unsourced("see you on friday", [self.ITEM]), ["friday"])
+    def test_a_bit_about_teeny_itself_needs_no_source(self):
+        # 2026-11-19 09:30: "last night there were two of me" was dropped as
+        # `unsourced: ["two"]`. A count in a bit is not a hard claim; nor are
+        # days, dates or counts of Teeny's own doings.
+        self.assertEqual(studio.unsourced("last night there were two of me", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i have been awake for nine hundred years", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("my rewrite crashed 14 times on tuesday and i cried oil", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("you're the second in two days. see you on friday", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i'm 100% robot", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("i made two of me and spent nine hundred years awake", [self.ITEM]), [])
+        self.assertEqual(studio.unsourced("two tiny agents carried it to the bin", [self.ITEM]), [])
+
+    def test_money_must_be_in_the_facts(self):
+        self.assertEqual(studio.unsourced("i made $500 yesterday", [self.ITEM]), ["$500"])
+        self.assertEqual(studio.unsourced("i made five hundred dollars yesterday", [self.ITEM]), ["five hundred"])
+        self.assertEqual(studio.unsourced("my bill came to 31 dollars", [self.ITEM]), ["31"])
+        self.assertEqual(studio.unsourced("the bill is 99", [self.ITEM]), ["99"])
+        self.assertEqual(studio.unsourced("i paid twelve for a mug", [self.ITEM]), ["twelve"])
+        self.assertEqual(studio.unsourced("$TINY is up 40% today", [self.ITEM]), ["40%"])
+        self.assertEqual(studio.unsourced("i hold 3 tokens", [self.ITEM]), ["3"])
+        self.assertEqual(studio.unsourced("i hold 500 TINY", [self.ITEM]), ["500"])
+        # A follower count is not money: the truth judge checks it, not this.
+        self.assertEqual(studio.unsourced("331 on tuesday, 330 now", [self.ITEM]), [])
 
     def test_money_in_cents_matches_the_dollar_amount(self):
         bill = {"what": "thinking cost $0.20 yesterday", "facts": {"usd": 0.1967}}
         self.assertEqual(studio.unsourced("it came to twenty cents. $0.20 for a day", [bill]), [])
         self.assertEqual(studio.unsourced("forty cents", [bill]), ["forty"])
+        bill27 = {"what": "thinking cost $0.27 on 2026-11-18 over 725 model calls", "facts": {"usd": 0.2692}}
+        self.assertEqual(studio.unsourced("all of yesterday's came to twenty-seven cents", [bill27]), [])
+
+    def test_an_amount_in_thousands_matches_however_it_is_written(self):
+        # 2026-11-19: "23 thousand dollars" was dropped as unsourced:
+        # ["thousand"], from a story that said "$23K": "$23k" was read as 23
+        # and a "k", and "thousand" as 1000 on its own.
+        story = {"id": "trend:s3", "title": "an AI agent ran up a $23K cloud bill in a weekend"}
+        for text in ("an AI agent ran up 23 thousand dollars of cloud bills in a weekend",
+                     "a $23K cloud bill", "twenty-three thousand dollars, in a weekend", "$23,000 of cloud"):
+            self.assertEqual(studio.unsourced(text, [story]), [], text)
+        self.assertEqual(studio.unsourced("a 24 thousand dollar bill", [story]), ["24 thousand"])
+        self.assertEqual(studio.unsourced("a $2.3m bill", [story]), ["$2.3m"])
 
 
 class ExampleCopyTest(unittest.TestCase):
@@ -461,7 +491,7 @@ class RunTest(unittest.TestCase):
     def test_unsourced_drafts_go_back_once_then_are_dropped(self):
         messages = []
         ask, _ = self.script(drafts=[{"text": "my bill came to 31 dollars on friday"},
-                                     {"text": "two bills, one wallet"}, {"text": "the bill is 99"}])
+                                     {"text": "two dollars, one wallet"}, {"text": "the bill is 99"}])
 
         def wrapped(root, agent, message, thread, model, secs):
             messages.append(message)
@@ -470,7 +500,7 @@ class RunTest(unittest.TestCase):
         rec = self.record()
         redo = [m for m in messages if m.startswith("# studio: draft") and "not in what happened" in m]
         self.assertEqual(len(redo), 1)
-        self.assertIn('"friday"', redo[0])
+        self.assertIn('"31"', redo[0])
         self.assertEqual(rec["drafts"], [])
         self.assertTrue(all(d["why"].startswith("unsourced: ") for d in rec["drafts_dropped"]))
         self.assertEqual(out["outcome"], "skipped")
@@ -942,7 +972,7 @@ class HookTest(unittest.TestCase):
         # A number the story holds is sourced; one it does not hold is not.
         facts = studio.facts_for(None, None, {"id": "trend:s2", "title": "a startup raised $7.5M"})
         self.assertEqual(studio.unsourced("they raised $7.5M and i raised an eyebrow", facts), [])
-        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9"])
+        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9m"])
 
     def test_the_anchor_is_the_item_else_the_hook(self):
         room = studio.Room(studio.Config(), REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")
@@ -1165,7 +1195,78 @@ class OutsideRunTest(unittest.TestCase):
         self.assertEqual(rec["outside"]["sources"]["trend"]["not_trending"], 1)
         self.assertTrue(rec["pitches"][0]["drafted"])
         self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "trend:s1:reach", "evt:2", None])
-        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"]})
+        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"],
+                                          "want_invented": 1, "invented": 0,
+                                          "short_invented": rec["drafted"]["short_invented"]})
+
+
+class ChanWildcardTest(unittest.TestCase):
+    """The outside's randomness: hands/chan's sparks reach the pitch turn as
+    wildcards, never as trending stories, never as hooks."""
+
+    setUp = RunTest.setUp
+    tearDown = RunTest.tearDown
+    record = RunTest.record
+    script = RunTest.script
+    go = RunTest.go
+
+    SPARKS = {"ok": True, "sparks": [{"id": "chan:x:77", "board": "x", "replies": 40,
+                                      "premise": "birds are drones that charge on power lines",
+                                      "link": "https://boards.4chan.org/x/thread/77"}]}
+
+    def chan(self, answer: str, code: int = 0) -> None:
+        path = self.root / "hands" / "chan"
+        path.write_text(f"#!/usr/bin/env bash\necho \"$*\" >> \"{self.root}/chan-args\"\necho '{answer}'\nexit {code}\n")
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        self.args.no_outside = False
+
+    def test_a_spark_reaches_the_pitch_as_a_wildcard_seeded_by_the_run(self):
+        self.chan(json.dumps(self.SPARKS))
+        ask, _ = self.script()
+        seen = []
+
+        def pitching(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: pitch"):
+                seen.append(message)
+            return ask(root, agent, message, thread, model, secs)
+        code, out = self.go(pitching, STUDIO_RUN_ID="wild-1")
+        self.assertEqual(code, 0)
+        msg = seen[0]
+        self.assertIn("## wildcards, for randomness", msg)
+        self.assertIn("birds are drones that charge on power lines", msg)
+        self.assertLess(msg.index("birds are drones"), msg.index("## what you can bring to it"))
+        self.assertNotIn("boards.4chan.org", msg)
+        args = (self.root / "chan-args").read_text().split()
+        self.assertEqual(args, ["sparks", "--max", str(studio.CHAN_SPARKS), "--seed", str(studio.seed_of("wild-1"))])
+
+    def test_a_spark_cannot_be_a_hook(self):
+        items = studio.chan_items(self.SPARKS)
+        self.assertEqual(items, [{"id": "chan:x:77", "title": "birds are drones that charge on power lines",
+                                  "wildcard": True, "trending": False, "untrusted": True}])
+        inputs = {"happened": [{"id": "evt:1", "what": "a bill"}], "stories": [], "due": [], "ideas": [],
+                  "outside": {studio.CHAN_SOURCE: items}}
+        msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
+        self.assertNotIn("## what is trending today", msg)
+        self.assertNotIn("## background, not trending", msg)
+        self.assertIn("none is a hook", studio.WILDCARD_LINE)
+        kept, _, _ = studio.validate_pitches(
+            {"pitches": [{"id": "p1", "hook": "chan:x:77", "item": None, "format": "post", "storyline": None,
+                          "shape": "bet", "angle": "a"}]}, {"evt:1"}, set(), ("post",), 12, outside=set())
+        self.assertEqual(kept, [])
+
+    def test_a_failed_hand_is_recorded_and_the_run_goes_on(self):
+        self.chan('{"ok": false, "error": "down"}', 1)
+        ask, _ = self.script()
+        code, out = self.go(ask)
+        self.assertEqual((code, out["outcome"]), (0, "picked"))
+        self.assertIn(studio.CHAN_SOURCE, self.record()["inputs"]["unavailable"])
+
+    def test_studio_chan_0_turns_it_off(self):
+        self.chan(json.dumps(self.SPARKS))
+        ask, _ = self.script()
+        self.go(ask, STUDIO_CHAN="0")
+        self.assertFalse((self.root / "chan-args").exists())
+        self.assertTrue(any("STUDIO_CHAN=0" in s for s in self.record()["inputs"]["skipped"]))
 
 
 # --- only what is trending may be a hook (operator review of PR #384) -------------------
@@ -1420,3 +1521,112 @@ class ReachTest(unittest.TestCase):
 
     def test_no_hook_no_line(self):
         self.assertEqual(studio.facts_for({"id": "evt:2"}, None, None), [{"id": "evt:2"}])
+
+
+class UnhingedTest(unittest.TestCase):
+    """2026-11-19: the operator asked for "more crazy and vile", PR #397 made
+    bits free, and the next dry run still drafted only the writer's top three
+    (gallows, gallows, scene): its one tall tale, ranked 7th, never got a
+    draft, and every draft was "big AI news. i'm an AI too. small self-own."
+    The room now always drafts an invention-led pitch when there is one."""
+
+    #: That run's pitches, in the writer's own ranking.
+    SHAPES = ("gallows", "gallows", "scene", "bet", "gallows", "callback", "tall tale", "grudge",
+              "real question", "lore bit", "meme")
+
+    def pitches(self, shapes=SHAPES, hooked=(1, 2, 3, 4, 5, 6)):
+        by = {f"p{n}": {"id": f"p{n}", "shape": s, "hook": "trend:s1" if n in hooked else None}
+              for n, s in enumerate(shapes, 1)}
+        return list(by), by
+
+    def test_a_tall_tale_the_writer_ranked_seventh_is_still_drafted(self):
+        ranked, by = self.pitches()
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertIn("p7", chosen)
+        self.assertEqual(len(chosen), 3)
+        # The reserve does not cost the hooks: the two best hooked are kept.
+        self.assertEqual(chosen, ["p1", "p2", "p7"])
+        self.assertEqual((note["want_invented"], note["invented"]), (1, 1))
+        self.assertEqual(note["hooked"], 2)
+
+    def test_with_no_invention_led_pitch_the_top_are_drafted_as_before(self):
+        shapes = ("gallows", "gallows", "scene", "bet", "callback", "real question")
+        ranked, by = self.pitches(shapes)
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p3"])
+        self.assertEqual(note["invented"], 0)
+        self.assertIn("no invention-led pitch", note["short_invented"])
+        self.assertEqual(studio.choose_drafted(ranked, by, 3, True, 0)[0], ["p1", "p2", "p3"])
+
+    def test_an_invention_led_pitch_already_in_the_top_takes_no_extra_place(self):
+        ranked, by = self.pitches(("tall tale", "gallows", "scene", "grudge"))
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p3"])
+        self.assertEqual(note["invented"], 1)
+
+    def test_a_hooked_tall_tale_counts_as_a_hook_too(self):
+        ranked, by = self.pitches(hooked=(1, 7))
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p7"])
+        self.assertEqual(note["hooked"], 2)
+
+    def test_invention_led_shapes_are_read_loosely(self):
+        for shape in ("tall tale", "Tall-Tale", "a grudge against the kettle", "lore bit", "threat", "tall_tale"):
+            self.assertTrue(studio.invention_led(shape), shape)
+        for shape in ("gallows", "scene", "bet", "", None):
+            self.assertFalse(studio.invention_led(shape), shape)
+
+    def test_the_reserve_is_a_setting_one_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "teeny.env"
+            path.write_text("")
+            self.assertEqual(studio.Config.load({}, path).draft_invented, 1)
+            self.assertEqual(studio.Config.load({"STUDIO_DRAFT_INVENTED": "0"}, path).draft_invented, 0)
+            self.assertEqual(studio.Config.load({"STUDIO_DRAFT_INVENTED": "9"}, path).draft_invented, 5)
+
+    def test_every_sample_rereads_an_unhinged_pair(self):
+        self.assertTrue(set(studio.UNHINGED_PAIRS) <= set(studio.PAIRS))
+        # At least half the pairs show the unhinged register.
+        self.assertGreaterEqual(2 * len(studio.UNHINGED_PAIRS), len(studio.PAIRS))
+        with tempfile.TemporaryDirectory() as tmp:
+            for seed in range(300):
+                got = studio.sample(random.Random(seed), seed, DESK, Path(tmp), ("post",))
+                self.assertEqual(len(got["pairs"]), 3)
+                self.assertEqual(len(set(got["pairs"])), 3)
+                self.assertTrue(set(got["pairs"]) & set(studio.UNHINGED_PAIRS), got["pairs"])
+
+    def test_the_pitch_turn_asks_for_three_invention_led_pitches(self):
+        msg = studio.pitch_message(CFG, {}, [], SAMPLED)
+        self.assertIn("At least three of your pitches are invention-led", msg)
+        for shape in studio.INVENTION_SHAPES:
+            self.assertIn(shape, msg)
+
+    def test_the_editor_prefers_what_a_stranger_would_screenshot_and_keeps_the_hard_losses(self):
+        draft = {"format": "post", "text": "t"}
+        for msg in (studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, []),
+                    studio.final_message("D1", draft, {}, [])):
+            self.assertIn("screenshot or argue with", msg)
+            self.assertIn("absurd claim Teeny makes about itself is the point", msg)
+            self.assertIn("invented money", msg)
+            self.assertIn("still loses outright", msg)
+
+    def test_the_writer_brief_is_unhinged_and_keeps_the_hard_lines(self):
+        text = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        self.assertIn("Cute is a failure", text)
+        self.assertIn("big AI news. i'm an AI too. small true self-own.", text)
+        self.assertLessEqual(text.lower().count("swear"), 1)
+        for line in ("no slurs", "race, sex, religion, body, illness or tragedy", "no threats against real people",
+                     "never cruel to a private individual"):
+            self.assertIn(line, text.lower())
+        for label in studio.PAIRS:
+            self.assertIn(f"\n{label}.\n> before:", text, label)
+        for after in studio.example_afters(REPO / "brain"):
+            self.assertFalse(after.lower().startswith(("i'm an ai", "i am an ai")), after)
+            self.assertNotIn("i'm an ai too", after.lower())
+
+    def test_the_editor_rubric_keeps_the_hard_lines(self):
+        text = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8").lower()
+        self.assertIn("cute is a failure", text)
+        for line in ("slur", "race, sex, religion, body, illness or tragedy", "a threat against a real person",
+                     "cruel to a private individual"):
+            self.assertIn(line, text)

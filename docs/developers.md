@@ -97,6 +97,9 @@ hands/moltbook unlock                                 # clear the verification l
 hands/hn top --max 5                                  # the front page, read only
 hands/hn thread 42 --max 30                           # an item and the comments under it
 hands/hn watch list                                   # the threads Teeny follows; watch remove ID stops one
+hands/chan sparks --max 3                             # strangers' premises from 4chan's worksafe boards, read only
+bin/backroom --wildcard "my server bill"              # an idea, collided with one of them
+bin/backroom --from-chan 2 --format post              # two rooms, each on one of them
 
 hands/mail list --unread                              # recent mail
 hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
@@ -195,7 +198,7 @@ environment forces a rehearsal.
 | `DRY_RUN` | On unless set to `0`. |
 | `TEENY_INBOX` | `mind` (the default): mentions and mail go to the one inbox `bin/tick` reads. `core`: the older per-surface path. |
 | `X_BOT_USERNAME`, `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`, `X_BEARER_TOKEN` | X API v2: OAuth 1.0a for writes, the bearer for reads. `X_API_SECRET` also signs the webhook. |
-| `POST_MIN_GAP_HOURS`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules. |
+| `POST_MIN_GAP_HOURS`, `X_QUOTES_MAX_PER_DAY`, `QUOTE_MIN_GAP_HOURS`, `QUOTE_AFTER_POST_MINUTES`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules (quotes have their own lane: docs/hands.md, "x"). |
 | `MAX_EMOJI_PER_POST`, `SAFETY_JUDGE`, `LINK_ALLOWLIST` | The guard. |
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
@@ -256,7 +259,9 @@ The database is unreadable without its key.
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
-hands/               x, guard, gh, moltbook, hn, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
+                     bin/lib/studio.py the writers' room, bin/lib/studio_room.py its Room and gates,
+                     bin/lib/formats/ one module per studio video format (skit, remake) and REGISTRY
+hands/               x, guard, gh, moltbook, hn, chan, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, browser-deny.txt, the nginx vhost
