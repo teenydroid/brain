@@ -11,6 +11,7 @@ at `/srv/teeny`:
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 | `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
+| `ingest` | Short videos to study for `hands/remake`: a pinned yt-dlp and ffmpeg behind `deploy/ingest/serve.py`. No key, no mount of Teeny's. Behind the `ingest` profile. | none; compose network only (`http://ingest:8090`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
@@ -154,6 +155,48 @@ CI passed, check it out in `vendor/memegen`, run
 `python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_templates.py'`
 (it checks that what the front replaces is still upstream's), rebuild,
 render one, and land it as a pull request. Never edit the submodule.
+
+## The ingest service
+
+`hands/remake` studies short videos on the `ingest` service
+(docs/hands.md, "remake"): a pinned `yt-dlp` and `ffmpeg` behind
+`deploy/ingest/serve.py`. Opt-in, behind the `ingest` profile; it posts and
+spends nothing. It holds no key and mounts nothing of Teeny's; its only
+setting is an optional proxy for YouTube. To start it on the box:
+
+```sh
+docker compose -f deploy/compose.yaml --profile ingest build ingest
+docker compose -f deploy/compose.yaml --profile ingest up -d ingest
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://ingest:8090/ping
+docker compose -f deploy/compose.yaml exec -T spine hands/remake charts --max 3
+```
+
+`up -d ingest` starts that one service; it does not recreate the spine.
+`INGEST_URL` defaults to `http://ingest:8090`. Which charts it reads is
+`REMAKE_TIKTOK_ACCOUNTS` and `YOUTUBE_API_KEY` (`deploy/teeny.env.example`);
+with neither set, `charts` answers nothing and says both are off.
+
+YouTube answers this box's address "Sign in to confirm you're not a bot" for
+every player client (2026-11-20), so YouTube videos need a proxy: copy
+`deploy/ingest.env.example` to `secrets/ingest.env`, set `INGEST_PROXY_URL`,
+and recreate the service. The proxy URL is read by that container only; the
+service takes it out of every error it reports. TikTok video downloads and
+account listings work without one; TikTok's tag and trending pages do not.
+
+The image is `python:3.11-slim` (the reel image's digest) with ffmpeg and
+yt-dlp installed from its release wheel by hash: `YTDLP_VERSION` and
+`YTDLP_SHA256` in `deploy/ingest.Dockerfile` move together (the digest is the
+wheel's sha256 on PyPI). yt-dlp changes often to keep up with the sites, so
+when a site stops working, bump both, rebuild and recreate. The service runs
+as its own user with a read-only root, a 256 MB tmpfs, no capabilities, no
+new privileges, 2 CPUs, 2 GB and 256 processes, and no published port.
+Fetches live in the `ingest-storage` volume until `hands/remake` deletes them;
+the service also sweeps any older than an hour (`INGEST_REAP_MINUTES`), and
+at start everything left from an earlier run. It is on a network of its own (`ingest-net`, shared only with cortexdb, whose namespace the spine lives in, so the spine still reaches `http://ingest:8090`): what it fetches cannot reach reel, memegen, xhook or the web page. Adding that network recreates cortexdb, and so the spine, the first time it is deployed. yt-dlp runs only the YouTube, TikTok and Instagram extractors, never `generic`. One job at a time: a second is
+answered 429. Compose does not restrict egress at the network level (as for
+`reel`): what keeps it from fetching anything but video pages is the address
+allowlist in `deploy/ingest/policy.py`, which `python3 -m unittest discover -s
+hands/tests -t hands/tests -p 'test_policy.py'` pins.
 
 ## The X webhook
 
