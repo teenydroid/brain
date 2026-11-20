@@ -2694,6 +2694,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
                                  "it could be chosen again")
     if not keyed.get("remake_id") or len(keys) != len(shots):
         note["failed"] = f"{len(keys)} keyframes came back for {len(shots)} shots"
+        _drop_remake(room, note, keyed.get("remake_id"))
         return None
     # The viewer on the keyframes, before any video money: Teeny on model in
     # every one, nobody meeting it, nothing prohibited or real-looking.
