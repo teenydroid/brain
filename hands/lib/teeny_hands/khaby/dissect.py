@@ -382,6 +382,17 @@ def _snap(at: float, cuts: list[float]) -> tuple[float, float]:
     return cut, abs(cut - at)
 
 
+def _setup_then_reaction(segments: list[Json]) -> bool:
+    """Whether a setup of MIN_SETUP_SECONDS or more has a reaction after it."""
+    setup = False
+    for s in segments:
+        if s["role"] == "setup" and s["end"] - s["start"] >= MIN_SETUP_SECONDS - 1e-6:
+            setup = True
+        elif s["role"] == "reaction" and setup and s["end"] > s["start"]:
+            return True
+    return False
+
+
 def _lay_out(reading: Json, cuts: list[float], fps: float) -> tuple[list[Json], list[Json], list[str]]:
     """The segments and beats as kept (snapped, framed, roled), and every
     rule they break."""
