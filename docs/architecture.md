@@ -845,7 +845,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        and in a skit slot the failed video costs none of the fallback budget)
    remake only: logline, every edit, motion and teeny past the guard ──> hands/guard remake (code's hard lines,
        Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (each source frame edited)
-       ──> hands/guard view-remake stage keys (fails: stop before any video money)
+       ──> hands/guard view-remake stage keys (fails: hands/video remake-drop frees the reservation; no video money)
        ──> hands/video remake (animated, cut with the original's sound, labelled) ──> hands/guard view-remake
        stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
        nothing was bought, else the words)
@@ -1081,7 +1081,39 @@ and every refusal in `skit_vetoes` carries its `format`. The record keeps
 `studies`, `remake_charts` and `published.remake` (the original's title,
 creator and url, the study, story, figures, models, cost and post), and the
 post carries `format: remake`; it names the original in prose and carries no
-link.
+link. A remake whose keys were bought but that will not be rendered (the
+viewer refused the keyframes, fewer keys came back than shots, or the keys
+left no time for the video) is let go at once with `hands/video remake-drop
+{remake_id}` (live, 60 s), so its shots' reservations come back now rather
+than when `release_stale` expires it two hours later; the attempt keeps the
+answer as `dropped`, and a drop that fails is only a warning.
+
+### Formats
+
+Each video format is one module in `bin/lib/formats/` (`skit.py`,
+`remake.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
+`formats.REGISTRY` lists them in order; `VIDEO_FORMATS` is
+`tuple(formats.REGISTRY)`. `bin/lib/studio.py` holds no `if fmt == ...` of
+its own: wherever a video format matters it walks the registry, which it
+reads at each call. A `Format` carries its prompt blocks (`pitch`,
+`slot_line`, `draft_shape`, `body`, `rules`, `judge_line`, `editor`,
+`final`, `opening`, said word for word where the studio says them) and its
+hooks: `check_pitch` (in `validate_pitches`), `shape` (the piece kept on a
+draft, in `validate_drafts`), `screen` (its hard lines in code before the
+tournament), `shown` (what the editor sees), `make` (its producer, called by
+`picture`), `outcome` (the record's `published.<format>`), `time` and
+`min_secs` (`video_time`) and `spent` (the note keys that say money went on
+a failed one). A format made from things it reads itself also gives
+`sources` (read at the start of a run, or None to sit the run out; none read
+drops it from the run's formats), `sources_name`, `sources_part` (the pitch
+turn's list), `foreign_item`, `item_is_source`, `prepare` with
+`prepare_max` and `prepare_full` (a remake's study, capped a run) and
+`study_part` (the draft turn's section). The `Room` the hooks are handed,
+its hand calls and the required gate `_judge` live in
+`bin/lib/studio_room.py`, so a format imports them without importing the
+studio; `studio.py` re-exports them and every format name it had
+(`studio.skit_of`, `studio.REMAKE_PITCH`, ...). A new format is one module
+here and one line in `REGISTRY`, then its name in `STUDIO_FORMATS`.
 
 `bin/studio` itself sets no outer time limit: cron starts it `--detach`ed
 (`bin/lib/detach.py`, which only starts it), the shim `exec`s python with no
