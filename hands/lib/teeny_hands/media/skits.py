@@ -41,15 +41,19 @@ set and soundtrack each, because the model remembers nothing between jobs
 multi-shot script (guard/skit.py, `script`, the same code the guard's screen
 reads: a header with the film's length, hard cuts, one continuous score and
 the cast's `look`, the `setting` and the `score` held throughout, then each
-shot with its time range) on the first of `MEDIA_SKIT_ONE_TAKE_MODELS`
-(seedance-2-0-text-to-video: the one model seen to follow such a script, a
-paid test on 2026-11-20, 15 s billed $1.42 with a $5.112 ceiling). Its
-length is the shots' together, at most ONE_TAKE_MAX_SECONDS (15) and what
-the model sells, cut to the longest whose ceiling (MAX_PER_SECOND, when the
-model's is known) fits the take's cap, the per-shot cap times the shots it
-replaces ($4.80 for three: 14 s on seedance), the shots shortened in
-proportion; a job quoted over the cap anyway is cancelled and asked once
-more at its own rate. The take reserves that cap on one `shot` row, the
+shot with its time range) on the first of `MEDIA_SKIT_ONE_TAKE_MODELS` that
+takes it (venice-wan-3-0, seedance-2-0, wan-2-7 text-to-video: each seen on
+a paid render on 2026-11-20 to follow such a script), with the fields that
+model was seen to take (ONE_TAKE_PARAMS: wan-3-0 resolution
+`MEDIA_SKIT_RESOLUTION` 720p, the skit's aspect ratio and audio; seedance
+resolution; wan-2-7 none), under MEDIA_SKIT_PARAMS. Its length is
+`MEDIA_SKIT_ONE_TAKE_SECS` (20) snapped down to what the model sells, cut
+to the longest whose ceiling (MAX_PER_SECOND, when the model's is known)
+fits the take's cap, the per-shot cap times the shots it replaces (three:
+$4.80, so 20 s on wan-3-0 at $4.68, 14 s on seedance, 15 s on wan-2-7; two:
+$3.20, so 10 s on wan-3-0), the shots' lengths shared out in proportion; a
+job quoted over the cap anyway is cancelled and asked once more at its own
+rate. The take reserves that cap on one `shot` row, the
 same money its shots would have. A content refusal, a seller's trouble, a
 script the model will not take, no length that fits, or a job that fails
 without a bill, with no one-take model left, swaps that row for a row a shot
@@ -69,7 +73,7 @@ of `MEDIA_SKIT_MODELS` that takes it, with an idempotency key per skit, shot
 and model. Any other field a model family needs (an aspect ratio, a
 resolution, native audio) comes from `MEDIA_SKIT_PARAMS`, a JSON object of
 model name (or "*") to fields, where "{aspect}", "{seconds}" and
-"{resolution}" (`MEDIA_SKIT_RESOLUTION`, 1080p) are filled in. Verified on
+"{resolution}" (`MEDIA_SKIT_RESOLUTION`, 720p) are filled in. Verified on
 Surplus (2026-11-19, a paid smoke test): {model, prompt, duration_seconds}
 with an idempotency key is accepted by kling-v3-pro, seedance-2-0 and
 veo3-1-fast text-to-video with a real public figure in the prompt, quoting
