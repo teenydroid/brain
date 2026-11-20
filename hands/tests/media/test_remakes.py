@@ -40,6 +40,19 @@ WAN3_SOLD = [2, 5, 10, 15, 20, 25, 30]
 #: Most tests hold the machinery to $1.20 a shot (their arithmetic: $1.10
 #: left after a $0.10 key); the default, $1.40, has its own tests.
 PINNED_CAP = "MEDIA_REMAKE_MAX_USD_PER_SHOT=1.20\n"
+
+
+def png(width: int, height: int) -> bytes:
+    """A PNG header saying its size (no picture behind it)."""
+    return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x00" * 32
+
+
+def jpeg(width: int, height: int) -> bytes:
+    """A JPEG's start with one frame header saying its size."""
+    return (b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 9
+            + b"\xff\xc0\x00\x11\x08" + height.to_bytes(2, "big") + width.to_bytes(2, "big") + b"\x00" * 12)
+
+
 REFUSED = SurplusError("Surplus answered 400: Your request was rejected because it violates the content policy", 400,
                        {"error": {"code": "request_rejected"}})
 
@@ -303,6 +316,29 @@ class RemakeTest(unittest.TestCase):
         out = self.keys()
         self.assertEqual([k["model"] for k in out["keys"]], [EDIT2, EDIT2])
         self.assertEqual([k["cost_usd"] for k in out["keys"]], [0.06, 0.06])
+
+    def test_a_keyframe_in_the_wrong_shape_is_paid_for_and_the_next_model_asked(self):
+        # An edit of a 9:16 frame that came back landscape (seen 2026-11-20,
+        # with aspect_ratio sent) would have its cast cropped out by the cut.
+        wide, tall = png(1440, 720), png(768, 1362)
+        self.api.edit_rule = lambda body: {"data": [{"b64_json": base64.b64encode(
+            wide if body["model"] == EDIT1 and "shot 2" in body["prompt"] else tall).decode()}]}
+        out = self.keys()
+        self.assertEqual([k["model"] for k in out["keys"]], [EDIT1, EDIT2])
+        self.assertEqual((self.root / out["keys"][1]["path"]).read_bytes(), tall)
+        # The landscape one was answered, so it is booked: 0.10 + 0.10 + 0.06.
+        self.assertEqual(out["cost_usd"], 0.26)
+
+    def test_a_keyframe_whose_size_cannot_be_read_is_taken(self):
+        self.assertIsNone(remakes.size_of(PNG))
+        self.assertEqual(remakes.size_of(png(768, 1362)), (768, 1362))
+        self.assertEqual(remakes.size_of(jpeg(1080, 1920)), (1080, 1920))
+        self.assertTrue(remakes.shaped(PNG, "9:16"))
+        self.assertTrue(remakes.shaped(png(768, 1362), "9:16"))
+        self.assertTrue(remakes.shaped(png(720, 1280), "9:16"))
+        self.assertFalse(remakes.shaped(png(1440, 720), "9:16"))
+        self.assertFalse(remakes.shaped(png(1024, 1024), "16:9"))
+        self.assertTrue(remakes.shaped(png(1024, 1024), "1:1"))
 
     def test_two_failed_edits_stop_the_remake_and_release_the_reservations(self):
         self.api.edit_rule = lambda body: REFUSED if "shot 2" in body["prompt"] and body["model"] != EDIT3 else None
