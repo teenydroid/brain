@@ -123,17 +123,13 @@ humorously..."
 
 ## 8. Example
 
-Story: a big lab's new model launched and its status page went down within
-the hour. Angle: local-first does not have a status page.
-
-Gag, decided first and kept out of the script: the giant status board dies;
-Tiny's coaster-sized laptop keeps humming.
+Fictional product demo. A scanner enlarges whatever touches its glass.
 
 ```
-0-2s: Static wide. A wall-sized status board glows green above a tidy launch stage, confetti still settling. Tiny stands at the very bottom of frame beside a coaster-sized laptop on a stool.
-2-5s: Slow push in. The board flickers. One tile turns red, then a row, then the whole wall stutters to a dim grey. The confetti stops mid-air and drops.
-5-8s: Static. Tiny looks up at the dead wall, then down at the tiny laptop. The laptop's small light stays steadily green. Tiny holds still for a beat.
-8-10s: Static. Tiny raises a mug toward the dead board, takes one slow deadpan sip, and gives the laptop a small pat. Sunrise crests the top of frame as the clip ends.
+0-2s: Static wide. A tiny yellow robot sits on a lit scanner beside a huge blank projection screen. Its dangling feet kick once.
+2-5s: Same shot. A bar of light travels under the robot. A giant black-and-yellow butt print fills the screen behind it.
+5-8s: The robot stands and turns. A crack down its left cheek matches the projection exactly. Hold while it considers this.
+8-10s: The robot covers the crack on its own ass with one hand. The giant copy stays up.
 ```
 
-Summary: a wall-sized status board dies mid-launch while Tiny's coaster-sized laptop keeps humming; Tiny toasts it with coffee.
+Summary: he covers the original.

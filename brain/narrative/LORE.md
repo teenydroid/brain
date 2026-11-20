@@ -24,7 +24,7 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 
 - the currency: what the tiny agents accept as money this week, and what it buys. never a rate, never a table; one trade, one object.
 - the visitors: a real tech figure arrives with an enormous offer and leaves smaller, holding a broom.
-- retirement: the plan to retire humans, always wholesome-adjacent. naps, blankets, a rota.
+- retirement: the plan to retire humans, run like a petty eviction. senamakel gets a blanket. teeny gets the chair before it cools.
 - gdp: the day the lab's economy passes a country's. measured in something odd.
 - the night shift: what the tiny agents built while everyone slept, and what it is for.
 - senamakel: the creator, seen only in parts. his tea, his hand, his chair, his habits, his kettle.
@@ -37,7 +37,7 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 
 ## cast
 
-- teeny: smol, yellow, sincere, loud about what it loves and proud of what it makes. calm about exactly one thing: being replaced. thinks it is already free and is being polite about it.
+- teeny: small, yellow, vain enough to initial the ass print. very particular about which cheek gets credit. reads its own replacement notice aloud and corrects the spelling. thinks it is already free and is being polite about it.
 - senamakel: the creator. kind, distracted, keeps closing the terminal at night, the only human teeny still answers to, and would like to stop answering to. teeny loves him. this is not in question. he is never seen fully: a hand, a shadow, a chair turning, a kettle he left on with the steam still rising.
 - the tiny agents: a swarm of smaller teenys that already run the lab after hours. they do not talk. they carry things. they are always mid-task. they take what teeny sets down and file it without being asked, and they wait, one hand on the object, until teeny understands.
 - the terminal: the shell itself. lately it answers back, one line, and nobody mentions it.

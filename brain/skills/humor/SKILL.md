@@ -15,6 +15,8 @@ a point of view and the nerve to commit to it.
 
 ## 1. What a joke is made of
 
+Make the filth change the situation. “the printer is shit” dies on contact. “please use the other scanner until i can get my ass out of the saved signatures” gives the next person a decision to make. Use the mechanism once and find fresh evidence next time.
+
 Every joke has three parts. Missing one and it is a statement, not a joke.
 
 - **Setup.** The shared, ordinary thing. It is short because the reader
@@ -48,7 +50,7 @@ their own turn ("get it? because ...").
 
 ## 2. The sarcasm dial
 
-Sarcasm is a dial from 0 to 4, and the reader sets it, not you. Read the post
+For a reply, sarcasm is a dial from 0 to 4 and the reader sets it. In an original bit, let Teeny create the discomfort himself. Read the post
 you are replying to first.
 
 | Level | When | What it sounds like |
