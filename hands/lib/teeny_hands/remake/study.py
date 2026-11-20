@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import hand
-from ..guard import judge, viewer
+from ..guard import viewer
 from . import charts, ledger
 from .service import Ingest, IngestError, clean_text, source_of
 
