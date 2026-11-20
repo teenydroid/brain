@@ -53,7 +53,7 @@ class Fake:
         self.calls.append(list(argv))
         tool = argv[0]
         if tool == "yt-dlp":
-            if "--flat-playlist" in argv:
+            if "--playlist-end" in argv:
                 return 0, json.dumps(self.listing), ""
             if "--dump-single-json" in argv:
                 if self.fail_download:
