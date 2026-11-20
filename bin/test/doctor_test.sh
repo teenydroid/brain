@@ -475,6 +475,31 @@ check "--live warns, never fails, when the reel service is down" \
   test "$(jq -r '.checks[] | select(.check == "skits") | .status' "$root/state/doctor.json")" = warn
 rm -f "$root/secrets/teeny.env"
 
+# Remakes: named only when STUDIO_FORMATS has remake, never a failure; says
+# when hands/video would refuse every one, when no chart can be read, when six
+# shots would not fit the day's budget, and (--live) when ingest is down.
+fresh; doctor || true
+check "remakes are off while no format names them" grep -q '^ok   remakes: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,remake\n' >"$root/secrets/teeny.env"
+check "a boot with the remake format but no remake budget passes" doctor
+check "and warns that hands/video refuses every remake" grep -q '^warn remakes: .*MEDIA_REMAKE_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\n' >"$root/secrets/teeny.env"
+doctor || true
+check "no chart provider warns" grep -q '^warn remakes: .*REMAKE_TIKTOK_ACCOUNTS.*YOUTUBE_API_KEY' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+doctor || true
+check "remakes on say their caps, charts and ingest" \
+  grep -q '^ok   remakes: on: 1 a day, up to 1.00 USD a shot under 6.00 USD a day; charts from tiktok; ingest at http://ingest:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=20\nINGEST_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when ingest does not answer" \
+  grep -q '^warn remakes: the ingest service at http://127.0.0.1:9 does not answer' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
+
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash
