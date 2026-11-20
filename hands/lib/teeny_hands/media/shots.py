@@ -51,6 +51,12 @@ POLL_SECONDS = 10.0
 BILL_SECONDS = 5.0
 #: Waits between tries of an artifact's download, the last repeated.
 DOWNLOAD_BACKOFF = (5.0, 10.0, 20.0, 40.0, 60.0)
+#: How long one try of a download may take; a retry is made only while the
+#: wait still has a pause and this much left.
+DOWNLOAD_TIMEOUT = 120.0
+#: A download answer worth trying again: the host's passing trouble. A 404
+#: or a 409 says the artifact is not there to be had.
+DOWNLOAD_RETRY_STATUSES = {408, 429, 500, 502, 503, 504}
 #: A content refusal, in a seller's or a job's words: try the next model.
 REFUSAL = re.compile(r"content|policy|safety|moderat|refus|likeness|public figure|celebrit|real person|prohibit|"
                      r"not allowed|violat|blocked|sensitive|nsfw|guideline", re.I)
@@ -95,8 +101,10 @@ class Plan:
     words follow every prompt (`style`, or None), the setting of extra job
     fields (`params`), a job's body (`body(model, prompt, seconds, aspect,
     params, shot)`), the length a model is asked for (`length(shot, sold)`:
-    None when the model sells none that will do), and the most a shot may
-    cost (`per_shot`, micro-USDC)."""
+    None when the model sells none that will do), the most a shot may cost
+    (`per_shot`, micro-USDC), and the verified ceiling a second asked of
+    some models (`max_per_second`): a length whose ceiling cannot fit what
+    the shot may cost is never submitted."""
 
     prefix: str
     key: str
@@ -105,6 +113,7 @@ class Plan:
     body: Callable[..., Json]
     length: Callable[["_Shot", list[int] | None], int | None]
     per_shot: int
+    max_per_second: dict[str, int] | None = None
 
 
 def params(name: str) -> dict[str, Json]:
@@ -227,11 +236,19 @@ def submit(api: Surplus, conn, parent_id: int, shot: _Shot, aspect: str, plan: P
     style = (hand.setting(plan.style) or "").strip() if plan.style else ""
     prompt = f"{shot.prompt} {style}".strip() if style else shot.prompt
     cap = shot.cap if shot.cap is not None else plan.per_shot
+    if shot.cap is not None and cap <= 0:
+        shot.tried.append("nothing is left of its cap")
+        return False
     while shot.models:
         model = shot.models.pop(0)
         seconds = plan.length(shot, (sold or {}).get(model))
         if seconds is None:
             shot.tried.append(f"{model}: sells no length of at least {shot.floor} s")
+            continue
+        rate = (plan.max_per_second or {}).get(model)
+        if rate is not None and seconds * rate > cap:
+            shot.tried.append(f"{model}: {seconds} s can cost up to ${seconds * rate / 1e6:.3f}, over the "
+                              f"${cap / 1e6:.2f} left of the shot's cap")
             continue
         try:
             job = api.call("POST", "/v1/video/generations", plan.body(model, prompt, seconds, aspect, job_params, shot),
@@ -311,21 +328,23 @@ def poll(api: Surplus, conn, parent_id: int, shots: list[_Shot], plan: Plan, res
 
 
 def _retryable(exc: SurplusError) -> bool:
-    """A download worth trying again: the host's trouble or no answer, not
-    an artifact that is too big or sent somewhere else."""
-    return exc.status in assets.FALLBACK_STATUSES or str(exc).startswith("could not")
+    """A download worth trying again: the host's passing trouble or no
+    answer, not an artifact that is gone, too big or sent somewhere else."""
+    return exc.status in DOWNLOAD_RETRY_STATUSES or str(exc).startswith("could not")
 
 
 def _download(api: Surplus, url: str, sleep, clock, deadline: float | None) -> bytes:
     """The artifact, tried again after DOWNLOAD_BACKOFF's waits while the
-    host is in trouble and the wait has time left; the last error otherwise."""
+    host is in trouble and the wait still has the pause and a whole try
+    (DOWNLOAD_TIMEOUT) left; the last error otherwise."""
     tries = 0
     while True:
         try:
-            return api.download(url, MAX_BYTES)
+            return api.download(url, MAX_BYTES, timeout=DOWNLOAD_TIMEOUT)
         except SurplusError as exc:
             pause = DOWNLOAD_BACKOFF[min(tries, len(DOWNLOAD_BACKOFF) - 1)]
-            if not _retryable(exc) or deadline is None or clock is None or clock() + pause > deadline:
+            if not _retryable(exc) or deadline is None or clock is None or (
+                    clock() + pause + DOWNLOAD_TIMEOUT > deadline):
                 raise
             tries += 1
             sleep(pause)
