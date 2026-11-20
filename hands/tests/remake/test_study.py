@@ -343,8 +343,6 @@ class MediaTest(Base):
     def test_a_usable_restudy_replaces_the_folder(self):
         self.study()
         (self.folder() / "stray.txt").write_text("x")
-        import shutil
-
         (self.folder() / "study.json").unlink()
         self.study()
         self.assertFalse((self.folder() / "stray.txt").exists())
@@ -365,8 +363,7 @@ class MediaTest(Base):
         self.ingest.probe_answer = {"source": "tiktok", "video_id": "7301", "url": TT_URL}
         self.ingest.fetch_answer = fetched(video_id="7301")
         self.study()
-        self.assertEqual(sorted(p.name for p in remake.iterdir()), ["tt-7300", "tt-7301"][:2] if False else sorted(p.name for p in remake.iterdir()))
-        self.assertNotIn("fresh", [p.name for p in remake.iterdir()])
+        self.assertEqual(sorted(p.name for p in remake.iterdir()), ["tt-7300", "tt-7301"])
 
     def root_reset(self):
         import shutil
