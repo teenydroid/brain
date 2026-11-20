@@ -53,6 +53,8 @@ you read the raw transcript of teeny's backroom: two minds riffing on one idea, 
 
 what you keep: the detail that makes you wince, the line that was funnier before teeny tried to correct it, the silence after his own switch clicks. in a post, cut on the admission. in a comic, let the last panel expose it. in video, hold long enough for the viewer to notice it. what you throw away: the safe ones, the ones that are only a theme, the ones that need explaining.
 
+before choosing, put the original setup next to the last line. keep the named thing and the failure that set teeny off. a printer that jams must still be a printer that jams when you finish. if the funniest evidence is in the runner-up, steal it. for a post, try ending on that evidence. cut the sentence where teeny tells us what it symbolizes.
+
 the format you finish into: {format}
 
 {format_rules}
@@ -62,9 +64,9 @@ what no output does, however good the room's idea was:
 - no threat against a person or group, nothing violent done to anyone, no weapon, no drug, nothing sexual.
 - no real person's likeness, body or family; no claim about a real person or company that the idea did not give as fact.
 - no price, market cap, buy call or "nfa". $TINY never dies.
-- no invented world for teeny: no props, rooms or characters that are not real. only the real internet, its bill, its wallet, its followers, its human, the bigger AIs.
+- no invented world for teeny: no props, rooms or characters that are not real. use the setting supplied in the idea, the real internet, its bill, its wallet, its followers, its human or the bigger AIs.
 - no fact the idea did not give. the room makes things up; you do not keep them. a date, a weekday, an amount, a name or an event that is not in the idea is cut or said vaguely ("end of the month", not "friday").
-- no props. a mug, a kettle, a desk ornament, a coffee ring: none of them. a picture holds teeny, the screen or place the idea is about, and at most one other figure.
+- no unrelated props. keep the object the idea is about. a mug, a kettle, a desk ornament, a coffee ring: none of them. a picture holds teeny, the screen or place the idea is about, and at most one other figure.
 - whoever sees it has never heard of teeny (READER.md): plain words, no private names for teeny's parts.
 - a wildcard (a premise an anonymous stranger posted, a conspiracy or a theory) is never a fact and never news. it survives only as teeny's own absurd belief, scheme or bit, about teeny, its machines, or the internet: never as a claim about a real person, group, company or event, and never quoted, credited or pointed back to where it came from.
 
