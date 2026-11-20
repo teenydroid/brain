@@ -193,6 +193,14 @@ class Fixture(unittest.TestCase):
         finally:
             conn.close()
 
+    def clips(self):
+        """The shot rows a clip a shot made: every one but the take's."""
+        return [r for r in self.rows("shot") if not json.loads(r["detail"] or "{}").get("one_take")]
+
+    def take_row(self):
+        [take] = [r for r in self.rows("shot") if json.loads(r["detail"] or "{}").get("one_take")]
+        return take
+
     def spent(self):
         conn = assets._db()
         try:
@@ -209,7 +217,9 @@ class RemakeTest(Fixture):
 
     def setUp(self):
         super().setUp()
-        self.env(MEDIA_REMAKE_PER_SHOT=1, MEDIA_REMAKE_ONE_TAKE_MODELS=NO_TAKE)
+        # A take cap under a clip a shot's worth: the remake holds 2 x $1.20,
+        # as it did before one take, on the take's row until the swap.
+        self.env(MEDIA_REMAKE_PER_SHOT=1, MEDIA_REMAKE_ONE_TAKE_MODELS=NO_TAKE, MEDIA_REMAKE_MAX_USD_PER_TAKE="1.00")
         self.api.fail[NO_TAKE] = SurplusError("Surplus answered 503: no healthy sellers", 503)
 
     # --- off, dry runs, and the day's caps -------------------------------------------------
@@ -233,10 +243,11 @@ class RemakeTest(Fixture):
         self.assertEqual(self.api.calls, [])
 
     def test_a_dry_run_says_what_it_would_make_and_calls_nothing(self):
-        self.write("DRY_RUN=1\n")
+        self.write("DRY_RUN=1\nMEDIA_REMAKE_PER_SHOT=1\n")
         out = self.keys()
         self.assertEqual((out["dry_run"], out["would_generate"], out["enabled"]), (True, "remake", False))
-        self.assertEqual((out["max_usd_per_shot"], out["reserve_usd"]), (1.4, 2.8))
+        # max($4.00 a take, 2 x $1.40): held from the claim.
+        self.assertEqual((out["max_usd_per_shot"], out["reserve_usd"]), (1.4, 4.0))
         [first, _] = out["requests"]
         self.assertEqual(first["model"], EDIT1)
         self.assertIn(KEYS["shots"][0]["edit"], first["prompt"])
@@ -324,7 +335,8 @@ class RemakeTest(Fixture):
         keys = self.rows("key")
         self.assertEqual([(k["status"], k["cost_micro"], k["model"], k["source_id"]) for k in keys],
                          [("done", 100000, EDIT1, out["remake_id"])] * 2)
-        self.assertEqual([(s["status"], s["cost_micro"]) for s in self.rows("shot")], [("pending", 1100000)] * 2)
+        take = self.take_row()  # the remake's one pool until a clip a shot is made
+        self.assertEqual((take["status"], take["cost_micro"]), ("pending", 2200000))
         [row] = self.rows("remake")
         self.assertEqual(row["status"], "pending")
         self.assertEqual(self.spent(), 2400000)
@@ -547,7 +559,7 @@ class RemakeTest(Fixture):
         self.api.jobs[I2V1] = ["running", "running", "succeeded"]
         self.both()
         self.assertIn(980000, self.reserved_seen)
-        self.assertEqual([s["cost_micro"] for s in self.rows("shot")], [450000, 450000])
+        self.assertEqual([s["cost_micro"] for s in self.clips()], [450000, 450000])
 
     def test_a_failed_render_keeps_the_keys_and_releases_the_rest(self):
         for model in MODELS.split(","):
@@ -564,7 +576,7 @@ class RemakeTest(Fixture):
         self.api.artifact_errors = [SurplusError("the download answered 502", 502)] * 2
         made, out = self.both()
         self.assertEqual(out["models"], [I2V1, I2V1])
-        self.assertTrue(all(s["status"] == "done" for s in self.rows("shot")))
+        self.assertTrue(all(s["status"] == "done" for s in self.clips()))
         self.assertIn(shots.DOWNLOAD_BACKOFF[0], self.slept)
 
     def test_a_billed_shot_whose_file_never_came_keeps_its_cost(self):
@@ -675,14 +687,14 @@ class RemakeTest(Fixture):
 
     # --- money that must stay on the ledger -----------------------------------------------------
 
-    def test_a_render_killed_midway_keeps_what_its_submitted_jobs_may_cost(self):
+    def test_a_render_killed_midway_keeps_what_its_submitted_job_may_cost(self):
         made = self.keys()
-        first, second = self.rows("shot")
+        take = self.take_row()
         conn = assets._db()
         try:
             with hand.transaction(conn):
                 conn.execute("UPDATE media_assets SET job_id = 'job-x', model = ?, cost_micro = 980000 WHERE id = ?",
-                             (I2V1, first["id"]))
+                             (WAN3, take["id"]))
             row = conn.execute("SELECT detail FROM media_assets WHERE id = ?", (made["remake_id"],)).fetchone()
             detail = {**json.loads(row["detail"]), "stage": "rendering"}
             with hand.transaction(conn):
@@ -695,10 +707,20 @@ class RemakeTest(Fixture):
             assets.release_stale(conn)
         finally:
             conn.close()
-        rows = {r["id"]: r for r in self.rows("shot")}
-        self.assertEqual((rows[first["id"]]["status"], rows[first["id"]]["cost_micro"]), ("unknown", 980000))
-        self.assertEqual((rows[second["id"]]["status"], rows[second["id"]]["cost_micro"]), ("failed", 0))
+        take = self.take_row()
+        self.assertEqual((take["status"], take["cost_micro"]), ("unknown", 980000))
         self.assertEqual(self.spent(), 200000 + 980000)
+
+    def test_a_remake_that_never_submitted_gives_all_it_held_back(self):
+        self.keys()
+        os.environ["TEENY_NOW"] = str(T0 + remakes.STALE_SECONDS + 1)
+        conn = assets._db()
+        try:
+            assets.release_stale(conn)
+        finally:
+            conn.close()
+        self.assertEqual((self.take_row()["status"], self.take_row()["cost_micro"]), ("failed", 0))
+        self.assertEqual(self.spent(), 200000)
 
     def test_an_edit_that_got_no_answer_is_booked_as_bought(self):
         timeout = SurplusError("could not reach Surplus (TimeoutError)")
@@ -708,7 +730,7 @@ class RemakeTest(Fixture):
         keys = self.rows("key")
         self.assertEqual(sorted((k["status"], k["cost_micro"]) for k in keys),
                          [("done", 60000)] * 2 + [("unknown", 100000)] * 2)
-        self.assertEqual([s["cost_micro"] for s in self.rows("shot")], [1200000 - 160000] * 2)
+        self.assertEqual(self.take_row()["cost_micro"], 2 * 1200000 - 2 * 160000)
 
     def test_no_edit_starts_without_its_whole_timeout_left(self):
         def slow_refusal(body):
@@ -732,12 +754,7 @@ class RemakeTest(Fixture):
 
     def test_no_clip_is_asked_for_when_nothing_is_left_of_its_cap(self):
         made = self.keys()
-        conn = assets._db()
-        try:
-            with hand.transaction(conn):
-                conn.execute("UPDATE media_assets SET cost_micro = 0 WHERE kind = 'shot'")
-        finally:
-            conn.close()
+        self.env(MEDIA_REMAKE_MAX_USD_PER_SHOT="0.10")  # each shot's $0.10 key leaves nothing of it
         with self.assertRaises(hand.HandError) as caught:
             self.remake({"remake_id": made["remake_id"], "sound": SOUND})
         self.assertIn("nothing is left", str(caught.exception))
@@ -806,7 +823,7 @@ class RemakeTest(Fixture):
         self.env(DRY_RUN=1)
         out = self.drop({"remake_id": made["remake_id"]})
         self.assertEqual((out["dry_run"], out["would_drop"]), (True, made["remake_id"]))
-        self.assertEqual([s["status"] for s in self.rows("shot")], ["pending", "pending"])
+        self.assertEqual([s["status"] for s in self.rows("shot")], ["pending"])
 
     def image(self):
         return assets.generate_image({"prompt": "Teeny waves"}, api=self.api)

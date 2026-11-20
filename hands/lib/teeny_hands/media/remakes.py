@@ -418,7 +418,8 @@ def _spent_on(conn, remake_id: int) -> int:
                         " AND source_id = ? AND status IN ('done', 'unknown')", (remake_id,)).fetchone()["n"]
 
 
-def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_shot: bool) -> tuple[int, int]:
+def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_shot: bool,
+           per_shot_cap: int) -> tuple[int, int]:
     """The caps, then the remake's row and the take's row carrying the
     whole reservation, `need`, under the media lock. The keys are paid
     from it; a per-shot fallback swaps it for a row a shot."""
@@ -455,7 +456,7 @@ def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_sh
                 detail = {"stage": "keying", "study": job["study"], "source": job["source"], "story": job["story"],
                           "figures": job["figures"], "logline": job["logline"], "aspect": job["aspect"],
                           "label": the_label, "shots": job["shots"], "total": job["total"], "take_row": take_row,
-                          "per_shot": per_shot}
+                          "per_shot": per_shot, "per_shot_cap": per_shot_cap, "need": need}
                 conn.execute("UPDATE media_assets SET detail = ? WHERE id = ?",
                              (json.dumps(detail, ensure_ascii=False, sort_keys=True), remake_id))
             return remake_id, take_row
@@ -741,7 +742,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
     reference = _reference()
     _ping(reel)
     api = api or Surplus()
-    remake_id, take_row = _claim(job, need, limit, shared, the_label, per_shot_mode)
+    remake_id, take_row = _claim(job, need, limit, shared, the_label, per_shot_mode, per_shot)
     specs = [{**s, "row": take_row} for s in keyed]
     conn = assets._db()
     try:
@@ -971,6 +972,9 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
                 raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
                                      spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
             why = f"the one take could not be had, so a clip a shot: {take.failed}"
+            # Never more a shot than the claim held for it: the setting may
+            # have been raised since the keys.
+            per_shot = min(per_shot, int(job.get("per_shot_cap") or per_shot))
             new_rows = _swap(conn, remake_id, take_row["id"], job["shots"], per_shot, why)
             caps = {r["id"]: r["cost_micro"] for r in conn.execute(
                 f"SELECT id, cost_micro FROM media_assets WHERE id IN ({', '.join('?' for _ in new_rows)})",
