@@ -3,7 +3,10 @@ is put together (probe, download, excerpt, scenes, shots, audio, frames),
 what it refuses, the one-at-a-time rule, the sweep, and the routes over a
 real local socket. No test needs yt-dlp, ffmpeg or the network."""
 
+import contextlib
 import http.client
+import io
+import socket
 import importlib.util
 import json
 import os
@@ -12,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -176,6 +180,37 @@ class ServiceTest(unittest.TestCase):
         ok = serve.Service(self.tmp.name, runner=Fake())
         ok.probe({"url": URL})
 
+    def test_a_download_over_the_cap_is_refused_whatever_yt_dlp_let_through(self):
+        with mock.patch.object(serve.policy, "MAX_DOWNLOAD_BYTES", 20):
+            with self.assertRaises(serve.Failure) as caught:
+                self.service.fetch({"url": URL})
+        self.assertEqual(caught.exception.status, 422)
+        self.assertIn("too big", caught.exception.message)
+        self.assertEqual(os.listdir(os.path.join(self.tmp.name, "fetches")), [])
+        self.assertFalse(any(c[0] == "ffmpeg" for c in self.fake.calls))
+
+    def test_a_page_that_is_a_list_of_videos_is_not_a_probe(self):
+        self.fake.info = {"_type": "playlist", "id": "someone", "duration": 30, "entries": []}
+        with self.assertRaises(serve.Failure) as caught:
+            self.service.probe({"url": "https://www.tiktok.com/@someone"})
+        self.assertEqual(caught.exception.status, 422)
+
+    def test_a_malformed_proxy_is_ignored_and_said_once_without_its_value(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            service = serve.Service(self.tmp.name, proxy="--exec=id secret", runner=self.fake)
+        self.assertIsNone(service.proxy)
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1)
+        self.assertIn("INGEST_PROXY_URL", err.getvalue())
+        self.assertNotIn("secret", err.getvalue())
+        service.probe({"url": URL})
+        self.assertNotIn("--proxy", self.fake.calls[0])
+        quiet = io.StringIO()
+        with contextlib.redirect_stderr(quiet):
+            serve.Service(self.tmp.name, proxy="http://u:p@h:1", runner=self.fake)
+            serve.Service(self.tmp.name, proxy=None, runner=self.fake)
+        self.assertEqual(quiet.getvalue(), "")
+
     def test_a_second_job_while_one_runs_is_429(self):
         started, release = threading.Event(), threading.Event()
         inner = self.fake
@@ -272,6 +307,22 @@ class HttpTest(unittest.TestCase):
         raw = response.read()
         conn.close()
         return response.status, response.getheader("content-type"), raw
+
+    def test_a_client_that_goes_quiet_is_dropped(self):
+        server = serve.make_server(self.service, "127.0.0.1", 0, timeout=0.3)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertEqual(server.RequestHandlerClass.timeout, 0.3)
+        with socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=5) as conn:
+            conn.sendall(b"POST /teeny/v1/probes HTTP/1.1\r\ncontent-length: 50\r\n\r\n{")
+            conn.settimeout(5)
+            started = time.time()
+            conn.recv(4096)  # the answer or the close, not a hang
+            self.assertLess(time.time() - started, 3)
+
+    def test_the_default_socket_timeout_is_thirty_seconds(self):
+        self.assertEqual(self.server.RequestHandlerClass.timeout, 30)
 
     def test_ping(self):
         self.assertEqual(self.call("GET", "/ping")[0], 200)
