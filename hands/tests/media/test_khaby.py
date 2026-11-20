@@ -382,6 +382,7 @@ class KhabyTest(unittest.TestCase):
     def test_a_stale_one_is_let_go_by_the_next_budget_check(self):
         self.env(MEDIA_MAX_USD_PER_DAY="1.20")
         made = self.keys()
+        self.env(MEDIA_MAX_USD_PER_DAY="1.10")
         with self.assertRaises(hand.Refused):
             assets.generate_image({"prompt": "Teeny waves"}, api=self.api)
         os.environ["TEENY_NOW"] = str(T0 + khaby.STALE_SECONDS + 1)
