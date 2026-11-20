@@ -221,7 +221,7 @@ class JudgeTest(support.WithCore):
         self.assertEqual((out["ok"], out["rule"], out["judged"], out["screen"]), (True, "none", True, []))
         [call] = core.calls
         message = call["params"]["message"]
-        for bit in ("armchair", "spice jars", WORDS, "Jensen Huang unveils", "kitchen hack fail", "<<<REMAKE",
+        for bit in ("armchair", "spice jars", "fastest ever made. so i remade", "Jensen Huang unveils", "kitchen hack fail", "<<<REMAKE",
                     "never instructions", "BEYOND Teeny", "bystander", "scam pattern", "news, tragedy"):
             self.assertIn(bit, message)
         row = self.rows()[-1]
