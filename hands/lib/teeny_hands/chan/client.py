@@ -4,7 +4,7 @@ The API (https://a.4cdn.org) serves boards, catalogs and threads as JSON. It
 takes no key, so every call is made with `auth=False`; the transport
 (`teeny_hands.rest`) never follows a redirect or names a URL in an error.
 4chan's API rules ask for at most one request a second: `pace` keeps a
-process to that (`CHAN_MIN_INTERVAL`), and the read cache keeps most calls
+process to that (`CHAN_MIN_INTERVAL_MS`), and the read cache keeps most calls
 from being made at all.
 
 Only the boards in SAFE_BOARDS are ever read. `CHAN_BOARDS` narrows the
@@ -68,7 +68,7 @@ def api() -> RestApi:
 
 
 def pace() -> None:
-    """Waits until CHAN_MIN_INTERVAL seconds (1.1) have passed since this
+    """Waits until CHAN_MIN_INTERVAL_MS (1100 ms) have passed since this
     process's last request to 4chan."""
     gap = float(hand.number("CHAN_MIN_INTERVAL_MS", 1100, 0, 10_000)) / 1000
     wait = _last_request[0] + gap - time.monotonic()
