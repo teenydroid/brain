@@ -15,8 +15,9 @@ screen. What it does hold, in code:
   asked of anyone.
 - **The money fences.** The runway tier (no media on a low wallet); at most
   `MEDIA_SKIT_MAX_PER_DAY` skits and remakes together a UTC day (one that
-  bought anything counts, even one that failed after; media/remakes.py); every shot reserves
-  `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60) on its row before the first job, and
+  bought anything counts, even one that failed after; media/remakes.py);
+  every shot reserves `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60) on its row
+  before the first job, and
   all of them together must fit under the shared `MEDIA_MAX_USD_PER_DAY`
   ($1.00) with everything else bought today, or nothing starts (`budget`). A
   shot whose job can cost more than its cap (`max_cost_usdc`, the true
@@ -80,7 +81,7 @@ from .. import hand
 from . import assets, shots as _shots
 # The shot machinery lives in media/shots.py, shared with media/remakes.py;
 # every name it had here is still here.
-from .shots import (BILL_SECONDS, MAX_BYTES, POLL_SECONDS, REFUSAL, REFUSAL_STATUSES, _RESERVED, _Shot, _Stop,  # noqa: F401
+from .shots import (BILL_SECONDS, FRAME_MAX_BYTES, MAX_BYTES, POLL_SECONDS, REFUSAL, REFUSAL_STATUSES, _RESERVED, _Shot, _Stop,  # noqa: F401
                     _cancel, _end_shots, _micros, _refusal, _set, lengths, snap)
 from .surplus import Surplus, SurplusError  # noqa: F401
 
@@ -93,7 +94,6 @@ MAX_SHOTS = 4
 MAX_PROMPT = 900
 MAX_LOGLINE = 300
 MAX_FIGURES = 3
-FRAME_MAX_BYTES = 5 * 1024 * 1024
 LABEL = "AI parody"
 
 
