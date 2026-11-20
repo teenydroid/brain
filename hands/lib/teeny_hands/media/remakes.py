@@ -854,6 +854,19 @@ def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], cl
                                resolution_setting="MEDIA_REMAKE_RESOLUTION")]
 
 
+def _key_paid(conn, remake_id: int) -> dict[int, int]:
+    """What each shot's keys cost (bought or booked as bought), by shot."""
+    paid: dict[int, int] = {}
+    for key in conn.execute("SELECT cost_micro, detail FROM media_assets WHERE kind = 'key' AND source_id = ?"
+                            " AND status != 'failed'", (remake_id,)).fetchall():
+        try:
+            n = (json.loads(key["detail"] or "{}") or {}).get("n")
+        except ValueError:
+            n = None
+        paid[n] = paid.get(n, 0) + key["cost_micro"]
+    return paid
+
+
 def _swap(conn, remake_id: int, take_row: int, remake_shots: list[Json], per_shot: int, why: str) -> list[int]:
     """A take that could not be had, for a row a shot, in one transaction
     under the media lock: each shot reserves the per-shot cap less what its
@@ -861,11 +874,7 @@ def _swap(conn, remake_id: int, take_row: int, remake_shots: list[Json], per_sho
     clip a shot's worth), so the money held never rises."""
     with hand.lock("media"):
         with hand.transaction(conn):
-            paid: dict[int, int] = {}
-            for key in conn.execute("SELECT cost_micro, detail FROM media_assets WHERE kind = 'key' AND source_id = ?"
-                                    " AND status != 'failed'", (remake_id,)).fetchall():
-                n = (json.loads(key["detail"] or "{}") or {}).get("n")
-                paid[n] = paid.get(n, 0) + key["cost_micro"]
+            paid = _key_paid(conn, remake_id)
             conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE id = ?"
                          " AND status = 'pending'", (why[:1000], hand.now(), take_row))
             return [conn.execute(
@@ -938,10 +947,9 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
         take_row = next((r for r in rows if r["id"] == job["take_row"]), None)
         if take_row is None or take_row["status"] != "pending":
             raise hand.HandError(f"remake {remake_id}'s take is not waiting to be made")
-        key_cost = conn.execute("SELECT COALESCE(SUM(cost_micro), 0) AS n FROM media_assets WHERE kind = 'key'"
-                                " AND source_id = ? AND status != 'failed' AND detail LIKE '%\"n\": 1,%'",
-                                (remake_id,)).fetchone()["n"]
-        cap = min(take_cap - key_cost, take_row["cost_micro"])
+        # The take may spend its cap less what shot 1's key cost, and never
+        # more than its row still holds.
+        cap = min(take_cap - _key_paid(conn, remake_id).get(1, 0), take_row["cost_micro"])
         sold = shots.lengths(api)
         deadline = clock() + wait
         take = _Shot(0, take_row["id"], "", math.ceil(job["total"] - 1e-9), take_models, name="take",
