@@ -95,8 +95,8 @@ from .surplus import Surplus, SurplusError
 Json = dict[str, Any]
 
 EDIT_MODELS = "nano-banana-2-edit,seedream-v5-pro-edit,muse-image-edit"
-REMAKE_MODELS = ("kling-v3-standard-image-to-video,wan-2-7-image-to-video,kling-v3-pro-image-to-video,"
-                 "veo3-1-fast-image-to-video")
+REMAKE_MODELS = ("venice-wan-3-0-image-to-video,wan-2-7-image-to-video,kling-v3-standard-image-to-video,"
+                 "kling-v3-pro-image-to-video,veo3-1-fast-image-to-video")
 MAX_SHOTS = 6
 MAX_EDIT_ATTEMPTS = 2
 #: What a keyframe of unknown price books: nano-banana-2-edit's $0.10, the
