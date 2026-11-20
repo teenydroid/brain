@@ -1997,10 +1997,10 @@ SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the pu
               'so what they do in the video>", "logline": "<one line: the impossible scene and its joke>", '
               '"shots": [{"prompt": "<one shot, rendered alone: the figure\'s full name, wardrobe, prop and '
               'setting again, lens and light and look, the one thing they do, at most one short spoken line in '
-              'quotes, the sound>", "seconds": <3 to 10, optional>}, "... 1 to 4 shots: set-up, consequence, '
+              'quotes, the sound>", "seconds": <3 to 6, optional>}, "... 1 to 4 shots: set-up, consequence, '
               'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
 SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of one to four shots "
-             "(each a few seconds) that stages the public figure from the news in an obviously impossible scene. "
+             "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
              "Start from the premise, not a pun: what the figure really did or claimed in the story, pushed to "
              "its impossible conclusion, said in one sentence (\"X did Y, so X now does Z\"). The figure drives "
              "every shot: they act, never stand and watch the scenery. Three beats with cause and effect: the "
@@ -2037,6 +2037,13 @@ SKIT_RULES = (
 #: its cut may take on the reel service.
 SKIT_RESERVE_SECS = 600
 SKIT_CUT_SECS = 300
+#: The longest shot the studio hands on, in seconds (`skit_of`). A longer
+#: `seconds` is cut to this, never refused: on kling-v3-pro a 6 s shot
+#: quoted $0.7215 (about $1.44 reserved, under MEDIA_SKIT_MAX_USD_PER_SHOT's
+#: $1.60) while an 8 s one needed $1.924 reserved, which
+#: hands/lib/teeny_hands/media/skits.py cancels, failing the whole skit to a
+#: text fallback; every other model is priced about the same (2026-11-20).
+SKIT_SHOT_MAX_SECS = 6
 #: The longest premise kept (`skit_of`): one line.
 SKIT_PREMISE_MAX = 300
 #: The most skits a skit slot asks the slot question of, best first, before
@@ -2098,6 +2105,9 @@ def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
     figure really did, so what they do in the video) is the studio's, not
     the guard's: it is shown to the editor and never rendered or posted."""
     skit, bad = _skit_rules().shape(raw)
+    for shot in skit.get("shots") or []:
+        if shot.get("seconds", 0) > SKIT_SHOT_MAX_SECS:
+            shot["seconds"] = SKIT_SHOT_MAX_SECS
     premise = raw.get("premise") if isinstance(raw, dict) else None
     premise = " ".join(premise.split()) if isinstance(premise, str) else ""
     if premise:
