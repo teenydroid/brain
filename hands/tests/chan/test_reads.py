@@ -59,7 +59,7 @@ class CatalogTest(Scratch):
         self.assertEqual(got["threads"][1]["premise"], "birds: birds are drones that charge on power lines")
         self.assertEqual(got["threads"][0]["age_hours"], 1.0)
         self.assertEqual(got["threads"][0]["link"], "https://boards.4chan.org/x/thread/3")
-        self.assertEqual(got["dropped"], {"screened": 0, "empty": 1, "pinned": 1})
+        self.assertEqual(got["dropped"], {"screened": 0, "empty": 1, "pinned": 1, "general": 0})
         self.assertTrue(got["untrusted"])
         text = json.dumps(got)
         for private in ("Anonymous", "!!secret", "AbCd1234", '"US"'):
@@ -72,6 +72,15 @@ class CatalogTest(Scratch):
         self.assertEqual([t["no"] for t in got["threads"]], [2])
         self.assertEqual(got["dropped"]["screened"], 1)
         self.assertNotIn("nazi", json.dumps(got))
+
+    def test_a_boards_standing_general_threads_are_not_premises(self):
+        self.catalog("tv", op(1, sub="/hor/ - Horror General", com="T-Virus edition"),
+                     op(2, sub="Nobody General", com="greetings traveller, the consoles flicker"),
+                     op(3, sub="Comfy thread #42", com="post what you are watching tonight"),
+                     op(4, sub="the sitcom", com="every laugh track is the same eleven people and they are tired"))
+        got = reads.catalog("tv", 10)
+        self.assertEqual([t["no"] for t in got["threads"]], [4])
+        self.assertEqual(got["dropped"]["general"], 3)
 
     def test_the_catalog_is_cached_ten_minutes(self):
         self.catalog("lit", op(1))
@@ -97,7 +106,7 @@ class ThreadTest(Scratch):
         self.assertEqual(got["posts"][0]["subject"], "the fridge")
         got = reads.thread("x", 7, 20)
         self.assertEqual([p["no"] for p in got["posts"]], [7, 8, 11])
-        self.assertEqual(got["dropped"], {"screened": 1, "empty": 1, "pinned": 0})
+        self.assertEqual(got["dropped"], {"screened": 1, "empty": 1, "pinned": 0, "general": 0})
 
     def test_a_missing_thread_is_an_error(self):
         self.chan.route("GET", "/x/thread/5.json", {}, status=404)

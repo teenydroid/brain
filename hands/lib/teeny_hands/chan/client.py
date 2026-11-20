@@ -48,7 +48,9 @@ SAFE_BOARDS: dict[str, str] = {
     "v": "video games",
 }
 #: Read when CHAN_BOARDS is unset: the boards most likely to hold a premise.
-DEFAULT_BOARDS = ("x", "lit", "sci", "his", "tv", "g")
+#: /his/ is readable but not a default: on 2026-11-20 its liveliest threads
+#: were arguments about race and religion, which no bit of Teeny's touches.
+DEFAULT_BOARDS = ("x", "lit", "sci", "tv", "g", "diy")
 
 _BOARD = re.compile(r"^[a-z0-9]{1,6}$")
 _MAX_NO = 10**12

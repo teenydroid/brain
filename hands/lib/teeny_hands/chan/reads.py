@@ -47,6 +47,9 @@ PREMISE_MIN = 24
 #: Of a board's catalog, the liveliest threads a spark is drawn from.
 POOL = 40
 _REPLY_LINK = re.compile(r">>>?/?[a-z0-9]*/?\d+")
+#: A board's standing threads ("/hor/ - Horror General", "/ng/ - Nobody
+#: General"): a hangout reposted every few days, never a premise.
+_GENERAL = re.compile(r"(^/\w+/\s*-|\bgeneral\b|\bthread\s*#?\d+)", re.IGNORECASE)
 
 Json = dict[str, Any]
 
@@ -148,14 +151,18 @@ class Dropped:
         self.screened = 0
         self.empty = 0
         self.pinned = 0
+        self.general = 0
 
     def json(self) -> Json:
-        return {"screened": self.screened, "empty": self.empty, "pinned": self.pinned}
+        return {"screened": self.screened, "empty": self.empty, "pinned": self.pinned, "general": self.general}
 
 
 def _shape(board: str, thread: Mapping[str, Any], dropped: Dropped) -> Json | None:
     if thread.get("sticky") or thread.get("closed"):
         dropped.pinned += 1
+        return None
+    if _GENERAL.search(plain(thread.get("sub"))):
+        dropped.general += 1
         return None
     text = premise(thread)
     if len(text) < PREMISE_MIN:
