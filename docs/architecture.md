@@ -845,7 +845,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    remake only: logline, every edit, motion and teeny past the guard ──> hands/guard remake (code's hard lines,
        Teeny's field, the study's gate, then the judge) ──> hands/video remake-keys (one take: the opening frame edited)
        ──> hands/guard view-remake stage keys (fails: stop before any video money)
-       ──> hands/video remake (animated, cut with the original's sound, labelled) ──> hands/guard view-remake
+       ──> hands/video remake (one take with its own sound, labelled) ──> hands/guard view-remake
        stage cut ──> hands/x upload (fails: never the words alone; the other video format gets one try only when
        nothing was bought, else the words)
                 │
@@ -1070,7 +1070,11 @@ prompt, `hands/guard remake`, then (a dry room stops here, planned) the time
 floor, `hands/video remake-keys` (the story as words, at most 600
 characters), `hands/remake used` on the source once keys are bought (so it is
 never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
-remake` with the study's `audio` as its `sound` (null when it has none), the
+remake` with the study's `audio` as its `sound` (null when it has none; the hand lays it
+under the film only with `MEDIA_REMAKE_SOUND=1`: by default the video model makes the film's own
+sound in the same job, since the original's audio over a generated mouth does not lip-sync, so each
+`motion` says what is heard, with at most one invented quoted line of at most 12 words a shot, held
+in code and by the judge; the render's `sound`, `model` or `source`, is kept in `published.remake`), the
 labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
 true and an "AI parody" label), the cut's viewer, `hands/x upload`. Whenever keys were bought and no cut comes back (the keys' viewer refuses, the time floor after the keys, `video remake` refusing, failing, in `DRY_RUN` or answering no file, or the wrong number of keys) `hands/video remake-drop` releases the remake's unspent reservation, best effort, so the day's media budget is not held for every other hand; a failed release is a warning. Its words never go out without the video. One take:
 `hands/video remake-keys` answers one key (a key a shot only when its `one_take.per_shot_fallback` is on), and is sent `one_setting` (true only for a one-shot original, or when the writer says so and every studied shot has shot 1's setting) and each shot's `cuts` (a hard cut where the setting changes); the original's shots add up to 3 to 30 s, or it is never drafted (`study_source`, `remake_of`). Time:
