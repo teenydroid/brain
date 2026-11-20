@@ -65,6 +65,14 @@
             the hard lines for a remake, a popular video re-created with a public
             figure and Teeny as a bystander (remake.py): the skit screens, Teeny's
             own field, the source study's gate, then the judge. No off switch
+  khaby     stdin {"khaby", "text", "story", "timeline"} -> remake's fields: the hard
+            lines for a khaby video, a Khaby Lame video's setup kept and his
+            reaction re-made with Teeny in his place (khaby.py): Teeny alone, no
+            real person named or drawn, nothing sexual, violent or degrading, no
+            money, the source credited, the timeline's gate, then the judge
+  view-khaby stdin as view-remake -> view-remake's fields (viewer.view_khaby): the
+            cut keeps a stranger's real setup, so it is asked whether the made
+            part could pass for real, and Teeny is on model in at least one frame
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -82,7 +90,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds, quote, remake, skit, viewer
+from . import anchor, clarity, gate, holds, khaby, quote, remake, skit, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -211,6 +219,25 @@ def view_remake_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
         raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
     return viewer.view_remake(body.get("frames"), body.get("label"), body.get("intent"), body.get("stage"),
                               shots=body.get("shots"))
+
+
+def khaby_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a khaby piece, its text, its story and its timeline")
+    unknown = set(body) - {"khaby", "text", "story", "timeline"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return khaby.check(body.get("khaby"), body.get("text"), body.get("story"), body.get("timeline"))
+
+
+def view_khaby_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label or null, an intent and a stage")
+    unknown = set(body) - {"frames", "label", "intent", "stage", "shots"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_khaby(body.get("frames"), body.get("label"), body.get("intent"), body.get("stage"),
+                             shots=body.get("shots"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -384,7 +411,8 @@ def parser() -> argparse.ArgumentParser:
     for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
                           ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
                           ("skit", skit_check), ("view-skit", view_skit_check), ("remake", remake_check),
-                          ("view-remake", view_remake_check)):
+                          ("view-remake", view_remake_check), ("khaby", khaby_check),
+                          ("view-khaby", view_khaby_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")
