@@ -583,7 +583,9 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", 1.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+# The default for an unset shot cap, read from the hand code (media/remakes.py).
+from teeny_hands.media.remakes import PER_SHOT
+shot, budget = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if 6 * shot > budget:
     warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
 url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
