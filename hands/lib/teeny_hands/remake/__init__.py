@@ -12,7 +12,10 @@ the hand's side of it.
            day's cap)
   charts   what is popular: TikTok accounts' recent videos and YouTube's
            most-popular chart, filtered, ranked, cached a slot
-  study    one video: fetched, its files pulled and checked, one vision call
-           on its shots, read strictly
+  source   one video fetched through the service, its files pulled and
+           checked and kept under state/media/<root>/ (shared with
+           hands/khaby dissect)
+  study    one video: fetched (source), one vision call on its shots, read
+           strictly
   cli      the verbs
 """
