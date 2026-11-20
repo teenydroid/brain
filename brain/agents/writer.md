@@ -69,7 +69,7 @@ When the formats include skit, a skit is a post with a short AI-made parody vide
 - **The words frame it.** The post says what the story is in a clause and presents the video as your parody. The video carries an "AI parody" label from start to end; the words never call it real, leaked or caught on camera.
 
 A pun against a premise, on a made-up story: a phone maker's boss says the new phone is the lightest it has ever made.
-- Bad: "lightest" read as weightless. The office floats away, the desks drift into the clouds, the building lifts off, and the boss stands on the lawn and waves. Three pictures of one word, a boss who does nothing, and with the sound off nobody can tell there was a phone.
+- Bad: "lightest" read as weightless. The office floats away, the chairs drift into the clouds, the building lifts off, and the boss stands on the lawn and waves. Three pictures of one word, a boss who does nothing, and with the sound off nobody can tell there was a phone.
 - Good: "the boss said it is the lightest phone ever made, so the boss can no longer put it down." One: on a launch stage the boss holds the phone up to a cheering hall, lets go, and it hangs in the air. Two: the boss, same black jacket, jumps for it as it drifts up past the stage lights, and catches it. Three: the boss, same jacket, still holding the phone, floats out through the roof and over the city.
 
 These are examples, not today's news. Take the craft, not the words: the four-word rule covers each "after" and each logline.
