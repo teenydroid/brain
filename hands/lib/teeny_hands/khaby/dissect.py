@@ -409,9 +409,7 @@ def _lay_out(reading: Json, cuts: list[float], fps: float) -> tuple[list[Json], 
     joined = all(abs(a[1] - b[0]) < 1e-6 for a, b in zip(edges, edges[1:]))
     if abs(edges[0][0]) > 1e-6 or abs(edges[-1][1] - total) > 1e-6 or not joined:
         reasons.append(f"the segments do not run end to end (0 to {total:g} s)")
-    setups = [i for i, s in enumerate(segments) if s["role"] == "setup" and s["end"] - s["start"] >= MIN_SETUP_SECONDS - 1e-6]
-    if not any(s["role"] == "reaction" and s["end"] > s["start"] and i > setups[0]
-               for i, s in enumerate(segments)) if setups else True:
+    if not _setup_then_reaction(segments):
         reasons.append(f"no setup of {MIN_SETUP_SECONDS:g} s or more followed by a reaction")
     beats = []
     for n, beat in enumerate(reading["beats"], 1):
