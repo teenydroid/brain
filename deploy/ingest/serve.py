@@ -338,6 +338,8 @@ def make_server(service: Service, host: str, port: int, timeout: float = SOCKET_
                 self.close_connection = True
             except Failure as failure:
                 self._fail(failure)
+            except (TimeoutError, ConnectionError):  # a client that went quiet or left: nothing to answer
+                self.close_connection = True
             except Exception as exc:  # noqa: BLE001 - one job's failure must never stop the service
                 print(f"ingest: {type(exc).__name__}", file=sys.stderr)
                 self._fail(Failure(500, "the service failed on that request"))
