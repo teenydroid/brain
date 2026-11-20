@@ -179,6 +179,200 @@ def results() -> dict:
     return out
 
 
+class RegistryTest(unittest.TestCase):
+    def test_the_registry_holds_skit_then_remake_and_drives_the_video_formats(self):
+        import formats
+
+        self.assertEqual(list(formats.REGISTRY), ["skit", "remake"])
+        for name, fmt in formats.REGISTRY.items():
+            self.assertIsInstance(fmt, formats.Format)
+            self.assertEqual(fmt.name, name)
+        self.assertIs(formats.REGISTRY["skit"], formats.skit.FORMAT)
+        self.assertIs(formats.REGISTRY["remake"], formats.remake.FORMAT)
+        self.assertEqual(studio.VIDEO_FORMATS, tuple(formats.REGISTRY))
+        self.assertEqual(studio.KNOWN_FORMATS, ("post", "thread", "image", "meme", *formats.REGISTRY))
+
+    def test_the_room_is_one_class_whichever_module_names_it(self):
+        import studio_room
+
+        self.assertIs(studio.Room, studio_room.Room)
+        self.assertIs(studio.Stop, studio_room.Stop)
+        self.assertIs(studio._judge, studio_room._judge)
+
+    def test_the_old_names_still_answer_from_the_studio(self):
+        import formats
+
+        for name in ("skit_of", "_make_skit", "skit_screen", "skit_outcome", "_skit_rules", "SKIT_PITCH",
+                     "SKIT_RESERVE_SECS", "SKIT_CUT_SECS", "SKIT_HELD"):
+            self.assertIs(getattr(studio, name), getattr(formats.skit, name), name)
+        for name in ("remake_of", "_make_remake", "remake_screen", "remake_outcome", "study_source", "load_charts",
+                     "chart_items", "study_for_writer", "REMAKE_PITCH", "REMAKE_MIN_SECS", "REMAKE_STORY_MAX",
+                     "STUDY_KEYS"):
+            self.assertIs(getattr(studio, name), getattr(formats.remake, name), name)
+
+
+def _khaby():
+    """A throwaway third format: the skit's, renamed, with hooks that say
+    they ran."""
+    import dataclasses
+
+    import formats
+
+    made: list = []
+
+    def check_pitch(pitch, sources):
+        return "" if pitch.get("hook") else "a khaby reacts to a trending story, and it has no hook"
+
+    def make(room, draft, note):
+        made.append(draft["khaby"])
+        note["made"] = True
+        return ["m-khaby"]
+
+    def shape(raw, pitch, study):
+        return {"khaby": {"logline": (raw or {}).get("logline"), "story": pitch.get("hook")}}, ""
+
+    fmt = dataclasses.replace(formats.REGISTRY["skit"], name="khaby", pitch="KHABY PITCH", slot_line="KHABY SLOT",
+                              editor="## judging a khaby", check_pitch=check_pitch, make=make, shape=shape,
+                              screen=lambda draft, words, story: [], shown=lambda piece: {"logline": piece["logline"]},
+                              time=lambda room: 100, min_secs=50,
+                              outcome=lambda draft, note, post_id: {"made": note.get("made"), "post_id": post_id})
+    return fmt, made
+
+
+class ThirdFormatTest(unittest.TestCase):
+    """A format registered on a copy of the registry reaches every path the
+    video formats take, with no edit to bin/lib/studio.py."""
+
+    def setUp(self):
+        from unittest import mock
+
+        import formats
+
+        self.fmt, self.made = _khaby()
+        patch = mock.patch.object(formats, "REGISTRY", {**formats.REGISTRY, "khaby": self.fmt})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_its_pitches_face_its_own_check(self):
+        kept, dropped, _ = studio.validate_pitches({"pitches": [
+            {"id": "p1", "format": "khaby", "hook": "trend:t1", "angle": "a"},
+            {"id": "p2", "format": "khaby", "item": "evt:1", "angle": "a"}]},
+            {"evt:1", "trend:t1"}, set(), ("post", "khaby"), 12, outside={"trend:t1"})
+        self.assertEqual([p["id"] for p in kept], ["p1"])
+        self.assertEqual(dropped[0]["why"], "a khaby reacts to a trending story, and it has no hook")
+
+    def test_it_is_known_offered_to_the_writer_and_shown_to_the_editor(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = studio.Config.load({"STUDIO_FORMATS": "post,khaby"}, Path(tmp) / "none.env")
+        self.assertEqual(cfg.formats, ("post", "khaby"))
+        message = studio.pitch_message(cfg, INPUTS, [], SAMPLED, skit_slot=True)
+        self.assertIn("KHABY PITCH", message)
+        self.assertIn("KHABY SLOT", message)
+        got, lost = studio.validate_drafts({"drafts": [{"text": "w", "khaby": {"logline": "l"}}]},
+                                           pitch("khaby", hook="trend:t1"), 1)
+        self.assertEqual((lost, got[0]["khaby"]), ([], {"logline": "l", "story": "trend:t1"}))
+        draft = dict(got[0], id="d1")
+        self.assertEqual(studio.shown(draft)["khaby"], {"logline": "l"})
+        self.assertIn("## judging a khaby", studio.judge_message([("P1", "D1", "D2")],
+                                                                 {"D1": draft, "D2": drafts()["post"]}, {}, []))
+        self.assertIn('"line": "<with none: the khaby line it crosses>"', studio.final_message("D1", draft, {}, []))
+
+    def test_its_video_is_made_by_its_own_producer_and_timed_by_its_own_floor(self):
+        room = skit_t.Scripted(studio.Config(formats=("post", "khaby"), writer_model="w", editor_model="e",
+                                             judge_model="j", budget_secs=3600),
+                               REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1", dry=False)
+        room.seen = []
+        room.script = {"guard truth": (0, {"truthful": True, "unsupported": [], "reason": "ok", "judged": True}),
+                       "guard clarity": (0, {"clear": True, "reason": "ok", "judged": True}),
+                       "x post": (0, {"ok": True, "id": "post-1"})}
+        draft = {"id": "d1", "pitch": "p1", "storyline": None, "shape": "scene", "format": "khaby", "text": "w",
+                 "khaby": {"logline": "l", "story": "trend:t1"}, "truth": {"text": "w", "facts": []}}
+        attempt: dict = {}
+        self.assertEqual(studio.picture(room, draft, attempt), ["m-khaby"])
+        self.assertEqual(attempt["picture"]["scene"], json.dumps(draft["khaby"], sort_keys=True))
+        self.assertEqual(self.made, [draft["khaby"]])
+        slot = studio.Slot(order=["D1"], blind={"D1": draft}, board={}, stories_now=[], pitches={"p1": pitch("khaby")},
+                           items={}, stories={}, thread="t")
+        attempt = {"label": "D1"}
+        self.assertEqual(studio.try_draft(room, dict(draft, khaby={"logline": "m"}), attempt, slot, []), "posted")
+        self.assertTrue(attempt["khaby"]["made"])
+        post = next(b for a, b, *_ in room.seen if a[:2] == ["x", "post"])
+        self.assertEqual(post["media_ids"], ["m-khaby"])
+        self.assertTrue(studio.video_time(room, "khaby"))
+        from unittest import mock
+
+        import formats
+
+        with mock.patch.dict(formats.REGISTRY, {"khaby": dataclasses_replace(self.fmt, min_secs=101)}):
+            self.assertFalse(studio.video_time(room, "khaby"))
+
+
+def dataclasses_replace(obj, **over):
+    import dataclasses
+
+    return dataclasses.replace(obj, **over)
+
+
+class RemakeDropTest(unittest.TestCase):
+    """A remake whose keys were bought but that will not be rendered lets
+    go of its reservation at once (`hands/video remake-drop`), instead of
+    holding it until release_stale two hours later."""
+
+    def go(self, room):
+        slot = studio.Slot(order=["D1"], blind={"D1": remake_t.remake_draft()}, board={}, stories_now=[],
+                           pitches={"p1": remake_t.PITCH}, items={"trend:t1": remake_t.HOOK,
+                                                                  "chart:tt:v1": remake_t.CHART},
+                           stories={}, thread="t")
+        attempt: dict = {"label": "D1"}
+        result = studio.try_draft(room, remake_t.remake_draft(), attempt, slot, [])
+        return result, attempt, [(a, b, d) for a, b, d, _ in room.seen if " ".join(a[:2]) == "video remake-drop"]
+
+    def test_keys_the_viewer_refuses_are_dropped_so_their_reservation_is_freed_at_once(self):
+        refused = (0, {"ok": False, "teeny": 1, "interacts": False, "reason": "Teeny in 1 of 2", "judged": True})
+        result, attempt, drops = self.go(remake_t._producer_room(**{"guard view-remake": refused}))
+        self.assertEqual(result, "next")
+        self.assertEqual(drops, [(["video", "remake-drop"], {"remake_id": "r1"}, False)])
+        self.assertIn("keyframes", attempt["remake"]["failed"])
+
+    def test_keys_that_came_back_short_are_dropped(self):
+        short = (0, {**remake_t.KEYS, "keys": remake_t.KEYS["keys"][:1]})
+        _, _, drops = self.go(remake_t._producer_room(**{"video remake-keys": short}))
+        self.assertEqual(drops, [(["video", "remake-drop"], {"remake_id": "r1"}, False)])
+
+    def test_keys_that_ate_the_time_are_dropped_before_the_video(self):
+        room = remake_t._producer_room()
+
+        def keys(body):
+            room.started -= 3600 - (studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + 100)
+            return 0, remake_t.KEYS
+
+        room.script["video remake-keys"] = keys
+        result, attempt, drops = self.go(room)
+        self.assertIn("not enough of the run's time", attempt["remake"]["failed"])
+        self.assertEqual(drops, [(["video", "remake-drop"], {"remake_id": "r1"}, False)])
+
+    def test_a_drop_that_fails_is_a_warning_and_the_slot_falls_back_as_before(self):
+        refused = (0, {"ok": False, "teeny": 1, "interacts": False, "reason": "Teeny in 1 of 2", "judged": True})
+        room = remake_t._producer_room(**{"guard view-remake": refused,
+                                          "video remake-drop": (1, {"error": "the media lock is busy"})})
+        result, attempt, drops = self.go(room)
+        self.assertEqual((result, len(drops)), ("next", 1))
+        self.assertIn("keyframes", attempt["remake"]["failed"])
+        self.assertTrue(any("remake-drop" in w and "r1" in w for w in room.warnings), room.warnings)
+
+    def test_nothing_is_dropped_when_no_keys_were_bought_or_the_video_was_asked_for(self):
+        for script in ({"video remake-keys": (2, {"ok": False, "refused": "off", "rule": "off"})},
+                       {"video remake-keys": (0, {**remake_t.KEYS, "remake_id": None})},
+                       {"video remake-keys": (0, {"dry_run": True})},
+                       {"video remake": (1, {"ok": False, "error": "the cut failed"})},
+                       {}):
+            with self.subTest(script=script):
+                _, _, drops = self.go(remake_t._producer_room(**script))
+                self.assertEqual(drops, [])
+
+
 class PromptGoldenTest(unittest.TestCase):
     """The prompts are byte for byte main's, from before the formats moved."""
 
