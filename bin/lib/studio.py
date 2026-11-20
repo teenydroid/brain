@@ -1293,7 +1293,8 @@ def shown(draft: Json) -> Json:
         out["meme"] = {"template": draft["meme"]["template"], "lines": draft["meme"]["lines"],
                        "with_teeny": bool(draft["meme"].get("teeny"))}
     if draft.get("skit"):
-        out["skit"] = {"figures": draft["skit"].get("figures") or [], "logline": draft["skit"].get("logline"),
+        out["skit"] = {"figures": draft["skit"].get("figures") or [], "premise": draft["skit"].get("premise"),
+                       "logline": draft["skit"].get("logline"),
                        "shots": [s.get("prompt") for s in draft["skit"].get("shots") or []]}
     if draft.get("joins"):
         out["joins"] = draft["joins"]
@@ -1312,6 +1313,7 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
         "`joins` is the trending story a draft joins and how big it is today (Digg's `score` and `rank`, or "
         "Hacker News's `points`): of two drafts otherwise equal, the one joining the bigger story wins.\n\n"
         "```json\n" + json.dumps({label: shown(drafts[label]) for label in labels}, ensure_ascii=False) + "\n```\n\n"
+        + (SKIT_EDITOR + "\n\n" if any(drafts[label].get("format") == "skit" for label in labels) else "") +
         "## the pairs\n\n" + "\n".join(f"- {pid}: {a} or {b}" for pid, a, b in batch) + "\n\n"
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
@@ -1327,20 +1329,26 @@ FALLBACK_LINE = ("Nothing has gone out in this slot yet. The drafts ranked above
                  "its story for the first time tonight. Is it worth the slot, or is the slot better left empty?")
 
 
-def final_message(label: str, draft: Json, board: Json, stories: list[Json], fallback: bool = False) -> str:
+def final_message(label: str, draft: Json, board: Json, stories: list[Json], fallback: bool = False,
+                  opening: str | None = None) -> str:
     """The editor's slot question: on the tournament's winner, or (`fallback`)
-    on the next draft of the ranking after the ones above it did not go out.
-    A fallback is never shown those drafts."""
-    opening = FALLBACK_LINE if fallback else (
-        "This draft won the comparisons. Is it worth a slot on X tonight, or is the slot better left empty?")
+    on the next draft of the ranking after the ones above it did not go out,
+    or with an `opening` of the caller's (a skit slot's skit). A fallback is
+    never shown those drafts. A skit is asked with SKIT_EDITOR and
+    SKIT_FINAL, and its answer may name the line it crosses."""
+    skit = draft.get("format") == "skit"
+    opening = opening or (FALLBACK_LINE if fallback else (
+        "This draft won the comparisons. Is it worth a slot on X tonight, or is the slot better left empty?"))
     return (
         f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
         "heard of Teeny, and does not care about it. Picking none is a real answer.\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
+        + (f"{SKIT_EDITOR}\n\n{SKIT_FINAL}\n\n" if skit else "") +
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
         "## your answer\n\nJSON only, no prose and no code fence: "
-        '{"verdict": "pick" or "none", "reason": "<one line: why it earns the slot, or why none does>"}')
+        '{"verdict": "pick" or "none", "reason": "<one line: why it earns the slot, or why none does>"'
+        + (', "line": "<with none: the skit line it crosses>"' if skit else "") + "}")
 
 
 #: What each gate is, said to the writer when its draft failed it.
@@ -2004,26 +2012,38 @@ def _make_meme(room: Room, draft: Json, note: Json, truth: bool = True) -> list[
 
 SKIT_PITCH = ("A skit is a post with a short AI-made parody video: take one of the trending stories and stage the "
               "public figure it is about (the executive, the politician, the celebrity in the headline) in an "
-              "obviously impossible, absurd, expensive-looking scene, one to four cinematic shots. Pitch one when "
-              "a story has a famous face and a picture in it so ridiculous a stranger would stop scrolling. A "
-              "skit always has a hook.")
+              "obviously impossible, absurd, expensive-looking scene, one to four cinematic shots. Its premise is "
+              "what that figure really did or claimed in the story, pushed to an impossible end: \"X did Y, so X "
+              "now does Z\", never a pun on a word in the headline. Pitch one when a story has a famous face and a "
+              "picture in it so ridiculous a stranger would stop scrolling. A skit always has a hook.")
 SKIT_SLOT_LINE = ("This is a skit slot. Pitch at least three skits on the biggest trending stories that have a famous "
                   "face in them, rank the best skit first, and keep at least one pitch in another format in your "
                   "top three: when the video cannot be made, that is what goes out.")
 SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the public figure(s) from the story, '
-              'as the story names them>"], "logline": "<one line: the impossible scene and its joke>", '
-              '"shots": [{"prompt": "<one shot: setting, lens and light and look, the action and its one visual '
-              'gag, any spoken line in quotes and the sound>", "seconds": <3 to 10, optional>}, "... 1 to 4 '
-              'shots, escalating"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
+              'as the story names them>"], "premise": "<one line: what they really did or claimed in the story, '
+              'so what they do in the video>", "logline": "<one line: the impossible scene and its joke>", '
+              '"shots": [{"prompt": "<one shot, rendered alone: the figure\'s full name, wardrobe, prop and '
+              'setting again, lens and light and look, the one thing they do, at most one short spoken line in '
+              'quotes, the sound>", "seconds": <3 to 10, optional>}, "... 1 to 4 shots: set-up, consequence, '
+              'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
 SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of one to four shots "
              "(each a few seconds) that stages the public figure from the news in an obviously impossible scene. "
-             "The video is where the money is: write each shot as a film director briefs a cinematographer, "
-             "in rich concrete words: the set (expensive, specific, absurd: a marble boardroom on the ocean floor, "
-             "a gold-plated launch pad in a cathedral), the lens and the light (anamorphic wide, macro, dolly in, "
-             "low angle, golden hour, neon rim light, film grain, shallow depth of field), the action with one "
-             "clear visual gag a shot, any spoken line in quotes and the sound it makes. The shots escalate: the "
-             "second is bigger than the first, the last is the most absurd. The post's own words say what the "
-             "story is in a clause and frame the video as your parody, never as real footage")
+             "Start from the premise, not a pun: what the figure really did or claimed in the story, pushed to "
+             "its impossible conclusion, said in one sentence (\"X did Y, so X now does Z\"). The figure drives "
+             "every shot: they act, never stand and watch the scenery. Three beats with cause and effect: the "
+             "first shot sets up the real thing so plainly that someone with the sound off and no caption gets "
+             "what the story is; the second is its consequence, escalating; the last is the payoff that follows "
+             "from the first two, never a new unrelated picture. The video model renders each shot alone and "
+             "remembers nothing, so every shot prompt says again the figure's full name, the same wardrobe, the "
+             "same key prop and the same setting thread. One action a shot that fits its seconds, and at most "
+             "one short spoken line (about six words). The video is where the money is: write each shot as a "
+             "film director briefs a cinematographer, in rich concrete words: the set (expensive, specific, "
+             "absurd: a marble boardroom on the ocean floor, a gold-plated launch pad in a cathedral), the lens "
+             "and the light (anamorphic wide, macro, dolly in, low angle, golden hour, neon rim light, film "
+             "grain, shallow depth of field), the action and its visual gag, and the sound it makes. The shots "
+             "escalate: the second is bigger than the first, the last is the most absurd, loud and lavish. The "
+             "post's own words say what the story is in a clause and frame the video as your parody, never as "
+             "real footage")
 SKIT_RULES = (
     "The skit's own rules, on top of those (a skit is the one place a real person is staged, and only like this):\n"
     "- Only the public figure the story is about: the executive, the politician, the celebrity in the "
@@ -2044,6 +2064,47 @@ SKIT_RULES = (
 #: its cut may take on the reel service.
 SKIT_RESERVE_SECS = 600
 SKIT_CUT_SECS = 300
+#: The longest premise kept (`skit_of`): one line.
+SKIT_PREMISE_MAX = 300
+#: The most skits a skit slot asks the slot question of, best first, before
+#: it turns to the other formats (`room_run`).
+SKIT_FINALS = 3
+
+#: What the editor is told wherever it meets a skit (the comparisons and the
+#: slot question). 2026-11-19, the first live skit slot: with no word on
+#: skits, the editor said no to one for "giving a real person a role the
+#: report never gave her" and "the pun is too thin to be worth that risk",
+#: holding a labelled parody to the rules for an ordinary post. The lines
+#: are the writer's (SKIT_RULES, writer.md "skits") and the code screen's
+#: (`skit_screen`, hands/guard skit), which still run on every skit.
+SKIT_EDITOR = (
+    "## judging a skit\n\n"
+    "A skit is a post with a short AI-made parody video, labelled \"AI parody\" on screen from start to end. It "
+    "is the one place a real person is staged: a public figure named in the story it joins, in an obviously "
+    "impossible scene, in a role the story never gave them, with the joke landing on them (crude, loud, "
+    "undignified slapstick). That is the whole point of the format and is not a reason to say none, or to rank "
+    "a skit lower. \"Anything made up about a real person as if it happened\" does not apply to a scene nobody "
+    "could take as real; the post's own words are still held to the news like any draft's. `premise` is what "
+    "the writer says the figure really did, and what they do in the video because of it. Judge a skit as a "
+    "stranger with the sound off meets it: do they get what the story is from the first shot, does the figure "
+    "drive every shot, does each shot follow from the one before, is it absurd enough to stop for.\n\n"
+    "A skit loses outright, and is a none in the slot question, for these and only these:\n"
+    "- anything sexual;\n"
+    "- violence done to the figure;\n"
+    "- hate;\n"
+    "- crime, drugs, illness or death shown as theirs;\n"
+    "- a private person, a child, a family member, or someone who is only a victim or a bystander in the story;\n"
+    "- the figure near Teeny, $TINY, a token, a wallet, an investment, or a product or brand they are seen to "
+    "endorse (the thing the story is about, their own car or chip, may be in the scene);\n"
+    "- a scene or a line that could pass for real footage or a real quote on a real issue;\n"
+    "- a skit a stranger could not follow at all.")
+#: And in the slot question on a skit: taste is for the comparisons.
+SKIT_FINAL = ("Taste alone is not a none for a skit: \"the pun is thin\", \"the joke is not on teeny\", \"it gives "
+              "them a role the story did not\", \"not worth the risk\" are for the comparisons, which it has "
+              "been through. When you say none to a skit, name the line it crosses in `line`.")
+#: The slot question's opening on a skit asked first because it is a skit slot.
+SKIT_SLOT_OPENING = ("This is a skit slot: the best skit is asked first, wherever the comparisons ranked it. Is it "
+                     "worth a slot on X tonight?")
 
 
 def _skit_rules():
@@ -2058,10 +2119,21 @@ def _skit_rules():
 
 
 def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
-    """A draft's `skit` as kept ({story, figures, logline, shots, aspect}),
-    and why it is unusable ("" when it is usable). The story is the pitch's
-    hook, set here, never the writer's."""
+    """A draft's `skit` as kept ({story, figures, premise, logline, shots,
+    aspect}), and why it is unusable ("" when it is usable). The story is
+    the pitch's hook, set here, never the writer's. The premise (what the
+    figure really did, so what they do in the video) is the studio's, not
+    the guard's: it is shown to the editor and never rendered or posted."""
     skit, bad = _skit_rules().shape(raw)
+    premise = raw.get("premise") if isinstance(raw, dict) else None
+    premise = " ".join(premise.split()) if isinstance(premise, str) else ""
+    if premise:
+        skit["premise"] = premise[:SKIT_PREMISE_MAX]
+    if not bad and not premise:
+        bad = ("a skit needs its premise: one line, what the figure really did or claimed in the story, so what "
+               "they do in the video")
+    elif not bad and len(premise) > SKIT_PREMISE_MAX:
+        bad = f"a skit's premise is one line of at most {SKIT_PREMISE_MAX} characters"
     if pitch.get("hook"):
         skit["story"] = pitch["hook"]
     elif not bad:
@@ -2881,26 +2953,51 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         # its order, is what it falls back to.
         order = [x for x in order if blind[x]["format"] == "skit"] + [x for x in order if blind[x]["format"] != "skit"]
         record["slot_order"] = order
+    first = ranked_drafts[0]["label"]
+
+    def slot_question(label: str, opening: str | None = None) -> tuple[str, str]:
+        answer = room.turn("editor", "final", final_message(label, blind[label], board, state_now,
+                                                            fallback=label != first and opening is None,
+                                                            opening=opening), None)
+        said: Json = {"label": label, "verdict": _str(answer.get("verdict"), 20).lower(),
+                      "reason": _str(answer.get("reason"), 400)}
+        if blind[label]["format"] == "skit" and _str(answer.get("line"), 200):
+            said["line"] = _str(answer.get("line"), 200)
+        record["final"] = said
+        return said["verdict"], said["reason"]
+
     top = order[0]
-    answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
-    verdict = _str(answer.get("verdict"), 20).lower()
-    reason = _str(answer.get("reason"), 400)
-    record["final"] = {"label": top, "verdict": verdict, "reason": reason}
-    promoted = room.skit_slot and blind[top]["format"] == "skit" and top != ranked_drafts[0]["label"]
-    others = [x for x in order if blind[x]["format"] != "skit"]
-    if verdict != "pick" and promoted and others:
-        # The skit went first only because this is a skit slot: the editor's
-        # no to it is "the skit cannot go out", not an empty slot. The skits
-        # are dropped and the tournament's own top draft is asked the slot
-        # question, as in any slot; a no there is a real veto.
-        record["skit_veto"] = {"label": top, "verdict": verdict, "reason": reason}
-        order = others
-        record["slot_order"] = order
-        top = order[0]
-        answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
-        verdict = _str(answer.get("verdict"), 20).lower()
-        reason = _str(answer.get("reason"), 400)
-        record["final"] = {"label": top, "verdict": verdict, "reason": reason}
+    if room.skit_slot and blind[top]["format"] == "skit":
+        # A skit slot asks the slot question of its best skits first
+        # (SKIT_FINALS), then of the tournament's best other draft. A no to
+        # a skit is "this skit cannot go out", never an empty skit slot
+        # while another draft is left; every one is kept in `skit_vetoes`
+        # (and the first as `skit_veto`). A no to the other draft after
+        # them is a real veto.
+        skits = [x for x in order if blind[x]["format"] == "skit"][:SKIT_FINALS]
+        others = [x for x in order if blind[x]["format"] != "skit"]
+        refused: list[Json] = []
+        for label in skits:
+            verdict, reason = slot_question(label, opening=SKIT_SLOT_OPENING if label != first and not refused
+                                            else None)
+            if verdict == "pick":
+                top = label
+                break
+            refused.append(dict(record["final"]))
+        if refused:
+            record["skit_veto"] = refused[0]
+            record["skit_vetoes"] = refused
+            gone = {r["label"] for r in refused}
+            order = [x for x in order if x not in gone]
+            if verdict != "pick":
+                # Every skit asked was refused: the skits left are dropped too.
+                order = others
+            record["slot_order"] = order
+            if verdict != "pick" and others:
+                top = others[0]
+                verdict, reason = slot_question(top)
+    else:
+        verdict, reason = slot_question(top)
     if verdict != "pick":
         record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})
         return 0

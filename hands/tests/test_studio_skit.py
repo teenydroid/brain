@@ -29,7 +29,9 @@ SHOTS = [
     {"prompt": "Low-angle close-up, cool rim light: Musk plays chess against the robotaxi's robotic arm and the "
                "board grows to the size of a planet. He mutters: \"best of three.\" Comic timpani."},
 ]
-RAW = {"figures": ["Elon Musk"], "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
+PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
+RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
+       "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "shots": SHOTS, "aspect": "16:9"}
 WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "skit", "hook": "trend:t1", "item": None}
@@ -72,7 +74,17 @@ class FormatTest(unittest.TestCase):
         draft = skit_draft()
         self.assertEqual(draft["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
                                          "shots": [{"prompt": SHOTS[0]["prompt"]}, {"prompt": SHOTS[1]["prompt"]}],
-                                         "aspect": "16:9", "story": "trend:t1"})
+                                         "aspect": "16:9", "story": "trend:t1", "premise": PREMISE})
+
+    def test_a_skit_needs_its_premise_what_they_really_did_and_what_they_do_in_it(self):
+        # 2026-11-19: three skits on "raises" were a pun on a headline word, and
+        # the figure only watched. The premise says the real thing first.
+        for raw in ({k: v for k, v in RAW.items() if k != "premise"}, {**RAW, "premise": "  "},
+                    {**RAW, "premise": ["a list"]}, {**RAW, "premise": "x" * (studio.SKIT_PREMISE_MAX + 1)}):
+            with self.subTest(premise=raw.get("premise")):
+                got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": raw}]}, PITCH, 3)
+                self.assertEqual(got, [])
+                self.assertIn("premise", lost[0]["why"])
 
     def test_the_story_is_the_pitchs_hook_never_the_writers(self):
         got, _ = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": {**RAW, "story": "trend:other"}}]}, PITCH, 3)
@@ -113,7 +125,7 @@ class FormatTest(unittest.TestCase):
 
     def test_the_editor_sees_the_figures_logline_and_shots_never_the_story_id(self):
         shown = studio.shown(skit_draft())
-        self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
+        self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "premise": PREMISE, "logline": RAW["logline"],
                                          "shots": [SHOTS[0]["prompt"], SHOTS[1]["prompt"]]})
         self.assertNotIn("trend:t1", json.dumps(shown))
 
@@ -168,6 +180,91 @@ class FormatTest(unittest.TestCase):
         self.assertIn("no skit", note["no_skit"])
         # Outside a skit slot, the ranking alone decides.
         self.assertEqual(studio.choose_drafted(["p1", "p2", "p3", "p4"], by_id, 3, True)[0], ["p1", "p2", "p3"])
+
+
+class EditorSkitTest(unittest.TestCase):
+    """2026-11-19: the first live skit slot's editor had no word on skits and
+    said no to one for "giving a real person a role the report never gave
+    her" and "the pun is too thin": ordinary-post rules on a labelled parody.
+    Wherever the editor meets a skit it is told what one is and the only
+    lines a skit may not cross."""
+
+    LINES = ("sexual", "violence done to", "hate", "crime, drugs, illness or death", "a private person, a child",
+             "victim or a bystander", "$TINY", "seen to endorse", "real footage or a real quote", "could not follow")
+
+    def test_the_slot_question_on_a_skit_says_what_a_skit_is_and_its_only_lines(self):
+        message = studio.final_message("D1", skit_draft(), {}, [])
+        self.assertIn(studio.SKIT_EDITOR, message)
+        self.assertIn(studio.SKIT_FINAL, message)
+        for bit in ("a role the story never gave them", "the joke landing on them", "is not a reason to say none",
+                    "only these", "Taste alone", *self.LINES):
+            self.assertIn(bit, message)
+        self.assertIn('"line"', message)
+        fallback = studio.final_message("D2", skit_draft(), {}, [], fallback=True)
+        self.assertIn(studio.SKIT_EDITOR, fallback)
+
+    def test_the_slot_question_on_any_other_draft_is_as_it_was(self):
+        post = {"format": "post", "text": "words"}
+        message = studio.final_message("D1", post, {}, [])
+        self.assertNotIn(studio.SKIT_EDITOR, message)
+        self.assertNotIn('"line"', message)
+
+    def test_the_comparisons_say_it_too_when_a_skit_is_in_the_batch(self):
+        post = {"format": "post", "text": "words"}
+        mixed = studio.judge_message([("P1", "D1", "D2")], {"D1": skit_draft(), "D2": post}, {}, [])
+        self.assertIn(studio.SKIT_EDITOR, mixed)
+        plain = studio.judge_message([("P1", "D1", "D2")], {"D1": post, "D2": dict(post)}, {}, [])
+        self.assertNotIn(studio.SKIT_EDITOR, plain)
+
+    def test_the_editors_rubric_leaves_the_labelled_parody_to_the_skit_lines(self):
+        rubric = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text()
+        line = next(x for x in rubric.splitlines() if "made up about a real person" in x)
+        self.assertIn("skit", line)
+        self.assertIn("labelled parody", line)
+
+
+class WriterSkitBriefTest(unittest.TestCase):
+    """2026-11-19: the skits were a pun on a headline word ("raises": the
+    office floats up), the figure only watched, the shots were three pictures
+    with no cause and effect, and nobody who had not read the headline could
+    tell what it was about. The brief and the draft turn now ask for a
+    premise from what the figure did, the figure driving every shot, three
+    beats, and continuity restated in every shot."""
+
+    def brief(self):
+        text = (REPO / "brain" / "agents" / "writer.md").read_text()
+        return text[text.index("## skits"):text.index("## before and after")]
+
+    def test_the_brief_asks_for_a_premise_three_beats_and_continuity(self):
+        brief = self.brief()
+        for bit in ("**A premise, not a pun.**", "**They drive every shot.**", "**Three beats", "sound off",
+                    "**Say it again in every shot.**", "**One action a shot.**", "six words"):
+            self.assertIn(bit, brief)
+        # One short contrast drawn from the pun failure, on another story.
+        self.assertIn("Bad:", brief)
+        self.assertIn("Good:", brief)
+        self.assertNotIn("raises", brief.lower())
+        self.assertNotIn("kress", brief.lower())
+
+    def test_every_worked_example_names_its_premise_and_its_figure_in_every_shot(self):
+        for block in self.brief().split("Skit, joining the news.")[1:]:
+            premise = re.search(r"> premise: (.*)", block)
+            self.assertIsNotNone(premise, block[:80])
+            self.assertIn(", so ", premise.group(1))
+            shots = re.findall(r"> shot: (.*)", block)
+            figure = re.search(r"> before: (?:\w+'s )?([A-Z]\w+ [A-Z]\w+)", block).group(1)
+            self.assertEqual(len(shots), 3, figure)
+            for shot in shots:
+                # The model renders each shot alone: the full name every time.
+                self.assertIn(figure, shot)
+                spoken = re.findall(r'"([^"]+)"', shot)
+                self.assertLessEqual(len(spoken), 1, shot)
+                self.assertTrue(all(len(line.split()) <= 7 for line in spoken), spoken)
+
+    def test_the_draft_turn_carries_the_premise_and_the_beats(self):
+        message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
+        for bit in ('"premise"', "not a pun", "drives every shot", "sound off", "full name", "six words"):
+            self.assertIn(bit, message)
 
 
 class Scripted(studio.Room):
@@ -508,6 +605,87 @@ class SkitVetoRunTest(unittest.TestCase):
         code, out = studio.run(self.args, self.env, ask=ask)
         self.assertEqual(out["outcome"], "vetoed")
         self.assertEqual(len(self.finals), 2)
+
+
+SECOND = {"figures": ["Elon Musk"], "premise": "musk said the car drives itself, so it drives off without him",
+          "logline": "elon musk chases his own robotaxi across the ocean floor after it leaves the launch without him",
+          "shots": [{"prompt": "Wide shot on a glossy launch stage: Elon Musk in a silver tuxedo pulls a sheet off a "
+                               "chrome robotaxi, and it drives away on its own while he is still bowing."},
+                    {"prompt": "Underwater wide shot, god rays: Elon Musk in a silver tuxedo and a brass diving helmet "
+                               "runs across the ocean floor after the chrome robotaxi, waving the sheet."}],
+          "aspect": "16:9"}
+SECOND_WORDS = "tesla's robotaxi is meant to drive itself, so my cartoon has it ditch him at the start. parody"
+
+
+class NextSkitRunTest(unittest.TestCase):
+    """A skit slot whose first skit the editor refuses tries its next skit
+    before any other format, every refusal kept (`skit_vetoes`, and the
+    first as `skit_veto` for the readers that had only it); a no to a skit
+    never leaves a skit slot empty while another draft is left."""
+
+    setUp = SkitSlotRunTest.setUp
+    tearDown = SkitSlotRunTest.tearDown
+
+    def ask_with(self, slot_answer, skits_win=False):
+        self.finals = []
+
+        def ask(root, agent, message, thread, model, secs):
+            step = message.split("\n", 1)[0]
+            if step == "# studio: draft" and '"format": "skit"' in message:
+                return 0, json.dumps({"drafts": [{"text": WORDS, "skit": RAW, "meaning": "m"},
+                                                 {"text": SECOND_WORDS, "skit": SECOND, "meaning": "m"}]}), ""
+            if step == "# studio: compare" and skits_win:
+                pairs = re.findall(r"^- (P\d+): (D\d+) or (D\d+)$", message, re.M)
+                verdicts = [{"pair": pid, "winner": a if '"' + a + '": {"format": "skit"' in message else b,
+                             "rule": 1, "why": "x"} for pid, a, b in pairs]
+                return 0, json.dumps({"verdicts": verdicts}), ""
+            if step == "# studio: the slot":
+                which = "first" if RAW["logline"] in message else "second" if SECOND["logline"] in message else "post"
+                self.finals.append(which)
+                return 0, json.dumps(slot_answer(which)), ""
+            return SkitSlotRunTest.ask(self, root, agent, message, thread, model, secs)
+        return ask
+
+    def record(self):
+        return json.loads((self.root / "state" / "studio" / "runs.jsonl").read_text().splitlines()[-1])
+
+    def test_a_refused_skit_hands_the_slot_to_the_next_skit(self):
+        refuse = {"verdict": "none", "reason": "a scene that could pass for a real launch", "line": "real footage"}
+        # The first skit asked is refused, the next one picked.
+        ask = self.ask_with(lambda which: refuse if len(self.finals) == 1 else {"verdict": "pick", "reason": "r"})
+        code, out = studio.run(self.args, self.env, ask=ask)
+        self.assertEqual((code, out["outcome"]), (0, "picked"), out)
+        record = self.record()
+        self.assertEqual(len(self.finals), 2)
+        self.assertEqual(set(self.finals), {"first", "second"})
+        self.assertEqual(record["pick"]["format"], "skit")
+        self.assertEqual(record["skit_veto"]["reason"], refuse["reason"])
+        self.assertEqual(record["skit_veto"]["line"], "real footage")
+        self.assertEqual([v["label"] for v in record["skit_vetoes"]], [record["skit_veto"]["label"]])
+        self.assertNotIn(record["skit_veto"]["label"], record["slot_order"])
+        self.assertEqual(record["publish"]["attempts"][0]["format"], "skit")
+
+    def test_every_skit_refused_falls_back_to_the_other_formats(self):
+        ask = self.ask_with(lambda which: {"verdict": "pick" if which == "post" else "none", "reason": "flat"})
+        code, out = studio.run(self.args, self.env, ask=ask)
+        record = self.record()
+        self.assertEqual(self.finals[-1], "post")
+        self.assertEqual(sorted(self.finals[:2]), ["first", "second"])
+        self.assertEqual(len(record["skit_vetoes"]), 2)
+        self.assertEqual(record["skit_veto"], record["skit_vetoes"][0])
+        self.assertEqual((record["pick"]["format"], record["final"]["verdict"]), ("post", "pick"))
+        self.assertNotIn("skit", [a["format"] for a in record["publish"]["attempts"]])
+
+    def test_a_no_to_the_tournaments_own_top_skit_does_not_empty_a_skit_slot(self):
+        # Before: the promoted skit fell back, but a skit that won the
+        # comparisons outright and was refused ended the slot empty.
+        ask = self.ask_with(lambda which: {"verdict": "pick" if which == "post" else "none", "reason": "flat"},
+                            skits_win=True)
+        code, out = studio.run(self.args, self.env, ask=ask)
+        record = self.record()
+        self.assertEqual(record["ranking"][0]["label"], record["skit_vetoes"][0]["label"])
+        self.assertEqual((out["outcome"], record["pick"]["format"]), ("picked", "post"))
+        self.assertEqual(len(self.finals), 3)
 
 
 class LiveRoomDryHandTest(unittest.TestCase):
