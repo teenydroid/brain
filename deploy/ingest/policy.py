@@ -206,9 +206,9 @@ def _published(info: dict) -> str | None:
 
 
 def _video_id(value: Any) -> str:
-    if not isinstance(value, (str, int)) or isinstance(value, bool) or not VIDEO_ID.fullmatch(str(value)) or str(value) in (".", ".."):
+    if not isinstance(value, str) or not VIDEO_ID.fullmatch(value) or value in (".", ".."):
         raise RequestError("the video has no usable id")
-    return str(value)
+    return value
 
 
 def _own_url(info: dict, fallback: str) -> str:

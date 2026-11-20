@@ -182,7 +182,7 @@ class ProbeFieldsTest(unittest.TestCase):
         self.assertEqual(got, {"source": "youtube", "video_id": "dQw4w9WgXcQ",
                                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Title",
                                "uploader": "Chan", "seconds": 212.4, "views": 12, "age_limit": 0, "live": False,
-                               "category": "Music", "published_at": "2026-11-17T00:26:40Z", "width": 1920,
+                               "category": "Music", "published_at": "2026-11-18T11:06:40Z", "width": 1920,
                                "height": 1080})
 
     def test_missing_fields_are_null_and_a_foreign_page_url_is_not_taken(self):
@@ -211,7 +211,7 @@ class ListingEntryTest(unittest.TestCase):
                                     "timestamp": 1_795_000_000})
         self.assertEqual(got, {"url": "https://www.tiktok.com/@someone/video/7300", "video_id": "7300",
                                "title": "hi", "uploader": "someone", "seconds": 12, "views": 99,
-                               "published_at": "2026-11-17T00:26:40Z"})
+                               "published_at": "2026-11-18T11:06:40Z"})
 
     def test_an_entry_off_the_list_or_without_an_id_is_dropped(self):
         self.assertIsNone(policy.listing_entry({"url": "https://evil.example/v/1", "id": "1"}))
