@@ -71,7 +71,7 @@ SHOTS = [
 RAW = {"figures": ["Jensen Huang"], "premise": "huang calls his chip the fastest ever made, so it cooks itself",
        "logline": "jensen huang tries a kitchen hack with his new chip and the frying pan floats away",
        "cast": [{"ref": "A", "as": "Jensen Huang"}, {"ref": "B", "as": "extra"}], "shots": SHOTS}
-WORDS = "nvidia's boss calls his new chip the fastest ever made. so i remade kitchen hack fail by chef with him in it"
+WORDS = "nvidia's boss says his new chip beats every other one. so i remade kitchen hack fail by chef, starring him"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "remake", "hook": "trend:t1",
          "item": "chart:tt:v1"}
 LABEL = "AI parody · @teenydroid"
@@ -344,11 +344,14 @@ class ProducerTest(unittest.TestCase):
         self.assertFalse([c for c in calls if c.startswith("video")])
         self.assertIn("not enough of the run's time", attempt["result"])
 
-    def test_the_keys_wait_is_what_the_total_leaves(self):
+    def test_at_the_time_floor_a_remake_still_gets_its_keys_and_its_video(self):
+        # min(300, total - 240) is 300 whenever the 540 s floor holds.
         room = _producer_room()
-        room.cfg.remake_secs = 600
-        self.go(room)
-        self.assertEqual(self.body(room, "video remake-keys")["wait_seconds"], 600 - 240)
+        room.cfg.budget_secs = studio.SKIT_RESERVE_SECS + studio.SKIT_CUT_SECS + studio.REMAKE_MIN_SECS + 10
+        result, _, calls = self.go(room)
+        self.assertEqual(result, "posted")
+        self.assertEqual(self.body(room, "video remake-keys")["wait_seconds"], studio.REMAKE_KEYS_SECS)
+        self.assertGreaterEqual(self.body(room, "video remake")["wait_seconds"], 120)
 
     def test_keys_that_ate_the_time_stop_before_the_video(self):
         room = _producer_room()
@@ -445,8 +448,9 @@ class VideoFallbackTest(unittest.TestCase):
         self.assertEqual(tried, ["S1", "P1"])
 
     def test_the_failed_videos_use_none_of_the_fallback_budget(self):
-        out, tried = self.publish(["S1", "R1", "P1", "P2"], {"S1": "next", "R1": "next", "P1": "next"})
-        self.assertEqual(tried, ["S1", "R1", "P1", "P2"])
+        # Without the exemption S1 and R1 would spend it, and P1 would never be reached.
+        out, tried = self.publish(["S1", "R1", "P2", "P1"], {"S1": "next", "R1": "next", "P2": "next"})
+        self.assertEqual(tried, ["S1", "R1", "P2", "P1"])
         self.assertEqual(out["outcome"], "would_post")
 
 
