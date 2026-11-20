@@ -42,9 +42,8 @@ from the seed when there is none (a fresh checkout, the first boot) and
 never touches either once the live page exists.
 
 LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
-in the dark until the world trips them, and narrative/VOICE.md and
-EDITOR.md are prompts for other workflows (the terminal episodes, the
-editor); none of them is copied.
+in the dark until the world trips them, and EDITOR.md belongs to a separate workflow. The studio writer also reads
+narrative/VOICE.md, shared with the terminal episodes and the backroom.
 
 Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
@@ -447,7 +446,7 @@ def render_studio(brain: Path, agent: str, instructions: str) -> str:
     DRIVE.md and CHARTER.md; the writer writes."""
     parts = [instructions, reader(brain)]
     if agent == "writer":
-        parts += [studio_craft(brain), studio_lore(brain)]
+        parts += [_read(brain / "narrative" / "VOICE.md"), studio_craft(brain), studio_lore(brain)]
     else:
         parts += [studio_editor(brain), studio_lore(brain, ())]
     return "\n\n".join(part for part in parts if part) + "\n"

@@ -367,6 +367,10 @@ def make_room(idea: str, fmt: str, turns: int, brain: Path, models: dict[str, st
     table = idea + (fill(WILDCARD, premise=str(wildcard.get("premise") or "")) if wildcard else "")
     systems = {name: fill(text, idea=table, format=f"{fmt}: {what}", lore=lore, format_rules=rules)
                for name, text in agent_prompts(brain).items()}
+    voice = prompts._read(brain / "narrative" / "VOICE.md")
+    if voice:
+        for role in ("dreamer", "distiller"):
+            systems[role] += "\n\n" + voice
     return Room(idea=idea, fmt=fmt, turns=turns, models=models, systems=systems, wildcard=wildcard)
 
 
