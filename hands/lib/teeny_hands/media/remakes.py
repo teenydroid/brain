@@ -1,45 +1,59 @@
-"""Remakes: a popular short re-made shot by shot with public figures and
-Teeny as a bystander, by keyframe swap, bought on Surplus and cut with the
-source's own audio and a burned-in label (docs/hands.md, "video").
+"""Remakes: a popular short re-made with public figures and Teeny as a
+bystander, as ONE take: one keyframe (the source's first frame edited into
+the new cast plus Teeny), one image-to-video job for the whole remake from a
+script of every shot's time range, the sound made with the picture, cut
+to the source's length with a burned-in label (docs/hands.md, "video").
 
-  hands/video remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
-  hands/video remake      {remake_id, sound, wait_seconds?}
-  hands/video remake-drop {remake_id}                  -> {remake_id, released_usd}
+  hands/video remake keys   {study, source, story, figures?, logline, aspect?, one_setting?, shots, wait_seconds?}
+  hands/video remake render {remake_id, sound, wait_seconds?}
+  hands/video remake drop   {remake_id}                  -> {remake_id, released_usd}
+  (the old verbs remake-keys, remake and remake-drop are aliases)
 
-A sibling of the skit (media/skits.py). hands/remake study has already cut
-the source into shots and written each shot's first frame and the source's
-audio under state/media/remake/<study>/; bin/studio's `remake` format calls
-these verbs only after the remake passed its hard lines, and between them
-looks at the keyframes (the cheap money) before the clips (the expensive
-money) are bought. Like the skit, this hand makes no judgment of its own
-about the words; what it holds, in code:
+A sibling of the skit (media/skits.py), and one take for the same reason
+(#405): jobs made apart remember nothing of each other, so a face, a set or
+a prop drifts from one to the next. hands/remake study has already cut the
+source into shots and written their first frames and the source's audio
+under state/media/remake/<study>/; bin/studio's `remake` format calls these
+verbs only after the remake passed its hard lines, and between them looks
+at the keyframe (the cheap money) before the take (the expensive money) is
+bought. Like the skit, this hand makes no judgment of its own about the
+words; what it holds, in code:
 
 - **Off by default.** `MEDIA_REMAKE_MAX_PER_DAY` is 0 unless the operator
   sets it; and a remake is one of the `MEDIA_SKIT_MAX_PER_DAY` videos a day
   that skits and remakes share (a remake or a skit that bought anything
   counts, even one that failed after). Both must allow it, or nothing is
   asked of anyone (`off`, `per_day`).
-- **The money fences.** The runway tier; every shot reserves
-  `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.20) on its row under the media lock
-  before anything is bought, and all of them must fit under the shared
-  `MEDIA_MAX_USD_PER_DAY` with everything else bought today (`budget`). A
-  keyframe books its catalog estimate on a `key` row (an edit carries no
-  quote and no bill; an unknown price books KEY_UNKNOWN_MICRO, the dearest
-  edit measured) and lowers its shot's reservation by the same amount, so
-  the clip may cost only what is left: an image-to-video job whose
-  `max_cost_usdc` is over that is cancelled and the next model asked.
-- **Two verbs, one set of words.** remake-keys stores everything the render
-  needs (the motion prompts, the source shots' lengths, the aspect, the
-  keyframes, the study) on its rows; remake takes only the remake's id, its
-  sound and a wait, so it can never be handed words nobody screened. It
-  refuses an id that is unknown, already rendered or being rendered,
-  failed, or older than STALE_SECONDS (2 hours), and a sound that is not
+- **The money fences.** The runway tier; the remake reserves
+  `MEDIA_REMAKE_MAX_USD_PER_TAKE` ($4.00: Wan 3's 15 s at 720p can cost
+  $3.51) on the take's row under the media lock before anything is bought,
+  under the shared `MEDIA_MAX_USD_PER_DAY` with everything else bought today
+  (`budget`). The keyframe books its catalog estimate on a `key` row (an edit
+  carries no quote and no bill; an unknown price books KEY_UNKNOWN_MICRO,
+  the dearest edit measured) and comes off that reservation, so the take may
+  cost only what is left: a length whose verified ceiling
+  (REMAKE_MAX_PER_SECOND) cannot fit is never asked, and a job whose
+  `max_cost_usdc` is over it is cancelled and the next model asked.
+- **No mix of jobs.** A take no one-take model can make fails the remake:
+  the reservation released, the key's cost kept. Only with
+  `MEDIA_REMAKE_PER_SHOT=1` (off by default) is every shot keyed and, when
+  the take cannot be had (unbilled, inside the wait), the remake made a clip
+  a shot instead, each shot holding `MEDIA_REMAKE_MAX_USD_PER_SHOT` ($1.40)
+  less its key, the take's row swapped for theirs in one transaction under
+  the media lock (the claim held the larger of the two, so the money held
+  never rises).
+- **Two verbs, one set of words.** remake keys stores everything the render
+  needs (each shot's motion, edit, length and cut, the aspect, the key, the
+  study) on its rows; remake render takes only the remake's id, its sound
+  and a wait, so it can never be handed words nobody screened. It refuses
+  an id that is unknown, already rendered or being rendered, failed, or
+  older than STALE_SECONDS (2 hours), and a sound that is not
   state/media/remake/<that remake's study>/audio.m4a.
-- **Keys bought, never rendered.** remake-drop lets a keyed remake go at
-  once (the studio turned its keyframes down); one left pending past
+- **Keys bought, never rendered.** remake drop lets a keyed remake go at
+  once (the studio turned its keyframe down); one left pending past
   STALE_SECONDS is let go by the next media budget check
   (assets.release_stale: images, videos, skits, remakes). Either way its
-  keys keep what they cost on the ledger, a shot never submitted gives its
+  key keeps what it cost on the ledger, a take never submitted gives its
   reservation back, and one that was submitted (a render whose process
   died) is `unknown` and keeps what it may cost.
 - **Midnight.** The rows are dated when the keys are bought: a remake
@@ -50,42 +64,63 @@ about the words; what it holds, in code:
 - **The label.** skits.label(), "AI parody · @<X_BOT_USERNAME>", set here,
   never by the caller, and checked on the cut as for a skit.
 
-The keys: each source frame and Teeny's character sheet go to
-`POST /v1/images/edits` as `images: [frame, sheet]` (two data URIs), with a
-prompt this hand frames around the writer's `edit`: what the two images
-are, the edit, Teeny's clause (assets.CHARACTER, then "Exactly one Teeny,"
-and the shot's `teeny`), and `MEDIA_REMAKE_STYLE` (STYLE by default). The
-models are `MEDIA_REMAKE_EDIT_MODELS` in order; a content refusal (Surplus
-answers 400 `request_rejected`, "violates the content policy") or a seller's
-trouble moves the shot to the next, at most MAX_EDIT_ATTEMPTS edits a shot;
-any other refusal (no credit) stops the remake. An edit is held to what is
-left of its shot's cap, and starts only while EDIT_TIMEOUT is left of
-`MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one that gets no answer may still
-be made and billed, so it is booked as bought (`unknown`). The shots' edits
-run in parallel; one shot that cannot be keyed stops the others from
-trying again, and the remake fails.
+The remake runs TOTAL_SECONDS (3 to 30), the sum of its shots' (1 to 10
+each, 1 to 6 shots); only shot 1's frame is read (all of them with
+MEDIA_REMAKE_PER_SHOT=1).
 
-The render: one `POST /v1/video/generations` a shot with {model, prompt:
-the shot's `motion` and MOTION_TAIL, image_url: the keyframe,
-duration_seconds}, plus REMAKE_PARAMS (venice-wan-3-0: resolution
-`MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and audio only
-when the cut keeps the clips' sound) under `MEDIA_REMAKE_PARAMS`, on the
-first of `MEDIA_REMAKE_MODELS` that takes it (venice-wan-3-0 first: it sells
-2, 5, 10, 15 to 30 s), asked for the shortest length the model sells that
-covers the source shot (a model that sells none, or whose verified ceiling
-for it, REMAKE_MAX_PER_SECOND, cannot fit what is left of the shot's cap,
-moves the shot on unasked), and polled, landed and cancelled by
-media/shots.py as a skit's shots are (`MEDIA_SKIT_WAIT_SECONDS`). Verified on Surplus
-(2026-11-20): kling-v3-standard-image-to-video takes a keyframe with a real
-face, 5 s quoted $0.49 (ceiling $0.98) and billed $0.49. The cut: each clip
-trimmed to its source shot (`trims`), the source's audio as the only sound
-(`sound`; with none, or MEDIA_REMAKE_SOUND=0, each clip keeps its own,
-trimmed), and the label (deploy/reel/skitcut.py).
+The key: shot 1's frame and Teeny's character sheet go to
+`POST /v1/images/edits` as `images: [frame, sheet]` (two data URIs) with the
+remake's `aspect_ratio`, and a prompt this hand frames around the writer's
+`edit`: what the two images are, the edit, Teeny's clause
+(assets.CHARACTER, then "Exactly one Teeny," and the shot's `teeny`), and
+`MEDIA_REMAKE_STYLE` (STYLE by default). A keyframe more than SHAPE_SLACK
+off the remake's shape is bought and no use: booked, and the next model
+asked. The models are `MEDIA_REMAKE_EDIT_MODELS` in order; a content refusal
+(Surplus answers 400 `request_rejected`, "violates the content policy") or a
+seller's trouble moves to the next, at most MAX_EDIT_ATTEMPTS edits a shot;
+any other refusal (no credit) stops the remake. An edit is held to what is
+left of its cap, and starts only while EDIT_TIMEOUT is left of
+`MEDIA_REMAKE_KEYS_WAIT_SECONDS` (300); one that gets no answer may still
+be made and billed, so it is booked as bought (`unknown`). With the per-shot
+fallback, the shots' edits run in parallel and one shot that cannot be
+keyed stops the others.
+
+The take: one `POST /v1/video/generations` {model, prompt: take_script,
+image_url: the key, duration_seconds} plus REMAKE_PARAMS (venice-wan-3-0:
+resolution `MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and
+`audio`: true unless the source's audio replaces the take's) under
+`MEDIA_REMAKE_PARAMS`, on the first of `MEDIA_REMAKE_ONE_TAKE_MODELS`
+(venice-wan-3-0, then wan-2-7 image-to-video) that takes it, asked for the
+shortest length the model sells that covers the whole remake (Wan 3 sells 2,
+5, 10, 15 to 30 s), and polled, landed and cancelled by media/shots.py
+(`MEDIA_SKIT_WAIT_SECONDS`). The script (take_script, the style of the
+skit's guard/skit.py `script`): one continuous take, no cuts, locked-off
+camera (hard cuts only into a shot marked `cuts`, or between every shot
+with `one_setting: false`); each shot's time range in the source's seconds
+with its motion, and after the first what the scene now shows (its edit),
+the last range running to the take's end; then TAKE_TAIL. Made by hand on
+2026-11-21: Wan 3 image-to-video, 15 s at 720p, quoted $1.52 (ceiling
+$3.51), done in 285 s, followed the time ranges and held the face, set and
+props. The sound: by default the model's own, asked for with the picture
+(`audio: true`, and SOUND_LINE in the script), so a quoted line is spoken
+or sung by the mouth that makes it; with `MEDIA_REMAKE_SOUND=1` the
+source's audio is laid over instead (`audio: false`), which did not
+lip-sync (2026-11-20: a mouth generated to a script and someone else's
+voice). Wan 3 made the voice in the same job, and a transcription of the
+cut returned the script's sung line. A `sound` sent is checked either way
+and used only with the setting on. The cut: the one clip trimmed to the
+remake's length (`trims`), with the take's sound or the source's
+(`sound`), and the label
+(deploy/reel/skitcut.py). The per-shot fallback is the render this hand
+made before one take: a job a shot from each shot's key, `MEDIA_REMAKE_MODELS`
+in order, each clip trimmed to its shot.
 
 The ledger: a `remake` row (cost 0; its `detail` holds the study, source,
-story, figures, logline, aspect, label, the shots' words and lengths, the
-keys, and once cut the frames and what it all cost), a `key` row a bought
-keyframe and a `shot` row a clip, each `source_id` the remake's row.
+story, figures, logline, aspect, label, the shots' words, lengths and cuts,
+the keys, whether it was one take, and once cut the frames and what it all
+cost), a `key` row a bought keyframe, and one `shot` row for the take
+(`detail.one_take`; with the fallback, then a `shot` row a clip), each
+`source_id` the remake's row.
 
 DRY_RUN (on by default) answers what would be made and calls nothing.
 """
@@ -113,6 +148,27 @@ EDIT_MODELS = "nano-banana-2-edit,seedream-v5-pro-edit,muse-image-edit"
 REMAKE_MODELS = ("venice-wan-3-0-image-to-video,wan-2-7-image-to-video,kling-v3-standard-image-to-video,"
                  "kling-v3-pro-image-to-video,veo3-1-fast-image-to-video")
 MAX_SHOTS = 6
+#: The models a remake's one take is asked of, in order
+#: (MEDIA_REMAKE_ONE_TAKE_MODELS). venice-wan-3-0 image-to-video made a 15 s
+#: take from one keyframe on 2026-11-21 following a script's time ranges,
+#: the face, set and props held throughout.
+ONE_TAKE_MODELS = "venice-wan-3-0-image-to-video,wan-2-7-image-to-video"
+#: What a take reserves by default (MEDIA_REMAKE_MAX_USD_PER_TAKE): Wan 3's
+#: 15 s at 720p quoted max $3.51 (estimate $1.52) on 2026-11-21.
+PER_TAKE = "4.00"
+#: The take's script ends with this, the hand's, after the writer's words.
+TAKE_TAIL = ("The small yellow character stays where it is the whole time and only watches. The person on screen "
+             "never looks at the yellow character. Realistic motion. No text, no captions, no logos.")
+#: When the take makes its own sound (the default), the script says so: a
+#: mouth generated to a script and someone else's audio laid over it did not
+#: lip-sync (2026-11-20), and Wan 3 sang the script's line in the same job.
+SOUND_LINE = ("The film has natural synchronised sound: any quoted line is spoken or sung by the person on screen "
+              "with matching lip movement, and there is no music unless the motion says so.")
+#: A remake's whole length, the sum of its source shots, in seconds.
+TOTAL_SECONDS = (3.0, 30.0)
+#: What a shot reserves by default (MEDIA_REMAKE_MAX_USD_PER_SHOT): a $0.10
+#: key and Wan 3's 5 s ceiling ($1.17 at 720p) fit; six shots hold $8.40.
+PER_SHOT = "1.40"
 MAX_EDIT_ATTEMPTS = 2
 #: What a keyframe of unknown price books: nano-banana-2-edit's $0.10, the
 #: dearest edit measured (2026-11-20).
@@ -185,7 +241,8 @@ def keys_of(body: Any) -> Json:
     """remake-keys' job as this hand takes it, every field checked."""
     if not isinstance(body, dict):
         raise hand.Refused("remake-keys takes a JSON object", rule="body")
-    unknown = sorted(set(body) - {"study", "source", "story", "figures", "logline", "aspect", "shots", "wait_seconds"})
+    unknown = sorted(set(body) - {"study", "source", "story", "figures", "logline", "aspect", "shots", "wait_seconds",
+                                  "one_setting"})
     if unknown:
         raise hand.Refused(f"not taken here: {', '.join(unknown)}", rule="body")
     study = body.get("study")
@@ -206,27 +263,43 @@ def keys_of(body: Any) -> Json:
     given = body.get("shots")
     if not isinstance(given, list) or not 1 <= len(given) <= MAX_SHOTS:
         raise hand.Refused(f"a remake is 1 to {MAX_SHOTS} shots", rule="body")
+    one_setting = body.get("one_setting")
+    if one_setting is not None and not isinstance(one_setting, bool):
+        raise hand.Refused("one_setting is true or false", rule="body")
     kept = []
     for n, item in enumerate(given, 1):
         if not isinstance(item, dict):
             raise hand.Refused(f"shot {n} is an object", rule="body")
-        extra = sorted(set(item) - {"n", "frame", "seconds", "edit", "motion", "teeny"})
+        extra = sorted(set(item) - {"n", "frame", "seconds", "edit", "motion", "teeny", "cuts"})
         if extra:
             raise hand.Refused(f"shot {n}: not taken here: {', '.join(extra)}", rule="body")
         if item.get("n") != n or isinstance(item.get("n"), bool):
             raise hand.Refused(f"shot {n} is numbered {n}: the shots go 1 to N in order", rule="body")
-        if item.get("frame") != frame_path(study, n):
+        # Only shot 1's frame is keyed for the one take; the others' are
+        # taken when sent (the per-shot fallback keys them all) and never
+        # needed otherwise.
+        if (n == 1 or "frame" in item) and item.get("frame") != frame_path(study, n):
             raise hand.Refused(f"shot {n}'s frame is {frame_path(study, n)}", rule="body")
+        cuts = item.get("cuts")
+        if cuts is not None and not isinstance(cuts, bool):
+            raise hand.Refused(f"shot {n}'s cuts is true or false", rule="body")
         seconds = item.get("seconds")
         if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not (
                 SHOT_SECONDS[0] <= seconds <= SHOT_SECONDS[1]):
             raise hand.Refused(f"shot {n}'s seconds is {SHOT_SECONDS[0]} to {SHOT_SECONDS[1]}", rule="body")
         teeny = item.get("teeny", "")
-        kept.append({"n": n, "seconds": round(float(seconds), 3),
+        # A hard cut into this shot: its own `cuts`, else the shots are in
+        # different settings (one_setting false); one continuous take by default.
+        cut = n > 1 and (cuts if cuts is not None else one_setting is False)
+        kept.append({"n": n, "seconds": round(float(seconds), 3), "cut": cut,
                      "edit": _words(item.get("edit"), f"shot {n}'s edit", *EDIT_CHARS),
                      "motion": _words(item.get("motion"), f"shot {n}'s motion", *MOTION_CHARS),
                      "teeny": _words(teeny, f"shot {n}'s teeny", 0, TEENY_CHARS)})
-    return {"study": study, "source": {k: source[k].strip() for k in SOURCE_FIELDS},
+    total = round(sum(s["seconds"] for s in kept), 3)
+    if not TOTAL_SECONDS[0] <= total <= TOTAL_SECONDS[1]:
+        raise hand.Refused(f"a remake runs {TOTAL_SECONDS[0]:g} to {TOTAL_SECONDS[1]:g} seconds; these shots run "
+                           f"{total:g}", rule="body")
+    return {"study": study, "source": {k: source[k].strip() for k in SOURCE_FIELDS}, "total": total,
             "story": _words(body.get("story"), "story", 1, STORY_CHARS), "figures": [f.strip() for f in figures],
             "logline": _words(body.get("logline"), "logline", 1, skits.MAX_LOGLINE), "aspect": aspect,
             "shots": kept, "wait": _wait(body)}
@@ -261,6 +334,66 @@ def edit_prompt(shot: Json) -> str:
 
 def motion_prompt(motion: str) -> str:
     return f"{motion} {MOTION_TAIL}"
+
+
+def _secs(value: float) -> str:
+    return f"{round(value, 2):g}"
+
+
+def source_sound_on() -> bool:
+    """MEDIA_REMAKE_SOUND: 1 lays the source's audio over the video (and
+    asks the model for none); 0, the default, keeps the sound the model
+    makes with the picture, so the mouths match it."""
+    return hand.flag("MEDIA_REMAKE_SOUND", False)
+
+
+def take_script(remake_shots: list[Json], length: int, model_sound: bool = True) -> str:
+    """The one take's prompt, built by the hand around the writer's words
+    (the style of guard/skit.py's `script` and of the take made by hand on
+    2026-11-21): the whole length and whether it cuts; each shot's time
+    range, in the source's own seconds, with its motion (and, after the
+    first, what the scene now shows: its edit), the last running to the
+    take's end, which the cut trims; SOUND_LINE when the model makes the
+    sound; then TAKE_TAIL."""
+    count = len(remake_shots)
+    if any(s.get("cut") for s in remake_shots[1:]):
+        parts = [f"A {length} second film in {count} shots, hard cuts only where marked, the same people, props and "
+                 "look throughout."]
+    else:
+        parts = [f"One continuous {length} second take, no cuts, locked-off camera."]
+    at = 0.0
+    for index, shot in enumerate(remake_shots):
+        end = length if index == count - 1 else at + shot["seconds"]
+        words = "Hard cut. " if index and shot.get("cut") else ""
+        if index:
+            words += f"The scene now shows: {shot['edit'].rstrip('. ')}. "
+        motion = shot["motion"].rstrip()
+        words += motion if motion.endswith((".", "!", "?")) else motion + "."
+        parts.append(f"{_secs(at)} to {_secs(end)} seconds: {words}")
+        at += shot["seconds"]
+    if model_sound:
+        parts.append(SOUND_LINE)
+    parts.append(TAKE_TAIL)
+    return " ".join(parts)
+
+
+def take_plan(remake_shots: list[Json], cap: int, clip_sound: bool) -> shots.Plan:
+    """The one take: image-to-video from shot 1's keyframe, the script for
+    the length bought, the shortest length on sale that covers the whole
+    remake, never one whose verified ceiling cannot fit `cap`."""
+    return shots.Plan(prefix="remake", key="teeny-remake", style=None, params="MEDIA_REMAKE_PARAMS",
+                      body=lambda model, prompt, seconds, aspect, params, shot: shots.request_body(
+                          model, take_script(remake_shots, seconds, clip_sound), seconds, aspect,
+                          model_params(model, params, clip_sound), image=shot.image,
+                          resolution_setting="MEDIA_REMAKE_RESOLUTION"),
+                      length=lambda shot, sold: shots.at_least(shot.floor, sold), per_shot=cap,
+                      max_per_second=REMAKE_MAX_PER_SECOND)
+
+
+def per_shot_on() -> bool:
+    """MEDIA_REMAKE_PER_SHOT: when the one take cannot be had, a clip a
+    shot instead (every shot keyed for it). Off: no mix of jobs."""
+    return hand.flag("MEDIA_REMAKE_PER_SHOT", False)
 
 
 def model_params(model: str, params: dict[str, Json], clip_sound: bool) -> dict[str, Json]:
@@ -334,9 +467,11 @@ def _spent_on(conn, remake_id: int) -> int:
                         " AND source_id = ? AND status IN ('done', 'unknown')", (remake_id,)).fetchone()["n"]
 
 
-def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) -> tuple[int, list[int]]:
-    """The caps, then the remake's row and a row a shot carrying its
-    reservation, under the media lock."""
+def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_shot: bool,
+           per_shot_cap: int) -> tuple[int, int]:
+    """The caps, then the remake's row and the take's row carrying the
+    whole reservation, `need`, under the media lock. The keys are paid
+    from it; a per-shot fallback swaps it for a row a shot."""
     with hand.lock("media"):
         conn = assets._db()
         try:
@@ -350,11 +485,10 @@ def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) ->
                                    limit=limit)
             budget = assets._usd("MEDIA_MAX_USD_PER_DAY", "1.00")
             spent = assets._spent_today(conn)
-            need = per_shot * len(job["shots"])
             if spent + need > budget:
                 raise hand.Refused(
-                    f"{len(job['shots'])} shot(s) at up to ${per_shot / 1e6:.2f} each would take today's media spend "
-                    f"past ${budget / 1e6:.2f} (MEDIA_MAX_USD_PER_DAY)",
+                    f"a remake held at up to ${need / 1e6:.2f} would take today's media spend past "
+                    f"${budget / 1e6:.2f} (MEDIA_MAX_USD_PER_DAY)",
                     rule="budget", spent_usd=round(spent / 1e6, 4), budget_usd=budget / 1e6,
                     need_usd=round(need / 1e6, 4))
             with hand.transaction(conn):
@@ -362,17 +496,19 @@ def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) ->
                     "INSERT INTO media_assets (kind, status, prompt, purpose, cost_micro, estimated, created_at)"
                     " VALUES ('remake', 'pending', ?, 'post', 0, 1, ?)", (job["logline"], hand.now()),
                 ).lastrowid
-                rows = [conn.execute(
+                take_row = conn.execute(
                     "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated,"
-                    " created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
-                    (shot["motion"], remake_id, per_shot, hand.now()),
-                ).lastrowid for shot in job["shots"]]
+                    " detail, created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?, ?)",
+                    (take_script(job["shots"], math.ceil(job["total"]), not source_sound_on()), remake_id, need,
+                     json.dumps({"one_take": True, "shots": len(job["shots"]), "total": job["total"]}), hand.now()),
+                ).lastrowid
                 detail = {"stage": "keying", "study": job["study"], "source": job["source"], "story": job["story"],
                           "figures": job["figures"], "logline": job["logline"], "aspect": job["aspect"],
-                          "label": the_label, "shots": [{**shot, "row": row} for shot, row in zip(job["shots"], rows)]}
+                          "label": the_label, "shots": job["shots"], "total": job["total"], "take_row": take_row,
+                          "per_shot": per_shot, "per_shot_cap": per_shot_cap, "need": need}
                 conn.execute("UPDATE media_assets SET detail = ? WHERE id = ?",
                              (json.dumps(detail, ensure_ascii=False, sort_keys=True), remake_id))
-            return remake_id, rows
+            return remake_id, take_row
         finally:
             conn.close()
 
@@ -398,6 +534,41 @@ def _reference() -> str:
     if not path.is_file():
         raise hand.HandError(f"Teeny's reference image is missing ({assets.REFERENCE})")
     return assets._data_uri(path)
+
+
+def size_of(data: bytes) -> tuple[int, int] | None:
+    """(width, height) read from a PNG's or a JPEG's own header; None when
+    it cannot be read."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and len(data) >= 24:
+        width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        return (width, height) if width and height else None
+    if data[:2] == b"\xff\xd8":
+        at = 2
+        while at + 9 < len(data) and data[at] == 0xFF:
+            marker, length = data[at + 1], int.from_bytes(data[at + 2:at + 4], "big")
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height, width = int.from_bytes(data[at + 5:at + 7], "big"), int.from_bytes(data[at + 7:at + 9], "big")
+                return (width, height) if width and height else None
+            if length < 2:
+                return None
+            at += 2 + length
+    return None
+
+
+#: How far a keyframe's width over height may be from the remake's, as a
+#: ratio: 768x1362 for 9:16 is 0.2 % off; 1440x720 is 3.6 times off.
+SHAPE_SLACK = 1.2
+
+
+def shaped(data: bytes, aspect: str) -> bool:
+    """Whether a keyframe is in the remake's shape, near enough for the
+    cut's crop to keep the scene. One whose size cannot be read is taken."""
+    size = size_of(data)
+    if size is None:
+        return True
+    wide, high = (int(n) for n in aspect.split(":"))
+    ratio = (size[0] / size[1]) / (wide / high)
+    return 1 / SHAPE_SLACK <= ratio <= SHAPE_SLACK
 
 
 def _picture(api: Surplus, answer: Any) -> tuple[bytes | None, str | None, str | None]:
@@ -452,7 +623,7 @@ def _refused(exc: SurplusError) -> bool:
 
 
 def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, models: list[str], per_shot: int,
-         price, deadline: float, clock, stop: threading.Event) -> Json:
+         price, deadline: float, clock, stop: threading.Event, aspect: str) -> Json:
     """One shot's keyframe: at most MAX_EDIT_ATTEMPTS edits, model after
     model. {n, path, model, cost} or {n, failed}; _Stop for a refusal every
     model would give. Writes on a connection of its own (it runs in a
@@ -479,8 +650,12 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
                 continue
             attempts += 1
             try:
+                # The remake's own shape is asked for: left to choose, an
+                # edit of a 9:16 frame came back landscape (2026-11-20), and
+                # the cut would then crop the cast out of it.
                 answer = api.call("POST", "/v1/images/edits", {"model": model, "prompt": prompt,
                                                                "images": [frame, reference],
+                                                               "aspect_ratio": aspect,
                                                                "response_format": "b64_json"},
                                   timeout=EDIT_TIMEOUT)
             except SurplusError as exc:
@@ -505,6 +680,13 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
                 left_of_cap -= cost
                 tried.append(f"{model}: {why}")
                 continue
+            if not shaped(data, aspect):
+                # Bought, and no use: the cut would crop the cast out of it.
+                why = "the keyframe came back {}x{}, not {}".format(*size_of(data), aspect)
+                _book(conn, remake_id, shot, model, prompt, cost, None, f"{model}: {why}")
+                left_of_cap -= cost
+                tried.append(f"{model}: {why}")
+                continue
             path = assets._media_dir() / f"remake-{remake_id}-key-{shot['n']}.{ext}"
             path.write_bytes(data)
             rel = str(path.relative_to(hand.root()))
@@ -516,7 +698,7 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
 
 
 def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], reference: str, models: list[str],
-          per_shot: int, wait: int, clock) -> list[Json]:
+          per_shot: int, wait: int, clock, aspect: str) -> list[Json]:
     """Every shot keyed in parallel: one result a shot, in order."""
     prices: dict[str, int] = {}
     pricing = threading.Lock()
@@ -534,7 +716,7 @@ def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], re
     def run(i: int) -> None:
         try:
             results[i] = _key(api, remake_id, specs[i], frames[i], reference, models, per_shot, price, deadline,
-                              clock, stop)
+                              clock, stop, aspect)
         except _Stop as exc:
             results[i] = {"n": specs[i]["n"], "failed": str(exc)}
         except BaseException as exc:  # noqa: BLE001 - reported as the shot's failure
@@ -568,36 +750,53 @@ def _key_costs(conn, remake_id: int) -> int:
                         " AND source_id = ? AND status != 'failed'", (remake_id,)).fetchone()["n"]
 
 
+def _need(take_cap: int, per_shot: int, count: int, per_shot_mode: bool) -> int:
+    """What a remake holds from its claim: the take's cap, or, with the
+    per-shot fallback, enough for a clip a shot too."""
+    return max(take_cap, per_shot * count) if per_shot_mode else take_cap
+
+
 def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock=time.monotonic) -> Json:
     job = keys_of(body)
     the_label = skits.label()
     edit_models = assets._models("MEDIA_REMAKE_EDIT_MODELS", EDIT_MODELS)
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    take_models = assets._models("MEDIA_REMAKE_ONE_TAKE_MODELS", ONE_TAKE_MODELS)
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
+    take_cap = assets._usd("MEDIA_REMAKE_MAX_USD_PER_TAKE", PER_TAKE)
+    per_shot_mode = per_shot_on()
+    need = _need(take_cap, per_shot, len(job["shots"]), per_shot_mode)
+    # One keyframe for the one take; every shot's when the per-shot
+    # fallback may need them.
+    keyed = job["shots"] if per_shot_mode else job["shots"][:1]
     limit, shared = _limits()
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "keys", "shots": len(job["shots"]),
-                "aspect": job["aspect"], "edit_models": edit_models, "models": models, "label": the_label,
-                "max_usd_per_shot": per_shot / 1e6, "reserve_usd": round(per_shot * len(job["shots"]) / 1e6, 4),
+                "seconds": job["total"], "aspect": job["aspect"], "edit_models": edit_models, "models": models,
+                "label": the_label, "max_usd_per_shot": per_shot / 1e6, "reserve_usd": round(need / 1e6, 4),
                 "enabled": limit > 0 and shared > 0,
-                "requests": [{"model": edit_models[0], "prompt": edit_prompt(s),
+                "one_take": {"on": True, "models": take_models, "max_usd": round(take_cap / 1e6, 4),
+                             "per_shot_fallback": per_shot_mode},
+                "requests": [{"model": edit_models[0], "prompt": edit_prompt(s), "aspect_ratio": job["aspect"],
                               "images": [frame_path(job["study"], s["n"]), assets.REFERENCE]}
-                             for s in job["shots"]] if edit_models else []}
+                             for s in keyed] if edit_models else []}
     _check_on(limit, shared)
-    if not edit_models or not models:
-        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_EDIT_MODELS, MEDIA_REMAKE_MODELS)")
+    if not edit_models or not take_models or (per_shot_mode and not models):
+        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_EDIT_MODELS, MEDIA_REMAKE_ONE_TAKE_MODELS, "
+                             "MEDIA_REMAKE_MODELS)")
     wait = hand.number("MEDIA_REMAKE_KEYS_WAIT_SECONDS", 300, 60, 1700)
     if job["wait"] is not None:
         wait = min(wait, job["wait"])
-    frames = [_frame(job["study"], s["n"]) for s in job["shots"]]
+    frames = [_frame(job["study"], s["n"]) for s in keyed]
     reference = _reference()
     _ping(reel)
     api = api or Surplus()
-    remake_id, rows = _claim(job, per_shot, limit, shared, the_label)
-    specs = [{**s, "row": row} for s, row in zip(job["shots"], rows)]
+    remake_id, take_row = _claim(job, need, limit, shared, the_label, per_shot_mode, per_shot)
+    specs = [{**s, "row": take_row} for s in keyed]
     conn = assets._db()
     try:
-        results = _keys(api, remake_id, specs, frames, reference, edit_models, per_shot, wait, clock)
+        results = _keys(api, remake_id, specs, frames, reference, edit_models,
+                        per_shot if per_shot_mode else take_cap, wait, clock, job["aspect"])
         failed = [r for r in results if "failed" in r]
         if failed:
             why = "; ".join(f"shot {r['n']}: {r['failed']}" for r in failed)[:1000]
@@ -608,8 +807,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
                 for r in results]
         row = conn.execute("SELECT * FROM media_assets WHERE id = ?", (remake_id,)).fetchone()
         _set_detail(conn, remake_id, {**_detail(row), "stage": "keys", "keys": keys})
-        reserved = conn.execute("SELECT COALESCE(SUM(cost_micro), 0) AS n FROM media_assets WHERE kind = 'shot'"
-                                " AND source_id = ? AND status = 'pending'", (remake_id,)).fetchone()["n"]
+        reserved = conn.execute("SELECT cost_micro FROM media_assets WHERE id = ?", (take_row,)).fetchone()["cost_micro"]
         return {"remake_id": remake_id, "keys": keys, "reserve_usd": round(reserved / 1e6, 6),
                 "cost_usd": round(sum(r["cost"] for r in results) / 1e6, 6)}
     except BaseException:
@@ -642,7 +840,7 @@ def _sound(ask: Json, study: str) -> str | None:
         raise refusal from None
     if service != f"media/remake/{study}/audio.m4a":
         raise refusal
-    return service if hand.flag("MEDIA_REMAKE_SOUND", True) else None
+    return service if source_sound_on() else None
 
 
 def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
@@ -671,7 +869,8 @@ def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
                 _release(conn, row["id"], "expired: its keys were never rendered")
                 raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
                                    rule="stale")
-            if detail.get("stage") != "keys" or len(detail.get("keys") or []) != len(detail.get("shots") or [1]):
+            wanted = len(detail.get("shots") or [1]) if detail.get("per_shot") else 1
+            if detail.get("stage") != "keys" or len(detail.get("keys") or []) != wanted:
                 raise hand.Refused(f"remake {row['id']}'s keys are not all made", rule="not_ready")
             missing = [k["n"] for k in detail["keys"] if not (hand.root() / k["path"]).is_file()]
             if missing:
@@ -686,8 +885,8 @@ def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
 
 
 def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], clip_sound: bool) -> list[Json]:
-    """For a dry run: the jobs the render would send, read from the ledger
-    (the keyframe named by its path)."""
+    """For a dry run: the one take the render would send, read from the
+    ledger (the keyframe named by its path)."""
     if not models:
         return []
     conn = assets._db()
@@ -696,11 +895,65 @@ def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], cl
     finally:
         conn.close()
     detail = _detail(row) if row else {}
+    if not detail.get("shots"):
+        return []
     keys = {k["n"]: k["path"] for k in detail.get("keys") or []}
-    return [shots.request_body(models[0], motion_prompt(s["motion"]), shots.at_least(s["seconds"], None),
-                               detail.get("aspect", "16:9"), model_params(models[0], job_params, clip_sound),
-                               image=keys.get(s["n"]), resolution_setting="MEDIA_REMAKE_RESOLUTION")
-            for s in detail.get("shots") or []]
+    length = shots.at_least(detail["total"], None)
+    return [shots.request_body(models[0], take_script(detail["shots"], length, clip_sound), length,
+                               detail.get("aspect", "16:9"),
+                               model_params(models[0], job_params, clip_sound), image=keys.get(1),
+                               resolution_setting="MEDIA_REMAKE_RESOLUTION")]
+
+
+def _key_paid(conn, remake_id: int) -> dict[int, int]:
+    """What each shot's keys cost (bought or booked as bought), by shot."""
+    paid: dict[int, int] = {}
+    for key in conn.execute("SELECT cost_micro, detail FROM media_assets WHERE kind = 'key' AND source_id = ?"
+                            " AND status != 'failed'", (remake_id,)).fetchall():
+        try:
+            n = (json.loads(key["detail"] or "{}") or {}).get("n")
+        except ValueError:
+            n = None
+        paid[n] = paid.get(n, 0) + key["cost_micro"]
+    return paid
+
+
+def _swap(conn, remake_id: int, take_row: int, remake_shots: list[Json], per_shot: int, why: str) -> list[int]:
+    """A take that could not be had, for a row a shot, in one transaction
+    under the media lock: each shot reserves the per-shot cap less what its
+    keys cost, all of it within what the take held (claimed as at least a
+    clip a shot's worth), so the money held never rises."""
+    with hand.lock("media"):
+        with hand.transaction(conn):
+            paid = _key_paid(conn, remake_id)
+            conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE id = ?"
+                         " AND status = 'pending'", (why[:1000], hand.now(), take_row))
+            return [conn.execute(
+                "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated, created_at)"
+                " VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
+                (shot["motion"], remake_id, max(per_shot - paid.get(shot["n"], 0), 0), hand.now())).lastrowid
+                for shot in remake_shots]
+
+
+def _take(api: Surplus, conn, job: Json, take: _Shot, plan: shots.Plan, job_params: dict[str, Json],
+          sold: dict[str, list[int]], wait: int, deadline: float, sleep, clock, clip_sound: bool) -> None:
+    """The one take submitted and polled to its end; its row's prompt is
+    the script sent for the length bought."""
+    def submit(shot: _Shot) -> bool:
+        if not shots.submit(api, conn, job["id"], shot, job["aspect"], plan, job_params, sold):
+            return False
+        shots._set(conn, shot.row, prompt=take_script(job["shots"], shot.asked, clip_sound))
+        return True
+
+    try:
+        if submit(take):
+            shots.poll(api, conn, job["id"], [take], plan, submit, wait, deadline, sleep, clock)
+        elif not take.failed:
+            take.failed = "no one-take model could take it: " + ("; ".join(take.tried) or "none configured")
+    except _Stop as stop:
+        take.failed = take.failed or str(stop)
+    if not take.path and not take.failed:
+        take.failed = "not made"
 
 
 def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sleep=time.sleep,
@@ -708,18 +961,20 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
     ask = render_of(body)
     the_label = skits.label()
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    take_models = assets._models("MEDIA_REMAKE_ONE_TAKE_MODELS", ONE_TAKE_MODELS)
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
+    take_cap = assets._usd("MEDIA_REMAKE_MAX_USD_PER_TAKE", PER_TAKE)
     limit, shared = _limits()
     job_params = shots.params("MEDIA_REMAKE_PARAMS")
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "render", "remake_id": ask["remake_id"],
-                "sound": ask["sound"] if hand.flag("MEDIA_REMAKE_SOUND", True) else None, "models": models,
-                "label": the_label, "enabled": limit > 0 and shared > 0,
-                "requests": _requests(ask["remake_id"], models, job_params,
-                                      not (ask["sound"] and hand.flag("MEDIA_REMAKE_SOUND", True)))}
+                "sound": "source" if ask["sound"] and source_sound_on() else "model", "models": take_models,
+                "per_shot_models": models, "label": the_label, "enabled": limit > 0 and shared > 0,
+                "requests": _requests(ask["remake_id"], take_models, job_params,
+                                      not (ask["sound"] and source_sound_on()))}
     _check_on(limit, shared)
-    if not models:
-        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_MODELS)")
+    if not take_models:
+        raise hand.HandError("no one-take model is configured (MEDIA_REMAKE_ONE_TAKE_MODELS)")
     wait = hand.number("MEDIA_SKIT_WAIT_SECONDS", 900, 60, 1700)
     if ask["wait"] is not None:
         wait = min(wait, ask["wait"])
@@ -735,30 +990,59 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
         conn.close()
         raise
     remake_id = job["id"]
+    clip_sound = sound is None
     cuts: list[str] = []
     made_shots: list[_Shot] = []
     try:
         keys = {k["n"]: k for k in job["keys"]}
-        by_row = {r["id"]: r for r in rows}
-        for spec in job["shots"]:
-            row = by_row.get(spec["row"])
-            if row is None or row["status"] != "pending":
-                raise hand.HandError(f"remake {remake_id}'s shot {spec['n']} is not waiting to be made")
-            made_shots.append(_Shot(spec["n"], row["id"], motion_prompt(spec["motion"]),
-                                    math.ceil(spec["seconds"] - 1e-9), models,
-                                    image=assets._data_uri(hand.root() / keys[spec["n"]]["path"]),
-                                    floor=spec["seconds"], cap=row["cost_micro"]))
+        take_row = next((r for r in rows if r["id"] == job["take_row"]), None)
+        if take_row is None or take_row["status"] != "pending":
+            raise hand.HandError(f"remake {remake_id}'s take is not waiting to be made")
+        # The take may spend its cap less what shot 1's key cost, and never
+        # more than its row still holds.
+        cap = min(take_cap - _key_paid(conn, remake_id).get(1, 0), take_row["cost_micro"])
         sold = shots.lengths(api)
-        failed = shots.make(api, conn, remake_id, made_shots, job["aspect"], plan(per_shot, clip_sound=sound is None),
-                            job_params, wait, sleep, clock, sold)
-        spent = _key_costs(conn, remake_id)
-        if failed:
-            why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
-            _release(conn, remake_id, why)
-            raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
-                                 spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+        deadline = clock() + wait
+        take = _Shot(0, take_row["id"], "", math.ceil(job["total"] - 1e-9), take_models, name="take",
+                     image=assets._data_uri(hand.root() / keys[1]["path"]), floor=job["total"], cap=cap)
+        take.extra = {"one_take": True, "shots": len(job["shots"]), "total": job["total"]}
+        made_shots = [take]
+        _take(api, conn, job, take, take_plan(job["shots"], cap, clip_sound), job_params, sold, wait, deadline,
+              sleep, clock, clip_sound)
+        one_take = bool(take.path)
+        if not one_take:
+            # No mix of jobs unless the operator asked for one: a take that
+            # was billed, or past the wait, is never made again a shot at a time.
+            fallback = (take.cost == 0 and not take.timed_out and job.get("per_shot") and per_shot_on() and models
+                        and len(keys) == len(job["shots"]))
+            if not fallback:
+                shots.stop_all(api, conn, made_shots)
+                why = f"the one take: {take.failed}"[:1000]
+                _release(conn, remake_id, why)
+                raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
+                                     spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+            why = f"the one take could not be had, so a clip a shot: {take.failed}"
+            # Never more a shot than the claim held for it: the setting may
+            # have been raised since the keys.
+            per_shot = min(per_shot, int(job.get("per_shot_cap") or per_shot))
+            new_rows = _swap(conn, remake_id, take_row["id"], job["shots"], per_shot, why)
+            caps = {r["id"]: r["cost_micro"] for r in conn.execute(
+                f"SELECT id, cost_micro FROM media_assets WHERE id IN ({', '.join('?' for _ in new_rows)})",
+                new_rows).fetchall()}
+            made_shots = [_Shot(spec["n"], row_id, motion_prompt(spec["motion"]), math.ceil(spec["seconds"] - 1e-9),
+                                models, image=assets._data_uri(hand.root() / keys[spec["n"]]["path"]),
+                                floor=spec["seconds"], cap=caps[row_id])
+                          for spec, row_id in zip(job["shots"], new_rows)]
+            failed = shots.make(api, conn, remake_id, made_shots, job["aspect"], plan(per_shot, clip_sound=clip_sound),
+                                job_params, max(int(deadline - clock()), 1), sleep, clock, sold)
+            if failed:
+                why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
+                _release(conn, remake_id, why)
+                raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
+                                     spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+        trims = [job["total"]] if one_take else [s["seconds"] for s in job["shots"]]
         cut_job: Json = {"clips": [reels._service_path(reels.resolve(s.path, "a shot")) for s in made_shots],
-                         "label": the_label, "aspect": job["aspect"], "trims": [s["seconds"] for s in job["shots"]]}
+                         "label": the_label, "aspect": job["aspect"], "trims": trims}
         if sound:
             cut_job["sound"] = sound
         try:
@@ -769,18 +1053,20 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
             assets._finish(conn, remake_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
                                  spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4)) from None
-        cost = spent + sum(s.cost for s in made_shots)
+        cost = _spent_on(conn, remake_id)
         seconds = info.get("seconds") or made.get("seconds")
         shot_seconds = made.get("trimmed") or made.get("shots")
-        detail = {**job, "stage": "done", "labelled": True, "shot_rows": [s.row for s in made_shots],
-                  "models": [s.model for s in made_shots], "shot_lengths": [s.asked for s in made_shots],
-                  "cost_usd": round(cost / 1e6, 6), "frames": frames, "seconds": seconds, "shot_seconds": shot_seconds,
-                  "padded": made.get("padded"), "sound": bool(made.get("sound")) if sound else False}
+        detail = {**job, "stage": "done", "labelled": True, "one_take": one_take,
+                  "shot_rows": [s.row for s in made_shots], "models": [s.model for s in made_shots],
+                  "shot_lengths": [s.asked for s in made_shots], "cost_usd": round(cost / 1e6, 6), "frames": frames,
+                  "seconds": seconds, "shot_seconds": shot_seconds, "padded": made.get("padded"),
+                  "sound": "source" if sound else "model"}
         detail.pop("id", None)
         assets._finish(conn, remake_id, status="done", path=str(path.relative_to(hand.root())), cost_micro=0,
                        estimated=0, detail=json.dumps(detail, ensure_ascii=False, sort_keys=True))
         return {"asset": str(path.relative_to(hand.root())), "asset_id": remake_id, "frames": frames,
-                "label": the_label, "labelled": True, "cost_usd": round(cost / 1e6, 6),
+                "label": the_label, "labelled": True, "cost_usd": round(cost / 1e6, 6), "one_take": one_take,
+                "sound": "source" if sound else "model",
                 "models": [s.model for s in made_shots], "keys": job["keys"], "seconds": seconds,
                 "shot_seconds": shot_seconds}
     except BaseException:
