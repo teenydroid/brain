@@ -164,6 +164,9 @@ hands/tests/media/test_skits.py
 # cutter: the tests that pin their caps, keys and label are the operator's
 # (the code is frozen above, in media/).
 hands/tests/media/test_remakes.py
+# hands/video's flavors route every skit and remake verb, old and new
+# spellings, and set which kinds share the day cap (code in media/, above).
+hands/tests/media/test_flavors.py
 hands/tests/reel/test_cut.py
 hands/tests/test_studio_skit.py
 # Remakes put real public figures into famous videos with Teeny in frame:

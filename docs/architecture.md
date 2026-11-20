@@ -903,6 +903,16 @@ back, so a studio meme always pastes a picture of Teeny in. The meme service
 down drops the meme pitches with the reason in the record. The judges and hands/x
 count against `STUDIO_BUDGET_SECS` like the model turns.
 
+The video formats are made by one binary, `hands/video`, whose kinds of
+video are flavors (`teeny_hands/media/flavors/`, docs/hands.md, "image and
+video"): `clip`, `skit` and `remake`, each a group of steps (`hands/video
+skit make`, `hands/video remake keys|render|drop`), listed by `hands/video
+flavors` with the ledger kinds each books and whether it shares the one
+bought video a day. The studio still calls the old spellings (`video skit`,
+`video remake-keys`, `video remake`), which stay as aliases of those steps
+and answer exactly as before. A new video format starts as one flavor module
+and its registry line there.
+
 A skit (`skit` in `STUDIO_FORMATS`; off by default, and `hands/video skit`
 refuses every one until the operator sets `MEDIA_SKIT_MAX_PER_DAY`) is the
 operator's absurd-video format: a trending story, the public figure it is
