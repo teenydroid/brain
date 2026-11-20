@@ -632,7 +632,9 @@ fi
 # trying one on the box), or the studio is told to use it. Once on, it says
 # whether dissect will run at all (KHABY_DISSECT_MAX_PER_DAY 0 refuses every
 # one), the provider and its key, the accounts find lists, and INGEST_URL;
-# --live asks the ingest service.
+# --live asks the ingest service. When STUDIO_FORMATS names khaby (bin/lib/
+# formats/khaby.py), the studio side too: hands/video khaby is off while
+# MEDIA_KHABY_MAX_PER_DAY is 0 (its default), so every khaby video is refused.
 if [ -f "$root/hands/lib/teeny_hands/khaby/dissect.py" ]; then
   khaby_out="$(python3 -I -c '
 import sys, urllib.error, urllib.request
@@ -669,11 +671,22 @@ if not accounts:
 url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
 if not url:
     warns.append("INGEST_URL is not set: hands/khaby cannot list or fetch a video")
+made = 0
+if studio:
+    try:
+        made = int(filed.get("MEDIA_KHABY_MAX_PER_DAY") or 0)
+    except ValueError:
+        made = 0
+    if made <= 0:
+        warns.insert(0, "STUDIO_FORMATS names khaby, but MEDIA_KHABY_MAX_PER_DAY is 0: hands/video refuses every "
+                        "khaby video")
 if warns:
     print("warn " + "; ".join(warns))
     sys.exit()
 names = ",".join(accounts)
 said = f"on: {per_day} a day on {provider} {model}; accounts {names}; ingest at {url}"
+if studio:
+    said += f"; the studio makes up to {made} a day"
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()

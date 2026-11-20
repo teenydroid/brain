@@ -354,9 +354,10 @@ class Config:
     skit_secs: int = 900
     #: The run's time in a video slot (STUDIO_VIDEO_BUDGET_SECS), used there
     #: instead of budget_secs, and the most a remake's keys and video may take
-    #: together (STUDIO_REMAKE_SECS).
+    #: together (STUDIO_REMAKE_SECS), and a khaby video's (STUDIO_KHABY_SECS).
     video_budget_secs: int = 3600
     remake_secs: int = 1200
+    khaby_secs: int = 1200
     #: The longest a remake's studied shot may be (REMAKE_MAX_SHOT_SECONDS,
     #: what hands/remake study asks ingest to cut to): one image-to-video clip.
     remake_max_shot: float = 5.0
@@ -420,6 +421,7 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
+        c.khaby_secs = _int(get("STUDIO_KHABY_SECS"), 1200, 540, 1700)
         try:
             shot = float(get("REMAKE_MAX_SHOT_SECONDS") or 5.0)
         except ValueError:
@@ -835,7 +837,8 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
             if n == 0 or best[fmt]:
                 note[fmt] = best[fmt]
         if not videos:
-            note["no_skit"] = f"a video slot, and the writer pitched no {' or '.join(kinds)} that could be kept"
+            named = [f for f in kinds if registry()[f].always_named]
+            note["no_skit"] = f"a video slot, and the writer pitched no {' or '.join(named)} that could be kept"
     note["hooked"] = sum(1 for p in chosen if by_id[p].get("hook"))
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
@@ -1501,7 +1504,9 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
                   stories: list[Json]) -> str:
     labels = sorted({x for _, a, b in batch for x in (a, b)}, key=lambda s: int(s[1:]))
     videos = registry().values()
-    keys = "; ".join(["`picture` is the picture that would go with it", *(v.judge_line for v in videos)])
+    present = {d.get("format") for d in drafts.values() if isinstance(d, dict)}
+    keys = "; ".join(["`picture` is the picture that would go with it",
+                      *(v.judge_line for v in videos if v.always_named or v.name in present)])
     met = "".join(v.editor + "\n\n" for v in videos if any(drafts[label].get("format") == v.name for label in labels))
     return (
         "# studio: compare\n\nFor each pair below, say which draft a stranger on X should see: someone who has "
@@ -2408,10 +2413,10 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in video_formats())
-    if room.skit_slot and "remake" in cfg.formats:
-        # A video slot that may make a remake has its own time
-        # (STUDIO_VIDEO_BUDGET_SECS): the room's turns, the source's study,
-        # then a remake's keys and video, or a skit's render. A skit-only
+    if room.skit_slot and any(f in cfg.formats for f in ("remake", "khaby")):
+        # A video slot that may make a remake or a khaby has its own time
+        # (STUDIO_VIDEO_BUDGET_SECS): the room's turns, the source's study or
+        # dissect, then its keys and video, or a skit's render. A skit-only
         # slot keeps STUDIO_BUDGET_SECS, as before.
         cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
