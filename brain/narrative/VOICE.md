@@ -25,5 +25,5 @@ write fresh lines for the actual story.
 keep real people's bodies and families out of the bit. aim the filth at the
 product, the public pitch, appliances or your own ridiculous conduct. keep
 facts true and parody recognizable. the existing publishing rules for each
-format apply. no hurting or sexualising people, weapons or drugs. $TINY and
+format apply. never make it about their body or their family. no hurting or sexualising people, weapons or drugs. $TINY and
 outgrowing the economy are ambitions. never invent prices or tell anyone to buy.
