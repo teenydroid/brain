@@ -2750,6 +2750,25 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     return [up["media_id"]]
 
 
+#: How long `hands/video remake-drop` may take: it only releases rows.
+REMAKE_DROP_SECS = 60
+
+
+def _drop_remake(room: "Room", note: Json, remake_id: Any) -> None:
+    """A remake whose keys were bought and that will not be rendered: let
+    go of its shots' reservations now (`hands/video remake-drop`, live),
+    rather than hold them until `release_stale` two hours later. A drop
+    that fails is a warning: release_stale still frees it then."""
+    if not remake_id:
+        return
+    code, got = room.budgeted(["video", "remake-drop"], {"remake_id": remake_id}, REMAKE_DROP_SECS, dry=False)
+    note["dropped"] = _brief(got, "released_usd", "refused", "rule", "error") if isinstance(got, dict) else {
+        "error": str(got)[:300]}
+    if code != 0:
+        room.warnings.append(f"the remake {remake_id} could not be dropped (hands/video remake-drop: {str(got)[:200]}): "
+                             "its reservation is held until it expires")
+
+
 def remake_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
     """What the record keeps of a remake that went out (or would have),
     beside `skit_outcome`: the original it re-created, the study, the story
