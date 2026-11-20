@@ -348,6 +348,7 @@ def _claim(job: Json, per_shot: int, limit: int, the_label: str, take: bool = Fa
             if not lim["media"]:
                 raise hand.Refused(f"no skits on the {lim['tier']} runway tier ({lim['why']})", rule="runway",
                                    tier=lim["tier"])
+            assets.release_stale(conn)
             if _count_today(conn) >= limit:
                 raise hand.Refused(f"today's {limit} skit(s) and remake(s) are made (MEDIA_SKIT_MAX_PER_DAY)",
                                    rule="per_day",
