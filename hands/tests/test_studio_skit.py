@@ -144,6 +144,7 @@ class FormatTest(unittest.TestCase):
         self.assertIn("a skit's hard line", studio.screen(tiny, facts, []))
         stranger = skit_draft()
         stranger["skit"]["figures"] = ["Taylor Swift"]
+        stranger["skit"]["look"] = {"Taylor Swift": LOOK["Elon Musk"]}
         self.assertIn("not named in the story", studio.screen(stranger, facts, []))
         real = skit_draft(text="leaked footage from the tesla event")
         self.assertIn("frame it as real", studio.screen(real, facts, []))
