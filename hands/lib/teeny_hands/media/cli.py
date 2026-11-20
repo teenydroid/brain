@@ -5,24 +5,31 @@
     R  list [--max N]                     the images made, newest first, and today's spend
     R  scenes [--last N]                  the last N pictures' scenes and the words they share (default 16)
     R  get ID                             one
-  hands/video
-    A  generate {prompt, image_prompt?}   a still of Teeny, animated as `prompt` says
-    A  skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
+  hands/video: one verb group a flavor (media/flavors/, REGISTRY)
+    R  flavors                            the flavors, their steps, the kinds they book, the shared cap
+    A  clip make {prompt, image_prompt?}  a still of Teeny, animated as `prompt` says (alias: generate)
+    A  skit make {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
                                           a parody video: one take (one job, one script) or one
                                           text-to-video job a shot, cut with the label (media/skits.py);
-                                          off until MEDIA_SKIT_MAX_PER_DAY is set
-    A  remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
+                                          off until MEDIA_SKIT_MAX_PER_DAY is set (alias: skit)
+    A  remake keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
                                           a remake's keyframes: each source shot's first frame
                                           edited into the new cast plus Teeny (media/remakes.py);
-                                          off until MEDIA_REMAKE_MAX_PER_DAY is set
-    A  remake {remake_id, sound, wait_seconds?}
+                                          off until MEDIA_REMAKE_MAX_PER_DAY is set (alias: remake-keys)
+    A  remake render {remake_id, sound, wait_seconds?}
                                           the remake: its keyframes animated, trimmed to the
                                           source's shots and cut with the source's audio and
-                                          the label; replays what remake-keys stored
-    A  remake-drop {remake_id}             a keyed remake let go unrendered: its shots'
+                                          the label; replays what remake keys stored (alias: remake)
+    A  remake drop {remake_id}            a keyed remake let go unrendered: its shots'
                                           reservations released, its keys kept on the ledger
+                                          (alias: remake-drop)
     R  list [--max N]                     the videos made, newest first, and today's spend
     R  get ID                             one
+
+The old flat verbs stay as aliases of the steps (ALIASES, and a flavor's name
+alone runs its `default_step`), answering exactly as before: bin/lib/studio.py
+and the frozen tests call them. A flavor without a default step and a step
+it lacks are the contract's errors ("needs a verb", "bad arguments").
 
 Generating spends Surplus credit, under the caps in teeny_hands.media.assets,
 and publishes nothing: a post attaches the file through hands/x upload.
