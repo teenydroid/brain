@@ -584,7 +584,7 @@ accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if
 youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
 if not accounts and not youtube:
     warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
-# A remake is one take (one job): the hand's own default take cap when unset.
+# A remake is one take (one job): unset, the take cap is what the hand itself uses.
 take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", 4.00), number("MEDIA_MAX_USD_PER_DAY", 1.00)
 if take > budget:
     warns.append(f"MEDIA_REMAKE_MAX_USD_PER_TAKE ({take:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no remake fits a day")
