@@ -55,6 +55,9 @@ class Flavor:
         if not self.kinds:
             raise ValueError(f"flavor {self.name}: it books no kind")
 
+    def step(self, name: str) -> Step:
+        return next(step for step in self.steps if step.name == name)
+
     @property
     def kind(self) -> str:
         """The kind of a job's own row, the one a cap counts."""
