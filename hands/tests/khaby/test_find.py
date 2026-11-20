@@ -37,7 +37,7 @@ class ListingTest(Base):
         self.assertEqual([c["rank"] for c in got["candidates"]], [1, 2, 3])
         first = got["candidates"][0]
         self.assertEqual((first["url"], first["source"], first["by"], first["views"], first["seconds"]),
-                         ("https://www.tiktok.com/@khabylame/video/7301", "tiktok", "khaby.lame", 5000, 20.0))
+                         ("https://www.tiktok.com/@khaby.lame/video/7301", "tiktok", "khaby.lame", 5000, 20.0))
         self.assertEqual(got["unavailable"], [])
         self.assertFalse(got["cached"])
 
@@ -73,7 +73,7 @@ class ListingTest(Base):
         self.assertEqual(self.ids(self.find()), ["chart:tt:7302"])
 
     def test_a_used_video_is_left_out(self):
-        ledger.mark_used("7301", "tiktok", "https://www.tiktok.com/@khabylame/video/7301")
+        ledger.mark_used("7301", "tiktok", "https://www.tiktok.com/@khaby.lame/video/7301")
         self.assertEqual(self.ids(self.find()), ["chart:tt:7300", "chart:tt:7302"])
 
 
@@ -118,7 +118,7 @@ class CacheTest(Base):
 
     def test_a_kept_answer_drops_what_was_used_since(self):
         self.find()
-        ledger.mark_used("7301", "tiktok", "https://www.tiktok.com/@khabylame/video/7301")
+        ledger.mark_used("7301", "tiktok", "https://www.tiktok.com/@khaby.lame/video/7301")
         got = self.find()
         self.assertTrue(got["cached"])
         self.assertEqual(self.ids(got), ["chart:tt:7300", "chart:tt:7302"])
@@ -132,6 +132,6 @@ class CacheTest(Base):
 
     def test_a_kept_find_resolves_its_ids(self):
         self.find()
-        self.assertEqual(find.resolve("chart:tt:7300")["url"], "https://www.tiktok.com/@khabylame/video/7300")
+        self.assertEqual(find.resolve("chart:tt:7300")["url"], "https://www.tiktok.com/@khaby.lame/video/7300")
         self.assertIsNone(find.resolve("chart:tt:9999"))
         self.assertIsNone(find.resolve("nonsense"))
