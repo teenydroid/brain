@@ -66,8 +66,7 @@ class FakeEdits(FakeSurplus):
     def download(self, url, limit, timeout=120.0):
         self.downloads += 1
         if self.artifact_errors:
-            error = self.artifact_errors.pop(0) if len(self.artifact_errors) > 1 or not self.stuck else self.artifact_errors[0]
-            raise error
+            raise self.artifact_errors[0] if self.stuck else self.artifact_errors.pop(0)
         return SHOT
 
     stuck = False  # the last artifact error repeats for ever
@@ -369,7 +368,7 @@ class RemakeTest(unittest.TestCase):
         self.assertEqual(out["asset_id"], rid)
         self.assertEqual(out["frames"], [f"state/media/remake-{rid}-frame-0.jpg", f"state/media/remake-{rid}-frame-1.jpg"])
         self.assertEqual((out["label"], out["labelled"], out["models"]), ("AI parody · @teenydroid", True, [I2V1, I2V1]))
-        self.assertEqual(out["cost_usd"], 0.2 + 0.9)
+        self.assertEqual(out["cost_usd"], 1.1)
         self.assertEqual(out["keys"], made["keys"])
         self.assertEqual((out["seconds"], out["shot_seconds"]), (10.0, [5.0, 5.0]))
         [row] = self.rows("remake")
@@ -522,10 +521,6 @@ class RemakeTest(unittest.TestCase):
         self.assertEqual(shots.at_least(7.2, []), 8)
 
     def test_a_model_that_sells_nothing_long_enough_passes_the_shot_on(self):
-        self.api.catalog = {"data": [{"id": I2V1, "durations_seconds": [3, 4]},
-                                     {"id": I2V2, "durations_seconds": [4, 6, 8]}]}
-        self.keys()  # 2.4 s and 4.0 s
-        self.setUp()
         self.api.catalog = {"data": [{"id": I2V1, "durations_seconds": [3, 4]},
                                      {"id": I2V2, "durations_seconds": [4, 6, 8]}]}
         made = self.keys({**KEYS, "shots": [shot(1, 5.5)]})
