@@ -1344,10 +1344,13 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
                   fix: list[tuple[str, str]] | None = None, hook: Json | None = None,
                   menu: Json | None = None, study: Json | None = None) -> str:
     fmt = pitch["format"]
-    if fmt == "remake":
+    video = registry().get(fmt)
+    if video and video.item_is_source:
         # A remake's item is the chart video, told below as its study.
         item = None
-    if fmt == "thread":
+    if video:
+        shape, body = video.draft_shape, video.body
+    elif fmt == "thread":
         shape = '{"posts": ["...", "..."], "meaning": "...", "open_question": "<optional>"}'
         body = f"a thread: 2 to {THREAD_MAX} posts, each at most 280 characters as X counts them"
     elif fmt == "image":
@@ -1361,10 +1364,6 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
                 "as words alone only if you said they stand alone (`alone`: true); otherwise it is no post")
     elif fmt == "meme":
         shape, body = MEME_SHAPE, MEME_BODY
-    elif fmt == "skit":
-        shape, body = SKIT_SHAPE, SKIT_BODY
-    elif fmt == "remake":
-        shape, body = REMAKE_SHAPE, REMAKE_BODY
     else:
         shape = '{"text": "...", "meaning": "...", "open_question": "<optional>"}'
         body = "one post of at most 280 characters as X counts them"
@@ -1377,12 +1376,9 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
     if hook:
         parts.append("## the news it joins\n\nWhat people are talking about today, as the leaderboard and the "
                      f"posts behind it said it. {DATA_LINE}\n\n```json\n" + json.dumps(hook, ensure_ascii=False) +
-                     "\n```\n\n" + JOIN_RULES + {"skit": f"\n\n{SKIT_RULES}", "remake": f"\n\n{REMAKE_RULES}"}.get(fmt, ""))
-    if fmt == "remake" and study:
-        parts.append("## the original you are remaking\n\nThe popular video, as a model studied it: its title, who "
-                     "made it, and each shot in order (`n`, how long, the people in it by `ref`, the setting, what "
-                     "happens, the camera, anything said). Name it in the post by its title and its creator, in words. "
-                     f"{DATA_LINE}\n\n```json\n" + json.dumps(study_for_writer(study), ensure_ascii=False) + "\n```")
+                     "\n```\n\n" + JOIN_RULES + (f"\n\n{video.rules}" if video else ""))
+    if video and video.study_part and study:
+        parts.append(video.study_part(study))
     if item or not hook:
         parts.append(("## what of yours it brings\n\n" if hook else "## the thing it is about\n\n") +
                      f"{DATA_LINE}\n\n```json\n" + json.dumps(item, ensure_ascii=False) + "\n```")
