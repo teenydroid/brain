@@ -75,12 +75,15 @@ WORDS = "nvidia's boss says his new chip beats every other one. so i remade kitc
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "remake", "hook": "trend:t1",
          "item": "chart:tt:v1"}
 LABEL = "AI parody · @teenydroid"
-KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04},
-                                    {"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m", "cost_usd": 0.04}],
-        "reserve_usd": 3.2, "cost_usd": 0.08}
+#: One take: one keyframe, the opening one, for the whole remake.
+KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04}],
+        "reserve_usd": 4.0, "cost_usd": 0.04, "one_take": {"per_shot_fallback": False}}
+PER_SHOT_KEYS = {**KEYS, "keys": KEYS["keys"] + [{"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m",
+                                                  "cost_usd": 0.04}],
+                 "one_take": {"per_shot_fallback": True}}
 MADE = {"asset": "state/media/remake-r1.mp4", "asset_id": 9, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
-        "label": LABEL, "labelled": True, "cost_usd": 1.5, "models": ["kling-v3-pro-image-to-video"] * 2,
-        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [4, 5]}
+        "label": LABEL, "labelled": True, "one_take": True, "cost_usd": 1.5, "models": ["venice-wan-3-0-image-to-video"],
+        "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [9]}
 
 
 def remake_draft(**over):
