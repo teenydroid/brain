@@ -82,10 +82,19 @@ def check_cut(body: Any) -> dict[str, Any]:
 
 def frame_times(durations: list[float]) -> list[float]:
     """When to take the viewer's frames: just after the start, the middle of
-    every shot, and just before the end, at most MAX_FRAMES, in order."""
+    every shot, and just before the end, at most MAX_FRAMES, in order. One
+    clip (a one-take skit, every shot inside it) is sampled evenly from just
+    after its start to just before its end, MAX_FRAMES of them, so the
+    viewer sees every shot of it."""
     total = sum(durations)
     if total <= 0:
         return []
+    if len(durations) == 1:
+        first, last = min(0.4, total / 4), max(0.0, total - 0.4)
+        step = (last - first) / (MAX_FRAMES - 1)
+        if step < 0.2:
+            return [round(first, 2)]
+        return [round(first + i * step, 2) for i in range(MAX_FRAMES)]
     times = [min(0.4, total / 4)]
     at = 0.0
     for seconds in durations:

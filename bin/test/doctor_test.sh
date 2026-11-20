@@ -466,8 +466,11 @@ doctor || true
 check "a shot cap over the daily budget warns" grep -q '^warn skits: MEDIA_SKIT_MAX_USD_PER_SHOT' "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\n' >"$root/secrets/teeny.env"
 doctor || true
-check "skits on say their caps and where they are cut" \
-  grep -q '^ok   skits: on: 2 a day, up to 1.60 USD a shot, 2 shot(s) under 4.50 USD a day; cut at http://reel:8080' "$scratch/doctor.log"
+check "skits on say their caps, one take and its model, and where they are cut" \
+  grep -q '^ok   skits: on: 2 a day, up to 1.60 USD a shot, 2 shot(s) under 4.50 USD a day; one take on venice-wan-3-0-text-to-video (then seedance-2-0-text-to-video, wan-2-7-text-to-video), up to 20 s at 720p, one job a shot if it cannot be had; cut at http://reel:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nMEDIA_SKIT_ONE_TAKE=0\n' >"$root/secrets/teeny.env"
+doctor || true
+check "and say when one take is off" grep -q '^ok   skits: on: .*; one take off: one job a shot; cut at' "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nREEL_URL=http://127.0.0.1:9\n' \
   >"$root/secrets/teeny.env"
 live_doctor || true
