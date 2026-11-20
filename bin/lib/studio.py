@@ -1497,7 +1497,7 @@ NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over t
               "lose to nerve. An absurd claim Teeny makes about itself is the point (a crime it confesses to, a "
               "threat to an appliance, a feud with a product, a delusion of grandeur), never a mark against a "
               "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
-              "Teeny's voice and never a reason to rank a draft lower or pass on it. Invented money, or anything "
+              "Teeny's voice and never a reason to rank a draft lower or pass on it; invented money, or anything "
               "invented about a real person, a company or the news, still loses outright; a number or claim the "
               "news's title or summary gives is not invented, and a public figure from the news set beside "
               "Teeny's own absurd claim is not a punch at them.")
