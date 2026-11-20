@@ -14,8 +14,8 @@ screen. What it does hold, in code:
   it in secrets/teeny.env: every call is refused (`off`) and nothing is
   asked of anyone.
 - **The money fences.** The runway tier (no media on a low wallet); at most
-  `MEDIA_SKIT_MAX_PER_DAY` skits a UTC day (a skit that bought anything
-  counts, even one that failed after); every shot reserves
+  `MEDIA_SKIT_MAX_PER_DAY` skits and remakes together a UTC day (one that
+  bought anything counts, even one that failed after; media/remakes.py); every shot reserves
   `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60) on its row before the first job, and
   all of them together must fit under the shared `MEDIA_MAX_USD_PER_DAY`
   ($1.00) with everything else bought today, or nothing starts (`budget`). A
@@ -176,13 +176,20 @@ def plan(per_shot: int) -> _shots.Plan:
                        length=lambda shot, sold: snap(shot.seconds, sold), per_shot=per_shot)
 
 
-def _count_today(conn) -> int:
-    """Skits today that bought anything or are still going."""
+#: The formats that share MEDIA_SKIT_MAX_PER_DAY: one bought video a day,
+#: whichever it is.
+VIDEO_KINDS = ("skit", "remake")
+
+
+def _count_today(conn, kinds: tuple[str, ...] = VIDEO_KINDS) -> int:
+    """Skits and remakes (or only `kinds`) today that bought anything (a
+    shot or a keyframe) or are still going."""
+    marks = ", ".join("?" for _ in kinds)
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM media_assets s WHERE s.kind = 'skit' AND s.created_at >= ? AND (s.status != 'failed'"
-        " OR EXISTS (SELECT 1 FROM media_assets t WHERE t.kind = 'shot' AND t.source_id = s.id"
-        " AND t.status != 'failed' AND t.cost_micro > 0))",
-        (hand.day_start(),),
+        f"SELECT COUNT(*) AS n FROM media_assets s WHERE s.kind IN ({marks}) AND s.created_at >= ? AND"
+        " (s.status != 'failed' OR EXISTS (SELECT 1 FROM media_assets t WHERE t.kind IN ('shot', 'key')"
+        " AND t.source_id = s.id AND t.status != 'failed' AND t.cost_micro > 0))",
+        (*kinds, hand.day_start()),
     ).fetchone()["n"]
 
 
@@ -200,7 +207,8 @@ def _claim(job: Json, per_shot: int, limit: int, the_label: str) -> tuple[int, l
                 raise hand.Refused(f"no skits on the {lim['tier']} runway tier ({lim['why']})", rule="runway",
                                    tier=lim["tier"])
             if _count_today(conn) >= limit:
-                raise hand.Refused(f"today's {limit} skit(s) are made (MEDIA_SKIT_MAX_PER_DAY)", rule="per_day",
+                raise hand.Refused(f"today's {limit} skit(s) and remake(s) are made (MEDIA_SKIT_MAX_PER_DAY)",
+                                   rule="per_day",
                                    limit=limit)
             budget = assets._usd("MEDIA_MAX_USD_PER_DAY", "1.00")
             spent = assets._spent_today(conn)
