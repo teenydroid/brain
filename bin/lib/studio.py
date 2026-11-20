@@ -737,17 +737,19 @@ def invention_led(shape: Any) -> bool:
 
 
 def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_outside: bool,
-                   invented: int = 0, skit_first: bool = False) -> tuple[list[str], Json]:
+                   invented: int = 0, video_first: bool = False) -> tuple[list[str], Json]:
     """The pitches to draft, in the writer's ranking order: first the best
     INVENTED invention-led pitches (`invention_led`), wherever the writer
     ranked them; then, with an outside world to join, the best hooked pitches
     until `hooks_wanted(top)` of the chosen are hooked (a hooked tall tale
     counts for both); then the best of the rest up to TOP, so a slot is never
     lost only because the writer hooked too few. With no invention-led pitch
-    the reserve is filled like the rest. In a skit slot (`skit_first`) the
-    best skit pitch is always drafted, and so is the best pitch in another
-    format, so the slot has words to fall back on when the video cannot be
-    made. What was chosen and any shortfall, for the record."""
+    the reserve is filled like the rest. In a video slot (`video_first`: a
+    STUDIO_SKIT_SLOTS slot) the best skit pitch, the best remake pitch and
+    the best pitch in another format are always drafted, so either video can
+    win and the slot has words to fall back on when the video cannot be made;
+    with fewer than three drafted, the better-ranked video and one other.
+    What was chosen and any shortfall, for the record."""
     invented = min(invented, top)
     want = hooks_wanted(top) if have_outside else 0
     chosen = [p for p in ranked if invention_led(by_id[p].get("shape"))][:invented]
@@ -756,19 +758,26 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
     chosen += [p for p in ranked if p not in chosen][:top - len(chosen)]
     chosen = [p for p in ranked if p in chosen]
     note: Json = {"want_hooked": want}
-    if skit_first:
-        skits = [p for p in ranked if by_id[p]["format"] == "skit"]
-        others = [p for p in ranked if by_id[p]["format"] != "skit"]
-        if skits and skits[0] not in chosen:
-            drop = next((p for p in reversed(chosen) if by_id[p]["format"] != "skit"), chosen[-1] if chosen else None)
-            chosen = [p for p in chosen if p != drop] + [skits[0]]
-        if others and not any(by_id[p]["format"] != "skit" for p in chosen):
-            drop = next(p for p in reversed(chosen) if p != skits[0]) if len(chosen) > 1 else None
-            chosen = [p for p in chosen if p != drop] + [others[0]]
+    if video_first:
+        best = {fmt: next((p for p in ranked if by_id[p]["format"] == fmt), None) for fmt in VIDEO_FORMATS}
+        videos = [p for p in ranked if p in best.values()]
+        other = next((p for p in ranked if by_id[p]["format"] not in VIDEO_FORMATS), None)
+        # What must be drafted, the most important first: the better-ranked
+        # video, the words to fall back on, then the other video.
+        need_ = [p for p in (videos[:1] + [other] + videos[1:]) if p][:max(2, top)]
+        for p in need_:
+            if p in chosen:
+                continue
+            drop = next((x for x in reversed(chosen) if x not in need_), None)
+            if drop is None and len(chosen) >= top and chosen:
+                drop = next((x for x in reversed(chosen) if x not in need_[:need_.index(p)]), None)
+            chosen = [x for x in chosen if x != drop] + [p]
         chosen = [p for p in ranked if p in chosen]
-        note["skit"] = skits[0] if skits else None
-        if not skits:
-            note["no_skit"] = "a skit slot, and the writer pitched no skit that could be kept"
+        note["skit"] = best["skit"]
+        if best["remake"]:
+            note["remake"] = best["remake"]
+        if not videos:
+            note["no_skit"] = "a video slot, and the writer pitched no skit or remake that could be kept"
     note["hooked"] = sum(1 for p in chosen if by_id[p].get("hook"))
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
