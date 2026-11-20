@@ -497,9 +497,14 @@ class SkitTest(unittest.TestCase):
         self.assertEqual(self.api.calls, [])
 
 
-SEEDANCE = "seedance-2-0-text-to-video"
-#: seedance-2-0's max_cost_usdc a second asked (2026-11-20: 15 s, max 5112000, billed 1420000).
-SEEDANCE_RATE = 340800
+WAN3, SEEDANCE, WAN27 = "venice-wan-3-0-text-to-video", "seedance-2-0-text-to-video", "wan-2-7-text-to-video"
+#: max_cost_usdc a second asked, as each was seen on a paid one-take render (2026-11-20):
+#: wan-3-0 30 s max 7020000; seedance-2-0 15 s max 5112000; wan-2-7 15 s max 3267000.
+WAN3_RATE, SEEDANCE_RATE, WAN27_RATE = 234000, 340800, 217800
+ONE_TAKE_CATALOG = {"data": [{"id": WAN3, "durations_seconds": [2, 5, 10, 15, 20, 25, 30]},
+                             {"id": SEEDANCE, "durations_seconds": list(range(5, 16))},
+                             {"id": WAN27, "durations_seconds": [5, 10, 15]},
+                             {"id": "kling-v3-pro-text-to-video", "durations_seconds": list(range(3, 16))}]}
 THREE = {"shots": [{"prompt": "Wide: Jensen Huang grips a three-storey brass lever on the lawn and hauls it down"},
                    {"prompt": "Low angle over his shoulder: desks fly out of the building. He says: \"that one had my stapler.\""},
                    {"prompt": "Crane shot rising from Jensen Huang on the lawn as the whole building folds into a box"}],
@@ -513,20 +518,20 @@ THREE = {"shots": [{"prompt": "Wide: Jensen Huang grips a three-storey brass lev
 
 class OneTakeTest(unittest.TestCase):
     """The default: a skit of two or more shots is one job, one multi-shot
-    script on the one-take model (seedance-2-0, the one verified to keep a
-    face, a set and a soundtrack across hard cuts in one job), capped at
-    what the shots it replaces may cost, and the per-shot render only when
-    that job cannot be had."""
+    script on the first one-take model (wan-3-0 at up to 20 s and 720p, with
+    its sound; then seedance-2-0 and wan-2-7, each seen on a paid render to
+    keep a face, a set and a soundtrack across hard cuts in one job), capped
+    at what the shots it replaces may cost, and the per-shot render only
+    when that job cannot be had."""
 
     ONE_TAKE = ""
-    CATALOG = SkitTest.CATALOG
     tearDown, write, env, sleep = SkitTest.tearDown, SkitTest.write, SkitTest.env, SkitTest.sleep
     skit, rows, spent = SkitTest.skit, SkitTest.rows, SkitTest.spent
 
     def setUp(self):
         SkitTest.setUp(self)
-        self.api.catalog = self.CATALOG
-        self.api.rates[SEEDANCE] = SEEDANCE_RATE
+        self.api.catalog = ONE_TAKE_CATALOG
+        self.api.rates.update({WAN3: WAN3_RATE, SEEDANCE: SEEDANCE_RATE, WAN27: WAN27_RATE})
 
     def posts(self):
         return [(b, h) for m, p, b, h in self.api.calls if p == "/v1/video/generations" and m == "POST"]
@@ -534,72 +539,127 @@ class OneTakeTest(unittest.TestCase):
     def kept(self, body=THREE):
         return rules.shape(body)[0]
 
-    def test_a_skit_is_one_job_with_one_script_and_its_whole_length(self):
+    def shots(self, n):
+        extra = {"prompt": "Top-down shot: Jensen Huang rides the folded building like a sled down the lawn"}
+        return {**THREE, "shots": (THREE["shots"] + [extra])[:n]}
+
+    def test_the_defaults_are_wan_3_then_seedance_then_wan_2_7_at_20_s_and_720p(self):
+        self.assertEqual(skits.ONE_TAKE_MODELS.split(","), [WAN3, SEEDANCE, WAN27])
+        self.assertEqual(skits.ONE_TAKE_SECONDS, 20)
+        self.assertEqual(skits.MAX_PER_SECOND, {WAN3: WAN3_RATE, SEEDANCE: SEEDANCE_RATE, WAN27: WAN27_RATE})
+
+    def test_a_skit_is_one_job_with_one_script_at_20_s_720p_with_sound(self):
         out = self.skit(THREE)
         [(body, headers)] = self.posts()
         skit_id = out["asset"]["id"]
-        # Three 5 s shots want 15 s, but 15 s can cost up to $5.112, over the
-        # $4.80 three shots may: the longest that fits is 14 s, the shots
-        # shortened in proportion (the odd second to the later shots).
-        self.assertEqual(body, {"model": SEEDANCE, "prompt": rules.script(self.kept(), [4, 5, 5]),
-                                "duration_seconds": 14})
-        self.assertTrue(body["prompt"].startswith("A 14-second cinematic comedy short in 3 shots with hard cuts"))
+        # Three shots may cost $4.80; 20 s on wan-3-0 holds $4.68: the shots
+        # share the 20 s in proportion (the odd seconds to the later shots).
+        self.assertEqual(body, {"model": WAN3, "prompt": rules.script(self.kept(), [6, 7, 7]), "duration_seconds": 20,
+                                "resolution": "720p", "aspect_ratio": "16:9", "audio": True})
+        self.assertTrue(body["prompt"].startswith("A 20-second cinematic comedy short in 3 shots with hard cuts"))
         for bit in ("Jensen Huang: silver hair, black glasses", "Location: an enormous striped lawn",
-                    "Score: one continuous orchestral score", "Shot 1 (0-4s): Wide:", "Shot 2 (4-9s):",
-                    "Shot 3 (9-14s): Crane shot"):
+                    "Score: one continuous orchestral score", "Shot 1 (0-6s): Wide:", "Shot 2 (6-13s):",
+                    "Shot 3 (13-20s): Crane shot"):
             self.assertIn(bit, body["prompt"])
-        self.assertEqual(headers["idempotency-key"], f"teeny-skit-{skit_id}-take-{SEEDANCE}-14s")
+        self.assertEqual(headers["idempotency-key"], f"teeny-skit-{skit_id}-take-{WAN3}-20s")
         [cut] = self.reel.jobs
         self.assertEqual(cut["clips"], [f"media/skit-{skit_id}-take.mp4"])
         self.assertEqual(cut["label"], "AI parody · @teenydroid")
-        self.assertEqual(out["models"], [SEEDANCE])
+        self.assertEqual(out["models"], [WAN3])
         detail = out["asset"]["detail"]
-        self.assertEqual((detail["one_take"], detail["shot_lengths"], detail["models"]), (True, [4, 5, 5], [SEEDANCE]))
+        self.assertEqual((detail["one_take"], detail["shot_lengths"], detail["models"]), (True, [6, 7, 7], [WAN3]))
+
+    def test_each_model_gets_only_the_fields_verified_for_it(self):
+        self.env(MEDIA_SKIT_ONE_TAKE_MODELS=SEEDANCE)
+        self.skit({**THREE, "aspect": "9:16"})
+        [(body, _)] = self.posts()
+        self.assertEqual(set(body), {"model", "prompt", "duration_seconds", "resolution"})
+        self.assertEqual(body["resolution"], "720p")
+        self.setUp()
+        self.env(MEDIA_SKIT_ONE_TAKE_MODELS=WAN27)
+        self.skit(THREE)
+        [(body, _)] = self.posts()
+        self.assertEqual(set(body), {"model", "prompt", "duration_seconds"})
+        self.setUp()
+        self.env(MEDIA_SKIT_RESOLUTION="1080p")
+        self.skit({**THREE, "aspect": "9:16"})
+        [(body, _)] = self.posts()
+        self.assertEqual((body["resolution"], body["aspect_ratio"], body["audio"]), ("1080p", "9:16", True))
+
+    def test_the_operators_params_still_win(self):
+        self.env(MEDIA_SKIT_PARAMS=json.dumps({WAN3: {"audio": False}}))
+        self.skit(THREE)
+        [(body, _)] = self.posts()
+        self.assertIs(body["audio"], False)
 
     def test_the_cap_is_the_per_shot_cap_times_the_shots_it_replaces(self):
-        self.assertEqual(skits.take_cap(1600000, 3), 4800000)
         self.assertEqual(skits.take_cap(1600000, 2), 3200000)
-        # Two 5 s shots: $3.20 at most, so 9 s (9 x $0.3408 = $3.067), not 10.
-        two = {**THREE, "shots": THREE["shots"][:2]}
+        self.assertEqual(skits.take_cap(1600000, 3), 4800000)
+        self.assertEqual(skits.take_cap(1600000, 4), 6400000)
+
+    def test_the_fitted_length_for_two_three_and_four_shots_on_each_model(self):
+        # (shots, model) -> seconds, for the $1.60 a shot cap and a 20 s limit.
+        want = {(2, WAN3): 10, (3, WAN3): 20, (4, WAN3): 20,        # 15 s is $3.51, over $3.20
+                (2, SEEDANCE): 9, (3, SEEDANCE): 14, (4, SEEDANCE): 15,
+                (2, WAN27): 10, (3, WAN27): 15, (4, WAN27): 15}       # it sells 5, 10, 15 only
+        sold = {row["id"]: row["durations_seconds"] for row in ONE_TAKE_CATALOG["data"]}
+        for (n, model), seconds in want.items():
+            with self.subTest(shots=n, model=model):
+                got = skits.fit(20, skits.take_cap(1600000, n), sold[model], skits.MAX_PER_SECOND[model])
+                self.assertEqual(got, seconds)
+                self.assertLessEqual(got * skits.MAX_PER_SECOND[model], skits.take_cap(1600000, n))
+
+    def test_two_shots_on_wan_3_are_cut_to_10_s_to_fit_the_cap(self):
+        two = self.shots(2)
         self.skit(two)
         [(body, _)] = self.posts()
-        self.assertEqual(body["duration_seconds"], 9)
-        self.assertEqual(body["prompt"], rules.script(self.kept(two), [4, 5]))
+        self.assertEqual(body["duration_seconds"], 10)
+        self.assertEqual(body["prompt"], rules.script(self.kept(two), [5, 5]))
 
-    def test_the_longest_length_that_fits_the_cap(self):
+    def test_four_shots_on_wan_3_are_20_s_never_past_the_limit(self):
+        four = self.shots(4)
+        self.skit(four)
+        [(body, _)] = self.posts()
+        self.assertEqual(body["duration_seconds"], 20)
+        self.assertEqual(body["prompt"], rules.script(self.kept(four), [5, 5, 5, 5]))
+
+    def test_the_limit_is_a_setting_snapped_down_to_what_the_model_sells(self):
+        self.env(MEDIA_SKIT_ONE_TAKE_SECS="17")
+        self.skit(THREE)
+        [(body, _)] = self.posts()
+        self.assertEqual(body["duration_seconds"], 15)  # wan-3-0 sells 15 or 20: never over 17
         sold = list(range(5, 16))
-        self.assertEqual(skits.fit(15, 4800000, sold, SEEDANCE_RATE), 14)
         self.assertEqual(skits.fit(15, 6400000, sold, SEEDANCE_RATE), 15)
         self.assertEqual(skits.fit(10, 4800000, sold, SEEDANCE_RATE), 10)
-        self.assertEqual(skits.fit(24, 6400000, sold, SEEDANCE_RATE), 15)  # never over 15 s
         self.assertEqual(skits.fit(15, 1600000, sold, SEEDANCE_RATE), None)  # 4 s fits, but 5 s is the least sold
         self.assertEqual(skits.fit(12, 4800000, [4, 6, 8], None), 8)
         self.assertEqual(skits.split(14, [5, 5, 5]), [4, 5, 5])
         self.assertEqual(skits.split(9, [6, 3]), [6, 3])
         self.assertEqual(skits.split(15, [6, 6, 6, 6]), [3, 4, 4, 4])
+        self.assertEqual(skits.split(20, [5, 5, 5]), [6, 7, 7])
 
     def test_a_job_over_the_cap_is_cancelled_and_asked_again_shorter_at_its_own_rate(self):
         # A model with no verified rate: its own max_cost_usdc says how long fits.
-        self.env(MEDIA_SKIT_ONE_TAKE_MODELS="wan-2-7-text-to-video")
-        self.api.rates["wan-2-7-text-to-video"] = 400000
+        self.env(MEDIA_SKIT_ONE_TAKE_MODELS="kling-v3-pro-text-to-video")
+        self.api.rates["kling-v3-pro-text-to-video"] = 400000
         self.skit(THREE)
         self.assertEqual([b["duration_seconds"] for b, h in self.posts()], [15, 12])
         self.assertEqual(len(self.api.deleted()), 1)
         [take] = self.rows("shot")
-        self.assertEqual((take["status"], take["model"]), ("done", "wan-2-7-text-to-video"))
+        self.assertEqual((take["status"], take["model"]), ("done", "kling-v3-pro-text-to-video"))
 
     def test_the_take_reserves_the_whole_cap_then_its_most_then_its_bill(self):
-        self.api.late_usage.add(SEEDANCE)
+        self.api.late_usage.add(WAN3)
         out = self.skit(THREE)
         # One row for the one job, carrying what the three shots would have.
-        self.assertIn(4771200, self.reserved_seen)  # 14 s x $0.3408 while it ran
+        self.assertIn(4680000, self.reserved_seen)  # 20 s x $0.234 while it ran
         [take] = self.rows("shot")
         [skit_row] = self.rows("skit")
         self.assertEqual((take["status"], take["cost_micro"], take["estimated"], take["source_id"]),
                          ("done", 450000, 0, out["asset"]["id"]))  # the bill, read once more after success
         self.assertEqual((skit_row["status"], skit_row["cost_micro"]), ("done", 0))
         detail = json.loads(take["detail"])
-        self.assertEqual((detail["one_take"], detail["seconds"], detail["lengths"]), (True, 14, [4, 5, 5]))
+        self.assertEqual((detail["one_take"], detail["seconds"], detail["lengths"]), (True, 20, [6, 7, 7]))
         self.assertEqual(take["path"], f"state/media/skit-{out['asset']['id']}-take.mp4")
         self.assertEqual(self.spent(), 450000)
 
@@ -610,14 +670,22 @@ class OneTakeTest(unittest.TestCase):
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["need_usd"]), ("budget", 4.8))
         self.assertEqual(self.api.calls, [])
 
-    def test_a_refused_take_falls_back_to_one_job_a_shot(self):
-        self.api.fail[SEEDANCE] = SurplusError("Surplus answered 400: the prompt violates the content policy "
-                                               "(public figure likeness)", 400)
+    def test_a_refused_take_moves_to_the_next_one_take_model(self):
+        self.api.fail[WAN3] = SurplusError("Surplus answered 400: the prompt violates the content policy", 400)
         out = self.skit(THREE)
-        self.assertEqual(self.api.submitted(), [SEEDANCE, FIRST, FIRST, FIRST])
+        self.assertEqual(self.api.submitted(), [WAN3, SEEDANCE])
+        self.assertEqual([b["duration_seconds"] for b, h in self.posts()], [20, 14])
+        self.assertEqual(out["models"], [SEEDANCE])
+
+    def test_a_take_no_one_take_model_will_make_falls_back_to_one_job_a_shot(self):
+        for model in (WAN3, SEEDANCE, WAN27):
+            self.api.fail[model] = SurplusError("Surplus answered 400: the prompt violates the content policy "
+                                                "(public figure likeness)", 400)
+        out = self.skit(THREE)
+        self.assertEqual(self.api.submitted(), [WAN3, SEEDANCE, WAN27, FIRST, FIRST, FIRST])
         # Each fallback shot carries the same look, setting and score.
         kept = self.kept()
-        prompts = [b["prompt"] for b, h in self.posts()[1:]]
+        prompts = [b["prompt"] for b, h in self.posts()[3:]]
         self.assertEqual(prompts, [rules.shot_prompt(kept, n) for n in range(3)])
         self.assertTrue(all(p.startswith("Jensen Huang: silver hair") for p in prompts))
         rows = self.rows("shot")
@@ -629,21 +697,24 @@ class OneTakeTest(unittest.TestCase):
         self.assertEqual(self.spent(), 1350000)
 
     def test_a_take_that_fails_while_running_falls_back_too(self):
-        self.api.jobs[SEEDANCE] = ["running", "failed"]
+        self.env(MEDIA_SKIT_ONE_TAKE_MODELS=WAN3)
+        self.api.jobs[WAN3] = ["running", "failed"]
         out = self.skit(THREE)
-        self.assertEqual(self.api.submitted(), [SEEDANCE, FIRST, FIRST, FIRST])
+        self.assertEqual(self.api.submitted(), [WAN3, FIRST, FIRST, FIRST])
         self.assertEqual(out["models"], [FIRST] * 3)
 
     def test_a_take_no_length_of_can_fit_the_cap_falls_back(self):
-        self.env(MEDIA_SKIT_MAX_USD_PER_SHOT="0.80")  # $1.60 for two shots: 4 s, and seedance sells 5 s at least
-        self.skit({**THREE, "shots": THREE["shots"][:2]})
+        # $0.80 a shot: $1.60 for two. On seedance 4 s would fit, but it sells
+        # 5 s at least ($1.704).
+        self.env(MEDIA_SKIT_MAX_USD_PER_SHOT="0.80", MEDIA_SKIT_ONE_TAKE_MODELS=SEEDANCE)
+        self.skit(self.shots(2))
         self.assertEqual(self.api.submitted(), [FIRST, FIRST])
 
     def test_no_credit_on_the_take_stops_the_skit(self):
-        self.api.fail[SEEDANCE] = SurplusError("Surplus answered 402: insufficient credit", 402)
+        self.api.fail[WAN3] = SurplusError("Surplus answered 402: insufficient credit", 402)
         with self.assertRaises(hand.HandError):
             self.skit(THREE)
-        self.assertEqual(self.api.submitted(), [SEEDANCE])
+        self.assertEqual(self.api.submitted(), [WAN3])
         self.assertTrue(all(r["status"] == "failed" and r["cost_micro"] == 0 for r in self.rows("shot")))
 
     def test_one_take_can_be_turned_off_and_a_one_shot_skit_is_one_shot(self):
@@ -657,8 +728,9 @@ class OneTakeTest(unittest.TestCase):
     def test_a_dry_run_shows_the_one_take_request(self):
         self.env(DRY_RUN=1)
         out = self.skit(THREE)
-        self.assertEqual(out["one_take"]["request"]["model"], SEEDANCE)
-        self.assertEqual(out["one_take"]["request"]["duration_seconds"], 14)
+        request = out["one_take"]["request"]
+        self.assertEqual((request["model"], request["duration_seconds"], request["resolution"], request["audio"]),
+                         (WAN3, 20, "720p", True))
         self.assertEqual(out["one_take"]["max_usd"], 4.8)
         self.assertEqual(self.api.calls, [])
 
