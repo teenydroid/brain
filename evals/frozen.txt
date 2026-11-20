@@ -162,6 +162,13 @@ hands/tests/guard/test_viewer_skit.py
 hands/tests/media/test_skits.py
 hands/tests/reel/test_cut.py
 hands/tests/test_studio_skit.py
+# Remakes put real public figures into famous videos with Teeny in frame:
+# the tests that pin their hard lines (the guard's screen and judge, Teeny
+# as a bystander, the source study's gate, the viewer on the keyframes and
+# the cut) and the studio's order and time floors are the operator's too.
+hands/tests/guard/test_remake.py
+hands/tests/guard/test_viewer_remake.py
+hands/tests/test_studio_remake.py
 # Clips and songs: renders on the reel service and buys music under the
 # media caps, so the entry point and its library are the operator's, like
 # the wallet's.
