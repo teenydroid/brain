@@ -213,13 +213,13 @@ class FormatTest(unittest.TestCase):
         by_id = {"p1": {"format": "post", "hook": "trend:a"}, "p2": {"format": "post", "hook": "trend:b"},
                  "p3": {"format": "thread", "hook": None}, "p4": {"format": "skit", "hook": "trend:c"},
                  "p5": {"format": "skit", "hook": "trend:d"}}
-        chosen, note = studio.choose_drafted(["p1", "p2", "p3", "p4", "p5"], by_id, 3, True, skit_first=True)
+        chosen, note = studio.choose_drafted(["p1", "p2", "p3", "p4", "p5"], by_id, 3, True, video_first=True)
         self.assertIn("p4", chosen)
         self.assertTrue(any(by_id[p]["format"] != "skit" for p in chosen))
         self.assertEqual(note["skit"], "p4")
-        chosen, _ = studio.choose_drafted(["p4", "p5", "p1"], by_id, 2, True, skit_first=True)
+        chosen, _ = studio.choose_drafted(["p4", "p5", "p1"], by_id, 2, True, video_first=True)
         self.assertEqual(sorted(chosen), ["p1", "p4"])
-        chosen, note = studio.choose_drafted(["p1", "p2"], by_id, 2, True, skit_first=True)
+        chosen, note = studio.choose_drafted(["p1", "p2"], by_id, 2, True, video_first=True)
         self.assertIn("no skit", note["no_skit"])
         # Outside a skit slot, the ranking alone decides.
         self.assertEqual(studio.choose_drafted(["p1", "p2", "p3", "p4"], by_id, 3, True)[0], ["p1", "p2", "p3"])
