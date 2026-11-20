@@ -492,6 +492,11 @@ check "no chart provider warns" grep -q '^warn remakes: .*REMAKE_TIKTOK_ACCOUNTS
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
 doctor || true
 check "six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+# Unset, a shot's cap is the hand's own default (media/remakes.py: 1.20), so
+# six of them are over a 7.00 USD day.
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=7.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "an unset shot cap is the hand's 1.20 USD" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT (1.20 USD)' "$scratch/doctor.log"
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
 doctor || true
 check "remakes on say their caps, charts and ingest" \
