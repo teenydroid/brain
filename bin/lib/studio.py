@@ -2495,8 +2495,6 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     claim(room, args, record)
     desk, outside, unavailable, cut, slot = gather(room, args)
     record["slot_read"] = slot
-    # The chart videos a remake may re-create, read only in a video slot. None
-    # (a failure, an empty chart) only takes the remake option away.
     # What each video format reads for itself (a remake's chart videos, only
     # in a video slot). None read (a failure, an empty chart) only takes that
     # format's option away; a format that sits the run out is dropped too.
