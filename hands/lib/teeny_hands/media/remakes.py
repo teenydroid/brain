@@ -404,6 +404,41 @@ def _reference() -> str:
     return assets._data_uri(path)
 
 
+def size_of(data: bytes) -> tuple[int, int] | None:
+    """(width, height) read from a PNG's or a JPEG's own header; None when
+    it cannot be read."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and len(data) >= 24:
+        width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        return (width, height) if width and height else None
+    if data[:2] == b"\xff\xd8":
+        at = 2
+        while at + 9 < len(data) and data[at] == 0xFF:
+            marker, length = data[at + 1], int.from_bytes(data[at + 2:at + 4], "big")
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height, width = int.from_bytes(data[at + 5:at + 7], "big"), int.from_bytes(data[at + 7:at + 9], "big")
+                return (width, height) if width and height else None
+            if length < 2:
+                return None
+            at += 2 + length
+    return None
+
+
+#: How far a keyframe's width over height may be from the remake's, as a
+#: ratio: 768x1362 for 9:16 is 0.2 % off; 1440x720 is 3.6 times off.
+SHAPE_SLACK = 1.2
+
+
+def shaped(data: bytes, aspect: str) -> bool:
+    """Whether a keyframe is in the remake's shape, near enough for the
+    cut's crop to keep the scene. One whose size cannot be read is taken."""
+    size = size_of(data)
+    if size is None:
+        return True
+    wide, high = (int(n) for n in aspect.split(":"))
+    ratio = (size[0] / size[1]) / (wide / high)
+    return 1 / SHAPE_SLACK <= ratio <= SHAPE_SLACK
+
+
 def _picture(api: Surplus, answer: Any) -> tuple[bytes | None, str | None, str | None]:
     """(data, extension, None) for a PNG or JPEG keyframe (a WebP is
     converted to PNG), else (None, None, why)."""
@@ -509,6 +544,13 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
             data, ext, why = _picture(api, answer)
             if data is None:
                 # Answered, so bought: the cost stays on the ledger.
+                _book(conn, remake_id, shot, model, prompt, cost, None, f"{model}: {why}")
+                left_of_cap -= cost
+                tried.append(f"{model}: {why}")
+                continue
+            if not shaped(data, aspect):
+                # Bought, and no use: the cut would crop the cast out of it.
+                why = "the keyframe came back {}x{}, not {}".format(*size_of(data), aspect)
                 _book(conn, remake_id, shot, model, prompt, cost, None, f"{model}: {why}")
                 left_of_cap -= cost
                 tried.append(f"{model}: {why}")
