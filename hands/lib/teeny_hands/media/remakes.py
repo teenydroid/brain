@@ -819,7 +819,8 @@ def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
                 _release(conn, row["id"], "expired: its keys were never rendered")
                 raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
                                    rule="stale")
-            if detail.get("stage") != "keys" or len(detail.get("keys") or []) != len(detail.get("shots") or [1]):
+            wanted = len(detail.get("shots") or [1]) if detail.get("per_shot") else 1
+            if detail.get("stage") != "keys" or len(detail.get("keys") or []) != wanted:
                 raise hand.Refused(f"remake {row['id']}'s keys are not all made", rule="not_ready")
             missing = [k["n"] for k in detail["keys"] if not (hand.root() / k["path"]).is_file()]
             if missing:
@@ -834,8 +835,8 @@ def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
 
 
 def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], clip_sound: bool) -> list[Json]:
-    """For a dry run: the jobs the render would send, read from the ledger
-    (the keyframe named by its path)."""
+    """For a dry run: the one take the render would send, read from the
+    ledger (the keyframe named by its path)."""
     if not models:
         return []
     conn = assets._db()
@@ -844,11 +845,55 @@ def _requests(remake_id: int, models: list[str], job_params: dict[str, Json], cl
     finally:
         conn.close()
     detail = _detail(row) if row else {}
+    if not detail.get("shots"):
+        return []
     keys = {k["n"]: k["path"] for k in detail.get("keys") or []}
-    return [shots.request_body(models[0], motion_prompt(s["motion"]), shots.at_least(s["seconds"], None),
-                               detail.get("aspect", "16:9"), model_params(models[0], job_params, clip_sound),
-                               image=keys.get(s["n"]), resolution_setting="MEDIA_REMAKE_RESOLUTION")
-            for s in detail.get("shots") or []]
+    length = shots.at_least(detail["total"], None)
+    return [shots.request_body(models[0], take_script(detail["shots"], length), length, detail.get("aspect", "16:9"),
+                               model_params(models[0], job_params, clip_sound), image=keys.get(1),
+                               resolution_setting="MEDIA_REMAKE_RESOLUTION")]
+
+
+def _swap(conn, remake_id: int, take_row: int, remake_shots: list[Json], per_shot: int, why: str) -> list[int]:
+    """A take that could not be had, for a row a shot, in one transaction
+    under the media lock: each shot reserves the per-shot cap less what its
+    keys cost, all of it within what the take held (claimed as at least a
+    clip a shot's worth), so the money held never rises."""
+    with hand.lock("media"):
+        with hand.transaction(conn):
+            paid: dict[int, int] = {}
+            for key in conn.execute("SELECT cost_micro, detail FROM media_assets WHERE kind = 'key' AND source_id = ?"
+                                    " AND status != 'failed'", (remake_id,)).fetchall():
+                n = (json.loads(key["detail"] or "{}") or {}).get("n")
+                paid[n] = paid.get(n, 0) + key["cost_micro"]
+            conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE id = ?"
+                         " AND status = 'pending'", (why[:1000], hand.now(), take_row))
+            return [conn.execute(
+                "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated, created_at)"
+                " VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
+                (shot["motion"], remake_id, max(per_shot - paid.get(shot["n"], 0), 0), hand.now())).lastrowid
+                for shot in remake_shots]
+
+
+def _take(api: Surplus, conn, job: Json, take: _Shot, plan: shots.Plan, job_params: dict[str, Json],
+          sold: dict[str, list[int]], wait: int, deadline: float, sleep, clock) -> None:
+    """The one take submitted and polled to its end; its row's prompt is
+    the script sent for the length bought."""
+    def submit(shot: _Shot) -> bool:
+        if not shots.submit(api, conn, job["id"], shot, job["aspect"], plan, job_params, sold):
+            return False
+        shots._set(conn, shot.row, prompt=take_script(job["shots"], shot.asked))
+        return True
+
+    try:
+        if submit(take):
+            shots.poll(api, conn, job["id"], [take], plan, submit, wait, deadline, sleep, clock)
+        elif not take.failed:
+            take.failed = "no one-take model could take it: " + ("; ".join(take.tried) or "none configured")
+    except _Stop as stop:
+        take.failed = take.failed or str(stop)
+    if not take.path and not take.failed:
+        take.failed = "not made"
 
 
 def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sleep=time.sleep,
@@ -856,18 +901,20 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
     ask = render_of(body)
     the_label = skits.label()
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
+    take_models = assets._models("MEDIA_REMAKE_ONE_TAKE_MODELS", ONE_TAKE_MODELS)
     per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
+    take_cap = assets._usd("MEDIA_REMAKE_MAX_USD_PER_TAKE", PER_TAKE)
     limit, shared = _limits()
     job_params = shots.params("MEDIA_REMAKE_PARAMS")
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "render", "remake_id": ask["remake_id"],
-                "sound": ask["sound"] if hand.flag("MEDIA_REMAKE_SOUND", True) else None, "models": models,
-                "label": the_label, "enabled": limit > 0 and shared > 0,
-                "requests": _requests(ask["remake_id"], models, job_params,
+                "sound": ask["sound"] if hand.flag("MEDIA_REMAKE_SOUND", True) else None, "models": take_models,
+                "per_shot_models": models, "label": the_label, "enabled": limit > 0 and shared > 0,
+                "requests": _requests(ask["remake_id"], take_models, job_params,
                                       not (ask["sound"] and hand.flag("MEDIA_REMAKE_SOUND", True)))}
     _check_on(limit, shared)
-    if not models:
-        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_MODELS)")
+    if not take_models:
+        raise hand.HandError("no one-take model is configured (MEDIA_REMAKE_ONE_TAKE_MODELS)")
     wait = hand.number("MEDIA_SKIT_WAIT_SECONDS", 900, 60, 1700)
     if ask["wait"] is not None:
         wait = min(wait, ask["wait"])
@@ -883,30 +930,57 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
         conn.close()
         raise
     remake_id = job["id"]
+    clip_sound = sound is None
     cuts: list[str] = []
     made_shots: list[_Shot] = []
     try:
         keys = {k["n"]: k for k in job["keys"]}
-        by_row = {r["id"]: r for r in rows}
-        for spec in job["shots"]:
-            row = by_row.get(spec["row"])
-            if row is None or row["status"] != "pending":
-                raise hand.HandError(f"remake {remake_id}'s shot {spec['n']} is not waiting to be made")
-            made_shots.append(_Shot(spec["n"], row["id"], motion_prompt(spec["motion"]),
-                                    math.ceil(spec["seconds"] - 1e-9), models,
-                                    image=assets._data_uri(hand.root() / keys[spec["n"]]["path"]),
-                                    floor=spec["seconds"], cap=row["cost_micro"]))
+        take_row = next((r for r in rows if r["id"] == job["take_row"]), None)
+        if take_row is None or take_row["status"] != "pending":
+            raise hand.HandError(f"remake {remake_id}'s take is not waiting to be made")
+        key_cost = conn.execute("SELECT COALESCE(SUM(cost_micro), 0) AS n FROM media_assets WHERE kind = 'key'"
+                                " AND source_id = ? AND status != 'failed' AND detail LIKE '%\"n\": 1,%'",
+                                (remake_id,)).fetchone()["n"]
+        cap = min(take_cap - key_cost, take_row["cost_micro"])
         sold = shots.lengths(api)
-        failed = shots.make(api, conn, remake_id, made_shots, job["aspect"], plan(per_shot, clip_sound=sound is None),
-                            job_params, wait, sleep, clock, sold)
-        spent = _key_costs(conn, remake_id)
-        if failed:
-            why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
-            _release(conn, remake_id, why)
-            raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
-                                 spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+        deadline = clock() + wait
+        take = _Shot(0, take_row["id"], "", math.ceil(job["total"] - 1e-9), take_models, name="take",
+                     image=assets._data_uri(hand.root() / keys[1]["path"]), floor=job["total"], cap=cap)
+        take.extra = {"one_take": True, "shots": len(job["shots"]), "total": job["total"]}
+        made_shots = [take]
+        _take(api, conn, job, take, take_plan(job["shots"], cap, clip_sound), job_params, sold, wait, deadline,
+              sleep, clock)
+        one_take = bool(take.path)
+        if not one_take:
+            # No mix of jobs unless the operator asked for one: a take that
+            # was billed, or past the wait, is never made again a shot at a time.
+            fallback = (take.cost == 0 and not take.timed_out and job.get("per_shot") and per_shot_on() and models
+                        and len(keys) == len(job["shots"]))
+            if not fallback:
+                shots.stop_all(api, conn, made_shots)
+                why = f"the one take: {take.failed}"[:1000]
+                _release(conn, remake_id, why)
+                raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
+                                     spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+            why = f"the one take could not be had, so a clip a shot: {take.failed}"
+            new_rows = _swap(conn, remake_id, take_row["id"], job["shots"], per_shot, why)
+            caps = {r["id"]: r["cost_micro"] for r in conn.execute(
+                f"SELECT id, cost_micro FROM media_assets WHERE id IN ({', '.join('?' for _ in new_rows)})",
+                new_rows).fetchall()}
+            made_shots = [_Shot(spec["n"], row_id, motion_prompt(spec["motion"]), math.ceil(spec["seconds"] - 1e-9),
+                                models, image=assets._data_uri(hand.root() / keys[spec["n"]]["path"]),
+                                floor=spec["seconds"], cap=caps[row_id])
+                          for spec, row_id in zip(job["shots"], new_rows)]
+            failed = shots.make(api, conn, remake_id, made_shots, job["aspect"], plan(per_shot, clip_sound=clip_sound),
+                                job_params, max(int(deadline - clock()), 1), sleep, clock, sold)
+            if failed:
+                why = "; ".join(f"shot {s.n}: {s.failed or 'not made'}" for s in failed)[:1000]
+                _release(conn, remake_id, why)
+                raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
+                                     spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4))
+        trims = [job["total"]] if one_take else [s["seconds"] for s in job["shots"]]
         cut_job: Json = {"clips": [reels._service_path(reels.resolve(s.path, "a shot")) for s in made_shots],
-                         "label": the_label, "aspect": job["aspect"], "trims": [s["seconds"] for s in job["shots"]]}
+                         "label": the_label, "aspect": job["aspect"], "trims": trims}
         if sound:
             cut_job["sound"] = sound
         try:
@@ -917,18 +991,19 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
             assets._finish(conn, remake_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the remake was not made: {why}", asset_id=remake_id,
                                  spent_usd=round(_spent_on(conn, remake_id) / 1e6, 4)) from None
-        cost = spent + sum(s.cost for s in made_shots)
+        cost = _spent_on(conn, remake_id)
         seconds = info.get("seconds") or made.get("seconds")
         shot_seconds = made.get("trimmed") or made.get("shots")
-        detail = {**job, "stage": "done", "labelled": True, "shot_rows": [s.row for s in made_shots],
-                  "models": [s.model for s in made_shots], "shot_lengths": [s.asked for s in made_shots],
-                  "cost_usd": round(cost / 1e6, 6), "frames": frames, "seconds": seconds, "shot_seconds": shot_seconds,
-                  "padded": made.get("padded"), "sound": bool(made.get("sound")) if sound else False}
+        detail = {**job, "stage": "done", "labelled": True, "one_take": one_take,
+                  "shot_rows": [s.row for s in made_shots], "models": [s.model for s in made_shots],
+                  "shot_lengths": [s.asked for s in made_shots], "cost_usd": round(cost / 1e6, 6), "frames": frames,
+                  "seconds": seconds, "shot_seconds": shot_seconds, "padded": made.get("padded"),
+                  "sound": bool(made.get("sound")) if sound else False}
         detail.pop("id", None)
         assets._finish(conn, remake_id, status="done", path=str(path.relative_to(hand.root())), cost_micro=0,
                        estimated=0, detail=json.dumps(detail, ensure_ascii=False, sort_keys=True))
         return {"asset": str(path.relative_to(hand.root())), "asset_id": remake_id, "frames": frames,
-                "label": the_label, "labelled": True, "cost_usd": round(cost / 1e6, 6),
+                "label": the_label, "labelled": True, "cost_usd": round(cost / 1e6, 6), "one_take": one_take,
                 "models": [s.model for s in made_shots], "keys": job["keys"], "seconds": seconds,
                 "shot_seconds": shot_seconds}
     except BaseException:
