@@ -46,29 +46,47 @@ def _bounded(low: int, high: int, what: str):
     return parse
 
 
-def parser(kind: str) -> argparse.ArgumentParser:
+#: The old flat spellings of flavor steps, kept since bin/lib/studio.py and
+#: the frozen tests call them. A flavor's own name with no step is its
+#: `default_step` (`video skit`, `video remake`), so it needs no line here.
+ALIASES = {
+    "generate": ("clip", "make"),
+    "remake-keys": ("remake", "keys"),
+    "remake-drop": ("remake", "drop"),
+}
+
+
+def parser(kind: str, registry: Mapping[str, flavors.Flavor] | None = None) -> argparse.ArgumentParser:
+    """hands/<kind>'s verbs; for video, built from `registry` (the flavors'
+    REGISTRY unless a test hands it another)."""
+    registry = flavors.REGISTRY if registry is None else registry
     root = argparse.ArgumentParser(prog=f"hands/{kind}", description=f"{kind.capitalize()}s of Teeny for its posts.")
     verbs = root.add_subparsers(dest="verb")
 
-    def verb(name: str, handler, help: str, body: bool = False) -> argparse.ArgumentParser:
-        sub = verbs.add_parser(name, help=help)
+    def verb(name: str, handler, help: str, body: bool = False, under=None) -> argparse.ArgumentParser:
+        sub = (under or verbs).add_parser(name, help=help)
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    make = assets.generate_image if kind == "image" else assets.generate_video
-    verb("generate", lambda a, body: make(body), f"make one {kind} (JSON on stdin)", body=True)
+    if kind == "video":
+        verb("flavors", lambda a, _: flavors.describe(registry), "the flavors of video, their steps and what they book")
+        for flavor in registry.values():
+            group = verbs.add_parser(flavor.name, help=flavor.summary)
+            if flavor.default_step is not None:
+                default = next(s for s in flavor.steps if s.name == flavor.default_step)
+                group.set_defaults(handler=default.handler, takes_body=default.takes_body)
+            steps = group.add_subparsers(dest=f"{flavor.name}_step")
+            for step in flavor.steps:
+                verb(step.name, step.handler, step.help, body=step.takes_body, under=steps)
+        for alias, (name, step_name) in ALIASES.items():
+            step = next(s for s in registry[name].steps if s.name == step_name)
+            verb(alias, step.handler, f"{name} {step_name}, the old spelling", body=step.takes_body)
+    else:
+        verb("generate", lambda a, body: assets.generate_image(body), f"make one {kind} (JSON on stdin)", body=True)
     verb("list", lambda a, _: assets.listing(kind, a.max), f"the {kind}s made, newest first").add_argument(
         "--max", type=_bounded(1, 100, "--max"), default=20
     )
     verb("get", lambda a, _: assets.get(a.id), f"one {kind}").add_argument("id", type=_bounded(1, 2**62, "ID"), metavar="ID")
-    if kind == "video":
-        verb("skit", lambda a, body: skits.generate_skit(body), "make one skit (JSON on stdin)", body=True)
-        verb("remake-keys", lambda a, body: remakes.generate_keys(body), "buy one remake's keyframes (JSON on stdin)",
-             body=True)
-        verb("remake", lambda a, body: remakes.generate_remake(body), "render one remake from its keyframes "
-             "(JSON on stdin)", body=True)
-        verb("remake-drop", lambda a, body: remakes.drop_remake(body), "let go of a remake's keys unrendered "
-             "(JSON on stdin)", body=True)
     if kind == "image":
         verb("scenes", lambda a, _: assets.scenes(a.last), "the scenes of the last pictures, and the words they repeat").add_argument(
             "--last", type=_bounded(1, 100, "--last"), default=16
