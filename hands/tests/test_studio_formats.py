@@ -10,6 +10,7 @@ Recapture only on purpose: a changed golden is a changed prompt."""
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import sys
 import unittest
@@ -214,8 +215,6 @@ class RegistryTest(unittest.TestCase):
 def _khaby():
     """A throwaway third format: the skit's, renamed, with hooks that say
     they ran."""
-    import dataclasses
-
     import formats
 
     made: list = []
@@ -305,14 +304,8 @@ class ThirdFormatTest(unittest.TestCase):
 
         import formats
 
-        with mock.patch.dict(formats.REGISTRY, {"khaby": dataclasses_replace(self.fmt, min_secs=101)}):
+        with mock.patch.dict(formats.REGISTRY, {"khaby": dataclasses.replace(self.fmt, min_secs=101)}):
             self.assertFalse(studio.video_time(room, "khaby"))
-
-
-def dataclasses_replace(obj, **over):
-    import dataclasses
-
-    return dataclasses.replace(obj, **over)
 
 
 class RemakeDropTest(unittest.TestCase):
