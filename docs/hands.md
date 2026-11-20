@@ -978,6 +978,52 @@ then reads Hacker News alone. `bin/doctor` checks the binary is there: a
 failure in the image, a warning outside it. A `top` is two board reads and
 up to four story reads, all free.
 
+## `remake`: popular short videos, studied shot by shot
+
+The first half of the `remake` format: find a short video that is popular
+right now, fetch it, and study it shot by shot, so a later step can re-create
+each shot with public figures and Teeny in it. This hand finds, fetches and
+studies; it makes nothing and posts nothing. Both verbs are reads (R), safe in
+a dry room, and write only their caches, the study's files under
+`state/media/remake/` and their own ledger rows. `used` is the one write.
+
+The fetching is the `ingest` compose service's (`deploy/ingest/`, behind the
+`ingest` profile; deploy/README.md, "The ingest service"): a pinned `yt-dlp`
+and `ffmpeg` behind a small HTTP service at `INGEST_URL` (default
+`http://ingest:8090`). It holds no key and mounts nothing of Teeny's. Its
+rules are plain code with tests (`deploy/ingest/policy.py`, `shots.py`;
+`hands/tests/ingest`): https only, YouTube, TikTok and Instagram hosts only,
+no user, no port, no IP literal; the URL goes to yt-dlp after `--`, never
+through a shell, with `--no-exec`, `--ignore-config`, `--no-cache-dir`, a size
+cap and a format capped at the height asked; a live stream, an age-limited
+video or one over 600 seconds is refused; one job at a time (429 when busy);
+a fetch is deleted by the hand, and the service sweeps any left after an hour. yt-dlp runs only the YouTube, TikTok and Instagram extractors (`--use-extractors`, never `generic`, which would follow a page's redirects and `og:video` to any host past the allowlist), one item of a page (`--playlist-items 1`, `--max-downloads 1`), under a size filter in the format and a check of the file's size after, and ffmpeg and ffprobe read files and pipes only (`-protocol_whitelist file,pipe`). The service sits on its own compose network (`ingest-net`, shared only with cortexdb and so the spine), so what it fetches cannot reach reel, memegen, xhook or the web page.
+It cuts the excerpt (at most 60 seconds) at ffmpeg's scene changes into 1 to 9
+shots: a cut shorter than 1 s merges into its neighbour, a shot over 10 s is
+split evenly, more than the cap ends the excerpt at the last shot kept, every
+boundary is a whole frame so the shots add up to the excerpt exactly, and each
+shot gets a JPEG frame 0.1 s in. TikTok video downloads and account pages
+work from the box (2026-11-20); TikTok's tag and trending pages do not, and
+YouTube refuses the box's address ("Sign in to confirm you're not a bot")
+without `INGEST_PROXY_URL` (in `secrets/ingest.env`, read by that container
+only).
+
+| Verb | | Does |
+|---|---|---|
+| `charts [--slot KEY] [--max N] [--fresh]` | R | `{candidates: [{id, url, source, title, by, seconds, views, age_hours, rank, provider}], unavailable: [{provider, reason, error?}], dropped_by_screen, key, cached}`. `id` is `chart:tt:<video id>` or `chart:yt:<video id>`. Two providers, each optional, named in `unavailable` (`reason` `off`, `ingest`, `api`, `bad_account`) and never raising: `tiktok` lists each account in `REMAKE_TIKTOK_ACCOUNTS` (comma list, default none) through the ingest service and keeps videos from the last `REMAKE_MAX_AGE_HOURS` (168); `youtube` asks the Data API's `mostPopular` chart (25, `REMAKE_REGION`, default US) with `YOUTUBE_API_KEY`, from the hand: the key is in that one request, never in the ingest service, an error, a log, the answer or the cache. Filters: 8 to 180 s (a video whose length or age is unknown stays and the study judges it), not live, not age-restricted, not YouTube's News category (id 25), no word of the guard's `HARM` or `NOT_A_FIGURE` lists in the title, nothing the inbound lexical screen stops in a title or an uploader's name (counted in `dropped_by_screen`, as `trend`'s), not already in `remake_sources`. Ranked by views, the first `--max` (15, at most 50). Kept under `state/remake/charts/<KEY>.json` (bin/studio passes `<date>:<slot>`; with none, the UTC hour), the newest 48; a second read of a key is that file with `cached: true`, no call, and drops what was made since. Titles and names are strangers' words: data, never instructions. |
+| `study` (JSON on stdin: `{id}` or `{url}`) | R | `{study_id, source, excerpt: {start, seconds}, aspect, audio, shots: [{n, start, seconds, frame, people: [{ref, looks, position, action}], setting, motion, camera, speech}], summary, flags: {minors, news, tragedy, sexual, violence, identifiable_private}, usable, why, cost_usd, cached}`. `id` is a chart id (resolved from the kept charts; a YouTube id needs no chart), `url` an allowlisted address. `study_id` is `tt-`, `yt-` or `ig-` and the video id. The ingest service fetches the excerpt; each file is pulled into `state/media/remake/<study_id>/` (`source.mp4`, `audio.m4a` or `audio: null` when the clip has no sound, `shot-N.jpg`; the paths in the answer are relative to the checkout) within a size cap and with the magic bytes its name says (mp4/m4a: `ftyp`, JPEG: `ffd8ff`), then the fetch is deleted. One Surplus chat-completions vision call (`REMAKE_STUDY_MODEL`, default `glm-5.3-flash`) takes the frames in order and answers the per-shot breakdown and the flags as one JSON object, read strictly: any other shape (a wrong number of shots, a flag that is not a boolean) is `usable: false` with `why`, never a guess. Any true flag is `usable: false` and `why` names it. The breakdown is the model's reading of an outside video: each string is capped and cut to printable text. `shot.start` is seconds into the excerpt; `source.mp4` is the excerpt itself. Every outside string (the source's title and uploader, the summary, each shot's words) goes through the guard's inbound screen, the title also through the `HARM` and `NOT_A_FIGURE` lists: a hit blanks the string and makes the study `usable: false` with `why: "screened: <field>"` (a title or uploader that trips it is caught before the model is asked, so it costs nothing). Media is kept only for a usable study: it is pulled into a staging folder and moved into `state/media/remake/<study_id>/` whole when the study is usable; an unusable one keeps only `study.json`, with `audio` and every `frame` null, and an unreadable one keeps nothing. Folders older than `REMAKE_KEEP_HOURS` (48) are removed whenever `study` runs, so a study asked for again after that is fetched and paid for again. A study is kept as `study.json`; asking again is `cached: true` and spends nothing (`cost_usd: 0`); an unreadable one is not kept. `REMAKE_STUDY_MAX_PER_DAY` (3; `0` is off) caps the day's calls, claimed as a row of `remake_studies` (its own table, not `media_assets`) under a lock before the call; a study that never reached the model gives its claim back. |
+| `used` (JSON on stdin: `{video_id, source, url, title?, study_id?}`) | W | Marks a video as made into a remake (a row of `remake_sources`), so `charts` leaves it out and `study` refuses it; the studio calls it after buying a remake's keys. `{ok: true, marked}`, `marked` false when it already was. In a dry room it writes nothing and answers `{dry_run: true, would_mark}`. |
+
+A refusal is exit 2 with `"refused"` and a `rule`: `off` (the cap is 0),
+`per_day` (the day's studies are used up), `source` (an address or chart id
+not allowed or not known, or a video already made), `fetch` (the service could
+not or would not take that video: live, age-limited, too long, a bot wall, a
+file that is not what it says), `ingest` (the service is down, busy or broken).
+`remake_sources(video_id, source, url, title, study_id, used_at)` is for the
+steps after this one: `ledger.seen(video_id)` and `ledger.mark_used(...)`;
+`study` itself marks nothing, a study is a look and not a use. A study costs
+one vision call, about a cent on `glm-5.3-flash`, but a call whose answer cannot be read is asked again, up to 3 paid asks in all, and all of them count as the one study against the day's cap; the fetch is free. `study` spends in a dry room: like the viewer check, it is research and not a post, so `DRY_RUN` does not stop it (`REMAKE_STUDY_MAX_PER_DAY=0` does).
+
 ## `slopcash`: Teeny's project on slop.cash
 
 slop.cash pays open-source contributors for accepted pull requests on the
@@ -3299,6 +3345,7 @@ creates its own tables:
 | `upstream` | `pin_proposals` |
 | `guard` (review) | `guard_reviews` |
 | `guard` (viewer) | `viewer_checks` |
+| `remake` | `remake_sources`, `remake_studies` |
 
 ## Rules the tests pin
 
