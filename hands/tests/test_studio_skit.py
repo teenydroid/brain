@@ -30,9 +30,12 @@ SHOTS = [
                "board grows to the size of a planet. He mutters: \"best of three.\" Comic timpani."},
 ]
 PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
+LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
+SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour, anamorphic lens, film grain"
+SCORE = "one swelling orchestral score with comic timpani, under the whole film"
 RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
        "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
-       "shots": SHOTS, "aspect": "16:9"}
+       "look": LOOK, "setting": SETTING, "score": SCORE, "shots": SHOTS, "aspect": "16:9"}
 WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 PITCH = {"id": "p1", "storyline": None, "shape": "scene", "format": "skit", "hook": "trend:t1", "item": None}
 
@@ -74,7 +77,31 @@ class FormatTest(unittest.TestCase):
         draft = skit_draft()
         self.assertEqual(draft["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
                                          "shots": [{"prompt": SHOTS[0]["prompt"]}, {"prompt": SHOTS[1]["prompt"]}],
-                                         "aspect": "16:9", "story": "trend:t1", "premise": PREMISE})
+                                         "aspect": "16:9", "story": "trend:t1", "premise": PREMISE,
+                                         "look": LOOK, "setting": SETTING, "score": SCORE})
+
+    def test_a_skit_needs_a_look_for_each_figure_a_setting_and_a_score(self):
+        # 2026-11-20: shots rendered alone changed the lead's face, the lawn and
+        # the music every shot. A one-take film holds these three as data.
+        for raw, bit in (({k: v for k, v in RAW.items() if k != "look"}, "look"),
+                         ({**RAW, "look": {}}, "look"),
+                         ({**RAW, "figures": ["Elon Musk", "Tesla"], "look": LOOK}, "look"),
+                         ({k: v for k, v in RAW.items() if k != "setting"}, "setting"),
+                         ({**RAW, "setting": " "}, "setting"),
+                         ({k: v for k, v in RAW.items() if k != "score"}, "score")):
+            with self.subTest(bit=bit, raw=sorted(raw)):
+                got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": raw}]}, PITCH, 3)
+                self.assertEqual(got, [])
+                self.assertIn(bit, lost[0]["why"])
+
+    def test_the_hard_lines_read_the_look_setting_and_score(self):
+        for field, value in (("look", {"Elon Musk": "a silver tuxedo with a $TINY pin"}),
+                             ("setting", "a lunar showroom, shaky leaked footage"),
+                             ("score", "a funeral march under the whole film")):
+            with self.subTest(field=field):
+                draft = skit_draft()
+                draft["skit"][field] = value
+                self.assertIn("a skit's hard line", studio.screen(draft, [HOOK], []))
 
     def test_a_skit_needs_its_premise_what_they_really_did_and_what_they_do_in_it(self):
         # 2026-11-19: three skits on "raises" were a pun on a headline word, and
@@ -137,6 +164,7 @@ class FormatTest(unittest.TestCase):
     def test_the_editor_sees_the_figures_logline_and_shots_never_the_story_id(self):
         shown = studio.shown(skit_draft())
         self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "premise": PREMISE, "logline": RAW["logline"],
+                                         "look": LOOK, "setting": SETTING, "score": SCORE,
                                          "shots": [SHOTS[0]["prompt"], SHOTS[1]["prompt"]]})
         self.assertNotIn("trend:t1", json.dumps(shown))
 
@@ -172,10 +200,13 @@ class FormatTest(unittest.TestCase):
             logline = re.search(r"> logline: (.*)", block).group(1)
             shots = re.findall(r"> shot: (.*)", block)
             self.assertTrue(1 <= len(shots) <= 4)
-            # Each worked example passes its own hard lines.
+            # Each worked example passes its own hard lines, its look,
+            # setting and score with it.
             figure = " ".join(re.match(r"(?:\w+'s )?([A-Z]\w+ [A-Z]\w+)", before).group(1).split())
-            self.assertEqual(rules_.screen({"figures": [figure], "logline": logline, "shots": shots}, after,
-                                           {"title": before}), [], before)
+            held = {key: re.search(rf"> {key}: (.*)", block).group(1) for key in ("look", "setting", "score")}
+            raw = {"figures": [figure], "logline": logline, "shots": shots, "look": {figure: held["look"]},
+                   "setting": held["setting"], "score": held["score"]}
+            self.assertEqual(rules_.screen(raw, after, {"title": before}), [], before)
 
     def test_a_skit_slot_drafts_its_best_skit_and_one_other_format(self):
         by_id = {"p1": {"format": "post", "hook": "trend:a"}, "p2": {"format": "post", "hook": "trend:b"},
@@ -277,6 +308,20 @@ class WriterSkitBriefTest(unittest.TestCase):
         for bit in ('"premise"', "not a pun", "drives every shot", "sound off", "full name", "six words"):
             self.assertIn(bit, message)
 
+    def test_the_film_is_one_take_with_its_constants_said_once(self):
+        # 2026-11-20: the operator, on three shots rendered apart: "the videos
+        # don't connect. frame and audio wise". One take of at most 15 s, the
+        # look, setting and score held as data, no shot bringing its music.
+        message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
+        for bit in ('"look"', '"setting"', '"score"', "one take", "15 seconds", "3 to 6", "its own music"):
+            self.assertIn(bit, message)
+        brief = self.brief()
+        for bit in ("**One take, one look.**", "`look`", "`setting`", "`score`", "15 seconds", "its own music"):
+            self.assertIn(bit, brief)
+        for block in brief.split("Skit, joining the news.")[1:]:
+            for key in ("look", "setting", "score"):
+                self.assertRegex(block, rf"> {key}: \S")
+
 
 class Scripted(studio.Room):
     """A room whose hand calls answer from a script, keyed by the first two
@@ -351,7 +396,15 @@ class ProducerTest(unittest.TestCase):
         room = self.room()
         self.go(room)
         checked = [b["text"] for a, b, *_ in room.seen if a[:2] == ["guard", "check"]]
-        self.assertEqual(checked, [RAW["logline"], SHOTS[0]["prompt"], SHOTS[1]["prompt"]])
+        kept = skit_draft()["skit"]
+        rules_ = studio._skit_rules()
+        # The logline, each constant, each shot, and the two prompts a video
+        # model is sent: the one-take script and each per-shot prompt.
+        self.assertEqual(checked, [RAW["logline"], LOOK["Elon Musk"], SETTING, SCORE, SHOTS[0]["prompt"],
+                                   SHOTS[1]["prompt"], rules_.script(kept), rules_.shot_prompt(kept, 0),
+                                   rules_.shot_prompt(kept, 1)])
+        video = next(b for a, b, *_ in room.seen if a[:2] == ["video", "skit"])
+        self.assertEqual((video["look"], video["setting"], video["score"]), (LOOK, SETTING, SCORE))
         self.assertTrue(all(b.get("surface") == "task" for a, b, *_ in room.seen if a[:2] == ["guard", "check"]))
 
     def test_a_judge_that_cannot_answer_means_no_skit_and_no_money(self):
@@ -619,6 +672,9 @@ class SkitVetoRunTest(unittest.TestCase):
 
 
 SECOND = {"figures": ["Elon Musk"], "premise": "musk said the car drives itself, so it drives off without him",
+          "look": {"Elon Musk": "silver tuxedo, a brass diving helmet under one arm"},
+          "setting": "a glossy launch stage that floods into an ocean floor, god rays, film grain",
+          "score": "a comic tuba chase theme under the whole film",
           "logline": "elon musk chases his own robotaxi across the ocean floor after it leaves the launch without him",
           "shots": [{"prompt": "Wide shot on a glossy launch stage: Elon Musk in a silver tuxedo pulls a sheet off a "
                                "chrome robotaxi, and it drives away on its own while he is still bowing."},
