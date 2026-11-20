@@ -151,7 +151,23 @@ import prompts  # noqa: E402
 import provider_error  # noqa: E402
 import studio_switch  # noqa: E402
 
-Json = dict[str, Any]
+import formats  # noqa: E402
+# The room and the helpers the formats share, and each format's names, kept
+# answering here (`studio.Room`, `studio.skit_of`, ...) for the callers and
+# tests that know them by this module.
+from studio_room import (  # noqa: E402,F401
+    CALL_MIN_SECS, DATA_LINE, UNJUDGED, Json, Room, Stop, _brief, _judge, _str, _words, ask_core, first_json,
+    texts_of)
+from formats.skit import (  # noqa: E402,F401
+    SKIT_BODY, SKIT_CUT_SECS, SKIT_EDITOR, SKIT_FINAL, SKIT_HELD, SKIT_PITCH, SKIT_PREMISE_MAX, SKIT_RESERVE_SECS,
+    SKIT_RULES, SKIT_SHAPE, SKIT_SHOT_MAX_SECS, SKIT_SLOT_LINE, SKIT_SLOT_OPENING, _make_skit, _skit_rules, skit_of,
+    skit_outcome, skit_screen)
+from formats.remake import (  # noqa: E402,F401
+    REMAKE_BODY, REMAKE_CHARTS_MAX, REMAKE_DROP_SECS, REMAKE_EDITOR, REMAKE_FINAL, REMAKE_KEYS_SECS,
+    REMAKE_KEYS_SPARE, REMAKE_MIN_SECS, REMAKE_PITCH, REMAKE_RULES, REMAKE_SHAPE, REMAKE_SLOT_LINE,
+    REMAKE_SLOT_OPENING, REMAKE_STORY_MAX, REMAKE_STUDIES, REMAKE_STUDY_SECS, STUDY_KEYS, _drop_remake,
+    _make_remake, _remake_rules, _remake_time, chart_items, load_charts, remake_of, remake_outcome, remake_screen,
+    study_for_writer, study_source)
 
 # --- the switches --------------------------------------------------------------------
 
@@ -617,8 +633,6 @@ def board_rows(rows: list[Json]) -> list[Json]:
 # --- answers -------------------------------------------------------------------------
 
 
-#@@MOVED first_json@@
-#@@MOVED _str@@
 def _ref(value: Any) -> str:
     return str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
 
@@ -837,7 +851,6 @@ def validate_drafts(answer: Any, pitch: Json, want: int, study: Json | None = No
     return out, dropped
 
 
-#@@MOVED texts_of@@
 def over_limit(draft: Json) -> str:
     """Why the draft is over X's limit, as the guard counts it; "" when it fits."""
     measured = post_length.measure("x", texts_of(draft))
@@ -1177,7 +1190,6 @@ def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
 
 # --- messages ------------------------------------------------------------------------
 
-#@@MOVED DATA_LINE@@
 
 #: Said to the writer about every outside story it joins (`draft_message`):
 #: the brief's rules for real people's news (writer.md, "start from their
@@ -1575,7 +1587,6 @@ def veto_message(kind: str, candidate: Json, quoted: str | None) -> str:
 # --- the run -------------------------------------------------------------------------
 
 
-#@@MOVED room@@
 # --- publishing the pick --------------------------------------------------------------
 
 #: hands/x refusals that shut the slot for every draft, not just this one.
@@ -1601,8 +1612,6 @@ class Slot:
     close: float = 0.0
 
 
-#@@MOVED words_brief@@
-#@@MOVED judge@@
 def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json, bool]:
     """The truth judge, then the cold reader, on the draft's words: (the gate
     it failed or None, that gate's verdict, every result, whether the failing
@@ -1896,8 +1905,6 @@ def _make_meme(room: Room, draft: Json, note: Json, truth: bool = True) -> list[
     return [up["media_id"]]
 
 
-#@@MOVED skit@@
-#@@MOVED remake@@
 def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
     """The hands/x verb and body for a draft, with the studio's tags."""
     body: Json = {"anchor": str(pitch.get("item") or pitch.get("hook") or draft["pitch"])[:200], "format": draft["format"],
@@ -2148,7 +2155,6 @@ def video_time(room: Room, fmt: str) -> bool:
     return room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS >= 120
 
 
-#@@MOVED skit_outcome@@
 def story_of(draft: Json) -> str:
     """The story a draft tells: the outside story it joins, else its pitch."""
     return str(draft.get("hook") or f"pitch:{draft.get('pitch')}")
