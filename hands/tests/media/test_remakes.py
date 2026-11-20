@@ -326,8 +326,10 @@ class RemakeTest(unittest.TestCase):
         out = self.keys()
         self.assertEqual([k["model"] for k in out["keys"]], [EDIT1, EDIT2])
         self.assertEqual((self.root / out["keys"][1]["path"]).read_bytes(), tall)
-        # The landscape one was answered, so it is booked: 0.10 + 0.10 + 0.06.
-        self.assertEqual(out["cost_usd"], 0.26)
+        # The landscape one was answered, so it stays on the ledger with
+        # the two that were kept: 0.10 + 0.10 + 0.06.
+        self.assertEqual(sorted(k["cost_micro"] for k in self.rows("key")), [60000, 100000, 100000])
+        self.assertIn("1440x720, not 9:16", " ".join(str(k["error"]) for k in self.rows("key")))
 
     def test_a_keyframe_whose_size_cannot_be_read_is_taken(self):
         self.assertIsNone(remakes.size_of(PNG))
