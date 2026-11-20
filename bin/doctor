@@ -495,9 +495,10 @@ fi
 # in secrets/teeny.env names skit. A warning, never a failure, like the meme
 # service's: a skit that cannot be made is no post, and the room falls back
 # to the other formats. It says whether hands/video will make any (it
-# refuses every skit while MEDIA_SKIT_MAX_PER_DAY is 0) and whether one shot
-# fits the shared daily budget; --live asks the reel service, which cuts and
-# labels every skit, for /ping.
+# refuses every skit while MEDIA_SKIT_MAX_PER_DAY is 0), whether one shot
+# fits the shared daily budget, and whether a skit is made as one take (and
+# on which model) or one job a shot; --live asks the reel service, which cuts
+# and labels every skit, for /ping.
 if [ -f "$root/hands/lib/teeny_hands/media/skits.py" ]; then
   skit_out="$(python3 -I -c '
 import sys, urllib.request
@@ -525,7 +526,11 @@ if shot > budget:
     print(f"warn MEDIA_SKIT_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no skit fits a day")
     sys.exit()
 url = (filed.get("REEL_URL") or DEFAULT_URL).rstrip("/")
-said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; cut at {url}"
+take_on = (filed.get("MEDIA_SKIT_ONE_TAKE") or "1").strip().lower() in ("1", "true", "yes", "on")
+take_models = [m.strip() for m in (filed.get("MEDIA_SKIT_ONE_TAKE_MODELS") or "seedance-2-0-text-to-video").split(",") if m.strip()]
+take = (f"one take on {take_models[0]}, one job a shot if it cannot be had" if take_on and take_models
+        else "one take off: one job a shot")
+said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; {take}; cut at {url}"
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
     sys.exit()
