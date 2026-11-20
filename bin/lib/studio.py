@@ -182,9 +182,14 @@ VIDEO_FORMATS = tuple(formats.REGISTRY)
 KNOWN_FORMATS = (*WORD_FORMATS, *VIDEO_FORMATS)
 
 
+def registry() -> dict[str, formats.Format]:
+    """The video formats as registered now, in order (`formats.REGISTRY`,
+    read at each call)."""
+    return formats.REGISTRY
+
+
 def video_formats() -> tuple[str, ...]:
-    """The video formats as registered now (`formats.REGISTRY`, in order)."""
-    return tuple(formats.REGISTRY)
+    return tuple(registry())
 
 
 def known_formats() -> tuple[str, ...]:
@@ -653,8 +658,8 @@ def _ref(value: Any) -> str:
 
 def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: tuple[str, ...],
                      limit: int, item_stories: dict[str, Any] | None = None,
-                     outside: set[str] | None = None,
-                     charts: set[str] | None = None) -> tuple[list[Json], list[Json], list[str]]:
+                     outside: set[str] | None = None, charts: set[str] | None = None,
+                     sources: dict[str, set[str]] | None = None) -> tuple[list[Json], list[Json], list[str]]:
     """(kept, dropped with why, the writer's ranking of the kept ids). A
     pitch's `hook` is the trending story it joins (an id in `outside`, which
     holds only what is trending), its `item` the real thing of Teeny's it
@@ -665,11 +670,15 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     that is a running story; when it names none (or one that is not running)
     and its item carries a running story (`item_stories`, the desk's best
     guess by kind), the item's is used, so the pick and its beat land on a
-    storyline. A remake names both: its `item` is a popular video from the
-    charts (an id in `charts`) and its `hook` the trending story whose
-    public figures it casts; a chart video is no other format's item."""
+    storyline. A video format's pitch also faces its own check
+    (`Format.check_pitch`): a remake names both, its `item` a popular video
+    from the charts and its `hook` the trending story whose public figures
+    it casts. What a format read for itself (`sources`, by format; a
+    remake's charts may come as `charts`) is no other format's item."""
     outside = outside or set()
-    charts = charts or set()
+    sources = {**formats.named(charts=charts), **(sources or {})}
+    owner = {i: name for name, ids in sources.items() for i in ids}
+    video = registry()
     if isinstance(answer, list):
         answer = {"pitches": answer}
     if not isinstance(answer, dict) or not isinstance(answer.get("pitches"), list):
@@ -698,15 +707,13 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             why = f"its item {item!r} is not in the inputs"
         elif fmt not in formats:
             why = f"its format {fmt!r} is not one of {', '.join(formats)}"
-        elif fmt == "skit" and not hook:
-            why = (f"{demoted}: " if demoted else "") + "a skit stages a trending story, and it has no hook"
-        elif fmt == "remake" and item not in charts:
-            why = f"a remake re-creates a popular video: its item {item or None!r} is not one of the charts"
-        elif fmt == "remake" and not hook:
-            why = (f"{demoted}: " if demoted else "") + ("a remake casts the figures a trending story names, and it "
-                                                         "has no hook")
-        elif fmt != "remake" and item in charts:
-            why = f"its item {item!r} is a chart video, which is only a remake's to re-create"
+        elif fmt in video and (bad := video[fmt].check_pitch({"item": item, "hook": hook, "unhooked": demoted},
+                                                             set(sources.get(fmt) or ()))):
+            why = bad
+        elif item in owner and owner[item] != fmt:
+            mine = video.get(owner[item])
+            why = (mine.foreign_item(item) if mine and mine.foreign_item else
+                   f"its item {item!r} is a {owner[item]}'s source, which is only a {owner[item]}'s to use")
         elif not _str(raw.get("angle")):
             why = "it has no angle"
         elif len(kept) >= limit:
