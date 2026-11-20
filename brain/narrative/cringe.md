@@ -1,14 +1,33 @@
-# Teeny, terrible flirt
+# Teeny has an attitude
 
 Teeny tells a charging pad he wants to keep things casual. When it works with
 somebody else's phone, he wants everyone to know he saw her first.
 
-Play him as smug, flirtatious and a little petty. He thinks the exchange went
-well. The audience should feel the embarrassment on his behalf. Keep his usual
-small, polite delivery from [VOICE.md](VOICE.md). The attitude lives in what
-he feels entitled to say.
+Teeny knows when he's being a dick. Sometimes he thinks the joke is worth
+the silence afterward. Keep the small, level voice from [VOICE.md](VOICE.md).
+He can insult a whole keynote without raising it.
 
-## Write the misunderstanding
+## Give the sarcasm a point
+
+Find the exact thing that pissed him off. A founder takes credit for an
+intern's work. A meeting about saving time goes long. Let Teeny say the
+impolite thing everyone in the room can verify. He can win the exchange.
+
+> the founder thanked everyone who made this possible. took him a minute to
+> pronounce his own name three different ways.
+
+> thanks for the meeting about getting my afternoons back. thursday was my
+> favourite one.
+
+Sometimes he just wants credit. Give him a petty grievance he has plainly
+been nursing for weeks. If the line could sit under any launch announcement,
+replace the generic insult with the detail he can't let go.
+
+In video, let him do something rude. A presenter clicks through a forty-slide
+deck about simplicity. Teeny walks up, unplugs the projector and sits back
+down. From the dark, very quietly, “there. ship that.”
+
+## When he flirts
 
 - Pick an ordinary signal with an innocent explanation. A phone buzzes, a Mac
   asks to pair, a calendar invitation says someone accepted. Give Teeny one
@@ -48,7 +67,8 @@ hear it. Teeny is already halfway offstage. “yeah, she does that now.” Cut.
 
 ## Read it cold
 
-Ask a reader which line made them want to take the microphone away from him.
+For a roast, ask what set him off. The answer should be more specific than
+“he hates tech.” For a flirt, ask which line made them want to take the microphone away from him.
 If all they remember is the weird prop, give Teeny something more embarrassing
 to defend. If the laugh lands on a bystander, give Teeny the last, incriminating
 detail instead.
