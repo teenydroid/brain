@@ -576,8 +576,8 @@ def _load_frames(frames: list[Any]) -> tuple[list[str], str | None, Any]:
     first = None
     digest = hashlib.sha256()
     for frame in frames:
-        path = resolve(frame)
         try:
+            path = resolve(frame)
             data = path.read_bytes()
         except OSError as exc:
             raise Bad(f"a frame could not be read ({type(exc).__name__})") from None
