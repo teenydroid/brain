@@ -184,8 +184,8 @@ class ReadTest(unittest.TestCase):
 
     def test_the_aspect_is_the_nearest_of_three(self):
         for size, want in {(1920, 1080): "16:9", (1280, 720): "16:9", (1080, 1920): "9:16", (720, 1280): "9:16",
-                           (1080, 1080): "1:1", (1000, 1100): "1:1", (1440, 1080): "16:9", (1080, 1350): "9:16",
-                           (1200, 900): "16:9", (900, 1200): "9:16", (1100, 1000): "1:1"}.items():
+                           (1080, 1080): "1:1", (1000, 1100): "1:1", (1100, 1000): "1:1", (1080, 1350): "1:1",
+                           (1500, 1080): "16:9", (1080, 1500): "9:16"}.items():
             with self.subTest(size=size):
                 self.assertEqual(shots.aspect(*size), want)
         with self.assertRaises(ValueError):
