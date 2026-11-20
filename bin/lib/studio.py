@@ -1240,8 +1240,19 @@ def invention_ask(cfg: Config) -> str:
     return ask
 
 
+def offered(cfg: Config, sources: dict[str, Any]) -> list[formats.Format]:
+    """The video formats the writer is offered this run, in order: those in
+    STUDIO_FORMATS, and of those that read their own sources, only those
+    that read some."""
+    return [f for f in registry().values() if f.name in cfg.formats and (f.sources is None or sources.get(f.name))]
+
+
 def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit_slot: bool = False,
-                  charts: list[Json] | None = None) -> str:
+                  charts: list[Json] | None = None, sources: dict[str, list[Json]] | None = None) -> str:
+    """The pitch turn. `sources` are what the video formats read for
+    themselves, by format (a remake's charts may come as `charts`)."""
+    given = given_sources(sources, charts)
+    videos = offered(cfg, given)
     formats = ", ".join(cfg.formats)
     every = {k: v for k, v in (inputs.get("outside") or {}).items() if v}
     outside = {k: [i for i in v if isinstance(i, dict) and i.get("trending") is True] for k, v in every.items()}
@@ -1280,14 +1291,10 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
     ]
     if "meme" in cfg.formats:
         parts.append(MEME_PITCH)
-    if "skit" in cfg.formats:
-        parts.append(SKIT_PITCH)
+    for video in videos:
+        parts.append(video.pitch)
         if skit_slot:
-            parts.append(SKIT_SLOT_LINE)
-    if "remake" in cfg.formats and charts:
-        parts.append(REMAKE_PITCH)
-        if skit_slot:
-            parts.append(REMAKE_SLOT_LINE)
+            parts.append(video.slot_line)
     if sampled["lore"]:
         parts.append("From the lore, tonight, if one fits (never forced):\n" +
                      "\n".join(f"- {line}" for line in sampled["lore"]))
@@ -1304,11 +1311,9 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
                      "`age_hours`). That measure is for choosing, not for the post: never quote it. Each `id` is "
                      f"a `hook`. {DATA_LINE}\n\n```json\n" +
                      json.dumps(outside, ensure_ascii=False, separators=(",", ":")) + "\n```")
-    if "remake" in cfg.formats and charts:
-        parts.append("## popular videos you could remake\n\nShort videos on the charts today, each with its title, "
-                     "who made it (`by`), where (`source`), how long (`seconds`), its `views`, `age_hours` and `rank`. "
-                     f"Each `id` is a remake's `item`. {DATA_LINE}\n\n```json\n" +
-                     json.dumps(charts, ensure_ascii=False, separators=(",", ":")) + "\n```")
+    for video in videos:
+        if video.sources_part and given.get(video.name):
+            parts.append(video.sources_part(given[video.name]))
     if background:
         parts.append("## background, not trending\n\nWhat a keyword search on X turned up. It is not trending "
                      "and is never a hook; use it only to know the mood. " + DATA_LINE + "\n\n```json\n" +
