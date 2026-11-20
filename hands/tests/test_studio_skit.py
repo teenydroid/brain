@@ -314,11 +314,25 @@ class WriterSkitBriefTest(unittest.TestCase):
         # don't connect. frame and audio wise". One take of at most 15 s, the
         # look, setting and score held as data, no shot bringing its music.
         message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
-        for bit in ('"look"', '"setting"', '"score"', "one take", "15 seconds", "3 to 6", "its own music"):
+        for bit in ('"look"', '"setting"', '"score"', "one take", "20 seconds", "three or four shots", "3 to 6",
+                    "its own music", "plain close-up"):
             self.assertIn(bit, message)
+        self.assertNotIn("15 seconds", message)
         brief = self.brief()
-        for bit in ("**One take, one look.**", "`look`", "`setting`", "`score`", "15 seconds", "its own music"):
+        for bit in ("**One take, one look.**", "`look`", "`setting`", "`score`", "20 seconds", "three or four shots",
+                    "its own music"):
             self.assertIn(bit, brief)
+        self.assertNotIn("15 seconds", brief)
+
+    def test_the_impossible_thing_is_in_frame_in_every_shot(self):
+        # 2026-11-20: a paid one-take render ended on a photoreal close-up of
+        # the figure in front of an ordinary office, which could pass for real.
+        brief = self.brief()
+        self.assertIn("**The impossible thing is in frame, every shot.**", brief)
+        for bit in ("plain close-up", "ordinary"):
+            self.assertIn(bit, brief)
+        message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
+        self.assertIn("the impossible thing is in frame", message)
         for block in brief.split("Skit, joining the news.")[1:]:
             for key in ("look", "setting", "score"):
                 self.assertRegex(block, rf"> {key}: \S")
