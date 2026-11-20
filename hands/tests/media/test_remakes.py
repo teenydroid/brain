@@ -1014,6 +1014,17 @@ class OneTakeTest(Fixture):
         self.assertEqual((take["status"], take["cost_micro"]), ("failed", 0))
         self.assertEqual([(c["status"], c["cost_micro"]) for c in clips], [("done", 450000)] * 2)
 
+    def test_a_fallback_never_holds_more_a_shot_than_the_claim_did(self):
+        self.env(MEDIA_REMAKE_PER_SHOT=1, MEDIA_REMAKE_MODELS=KLING)
+        for model in (TAKE1, TAKE2):
+            self.api.jobs[model] = ["running", "failed"]
+        self.api.maxes[KLING] = 2000000  # over the $1.30 a shot the claim held, under $4.90
+        made = self.keys()
+        self.env(MEDIA_REMAKE_MAX_USD_PER_SHOT="5.00")  # raised after the claim
+        with self.assertRaises(hand.HandError):
+            self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertEqual(len(self.api.deleted()), 2)  # each clip's job cancelled, over what is held for it
+
     def test_with_the_per_shot_setting_every_frame_is_needed(self):
         self.env(MEDIA_REMAKE_PER_SHOT=1)
         (self.root / "state" / "media" / "remake" / "s1" / "shot-2.jpg").unlink()
