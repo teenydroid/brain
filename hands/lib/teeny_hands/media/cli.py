@@ -31,9 +31,10 @@ and publishes nothing: a post attaches the file through hands/x upload.
 from __future__ import annotations
 
 import argparse
+from typing import Mapping
 
 from .. import hand
-from . import assets, remakes, skits
+from . import assets, flavors
 
 
 def _bounded(low: int, high: int, what: str):
