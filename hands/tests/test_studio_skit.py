@@ -651,8 +651,8 @@ class NextSkitRunTest(unittest.TestCase):
 
     def test_a_refused_skit_hands_the_slot_to_the_next_skit(self):
         refuse = {"verdict": "none", "reason": "a scene that could pass for a real launch", "line": "real footage"}
-        ask = self.ask_with(lambda which: refuse if which == self.first_asked() else {"verdict": "pick",
-                                                                                     "reason": "r"})
+        # The first skit asked is refused, the next one picked.
+        ask = self.ask_with(lambda which: refuse if len(self.finals) == 1 else {"verdict": "pick", "reason": "r"})
         code, out = studio.run(self.args, self.env, ask=ask)
         self.assertEqual((code, out["outcome"]), (0, "picked"), out)
         record = self.record()
@@ -664,9 +664,6 @@ class NextSkitRunTest(unittest.TestCase):
         self.assertEqual([v["label"] for v in record["skit_vetoes"]], [record["skit_veto"]["label"]])
         self.assertNotIn(record["skit_veto"]["label"], record["slot_order"])
         self.assertEqual(record["publish"]["attempts"][0]["format"], "skit")
-
-    def first_asked(self):
-        return self.finals[0]
 
     def test_every_skit_refused_falls_back_to_the_other_formats(self):
         ask = self.ask_with(lambda which: {"verdict": "pick" if which == "post" else "none", "reason": "flat"})
