@@ -394,6 +394,21 @@ class SpendTest(Base):
         finally:
             conn.close()
 
+    def test_a_ledger_made_before_dissects_gains_the_kind_and_keeps_its_studies(self):
+        conn = hand.db()
+        try:
+            conn.executescript("CREATE TABLE remake_studies (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+                               "study_id TEXT NOT NULL, model TEXT NOT NULL, stage TEXT NOT NULL, ok INTEGER NOT NULL "
+                               "DEFAULT 0, usable INTEGER, reason TEXT, asks INTEGER, tokens_in INTEGER, tokens_out "
+                               "INTEGER, cost_micro INTEGER);")
+            conn.execute("INSERT INTO remake_studies (at, study_id, model, stage, ok) VALUES (?, 'tt-1', 'glm', 'done', 1)",
+                         (__import__("teeny_hands.guard.holds", fromlist=["iso"]).iso(hand.now()),))
+        finally:
+            conn.close()
+        self.secrets(f"KHABY_DISSECT_MODEL={MODEL}\nKHABY_DISSECT_MAX_PER_DAY=1\n")
+        self.assertTrue(self.dissect()["usable"])
+        self.assertEqual((ledger.used_today(), ledger.used_today(kind="dissect")), (1, 1))
+
     def test_the_day_is_capped_at_three_by_default(self):
         for n in (1, 2, 3):
             self.ingest.probe_answer = {"source": "tiktok", "video_id": f"7{n}", "url": TT_URL}
