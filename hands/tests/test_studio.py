@@ -1248,10 +1248,10 @@ class ChanWildcardTest(unittest.TestCase):
         msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
         self.assertNotIn("## what is trending today", msg)
         self.assertNotIn("## background, not trending", msg)
-        self.assertIn("never a hook", studio.WILDCARD_LINE.replace("none is a hook", "never a hook"))
+        self.assertIn("none is a hook", studio.WILDCARD_LINE)
         kept, _, _ = studio.validate_pitches(
             {"pitches": [{"id": "p1", "hook": "chan:x:77", "item": None, "format": "post", "storyline": None,
-                          "shape": "bet", "angle": "a"}]}, {"evt:1"}, set(), ("post",), 12, set())
+                          "shape": "bet", "angle": "a"}]}, {"evt:1"}, set(), ("post",), 12, outside=set())
         self.assertEqual(kept, [])
 
     def test_a_failed_hand_is_recorded_and_the_run_goes_on(self):
