@@ -129,7 +129,7 @@ class ProviderTest(Base):
         self.assertIn("never a name", prompt.lower())
 
     def test_gemini_gets_the_video_inline_by_generate_content(self):
-        self.secrets(f"KHABY_DISSECT_PROVIDER=gemini\nKHABY_DISSECT_MODEL=gemini-video\n")
+        self.secrets("KHABY_DISSECT_PROVIDER=gemini\nKHABY_DISSECT_MODEL=gemini-video\n")
         self.model = FakeModel(gemini_reply(reading()))
         got = self.dissect()
         self.assertTrue(got["usable"], got["why"])
