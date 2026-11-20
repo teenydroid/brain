@@ -69,6 +69,9 @@ services:
   cortexdb:
     image: cortexdb/cortexdb:v0.10.4
     restart: unless-stopped
+    # default (reel, memegen, xhook) and ingest-net (the ingest service, which
+    # shares nothing else): the spine lives in this namespace, so it reaches both.
+    networks: [default, ingest-net]
     env_file:
       - path: ../secrets/cortex.env
         required: false
@@ -339,6 +342,11 @@ services:
     cpus: 2
     mem_limit: 2g
     pids_limit: 256
+    # Its own network, so what it fetches can never reach reel, memegen, xhook
+    # or the web page: it shares a network only with cortexdb, whose namespace
+    # the spine lives in (the spine reaches it at http://ingest:8090), and
+    # cortexdb and the core listen on loopback only.
+    networks: [ingest-net]
     env_file:
       - path: ../secrets/ingest.env
         required: false
@@ -369,6 +377,10 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"
+
+networks:
+  # Only the ingest service and cortexdb (so the spine) are on it.
+  ingest-net:
 
 volumes:
   cortexdb-data:
