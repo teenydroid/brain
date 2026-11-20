@@ -603,20 +603,10 @@ def view_skit(frames: Any, label: Any, intent: Any, api: Any = None,
     if len(intent) > MAX_INTENT_CHARS:
         return refused(f"the intent is too long for the viewer ({len(intent)} characters, at most {MAX_INTENT_CHARS})")
     shown_intent = intent
-    pictures: list[str] = []
-    first = None
-    digest = hashlib.sha256()
     try:
-        for frame in frames:
-            path = resolve(frame)
-            data = path.read_bytes()
-            digest.update(data)
-            pictures.append(data_uri(data))
-            first = first or str(path.relative_to(hand.root().resolve()))
+        pictures, first, digest = _load_frames(frames)
     except Bad as exc:
         return refused(str(exc))
-    except OSError as exc:
-        return refused(f"a frame could not be read ({type(exc).__name__})")
     name = model()
     row_id, refusal = _claim({"image": first, "sha256": digest.hexdigest(), "intent": intent, "caption": label,
                               "model": name})
