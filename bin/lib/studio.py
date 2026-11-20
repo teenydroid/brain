@@ -2067,7 +2067,8 @@ SKIT_EDITOR = (
     "- hate;\n"
     "- crime, drugs, illness or death shown as theirs;\n"
     "- a private person, a child, a family member, or someone who is only a victim or a bystander in the story;\n"
-    "- the figure near Teeny, $TINY, a token, a wallet, a product, an investment or an endorsement;\n"
+    "- the figure near Teeny, $TINY, a token, a wallet, an investment, or a product or brand they are seen to "
+    "endorse (the thing the story is about, their own car or chip, may be in the scene);\n"
     "- a scene or a line that could pass for real footage or a real quote on a real issue;\n"
     "- a skit a stranger could not follow at all.")
 #: And in the slot question on a skit: taste is for the comparisons.
