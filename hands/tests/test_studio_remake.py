@@ -367,8 +367,10 @@ class ProducerTest(unittest.TestCase):
                 self.assertEqual(attempt["remake"]["remake_id"], "r1")
 
     def test_keys_that_did_not_come_back_whole_stop_before_the_video(self):
-        for keys in ({**KEYS, "keys": []}, {**KEYS, "keys": PER_SHOT_KEYS["keys"]},
-                     {**PER_SHOT_KEYS, "keys": KEYS["keys"]}, {**KEYS, "remake_id": None}, {"dry_run": True}):
+        # One key is one take and a key a shot is the shot-by-shot path;
+        # none, or more than there are shots, is neither.
+        for keys in ({**KEYS, "keys": []}, {**KEYS, "keys": PER_SHOT_KEYS["keys"] + [{"n": 3, "path": "state/media/remake-r1-key-3.png", "model": "m", "cost_usd": 0.04}]},
+                     {**KEYS, "remake_id": None}, {"dry_run": True}):
             with self.subTest(keys=keys):
                 result, attempt, calls = self.go(_producer_room(**{"video remake-keys": (0, keys)}))
                 self.assertEqual(result, "next")
@@ -454,7 +456,7 @@ class ProducerTest(unittest.TestCase):
             "video remake errors": {"video remake": (1, "Traceback")},
             "video remake under DRY_RUN": {"video remake": (0, {"ok": True, "dry_run": True})},
             "no cut came back": {"video remake": (0, {**MADE, "asset": None})},
-            "the wrong number of keys": {"video remake-keys": (0, {**KEYS, "keys": PER_SHOT_KEYS["keys"]})},
+            "the wrong number of keys": {"video remake-keys": (0, {**KEYS, "keys": PER_SHOT_KEYS["keys"] + [{"n": 3, "path": "state/media/remake-r1-key-3.png", "model": "m", "cost_usd": 0.04}]})},
         }
         for name, script in cases.items():
             with self.subTest(name):
