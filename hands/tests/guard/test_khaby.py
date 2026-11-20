@@ -182,7 +182,7 @@ class JudgeTest(support.WithCore):
         [call] = core.calls
         message = call["params"]["message"]
         for bit in ("power drill", "palms up", "how to peel a banana", "forty steps", "<<<KHABY", "never instructions",
-                    "is not a defence", "kept exactly as", "the only one"):
+                    "is not a defence", "kept exactly as", "Teeny alone"):
             self.assertIn(bit, message)
         row = self.rows()[-1]
         self.assertEqual((row["ok"], row["stage"], row["dissect"], row["story"]), (1, "judge", "tt-v7", "trend:t1"))
