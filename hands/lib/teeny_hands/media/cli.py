@@ -8,8 +8,8 @@
   hands/video
     A  generate {prompt, image_prompt?}   a still of Teeny, animated as `prompt` says
     A  skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
-                                          a parody video: one text-to-video job a shot, cut
-                                          with their own sound and the label (media/skits.py);
+                                          a parody video: one take (one job, one script) or one
+                                          text-to-video job a shot, cut with the label (media/skits.py);
                                           off until MEDIA_SKIT_MAX_PER_DAY is set
     R  list [--max N]                     the videos made, newest first, and today's spend
     R  get ID                             one
