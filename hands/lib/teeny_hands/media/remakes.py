@@ -123,8 +123,10 @@ ONE_TAKE_MODELS = "venice-wan-3-0-image-to-video,wan-2-7-image-to-video"
 #: 15 s at 720p quoted max $3.51 (estimate $1.52) on 2026-11-21.
 PER_TAKE = "4.00"
 #: The take's script ends with this, the hand's, after the writer's words.
-TAKE_TAIL = ("The small yellow character stays where it is the whole time and only watches. No one ever looks at it: "
-             "the people never looks at the yellow character. Realistic motion. No text, no captions, no logos.")
+TAKE_TAIL = ("The small yellow character stays where it is the whole time and only watches. The person on screen "
+             "never looks at the yellow character. Realistic motion. No text, no captions, no logos.")
+#: A remake's whole length, the sum of its source shots, in seconds.
+TOTAL_SECONDS = (3.0, 30.0)
 #: What a shot reserves by default (MEDIA_REMAKE_MAX_USD_PER_SHOT): a $0.10
 #: key and Wan 3's 5 s ceiling ($1.17 at 720p) fit; six shots hold $8.40.
 PER_SHOT = "1.40"
@@ -200,7 +202,8 @@ def keys_of(body: Any) -> Json:
     """remake-keys' job as this hand takes it, every field checked."""
     if not isinstance(body, dict):
         raise hand.Refused("remake-keys takes a JSON object", rule="body")
-    unknown = sorted(set(body) - {"study", "source", "story", "figures", "logline", "aspect", "shots", "wait_seconds"})
+    unknown = sorted(set(body) - {"study", "source", "story", "figures", "logline", "aspect", "shots", "wait_seconds",
+                                  "one_setting"})
     if unknown:
         raise hand.Refused(f"not taken here: {', '.join(unknown)}", rule="body")
     study = body.get("study")
@@ -221,27 +224,43 @@ def keys_of(body: Any) -> Json:
     given = body.get("shots")
     if not isinstance(given, list) or not 1 <= len(given) <= MAX_SHOTS:
         raise hand.Refused(f"a remake is 1 to {MAX_SHOTS} shots", rule="body")
+    one_setting = body.get("one_setting")
+    if one_setting is not None and not isinstance(one_setting, bool):
+        raise hand.Refused("one_setting is true or false", rule="body")
     kept = []
     for n, item in enumerate(given, 1):
         if not isinstance(item, dict):
             raise hand.Refused(f"shot {n} is an object", rule="body")
-        extra = sorted(set(item) - {"n", "frame", "seconds", "edit", "motion", "teeny"})
+        extra = sorted(set(item) - {"n", "frame", "seconds", "edit", "motion", "teeny", "cuts"})
         if extra:
             raise hand.Refused(f"shot {n}: not taken here: {', '.join(extra)}", rule="body")
         if item.get("n") != n or isinstance(item.get("n"), bool):
             raise hand.Refused(f"shot {n} is numbered {n}: the shots go 1 to N in order", rule="body")
-        if item.get("frame") != frame_path(study, n):
+        # Only shot 1's frame is keyed for the one take; the others' are
+        # taken when sent (the per-shot fallback keys them all) and never
+        # needed otherwise.
+        if (n == 1 or "frame" in item) and item.get("frame") != frame_path(study, n):
             raise hand.Refused(f"shot {n}'s frame is {frame_path(study, n)}", rule="body")
+        cuts = item.get("cuts")
+        if cuts is not None and not isinstance(cuts, bool):
+            raise hand.Refused(f"shot {n}'s cuts is true or false", rule="body")
         seconds = item.get("seconds")
         if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not (
                 SHOT_SECONDS[0] <= seconds <= SHOT_SECONDS[1]):
             raise hand.Refused(f"shot {n}'s seconds is {SHOT_SECONDS[0]} to {SHOT_SECONDS[1]}", rule="body")
         teeny = item.get("teeny", "")
-        kept.append({"n": n, "seconds": round(float(seconds), 3),
+        # A hard cut into this shot: its own `cuts`, else the shots are in
+        # different settings (one_setting false); one continuous take by default.
+        cut = n > 1 and (cuts if cuts is not None else one_setting is False)
+        kept.append({"n": n, "seconds": round(float(seconds), 3), "cut": cut,
                      "edit": _words(item.get("edit"), f"shot {n}'s edit", *EDIT_CHARS),
                      "motion": _words(item.get("motion"), f"shot {n}'s motion", *MOTION_CHARS),
                      "teeny": _words(teeny, f"shot {n}'s teeny", 0, TEENY_CHARS)})
-    return {"study": study, "source": {k: source[k].strip() for k in SOURCE_FIELDS},
+    total = round(sum(s["seconds"] for s in kept), 3)
+    if not TOTAL_SECONDS[0] <= total <= TOTAL_SECONDS[1]:
+        raise hand.Refused(f"a remake runs {TOTAL_SECONDS[0]:g} to {TOTAL_SECONDS[1]:g} seconds; these shots run "
+                           f"{total:g}", rule="body")
+    return {"study": study, "source": {k: source[k].strip() for k in SOURCE_FIELDS}, "total": total,
             "story": _words(body.get("story"), "story", 1, STORY_CHARS), "figures": [f.strip() for f in figures],
             "logline": _words(body.get("logline"), "logline", 1, skits.MAX_LOGLINE), "aspect": aspect,
             "shots": kept, "wait": _wait(body)}
@@ -276,6 +295,56 @@ def edit_prompt(shot: Json) -> str:
 
 def motion_prompt(motion: str) -> str:
     return f"{motion} {MOTION_TAIL}"
+
+
+def _secs(value: float) -> str:
+    return f"{round(value, 2):g}"
+
+
+def take_script(remake_shots: list[Json], length: int) -> str:
+    """The one take's prompt, built by the hand around the writer's words
+    (the style of guard/skit.py's `script` and of the take made by hand on
+    2026-11-21): the whole length and whether it cuts; each shot's time
+    range, in the source's own seconds, with its motion (and, after the
+    first, what the scene now shows: its edit), the last running to the
+    take's end, which the cut trims; then TAKE_TAIL."""
+    count = len(remake_shots)
+    if any(s.get("cut") for s in remake_shots[1:]):
+        parts = [f"A {length} second film in {count} shots, hard cuts only where marked, the same people, props and "
+                 "look throughout."]
+    else:
+        parts = [f"One continuous {length} second take, no cuts, locked-off camera."]
+    at = 0.0
+    for index, shot in enumerate(remake_shots):
+        end = length if index == count - 1 else at + shot["seconds"]
+        words = "Hard cut. " if index and shot.get("cut") else ""
+        if index:
+            words += f"The scene now shows: {shot['edit'].rstrip('. ')}. "
+        motion = shot["motion"].rstrip()
+        words += motion if motion.endswith((".", "!", "?")) else motion + "."
+        parts.append(f"{_secs(at)} to {_secs(end)} seconds: {words}")
+        at += shot["seconds"]
+    parts.append(TAKE_TAIL)
+    return " ".join(parts)
+
+
+def take_plan(remake_shots: list[Json], cap: int, clip_sound: bool) -> shots.Plan:
+    """The one take: image-to-video from shot 1's keyframe, the script for
+    the length bought, the shortest length on sale that covers the whole
+    remake, never one whose verified ceiling cannot fit `cap`."""
+    return shots.Plan(prefix="remake", key="teeny-remake", style=None, params="MEDIA_REMAKE_PARAMS",
+                      body=lambda model, prompt, seconds, aspect, params, shot: shots.request_body(
+                          model, take_script(remake_shots, seconds), seconds, aspect,
+                          model_params(model, params, clip_sound), image=shot.image,
+                          resolution_setting="MEDIA_REMAKE_RESOLUTION"),
+                      length=lambda shot, sold: shots.at_least(shot.floor, sold), per_shot=cap,
+                      max_per_second=REMAKE_MAX_PER_SECOND)
+
+
+def per_shot_on() -> bool:
+    """MEDIA_REMAKE_PER_SHOT: when the one take cannot be had, a clip a
+    shot instead (every shot keyed for it). Off: no mix of jobs."""
+    return hand.flag("MEDIA_REMAKE_PER_SHOT", False)
 
 
 def model_params(model: str, params: dict[str, Json], clip_sound: bool) -> dict[str, Json]:
@@ -349,9 +418,10 @@ def _spent_on(conn, remake_id: int) -> int:
                         " AND source_id = ? AND status IN ('done', 'unknown')", (remake_id,)).fetchone()["n"]
 
 
-def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) -> tuple[int, list[int]]:
-    """The caps, then the remake's row and a row a shot carrying its
-    reservation, under the media lock."""
+def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_shot: bool) -> tuple[int, int]:
+    """The caps, then the remake's row and the take's row carrying the
+    whole reservation, `need`, under the media lock. The keys are paid
+    from it; a per-shot fallback swaps it for a row a shot."""
     with hand.lock("media"):
         conn = assets._db()
         try:
@@ -365,11 +435,10 @@ def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) ->
                                    limit=limit)
             budget = assets._usd("MEDIA_MAX_USD_PER_DAY", "1.00")
             spent = assets._spent_today(conn)
-            need = per_shot * len(job["shots"])
             if spent + need > budget:
                 raise hand.Refused(
-                    f"{len(job['shots'])} shot(s) at up to ${per_shot / 1e6:.2f} each would take today's media spend "
-                    f"past ${budget / 1e6:.2f} (MEDIA_MAX_USD_PER_DAY)",
+                    f"a remake held at up to ${need / 1e6:.2f} would take today's media spend past "
+                    f"${budget / 1e6:.2f} (MEDIA_MAX_USD_PER_DAY)",
                     rule="budget", spent_usd=round(spent / 1e6, 4), budget_usd=budget / 1e6,
                     need_usd=round(need / 1e6, 4))
             with hand.transaction(conn):
@@ -377,17 +446,19 @@ def _claim(job: Json, per_shot: int, limit: int, shared: int, the_label: str) ->
                     "INSERT INTO media_assets (kind, status, prompt, purpose, cost_micro, estimated, created_at)"
                     " VALUES ('remake', 'pending', ?, 'post', 0, 1, ?)", (job["logline"], hand.now()),
                 ).lastrowid
-                rows = [conn.execute(
+                take_row = conn.execute(
                     "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated,"
-                    " created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?)",
-                    (shot["motion"], remake_id, per_shot, hand.now()),
-                ).lastrowid for shot in job["shots"]]
+                    " detail, created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?, ?)",
+                    (take_script(job["shots"], math.ceil(job["total"])), remake_id, need,
+                     json.dumps({"one_take": True, "shots": len(job["shots"]), "total": job["total"]}), hand.now()),
+                ).lastrowid
                 detail = {"stage": "keying", "study": job["study"], "source": job["source"], "story": job["story"],
                           "figures": job["figures"], "logline": job["logline"], "aspect": job["aspect"],
-                          "label": the_label, "shots": [{**shot, "row": row} for shot, row in zip(job["shots"], rows)]}
+                          "label": the_label, "shots": job["shots"], "total": job["total"], "take_row": take_row,
+                          "per_shot": per_shot}
                 conn.execute("UPDATE media_assets SET detail = ? WHERE id = ?",
                              (json.dumps(detail, ensure_ascii=False, sort_keys=True), remake_id))
-            return remake_id, rows
+            return remake_id, take_row
         finally:
             conn.close()
 
@@ -629,36 +700,53 @@ def _key_costs(conn, remake_id: int) -> int:
                         " AND source_id = ? AND status != 'failed'", (remake_id,)).fetchone()["n"]
 
 
+def _need(take_cap: int, per_shot: int, count: int, per_shot_mode: bool) -> int:
+    """What a remake holds from its claim: the take's cap, or, with the
+    per-shot fallback, enough for a clip a shot too."""
+    return max(take_cap, per_shot * count) if per_shot_mode else take_cap
+
+
 def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock=time.monotonic) -> Json:
     job = keys_of(body)
     the_label = skits.label()
     edit_models = assets._models("MEDIA_REMAKE_EDIT_MODELS", EDIT_MODELS)
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
+    take_models = assets._models("MEDIA_REMAKE_ONE_TAKE_MODELS", ONE_TAKE_MODELS)
     per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", PER_SHOT)
+    take_cap = assets._usd("MEDIA_REMAKE_MAX_USD_PER_TAKE", PER_TAKE)
+    per_shot_mode = per_shot_on()
+    need = _need(take_cap, per_shot, len(job["shots"]), per_shot_mode)
+    # One keyframe for the one take; every shot's when the per-shot
+    # fallback may need them.
+    keyed = job["shots"] if per_shot_mode else job["shots"][:1]
     limit, shared = _limits()
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "keys", "shots": len(job["shots"]),
-                "aspect": job["aspect"], "edit_models": edit_models, "models": models, "label": the_label,
-                "max_usd_per_shot": per_shot / 1e6, "reserve_usd": round(per_shot * len(job["shots"]) / 1e6, 4),
+                "seconds": job["total"], "aspect": job["aspect"], "edit_models": edit_models, "models": models,
+                "label": the_label, "max_usd_per_shot": per_shot / 1e6, "reserve_usd": round(need / 1e6, 4),
                 "enabled": limit > 0 and shared > 0,
-                "requests": [{"model": edit_models[0], "prompt": edit_prompt(s),
+                "one_take": {"on": True, "models": take_models, "max_usd": round(take_cap / 1e6, 4),
+                             "per_shot_fallback": per_shot_mode},
+                "requests": [{"model": edit_models[0], "prompt": edit_prompt(s), "aspect_ratio": job["aspect"],
                               "images": [frame_path(job["study"], s["n"]), assets.REFERENCE]}
-                             for s in job["shots"]] if edit_models else []}
+                             for s in keyed] if edit_models else []}
     _check_on(limit, shared)
-    if not edit_models or not models:
-        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_EDIT_MODELS, MEDIA_REMAKE_MODELS)")
+    if not edit_models or not take_models or (per_shot_mode and not models):
+        raise hand.HandError("no remake model is configured (MEDIA_REMAKE_EDIT_MODELS, MEDIA_REMAKE_ONE_TAKE_MODELS, "
+                             "MEDIA_REMAKE_MODELS)")
     wait = hand.number("MEDIA_REMAKE_KEYS_WAIT_SECONDS", 300, 60, 1700)
     if job["wait"] is not None:
         wait = min(wait, job["wait"])
-    frames = [_frame(job["study"], s["n"]) for s in job["shots"]]
+    frames = [_frame(job["study"], s["n"]) for s in keyed]
     reference = _reference()
     _ping(reel)
     api = api or Surplus()
-    remake_id, rows = _claim(job, per_shot, limit, shared, the_label)
-    specs = [{**s, "row": row} for s, row in zip(job["shots"], rows)]
+    remake_id, take_row = _claim(job, need, limit, shared, the_label, per_shot_mode)
+    specs = [{**s, "row": take_row} for s in keyed]
     conn = assets._db()
     try:
-        results = _keys(api, remake_id, specs, frames, reference, edit_models, per_shot, wait, clock, job["aspect"])
+        results = _keys(api, remake_id, specs, frames, reference, edit_models,
+                        per_shot if per_shot_mode else take_cap, wait, clock, job["aspect"])
         failed = [r for r in results if "failed" in r]
         if failed:
             why = "; ".join(f"shot {r['n']}: {r['failed']}" for r in failed)[:1000]
@@ -669,8 +757,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
                 for r in results]
         row = conn.execute("SELECT * FROM media_assets WHERE id = ?", (remake_id,)).fetchone()
         _set_detail(conn, remake_id, {**_detail(row), "stage": "keys", "keys": keys})
-        reserved = conn.execute("SELECT COALESCE(SUM(cost_micro), 0) AS n FROM media_assets WHERE kind = 'shot'"
-                                " AND source_id = ? AND status = 'pending'", (remake_id,)).fetchone()["n"]
+        reserved = conn.execute("SELECT cost_micro FROM media_assets WHERE id = ?", (take_row,)).fetchone()["cost_micro"]
         return {"remake_id": remake_id, "keys": keys, "reserve_usd": round(reserved / 1e6, 6),
                 "cost_usd": round(sum(r["cost"] for r in results) / 1e6, 6)}
     except BaseException:
