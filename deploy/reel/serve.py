@@ -22,7 +22,15 @@ plain code in policy.py (no upstream import), which hands/tests/reel tests.
 3. A path allowlist (policy.Gate): every other route upstream serves
    (script and term generation through a model, stock search, uploads, the
    static file mounts) answers 403.
-4. Cleanup: a task's staged files go when hands/reel deletes the task; at
+4. Skit cuts (skitcut.py; hands/video skit): `POST /teeny/v1/cuts` joins
+   one to four of Teeny's bought text-to-video shots with ffmpeg, keeping
+   each shot's own sound (upstream drops a material's audio), evens the
+   loudness, lays an optional bed under it and burns the label into a
+   corner for the whole length, then takes frames for the viewer check.
+   One cut at a time, in a folder of its own on the storage volume, served
+   back (`GET /teeny/v1/cuts/{id}/cut.mp4`, `.../frame-N.jpg`) until
+   hands/video deletes it (`DELETE /teeny/v1/cuts/{id}`).
+5. Cleanup: a task's staged files go when hands/reel deletes the task; at
    start every leftover of an earlier run is removed (upstream keeps task
    state in memory, so a restart orphans them); and a sweep every
    REEL_REAP_MINUTES (60) removes any task nobody collected, for instance
@@ -47,11 +55,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uvicorn  # noqa: E402
 from fastapi import APIRouter, Request  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
 import policy  # noqa: E402
+import skitcut  # noqa: E402
 from app.asgi import app  # noqa: E402
 from app.config import config  # noqa: E402
 from app.controllers.manager.base_manager import TaskQueueFullError  # noqa: E402
@@ -69,6 +78,9 @@ BEDS = utils.storage_dir("bgm", create=True)
 TASKS = utils.task_dir()
 FONTS = utils.font_dir()
 REAP_SECONDS = max(10, int(os.environ.get("REEL_REAP_MINUTES", "60"))) * 60
+CUTS = utils.storage_dir("cuts", create=True)
+#: One cut at a time: ffmpeg takes the service's cores.
+CUTTING = threading.Lock()
 
 
 def _refuse(status: int, message: str) -> JSONResponse:
@@ -165,6 +177,59 @@ async def create_reel(request: Request):
     return {"status": 200, "data": {"task_id": task_id}}
 
 
+def _cut(cut_id: str, checked: dict) -> dict:
+    """One skit's cut, in its own folder. Runs in a worker thread."""
+    sources = [policy.resolve_source(TEENY, path) for path in checked["clips"]]
+    bed = policy.resolve_source(TEENY, checked["bed"], policy.AUDIO_MAX_BYTES) if checked["bed"] else None
+    if bed and os.path.splitext(bed)[1].lower() not in policy.AUDIO_SUFFIXES:
+        raise skitcut.CutError("a bed is an mp3, wav, m4a, aac, flac, ogg or opus file")
+    folder = os.path.join(CUTS, cut_id)
+    os.makedirs(folder)
+    with CUTTING:
+        return skitcut.render(sources, checked["label"], checked["aspect"], folder, os.path.join(FONTS, skitcut.FONT),
+                              bed=bed, bed_volume=checked["bed_volume"])
+
+
+@router.post("/teeny/v1/cuts")
+async def create_cut(request: Request):
+    length = request.headers.get("content-length")
+    if length is None or not length.isdigit() or int(length) > policy.MAX_BODY_BYTES:
+        return _refuse(413, f"a cut is at most {policy.MAX_BODY_BYTES} bytes, with a content-length")
+    raw = await request.body()
+    try:
+        checked = skitcut.check_cut(json.loads(raw))
+    except ValueError as exc:  # CutError, or a body that is not JSON
+        return _refuse(400, str(exc) if isinstance(exc, skitcut.CutError) else "the body is not JSON")
+    cut_id = utils.get_uuid()
+    try:
+        made = await run_in_threadpool(_cut, cut_id, checked)
+    except (policy.JobError, skitcut.CutError) as exc:
+        shutil.rmtree(os.path.join(CUTS, cut_id), ignore_errors=True)
+        return _refuse(400 if isinstance(exc, policy.JobError) else 422, str(exc))
+    except BaseException:
+        shutil.rmtree(os.path.join(CUTS, cut_id), ignore_errors=True)
+        raise
+    return {"status": 200, "data": {"cut_id": cut_id, **made}}
+
+
+@router.get("/teeny/v1/cuts/{cut_id}/{name}")
+async def cut_file(cut_id: str, name: str):
+    if not policy.TASK.fullmatch(cut_id) or not skitcut.FILE.fullmatch(name):
+        return _refuse(404, "no such file")
+    path = os.path.join(CUTS, cut_id, name)
+    if not os.path.isfile(path):
+        return _refuse(404, "no such file")
+    return FileResponse(path, media_type="video/mp4" if name.endswith(".mp4") else "image/jpeg")
+
+
+@router.delete("/teeny/v1/cuts/{cut_id}")
+async def cut_delete(cut_id: str):
+    if not policy.TASK.fullmatch(cut_id):
+        return _refuse(404, "no such cut")
+    await run_in_threadpool(shutil.rmtree, os.path.join(CUTS, cut_id), True)
+    return {"status": 200, "data": {"cut_id": cut_id}}
+
+
 # Upstream mounts static files at "/" last, which would swallow a route
 # added after it, so Teeny's goes first.
 app.router.routes[0:0] = router.routes
@@ -193,6 +258,8 @@ def sweep(max_age: float) -> None:
     for name in policy.stale(_entries(LOCAL_VIDEOS, "teeny-"), now, max_age):
         if not (sm.state.get_task(name[len("teeny-"):]) or {}):
             shutil.rmtree(os.path.join(LOCAL_VIDEOS, name), ignore_errors=True)
+    for name in policy.stale(_entries(CUTS), now, max_age):
+        shutil.rmtree(os.path.join(CUTS, name), ignore_errors=True)
     for name in policy.stale(_entries(BEDS, "teeny-"), now, max_age):
         try:
             os.remove(os.path.join(BEDS, name))

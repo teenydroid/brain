@@ -30,7 +30,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
   A  upload --file PATH [--alt TEXT]  from state/media/ or brain/assets/ only; a still under 5 MB; alt text for X
-  J  ingest [--max N] [--no-offer]   new mentions into the queue, offered to the core
+  J  ingest [--max N] [--no-offer] [--poll]   queued mentions screened and offered; X's timeline read once a day, or now with --poll
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
   J  requests [--max N]     asks to build something in the stored mentions, into build_requests
@@ -148,7 +148,7 @@ def _upload(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _ingest(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
-    return mentions.ingest(args.max, offer=not args.no_offer)
+    return mentions.ingest(args.max, offer=not args.no_offer, poll=args.poll)
 
 
 def _mentions(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -303,6 +303,7 @@ def parser() -> argparse.ArgumentParser:
     ingest = verb("ingest", _ingest, "new mentions into the queue, offered to the core")
     ingest.add_argument("--max", type=_max, default=None)
     ingest.add_argument("--no-offer", action="store_true", help="queue only; offer on a later run")
+    ingest.add_argument("--poll", action="store_true", help="read X's mentions timeline now, whatever X_MENTIONS_POLL_HOURS says")
     listing = verb("mentions", _mentions, "the mentions queue, newest first")
     listing.add_argument("--status", choices=mentions.STATUSES, default=None)
     listing.add_argument("--limit", type=_max, default=50)

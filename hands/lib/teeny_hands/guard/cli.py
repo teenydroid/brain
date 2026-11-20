@@ -20,12 +20,17 @@
             whether an own post says something specific about its anchor that
             the inputs support (anchor.py; bin/act asks before a post). A
             verdict, never a hold: anything but a clear yes is anchored false
-  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged"}:
-            whether every factual claim in the text is supported by `facts`, the
-            non-empty list of desk items and inputs it may draw on (anchor.py,
-            `truth`). A verdict, never a hold: anything but a clear yes is
-            truthful false. Off (TRUTH_JUDGE=0) it is truthful true with judged
-            false, so a caller that needs a judgment checks `judged`
+  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged", "path"}:
+            whether every hard claim in the text (money and the token, real
+            people and companies, the news, safety facts) is supported by
+            `facts`, the non-empty list of desk items and inputs it may draw
+            on (anchor.py, `truth`); a bit Teeny invents about itself is
+            never a claim. A verdict, never a hold: anything but a clear yes
+            is truthful false, except that a judge that could not judge is
+            stood in for by the code check (`path` "code": truthful only with
+            no money or token marker; TRUTH_FAIL_CLOSED=1 makes it a no). Off
+            (TRUTH_JUDGE=0) it is truthful true with judged false, so a
+            caller that needs a judgment checks `judged`
   quote     stdin {"text", "quoted", "with"?} -> {"reacts", "reason", "judged"}:
             whether a reader of the quoted post would read the quote as a
             reaction to it (quote.py; hands/x peer-suggest asks). Fails OPEN:
@@ -43,6 +48,15 @@
             `intent` from the picture (viewer.py). A verdict, never a hold:
             anything but a clear yes is ok false. Off (VIEWER_JUDGE=0) it is ok
             true with judged false. Nothing posts through it yet
+  skit      stdin {"skit", "text", "story"} -> {"ok", "rule", "reason", "screen", "judged"}:
+            the hard lines for a parody video of a public figure (skit.py): code's
+            screen first (`screen` lists every reason), then the safety judge's model
+            with the skit rules. A verdict, never a hold; anything but a clear
+            "allowed" is ok false, and there is no switch that turns it off
+  view-skit stdin {"frames", "label", "intent"} -> {"ok", "sees", "labelled", "prohibited",
+            "looks_real", "reason", "judged"}: the viewer on frames of a rendered skit
+            (viewer.view_skit): the label read on at least half of them, nothing
+            prohibited, nothing that passes for real footage, the logline taken
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -60,7 +74,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds, quote, viewer
+from . import anchor, clarity, gate, holds, quote, skit, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -152,6 +166,24 @@ def view_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if not isinstance(body.get("intent"), str) or not body["intent"].strip():
         raise hand.HandError("intent must say what the picture is meant to get across")
     return viewer.view(body["image"], body["intent"], _optional(body, "caption", str, "a string"))
+
+
+def skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a skit, its text and its story")
+    unknown = set(body) - {"skit", "text", "story"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return skit.check(body.get("skit"), body.get("text"), body.get("story"))
+
+
+def view_skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label and an intent")
+    unknown = set(body) - {"frames", "label", "intent"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_skit(body.get("frames"), body.get("label"), body.get("intent"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -323,7 +355,8 @@ def parser() -> argparse.ArgumentParser:
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
     for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
-                          ("quote", quote_check), ("clarity", clarity_check), ("view", view_check)):
+                          ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
+                          ("skit", skit_check), ("view-skit", view_skit_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")
