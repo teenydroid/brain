@@ -214,7 +214,7 @@ class SkitTest(unittest.TestCase):
         self.assertEqual(out["models"], skits.SKIT_MODELS.split(","))
         # One take by default, on the one model verified to follow a script,
         # capped at what the shots it replaces may cost.
-        self.assertEqual(out["one_take"]["models"], ["seedance-2-0-text-to-video"])
+        self.assertEqual(out["one_take"]["models"], skits.ONE_TAKE_MODELS.split(","))
         self.assertEqual(out["one_take"]["max_usd"], 3.2)
 
     def test_a_dry_run_says_what_it_would_make_and_calls_nothing(self):
