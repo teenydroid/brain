@@ -2705,10 +2705,12 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         ("ok", "sees", "teeny", "interacts", "prohibited", "looks_real", "reason", "judged"))
     if not ok:
         note["failed"] = "the viewer check did not pass its keyframes"
+        _drop_remake(room, note, keyed["remake_id"])
         return None
     wait = min(room.cfg.skit_secs, room.left() - SKIT_RESERVE_SECS - SKIT_CUT_SECS)
     if wait < 120:
         note["failed"] = f"not enough of the run's time left to animate the remake ({room.left()} s)"
+        _drop_remake(room, note, keyed["remake_id"])
         return None
     code, made = room.budgeted(["video", "remake"], {"remake_id": keyed["remake_id"], "sound": study.get("audio"),
                                                      "wait_seconds": int(wait)},
