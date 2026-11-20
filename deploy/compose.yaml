@@ -308,6 +308,46 @@ services:
       - ../state/media:/teeny/media:ro
       - ../brain/assets:/teeny/assets:ro
 
+  # Short videos to study for hands/remake (docs/hands.md, "remake"): a pinned
+  # yt-dlp and ffmpeg behind Teeny's own small service, deploy/ingest/serve.py
+  # (built by deploy/ingest.Dockerfile). It lists an account's recent videos,
+  # fetches an excerpt of one (YouTube, TikTok or Instagram addresses only;
+  # deploy/ingest/policy.py is the allowlist) and cuts it into shots and
+  # frames, and answers over HTTP until hands/remake deletes the fetch (a
+  # sweep removes any it forgot after an hour). It holds no key and mounts
+  # nothing of Teeny's: its one optional setting is INGEST_PROXY_URL, in
+  # secrets/ingest.env (deploy/ingest.env.example), because YouTube refuses
+  # this box's address without a proxy. Read-only root; fetches live in the
+  # ingest-storage volume. No published port: the spine reaches it at
+  # http://ingest:8090 (INGEST_URL) on the compose network. Behind a profile,
+  # like reel:
+  #   docker compose -f deploy/compose.yaml --profile ingest up -d --build ingest
+  # One job at a time; a fetch takes a minute or two and about two cores.
+  ingest:
+    profiles: [ingest]
+    image: teeny-ingest:current
+    build:
+      context: ./ingest
+      dockerfile: ../ingest.Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+    env_file:
+      - path: ../secrets/ingest.env
+        required: false
+    environment:
+      # The image's user has no home; yt-dlp's scratch goes to the tmpfs.
+      HOME: /tmp
+    volumes:
+      - ingest-storage:/data
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try
@@ -333,3 +373,4 @@ services:
 volumes:
   cortexdb-data:
   reel-storage:
+  ingest-storage:
