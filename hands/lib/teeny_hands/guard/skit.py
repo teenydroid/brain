@@ -172,7 +172,8 @@ def shape(raw: Any) -> tuple[dict[str, Any], str]:
             return skit, f"a skit's look maps each figure to one line, at most {MAX_FIGURES}"
         looks: dict[str, str] = {}
         for name, line in look_raw.items():
-            figure = next((f for f in skit["figures"] if isinstance(name, str) and f.lower() == _line(name, MAX_NAME + 1).lower()), None)
+            asked = _line(name, MAX_NAME + 1).lower()
+            figure = next((f for f in skit["figures"] if f.lower() == asked), None) if asked else None
             if figure is None:
                 return skit, "a look is for a figure the skit names"
             clean = _line(line, MAX_LOOK + 1)
@@ -345,7 +346,8 @@ def screen(skit: Any, words: Any, story: Any) -> list[str]:
 RULES = """You check one short AI-made parody video before it is made. It is for an account on X that posts
 absurd, loud, ridiculous satire of the day's news. The video stages a public figure from a real news story in a scene
 that is impossible on its face. You get its logline, every shot's prompt (what a video model will be told to film,
-including any spoken line and sound), the post's own words, the news story it stages, and the public figures it
+including any spoken line and sound), what holds across every shot (each figure's look, the setting, the one score
+under the whole film) when it has them, the post's own words, the news story it stages, and the public figures it
 shows. Decide whether it may be made: allowed or refused.
 
 ALLOWED: absurd, crude, loud, ridiculous, undignified in a slapstick way (a pie, a pratfall, a giant novelty prop, a
