@@ -186,7 +186,6 @@ hands/tests/test_studio_remake.py
 # order, the drop and the credit are the operator's too.
 hands/tests/guard/test_khaby.py
 hands/tests/test_studio_khaby.py
-hands/tests/fixtures/studio_khaby_prompts.json
 # Clips and songs: renders on the reel service and buys music under the
 # media caps, so the entry point and its library are the operator's, like
 # the wallet's.
