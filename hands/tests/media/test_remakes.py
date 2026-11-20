@@ -264,6 +264,9 @@ class RemakeTest(unittest.TestCase):
         for body in edits:
             self.assertNotIn("image", body)
             self.assertEqual(body["model"], EDIT1)
+            # The keyframe is asked for in the remake's own shape: an edit
+            # left to choose came back landscape for a 9:16 source.
+            self.assertEqual(body["aspect_ratio"], KEYS["aspect"])
             frame, sheet = body["images"]
             self.assertTrue(frame.startswith("data:image/jpeg;base64,"))
             self.assertTrue(sheet.startswith("data:image/png;base64,"))
