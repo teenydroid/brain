@@ -280,12 +280,13 @@ class Service:
 
 
 def make_server(service: Service, host: str, port: int, timeout: float = SOCKET_TIMEOUT) -> ThreadingHTTPServer:
+    timeout_seconds = timeout
     jobs = {"probe": service.probe, "listing": service.listing, "fetch": service.fetch}
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "teeny-ingest"
         #: A client that goes quiet mid-request is dropped, not waited on.
-        timeout = SOCKET_TIMEOUT_SECONDS
+        timeout = timeout_seconds
         protocol_version = "HTTP/1.1"
 
         def log_message(self, *args: Any) -> None:  # the access log would carry the URLs asked for
