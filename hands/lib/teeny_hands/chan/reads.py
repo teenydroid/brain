@@ -49,7 +49,7 @@ POOL = 40
 _REPLY_LINK = re.compile(r">>>?/?[a-z0-9]*/?\d+")
 #: A board's standing threads ("/hor/ - Horror General", "/ng/ - Nobody
 #: General"): a hangout reposted every few days, never a premise.
-_GENERAL = re.compile(r"(^/\w+/\s*-|\bgeneral\b|\bthread\s*#?\d+)", re.IGNORECASE)
+_GENERAL = re.compile(r"(^/\w+/\s*-|\bgeneral\b|\bthread\b|#\d+)", re.IGNORECASE)
 
 Json = dict[str, Any]
 
