@@ -192,7 +192,7 @@ as its own user with a read-only root, a 256 MB tmpfs, no capabilities, no
 new privileges, 2 CPUs, 2 GB and 256 processes, and no published port.
 Fetches live in the `ingest-storage` volume until `hands/remake` deletes them;
 the service also sweeps any older than an hour (`INGEST_REAP_MINUTES`), and
-at start everything left from an earlier run. One job at a time: a second is
+at start everything left from an earlier run. It is on a network of its own (`ingest-net`, shared only with cortexdb, whose namespace the spine lives in, so the spine still reaches `http://ingest:8090`): what it fetches cannot reach reel, memegen, xhook or the web page. Adding that network recreates cortexdb, and so the spine, the first time it is deployed. yt-dlp runs only the YouTube, TikTok and Instagram extractors, never `generic`. One job at a time: a second is
 answered 429. Compose does not restrict egress at the network level (as for
 `reel`): what keeps it from fetching anything but video pages is the address
 allowlist in `deploy/ingest/policy.py`, which `python3 -m unittest discover -s
