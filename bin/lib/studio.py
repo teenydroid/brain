@@ -644,7 +644,8 @@ def _ref(value: Any) -> str:
 
 def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: tuple[str, ...],
                      limit: int, item_stories: dict[str, Any] | None = None,
-                     outside: set[str] | None = None) -> tuple[list[Json], list[Json], list[str]]:
+                     outside: set[str] | None = None,
+                     charts: set[str] | None = None) -> tuple[list[Json], list[Json], list[str]]:
     """(kept, dropped with why, the writer's ranking of the kept ids). A
     pitch's `hook` is the trending story it joins (an id in `outside`, which
     holds only what is trending), its `item` the real thing of Teeny's it
@@ -655,8 +656,11 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     that is a running story; when it names none (or one that is not running)
     and its item carries a running story (`item_stories`, the desk's best
     guess by kind), the item's is used, so the pick and its beat land on a
-    storyline."""
+    storyline. A remake names both: its `item` is a popular video from the
+    charts (an id in `charts`) and its `hook` the trending story whose
+    public figures it casts; a chart video is no other format's item."""
     outside = outside or set()
+    charts = charts or set()
     if isinstance(answer, list):
         answer = {"pitches": answer}
     if not isinstance(answer, dict) or not isinstance(answer.get("pitches"), list):
@@ -687,6 +691,13 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             why = f"its format {fmt!r} is not one of {', '.join(formats)}"
         elif fmt == "skit" and not hook:
             why = (f"{demoted}: " if demoted else "") + "a skit stages a trending story, and it has no hook"
+        elif fmt == "remake" and item not in charts:
+            why = f"a remake re-creates a popular video: its item {item or None!r} is not one of the charts"
+        elif fmt == "remake" and not hook:
+            why = (f"{demoted}: " if demoted else "") + ("a remake casts the figures a trending story names, and it "
+                                                         "has no hook")
+        elif fmt != "remake" and item in charts:
+            why = f"its item {item!r} is a chart video, which is only a remake's to re-create"
         elif not _str(raw.get("angle")):
             why = "it has no angle"
         elif len(kept) >= limit:
