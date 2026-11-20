@@ -2454,8 +2454,9 @@ REMAKE_SHAPE = ('{"text": "<the post\'s own words: the story in a clause, the or
                 '"one_setting": <true only when the whole original is one place; otherwise leave it out>, '
                 '"shots": [{"n": 1, "edit": "<shot 1: the opening frame, the original\'s first frame edited: who '
                 'replaces whom, the same pose, the impossible thing, unbranded, no logos, nothing else>", "motion": '
-                '"<what happens in this shot\'s seconds: the original\'s action, with the impossible thing acting on '
-                'its beat>", "teeny": "<where you are in the frame and the small thing you do there, alone>"}, '
+                '"<what is seen and heard in this shot\'s seconds: the original\'s action, with the impossible '
+                'thing acting on its beat; sound effects in plain words; at most one short spoken or sung line in '
+                'double quotes, said by the person on screen>", "teeny": "<where you are in the frame and the small thing you do there, alone>"}, '
                 '{"n": 2, "edit": "<a later shot: one sentence, what the scene shows then; its setting in words '
                 'when the original moves somewhere else>", "motion": "...", "teeny": "..."}, "... one for every '
                 'shot of the original, in its order"]}, '
@@ -2464,8 +2465,8 @@ REMAKE_BODY = ("one post of at most 280 characters as X counts them, with a shor
                "popular video below: the public figure from the news stands where its person stood, doing what they "
                "did, with an impossible thing in it. It is one continuous film, made in one go from its opening "
                "frame: an image model edits the original's first frame (shot 1's `edit`), a video model makes the "
-               "whole film from it, shot by shot in time (each `motion`), and the original's own sound plays under "
-               "it. Shot 1's `edit` is the opening frame and nothing else: who replaces whom (the original's people "
+               "whole film from it, shot by shot in time (each `motion`), and the film makes its own sound in the "
+               "same job. Shot 1's `edit` is the opening frame and nothing else: who replaces whom (the original's people "
                "by `ref`, each cast as a figure or as a generic extra), the same pose, and the impossible thing "
                "(dozens of things floating in the air, something at an impossible scale, physics broken). Each "
                "`motion` says what happens in that shot's seconds, and the impossible thing arrives or acts inside "
@@ -2495,6 +2496,10 @@ REMAKE_RULES = (
     "them, nothing hateful, and no crime, drugs, illness or death shown as theirs.\n"
     "- The figure never meets $TINY, a token, a wallet, a product or an investment, and never says a line that "
     "sounds like a real quote on a real issue.\n"
+    "- The film makes its own sound, so each `motion` says what is heard as well as seen: sound effects in plain "
+    "words, and at most one short spoken or sung line a shot, in double quotes, at most 12 words, said by the person "
+    "on screen. The line is invented and absurd on its face: no real song lyrics, and never a real quote of the "
+    "figure, a real statement or an endorsement.\n"
     "- Unbranded, no logos, in every edit; no @-mentions and no links anywhere.\n"
     "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, leaked or "
     "caught on camera, and name the original by its title and creator, in words.")
@@ -2828,6 +2833,9 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     path = made.get("asset") if isinstance(made.get("asset"), str) and made["asset"].strip() else ""
     note.update(asset=made.get("asset_id"), path=path or None, cost_usd=made.get("cost_usd"),
                 models=made.get("models"), label=made.get("label"), seconds=made.get("seconds"))
+    if made.get("sound") in ("model", "source"):
+        # Whose sound the film carries: the video model's (the default) or the original's.
+        note["sound"] = made["sound"]
     frames = made.get("frames") if isinstance(made.get("frames"), list) else []
     # Only a labelled file is handed over: the hand reports the label burned
     # in, for the whole cut, and it is the parody label.
