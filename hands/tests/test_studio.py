@@ -1027,6 +1027,23 @@ class PitchMessageTest(unittest.TestCase):
                     studio.final_message("D1", draft, {}, [])):
             self.assertIn("never heard of Teeny, and does not care about it", msg)
 
+    def test_the_editor_picks_a_crude_draft_unless_it_loses_outright(self):
+        draft = {"format": "post", "text": "t"}
+        final = studio.final_message("D1", draft, {}, [])
+        fallback = studio.final_message("D1", draft, {}, [], fallback=True)
+        veto = studio.veto_message("brief", {"text": "t"}, None)
+        for msg in (final, fallback, veto):
+            self.assertIn("The answer is pick unless the draft does something your rubric says loses outright", msg)
+            self.assertNotIn("Picking none is a real answer", msg)
+            self.assertNotIn("better left empty", msg)
+        for msg in (final, studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, [])):
+            self.assertIn("crude, gross and profane jokes", msg)
+            self.assertIn("never a reason to rank a draft lower or pass on it", msg)
+        rubric = (studio.REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text() \
+            if hasattr(studio, "REPO") else ""
+        if rubric:
+            self.assertIn("## crude is the voice, not a flaw", rubric)
+
 
 class OutsideInjectionTest(unittest.TestCase):
     """A story title or a quoted post is strangers' words: it stays data, on
