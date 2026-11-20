@@ -617,6 +617,7 @@ class OneTakeTest(unittest.TestCase):
         self.assertEqual(body["prompt"], rules.script(self.kept(two), [5, 5]))
 
     def test_four_shots_on_wan_3_are_20_s_never_past_the_limit(self):
+        self.env(MEDIA_MAX_USD_PER_DAY="7.00")  # four shots reserve $6.40
         four = self.shots(4)
         self.skit(four)
         [(body, _)] = self.posts()
