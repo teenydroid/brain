@@ -11,6 +11,8 @@ before the call (so two studies at once cannot both take the day's last),
 then finished with what the call reported (asks, tokens, cost in USD
 micros). It is its own table: this is research spend, not a media asset.
 A study that never reached the model is released, and so does not count.
+hands/khaby dissect books its video call here too, as `kind` `dissect`
+(a study's rows are `study`): each kind has its own day's cap.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ CREATE TABLE IF NOT EXISTS remake_studies (
     at TEXT NOT NULL,
     study_id TEXT NOT NULL,
     model TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'study',
     stage TEXT NOT NULL,
     ok INTEGER NOT NULL DEFAULT 0,
     usable INTEGER,
@@ -50,8 +53,14 @@ CREATE INDEX IF NOT EXISTS remake_studies_at ON remake_studies (at);
 """
 
 
+#: Columns added since remake_studies was first made, for a table made before them.
+_COLUMNS = {"kind": "TEXT NOT NULL DEFAULT 'study'"}
+
+
 def _db() -> sqlite3.Connection:
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    hand.add_columns(conn, "remake_studies", _COLUMNS)
+    return conn
 
 
 def seen(video_id: str) -> bool:
@@ -85,28 +94,29 @@ def mark_used(video_id: str, source: str, url: str, title: str | None = None, st
         conn.close()
 
 
-def used_today(conn: sqlite3.Connection | None = None) -> int:
-    """Studies that reached the model today (UTC), pending ones included."""
+def used_today(conn: sqlite3.Connection | None = None, kind: str = "study") -> int:
+    """Calls of `kind` that reached the model today (UTC), pending ones included."""
     own = conn is None
     conn = conn or _db()
     try:
-        return conn.execute("SELECT COUNT(*) FROM remake_studies WHERE at >= ?", (iso(hand.day_start()),)).fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM remake_studies WHERE at >= ? AND kind = ?",
+                            (iso(hand.day_start()), kind)).fetchone()[0]
     finally:
         if own:
             conn.close()
 
 
-def claim(study_id: str, model: str, limit: int) -> int | None:
-    """Today's study claimed as a `pending` row under the study lock, or None
-    when the day's `limit` is used up."""
+def claim(study_id: str, model: str, limit: int, kind: str = "study") -> int | None:
+    """Today's call of `kind` claimed as a `pending` row under the study
+    lock, or None when the day's `limit` for that kind is used up."""
     with hand.lock("remake-study", timeout=60):
         conn = _db()
         try:
-            if used_today(conn) >= limit:
+            if used_today(conn, kind) >= limit:
                 return None
             return conn.execute(
-                "INSERT INTO remake_studies (at, study_id, model, stage, ok) VALUES (?, ?, ?, 'pending', 0)",
-                (iso(hand.now()), study_id, model)).lastrowid
+                "INSERT INTO remake_studies (at, study_id, model, kind, stage, ok) VALUES (?, ?, ?, ?, 'pending', 0)",
+                (iso(hand.now()), study_id, model, kind)).lastrowid
         finally:
             conn.close()
 
