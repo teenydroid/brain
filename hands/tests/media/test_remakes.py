@@ -37,6 +37,9 @@ WAN3, WAN27, KLING, KLING_PRO, VEO = remakes.REMAKE_MODELS.split(",")
 MODELS = f"{KLING},{WAN27},{KLING_PRO},{VEO}"
 I2V1, I2V2, I2V3, I2V4 = MODELS.split(",")
 WAN3_SOLD = [2, 5, 10, 15, 20, 25, 30]
+#: Most tests hold the machinery to $1.20 a shot (their arithmetic: $1.10
+#: left after a $0.10 key); the default, $1.40, has its own tests.
+PINNED_CAP = "MEDIA_REMAKE_MAX_USD_PER_SHOT=1.20\n"
 REFUSED = SurplusError("Surplus answered 400: Your request was rejected because it violates the content policy", 400,
                        {"error": {"code": "request_rejected"}})
 
@@ -121,7 +124,7 @@ class RemakeTest(unittest.TestCase):
         (self.root / "brain" / "assets" / "teeny-reference.png").write_bytes(PNG)
         self.write("DRY_RUN=0\nSURPLUS_API_KEY=inf_test\nX_BOT_USERNAME=teenydroid\nMEDIA_SKIT_MAX_PER_DAY=1\n"
                    "MEDIA_REMAKE_MAX_PER_DAY=1\nMEDIA_MAX_USD_PER_DAY=5.00\n"
-                   f"MEDIA_REMAKE_MODELS={MODELS}\n")
+                   f"MEDIA_REMAKE_MODELS={MODELS}\n{PINNED_CAP}")
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = str(self.root)
         os.environ["TEENY_NOW"] = str(T0)
@@ -202,7 +205,7 @@ class RemakeTest(unittest.TestCase):
         self.write("DRY_RUN=1\n")
         out = self.keys()
         self.assertEqual((out["dry_run"], out["would_generate"], out["enabled"]), (True, "remake", False))
-        self.assertEqual(out["reserve_usd"], 2.4)
+        self.assertEqual((out["max_usd_per_shot"], out["reserve_usd"]), (1.4, 2.8))
         [first, _] = out["requests"]
         self.assertEqual(first["model"], EDIT1)
         self.assertIn(KEYS["shots"][0]["edit"], first["prompt"])
@@ -554,9 +557,9 @@ class RemakeTest(unittest.TestCase):
     # --- Wan 3 first --------------------------------------------------------------------------
 
     def wan3(self, **values):
-        """The default models, a cap a 5 s Wan 3 clip fits after its key."""
+        """The default models and the default cap ($1.40: a 5 s Wan 3 clip fits after its key)."""
         text = (self.root / "secrets" / "teeny.env").read_text().replace(f"MEDIA_REMAKE_MODELS={MODELS}\n", "")
-        self.write(text + "MEDIA_REMAKE_MAX_USD_PER_SHOT=1.40\n" + "".join(f"{k}={v}\n" for k, v in values.items()))
+        self.write(text.replace(PINNED_CAP, "") + "".join(f"{k}={v}\n" for k, v in values.items()))
         self.api.catalog = {"data": [{"id": WAN3, "durations_seconds": WAN3_SOLD}]}
 
     def test_wan3_comes_first_with_the_fields_it_takes_and_no_sound_of_its_own(self):
@@ -595,6 +598,15 @@ class RemakeTest(unittest.TestCase):
         made = self.keys({**KEYS, "shots": [shot(1, 1.5), shot(2, 4.0)]})
         self.remake({"remake_id": made["remake_id"], "sound": SOUND})
         self.assertEqual([(b["model"], b["duration_seconds"]) for b in self.api.videos()], [(WAN3, 2), (WAN27, 5)])
+        self.assertEqual(self.api.deleted(), [])
+
+    def test_by_default_a_five_second_shot_is_a_five_second_wan3_clip(self):
+        self.wan3()
+        made = self.keys({**KEYS, "shots": [shot(1, 5.0)]})
+        self.assertEqual(made["reserve_usd"], 1.3)  # $1.40 less the $0.10 key: Wan 3's 5 s ceiling is $1.17
+        out = self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertEqual([(b["model"], b["duration_seconds"]) for b in self.api.videos()], [(WAN3, 5)])
+        self.assertEqual(out["models"], [WAN3])
         self.assertEqual(self.api.deleted(), [])
 
     def test_wan3_buys_the_shortest_length_that_covers_the_shot(self):
