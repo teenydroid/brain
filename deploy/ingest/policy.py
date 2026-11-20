@@ -50,7 +50,7 @@ FETCH_ID = re.compile(r"[0-9a-f]{32}")
 #: The only files a fetch serves.
 FILE = re.compile(r"source\.mp4|audio\.m4a|shot-[1-9]\.jpg")
 VIDEO_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
-_PROXY = re.compile(r"(https?|socks5h?)://[^\s/@]+(:[^\s/@]*)?@?[^\s/]*(:[0-9]{1,5})?")
+_USERINFO = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/@]*@[^\s/]*")
 _PROXY_URL = re.compile(r"(?:https?|socks5h?)://[A-Za-z0-9._~:%@!$&'()*+,;=\[\]-]+")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f​-‏ -‮⁠-⁤﻿]")
 _BAD_URL_CHARS = re.compile(r"[\s\x00-\x1f\x7f\\<>\"'`^{}|]")
@@ -159,7 +159,7 @@ def scrub(text: Any, *secrets_to_hide: Any) -> str:
     for secret in secrets_to_hide:
         if isinstance(secret, str) and secret:
             out = out.replace(secret, "[proxy]")
-    out = _PROXY.sub("[proxy]", out)
+    out = _USERINFO.sub("[proxy]", out)
     out = _CONTROL.sub(" ", out)
     return " ".join(out.split())[:MAX_TEXT]
 
@@ -187,7 +187,7 @@ def refusal(info: Any) -> str | None:
 def _text(value: Any, limit: int = MAX_TEXT) -> str | None:
     if not isinstance(value, str):
         return None
-    out = " ".join(_CONTROL.sub("", value).split())[:limit]
+    out = _CONTROL.sub("", " ".join(value.split()))[:limit].strip()
     return out or None
 
 
