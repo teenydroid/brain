@@ -240,6 +240,9 @@ def submit(jobs: Path, fill: Callable[[Path], None], args: list[str], timeout: f
             wait(0.5)
         return None, "", "the sandbox runner never answered"
     finally:
+        # Unpublish the request before recursive cleanup can remove its ack.
+        # Otherwise serve_one may see job.json without ack.json and run it again.
+        (folder / "job.json").unlink(missing_ok=True)
         shutil.rmtree(folder, ignore_errors=True)
         with contextlib.suppress(OSError):
             result.unlink()
