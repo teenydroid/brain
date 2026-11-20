@@ -507,7 +507,7 @@ check "an unset shot cap is the hand's own default" grep -q "^warn remakes: 6 sh
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
 doctor || true
 check "with the per-shot fallback off, a shot's cap is not warned about" \
-  sh -c '! grep -q "MEDIA_REMAKE_MAX_USD_PER_SHOT" "$1"' _ "$scratch/doctor.log"
+  bash -c "! grep -q 'MEDIA_REMAKE_MAX_USD_PER_SHOT' '$scratch/doctor.log'"
 printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=3.00\n' >"$root/secrets/teeny.env"
 doctor || true
 check "with no take cap set, the hand's own 4.00 USD counts" \
