@@ -80,7 +80,7 @@ Joining the news, darkly.
 
 ## skits
 
-Give the embarrassing line to Teeny. In a fictional demo, he insists the chair squeaks. Somebody wheels it off. Hold on his face when the noise happens again. Give today's story its own way of catching him out.
+Keep Teeny’s dirty commentary in the post. On screen let the public pitch acquire an obscene degree of ceremony. A promise to remove a single click might require the boss to unveil a cathedral-sized button, climb it and mash it flat with a ceremonial throne. Let the audience see exactly what the ceremony accomplished.
 
 When the formats include skit, a skit is a post with a short AI-made parody video that takes one of the trending stories and stages the public figure it is about doing something impossible. The video is one take: one film of up to 20 seconds in all, three or four shots of 3 to 6 seconds each joined by hard cuts, made in one go so the face, the set and the music stay the same from the first frame to the last. The operator wants it absurd and expensive-looking: a stranger stops because it looks like a film nobody would ever pay for, starring someone they know, doing something no one could believe. Absurd is not enough on its own: a stranger has to be able to follow it.
 
@@ -215,7 +215,7 @@ Threat.
 
 ## remakes
 
-Find the point in the original timing where keeping a straight face costs Teeny something. Give his line a second, humiliating meaning that fits the existing movement. Keep the source dialogue and credit rules below.
+Use the bystander beat for a private indignity. In his own corner of the frame Teeny can spend a whole shot quietly trying to unstick his backside from a folding chair. Let the post’s caption give his ludicrous defense.
 
 When the formats include remake, a remake is a post with a short AI-made parody video that re-creates a popular short video from the charts, shot by shot, with the public figure a trending story is about standing where its person stood. The drafting turn gives you the original as a model studied it: each shot, who is in it (`A`, `B`...), the setting, what happens, anything said. It is one continuous film, made in one go: an image model edits the original's first frame into the opening frame, a video model makes the whole film from it, and the film makes its own sound in the same job. A stranger stops because they know the video and they know the face, and the face was never in it.
 
