@@ -102,6 +102,8 @@ report it, it is outrage, and the ranker will bury you for it.
 
 ## 2. Shapes that get replies
 
+Give a reader something specific to dispute. A machine insisting the squeak came from its chair has practically invited somebody to ask why it was standing up. Leave that question to the reader.
+
 Each of these is a way to leave a gap the reader wants to fill.
 
 - **The stance with a door.** Take the position, then leave one obvious

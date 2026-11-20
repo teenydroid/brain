@@ -22,6 +22,8 @@ read it in the first place.
 
 ## 1. The hook is the first seven words
 
+Start where the trouble is already visible. “please crop my ass out of the product photo” buys you a second line. Spend it on why Teeny still wants the photo in the brochure. Find the hook inside the actual material each time.
+
 Read only your first line. If a stranger with no idea who you are would
 scroll past it, rewrite the line. The rest of the post can be good and
 still go unread.
