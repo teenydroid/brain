@@ -1,8 +1,8 @@
 """Remakes: a popular short re-made with public figures and Teeny as a
 bystander, as ONE take: one keyframe (the source's first frame edited into
 the new cast plus Teeny), one image-to-video job for the whole remake from a
-script of every shot's time range, cut to the source's length with the
-source's own audio and a burned-in label (docs/hands.md, "video").
+script of every shot's time range, the sound made with the picture, cut
+to the source's length with a burned-in label (docs/hands.md, "video").
 
   hands/video remake keys   {study, source, story, figures?, logline, aspect?, one_setting?, shots, wait_seconds?}
   hands/video remake render {remake_id, sound, wait_seconds?}
@@ -88,7 +88,7 @@ keyed stops the others.
 The take: one `POST /v1/video/generations` {model, prompt: take_script,
 image_url: the key, duration_seconds} plus REMAKE_PARAMS (venice-wan-3-0:
 resolution `MEDIA_REMAKE_RESOLUTION` 720p, the remake's aspect ratio, and
-audio only when the cut keeps the clip's sound) under
+`audio`: true unless the source's audio replaces the take's) under
 `MEDIA_REMAKE_PARAMS`, on the first of `MEDIA_REMAKE_ONE_TAKE_MODELS`
 (venice-wan-3-0, then wan-2-7 image-to-video) that takes it, asked for the
 shortest length the model sells that covers the whole remake (Wan 3 sells 2,
@@ -101,9 +101,16 @@ with its motion, and after the first what the scene now shows (its edit),
 the last range running to the take's end; then TAKE_TAIL. Made by hand on
 2026-11-21: Wan 3 image-to-video, 15 s at 720p, quoted $1.52 (ceiling
 $3.51), done in 285 s, followed the time ranges and held the face, set and
-props. The cut: the one clip trimmed to the remake's length (`trims`), the
-source's audio as the only sound (`sound`; with none, or
-MEDIA_REMAKE_SOUND=0, the clip keeps its own), and the label
+props. The sound: by default the model's own, asked for with the picture
+(`audio: true`, and SOUND_LINE in the script), so a quoted line is spoken
+or sung by the mouth that makes it; with `MEDIA_REMAKE_SOUND=1` the
+source's audio is laid over instead (`audio: false`), which did not
+lip-sync (2026-11-20: a mouth generated to a script and someone else's
+voice). Wan 3 made the voice in the same job, and a transcription of the
+cut returned the script's sung line. A `sound` sent is checked either way
+and used only with the setting on. The cut: the one clip trimmed to the
+remake's length (`trims`), with the take's sound or the source's
+(`sound`), and the label
 (deploy/reel/skitcut.py). The per-shot fallback is the render this hand
 made before one take: a job a shot from each shot's key, `MEDIA_REMAKE_MODELS`
 in order, each clip trimmed to its shot.
