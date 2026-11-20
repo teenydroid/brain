@@ -430,4 +430,5 @@ FORMAT = Format(
     time=_khaby_time, min_secs=KHABY_MIN_SECS, spent=("asset", "khaby_id"),
     sources=sources, sources_name="finds", sources_part=finds_part, foreign_item=foreign_item,
     item_is_source=True, prepare=prepare, prepare_max=KHABY_DISSECTS,
-    prepare_full=f"the run already dissected two sources ({KHABY_DISSECTS} a run)", study_part=timeline_part)
+    prepare_full=f"the run already dissected two sources ({KHABY_DISSECTS} a run)", study_part=timeline_part,
+    always_named=False)

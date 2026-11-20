@@ -99,6 +99,12 @@ class Format:
     prepare_full: str = ""
     #: The draft turn's section on the study, when there is one.
     study_part: Callable[[Json], str] | None = None
+    #: Whether the studio names it where it lists the video formats (the
+    #: compare turn's `judge_line`s, a video slot's note on none pitched)
+    #: when none of it is at hand. A format added after the first two is
+    #: named only where one of it is, so the prompts of a run that does not
+    #: offer it stay as they were.
+    always_named: bool = True
 
 
 def named(**given: Any) -> dict[str, Any]:

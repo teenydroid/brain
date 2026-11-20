@@ -829,7 +829,8 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
             if n == 0 or best[fmt]:
                 note[fmt] = best[fmt]
         if not videos:
-            note["no_skit"] = f"a video slot, and the writer pitched no {' or '.join(kinds)} that could be kept"
+            named = [f for f in kinds if registry()[f].always_named]
+            note["no_skit"] = f"a video slot, and the writer pitched no {' or '.join(named)} that could be kept"
     note["hooked"] = sum(1 for p in chosen if by_id[p].get("hook"))
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
@@ -1495,7 +1496,9 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
                   stories: list[Json]) -> str:
     labels = sorted({x for _, a, b in batch for x in (a, b)}, key=lambda s: int(s[1:]))
     videos = registry().values()
-    keys = "; ".join(["`picture` is the picture that would go with it", *(v.judge_line for v in videos)])
+    present = {d.get("format") for d in drafts.values() if isinstance(d, dict)}
+    keys = "; ".join(["`picture` is the picture that would go with it",
+                      *(v.judge_line for v in videos if v.always_named or v.name in present)])
     met = "".join(v.editor + "\n\n" for v in videos if any(drafts[label].get("format") == v.name for label in labels))
     return (
         "# studio: compare\n\nFor each pair below, say which draft a stranger on X should see: someone who has "
