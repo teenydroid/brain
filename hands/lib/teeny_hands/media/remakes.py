@@ -107,6 +107,10 @@ from . import assets, shots, skits
 from .shots import _Shot, _Stop
 from .surplus import Surplus, SurplusError
 
+#: What each shot reserves when MEDIA_REMAKE_MAX_USD_PER_SHOT is unset, in
+#: USD. bin/doctor reads this one, so its check and the hand cannot drift.
+MAX_USD_PER_SHOT = "1.20"
+
 Json = dict[str, Any]
 
 EDIT_MODELS = "nano-banana-2-edit,seedream-v5-pro-edit,muse-image-edit"
@@ -573,7 +577,7 @@ def generate_keys(body: Any, api: Surplus | None = None, reel: Any = None, clock
     the_label = skits.label()
     edit_models = assets._models("MEDIA_REMAKE_EDIT_MODELS", EDIT_MODELS)
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", MAX_USD_PER_SHOT)
     limit, shared = _limits()
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "keys", "shots": len(job["shots"]),
@@ -708,7 +712,7 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
     ask = render_of(body)
     the_label = skits.label()
     models = assets._models("MEDIA_REMAKE_MODELS", REMAKE_MODELS)
-    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", "1.20")
+    per_shot = assets._usd("MEDIA_REMAKE_MAX_USD_PER_SHOT", MAX_USD_PER_SHOT)
     limit, shared = _limits()
     job_params = shots.params("MEDIA_REMAKE_PARAMS")
     if hand.dry_run():
