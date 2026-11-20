@@ -123,7 +123,7 @@ Skit, joining the news.
 > setting: a concert-scale keynote arena, a galaxy of LED pixels behind the stage, haze and volumetric spotlights, magenta neon rim light, anamorphic lens, film grain
 > score: one pounding electronic anthem that rises shot by shot and peaks with a choir at the very end
 > shot: Wide shot, slow dolly in on the stage. Jensen Huang holds the glowing chip up to a roaring arena; before he can speak, the chip blinks and the giant screen behind him bursts into a finale of fireworks. A deep bass hit, then thunderous applause.
-> shot: Low-angle medium shot, shallow depth of field. Jensen Huang stares at his stack of cue cards while the glowing chip in his hand flashes "keynote complete" across the giant screen and the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, shuffling feet.
+> shot: Low-angle medium shot, shallow depth of field. Jensen Huang stares at his stack of cue cards while the glowing chip in his hand flashes a giant finished-keynote banner across the screen behind him and the whole arena stands, applauds and files out. He says: "i haven't started yet." A crowd murmur, shuffling feet.
 > shot: Extreme wide tracking shot down the empty arena aisle in slow motion, long lens flare. Jensen Huang rides a rocket-powered office chair flat out after the glowing chip, which streaks ahead like a comet and is already waiting at the exit. Rocket roar.
 
 Skit, joining the news.
