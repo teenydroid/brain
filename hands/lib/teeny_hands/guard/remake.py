@@ -407,7 +407,7 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
     for shot in shots:
         spoken = [m.group(1) for m in _SPOKEN.finditer(shot["motion"])]
         if len(spoken) > SPOKEN_LINES:
-            reasons.append(f"shot {shot['n']}'s motion has {len(spoken)} quoted lines: at most one spoken or sung line "
+            reasons.append(f"shot {shot['n']}'s motion has {len(spoken)} quoted lines: at most one spoken line (or sung line) "
                            "a shot")
         for line in spoken:
             if len(line.split()) > SPOKEN_WORDS:
