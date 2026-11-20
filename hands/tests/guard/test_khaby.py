@@ -226,7 +226,7 @@ class JudgeTest(support.WithCore):
         self.assertTrue(cli.khaby_check(None, body)["ok"])
         with self.assertRaises(hand.HandError):
             cli.khaby_check(None, {**body, "force": 1})
-        self.assertIn(("khaby", cli.khaby_check), [(n, h) for n, h in cli.VERBS])
+        self.assertIs(cli.parser().parse_args(["khaby"]).handler, cli.khaby_check)
 
 
 class ViewKhabyTest(ViewRemakeBase):
@@ -269,4 +269,4 @@ class ViewKhabyTest(ViewRemakeBase):
         with self.assertRaises(hand.HandError):
             cli.view_khaby_check(None, {"frames": self.keys, "label": None, "intent": "i", "stage": "keys",
                                         "force": 1})
-        self.assertIn(("view-khaby", cli.view_khaby_check), [(n, h) for n, h in cli.VERBS])
+        self.assertIs(cli.parser().parse_args(["view-khaby"]).handler, cli.view_khaby_check)
