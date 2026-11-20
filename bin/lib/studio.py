@@ -1231,7 +1231,8 @@ def invention_ask(cfg: Config) -> str:
     return ask
 
 
-def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit_slot: bool = False) -> str:
+def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit_slot: bool = False,
+                  charts: list[Json] | None = None) -> str:
     formats = ", ".join(cfg.formats)
     every = {k: v for k, v in (inputs.get("outside") or {}).items() if v}
     outside = {k: [i for i in v if isinstance(i, dict) and i.get("trending") is True] for k, v in every.items()}
@@ -1274,6 +1275,10 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
         parts.append(SKIT_PITCH)
         if skit_slot:
             parts.append(SKIT_SLOT_LINE)
+    if "remake" in cfg.formats and charts:
+        parts.append(REMAKE_PITCH)
+        if skit_slot:
+            parts.append(REMAKE_SLOT_LINE)
     if sampled["lore"]:
         parts.append("From the lore, tonight, if one fits (never forced):\n" +
                      "\n".join(f"- {line}" for line in sampled["lore"]))
@@ -1290,6 +1295,11 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
                      "`age_hours`). That measure is for choosing, not for the post: never quote it. Each `id` is "
                      f"a `hook`. {DATA_LINE}\n\n```json\n" +
                      json.dumps(outside, ensure_ascii=False, separators=(",", ":")) + "\n```")
+    if "remake" in cfg.formats and charts:
+        parts.append("## popular videos you could remake\n\nShort videos on the charts today, each with its title, "
+                     "who made it (`by`), where (`source`), how long (`seconds`), its `views`, `age_hours` and `rank`. "
+                     f"Each `id` is a remake's `item`. {DATA_LINE}\n\n```json\n" +
+                     json.dumps(charts, ensure_ascii=False, separators=(",", ":")) + "\n```")
     if background:
         parts.append("## background, not trending\n\nWhat a keyword search on X turned up. It is not trending "
                      "and is never a hook; use it only to know the mood. " + DATA_LINE + "\n\n```json\n" +
@@ -1318,8 +1328,11 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
 
 def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | None,
                   fix: list[tuple[str, str]] | None = None, hook: Json | None = None,
-                  menu: Json | None = None) -> str:
+                  menu: Json | None = None, study: Json | None = None) -> str:
     fmt = pitch["format"]
+    if fmt == "remake":
+        # A remake's item is the chart video, told below as its study.
+        item = None
     if fmt == "thread":
         shape = '{"posts": ["...", "..."], "meaning": "...", "open_question": "<optional>"}'
         body = f"a thread: 2 to {THREAD_MAX} posts, each at most 280 characters as X counts them"
@@ -1336,6 +1349,8 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         shape, body = MEME_SHAPE, MEME_BODY
     elif fmt == "skit":
         shape, body = SKIT_SHAPE, SKIT_BODY
+    elif fmt == "remake":
+        shape, body = REMAKE_SHAPE, REMAKE_BODY
     else:
         shape = '{"text": "...", "meaning": "...", "open_question": "<optional>"}'
         body = "one post of at most 280 characters as X counts them"
@@ -1348,7 +1363,12 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
     if hook:
         parts.append("## the news it joins\n\nWhat people are talking about today, as the leaderboard and the "
                      f"posts behind it said it. {DATA_LINE}\n\n```json\n" + json.dumps(hook, ensure_ascii=False) +
-                     "\n```\n\n" + JOIN_RULES + (f"\n\n{SKIT_RULES}" if fmt == "skit" else ""))
+                     "\n```\n\n" + JOIN_RULES + {"skit": f"\n\n{SKIT_RULES}", "remake": f"\n\n{REMAKE_RULES}"}.get(fmt, ""))
+    if fmt == "remake" and study:
+        parts.append("## the original you are remaking\n\nThe popular video, as a model studied it: its title, who "
+                     "made it, and each shot in order (`n`, how long, the people in it by `ref`, the setting, what "
+                     "happens, the camera, anything said). Name it in the post by its title and its creator, in words. "
+                     f"{DATA_LINE}\n\n```json\n" + json.dumps(study_for_writer(study), ensure_ascii=False) + "\n```")
     if item or not hook:
         parts.append(("## what of yours it brings\n\n" if hook else "## the thing it is about\n\n") +
                      f"{DATA_LINE}\n\n```json\n" + json.dumps(item, ensure_ascii=False) + "\n```")
