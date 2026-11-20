@@ -43,6 +43,9 @@ PINNED_CAP = "MEDIA_REMAKE_MAX_USD_PER_SHOT=1.20\n"
 #: The per-shot tests' one-take model: always out of sellers, so the take
 #: is never had and the per-shot path (MEDIA_REMAKE_PER_SHOT=1) runs.
 NO_TAKE = "no-take-image-to-video"
+#: Most tests lay the source's audio over the video (MEDIA_REMAKE_SOUND=1);
+#: the default, the model's own sound, has its own tests in OneTakeTest.
+PINNED_SOUND = "MEDIA_REMAKE_SOUND=1\n"
 TAKE1, TAKE2 = remakes.ONE_TAKE_MODELS.split(",")
 
 
@@ -143,7 +146,7 @@ class Fixture(unittest.TestCase):
         (self.root / "brain" / "assets" / "teeny-reference.png").write_bytes(PNG)
         self.write("DRY_RUN=0\nSURPLUS_API_KEY=inf_test\nX_BOT_USERNAME=teenydroid\nMEDIA_SKIT_MAX_PER_DAY=1\n"
                    "MEDIA_REMAKE_MAX_PER_DAY=1\nMEDIA_MAX_USD_PER_DAY=5.00\n"
-                   f"MEDIA_REMAKE_MODELS={MODELS}\n{PINNED_CAP}")
+                   f"MEDIA_REMAKE_MODELS={MODELS}\n{PINNED_CAP}{PINNED_SOUND}")
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = str(self.root)
         os.environ["TEENY_NOW"] = str(T0)
@@ -878,7 +881,7 @@ class OneTakeTest(Fixture):
     def setUp(self):
         super().setUp()
         text = (self.root / "secrets" / "teeny.env").read_text()
-        self.write(text.replace(f"MEDIA_REMAKE_MODELS={MODELS}\n", "").replace(PINNED_CAP, ""))
+        self.write(text.replace(f"MEDIA_REMAKE_MODELS={MODELS}\n", "").replace(PINNED_CAP, "").replace(PINNED_SOUND, ""))
         self.api.catalog = {"data": [{"id": WAN3, "durations_seconds": WAN3_SOLD},
                                      {"id": TAKE1, "durations_seconds": WAN3_SOLD}]}
 
@@ -925,24 +928,55 @@ class OneTakeTest(Fixture):
         self.assertEqual({k: take[k] for k in ("model", "image_url", "duration_seconds", "resolution", "aspect_ratio",
                                                "audio")},
                          {"model": WAN3, "image_url": key, "duration_seconds": 10, "resolution": "720p",
-                          "aspect_ratio": "9:16", "audio": False})  # 6.4 s of source: Wan 3's 10 s
+                          "aspect_ratio": "9:16", "audio": True})  # 6.4 s of source: Wan 3's 10 s, with its sound
         script = take["prompt"]
         self.assertTrue(script.startswith("One continuous 10 second take, no cuts, locked-off camera."), script)
         first, second = KEYS["shots"]
         self.assertIn(f"0 to 2.4 seconds: {first['motion']}", script)
         self.assertIn(f"2.4 to 10 seconds: The scene now shows: {second['edit']}. {second['motion']}", script)
         self.assertLess(script.index("0 to 2.4"), script.index("2.4 to 10"))
+        self.assertIn(remakes.SOUND_LINE, script)
         self.assertTrue(script.endswith(remakes.TAKE_TAIL), script)
+        for words in ("synchronised sound", "spoken or sung by the person on screen", "lip movement",
+                      "no music unless"):
+            self.assertIn(words, remakes.SOUND_LINE)
         for words in ("only watches", "never looks at the yellow character", "No text, no captions, no logos"):
             self.assertIn(words, remakes.TAKE_TAIL)
         [cut] = self.reel.jobs
+        # The model's own sound, trimmed with the picture: the source's is not laid over it.
         self.assertEqual(cut, {"clips": [f"media/remake-{rid}-take.mp4"], "label": "AI parody · @teenydroid",
-                               "aspect": "9:16", "trims": [6.4], "sound": "media/remake/s1/audio.m4a"})
-        self.assertEqual((out["models"], out["one_take"], out["cost_usd"]), ([WAN3], True, 0.55))
+                               "aspect": "9:16", "trims": [6.4]})
+        self.assertEqual((out["models"], out["one_take"], out["cost_usd"], out["sound"]), ([WAN3], True, 0.55, "model"))
         [row] = self.rows("shot")
         self.assertEqual((row["status"], row["cost_micro"], row["prompt"]), ("done", 450000, script))
         self.assertTrue(json.loads(row["detail"])["one_take"])
         self.assertEqual(self.spent(), 550000)
+
+    def test_with_the_source_sound_setting_the_source_replaces_the_takes_own(self):
+        self.env(MEDIA_REMAKE_SOUND=1)
+        made, out = self.both()
+        [take] = self.api.videos()
+        self.assertIs(take["audio"], False)
+        self.assertNotIn(remakes.SOUND_LINE, take["prompt"])
+        [cut] = self.reel.jobs
+        self.assertEqual((cut["trims"], cut["sound"]), ([6.4], "media/remake/s1/audio.m4a"))
+        self.assertEqual(out["sound"], "source")
+
+    def test_with_the_source_sound_setting_and_no_source_audio_the_take_keeps_its_own(self):
+        self.env(MEDIA_REMAKE_SOUND=1)
+        made, out = self.both(sound=None)
+        self.assertIs(self.api.videos()[0]["audio"], True)
+        self.assertNotIn("sound", self.reel.jobs[0])
+        self.assertEqual(out["sound"], "model")
+
+    def test_by_default_a_sound_path_is_still_checked_but_not_used(self):
+        made = self.keys()
+        with self.assertRaises(hand.Refused) as caught:
+            self.remake({"remake_id": made["remake_id"], "sound": "state/media/remake/s2/audio.m4a"})
+        self.assertEqual(caught.exception.detail["rule"], "sound")
+        out = self.remake({"remake_id": made["remake_id"], "sound": SOUND})
+        self.assertNotIn("sound", self.reel.jobs[0])
+        self.assertEqual(out["sound"], "model")
 
     def test_hard_cuts_only_where_the_setting_changes(self):
         cases = [({}, {}, False), ({}, {"cuts": True}, True), ({"one_setting": True}, {}, False),
