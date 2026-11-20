@@ -2870,7 +2870,7 @@ def remake_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
             "remake_id": note.get("remake_id"), "asset": note.get("asset"), "path": note.get("path"),
             "models": note.get("models"),
             "cost_usd": note.get("cost_usd"), "label": note.get("label"), "post_id": post_id,
-            "planned": bool(note.get("planned"))}
+            "planned": bool(note.get("planned"))} | ({"sound": note["sound"]} if note.get("sound") else {})
 
 
 def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
