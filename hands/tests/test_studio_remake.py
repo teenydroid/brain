@@ -459,7 +459,7 @@ TREND = {"ok": True, "source": "digg", "stories": [
 NOW = 1_795_003_200.0
 
 
-class VideoSlotRunTest(unittest.TestCase):
+class VideoSlotRun(unittest.TestCase):
     """Whole dry runs of a video slot with stand-in hands and an editor that
     prefers by format, in the order `prefer` says."""
 
@@ -545,6 +545,8 @@ class VideoSlotRunTest(unittest.TestCase):
         calls = (self.root / "calls").read_text()
         return code, out, record, calls
 
+
+class RemakeWinsRunTest(VideoSlotRun):
     def test_a_remake_wins_the_slot_and_goes_out_as_a_remake_planned_never_bought(self):
         code, out, record, calls = self.run_slot()
         self.assertEqual((code, out["outcome"]), (0, "picked"), out)
@@ -565,13 +567,14 @@ class VideoSlotRunTest(unittest.TestCase):
         self.assertNotIn("video ", calls)
         sent = json.loads((self.root / "xbodies").read_text().splitlines()[-1])
         self.assertEqual(sent["format"], "remake")
-        self.assertEqual(record["slot_order"][:2], [first["label"], record["slot_order"][1]])
-        self.assertEqual({record["labels"][x] for x in record["slot_order"][:2]} and
-                         [next(d for d in record["drafts"] if d["id"] == record["labels"][x])["format"]
-                          for x in record["slot_order"][:2]], ["remake", "skit"])
+        # Videos first, across both formats, in the tournament's order; then the rest.
+        formats = [next(d for d in record["drafts"] if d["id"] == record["labels"][x])["format"]
+                   for x in record["slot_order"]]
+        self.assertEqual(formats, ["remake", "skit", "post"])
+        self.assertEqual(first["label"], record["slot_order"][0])
 
 
-class UnusableStudyRunTest(VideoSlotRunTest):
+class UnusableStudyRunTest(VideoSlotRun):
     study = {**STUDY, "usable": False, "why": "a news clip", "flags": {**STUDY["flags"], "news": True}}
 
     def test_an_unusable_study_drops_the_remake_and_the_skit_still_runs(self):
@@ -591,7 +594,7 @@ class UnusableStudyRunTest(VideoSlotRunTest):
         self.assertTrue(any(d["pitch"] == "p5" and "two" in d["why"] for d in record["drafts_dropped"]))
 
 
-class ChartsDownRunTest(VideoSlotRunTest):
+class ChartsDownRunTest(VideoSlotRun):
     charts = "down"
     prefer = ("skit", "post", "remake")
 

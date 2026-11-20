@@ -157,7 +157,10 @@ Json = dict[str, Any]
 
 #: The formats the studio can make today, each with its producer (`publish`).
 #: A pitch in any other is dropped; later formats arrive behind STUDIO_FORMATS.
-KNOWN_FORMATS = ("post", "thread", "image", "meme", "skit")
+KNOWN_FORMATS = ("post", "thread", "image", "meme", "skit", "remake")
+#: The formats whose piece is a video: one a day between them, in the skit
+#: slot (STUDIO_SKIT_SLOTS), and their words never go out without it.
+VIDEO_FORMATS = ("skit", "remake")
 #: Drafts tried after the pick when it cannot go out (`publish`).
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
@@ -297,6 +300,11 @@ class Config:
     #: slot name) and how long a skit's render may take (STUDIO_SKIT_SECS).
     skit_slots: tuple[str, ...] = ()
     skit_secs: int = 900
+    #: The run's time in a video slot (STUDIO_VIDEO_BUDGET_SECS), used there
+    #: instead of budget_secs, and the most a remake's keys and video may take
+    #: together (STUDIO_REMAKE_SECS).
+    video_budget_secs: int = 3600
+    remake_secs: int = 1200
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -353,9 +361,11 @@ class Config:
         c.hn_min_points = _int(get("STUDIO_HN_MIN_POINTS"), 300, 0, 100_000)
         c.skit_slots = tuple(dict.fromkeys(x.strip() for x in (get("STUDIO_SKIT_SLOTS") or "").split(",") if x.strip()))
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
-        if c.skit_slots and "skit" not in c.formats:
-            c.warnings.append("STUDIO_SKIT_SLOTS names slots for skits, but STUDIO_FORMATS has no skit: those slots "
-                              "run as any other")
+        c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
+        c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
+        if c.skit_slots and not any(f in c.formats for f in VIDEO_FORMATS):
+            c.warnings.append("STUDIO_SKIT_SLOTS names slots for videos, but STUDIO_FORMATS has no skit and no remake: "
+                              "those slots run as any other")
         return c
 
 
