@@ -1429,19 +1429,9 @@ def shown(draft: Json) -> Json:
     if draft.get("meme"):
         out["meme"] = {"template": draft["meme"]["template"], "lines": draft["meme"]["lines"],
                        "with_teeny": bool(draft["meme"].get("teeny"))}
-    if draft.get("skit"):
-        out["skit"] = {"figures": draft["skit"].get("figures") or [], "premise": draft["skit"].get("premise"),
-                       "logline": draft["skit"].get("logline"),
-                       **{k: draft["skit"][k] for k in SKIT_HELD if draft["skit"].get(k)},
-                       "shots": [s.get("prompt") for s in draft["skit"].get("shots") or []]}
-    if draft.get("remake"):
-        remake = draft["remake"]
-        source = remake.get("source") or {}
-        out["remake"] = {"figures": remake.get("figures") or [], "premise": remake.get("premise"),
-                         "logline": remake.get("logline"),
-                         "source": ", by ".join(str(x) for x in (source.get("title"), source.get("uploader")) if x),
-                         "shots": [{k: s.get(k) for k in ("edit", "motion", "teeny")}
-                                   for s in remake.get("shots") or []]}
+    for video in registry().values():
+        if draft.get(video.name):
+            out[video.name] = video.shown(draft[video.name])
     if draft.get("joins"):
         out["joins"] = draft["joins"]
     return out
