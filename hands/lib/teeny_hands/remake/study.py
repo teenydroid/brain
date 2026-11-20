@@ -321,6 +321,34 @@ def _data_uri(jpeg: bytes) -> str:
 # --- the verb ---------------------------------------------------------------------------------
 
 
+#: What a fetch asks ingest for: the excerpt's length and shots, as before,
+#: and each shot at most one image-to-video clip long (a 5 s Wan 3 clip:
+#: REMAKE_MAX_SHOT_SECONDS, 2 to 10), so ingest splits a longer shot. Ingest
+#: wants max_shot at least twice min_shot, which 2.0 against 1.0 keeps.
+FETCH_MAX_SECONDS = 30.0
+FETCH_MAX_SHOTS = 6
+FETCH_MIN_SHOT = 1.0
+DEFAULT_MAX_SHOT = 5.0
+MAX_SHOT_RANGE = (2.0, 10.0)
+
+
+def max_shot_seconds() -> float:
+    """REMAKE_MAX_SHOT_SECONDS, clamped; the default when unset or unreadable."""
+    raw = hand.setting("REMAKE_MAX_SHOT_SECONDS")
+    try:
+        value = float(raw) if raw not in (None, "") else DEFAULT_MAX_SHOT
+    except ValueError:
+        value = DEFAULT_MAX_SHOT
+    if value != value:  # NaN
+        value = DEFAULT_MAX_SHOT
+    return max(MAX_SHOT_RANGE[0], min(value, MAX_SHOT_RANGE[1]))
+
+
+def fetch_limits() -> Json:
+    return {"max_seconds": FETCH_MAX_SECONDS, "max_shots": FETCH_MAX_SHOTS, "min_shot": FETCH_MIN_SHOT,
+            "max_shot": max_shot_seconds()}
+
+
 def study(body: Any, ingest: Any = None, api: Any = None, sleep: Callable[[float], None] = time.sleep,
           clock: Callable[[], float] = time.monotonic) -> Json:
     """The study of one video (see the module's steps). Refused (exit 2) with
@@ -369,7 +397,7 @@ def _run(ingest: Any, api: Any, sleep: Callable[[float], None], clock: Callable[
     staging: Path | None = None
     spend = viewer.Spend()
     try:
-        got = ingest.fetch({"url": url})
+        got = ingest.fetch({"url": url, **fetch_limits()})
         fetch_id = got.get("fetch_id") if isinstance(got, dict) else None
         got = _checked_fetch(got, video_id)
         source = _source_fields(got, url)

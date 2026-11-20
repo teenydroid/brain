@@ -9,6 +9,7 @@ import base64
 import contextlib
 import io
 import json
+import shutil
 
 from .support import FETCH_ID, JPEG, M4A, MP4, FakeIngest, Scratch, entry, fetched
 from teeny_hands import hand
@@ -113,10 +114,10 @@ class HappyPathTest(Base):
         for raw, want in (("", 5.0), ("3.5", 3.5), ("0.5", 2.0), ("20", 10.0), ("soon", 5.0)):
             with self.subTest(raw=raw):
                 self.secrets(f"REMAKE_MAX_SHOT_SECONDS={raw}\n" if raw else "")
+                shutil.rmtree(self.folder(), ignore_errors=True)  # no kept study: it fetches again
                 self.ingest.calls = []
-                study.study({"url": TT_URL}, ingest=self.ingest, api=FakeVision(reply(breakdown())),
-                            sleep=lambda s: None, fresh=True) if "fresh" in study.study.__code__.co_varnames else \
-                    self.study()
+                self.vision = FakeVision(reply(breakdown()))
+                self.study()
                 body = self.ingest.asked("fetch")[-1][1]
                 self.assertEqual((body["max_shot"], body["min_shot"], body["max_shots"], body["max_seconds"]),
                                  (want, 1.0, 6, 30.0))
