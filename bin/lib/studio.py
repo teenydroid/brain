@@ -781,9 +781,10 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
     chosen = [p for p in ranked if p in chosen]
     note: Json = {"want_hooked": want}
     if video_first:
-        best = {fmt: next((p for p in ranked if by_id[p]["format"] == fmt), None) for fmt in VIDEO_FORMATS}
+        kinds = video_formats()
+        best = {fmt: next((p for p in ranked if by_id[p]["format"] == fmt), None) for fmt in kinds}
         videos = [p for p in ranked if p in best.values()]
-        other = next((p for p in ranked if by_id[p]["format"] not in VIDEO_FORMATS), None)
+        other = next((p for p in ranked if by_id[p]["format"] not in kinds), None)
         # What must be drafted, the most important first: the better-ranked
         # video, the words to fall back on, then the other video.
         need_ = [p for p in (videos[:1] + [other] + videos[1:]) if p][:max(2, top)]
@@ -795,11 +796,13 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
                 drop = next((x for x in reversed(chosen) if x not in need_[:need_.index(p)]), None)
             chosen = [x for x in chosen if x != drop] + [p]
         chosen = [p for p in ranked if p in chosen]
-        note["skit"] = best["skit"]
-        if best["remake"]:
-            note["remake"] = best["remake"]
+        for n, fmt in enumerate(kinds):
+            # The first (the skit, the oldest) is always in the note, even as
+            # null, as it was before there were others.
+            if n == 0 or best[fmt]:
+                note[fmt] = best[fmt]
         if not videos:
-            note["no_skit"] = "a video slot, and the writer pitched no skit or remake that could be kept"
+            note["no_skit"] = f"a video slot, and the writer pitched no {' or '.join(kinds)} that could be kept"
     note["hooked"] = sum(1 for p in chosen if by_id[p].get("hook"))
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
@@ -817,8 +820,9 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
 
 def validate_drafts(answer: Any, pitch: Json, want: int, study: Json | None = None) -> tuple[list[Json], list[Json]]:
     """(drafts, dropped with why) for one pitch. A draft carries the pitch's
-    storyline, shape and format; its words are the writer's. A remake's
-    draft also carries what it needs of its source's `study`."""
+    storyline, shape and format; its words are the writer's. A video
+    format's piece is kept as the format shapes it (`Format.shape`): a
+    remake's draft also carries what it needs of its source's `study`."""
     if isinstance(answer, list):
         answer = {"drafts": answer}
     if not isinstance(answer, dict) or not isinstance(answer.get("drafts"), list):
@@ -857,16 +861,11 @@ def validate_drafts(answer: Any, pitch: Json, want: int, study: Json | None = No
             why = why or bad
             draft["meme"] = meme
             draft["alone"] = raw.get("alone") is True
-        if pitch["format"] == "skit":
-            skit, bad = skit_of(raw.get("skit"), pitch)
+        video = registry().get(pitch["format"])
+        if video:
+            fields, bad = video.shape(raw.get(video.name), pitch, study)
             why = why or bad
-            draft["skit"] = skit
-        if pitch["format"] == "remake":
-            remake, bad = remake_of(raw.get("remake"), pitch, study)
-            why = why or bad
-            draft["remake"] = remake
-            if isinstance(study, dict):
-                draft["study"] = {k: study[k] for k in STUDY_KEYS if k in study}
+            draft.update(fields)
         if _str(raw.get("open_question")):
             draft["open_question"] = _str(raw.get("open_question"))
         if why:
