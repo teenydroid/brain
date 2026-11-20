@@ -97,6 +97,9 @@ hands/moltbook unlock                                 # clear the verification l
 hands/hn top --max 5                                  # the front page, read only
 hands/hn thread 42 --max 30                           # an item and the comments under it
 hands/hn watch list                                   # the threads Teeny follows; watch remove ID stops one
+hands/chan sparks --max 3                             # strangers' premises from 4chan's worksafe boards, read only
+bin/backroom --wildcard "my server bill"              # an idea, collided with one of them
+bin/backroom --from-chan 2 --format post              # two rooms, each on one of them
 
 hands/mail list --unread                              # recent mail
 hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
@@ -256,7 +259,7 @@ The database is unreadable without its key.
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
-hands/               x, guard, gh, moltbook, hn, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
+hands/               x, guard, gh, moltbook, hn, chan, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, browser-deny.txt, the nginx vhost

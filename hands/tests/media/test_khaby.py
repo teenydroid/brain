@@ -164,6 +164,7 @@ class KhabyTest(unittest.TestCase):
         self.assertTrue(sheet.startswith("data:image/png;base64,"))
         self.assertIn(EDIT, edit["prompt"])
         self.assertIn("where the man stood", edit["prompt"])
+        self.assertEqual(edit["aspect_ratio"], "9:16")
         self.assertEqual([(k["n"], k["path"], k["model"]) for k in made["keys"]],
                          [(2, f"state/media/khaby-{kid}-key-2.png", EDIT1)])
         [job] = self.api.videos()

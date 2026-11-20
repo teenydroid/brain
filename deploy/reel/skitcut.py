@@ -17,7 +17,7 @@ A khaby cut (hands/video khaby) adds `starts`, seconds into each clip, one
 a clip and only with `trims`: each clip is taken from `[start, start +
 trim)`. A clip may be the source of a dissect itself, media/khaby/<id>/
 source.mp4 (the setup kept as it is), and only such a clip may start past 0
-or run past a generated clip's TRIM_SECONDS (SOURCE_TRIM_SECONDS); it is
+or run past a generated clip's longest trim (SOURCE_TRIM_SECONDS); it is
 cut from its start first and then scaled, cropped and set to FPS exactly as
 every generated clip is. Its `sound` is under media/khaby/. A cut whose
 starts are all 0 is the command it was without them.
@@ -44,8 +44,10 @@ from typing import Any
 MAX_CLIPS = 4
 #: A remake's cut (with `trims`) may join this many.
 MAX_REMAKE_CLIPS = 6
-#: A trim is this long, in seconds.
+#: A trim is this long, in seconds; one clip (a remake's one take) up to
+#: TAKE_TRIM_SECONDS.
 TRIM_SECONDS = (1.0, 10.0)
+TAKE_TRIM_SECONDS = 30.0
 #: A dissect's source clip may be trimmed to this (a setup kept whole runs
 #: longer than any generated clip; ingest fetches at most 60 s).
 SOURCE_TRIM_SECONDS = (0.1, 60.0)
@@ -116,13 +118,15 @@ def check_cut(body: Any) -> dict[str, Any]:
         raise CutError(f"bed_volume_pct is {BED_VOLUME_PCT[0]} to {BED_VOLUME_PCT[1]}")
     sources = [bool(SOURCE_CLIP.fullmatch(clip)) for clip in clips]
     if trims is not None:
+        longest = TAKE_TRIM_SECONDS if len(clips) == 1 else TRIM_SECONDS[1]
+
         def fits(t: Any, source: bool) -> bool:
-            low, high = SOURCE_TRIM_SECONDS if source else TRIM_SECONDS
+            low, high = SOURCE_TRIM_SECONDS if source else (TRIM_SECONDS[0], longest)
             return isinstance(t, (int, float)) and not isinstance(t, bool) and low <= t <= high
 
         if not isinstance(trims, list) or len(trims) != len(clips) or not all(map(fits, trims, sources)):
-            raise CutError(f"trims gives every clip {TRIM_SECONDS[0]} to {TRIM_SECONDS[1]} seconds (a dissect's "
-                           f"source {SOURCE_TRIM_SECONDS[0]} to {SOURCE_TRIM_SECONDS[1]})")
+            raise CutError(f"trims gives every clip {TRIM_SECONDS[0]} to {longest} seconds" + (
+                f" (a dissect's source {SOURCE_TRIM_SECONDS[0]} to {SOURCE_TRIM_SECONDS[1]})" if any(sources) else ""))
         trims = [float(t) for t in trims]
     starts = body.get("starts")
     if starts is not None:
