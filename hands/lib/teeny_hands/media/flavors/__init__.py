@@ -64,13 +64,14 @@ class Flavor:
         return self.kinds[0]
 
 
-from . import clip, remake, skit  # noqa: E402  (they need Step and Flavor)
+from . import clip, khaby, remake, skit  # noqa: E402  (they need Step and Flavor)
 
 #: Every flavor, in the order `hands/video flavors` lists them.
 REGISTRY: Mapping[str, Flavor] = {flavor.name: flavor for flavor in (
     clip.FLAVOR,
     skit.FLAVOR,
     remake.FLAVOR,
+    khaby.FLAVOR,
 )}
 
 
