@@ -1021,9 +1021,12 @@ before any video money, and the viewer on the cut (stage `cut`: the label
 read on at least half the frames, Teeny on model on at least half). The
 producer (`_make_remake`) is: `hands/guard check` on the logline and every
 prompt, `hands/guard remake`, then (a dry room stops here, planned) the time
-floor, `hands/video remake-keys`, the keys' viewer, `hands/video remake` with
-the study's audio as its `sound`, the labelled-file check as a skit's, the
-cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
+floor, `hands/video remake-keys` (the story as words, at most 600
+characters), `hands/remake used` on the source once keys are bought (so it is
+never remade twice; a failed mark is a warning), the keys' viewer, `hands/video
+remake` with the study's `audio` as its `sound` (null when it has none), the
+labelled-file check (`asset` is the cut's path, `asset_id` its row; `labelled`
+true and an "AI parody" label), the cut's viewer, `hands/x upload`. Its words never go out without the video. Time:
 a remake takes at most `STUDIO_REMAKE_SECS` (1200) and never the last 600 + 300
 s of the run, and is not started with under `REMAKE_MIN_SECS` (540); the keys
 wait at most 300 s; the video waits `STUDIO_SKIT_SECS`, at least 120 s, never

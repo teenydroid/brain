@@ -2466,6 +2466,8 @@ REMAKE_KEYS_SPARE = 240
 #: The most sources studied a run (each a paid look at a video), and how long one may take.
 REMAKE_STUDIES = 2
 REMAKE_STUDY_SECS = 240
+#: The most of the story's words hands/video remake-keys takes (its `story`).
+REMAKE_STORY_MAX = 600
 #: The most chart videos the pitch turn is shown.
 REMAKE_CHARTS_MAX = 12
 #: What of a study the draft keeps (the producer needs the audio and the frames).
@@ -2501,14 +2503,15 @@ def chart_items(got: Any) -> list[Json]:
     return out[:REMAKE_CHARTS_MAX]
 
 
-def load_charts(room: "Room") -> tuple[list[Json], Json]:
-    """The chart videos a remake may re-create (`hands/remake charts`, a read),
-    and what came of asking. Never fails the run: none is no remake."""
-    code, got = room.hand_code(["remake", "charts"], timeout=120)
+def load_charts(room: "Room", slot_id: str | None = None) -> tuple[list[Json], Json]:
+    """The chart videos a remake may re-create (`hands/remake charts`, a read,
+    kept by the hand per slot), and what came of asking. Never fails the
+    run: none is no remake."""
+    code, got = room.hand_code(["remake", "charts", *(["--slot", slot_id] if slot_id else [])], timeout=120)
     items = chart_items(got) if code == 0 else []
     note: Json = {"candidates": len(items)}
     if isinstance(got, dict):
-        note.update({k: got[k] for k in ("unavailable", "cached") if k in got})
+        note.update({k: got[k] for k in ("unavailable", "cached", "key", "fetched_at", "dropped_by_screen") if k in got})
     if code != 0:
         note["error"] = (str(got.get("error") or got.get("refused") or got) if isinstance(got, dict) else str(got))[:300]
     return items, note
@@ -2614,8 +2617,9 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
         return None
     keys_wait = min(REMAKE_KEYS_SECS, total - REMAKE_KEYS_SPARE)
     source = remake.get("source") or {}
+    story = ": ".join(x for x in (_str(hook.get("title"), 2000), _str(hook.get("summary"), 2000)) if x)
     body = {"study": remake["study"], "source": {k: source.get(k) for k in ("video_id", "url", "title", "source")},
-            "story": remake["story"], "figures": remake.get("figures") or [], "logline": remake["logline"],
+            "story": (story or str(remake["story"]))[:REMAKE_STORY_MAX], "figures": remake.get("figures") or [], "logline": remake["logline"],
             "aspect": remake.get("aspect") or "9:16",
             "shots": [{k: s.get(k) for k in ("n", "frame", "seconds", "edit", "motion", "teeny")} for s in shots],
             "wait_seconds": int(keys_wait)}
@@ -2631,6 +2635,16 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     keys = [k for k in keyed.get("keys") or [] if isinstance(k, dict) and isinstance(k.get("path"), str)]
     note.update(remake_id=keyed.get("remake_id"), keys_cost_usd=keyed.get("cost_usd"),
                 reserve_usd=keyed.get("reserve_usd"))
+    if keyed.get("remake_id"):
+        # Keys bought: the source is spent, so it is never remade twice
+        # (hands/remake used). A mark that fails is a warning, not a lost remake.
+        mark = {"video_id": source.get("video_id"), "source": source.get("source"), "url": source.get("url"),
+                "title": source.get("title"), "study_id": remake["study"]}
+        code, used = room.budgeted(["remake", "used"], mark, 60, dry=False)
+        note["marked_used"] = code == 0
+        if code != 0:
+            room.warnings.append(f"the remake's source {source.get('url')} could not be marked used ({str(used)[:200]}): "
+                                 "it could be chosen again")
     if not keyed.get("remake_id") or len(keys) != len(shots):
         note["failed"] = f"{len(keys)} keyframes came back for {len(shots)} shots"
         return None
@@ -2659,15 +2673,16 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     if made.get("dry_run"):
         note.update(dry_run=True, failed="the video hand is in DRY_RUN: no video was made")
         return None
-    asset = made.get("asset") if isinstance(made.get("asset"), dict) else {}
-    detail = asset.get("detail") if isinstance(asset.get("detail"), dict) else {}
-    note.update(asset=asset.get("id"), cost_usd=made.get("cost_usd"), models=made.get("models"),
-                label=made.get("label"), seconds=made.get("seconds"))
+    # hands/video remake answers its cut as a path (`asset`) and its row as
+    # `asset_id`, where video skit answers a row.
+    path = made.get("asset") if isinstance(made.get("asset"), str) and made["asset"].strip() else ""
+    note.update(asset=made.get("asset_id"), path=path or None, cost_usd=made.get("cost_usd"),
+                models=made.get("models"), label=made.get("label"), seconds=made.get("seconds"))
     frames = made.get("frames") if isinstance(made.get("frames"), list) else []
-    # Only a labelled file is handed over: the hand set the label and the
-    # reel service reports it burned in, for the whole cut.
-    if not (asset.get("path") and made.get("labelled") is True and detail.get("labelled") is True
-            and str(made.get("label") or "").startswith("AI parody") and frames):
+    # Only a labelled file is handed over: the hand reports the label burned
+    # in, for the whole cut, and it is the parody label.
+    if not (path and made.get("labelled") is True and str(made.get("label") or "").startswith("AI parody")
+            and frames):
         note["failed"] = "made, but no labelled file came back"
         return None
     ok, judged, note["viewer"] = _judge(
@@ -2677,7 +2692,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     if not ok:
         note["failed"] = "the viewer check did not pass it"
         return None
-    code, up = room.budgeted(["x", "upload", "--file", str(asset["path"])], None, 300, dry=False)
+    code, up = room.budgeted(["x", "upload", "--file", path], None, 300, dry=False)
     if not (code == 0 and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
         note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
         return None
@@ -2694,7 +2709,8 @@ def remake_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
     return {"source": {k: source.get(k) for k in ("title", "uploader", "url", "source")},
             "study": remake.get("study"), "story": remake.get("story"), "figures": remake.get("figures") or [],
             "logline": remake.get("logline"), "shots": len(remake.get("shots") or []),
-            "remake_id": note.get("remake_id"), "asset": note.get("asset"), "models": note.get("models"),
+            "remake_id": note.get("remake_id"), "asset": note.get("asset"), "path": note.get("path"),
+            "models": note.get("models"),
             "cost_usd": note.get("cost_usd"), "label": note.get("label"), "post_id": post_id,
             "planned": bool(note.get("planned"))}
 
@@ -3287,7 +3303,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     charts: list[Json] = []
     if "remake" in cfg.formats:
         if room.skit_slot:
-            charts, record["remake_charts"] = load_charts(room)
+            charts, record["remake_charts"] = load_charts(
+                room, slot_id_of(args.slot, dict(os.environ) | getattr(room, "environ", {})) if args.slot else None)
             if not charts:
                 record["warnings"].append("no chart video could be read for a remake (hands/remake charts: " +
                                           (record["remake_charts"].get("error") or "an empty chart") +

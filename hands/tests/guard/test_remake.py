@@ -200,6 +200,8 @@ class ScreenTest(support.Scratch):
             with self.subTest(flag=flag):
                 self.assertRefused(self.screen(study={**STUDY, "flags": {**STUDY["flags"], flag: True}}), flag)
         self.assertRefused(self.screen(study={**STUDY, "flags": {}}), "flags")
+        # An unreadable study reports every flag as null: never clean.
+        self.assertRefused(self.screen(study={**STUDY, "flags": {f: None for f in STUDY["flags"]}}), "flags")
         self.assertRefused(self.screen(study={k: v for k, v in STUDY.items() if k != "flags"}), "flags")
 
     def test_the_post_words_are_required(self):

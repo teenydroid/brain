@@ -78,8 +78,7 @@ LABEL = "AI parody · @teenydroid"
 KEYS = {"remake_id": "r1", "keys": [{"n": 1, "path": "state/media/remake-r1-key-1.png", "model": "m", "cost_usd": 0.04},
                                     {"n": 2, "path": "state/media/remake-r1-key-2.png", "model": "m", "cost_usd": 0.04}],
         "reserve_usd": 3.2, "cost_usd": 0.08}
-ASSET = {"id": 9, "path": "state/media/remake-r1.mp4", "detail": {"labelled": True, "label": LABEL}}
-MADE = {"asset": ASSET, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
+MADE = {"asset": "state/media/remake-r1.mp4", "asset_id": 9, "frames": ["state/media/remake-r1-frame-0.jpg", "state/media/remake-r1-frame-1.jpg"],
         "label": LABEL, "labelled": True, "cost_usd": 1.5, "models": ["kling-v3-pro-image-to-video"] * 2,
         "keys": KEYS["keys"], "seconds": 9, "shot_seconds": [4, 5]}
 
@@ -224,6 +223,7 @@ def _producer_room(dry=False, **script):
         "guard view-remake": lambda body: (0, {"ok": True, "teeny": len(body["frames"]), "interacts": False,
                                                "reason": "ok", "judged": True}),
         "video remake": (0, MADE),
+        "remake used": (0, {"ok": True, "used": True}),
         "x upload": (0, {"ok": True, "media_id": "m-9"}),
         "x post": (0, {"ok": True, "id": "post-1"}),
         **script,
@@ -250,15 +250,21 @@ class ProducerTest(unittest.TestCase):
         result, attempt, calls = self.go(room)
         self.assertEqual(result, "posted")
         self.assertEqual([c for c in calls if c not in ("guard check", "story slot-mark", "story beat")],
-                         ["guard truth", "guard clarity", "guard remake", "video remake-keys", "guard view-remake",
-                          "video remake", "guard view-remake", "x upload", "x post"])
+                         ["guard truth", "guard clarity", "guard remake", "video remake-keys", "remake used",
+                          "guard view-remake", "video remake", "guard view-remake", "x upload", "x post"])
+        used = next((b, d) for a, b, d, _ in room.seen if a[:2] == ["remake", "used"])
+        self.assertEqual(used, ({"video_id": "v1", "source": "tiktok", "url": CHART["url"],
+                                 "title": "kitchen hack fail", "study_id": "s-abc"}, False))
+        upload = next(a for a, *_ in room.seen if a[:2] == ["x", "upload"])
+        self.assertEqual(upload, ["x", "upload", "--file", "state/media/remake-r1.mp4"])
         post = self.body(room, "x post")
         self.assertEqual((post["media_ids"], post["format"], post["text"]), (["m-9"], "remake", WORDS))
         judged = self.body(room, "guard remake")
         self.assertEqual((judged["story"], judged["study"]["study_id"], judged["text"]), (HOOK, "s-abc", WORDS))
         keys = self.body(room, "video remake-keys")
-        self.assertEqual((keys["study"], keys["story"], keys["figures"], keys["aspect"]),
-                         ("s-abc", "trend:t1", ["Jensen Huang"], "9:16"))
+        self.assertEqual((keys["study"], keys["figures"], keys["aspect"]), ("s-abc", ["Jensen Huang"], "9:16"))
+        # The story as words, within the hand's 600 characters.
+        self.assertEqual(keys["story"], f"{HOOK['title']}: {HOOK['summary']}")
         self.assertEqual(keys["source"], {"video_id": "v1", "url": CHART["url"], "title": "kitchen hack fail",
                                           "source": "tiktok"})
         self.assertEqual([set(s) for s in keys["shots"]], [{"n", "frame", "seconds", "edit", "motion", "teeny"}] * 2)
@@ -317,8 +323,8 @@ class ProducerTest(unittest.TestCase):
                 self.assertNotIn("guard view-remake", calls)
 
     def test_an_unlabelled_cut_is_never_handed_over(self):
-        for made in ({**MADE, "labelled": False}, {**MADE, "label": "parody?"},
-                     {**MADE, "asset": {**ASSET, "detail": {"labelled": False}}}, {**MADE, "frames": []}):
+        for made in ({**MADE, "labelled": False}, {**MADE, "label": "parody?"}, {**MADE, "asset": None},
+                     {**MADE, "asset": {"id": 9, "path": "x.mp4"}}, {**MADE, "frames": []}):
             with self.subTest(made=made):
                 result, attempt, calls = self.go(_producer_room(**{"video remake": (0, made)}))
                 self.assertEqual(result, "next")
@@ -335,6 +341,33 @@ class ProducerTest(unittest.TestCase):
         self.assertEqual(result, "next")
         self.assertNotIn("x upload", calls)
         self.assertEqual(attempt["remake"]["asset"], 9)
+
+    def test_a_long_story_is_cut_to_what_the_hand_takes(self):
+        room = _producer_room()
+        draft = remake_draft()
+        draft["truth"]["facts"] = [{**HOOK, "summary": "x" * 900}, CHART]
+        self.go(room, draft)
+        self.assertEqual(len(self.body(room, "video remake-keys")["story"]), studio.REMAKE_STORY_MAX)
+
+    def test_no_audio_is_sent_as_none_and_a_refusal_is_no_remake(self):
+        room = _producer_room()
+        draft = remake_draft()
+        draft["study"]["audio"] = None
+        self.go(room, draft)
+        self.assertIsNone(self.body(room, "video remake")["sound"])
+        for rule in ("remake_id", "used", "failed", "stale", "not_ready", "sound"):
+            with self.subTest(rule=rule):
+                result, attempt, calls = self.go(_producer_room(**{"video remake": (2, {"ok": False, "refused": "no",
+                                                                                         "rule": rule})}))
+                self.assertEqual(result, "next")
+                self.assertEqual(attempt["remake"]["result"]["rule"], rule)
+                self.assertNotIn("x upload", calls)
+
+    def test_a_source_not_marked_used_is_a_warning_never_a_lost_remake(self):
+        room = _producer_room(**{"remake used": (1, {"error": "no such verb"})})
+        result, attempt, _ = self.go(room)
+        self.assertEqual(result, "posted")
+        self.assertIn("marked used", " ".join(room.warnings))
 
     def test_without_time_for_a_remake_none_is_started(self):
         room = _producer_room()
@@ -609,6 +642,7 @@ class ChartsDownRunTest(VideoSlotRun):
         self.assertNotIn(studio.REMAKE_PITCH, pitch)
         self.assertTrue(any(d["pitch"]["id"] == "p3" for d in record["pitches_dropped"]))
         self.assertNotIn("remake study", calls)
+        self.assertIn("remake charts --slot ", calls)
         self.assertEqual(record["publish"]["attempts"][0]["format"], "skit")
         self.assertIn("charts", " ".join(record["warnings"]))
 
