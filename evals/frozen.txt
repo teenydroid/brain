@@ -160,6 +160,10 @@ hands/lib/teeny_hands/media/
 hands/tests/guard/test_skit.py
 hands/tests/guard/test_viewer_skit.py
 hands/tests/media/test_skits.py
+# Remakes stage real public figures too, and share the skits' day cap and
+# cutter: the tests that pin their caps, keys and label are the operator's
+# (the code is frozen above, in media/).
+hands/tests/media/test_remakes.py
 hands/tests/reel/test_cut.py
 hands/tests/test_studio_skit.py
 # Clips and songs: renders on the reel service and buys music under the

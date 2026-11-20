@@ -8,8 +8,8 @@ These calls, and the front answers 403 to anything else:
   GET    /api/v1/download/{id}/final-1.mp4      the render
   DELETE /api/v1/tasks/{id}                     the task and its files
   GET    /ping                                  the service is up
-  POST   /teeny/v1/cuts                         a skit's cut (deploy/reel/skitcut.py): its id,
-                                                length, frames and label, once it is made
+  POST   /teeny/v1/cuts                         a skit's or a remake's cut (deploy/reel/skitcut.py):
+                                                its id, length, frames and label, once it is made
   GET    /teeny/v1/cuts/{id}/cut.mp4            the cut
   GET    /teeny/v1/cuts/{id}/frame-N.jpg        one of its frames
   DELETE /teeny/v1/cuts/{id}                    the cut and its frames
@@ -116,8 +116,11 @@ class Reel:
         self._open("GET", "/ping", timeout=10.0)
 
     def cut(self, job: dict, timeout: float = 600.0) -> dict:
-        """A skit's cut, made before the answer comes: {cut_id, seconds,
-        shots, frames, label, labelled, audio}."""
+        """A skit's or a remake's cut, made before the answer comes:
+        {cut_id, seconds, shots, frames, label, labelled, audio}. The job
+        goes as it is: a remake's `trims` and `sound` reach the front,
+        which checks them (skitcut.check_cut) and answers {sound, trimmed,
+        padded} too."""
         data = self._json("POST", "/teeny/v1/cuts", job, timeout=timeout).get("data")
         if not isinstance(data, dict):
             raise ReelError("the reel service answered a cut with nothing in it")

@@ -4,6 +4,15 @@ with each shot's own sound, the loudness evened out, an optional music bed
 under it, and the label burned into a corner for the whole length. Then a
 few frames are taken from the cut for the viewer check.
 
+A remake's cut (hands/video remake) adds two fields. `trims`, seconds per
+clip: each clip is cut to its source shot's length, to the frame (the
+lengths are rounded so that the whole picture runs their sum), and a clip
+at most MAX_PAD short of its trim holds its last frame. `sound`, the
+source's audio under media/remake/: the clips' own sound is dropped and
+that is the only track, cut or padded to the picture's exact length, its
+loudness evened out; a bed is refused with it. With trims, up to
+MAX_REMAKE_CLIPS clips. Without either field the command is what it was.
+
 Why not a MoneyPrinterTurbo task: upstream opens every material with
 `audio=False` (app/services/video.py, `_open_video_clip_quietly`) and lays
 one voice or one track over the whole video, so a shot's own dialogue and
@@ -24,6 +33,12 @@ import subprocess
 from typing import Any
 
 MAX_CLIPS = 4
+#: A remake's cut (with `trims`) may join this many.
+MAX_REMAKE_CLIPS = 6
+#: A trim is this long, in seconds.
+TRIM_SECONDS = (1.0, 10.0)
+#: How short of its trim a clip may be: its last frame is held that long.
+MAX_PAD = 0.5
 MAX_LABEL = 80
 #: Where the label sits and how big it is, as a share of the picture's height.
 LABEL_SIZE = 0.034
@@ -34,6 +49,9 @@ FPS = 30
 #: The loudness every cut is evened out to (EBU R128, as most platforms play).
 LOUDNESS = "I=-16:TP=-1.5:LRA=11"
 MAX_FRAMES = 6
+#: A remake's cut (with trims): start, every shot's middle (up to six) and
+#: end, within the 8 frames the viewer takes at most.
+MAX_REMAKE_FRAMES = 8
 MAX_SECONDS = 140
 FONT = "BeVietnamPro-Bold.ttf"
 CUT = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -43,6 +61,8 @@ FILE = re.compile(r"cut\.mp4|frame-[0-9]\.jpg")
 #: a file by drawtext, never written into the filter).
 LABEL = re.compile(r"[^\x00-\x1f\x7f]{1,80}")
 BED_VOLUME_PCT = (1, 60)
+#: A remake's sound: the source's audio, in the study's own folder.
+SOUND = re.compile(r"media/remake/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/[A-Za-z0-9][A-Za-z0-9_-]*\.(m4a|mp3|wav|aac|flac|ogg|opus)")
 RENDER_SECONDS = 600
 
 
@@ -51,17 +71,19 @@ class CutError(ValueError):
 
 
 def check_cut(body: Any) -> dict[str, Any]:
-    """{clips, label, aspect, bed, bed_volume}: the cut's job with every field
-    checked; CutError otherwise. Paths are the job's own (`media/...`), for
-    policy.resolve_source."""
+    """{clips, label, aspect, bed, bed_volume}, and a remake's {trims,
+    sound}: the cut's job with every field checked; CutError otherwise. Paths are the job's own
+    (`media/...`), for policy.resolve_source."""
     if not isinstance(body, dict):
         raise CutError("the body is a JSON object")
-    unknown = sorted(set(body) - {"clips", "label", "aspect", "bed", "bed_volume_pct"})
+    unknown = sorted(set(body) - {"clips", "label", "aspect", "bed", "bed_volume_pct", "trims", "sound"})
     if unknown:
         raise CutError(f"not taken here: {', '.join(unknown)}")
+    trims = body.get("trims")
+    most = MAX_REMAKE_CLIPS if trims is not None else MAX_CLIPS
     clips = body.get("clips")
-    if not isinstance(clips, list) or not 1 <= len(clips) <= MAX_CLIPS:
-        raise CutError(f"clips lists 1 to {MAX_CLIPS} shots")
+    if not isinstance(clips, list) or not 1 <= len(clips) <= most:
+        raise CutError(f"clips lists 1 to {most} shots")
     for clip in clips:
         if not isinstance(clip, str) or not clip.startswith("media/") or not clip.lower().endswith(".mp4"):
             raise CutError("a clip is an mp4 under media/")
@@ -77,24 +99,73 @@ def check_cut(body: Any) -> dict[str, Any]:
     volume = body.get("bed_volume_pct", 12)
     if isinstance(volume, bool) or not isinstance(volume, int) or not BED_VOLUME_PCT[0] <= volume <= BED_VOLUME_PCT[1]:
         raise CutError(f"bed_volume_pct is {BED_VOLUME_PCT[0]} to {BED_VOLUME_PCT[1]}")
-    return {"clips": list(clips), "label": label.strip(), "aspect": aspect, "bed": bed, "bed_volume": volume / 100}
+    if trims is not None:
+        if not isinstance(trims, list) or len(trims) != len(clips) or not all(
+                isinstance(t, (int, float)) and not isinstance(t, bool) and TRIM_SECONDS[0] <= t <= TRIM_SECONDS[1]
+                for t in trims):
+            raise CutError(f"trims gives every clip {TRIM_SECONDS[0]} to {TRIM_SECONDS[1]} seconds")
+        trims = [float(t) for t in trims]
+    sound = body.get("sound")
+    if sound is not None:
+        if not isinstance(sound, str) or not SOUND.fullmatch(sound):
+            raise CutError("a sound is the source's audio file under media/remake/<study>/")
+        if bed is not None:
+            raise CutError("a cut with a sound takes no bed: the source's audio is the only sound")
+        if trims is None:
+            raise CutError("a cut with a sound trims every clip (trims)")
+    out = {"clips": list(clips), "label": label.strip(), "aspect": aspect, "bed": bed, "bed_volume": volume / 100}
+    if trims is not None:
+        out.update(trims=trims, sound=sound)
+    return out
 
 
-def frame_times(durations: list[float]) -> list[float]:
+def under(path: str, folder: str) -> bool:
+    """Whether `path`, symlinks resolved, is inside `folder`."""
+    real, base = os.path.realpath(path), os.path.realpath(folder)
+    return os.path.commonpath([real, base]) == base and real != base
+
+
+def trim_frames(trims: list[float]) -> list[int]:
+    """Each trim in whole frames at FPS, rounded where the cuts fall, so the
+    frames add up to the sum of the trims (within half a frame)."""
+    out, done, at = [], 0, 0.0
+    for seconds in trims:
+        at += seconds
+        end = round(at * FPS)
+        out.append(end - done)
+        done = end
+    return out
+
+
+def _fit(clips: list[dict[str, Any]], trims: list[float]) -> tuple[list[int], list[float]]:
+    """(frames, padded): each clip's frames and how long its last frame is
+    held; CutError for a clip more than MAX_PAD short of its trim."""
+    frames = trim_frames(trims)
+    padded = []
+    for n, (clip, count) in enumerate(zip(clips, frames), 1):
+        picture = clip.get("video_seconds", clip["seconds"])
+        short = count / FPS - picture
+        if short > MAX_PAD + 1e-6:
+            raise CutError(f"clip {n}'s picture runs {picture:.2f} s, {short:.2f} s short of its trim")
+        padded.append(round(max(0.0, short), 3))
+    return frames, padded
+
+
+def frame_times(durations: list[float], most: int = MAX_FRAMES) -> list[float]:
     """When to take the viewer's frames: just after the start, the middle of
-    every shot, and just before the end, at most MAX_FRAMES, in order. One
-    clip (a one-take skit, every shot inside it) is sampled evenly from just
-    after its start to just before its end, MAX_FRAMES of them, so the
-    viewer sees every shot of it."""
+    every shot, and just before the end, at most `most` (MAX_FRAMES), in
+    order. One clip (a one-take skit, every shot inside it) is sampled
+    evenly from just after its start to just before its end, `most` of
+    them, so the viewer sees every shot of it."""
     total = sum(durations)
     if total <= 0:
         return []
     if len(durations) == 1:
         first, last = min(0.4, total / 4), max(0.0, total - 0.4)
-        step = (last - first) / (MAX_FRAMES - 1)
+        step = (last - first) / (most - 1)
         if step < 0.2:
             return [round(first, 2)]
-        return [round(first + i * step, 2) for i in range(MAX_FRAMES)]
+        return [round(first + i * step, 2) for i in range(most)]
     times = [min(0.4, total / 4)]
     at = 0.0
     for seconds in durations:
@@ -105,18 +176,22 @@ def frame_times(durations: list[float]) -> list[float]:
     for t in sorted(times):
         if not out or t - out[-1] >= 0.2:
             out.append(round(t, 2))
-    if len(out) > MAX_FRAMES:
-        step = (len(out) - 1) / (MAX_FRAMES - 1)
-        out = [out[round(i * step)] for i in range(MAX_FRAMES)]
+    if len(out) > most:
+        step = (len(out) - 1) / (most - 1)
+        out = [out[round(i * step)] for i in range(most)]
     return out
 
 
 def argv(ffmpeg: str, clips: list[dict[str, Any]], label_file: str, font: str, out: str, aspect: str,
-         bed: str | None = None, bed_volume: float = 0.12) -> list[str]:
+         bed: str | None = None, bed_volume: float = 0.12, trims: list[float] | None = None,
+         sound: str | None = None) -> list[str]:
     """The ffmpeg command for one cut. `clips` are {path, audio, seconds}: a
     clip with no sound track gets silence of its own length, so every shot
-    keeps its place and the concat lines up."""
+    keeps its place and the concat lines up. With `trims` each clip is cut
+    to its trim (its last frame held if it is a little short); with `sound`
+    that file is the only sound, cut to the picture's length."""
     width, height = SIZES[aspect]
+    frames, padded = _fit(clips, trims) if trims is not None else (None, None)
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
     inputs = 0
     parts: list[str] = []
@@ -125,25 +200,47 @@ def argv(ffmpeg: str, clips: list[dict[str, Any]], label_file: str, font: str, o
         cmd += ["-i", clip["path"]]
         video = inputs
         inputs += 1
+        seconds = frames[n] / FPS if frames else clip["seconds"]
+        picture = (f"[{video}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                   f"setsar=1,fps={FPS},format=yuv420p")
+        if frames:
+            if padded[n] > 0:
+                picture += f",tpad=stop_mode=clone:stop_duration={padded[n] + 1 / FPS:.3f}"
+            picture += f",trim=end_frame={frames[n]},setpts=PTS-STARTPTS"
+        parts.append(f"{picture}[v{n}]")
+        if sound:
+            joined += f"[v{n}]"
+            continue
         if clip["audio"]:
             audio = f"[{video}:a]"
         else:
-            cmd += ["-f", "lavfi", "-t", f"{clip['seconds']:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+            cmd += ["-f", "lavfi", "-t", f"{seconds:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
             audio = f"[{inputs}:a]"
             inputs += 1
-        parts.append(f"[{video}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
-                     f"setsar=1,fps={FPS},format=yuv420p[v{n}]")
-        parts.append(f"{audio}aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a{n}]")
+        cut = f",apad,atrim=end={seconds:.6f},asetpts=PTS-STARTPTS" if frames else ""
+        parts.append(f"{audio}aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo{cut}[a{n}]")
         joined += f"[v{n}][a{n}]"
     size = max(16, round(height * LABEL_SIZE))
     margin = max(8, round(height * LABEL_MARGIN))
-    parts.append(f"{joined}concat=n={len(clips)}:v=1:a=1[vc][ac]")
+    if sound:
+        parts.append(f"{joined}concat=n={len(clips)}:v=1:a=0[vc]")
+    else:
+        parts.append(f"{joined}concat=n={len(clips)}:v=1:a=1[vc][ac]")
     # The label: every frame, top right, white on a dark box, from a file so
     # nothing in it is read as filter syntax.
     parts.append(f"[vc]drawtext=fontfile='{_quote(font)}':textfile='{_quote(label_file)}':fontsize={size}:"
                  f"fontcolor=white:box=1:boxcolor=black@0.6:boxborderw={max(6, size // 3)}:"
                  f"x=w-tw-{margin}:y={margin}[vout]")
-    parts.append(f"[ac]loudnorm={LOUDNESS}[an]")
+    if sound:
+        # The source's audio, the only sound: padded with silence or cut to
+        # exactly the picture's length, then evened out.
+        cmd += ["-i", sound]
+        parts.append(f"[{inputs}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,"
+                     f"atrim=end={sum(frames) / FPS:.6f},asetpts=PTS-STARTPTS[as]")
+        inputs += 1
+        parts.append(f"[as]loudnorm={LOUDNESS}[an]")
+    else:
+        parts.append(f"[ac]loudnorm={LOUDNESS}[an]")
     final_audio = "[an]"
     if bed:
         cmd += ["-stream_loop", "-1", "-i", bed]
@@ -167,42 +264,63 @@ def _quote(path: str) -> str:
     return path
 
 
-def probe(ffprobe: str, path: str) -> dict[str, Any]:
-    """{audio, video, seconds} of one clip, from ffprobe."""
+def _probed(info: dict[str, Any]) -> dict[str, Any]:
+    """{audio, video, seconds, video_seconds} from ffprobe's JSON: `seconds`
+    the container's length, `video_seconds` the picture's own (a clip's
+    sound can run past its last frame), the container's when the stream
+    does not say."""
+    streams = info.get("streams") or []
+    kinds = {s.get("codec_type") for s in streams}
+    seconds = float((info.get("format") or {}).get("duration") or 0)
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
     try:
-        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type:format=duration",
-                              "-of", "json", path], capture_output=True, text=True, timeout=60, check=True).stdout
-        info = json.loads(out)
-        kinds = {s.get("codec_type") for s in info.get("streams") or []}
-        seconds = float((info.get("format") or {}).get("duration") or 0)
-    except (subprocess.SubprocessError, OSError, ValueError) as exc:
-        raise CutError(f"a clip could not be read ({type(exc).__name__})") from None
+        video_seconds = float(video.get("duration") or 0) or seconds
+    except (TypeError, ValueError):
+        video_seconds = seconds
     if "video" not in kinds or seconds <= 0:
         raise CutError("a clip has no picture")
-    return {"audio": "audio" in kinds, "video": True, "seconds": seconds}
+    return {"audio": "audio" in kinds, "video": True, "seconds": seconds, "video_seconds": video_seconds}
+
+
+def probe(ffprobe: str, path: str) -> dict[str, Any]:
+    """{audio, video, seconds, video_seconds} of one clip, from ffprobe."""
+    try:
+        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type,duration:format=duration",
+                              "-of", "json", path], capture_output=True, text=True, timeout=60, check=True).stdout
+        info = json.loads(out)
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        raise CutError(f"a clip could not be read ({type(exc).__name__})") from None
+    return _probed(info)
 
 
 def render(sources: list[str], label: str, aspect: str, folder: str, font: str, bed: str | None = None,
-           bed_volume: float = 0.12, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> dict[str, Any]:
+           bed_volume: float = 0.12, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe", trims: list[float] | None = None,
+           sound: str | None = None) -> dict[str, Any]:
     """The cut into `folder` (cut.mp4, frame-N.jpg): {seconds, shots,
-    frames, label, labelled, audio}. CutError when ffmpeg fails."""
+    frames, label, labelled, audio}, and with `trims` also {sound, trimmed,
+    padded}. CutError when ffmpeg fails or a clip is too short."""
     clips = [{"path": path, **probe(ffprobe, path)} for path in sources]
-    if sum(c["seconds"] for c in clips) > MAX_SECONDS:
+    if trims is not None:
+        frames, padded = _fit(clips, trims)
+        lengths = [count / FPS for count in frames]
+    else:
+        lengths = [c["seconds"] for c in clips]
+    if sum(lengths) > MAX_SECONDS:
         raise CutError(f"the shots run over {MAX_SECONDS} s together")
     label_file = os.path.join(folder, "label.txt")
     with open(label_file, "w", encoding="utf-8") as fh:
         fh.write(label)
     out = os.path.join(folder, "cut.mp4")
     try:
-        subprocess.run(argv(ffmpeg, clips, label_file, font, out, aspect, bed, bed_volume), capture_output=True,
-                       text=True, timeout=RENDER_SECONDS, check=True)
+        subprocess.run(argv(ffmpeg, clips, label_file, font, out, aspect, bed, bed_volume, trims, sound),
+                       capture_output=True, text=True, timeout=RENDER_SECONDS, check=True)
     except subprocess.CalledProcessError as exc:
         raise CutError(f"ffmpeg could not cut it: {(exc.stderr or '').strip()[-300:]}") from None
     except (subprocess.SubprocessError, OSError) as exc:
         raise CutError(f"ffmpeg could not cut it ({type(exc).__name__})") from None
     seconds = probe(ffprobe, out)["seconds"]
-    frames = []
-    for n, at in enumerate(frame_times([c["seconds"] for c in clips])):
+    names = []
+    for n, at in enumerate(frame_times(lengths, MAX_REMAKE_FRAMES if trims is not None else MAX_FRAMES)):
         name = f"frame-{n}.jpg"
         try:
             subprocess.run([ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-ss", f"{at:.2f}",
@@ -210,6 +328,9 @@ def render(sources: list[str], label: str, aspect: str, folder: str, font: str, 
                            capture_output=True, timeout=60, check=True)
         except (subprocess.SubprocessError, OSError) as exc:
             raise CutError(f"a frame could not be taken ({type(exc).__name__})") from None
-        frames.append(name)
-    return {"seconds": round(seconds, 3), "shots": [round(c["seconds"], 3) for c in clips], "frames": frames,
+        names.append(name)
+    made = {"seconds": round(seconds, 3), "shots": [round(c["seconds"], 3) for c in clips], "frames": names,
             "label": label, "labelled": True, "audio": [c["audio"] for c in clips]}
+    if trims is not None:
+        made.update(sound=bool(sound), trimmed=[round(t, 3) for t in lengths], padded=padded)
+    return made

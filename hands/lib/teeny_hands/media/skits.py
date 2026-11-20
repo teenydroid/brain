@@ -15,8 +15,9 @@ screen. What it does hold, in code:
   it in secrets/teeny.env: every call is refused (`off`) and nothing is
   asked of anyone.
 - **The money fences.** The runway tier (no media on a low wallet); at most
-  `MEDIA_SKIT_MAX_PER_DAY` skits a UTC day (a skit that bought anything
-  counts, even one that failed after); every shot reserves
+  `MEDIA_SKIT_MAX_PER_DAY` skits and remakes together a UTC day (one that
+  bought anything counts, even one that failed after; media/remakes.py);
+  every shot reserves
   `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60) on its row before the first job, and
   all of them together must fit under the shared `MEDIA_MAX_USD_PER_DAY`
   ($1.00) with everything else bought today, or nothing starts (`budget`). A
@@ -110,8 +111,13 @@ from typing import Any
 
 from .. import hand
 from ..guard import skit as rules
-from . import assets
-from .surplus import Surplus, SurplusError
+from . import assets, shots as _shots
+# The shot machinery lives in media/shots.py, shared with media/remakes.py;
+# every name it had here is still here.
+from .shots import (BILL_SECONDS, FRAME_MAX_BYTES, MAX_BYTES, POLL_SECONDS, REFUSAL,  # noqa: F401
+                    REFUSAL_STATUSES, _RESERVED, _Shot, _Stop, _cancel, _end_shots, _micros, _refusal, _set,
+                    lengths, snap)
+from .surplus import Surplus, SurplusError  # noqa: F401
 
 Json = dict[str, Any]
 
@@ -151,16 +157,6 @@ MAX_PROMPT = 900
 MAX_LOGLINE = 300
 MAX_FIGURES = 3
 MAX_LOOK, MAX_SETTING, MAX_SCORE = 200, 300, 200
-MAX_BYTES = 200 * 1024 * 1024
-FRAME_MAX_BYTES = 5 * 1024 * 1024
-POLL_SECONDS = 10.0
-#: A job's bill can land a little after it says succeeded (seedance-2-0 on
-#: 2026-11-19): read once more after this pause before booking the reservation.
-BILL_SECONDS = 5.0
-#: A content refusal, in a seller's or a job's words: try the next model.
-REFUSAL = re.compile(r"content|policy|safety|moderat|refus|likeness|public figure|celebrit|real person|prohibit|"
-                     r"not allowed|violat|blocked|sensitive|nsfw|guideline", re.I)
-REFUSAL_STATUSES = {400, 403, 422, 451}
 LABEL = "AI parody"
 
 
@@ -287,19 +283,7 @@ def split(total: int, asked: list[int]) -> list[int]:
 
 
 def _params() -> dict[str, Json]:
-    raw = (hand.setting("MEDIA_SKIT_PARAMS") or "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        raise hand.HandError("MEDIA_SKIT_PARAMS is not JSON: an object of model (or \"*\") to fields") from None
-    if not isinstance(parsed, dict) or not all(isinstance(v, dict) for v in parsed.values()):
-        raise hand.HandError("MEDIA_SKIT_PARAMS is an object of model (or \"*\") to an object of fields")
-    return parsed
-
-
-_RESERVED = {"model", "prompt", "duration_seconds", "image_url"}
+    return _shots.params("MEDIA_SKIT_PARAMS")
 
 
 def take_params(model: str, params: dict[str, Json]) -> dict[str, Json]:
@@ -320,71 +304,33 @@ def request_body(model: str, prompt: str, seconds: int, aspect: str, params: dic
     MEDIA_SKIT_PARAMS's for every model ("*") and for this one, with
     {aspect}, {seconds} and {resolution} filled in. The model, the prompt
     and the length are always this hand's."""
-    resolution = (hand.setting("MEDIA_SKIT_RESOLUTION") or "720p").strip()
-    body: Json = {"model": model, "prompt": prompt, "duration_seconds": seconds}
-    for scope in ("*", model):
-        for key, value in (params.get(scope) or {}).items():
-            if key in _RESERVED:
-                continue
-            if isinstance(value, str):
-                value = value.replace("{aspect}", aspect).replace("{seconds}", str(seconds)).replace(
-                    "{resolution}", resolution)
-            body[key] = value
-    return body
+    return _shots.request_body(model, prompt, seconds, aspect, params)
 
 
-def lengths(api: Surplus) -> dict[str, list[int]]:
-    """Each model's lengths on sale, from the catalog (GET /v1/models,
-    `durations_seconds`: a list of whole seconds, or {min, max}); {} when
-    the catalog cannot be read, so every length goes as asked."""
-    try:
-        catalog = api.call("GET", "/v1/models", timeout=30)
-    except Exception:  # noqa: BLE001 - an unreadable catalog only means "as asked"
-        return {}
-    rows = catalog.get("data") if isinstance(catalog, dict) else catalog
-    out: dict[str, list[int]] = {}
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
-            continue
-        sold = row.get("durations_seconds")
-        if isinstance(sold, dict) and all(isinstance(sold.get(k), int) for k in ("min", "max")):
-            sold = list(range(sold["min"], sold["max"] + 1))
-        if isinstance(sold, list):
-            whole = sorted({int(x) for x in sold if isinstance(x, (int, float)) and not isinstance(x, bool) and x > 0})
-            if whole:
-                out[row["id"]] = whole
-    return out
+def plan(per_shot: int) -> _shots.Plan:
+    """A skit's shots: text-to-video, each asked for the length on sale
+    nearest its own, under MEDIA_SKIT_MAX_USD_PER_SHOT; files
+    skit-<id>-<name>.mp4."""
+    return _shots.Plan(prefix="skit", key="teeny-skit", style="MEDIA_SKIT_STYLE", params="MEDIA_SKIT_PARAMS",
+                       body=lambda model, prompt, seconds, aspect, params, shot: request_body(
+                           model, prompt, seconds, aspect, params),
+                       length=lambda shot, sold: snap(shot.seconds, sold), per_shot=per_shot)
 
 
-def snap(seconds: int, sold: list[int] | None) -> int:
-    """The length on sale nearest `seconds` (a tie goes to the longer);
-    `seconds` itself when the model lists none."""
-    if not sold:
-        return seconds
-    return min(sold, key=lambda n: (abs(n - seconds), -n))
+#: The formats that share MEDIA_SKIT_MAX_PER_DAY: one bought video a day,
+#: whichever it is.
+VIDEO_KINDS = ("skit", "remake")
 
 
-def _micros(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value >= 0 else None
-    if isinstance(value, str) and value.strip().isdigit():
-        return int(value.strip())
-    return None
-
-
-def _refusal(text: str) -> bool:
-    return bool(REFUSAL.search(text or ""))
-
-
-def _count_today(conn) -> int:
-    """Skits today that bought anything or are still going."""
+def _count_today(conn, kinds: tuple[str, ...] = VIDEO_KINDS) -> int:
+    """Skits and remakes (or only `kinds`) today that bought anything (a
+    shot or a keyframe) or are still going."""
+    marks = ", ".join("?" for _ in kinds)
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM media_assets s WHERE s.kind = 'skit' AND s.created_at >= ? AND (s.status != 'failed'"
-        " OR EXISTS (SELECT 1 FROM media_assets t WHERE t.kind = 'shot' AND t.source_id = s.id"
-        " AND t.status != 'failed' AND t.cost_micro > 0))",
-        (hand.day_start(),),
+        f"SELECT COUNT(*) AS n FROM media_assets s WHERE s.kind IN ({marks}) AND s.created_at >= ? AND"
+        " (s.status != 'failed' OR EXISTS (SELECT 1 FROM media_assets t WHERE t.kind IN ('shot', 'key')"
+        " AND t.source_id = s.id AND t.status != 'failed' AND t.cost_micro > 0))",
+        (*kinds, hand.day_start()),
     ).fetchone()["n"]
 
 
@@ -402,8 +348,10 @@ def _claim(job: Json, per_shot: int, limit: int, the_label: str, take: bool = Fa
             if not lim["media"]:
                 raise hand.Refused(f"no skits on the {lim['tier']} runway tier ({lim['why']})", rule="runway",
                                    tier=lim["tier"])
+            assets.release_stale(conn)
             if _count_today(conn) >= limit:
-                raise hand.Refused(f"today's {limit} skit(s) are made (MEDIA_SKIT_MAX_PER_DAY)", rule="per_day",
+                raise hand.Refused(f"today's {limit} skit(s) and remake(s) are made (MEDIA_SKIT_MAX_PER_DAY)",
+                                   rule="per_day",
                                    limit=limit)
             budget = assets._usd("MEDIA_MAX_USD_PER_DAY", "1.00")
             spent = assets._spent_today(conn)
@@ -451,84 +399,11 @@ def _swap(conn, skit_id: int, take_row: int, job: Json, per_shot: int, why: str)
             return [_shot_row(conn, skit_id, rules.shot_prompt(held, n), per_shot) for n in range(len(job["shots"]))]
 
 
-class _Shot:
-    def __init__(self, n: int, row: int, prompt: str, seconds: int, models: list[str], name: str | None = None) -> None:
-        self.n, self.row, self.prompt, self.seconds = n, row, prompt, seconds
-        self.name = name or f"shot-{n}"
-        self.extra: Json = {}
-        self.timed_out = False
-        self.models = list(models)
-        self.tried: list[str] = []
-        self.model: str | None = None
-        self.job: str | None = None
-        self.path: str | None = None
-        self.cost = 0
-        self.asked = seconds
-        self.failed: str | None = None
-
-
-class _Stop(Exception):
-    """A refusal no other model would answer differently: the skit stops."""
-
-
-def _set(conn, row: int, **fields: Any) -> None:
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    with hand.transaction(conn):
-        conn.execute(f"UPDATE media_assets SET {sets} WHERE id = ?", (*fields.values(), row))
-
-
-def _cancel(api: Surplus, job_id: str | None) -> None:
-    if not job_id:
-        return
-    try:
-        api.call("DELETE", f"/v1/video/generations/{job_id}", timeout=30)
-    except SurplusError:
-        pass
-
-
 def _submit(api: Surplus, conn, skit_id: int, shot: _Shot, aspect: str, per_shot: int, params: dict[str, Json],
             sold: dict[str, list[int]] | None = None) -> bool:
     """The shot's job on the next model that takes it; False when none is
     left. _Stop for a refusal every model would give."""
-    style = (hand.setting("MEDIA_SKIT_STYLE") or "").strip()
-    prompt = f"{shot.prompt} {style}".strip() if style else shot.prompt
-    while shot.models:
-        model = shot.models.pop(0)
-        seconds = snap(shot.seconds, (sold or {}).get(model))
-        try:
-            job = api.call("POST", "/v1/video/generations", request_body(model, prompt, seconds, aspect, params),
-                           timeout=60, headers={"idempotency-key": f"teeny-skit-{skit_id}-shot{shot.n}-{model}"})
-        except SurplusError as exc:
-            if exc.status in assets.FALLBACK_STATUSES or exc.status is None:
-                shot.tried.append(f"{model}: {exc}")
-                continue
-            if exc.status in REFUSAL_STATUSES and _refusal(str(exc)):
-                shot.tried.append(f"{model}: refused ({exc})")
-                continue
-            shot.tried.append(f"{model}: {exc}")
-            raise _Stop(f"shot {shot.n}: {exc}") from None
-        job_id = str((job or {}).get("id") or "") if isinstance(job, dict) else ""
-        if not job_id:
-            shot.tried.append(f"{model}: the answer named no job")
-            continue
-        # What can really be charged: the job's max_cost_usdc, the true
-        # ceiling (about twice the bill on 2026-11-19: kling 5 s max 1.4352,
-        # billed 0.7176), so the cap and the reservation are that when it is
-        # given, else the estimate, else the cap itself.
-        estimate = _micros(job.get("estimated_cost_usdc"))
-        most = _micros(job.get("max_cost_usdc"))
-        charge = most if most is not None else estimate
-        if charge is not None and charge > per_shot:
-            _cancel(api, job_id)
-            shot.tried.append(f"{model}: up to ${charge / 1e6:.3f} (quoted ${(estimate or 0) / 1e6:.3f}), over the "
-                              f"${per_shot / 1e6:.2f} a shot cap")
-            continue
-        shot.model, shot.job, shot.asked = model, job_id, seconds
-        shot.cost = charge if charge is not None else per_shot
-        _set(conn, shot.row, model=model, job_id=job_id, cost_micro=shot.cost, estimated=1,
-             detail=json.dumps({"seconds": seconds, "tried": shot.tried}, ensure_ascii=False))
-        return True
-    return False
+    return _shots.submit(api, conn, skit_id, shot, aspect, plan(per_shot), params, sold)
 
 
 def _submit_take(api: Surplus, conn, skit_id: int, take: _Shot, job: Json, cap: int, params: dict[str, Json],
@@ -597,88 +472,11 @@ def _poll(api: Surplus, conn, skit_id: int, shots: list[_Shot], resubmit, wait: 
     """Every shot's job to its end: done (the file saved and the row
     finished at its real cost) or `failed` set. Any shot that cannot be made
     cancels the rest. `resubmit(shot)` asks the shot's next model."""
-    while True:
-        running = [s for s in shots if s.job and not s.path and not s.failed]
-        if not running or any(s.failed for s in shots):
-            break
-        for shot in running:
-            try:
-                status = api.call("GET", f"/v1/video/generations/{shot.job}", timeout=30)
-            except SurplusError:
-                continue  # asked again next round, until the deadline
-            word = str((status or {}).get("status") or "") if isinstance(status, dict) else ""
-            if word == "succeeded":
-                _land(api, conn, skit_id, shot, status, sleep)
-            elif word in ("failed", "canceled", "expired"):
-                error = status.get("error") if isinstance(status.get("error"), dict) else {}
-                said = " ".join(str(error.get(k) or "") for k in ("type", "code", "message"))
-                shot.tried.append(f"{shot.model}: {word} ({error.get('type', 'unknown')})")
-                _set(conn, shot.row, cost_micro=0)
-                shot.job, shot.cost = None, 0
-                if _refusal(said) or error.get("retryable", error.get("type") != "invalid_request"):
-                    if not resubmit(shot):
-                        shot.failed = "no model could make it: " + "; ".join(shot.tried)
-                else:
-                    shot.failed = "; ".join(shot.tried)
-        if any(s.failed for s in shots) or not [s for s in shots if s.job and not s.path]:
-            continue
-        if clock() >= deadline:
-            for shot in shots:
-                if shot.job and not shot.path:
-                    _cancel(api, shot.job)
-                    shot.tried.append(f"{shot.model}: not done after {wait} s, cancelled")
-                    shot.failed = f"not done after {wait} s"
-                    shot.job, shot.timed_out = None, True
-            break
-        sleep(POLL_SECONDS)
+    _shots.poll(api, conn, skit_id, shots, plan(0), resubmit, wait, deadline, sleep, clock)
 
 
 def _land(api: Surplus, conn, skit_id: int, shot: _Shot, status: Json, sleep=time.sleep) -> None:
-    if _micros((status.get("usage") or {}).get("buyer_cost_usdc") if isinstance(status.get("usage"), dict) else None) is None:
-        sleep(BILL_SECONDS)
-        try:
-            again = api.call("GET", f"/v1/video/generations/{shot.job}", timeout=30)
-        except SurplusError:
-            again = None
-        if isinstance(again, dict) and again.get("status") == "succeeded":
-            status = again
-    url = ((status.get("results") or [{}])[0] or {}).get("url") if isinstance(status.get("results"), list) else None
-    actual = _micros((status.get("usage") or {}).get("buyer_cost_usdc")) if isinstance(status.get("usage"), dict) else None
-    cost = actual if actual is not None else shot.cost
-    if not url:
-        shot.failed = f"{shot.model}: succeeded with no artifact"
-        shot.cost = cost
-        _set(conn, shot.row, cost_micro=cost, estimated=0 if actual is not None else 1, status="unknown",
-             error=shot.failed, done_at=hand.now())
-        return
-    try:
-        data = api.download(url, MAX_BYTES)
-    except SurplusError as exc:
-        shot.failed = f"{shot.model}: the download failed ({exc})"
-        _set(conn, shot.row, cost_micro=cost, estimated=0 if actual is not None else 1, status="unknown",
-             error=shot.failed, done_at=hand.now())
-        return
-    if assets._extension(data) != "mp4":
-        shot.failed = f"{shot.model}: the artifact is not an mp4"
-        _set(conn, shot.row, cost_micro=cost, estimated=0 if actual is not None else 1, status="unknown",
-             error=shot.failed, done_at=hand.now())
-        return
-    path = assets._media_dir() / f"skit-{skit_id}-{shot.name}.mp4"
-    path.write_bytes(data)
-    shot.path, shot.cost = str(path.relative_to(hand.root())), cost
-    _set(conn, shot.row, status="done", path=shot.path, cost_micro=cost, estimated=0 if actual is not None else 1,
-         done_at=hand.now(), detail=json.dumps({"seconds": shot.asked, "tried": shot.tried, **shot.extra},
-                                               ensure_ascii=False))
-
-
-def _end_shots(conn, shots: list[_Shot]) -> None:
-    """Shots that never landed: failed, costing nothing (a cancelled or
-    refused job is not billed), as generate_video leaves its failures."""
-    for shot in shots:
-        row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (shot.row,)).fetchone()
-        if row and row["status"] == "pending":
-            _set(conn, shot.row, status="failed", cost_micro=0, error=(shot.failed or "; ".join(shot.tried)
-                                                                       or "not made")[:1000], done_at=hand.now())
+    _shots.land(api, conn, skit_id, shot, status, plan(0), sleep)
 
 
 def _one_take(models: list[str], shots: int) -> bool:
@@ -742,8 +540,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     sold = lengths(api)
     deadline = clock() + wait
     conn = assets._db()
-    cut_id = None
-    written: list[Any] = []
+    cuts: list[str] = []
     shots: list[_Shot] = []
     take: _Shot | None = None
     try:
@@ -783,11 +580,7 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
                 shot.failed = shot.failed or str(stop)
         failed = [s for s in shots if s.failed or not s.path]
         if failed:
-            for shot in shots:
-                if shot.job and not shot.path:
-                    _cancel(api, shot.job)
-                    shot.job = None
-            _end_shots(conn, shots)
+            _shots.stop_all(api, conn, shots)
             why = "; ".join(f"{'the one take' if s is take else f'shot {s.n}'}: {s.failed or 'not made'}"
                             for s in failed)[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
@@ -800,29 +593,9 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
         if bed:
             cut_job.update(bed=bed, bed_volume_pct=hand.number("REEL_BED_VOLUME_PCT", 12, 1, 60))
         try:
-            made = reel.cut(cut_job, timeout=hand.number("MEDIA_SKIT_CUT_SECONDS", 300, 60, 900))
-            cut_id = made["cut_id"]
-            if made.get("labelled") is not True or made.get("label") != the_label:
-                raise ReelError(f"the cut came back without its label ({made.get('label')!r}): nothing is handed over")
-            data = reel.cut_file(cut_id, "cut.mp4", MAX_BYTES)
-            info = reels.verify(data)
-            path = assets._media_dir() / f"skit-{skit_id}.mp4"
-            path.write_bytes(data)
-            written.append(path)
-            frames = []
-            for name in made.get("frames") or []:
-                picture = reel.cut_file(cut_id, name, FRAME_MAX_BYTES)
-                if not picture.startswith(b"\xff\xd8\xff"):
-                    raise ReelError("a frame of the cut is not a JPEG")
-                frame = assets._media_dir() / f"skit-{skit_id}-{name}"
-                frame.write_bytes(picture)
-                written.append(frame)
-                frames.append(str(frame.relative_to(hand.root())))
-            if not frames:
-                raise ReelError("the cut came back with no frames for the viewer")
+            made, info, path, frames = _shots.keep_cut(reel, cut_job, f"skit-{skit_id}", the_label,
+                                                       hand.number("MEDIA_SKIT_CUT_SECONDS", 300, 60, 900), cuts)
         except (ReelError, hand.HandError, hand.Refused, KeyError, TypeError) as exc:
-            for item in written:
-                reels._unlink(item)
             why = f"the cut failed: {getattr(exc, 'reason', None) or exc}"[:1000]
             assets._finish(conn, skit_id, status="failed", cost_micro=0, error=why)
             raise hand.HandError(f"the skit was not made: {why}", asset_id=skit_id,
@@ -843,22 +616,8 @@ def generate_skit(body: Any, api: Surplus | None = None, reel: Any = None, sleep
     except BaseException:
         # Whatever stopped it, a shot still marked pending is cancelled and
         # left failed, never counted twice.
-        try:
-            for shot in shots:
-                if shot.job and not shot.path:
-                    _cancel(api, shot.job)
-                    shot.job = None
-            _end_shots(conn, shots)
-            row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (skit_id,)).fetchone()
-            if row and row["status"] == "pending":
-                assets._finish(conn, skit_id, status="failed", cost_micro=0, error="stopped")
-        except Exception:  # noqa: BLE001 - the original failure is what the caller needs
-            pass
+        _shots.abandon(api, conn, skit_id, shots)
         raise
     finally:
-        if cut_id:
-            try:
-                reel.cut_delete(cut_id)
-            except Exception:  # noqa: BLE001 - cleanup must never mask the outcome
-                pass
+        _shots.drop_cuts(reel, cuts)
         conn.close()

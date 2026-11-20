@@ -11,6 +11,16 @@
                                           a parody video: one take (one job, one script) or one
                                           text-to-video job a shot, cut with the label (media/skits.py);
                                           off until MEDIA_SKIT_MAX_PER_DAY is set
+    A  remake-keys {study, source, story, figures?, logline, aspect?, shots, wait_seconds?}
+                                          a remake's keyframes: each source shot's first frame
+                                          edited into the new cast plus Teeny (media/remakes.py);
+                                          off until MEDIA_REMAKE_MAX_PER_DAY is set
+    A  remake {remake_id, sound, wait_seconds?}
+                                          the remake: its keyframes animated, trimmed to the
+                                          source's shots and cut with the source's audio and
+                                          the label; replays what remake-keys stored
+    A  remake-drop {remake_id}             a keyed remake let go unrendered: its shots'
+                                          reservations released, its keys kept on the ledger
     R  list [--max N]                     the videos made, newest first, and today's spend
     R  get ID                             one
 
@@ -23,7 +33,7 @@ from __future__ import annotations
 import argparse
 
 from .. import hand
-from . import assets, skits
+from . import assets, remakes, skits
 
 
 def _bounded(low: int, high: int, what: str):
@@ -53,6 +63,12 @@ def parser(kind: str) -> argparse.ArgumentParser:
     verb("get", lambda a, _: assets.get(a.id), f"one {kind}").add_argument("id", type=_bounded(1, 2**62, "ID"), metavar="ID")
     if kind == "video":
         verb("skit", lambda a, body: skits.generate_skit(body), "make one skit (JSON on stdin)", body=True)
+        verb("remake-keys", lambda a, body: remakes.generate_keys(body), "buy one remake's keyframes (JSON on stdin)",
+             body=True)
+        verb("remake", lambda a, body: remakes.generate_remake(body), "render one remake from its keyframes "
+             "(JSON on stdin)", body=True)
+        verb("remake-drop", lambda a, body: remakes.drop_remake(body), "let go of a remake's keys unrendered "
+             "(JSON on stdin)", body=True)
     if kind == "image":
         verb("scenes", lambda a, _: assets.scenes(a.last), "the scenes of the last pictures, and the words they repeat").add_argument(
             "--last", type=_bounded(1, 100, "--last"), default=16
