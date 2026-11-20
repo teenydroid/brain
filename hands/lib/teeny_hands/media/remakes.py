@@ -123,6 +123,14 @@ cost), a `key` row a bought keyframe, and one `shot` row for the take
 `source_id` the remake's row.
 
 DRY_RUN (on by default) answers what would be made and calls nothing.
+
+Some of the machinery is shared: a `Format` says what differs for another
+flavor that buys keyframes and animates them a clip a shot (media/khaby.py's
+khaby video, whose setup is kept from the source): the row's kind and the
+files' prefix, the settings' prefix, the verbs' names, the edit's words and
+what the render checks outside the ledger (the sound). The caps, the
+keyframe edits, the per-shot clip plan, the render's claim and the drop run
+either; the one take, and the verbs around it, are the remake's own.
 """
 
 from __future__ import annotations
@@ -135,7 +143,8 @@ import math
 import re
 import threading
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from .. import hand
 from . import assets, shots, skits
@@ -208,6 +217,34 @@ TEENY_DEFAULT = "a small bystander somewhere in the scene"
 STYLE = ("Keep the framing, the set and the lighting of the first image. Photorealistic. No text, no captions, "
          "no logos or brand names, no character sheet.")
 MOTION_TAIL = "The small yellow character stays where it is. One continuous shot, no cuts. No text."
+
+
+@dataclass(frozen=True)
+class Format:
+    """What one keyframe-swap flavor is, to the shared machinery. `kind` is
+    its row's kind and its files' and idempotency keys' prefix
+    (`<kind>-<id>-key-<n>.png`, `teeny-<kind>-<id>-shot<n>-<model>`); `noun`
+    names it in a refusal; `setting` prefixes its settings
+    (`<setting>_MAX_PER_DAY`, `_PARAMS`, `_RESOLUTION`, ...); `keys_verb` and
+    `drop_verb` are its verbs as a refusal names them. `edit_prompt(shot)` is
+    a keyframe's words; `ready(ask, detail)` checks what the render takes
+    from outside the ledger and answers the cut's sound (a service path, or
+    None)."""
+
+    kind: str
+    noun: str
+    setting: str
+    keys_verb: str
+    drop_verb: str
+    edit_prompt: Callable[[Json], str]
+    ready: Callable[[Json, Json], "str | None"]
+
+    @property
+    def id_field(self) -> str:
+        return f"{self.kind}_id"
+
+    def named(self, name: str) -> str:
+        return f"{self.setting}_{name}"
 
 
 # --- what the verbs take ------------------------------------------------------------------
@@ -332,8 +369,8 @@ def edit_prompt(shot: Json) -> str:
     return f"{SCENE} {shot['edit']} {assets.CHARACTER} Exactly one Teeny, {teeny}. {style}".strip()
 
 
-def motion_prompt(motion: str) -> str:
-    return f"{motion} {MOTION_TAIL}"
+def motion_prompt(motion: str, tail: str = MOTION_TAIL) -> str:
+    return f"{motion} {tail}"
 
 
 def _secs(value: float) -> str:
@@ -406,14 +443,16 @@ def model_params(model: str, params: dict[str, Json], clip_sound: bool) -> dict[
     return {"*": dict(params.get("*") or {}), model: {**built, **(params.get(model) or {})}}
 
 
-def plan(per_shot: int, clip_sound: bool = False) -> shots.Plan:
-    """A remake's clips: image-to-video from each keyframe, each asked for
-    the shortest length on sale that covers its source shot, never one
-    whose verified ceiling cannot fit what is left of the shot's cap."""
-    return shots.Plan(prefix="remake", key="teeny-remake", style=None, params="MEDIA_REMAKE_PARAMS",
+def plan(per_shot: int, clip_sound: bool = False, fmt: Format | None = None) -> shots.Plan:
+    """A remake's (or `fmt`'s) clips: image-to-video from each keyframe,
+    each asked for the shortest length on sale that covers its source shot,
+    never one whose verified ceiling cannot fit what is left of the shot's
+    cap."""
+    fmt = fmt or REMAKE
+    return shots.Plan(prefix=fmt.kind, key=f"teeny-{fmt.kind}", style=None, params=fmt.named("PARAMS"),
                       body=lambda model, prompt, seconds, aspect, params, shot: shots.request_body(
                           model, prompt, seconds, aspect, model_params(model, params, clip_sound), image=shot.image,
-                          resolution_setting="MEDIA_REMAKE_RESOLUTION"),
+                          resolution_setting=fmt.named("RESOLUTION")),
                       length=lambda shot, sold: shots.at_least(shot.floor, sold), per_shot=per_shot,
                       max_per_second=REMAKE_MAX_PER_SECOND)
 
@@ -421,25 +460,27 @@ def plan(per_shot: int, clip_sound: bool = False) -> shots.Plan:
 # --- caps and the ledger -----------------------------------------------------------------------
 
 
-def _limits() -> tuple[int, int]:
-    return hand.number("MEDIA_REMAKE_MAX_PER_DAY", 0, 0, 10), hand.number("MEDIA_SKIT_MAX_PER_DAY", 0, 0, 10)
+def _limits(fmt: Format | None = None) -> tuple[int, int]:
+    fmt = fmt or REMAKE
+    return hand.number(fmt.named("MAX_PER_DAY"), 0, 0, 10), hand.number("MEDIA_SKIT_MAX_PER_DAY", 0, 0, 10)
 
 
-def _check_on(limit: int, shared: int) -> None:
+def _check_on(limit: int, shared: int, fmt: Format | None = None) -> None:
+    fmt = fmt or REMAKE
     if limit == 0:
-        raise hand.Refused("remakes are off: MEDIA_REMAKE_MAX_PER_DAY is 0 (the operator turns them on and sets the "
-                           "budget in secrets/teeny.env)", rule="off")
+        raise hand.Refused(f"{fmt.noun}s are off: {fmt.named('MAX_PER_DAY')} is 0 (the operator turns them on and sets "
+                           "the budget in secrets/teeny.env)", rule="off")
     if shared == 0:
-        raise hand.Refused("remakes are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits and remakes share, is 0",
-                           rule="off")
+        raise hand.Refused(f"{fmt.noun}s are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits, remakes and khaby "
+                           "videos share, is 0", rule="off")
 
 
-def _runway() -> None:
+def _runway(fmt: Format | None = None) -> None:
     from .. import runway
 
     lim = runway.limits()
     if not lim["media"]:
-        raise hand.Refused(f"no remakes on the {lim['tier']} runway tier ({lim['why']})", rule="runway",
+        raise hand.Refused(f"no {(fmt or REMAKE).noun}s on the {lim['tier']} runway tier ({lim['why']})", rule="runway",
                            tier=lim["tier"])
 
 
@@ -518,11 +559,16 @@ def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_sh
 
 def _frame(study: str, n: int) -> str:
     """Shot n's first frame as a data URI: a JPEG at exactly its place."""
+    return _frame_at(frame_path(study, n), n)
+
+
+def _frame_at(path: str, n: int) -> str:
+    """Shot n's first frame, `path` (state/media/...), as a data URI: a JPEG
+    at exactly that place."""
     from ..reel import reels
 
-    path = frame_path(study, n)
     resolved = reels.resolve(path, f"shot {n}'s frame")
-    if reels._service_path(resolved) != f"media/remake/{study}/shot-{n}.jpg":
+    if reels._service_path(resolved) != path.removeprefix("state/"):
         raise hand.Refused(f"shot {n}'s frame is {path}", rule="frame")
     if assets._extension(resolved.read_bytes()[:16]) != "jpg":
         raise hand.Refused(f"shot {n}'s frame is not a JPEG", rule="frame")
@@ -623,14 +669,15 @@ def _refused(exc: SurplusError) -> bool:
 
 
 def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, models: list[str], per_shot: int,
-         price, deadline: float, clock, stop: threading.Event, aspect: str) -> Json:
+         price, deadline: float, clock, stop: threading.Event, aspect: str, fmt: Format | None = None) -> Json:
     """One shot's keyframe: at most MAX_EDIT_ATTEMPTS edits, model after
     model. {n, path, model, cost} or {n, failed}; _Stop for a refusal every
     model would give. Writes on a connection of its own (it runs in a
     thread)."""
     conn = assets._db()
     tried: list[str] = []
-    prompt = edit_prompt(shot)
+    fmt = fmt or REMAKE
+    prompt = fmt.edit_prompt(shot)
     attempts = 0
     left_of_cap = per_shot
     try:
@@ -687,7 +734,7 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
                 left_of_cap -= cost
                 tried.append(f"{model}: {why}")
                 continue
-            path = assets._media_dir() / f"remake-{remake_id}-key-{shot['n']}.{ext}"
+            path = assets._media_dir() / f"{fmt.kind}-{remake_id}-key-{shot['n']}.{ext}"
             path.write_bytes(data)
             rel = str(path.relative_to(hand.root()))
             _book(conn, remake_id, shot, model, prompt, cost, rel, None)
@@ -698,7 +745,7 @@ def _key(api: Surplus, remake_id: int, shot: Json, frame: str, reference: str, m
 
 
 def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], reference: str, models: list[str],
-          per_shot: int, wait: int, clock, aspect: str) -> list[Json]:
+          per_shot: int, wait: int, clock, aspect: str, fmt: Format | None = None) -> list[Json]:
     """Every shot keyed in parallel: one result a shot, in order."""
     prices: dict[str, int] = {}
     pricing = threading.Lock()
@@ -716,7 +763,7 @@ def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], re
     def run(i: int) -> None:
         try:
             results[i] = _key(api, remake_id, specs[i], frames[i], reference, models, per_shot, price, deadline,
-                              clock, stop, aspect)
+                              clock, stop, aspect, fmt)
         except _Stop as exc:
             results[i] = {"n": specs[i]["n"], "failed": str(exc)}
         except BaseException as exc:  # noqa: BLE001 - reported as the shot's failure
@@ -724,7 +771,7 @@ def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], re
         if "failed" in results[i]:
             stop.set()
 
-    threads = [threading.Thread(target=run, args=(i,), name=f"remake-key-{i + 1}", daemon=True)
+    threads = [threading.Thread(target=run, args=(i,), name=f"{(fmt or REMAKE).kind}-key-{i + 1}", daemon=True)
                for i in range(len(specs))]
     for thread in threads:
         thread.start()
@@ -733,14 +780,14 @@ def _keys(api: Surplus, remake_id: int, specs: list[Json], frames: list[str], re
     return results
 
 
-def _ping(reel: Any) -> Any:
+def _ping(reel: Any, noun: str = "remake") -> Any:
     from ..reel.service import Reel, ReelError
 
     reel = reel or Reel()
     try:
         reel.ping()
     except ReelError as exc:
-        raise hand.HandError(f"the reel service, which cuts and labels a remake, is not answering, so nothing was "
+        raise hand.HandError(f"the reel service, which cuts and labels a {noun}, is not answering, so nothing was "
                              f"bought ({exc})") from None
     return reel
 
@@ -843,39 +890,43 @@ def _sound(ask: Json, study: str) -> str | None:
     return service if source_sound_on() else None
 
 
-def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
-    """The remake's stored job, checked and marked as rendering, under the
-    media lock: (detail, the shot rows, the sound)."""
+def _claim_render(ask: Json, fmt: Format | None = None) -> tuple[Json, Any, str | None]:
+    """The stored job (a remake's, or `fmt`'s), checked and marked as
+    rendering, under the media lock: (detail, the shot rows, the sound).
+    Every shot's key is wanted when the job was keyed a shot at a time
+    (`per_shot` in its detail), else shot 1's alone."""
+    fmt = fmt or REMAKE
+    noun = fmt.noun
     with hand.lock("media"):
         conn = assets._db()
         try:
-            _runway()
+            _runway(fmt)
             assets.release_stale(conn)
-            row = conn.execute("SELECT * FROM media_assets WHERE id = ? AND kind = 'remake'",
-                               (ask["remake_id"],)).fetchone()
+            row = conn.execute("SELECT * FROM media_assets WHERE id = ? AND kind = ?",
+                               (ask[fmt.id_field], fmt.kind)).fetchone()
             if row is None:
-                raise hand.Refused(f"no remake {ask['remake_id']}", rule="remake_id")
+                raise hand.Refused(f"no {noun} {ask[fmt.id_field]}", rule=fmt.id_field)
             detail = _detail(row)
             if row["status"] == "done":
-                raise hand.Refused(f"remake {row['id']} is already rendered", rule="used")
+                raise hand.Refused(f"{noun} {row['id']} is already rendered", rule="used")
             if row["status"] == "failed" and str(row["error"] or "").startswith("expired"):
-                raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
+                raise hand.Refused(f"{noun} {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
                                    rule="stale")
             if row["status"] != "pending":
-                raise hand.Refused(f"remake {row['id']} failed: {row['error']}", rule="failed")
+                raise hand.Refused(f"{noun} {row['id']} failed: {row['error']}", rule="failed")
             if detail.get("stage") == "rendering":
-                raise hand.Refused(f"remake {row['id']} is being rendered", rule="used")
+                raise hand.Refused(f"{noun} {row['id']} is being rendered", rule="used")
             if row["created_at"] < hand.now() - STALE_SECONDS:
                 _release(conn, row["id"], "expired: its keys were never rendered")
-                raise hand.Refused(f"remake {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
+                raise hand.Refused(f"{noun} {row['id']}'s keys are over {STALE_SECONDS // 3600} hours old",
                                    rule="stale")
             wanted = len(detail.get("shots") or [1]) if detail.get("per_shot") else 1
             if detail.get("stage") != "keys" or len(detail.get("keys") or []) != wanted:
-                raise hand.Refused(f"remake {row['id']}'s keys are not all made", rule="not_ready")
+                raise hand.Refused(f"{noun} {row['id']}'s keys are not all made", rule="not_ready")
             missing = [k["n"] for k in detail["keys"] if not (hand.root() / k["path"]).is_file()]
             if missing:
-                raise hand.Refused(f"remake {row['id']}'s key(s) {missing} are not on disk", rule="not_ready")
-            sound = _sound(ask, detail["study"])
+                raise hand.Refused(f"{noun} {row['id']}'s key(s) {missing} are not on disk", rule="not_ready")
+            sound = fmt.ready(ask, detail)
             rows = conn.execute("SELECT * FROM media_assets WHERE kind = 'shot' AND source_id = ? ORDER BY id",
                                 (row["id"],)).fetchall()
             _set_detail(conn, row["id"], {**detail, "stage": "rendering"})
@@ -1091,23 +1142,34 @@ def drop_remake(body: Any) -> Json:
     ("dropped"), its keys kept on the ledger at what they cost. Dropping one
     already failed or expired gives back nothing; one rendered, or being
     rendered, is refused (`used`). Answers {remake_id, released_usd}."""
-    if not isinstance(body, dict) or set(body) != {"remake_id"}:
-        raise hand.Refused("remake-drop takes {remake_id} and nothing else", rule="body")
-    remake_id = body["remake_id"]
+    return drop_with(body, REMAKE)
+
+
+def drop_with(body: Any, fmt: Format) -> Json:
+    """`fmt`'s drop: {<kind>_id} and nothing else (see drop_remake)."""
+    field = fmt.id_field
+    if not isinstance(body, dict) or set(body) != {field}:
+        raise hand.Refused(f"{fmt.drop_verb} takes {{{field}}} and nothing else", rule="body")
+    remake_id = body[field]
     if isinstance(remake_id, bool) or not isinstance(remake_id, int) or remake_id < 1:
-        raise hand.Refused("remake_id is the id remake-keys answered", rule="remake_id")
+        raise hand.Refused(f"{field} is the id {fmt.keys_verb} answered", rule=field)
     if hand.dry_run():
         return {"dry_run": True, "would_drop": remake_id}
     with hand.lock("media"):
         conn = assets._db()
         try:
-            row = conn.execute("SELECT * FROM media_assets WHERE id = ? AND kind = 'remake'", (remake_id,)).fetchone()
+            row = conn.execute("SELECT * FROM media_assets WHERE id = ? AND kind = ?", (remake_id, fmt.kind)).fetchone()
             if row is None:
-                raise hand.Refused(f"no remake {remake_id}", rule="remake_id")
+                raise hand.Refused(f"no {fmt.noun} {remake_id}", rule=field)
             if row["status"] == "done" or (row["status"] == "pending" and _detail(row).get("stage") == "rendering"):
-                raise hand.Refused(f"remake {remake_id} is rendered or being rendered", rule="used")
+                raise hand.Refused(f"{fmt.noun} {remake_id} is rendered or being rendered", rule="used")
             released = _release(conn, remake_id, "dropped: its keys were let go unrendered") \
                 if row["status"] == "pending" else 0
-            return {"remake_id": remake_id, "released_usd": round(released / 1e6, 6)}
+            return {field: remake_id, "released_usd": round(released / 1e6, 6)}
         finally:
             conn.close()
+
+
+#: The remake itself, as the shared machinery runs it.
+REMAKE = Format(kind="remake", noun="remake", setting="MEDIA_REMAKE", keys_verb="remake-keys", drop_verb="remake-drop",
+                edit_prompt=edit_prompt, ready=lambda ask, detail: _sound(ask, detail["study"]))
