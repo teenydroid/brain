@@ -84,6 +84,7 @@ class KhabyTest(unittest.TestCase):
         (self.root / "brain" / "assets" / "teeny-reference.png").write_bytes(PNG)
         self.write("DRY_RUN=0\nSURPLUS_API_KEY=inf_test\nX_BOT_USERNAME=teenydroid\nMEDIA_SKIT_MAX_PER_DAY=1\n"
                    "MEDIA_KHABY_MAX_PER_DAY=1\nMEDIA_REMAKE_MAX_PER_DAY=1\nMEDIA_MAX_USD_PER_DAY=5.00\n"
+                   "MEDIA_KHABY_MAX_USD_PER_SHOT=1.20\n"
                    f"MEDIA_KHABY_MODELS={MODELS}\nMEDIA_REMAKE_MODELS={MODELS}\n")
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = str(self.root)
@@ -323,6 +324,10 @@ class KhabyTest(unittest.TestCase):
         self.env(MEDIA_SKIT_MAX_PER_DAY=3)
         self.keys()
         self.assertIn("MEDIA_KHABY_MAX_PER_DAY", self.refused(self.keys, "per_day").reason)
+
+    def test_an_unset_reaction_cap_is_the_remakes_default(self):
+        self.write("DRY_RUN=1\n")
+        self.assertEqual(self.keys()["reserve_usd"], float(remakes.PER_SHOT))
 
     def test_a_skit_today_leaves_no_khaby_video(self):
         skits.generate_skit(SKIT, api=self.api, reel=self.reel, sleep=self.sleep, clock=lambda: self.clock[0])
