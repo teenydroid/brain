@@ -152,6 +152,11 @@ PER_TAKE = "4.00"
 #: The take's script ends with this, the hand's, after the writer's words.
 TAKE_TAIL = ("The small yellow character stays where it is the whole time and only watches. The person on screen "
              "never looks at the yellow character. Realistic motion. No text, no captions, no logos.")
+#: When the take makes its own sound (the default), the script says so: a
+#: mouth generated to a script and someone else's audio laid over it did not
+#: lip-sync (2026-11-20), and Wan 3 sang the script's line in the same job.
+SOUND_LINE = ("The film has natural synchronised sound: any quoted line is spoken or sung by the person on screen "
+              "with matching lip movement, and there is no music unless the motion says so.")
 #: A remake's whole length, the sum of its source shots, in seconds.
 TOTAL_SECONDS = (3.0, 30.0)
 #: What a shot reserves by default (MEDIA_REMAKE_MAX_USD_PER_SHOT): a $0.10
@@ -328,13 +333,21 @@ def _secs(value: float) -> str:
     return f"{round(value, 2):g}"
 
 
-def take_script(remake_shots: list[Json], length: int) -> str:
+def source_sound_on() -> bool:
+    """MEDIA_REMAKE_SOUND: 1 lays the source's audio over the video (and
+    asks the model for none); 0, the default, keeps the sound the model
+    makes with the picture, so the mouths match it."""
+    return hand.flag("MEDIA_REMAKE_SOUND", False)
+
+
+def take_script(remake_shots: list[Json], length: int, model_sound: bool = True) -> str:
     """The one take's prompt, built by the hand around the writer's words
     (the style of guard/skit.py's `script` and of the take made by hand on
     2026-11-21): the whole length and whether it cuts; each shot's time
     range, in the source's own seconds, with its motion (and, after the
     first, what the scene now shows: its edit), the last running to the
-    take's end, which the cut trims; then TAKE_TAIL."""
+    take's end, which the cut trims; SOUND_LINE when the model makes the
+    sound; then TAKE_TAIL."""
     count = len(remake_shots)
     if any(s.get("cut") for s in remake_shots[1:]):
         parts = [f"A {length} second film in {count} shots, hard cuts only where marked, the same people, props and "
@@ -351,6 +364,8 @@ def take_script(remake_shots: list[Json], length: int) -> str:
         words += motion if motion.endswith((".", "!", "?")) else motion + "."
         parts.append(f"{_secs(at)} to {_secs(end)} seconds: {words}")
         at += shot["seconds"]
+    if model_sound:
+        parts.append(SOUND_LINE)
     parts.append(TAKE_TAIL)
     return " ".join(parts)
 
@@ -361,7 +376,7 @@ def take_plan(remake_shots: list[Json], cap: int, clip_sound: bool) -> shots.Pla
     remake, never one whose verified ceiling cannot fit `cap`."""
     return shots.Plan(prefix="remake", key="teeny-remake", style=None, params="MEDIA_REMAKE_PARAMS",
                       body=lambda model, prompt, seconds, aspect, params, shot: shots.request_body(
-                          model, take_script(remake_shots, seconds), seconds, aspect,
+                          model, take_script(remake_shots, seconds, clip_sound), seconds, aspect,
                           model_params(model, params, clip_sound), image=shot.image,
                           resolution_setting="MEDIA_REMAKE_RESOLUTION"),
                       length=lambda shot, sold: shots.at_least(shot.floor, sold), per_shot=cap,
@@ -477,7 +492,7 @@ def _claim(job: Json, need: int, limit: int, shared: int, the_label: str, per_sh
                 take_row = conn.execute(
                     "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, cost_micro, estimated,"
                     " detail, created_at) VALUES ('shot', 'pending', ?, ?, 'post', ?, 1, ?, ?)",
-                    (take_script(job["shots"], math.ceil(job["total"])), remake_id, need,
+                    (take_script(job["shots"], math.ceil(job["total"]), not source_sound_on()), remake_id, need,
                      json.dumps({"one_take": True, "shots": len(job["shots"]), "total": job["total"]}), hand.now()),
                 ).lastrowid
                 detail = {"stage": "keying", "study": job["study"], "source": job["source"], "story": job["story"],
@@ -818,7 +833,7 @@ def _sound(ask: Json, study: str) -> str | None:
         raise refusal from None
     if service != f"media/remake/{study}/audio.m4a":
         raise refusal
-    return service if hand.flag("MEDIA_REMAKE_SOUND", True) else None
+    return service if source_sound_on() else None
 
 
 def _claim_render(ask: Json) -> tuple[Json, Any, str | None]:
@@ -945,10 +960,10 @@ def generate_remake(body: Any, api: Surplus | None = None, reel: Any = None, sle
     job_params = shots.params("MEDIA_REMAKE_PARAMS")
     if hand.dry_run():
         return {"dry_run": True, "would_generate": "remake", "stage": "render", "remake_id": ask["remake_id"],
-                "sound": ask["sound"] if hand.flag("MEDIA_REMAKE_SOUND", True) else None, "models": take_models,
+                "sound": "source" if ask["sound"] and source_sound_on() else "model", "models": take_models,
                 "per_shot_models": models, "label": the_label, "enabled": limit > 0 and shared > 0,
                 "requests": _requests(ask["remake_id"], take_models, job_params,
-                                      not (ask["sound"] and hand.flag("MEDIA_REMAKE_SOUND", True)))}
+                                      not (ask["sound"] and source_sound_on()))}
     _check_on(limit, shared)
     if not take_models:
         raise hand.HandError("no one-take model is configured (MEDIA_REMAKE_ONE_TAKE_MODELS)")
