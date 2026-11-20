@@ -527,9 +527,12 @@ if shot > budget:
     sys.exit()
 url = (filed.get("REEL_URL") or DEFAULT_URL).rstrip("/")
 take_on = (filed.get("MEDIA_SKIT_ONE_TAKE") or "1").strip().lower() in ("1", "true", "yes", "on")
-take_models = [m.strip() for m in (filed.get("MEDIA_SKIT_ONE_TAKE_MODELS") or "seedance-2-0-text-to-video").split(",") if m.strip()]
-take = (f"one take on {take_models[0]}, one job a shot if it cannot be had" if take_on and take_models
-        else "one take off: one job a shot")
+take_models = [m.strip() for m in (filed.get("MEDIA_SKIT_ONE_TAKE_MODELS") or "venice-wan-3-0-text-to-video,seedance-2-0-text-to-video,wan-2-7-text-to-video").split(",") if m.strip()]
+take_secs = min(30, max(5, int(number("MEDIA_SKIT_ONE_TAKE_SECS", 20))))
+resolution = (filed.get("MEDIA_SKIT_RESOLUTION") or "720p").strip()
+then = f" (then {', '.join(take_models[1:])})" if len(take_models) > 1 else ""
+take = (f"one take on {take_models[0]}{then}, up to {take_secs} s at {resolution}, one job a shot if it cannot be had"
+        if take_on and take_models else "one take off: one job a shot")
 said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; {take}; cut at {url}"
 if sys.argv[3] != "1":
     print(f"ok {said} (bin/doctor --live asks it)")
