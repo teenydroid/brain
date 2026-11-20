@@ -758,28 +758,23 @@ class RemakeTest(unittest.TestCase):
         [row] = self.rows("remake")
         self.assertEqual(row["status"], "failed")
 
-    def test_a_skit_is_not_refused_once_a_remake_is_dropped_or_stale(self):
+    def skit(self):
+        return skits.generate_skit(SKIT, api=self.api, reel=self.reel, sleep=self.sleep, clock=lambda: self.clock[0])
+
+    def test_a_skit_is_not_refused_once_a_remake_is_dropped(self):
         self.env(MEDIA_SKIT_MAX_PER_DAY=3)
-        for release in ("drop", "stale"):
-            with self.subTest(release=release):
-                made = self.keys() if release == "drop" else None
-                with self.assertRaises(hand.Refused) as caught:  # $2.40 held + $3.20 a skit > $5
-                    skits.generate_skit(SKIT, api=self.api, reel=self.reel, sleep=self.sleep,
-                                        clock=lambda: self.clock[0])
-                self.assertEqual(caught.exception.detail["rule"], "budget")
-                if release == "drop":
-                    self.drop({"remake_id": made["remake_id"]})
-                else:
-                    os.environ["TEENY_NOW"] = str(T0 + remakes.STALE_SECONDS + 1)
-                out = skits.generate_skit(SKIT, api=self.api, reel=self.reel, sleep=self.sleep,
-                                          clock=lambda: self.clock[0])
-                self.assertTrue(out["labelled"])
-                self.tearDown()
-                self.setUp()
-                self.env(MEDIA_SKIT_MAX_PER_DAY=3)
-                if release == "drop":
-                    self.env(MEDIA_REMAKE_MAX_PER_DAY=2)
-                    self.keys()
+        made = self.keys()
+        with self.assertRaises(hand.Refused) as caught:  # $2.40 held, and a skit's $3.20, past $5
+            self.skit()
+        self.assertEqual(caught.exception.detail["rule"], "budget")
+        self.drop({"remake_id": made["remake_id"]})
+        self.assertTrue(self.skit()["labelled"])
+
+    def test_a_skit_is_not_refused_once_a_remake_goes_stale(self):
+        self.env(MEDIA_SKIT_MAX_PER_DAY=3)
+        self.keys()
+        os.environ["TEENY_NOW"] = str(T0 + remakes.STALE_SECONDS + 1)
+        self.assertTrue(self.skit()["labelled"])
 
 
 class VerbTest(unittest.TestCase):

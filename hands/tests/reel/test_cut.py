@@ -243,6 +243,17 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(skitcut.trim_frames([1.01, 1.01, 1.01]), [30, 31, 30])
         self.assertEqual(sum(skitcut.trim_frames([1.37] * 6)), round(1.37 * 6 * skitcut.FPS))
 
+    def test_a_clip_is_held_to_its_pictures_own_length_not_its_containers(self):
+        info = {"streams": [{"codec_type": "video", "duration": "3.400000"}, {"codec_type": "audio",
+                                                                             "duration": "5.000000"}],
+                "format": {"duration": "5.000000"}}
+        self.assertEqual(skitcut._probed(info), {"audio": True, "video": True, "seconds": 5.0, "video_seconds": 3.4})
+        clip = [{"path": "/s/1.mp4", "audio": True, **skitcut._probed(info)}]
+        with self.assertRaises(skitcut.CutError):
+            skitcut.argv("ffmpeg", clip, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "16:9", trims=[4.0], sound="/m/a.m4a")
+        no_stream_length = {"streams": [{"codec_type": "video"}], "format": {"duration": "4.0"}}
+        self.assertEqual(skitcut._probed(no_stream_length)["video_seconds"], 4.0)
+
     def test_a_clip_short_of_its_trim_by_over_half_a_second_is_refused(self):
         short = [{"path": "/s/1.mp4", "audio": True, "seconds": 3.4}]
         with self.assertRaises(skitcut.CutError):
