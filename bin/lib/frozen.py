@@ -101,7 +101,13 @@ def parse_patterns(text: str) -> list[str]:
 def _regex(pattern: str) -> re.Pattern[str]:
     # `**` crosses `/`, `*` and `?` do not; a trailing `/` is the directory.
     # Whatever the pattern matches, everything beneath it matches too.
+    # A pattern naming a Python module (`hand.py`) also freezes the directory
+    # of the same name (`hand/`): a package there is imported in place of the
+    # module, so a new `hand/__init__.py` would run instead of the frozen file.
     pattern = pattern.strip("/")
+    module = pattern.endswith(".py")
+    if module:
+        pattern = pattern[:-3]
     out, i = [], 0
     while i < len(pattern):
         if pattern.startswith("**/", i):
@@ -119,6 +125,8 @@ def _regex(pattern: str) -> re.Pattern[str]:
         else:
             out.append(re.escape(pattern[i]))
             i += 1
+    if module:
+        return re.compile("".join(out) + r"(?:\.py(?:/.*)?|/.*)")
     return re.compile("".join(out) + "(?:/.*)?")
 
 
