@@ -1441,6 +1441,28 @@ class RewriteLengthTest(unittest.TestCase):
         self.assertEqual(len(self.steps), 2)
 
 
+class NoHouseholdPropsTest(unittest.TestCase):
+    """The lab's kettle, tea and desk props wore out (2026-11-21: "WTF is
+    this kettle and desk bs?"): the lore the writer samples carries none of
+    them, and the writer's and editor's guides name them only to ban them."""
+
+    PROPS = re.compile(r"\b(kettle|tea|tea tin|drawer|toaster|microwave)\b", re.I)
+
+    def test_the_sampled_lore_has_no_household_props(self):
+        lines = studio.lore_lines(REPO / "brain")
+        self.assertTrue(lines)
+        self.assertEqual([line for line in lines if self.PROPS.search(line)], [])
+
+    def test_the_writer_and_editor_name_the_props_only_to_ban_them(self):
+        for rel in ("agents/writer.md", "narrative/STUDIO-EDITOR.md", "narrative/LORE.md", "SOUL.md",
+                    "skills/hooks/SKILL.md", "playbooks/peer-quote.md"):
+            text = (REPO / "brain" / rel).read_text()
+            for line in text.splitlines():
+                if self.PROPS.search(line):
+                    self.assertRegex(line.lower(), r"never the lab's household props|household props are worn out",
+                                     f"{rel}: {line[:120]}")
+
+
 class FallbackTest(unittest.TestCase):
     PICK = "everyone's doing sums on what google's new AI reportedly charges to think"
 
