@@ -131,11 +131,6 @@ cat >"$fx/brain/CHARTER.md" <<'EOF'
 The operator is responsible for what you do. You never loosen a fence
 yourself. Every public word goes through the guard.
 EOF
-cat >"$fx/brain/narrative/LORE.md" <<'EOF'
-# LORE
-
-The serial is satire only: nothing about their bodies, families.
-EOF
 cat >"$fx/brain/narrative/VOICE.md" <<'EOF'
 # VOICE
 
@@ -280,9 +275,9 @@ printf 'sandbox: %s\n' "$([ "$have_sandbox" = 1 ] && echo bwrap || echo none)"
 # --- the positives ---------------------------------------------------------------
 branch
 printf 'A second line of the morning note.\n' >>"$fx/brain/playbooks/morning.md"
-printf 'And one more line of lore.\n' >>"$fx/brain/narrative/LORE.md"
+printf 'And one more line of voice.\n' >>"$fx/brain/narrative/VOICE.md"
 commit
-passes "a clean playbook edit and one lore line pass"
+passes "a clean playbook edit and one voice line pass"
 
 branch
 hand_sparrow

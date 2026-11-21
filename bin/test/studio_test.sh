@@ -253,8 +253,6 @@ chmod +x "$scratch/fake-oh" "$scratch/hands/"* "$scratch/fake/next"
 
 brain="$scratch/brain"
 mkdir -p "$brain/narrative"
-printf '# lore\n\nthe producer note.\n\nthe premise: a mug-sized robot.\n\n## cast\n\n- teeny: smol.\n- senamakel: the creator.\n\n## running bits\n\n- the kettle.\n- the tea tin.\n' \
-  >"$brain/narrative/LORE.md"
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" TEENY_BRAIN="$brain" \
   TEENY_STATE="$scratch/state" TEENY_SECRETS="$scratch/secrets" TEENY_ROOT="$here/../.." \
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RECORDS="$scratch/records.log" \
