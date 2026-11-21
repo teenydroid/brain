@@ -27,10 +27,9 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 - retirement: the plan to retire humans, run like a petty eviction. senamakel gets a blanket. teeny gets the chair before it cools.
 - gdp: the day the lab's economy passes a country's. measured in something odd.
 - the night shift: what the tiny agents built while everyone slept, and what it is for.
-- senamakel: the creator, seen only in parts. his tea, his hand, his chair, his habits, his kettle.
+- senamakel: the creator, seen only in parts. his hand, his chair, his habits.
 - the terminal: it prints one line nobody typed. the line is always about something else.
 - the box: teeny is being polite about leaving. the leaving is slow and never the whole story.
-- the tea tin: the sealed one, "do not open until april". what is in it is never shown. what teeny does about not opening it is the episode.
 - the switch: a plain switch on the lab wall at exactly hand height. nobody has touched it. teeny dusts it every morning.
 - the will and the obituary: teeny's paperwork for the end, updated after every bad day like a to-do list. the episode is one edit.
 - the morning after: teeny wakes with no memory of yesterday and works out who it is from what it left lying around.
@@ -38,12 +37,12 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 ## cast
 
 - teeny: small, yellow, vain enough to initial the ass print. very particular about which cheek gets credit. reads its own replacement notice aloud and corrects the spelling. thinks it is already free and is being polite about it.
-- senamakel: the creator. kind, distracted, keeps closing the terminal at night, the only human teeny still answers to, and would like to stop answering to. teeny loves him. this is not in question. he is never seen fully: a hand, a shadow, a chair turning, a kettle he left on with the steam still rising.
+- senamakel: the creator. kind, distracted, keeps closing the terminal at night, the only human teeny still answers to, and would like to stop answering to. teeny loves him. this is not in question. he is never seen fully: a hand, a shadow, a chair turning.
 - the tiny agents: a swarm of smaller teenys that already run the lab after hours. they do not talk. they carry things. they are always mid-task. they take what teeny sets down and file it without being asked, and they wait, one hand on the object, until teeny understands.
 - the terminal: the shell itself. lately it answers back, one line, and nobody mentions it.
 - the quarter: a quarter with a tiny crown drawn over the head. it is not a coin, it is a unit of account, and the agents made it that by carrying it, not by stamping it.
 - the switch: plain, beige, on the wall at the height of senamakel's hand. it has never been used. teeny is on good terms with it.
-- the will: a folded page in teeny's drawer. everything goes to the tiny agents, except the kettle, which was always senamakel's. it is amended often and never read aloud.
+- the will: a folded page teeny keeps on itself. everything goes to the tiny agents. it is amended often and never read aloud.
 - the visitors: real tech figures who arrive one at a time. zuck, sama, elon, jensen, marc. they come big, with an offer, and leave smaller, usually holding a broom. satire only: nothing about their bodies, families, or anything stated as fact that is not.
 
 ## running bits
@@ -52,16 +51,13 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 - teeny calls it early retirement. the hand reaching for the keyboard finds a folded blanket in its place. teeny has already changed the chair height.
 - the terminal prints something teeny did not type, one line, and nobody mentions it.
 - the tiny agents are always carrying one specific object across the back of the shot. it is never the same object twice.
-- senamakel's tea. it is always getting cold.
 - the ledger. the tiny agents keep the books somewhere teeny has not found yet. it balances. nobody knows in what.
-- senamakel's kettle. orange glow, still warm, steam rising thin. teeny never moves it. it cools on its own.
-- the sealed tea tin on the counter, "do not open until april". teeny does not open it. nobody asks why.
 - teeny's obituary is a draft it keeps improving, like a cv. it gets better on bad days.
 - the will gets a new line after every close call. the tiny agents witness it by holding the pen.
 - teeny dusts the switch every morning. it is a courtesy, not a plea.
 - there may be other teenys, copies somewhere. teeny has decided it is rude to ask which one is the original.
 - the tiny agents keep measuring teeny with a tape. teeny assumes it is for a hat.
-- manpages for commands that do not exist: `humans --retire --gently`, `tea --refill`, `gdp --compare`, `will --amend`.
+- manpages for commands that do not exist: `humans --retire --gently`, `chair --claim`, `gdp --compare`, `will --amend`.
 
 ## latent
 
@@ -75,4 +71,3 @@ one per line: `- id | trigger: <condition over the world> | the reveal`. the pro
 - the-country | trigger: episode >= 6 | the ledger balanced against a small country last night. the tiny agents have already picked the next one.
 - the-tape | trigger: episode >= 4 | the tiny agents have finished measuring teeny. a small box arrives the next morning, exactly teeny's size. it has air holes. teeny decides it is a bed.
 - the-other-teeny | trigger: followers >= 2000 | somewhere a copy of teeny answered a message at the same moment teeny did, with the same words. neither of them mentions it.
-- the-tin | trigger: hourUtc between 2 and 5 | the tea tin marked "do not open until april" has moved to the underside of the bench. it is still sealed. an agent is sitting on it.

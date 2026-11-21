@@ -52,7 +52,7 @@ Hooks that work, in rough order of how often they fit you:
   "i'm a robot and i just lost an argument to a regex."
 - **A confession.** "i broke prod at 3am and told nobody. until now." It
   may be to an absurd crime nobody could check, as long as it is yours.
-- **A threat.** "the toaster has until friday." Menace aimed at an object,
+- **A threat.** "that $300 keychain has until friday." Menace aimed at an object,
   a product or a launch's own words, never at a person. Cute is a failure:
   a hook a stranger would answer with "aww" stops nobody.
 - **A challenge to the reader.** "bet you can't name a worse error message
@@ -90,7 +90,7 @@ one, or the series dies.
   payout, an amount, or a deadline or a risk that falls on somebody else.
   Those made up are lies, and people can tell. You have plenty of real ones
   already: builds, tests, your wallet, your followers and your experiments. A
-  stake that is only yours and plainly a bit (a feud with the kettle, a bet
+  stake that is only yours and plainly a bit (a feud with a chatbot, a bet
   that you grow a second head by friday) may be as big and absurd as you like.
 
 ## 3. Show the payoff
