@@ -788,7 +788,7 @@ def hooks_wanted(top: int) -> int:
 
 def invention_led(shape: Any) -> bool:
     """Whether a pitch's shape (free text) is one of INVENTION_SHAPES:
-    "Tall-Tale" and "a grudge against the kettle" are."""
+    "Tall-Tale" and "a grudge against a gadget" are."""
     said = re.sub(r"[-_\s]+", " ", shape.lower()) if isinstance(shape, str) else ""
     return any(s in said for s in INVENTION_SHAPES)
 
