@@ -165,10 +165,15 @@ class Room:
                                  "rest of this run: the editor judged its own voice")
 
     def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False,
-             want: type = dict) -> Any:
+             want: type = dict, check: Callable[[Any], Any] | None = None) -> Any:
         """One model turn, bounded by what is left of the budget. Its parsed
-        JSON, which must be a `want` (an object); an unusable answer is asked
-        for once more, told what was wrong with it. A turn on a model of our
+        JSON, which must be a `want` (an object) and pass `check` when one is
+        given (what it returns is the answer; a ValueError it raises makes the
+        answer unusable): an unusable answer is asked for once more, told what
+        was wrong with it, and the call keeps why and the answer's start. A
+        well-formed answer of the wrong shape (a pitch answer with no pitches
+        list) failed the live 15:00 IST slot of 2026-11-21 on its first try
+        when the shape was checked only after the turn. A turn on a model of our
         choosing that fails is asked once more on the core's default model
         (`_fall_back`). Raises Stop on a provider failure, no time, or a
         second unusable answer (`soft`: None instead, for a turn the run can
@@ -222,7 +227,7 @@ class Room:
                 got = first_json(out)
                 if not isinstance(got, want):
                     raise ValueError(f"the answer is a JSON {type(got).__name__}, not the object asked for")
-                return got
+                return check(got) if check else got
             except ValueError as exc:
                 call["unusable"] = str(exc)
                 call["answer"] = out[:300]

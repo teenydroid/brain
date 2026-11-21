@@ -2632,15 +2632,18 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
 
     # --- the pitches ---
     thread = f"studio:{room.run_id}"
-    answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot,
-                                                     sources=sources), thread)
-    try:
-        pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
-                                                    {k: v.get("storyline") for k, v in known_items.items()},
-                                                    outside_ids,
-                                                    sources={k: {i["id"] for i in v} for k, v in sources.items()})
-    except ValueError as exc:
-        raise Stop("failed", f"the pitch answer has no pitches: {exc}", 1, failure="studio") from exc
+    # The answer's shape is checked inside the turn, so an answer with no
+    # pitches list is asked for once more, told why, like one that is not JSON.
+    checked = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot,
+                                                      sources=sources), thread, soft=True,
+                        check=lambda answer: validate_pitches(
+                            answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
+                            {k: v.get("storyline") for k, v in known_items.items()}, outside_ids,
+                            sources={k: {i["id"] for i in v} for k, v in sources.items()}))
+    if checked is None:
+        raise Stop("failed", f"the pitch answer has no pitches: {room.calls[-1].get('unusable')}, twice", 1,
+                   failure="studio")
+    pitches, dropped, ranked = checked
     # The record's pitches carry the outside story each joins, resolved, and
     # whether it was drafted; the pitches themselves go to the writer as is.
     shown_pitches = [dict(p, hook_item=known_items.get(p["hook"]) if p.get("hook") else None,
@@ -2709,13 +2712,14 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         facts = facts_for(item, story, hook)
         fix: list[tuple[str, str]] | None = None
         for attempt in (1, 2):
-            answer = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
-                               draft_message(cfg, pitch, item, story, fix, hook, menu, study), thread, soft=True)
-            try:
-                got, lost = validate_drafts(answer, pitch, cfg.drafts_each, study)
-            except ValueError as exc:
-                drafts_dropped.append({"pitch": pid, "why": str(exc) if answer is not None else "no usable answer, twice"})
+            checked = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
+                                draft_message(cfg, pitch, item, story, fix, hook, menu, study), thread, soft=True,
+                                check=lambda answer: validate_drafts(answer, pitch, cfg.drafts_each, study))
+            if checked is None:
+                drafts_dropped.append({"pitch": pid,
+                                       "why": f"no usable answer, twice: {room.calls[-1].get('unusable')}"})
                 break
+            got, lost = checked
             drafts_dropped.extend(lost)
             kept, refused = [], []
             for d in got:
