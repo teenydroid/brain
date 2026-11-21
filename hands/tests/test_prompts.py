@@ -609,14 +609,14 @@ class PromptsTest(unittest.TestCase):
         for words in ("the human who keeps your code is a real person", "unless a fact in the message says so",
                       "only what that fact says", "take it from a fact or leave the human out"):
             self.assertIn(words, bullet)
-        for deed in ("say", "read", "merge", "drink", "refuse"):
+        for deed in ("does", "says", "reads", "merges", "drinks", "refuses"):
             self.assertRegex(bullet, rf"\b{deed}\b")
         # The lab's cast in the background never includes the human.
         self.assertIn("never your human", text[licence:rule])
         # VOICE.md, which the writer reads too, keeps him to the facts.
         voice = text[text.index("# teeny's voice"):]
         self.assertIn("he is a real person", voice)
-        self.assertIn("never as something that happened", voice)
+        self.assertIn("never told as something that happened", voice)
 
     def test_the_writers_examples_carry_no_counts_or_names_from_teenys_workings(self):
         brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
