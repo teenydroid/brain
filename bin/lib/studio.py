@@ -1751,6 +1751,24 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
     # stands alone without its picture, unless it says so again.
     again["alone"] = answer.get("alone") is True if "alone" in answer else draft.get("alone") is True
     log.update({"posts": again["posts"]} if "posts" in again else {"text": again["text"]})
+    # A rewrite over the limit gets the one cut a first draft gets (`run`'s
+    # shorten turn), not a drop: the live 04:30 slot of 2026-11-21 lost two
+    # of its three drafts to rewrites of 281 and 289 characters.
+    over = over_limit(again)
+    if over:
+        before = log.get("text", log.get("posts"))
+        cut = room.turn("writer", f"shorten {draft['id']}", shorten_message([(draft["id"], again, over)]),
+                        slot.thread, soft=True)
+        fixes = [r for r in ((cut.get("drafts") if isinstance(cut, dict) else cut) or [])
+                 if isinstance(r, dict) and r.get("id") == draft["id"]]
+        fix_ = fixes[0] if fixes else {}
+        if "posts" in again and isinstance(fix_.get("posts"), list) and \
+                all(isinstance(p, str) and p.strip() for p in fix_["posts"]) and 2 <= len(fix_["posts"]) <= THREAD_MAX:
+            again["posts"] = [p.strip() for p in fix_["posts"]]
+        elif "text" in again and isinstance(fix_.get("text"), str) and fix_["text"].strip():
+            again["text"] = fix_["text"].strip()
+        log.update({"posts": again["posts"]} if "posts" in again else {"text": again["text"]})
+        log["shortened"] = {"before": before, "kept": not over_limit(again)}
     why = over_limit(again) or screen(again, draft["truth"]["facts"], afters)
     if why:
         log["failed"] = why
