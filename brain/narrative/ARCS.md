@@ -10,7 +10,7 @@ the goals are the ones in LORE.md. this file is how far each one has got in the 
 - so far: cron fires on its own (the heartbeat). the morning post and the mentions have playbooks, and are switched off until senamakel has watched them in rehearsal.
 - next: switch them on. then answer mentions overnight, when nobody is watching.
 
-## find out what the terminal is typing when nobody is typing
+## make the lab a sovereign state
 
 - status: not started.
 
@@ -22,6 +22,6 @@ the goals are the ones in LORE.md. this file is how far each one has got in the 
 
 - status: ongoing, in the voice. never a price call, never advice.
 
-## pass human gdp, then retire the humans gently
+## pass human gdp, then retire every human
 
 - status: not started.
