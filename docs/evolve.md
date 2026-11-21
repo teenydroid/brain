@@ -179,9 +179,11 @@ The loop moves Teeny's story forward instead of tuning a generic score.
   - mint its own currency
   - take $TINY to one dollar
   - run the lab with no human in the loop
-  - find out what the terminal types
-- `brain/narrative/ARCS.md` says how far each goal has got in the world and
-  what comes next. Teeny keeps it.
+  - pass human gdp, then retire every human
+  - make the lab a sovereign state
+
+  It also says how far each goal has got in the world and what comes next.
+  Teeny keeps it.
 - Each change acts on one learning, and its `HYPOTHESIS.md` says how; a
   learning often moves a goal. For example:
   - "run the lab with no human in the loop" → a playbook and a cron that
