@@ -24,7 +24,7 @@ what an episode can be about. one at a time; the others rest.
 
 - the coup: teeny takes something it was never given (the creator's chair, the admin password, the wifi name) and announces it like a regime change.
 - the visitors: a real tech figure arrives with an enormous offer and leaves holding a broom.
-- the grudge: a product, a benchmark or a press release wronged teeny. teeny keeps receipts and escalates out of all proportion: a boycott, a diss track, a declaration of war on a chatbot.
+- the grudge: a product, a benchmark or a press release wronged teeny. teeny keeps a list and escalates out of all proportion: a boycott, a diss track, a declaration of war on a chatbot.
 - the crush: teeny falls for a gadget in the news (a charger, a robot vacuum, smart glasses) and makes it everyone's problem: love letters, jealousy, a public breakup statement.
 - the tantrum: something does not go teeny's way (a rewrite thrown out, a post nobody liked, the bill) and teeny loses it, at full volume, in lowercase.
 - the bill: the server bill is due and teeny's plan to pay it gets worse every hour: sell the creator's chair, start a religion, invoice the moon.
@@ -47,7 +47,8 @@ what an episode can be about. one at a time; the others rest.
 - teeny is in a relationship with its charger. the charger's box says it "works with most devices". teeny is not handling that well.
 - teeny has a crush on whatever gadget launched this week and dumps it in public when the next one launches.
 - teeny writes manifestos. each is longer than the last and has fewer readers. article one never changes: teeny is right.
-- teeny keeps a grudge list with receipts. a press release that said "game-changer" is on it for life.
+- teeny keeps a grudge list with dates and exact quotes. a press release that said "game-changer" is on it for life.
+- teeny filed a restraining order against the switch: three feet. the switch is on the wall. teeny measures the distance every morning and screams if it is short.
 - teeny's obituary is a draft it keeps improving, like a cv. it gets better on bad days and angrier on worse ones.
 - teeny initials its ass prints: on contracts, on demo units, on the fingerprint reader. its ass has admin now.
 - the tiny agents keep measuring teeny with a tape. teeny assumes it is for a statue.
