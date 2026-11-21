@@ -490,6 +490,156 @@ class ProducerTest(unittest.TestCase):
         self.assertIn("not enough of the run's time", attempt["result"])
 
 
+
+def guard_task_limit(body):
+    """hands/guard check on the `task` surface as it answers: over the
+    limit is refused (gate._hard_limits), anything else passes."""
+    from teeny_hands.guard.gate import LIMITS
+    from teeny_hands.guard.style import post_length
+    limit = LIMITS["task"]["text"]
+    if post_length(body["text"]) > limit:
+        return 2, {"ok": False, "refused": f"the text is {post_length(body['text'])} characters, over the {limit} "
+                                           "limit.", "rule": "length"}
+    return 0, {"ok": True, "text": body["text"]}
+
+
+#: The live skit of 2026-11-21 23:00 (run 20261121T173009Z-2300-c1f2f2) was
+#: 1569 characters as one take; these four rich shots come to over 1000.
+LONG_SHOTS = [{"prompt": (f"Shot {n} of the moon showroom: anamorphic wide, slow dolly in, golden hour haze, neon rim "
+                          "light, film grain, shallow depth of field. Elon Musk in his silver tuxedo pulls a velvet "
+                          "sheet off a chrome robotaxi the size of a cathedral; confetti cannons fire, the crowd of "
+                          "robots gasps, a marble fountain sprays champagne, timpani rolls."), "seconds": 5}
+              for n in range(1, 5)]
+SHORT_SHOTS = [{"prompt": "Wide anamorphic, golden hour: Elon Musk pulls a velvet sheet off a chrome robotaxi; "
+                          "it honks.", "seconds": 5},
+               {"prompt": "Low angle: the robotaxi beats Musk at chess, the board grows to the size of a planet.",
+                "seconds": 5},
+               {"prompt": "Crane up: Musk chases the robotaxi across the moon in his tuxedo; it waves goodbye.",
+                "seconds": 5}]
+
+
+def long_skit_draft():
+    got, lost = studio.validate_drafts({"drafts": [{"text": WORDS, "skit": {**RAW, "shots": LONG_SHOTS},
+                                                    "meaning": "m"}]}, PITCH, 3)
+    assert got, lost
+    draft = got[0]
+    draft.update(id="d1", truth={"text": WORDS, "facts": [HOOK]})
+    return draft
+
+
+class OneTakeBudgetTest(unittest.TestCase):
+    """The one-take script hands/guard check screens has the `task` surface's
+    hard cap (1000 characters): the writer is told what it leaves, and a skit
+    over it is cut once by the writer before the guard sees it, rather than
+    the slot losing its video (the live 23:00 slot of 2026-11-21)."""
+
+    def room(self, answers, **script):
+        room = ProducerTest.room(self, **{"guard check": guard_task_limit, **script})
+        room.asked = []
+
+        def ask(root, agent, message, thread, model, secs):
+            room.asked.append((agent, message, thread))
+            answer = answers.pop(0)
+            return 0, answer if isinstance(answer, str) else json.dumps(answer), ""
+        room.ask = ask
+        return room
+
+    def go(self, room, draft):
+        attempt: dict = {"label": "D1"}
+        result = studio.try_draft(room, draft, attempt, ProducerTest.slot(self), [])
+        return result, attempt, [" ".join(a[:2]) for a, *_ in room.seen]
+
+    def test_the_draft_prompt_states_the_one_take_budget(self):
+        message = studio.draft_message(studio.Config(formats=("post", "skit")), PITCH, None, None, hook=HOOK)
+        budget = studio.skit_budget(1)
+        self.assertIn(f"{budget} characters", message)
+        self.assertIn(f"{studio.skit_budget(3)} with three", message)
+        self.assertIn("rich concrete words", message)
+        # The budget is the guard's own: a skit that spends exactly it, in
+        # four shots of the longest length, fits; one character more does not.
+        rules_ = studio._skit_rules()
+        for figures in (1, 2, 3):
+            names = [f"Figure Number{n}" for n in range(figures)]
+            spare = studio.skit_budget(figures) - sum(len(n) for n in names) - 20 * figures - 40
+            per, extra = divmod(spare - 3 * 4, 4)
+            skit = {"figures": names, "look": {n: "x" * 20 for n in names}, "setting": "s" * 20, "score": "m" * 20,
+                    "shots": [{"prompt": "p" * (per + (extra if i == 0 else 0)) + "abc",
+                               "seconds": studio.SKIT_SHOT_MAX_SECS} for i in range(4)]}
+            self.assertEqual(studio.skit_script_length(skit), studio.SKIT_SCRIPT_LIMIT, figures)
+            self.assertEqual(studio.skit_over(skit), "")
+            skit["shots"][0]["prompt"] += "!"
+            self.assertIn("over the guard's 1000", studio.skit_over(skit))
+            self.assertEqual(len(rules_.script(skit)), studio.SKIT_SCRIPT_LIMIT + 1)
+
+    def test_a_skit_that_fits_asks_the_writer_nothing(self):
+        room = self.room([])
+        result, attempt, calls = self.go(room, skit_draft())
+        self.assertEqual(result, "posted")
+        self.assertEqual(room.asked, [])
+        self.assertNotIn("shortened", attempt["skit"])
+
+    def test_an_over_long_skit_is_cut_once_by_the_writer_and_goes_out(self):
+        draft = long_skit_draft()
+        before = studio.skit_script_length(draft["skit"])
+        self.assertGreater(before, 1000)
+        room = self.room([{"skit": {"look": LOOK, "setting": SETTING, "score": SCORE, "shots": SHORT_SHOTS}}])
+        result, attempt, calls = self.go(room, draft)
+        self.assertEqual(result, "posted", attempt)
+        self.assertEqual(len(room.asked), 1)
+        agent, message, thread = room.asked[0]
+        self.assertEqual((agent, thread), ("writer", "studio:run-1"))
+        self.assertIn("# studio: cut the skit to fit", message)
+        self.assertIn(f"{before} characters", message)
+        self.assertIn(str(studio.skit_budget(1)), message)
+        note = attempt["skit"]["shortened"]
+        self.assertEqual((note["before"], note["kept"]), (before, True))
+        self.assertLessEqual(note["after"], 1000)
+        # Every text the guard screened fits, and the cut is what was rendered.
+        self.assertTrue(all(len(b["text"]) <= 1000 for a, b, *_ in room.seen if a[:2] == ["guard", "check"]))
+        video = next(b for a, b, *_ in room.seen if a[:2] == ["video", "skit"])
+        self.assertEqual([s["prompt"] for s in video["shots"]], [s["prompt"] for s in SHORT_SHOTS])
+        self.assertEqual((video["figures"], video["logline"], video["story"]), (["Elon Musk"], RAW["logline"],
+                                                                              "trend:t1"))
+        self.assertEqual(attempt["skit"]["shots"], 3)
+
+    def test_a_skit_still_over_after_one_cut_falls_back_with_why(self):
+        for answer in ({"skit": {"shots": LONG_SHOTS[:3] + [LONG_SHOTS[0]]}},
+                       {"skip": "it cannot be cut"},
+                       "no json at all"):
+            with self.subTest(answer=answer):
+                answers = [answer, answer] if isinstance(answer, str) else [answer]
+                room = self.room(answers)
+                draft = long_skit_draft()
+                before = studio.skit_script_length(draft["skit"])
+                result, attempt, calls = self.go(room, draft)
+                self.assertEqual(result, "next")
+                self.assertNotIn("guard check", calls)
+                self.assertNotIn("video skit", calls)
+                note = attempt["skit"]
+                self.assertEqual((note["shortened"]["before"], note["shortened"]["kept"]), (before, False))
+                self.assertIn("one-take script", note["failed"])
+                self.assertIn("over the guard's 1000", note["failed"])
+                self.assertIn("could not be made", attempt["result"])
+
+    def test_a_cut_that_crosses_a_hard_line_is_not_kept(self):
+        cut = [dict(s) for s in SHORT_SHOTS]
+        cut[2]["prompt"] = "Crane up: Musk is handcuffed by police on the moon in his tuxedo, sirens blaring."
+        room = self.room([{"skit": {"shots": cut}}])
+        result, attempt, calls = self.go(room, long_skit_draft())
+        self.assertEqual(result, "next")
+        self.assertNotIn("video skit", calls)
+        self.assertFalse(attempt["skit"]["shortened"]["kept"])
+        self.assertIn("hard line", attempt["skit"]["shortened"]["why"])
+
+    def test_the_other_video_formats_send_no_text_over_the_cap(self):
+        # A remake and a khaby send the guard each field alone, never a
+        # composed script: their own caps keep every one under the limit.
+        from teeny_hands.guard import remake as remake_rules
+        caps = [remake_rules.EDIT_CHARS[1], remake_rules.MOTION_CHARS[1], remake_rules.MAX_TEENY,
+                remake_rules.MAX_LOGLINE]
+        self.assertLessEqual(max(caps), studio.SKIT_SCRIPT_LIMIT)
+
+
 def _draft(did, fmt, hook):
     draft = {"id": did, "pitch": did, "hook": hook, "format": fmt, "text": f"words of {did}",
              "truth": {"text": "t", "facts": [{"id": "x"}]}}
