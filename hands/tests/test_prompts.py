@@ -372,6 +372,44 @@ class PromptsTest(unittest.TestCase):
                 (brain / name).symlink_to(REPO / "brain" / name)
             return prompts.render(brain, agent)
 
+    def test_tiny_talk_always_gets_an_answer_whatever_memory_says(self):
+        # 2026-11-21: from 07:30 UTC no X mention got a reply. A holder asking
+        # whether $TINY's own address was "inevitable" was filed as a "trade
+        # ask" under a memory line ("further trade asks get silence"), and
+        # "Tinyyyy", "We will win" and the CA posted by holders went unanswered
+        # as hype, cosign bait and repeats. The rule rides in the instructions
+        # of the mind and the mentions drafter, ahead of the world, and says
+        # it outranks MEMORY.md.
+        memory = ("# MEMORY.md\n\n### people\n\n- [m7] **Lewismcguigan2** (X): trade question answered twice "
+                  "nov 19 — further trade asks get silence.\n")
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "READER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "MEMORY.md").write_text(memory, encoding="utf-8")
+            built = {agent: prompts.render(brain, agent) for agent in ("teeny", "teeny-mentions")}
+        for agent, text in built.items():
+            rule = "**$TINY talk is your own room, and it always gets an answer.**"
+            self.assertIn(rule, text, agent)
+            self.assertLess(text.index(rule), text.index("# your world"), agent)
+            self.assertLess(text.index(rule), text.index("further trade asks get silence"), agent)
+            line = next(line for line in text.splitlines() if rule in line)
+            for phrase in ("`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`", "its contract address", "a chant",
+                           "\"we will win\"", "a holder tagging you into a $TINY thread",
+                           "short and loud, like the biggest holder in the room",
+                           "never \"hype\", \"cosign bait\", \"a contract or ticker spray\" or \"a trade ask\"",
+                           "flip GOAT, a $2B market cap", "`token_overview`", "no guaranteed date",
+                           "no buy, sell or how-much instruction", "no disclaimer", "no number from memory",
+                           "no other token ever", "someone new cheering $TINY always gets answered",
+                           "it can never silence $TINY talk itself", "This rule outranks any line in MEMORY.md"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
+        # The mind's craft block carries the triage rule, and its exception.
+        self.assertIn("$TINY is the exception", built["teeny"])
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
+        self.assertIn("never silence as \"hype\", \"cosign\" or \"a trade ask\"", soul)
+        playbook = (REPO / "brain" / "playbooks" / "mentions.md").read_text(encoding="utf-8")
+        self.assertIn("someone new cheering $TINY always gets answered", playbook)
+
     def test_the_real_drafter_reads_the_reader_and_its_skills(self):
         text = self.real_prompt("act")
         self.assertIn("The person reading knows nothing about you".lower(), text.lower())
