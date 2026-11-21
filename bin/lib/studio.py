@@ -1017,6 +1017,12 @@ MONEY_LEAD_WINDOW = 3
 #: Fields that name a row, not a fact about it.
 ID_KEYS = ("id", "source", "post_id", "refs")
 _TOKEN = re.compile(r"\$?\d+(?:,\d{3})*(?:\.\d+)?(?:(?:bn|k|m|b)(?![a-z0-9]))?%?|[a-z]+")
+#: A sentence or clause break, kept as a token of its own in a text so a
+#: money word's reach stops there: in "pay the server bill. arrow two" the
+#: "two" is a list label, not an amount. A "." inside "$0.20" is part of the
+#: number, which `_TOKEN` matches first.
+BREAKS = frozenset(".!?:;\n")
+_TOKEN_OR_BREAK = re.compile(_TOKEN.pattern + r"|[.!?:;\n]")
 
 
 def _digit(token: str) -> float | None:
@@ -1087,26 +1093,37 @@ def _sourced_values(facts: list[Any]) -> set[float]:
     return values
 
 
+def _money_lead_before(tokens: list[str], start: int) -> bool:
+    """Whether a money word is among the `MONEY_LEAD_WINDOW` words before
+    `start` in its own sentence or clause: the look-back stops at a break."""
+    before = tokens[max(0, start - MONEY_LEAD_WINDOW):start]
+    for i in range(len(before) - 1, -1, -1):
+        if before[i] in BREAKS:
+            before = before[i + 1:]
+            break
+    return any(t in MONEY_LEAD for t in before)
+
+
 def unsourced(text: str, facts: list[Any]) -> list[str]:
     """The amounts of money or of a token in `text` that its facts do not
     hold, as written, in order, each once: a number with a currency sign
     ("$500"), followed by a money or token word ("31 dollars", "twenty
-    cents"), a few words after a money word ("the bill is 99"), or a percent
+    cents"), a few words after a money word in the same sentence or clause
+    ("the bill is 99", not "pay the bill. arrow two"), or a percent
     in a text that speaks of money ("$TINY is up 40%"). Since 2026-11-19 the
     rest is a bit or the truth judge's to check (a count of Teeny's own
     doings, a day, a follower count, a figure from the news without a money
     word): "last night there were two of me" is never dropped here.
     "twenty cents" is sourced by $0.20, "23 thousand dollars" by "$23K"."""
     values = _sourced_values(facts)
-    tokens = _TOKEN.findall(text.lower())
+    tokens = _TOKEN_OR_BREAK.findall(text.lower())
     units = MONEY_UNITS | ({"tiny"} if _TICKER.search(text) else set())
     speaks_of_money = "$" in text or any(t in units or t in MONEY_LEAD for t in tokens)
     out: list[str] = []
     for start, end, value, _ in _amounts(tokens):
         nxt = tokens[end] if end < len(tokens) else ""
         said = tokens[start:end]
-        money = (said[0].startswith("$") or nxt in units or
-                 any(t in MONEY_LEAD for t in tokens[max(0, start - MONEY_LEAD_WINDOW):start]))
+        money = said[0].startswith("$") or nxt in units or _money_lead_before(tokens, start)
         percent = said[-1].endswith("%") or nxt in ("percent", "per")
         if not (money or (percent and speaks_of_money)):
             continue
