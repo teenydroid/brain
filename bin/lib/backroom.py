@@ -133,9 +133,9 @@ def agent_prompts(brain: Path) -> dict[str, str]:
 
 
 def lore_block(brain: Path) -> str:
-    """The lore Teeny reads (premise, cast, running bits), and the dark and
-    the power from skills/humor, so the room starts from who Teeny is."""
-    parts = [prompts.lore(prompts._read(brain / "narrative" / "LORE.md"))]
+    """The dark and the power from skills/humor, so the room starts from who
+    Teeny is (there is no LORE.md any more)."""
+    parts: list[str] = []
     _, humor = prompts.sections(prompts._read(brain / "skills" / "humor" / "SKILL.md"))
     by_title = {re.sub(r"^\d+\.\s*", "", t): b for t, b in humor.items()}
     for title in ("gallows humor", "the will to power", "edgy, wild, and where the edge stops"):

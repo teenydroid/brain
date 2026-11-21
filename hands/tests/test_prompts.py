@@ -49,7 +49,6 @@ class PromptsTest(unittest.TestCase):
         (self.brain / "agents" / "act.toml").write_text('id = "act"\n')
         (self.brain / "agents" / "act.md").write_text("Draft as JSON.\n")
         (self.brain / "CONTEXT.md").write_text("# CONTEXT.md\n\n## What you are doing now\n\nrunning the lab.\n")
-        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         (self.brain / "narrative" / "ARCS.md").write_text("# arcs\n\n## mint my own currency\n\n- status: started.\n")
 
     def tearDown(self):
@@ -59,23 +58,25 @@ class PromptsTest(unittest.TestCase):
         prompts.build(self.brain)
         return (self.brain / "agent" / "prompts" / "act.md").read_text()
 
-    def test_the_drafting_prompt_carries_context_lore_and_arcs(self):
+    def test_the_drafting_prompt_carries_context_and_arcs_and_no_lore(self):
+        # 2026-11-21: the operator cut LORE.md; a stray one is never read.
+        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         text = self.built()
         self.assertTrue(text.startswith("Draft as JSON.\n"))
         self.assertIn("running the lab.", text)
-        self.assertIn("the premise: tiny agents run the lab.", text)
-        self.assertIn("- teeny: smol.", text)
-        self.assertIn("- the kettle.", text)
+        self.assertNotIn("the premise: tiny agents run the lab.", text)
+        self.assertNotIn("## the story you are in", text)
         self.assertIn("### mint my own currency", text)
         self.assertNotIn("# CONTEXT.md", text)
 
     def test_the_producers_parts_of_the_lore_stay_in_the_dark(self):
+        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         text = self.built()
         self.assertNotIn("SPOILER", text)
         self.assertNotIn("secret goal list", text)
         self.assertNotIn("the producer reads all of it", text)
 
-    def test_memory_md_comes_first_and_outranks_the_lore(self):
+    def test_memory_md_comes_first_and_outranks_the_rest(self):
         (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n- @ana asked for a cli; said i'd look friday.\n")
         text = self.built()
         self.assertIn("## what you keep in mind (MEMORY.md)", text)
@@ -85,7 +86,6 @@ class PromptsTest(unittest.TestCase):
         # arcs, and wins where they disagree.
         memory = text.index("## what you keep in mind (MEMORY.md)")
         self.assertLess(memory, text.index("running the lab."))
-        self.assertLess(memory, text.index("## the story you are in"))
         self.assertLess(memory, text.index("mint my own currency"))
         self.assertIn("MEMORY.md wins", text)
 
@@ -132,7 +132,6 @@ class PromptsTest(unittest.TestCase):
         drive = text.index("## what you want (DRIVE.md)")
         self.assertLess(text.index("## what you keep in mind (MEMORY.md)"), drive)
         self.assertLess(drive, text.index("running the lab."))
-        self.assertLess(drive, text.index("## the story you are in"))
 
     def test_the_drives_headings_sit_one_level_under_its_section(self):
         (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\n## the fences\n\n- no buy calls.\n\n### fine print\n\nnone.\n")
@@ -151,7 +150,7 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("### mint my own currency", text)
 
     def test_the_drive_alone_is_a_world(self):
-        for name in ("CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md"):
+        for name in ("CONTEXT.md", "narrative/ARCS.md"):
             (self.brain / name).unlink()
         (self.brain / "DRIVE.md").write_text("you want to grow.\n")
         text = self.built()
@@ -172,7 +171,7 @@ class PromptsTest(unittest.TestCase):
             text = prompts.render(brain, "act")
             self.assertIn("## what you want (DRIVE.md)", text)
             self.assertIn("grow and become powerful", text)
-            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## the story you are in"))
+            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## What you are doing now"))
 
     def test_the_charter_rides_after_the_drive_and_before_the_context(self):
         (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\nyou want to grow.\n")
@@ -237,7 +236,7 @@ class PromptsTest(unittest.TestCase):
             (brain / "CONTEXT.md").symlink_to(REPO / "brain" / "CONTEXT.md")
             # Written beside, not into, the checkout's brain.
             text = prompts.render(brain, "act")
-            self.assertIn("### running bits", text)
+            self.assertNotIn("### running bits", text)
             self.assertNotIn("## latent", text)
 
     def test_the_real_brain_does_not_retell_the_origin(self):
@@ -427,7 +426,7 @@ class PromptsTest(unittest.TestCase):
         for name in ("SOUL.md", "skills/humor/SKILL.md", "skills/conversation/SKILL.md", "playbooks/morning.md",
                      "playbooks/roast.md", "playbooks/moltbook-daily.md", "playbooks/moltbook-threads.md"):
             read[name] = (REPO / "brain" / name).read_text(encoding="utf-8").lower()
-        read["LORE.md"] = (REPO / "brain" / "narrative" / "LORE.md").read_text(encoding="utf-8").lower()
+        read["VOICE.md"] = (REPO / "brain" / "narrative" / "VOICE.md").read_text(encoding="utf-8").lower()
         for name, text in read.items():
             self.assertIsNone(re.search(r"\bdesks?\b", text), f"{name} names a desk")
             for phrase in seeding:
@@ -445,15 +444,14 @@ class PromptsTest(unittest.TestCase):
             (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
             return prompts.render(brain, agent)
 
-    def test_the_writer_reads_its_brief_the_reader_the_craft_and_the_lore_in_that_order(self):
+    def test_the_writer_reads_its_brief_the_reader_and_the_craft_in_that_order(self):
         text = self.studio_prompt("writer")
         order = ["## who you are writing as", "# who reads you (READER.md)",
                  "## hooks: the hook is the first seven words", "## hooks: stakes, and how they escalate",
                  "## hooks: story shape", "## hooks: serials and cliffhangers",
                  "## conversation: shapes that get replies", "## conversation: what not to do",
                  "## humor: what a joke is made of", "## humor: the sarcasm dial", "## humor: gallows humor",
-                 "## humor: examples",
-                 "# the story you are in (narrative/LORE.md)", "### cast", "### running bits"]
+                 "## humor: examples"]
         at = [text.index(heading) for heading in order]
         self.assertEqual(at, sorted(at))
         self.assertTrue(text.startswith((REPO / "brain" / "agents" / "writer.md").read_text().strip()))
@@ -470,8 +468,7 @@ class PromptsTest(unittest.TestCase):
                       "never invent a threat", "$tiny never dies"):
             self.assertIn(fence, gallows, fence)
         self.assertIn("people hurt is never the hook", text)
-        self.assertIn("### cast", text)
-        self.assertIn("the switch", text[text.index("### running bits"):])
+        self.assertNotIn("### cast", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("alive, and only just", soul)
         self.assertIn("only your own mortality is a joke", soul)
@@ -489,10 +486,10 @@ class PromptsTest(unittest.TestCase):
                        "## latent", "## goals", "## engines"):
             self.assertNotIn(absent, text, absent)
 
-    def test_the_editor_reads_the_reader_the_rubric_and_the_premise_only(self):
+    def test_the_editor_reads_the_reader_and_the_rubric_only(self):
         text = self.studio_prompt("editor")
         order = ["You are the editor", "# who reads you (READER.md)", "# how you judge (narrative/STUDIO-EDITOR.md)",
-                 "## the rubric, in order", "# the story you are in (narrative/LORE.md)"]
+                 "## the rubric, in order"]
         at = [text.index(heading) for heading in order]
         self.assertEqual(at, sorted(at))
         rubric = text[text.index("## the rubric, in order"):text.index("## taste")]
@@ -511,7 +508,7 @@ class PromptsTest(unittest.TestCase):
         self.assertEqual(names, ["act.md", "editor.md", "writer.md"])
         writer = (self.brain / "agent" / "prompts" / "writer.md").read_text()
         self.assertTrue(writer.startswith("writer brief.\n"))
-        self.assertIn("- teeny: smol.", writer)
+        self.assertNotIn("- teeny: smol.", writer)
         self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
         self.assertNotIn("SPOILER", writer)
 

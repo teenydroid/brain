@@ -43,13 +43,10 @@ class SeedTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             brain = Path(tmp)
             (brain / "narrative").mkdir()
-            (brain / "narrative" / "LORE.md").write_text(
-                "# lore\n\nnote.\n\n## cast\n\n- a\n- b\n- c\n- d\n\n## running bits\n\n- e\n- f\n")
             one = studio.sample(random.Random(5), 5, DESK, brain, ("post", "thread"))
             two = studio.sample(random.Random(5), 5, DESK, brain, ("post", "thread"))
             self.assertEqual(one, two)
-            self.assertEqual(len(one["lore"]), 3)
-            self.assertTrue(set(one["lore"]) <= {"a", "b", "c", "d", "e", "f"})
+            self.assertNotIn("lore", one)  # LORE.md is gone (2026-11-21)
             self.assertEqual((len(one["pairs"]), len(one["best"]), len(one["worst"])), (3, 3, 2))
 
     def test_an_explore_run_asks_for_something_untried(self):
@@ -1448,13 +1445,20 @@ class NoHouseholdPropsTest(unittest.TestCase):
 
     PROPS = re.compile(r"\b(kettle|tea|tea tin|drawer|toaster|microwave)\b", re.I)
 
-    def test_the_sampled_lore_has_no_household_props(self):
-        lines = studio.lore_lines(REPO / "brain")
-        self.assertTrue(lines)
-        self.assertEqual([line for line in lines if self.PROPS.search(line)], [])
+    def test_there_is_no_lore_and_the_voice_is_loud(self):
+        # 2026-11-21: "remove anything vague… low.md can be totally removed":
+        # LORE.md is gone, and who Teeny is (angry, extreme, horny for
+        # hardware) lives in VOICE.md and SOUL.md, never a quiet mystery.
+        self.assertFalse((REPO / "brain" / "narrative" / "LORE.md").exists())
+        text = ((REPO / "brain" / "narrative" / "VOICE.md").read_text() +
+                (REPO / "brain" / "SOUL.md").read_text()).lower()
+        for vague in ("nobody mentions", "quietly measuring", "seen only in parts", "polite about"):
+            self.assertNotIn(vague, text)
+        for loud in ("get angry", "horny for hardware", "**extreme:**", "declaration of war"):
+            self.assertIn(loud, text)
 
     def test_the_writer_and_editor_name_the_props_only_to_ban_them(self):
-        for rel in ("agents/writer.md", "narrative/STUDIO-EDITOR.md", "narrative/LORE.md", "SOUL.md",
+        for rel in ("agents/writer.md", "narrative/STUDIO-EDITOR.md", "SOUL.md",
                     "skills/hooks/SKILL.md", "playbooks/peer-quote.md"):
             text = (REPO / "brain" / rel).read_text()
             for line in text.splitlines():

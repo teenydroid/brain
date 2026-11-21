@@ -538,7 +538,7 @@ restart:
 7. **restart**: TERM to `bin/spine` (`state/spine.pid`) only when the merge
    touched what is read at boot (`deploy_restart`, written before the TERM):
    `brain/SOUL.md`, `CONTEXT.md`, `DRIVE.md`, `CHARTER.md`,
-   `narrative/LORE.md` and `narrative/ARCS.md` (bin/lib/prompts.py),
+   and `narrative/ARCS.md` (bin/lib/prompts.py),
    `brain/agents/**` and `brain/skills/**` (the core), the playbooks
    `bin/lib/inbound_config.py` writes into the core's config
    (`mentions.md`, `mail.md`), `bin/**`, `deploy/**`, `spine/**`,

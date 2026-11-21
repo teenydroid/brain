@@ -694,7 +694,7 @@ reset_aff
 printf '\nbe kind.\n' >>"$aff/brain/SOUL.md"
 check "SOUL.md reaches every task" test "$(affected | jq -c '[(.tasks | length), .all, (.why | keys)]')" = "[$tasks,true,[\"*\"]]"
 reset_aff
-for f in brain/CONTEXT.md brain/agents/act.md brain/narrative/LORE.md brain/MEMORY.seed.md; do
+for f in brain/CONTEXT.md brain/agents/act.md brain/MEMORY.seed.md; do
   printf '\nx\n' >>"$aff/$f"
   check "$f reaches every task" test "$(affected | jq .all)" = true
   reset_aff

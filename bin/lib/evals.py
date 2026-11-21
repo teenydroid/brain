@@ -71,7 +71,7 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 KINDS = {"post": 280, "reply": 280, "episode": 1200}
 # What the judge reads of the incumbent's brain, in order.
-REFERENCE = ("SOUL.md", "DRIVE.md", "CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md")
+REFERENCE = ("SOUL.md", "DRIVE.md", "CONTEXT.md", "narrative/ARCS.md")
 ANCHOR = re.compile(r"^- ([a-z0-9-]+) \| ([^|]+?) \| (.+)$")
 
 
@@ -238,8 +238,7 @@ def select(evals: Path, held: Path | None, with_heldout: bool, ids: list[str]) -
 # prompt of the task's playbook, read from the measured brain. Its system
 # prompt is the core's subagent prompt for act.toml: brain/agent/prompts/act.md
 # (built at every boot by bin/lib/prompts.py from brain/agents/act.md, then
-# MEMORY.md, DRIVE.md, CHARTER.md, CONTEXT.md, narrative/LORE.md and
-# narrative/ARCS.md), SOUL.md and IDENTITY.md (act.toml: omit_identity =
+# MEMORY.md, DRIVE.md, CHARTER.md, CONTEXT.md and narrative/ARCS.md), SOUL.md and IDENTITY.md (act.toml: omit_identity =
 # false), and AGENTS.md in the workspace (brain/) and the action directory
 # (the repository root). act has no tools, so no skill reaches it, and the
 # core's "Available Skills" block is not in a subagent's prompt. The inputs
@@ -261,7 +260,6 @@ EVERY_DRAFT = {
     "brain/DRIVE.md": "in every draft's system prompt (bin/lib/prompts.py)",
     "brain/CHARTER.md": "in every draft's system prompt (bin/lib/prompts.py)",
     "brain/CONTEXT.md": "in every draft's system prompt (bin/lib/prompts.py)",
-    "brain/narrative/LORE.md": "its cast and running bits are in every draft's system prompt (bin/lib/prompts.py)",
     "brain/narrative/ARCS.md": "in every draft's system prompt (bin/lib/prompts.py)",
     # The code that builds that prompt or runs the turn. All frozen: only an
     # operator's diff has them.

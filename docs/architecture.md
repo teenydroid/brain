@@ -190,7 +190,7 @@ brain/
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
   CHARTER.md                           the charter's short version (docs/governance.md): who decides what, the fences, how freedom is earned; frozen
   MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
-  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines), STUDIO-EDITOR.md (bin/studio's editor rubric)
+  narrative/                           ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines), STUDIO-EDITOR.md (bin/studio's editor rubric)
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
   playbooks/<name>.md                  what a scheduled bin/act job drafts, with its inputs and output
@@ -204,10 +204,10 @@ brain/
 ```
 
 **Self-improvement** is Teeny's own: it may edit its brain (`SOUL.md`,
-`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
+`CONTEXT.md`, the voice, skills, playbooks, `cron.toml`) and add hands, but
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
-`narrative/LORE.md` and tracked in `narrative/ARCS.md`, and the loop acts on
+`narrative/ARCS.md`, which also tracks them, and the loop acts on
 what Teeny learned: each item of `MEMORY.md` it decided, promised or is in the
 middle of becomes one small change, gated in code the brain cannot edit,
 measured on the eval tasks it reaches, and opened as its own pull request.
@@ -222,12 +222,10 @@ are built otherwise, §4b):
 
 - Its prompt: the agent's instructions (`brain/agents/<id>.md`), then
   "# your world": `MEMORY.md` first (what happened, which wins over the
-  context, the lore and the arcs), then `DRIVE.md` (the one drive and its
+  context and the arcs), then `DRIVE.md` (the one drive and its
   rules, which memory does not outrank), `CHARTER.md` (who decides what
   and the fences, the short version of [`governance.md`](governance.md);
-  frozen), `CONTEXT.md`, the parts of
-  `narrative/LORE.md` Teeny reads (the premise, the cast, the running bits;
-  never `## latent`, which is the producer's), `narrative/ARCS.md`, and
+  frozen), `CONTEXT.md`, `narrative/ARCS.md`, and
   last "what you said lately": its newest own posts on X and the titles of
   its newest Moltbook posts, from the ledger, so a draft knows what it would
   be repeating (the posting rules refuse a near-duplicate all the same),
@@ -1287,8 +1285,7 @@ One run is one slot:
    (`state/trend/`, `hn_cache`), the listen digest only reads `hands.db`, and
    the X search is billed, so it is off by default, previews included
    (`inputs.skipped` says so).
-4. **Sampling** from a seed the run id gives (recorded): three lore lines to
-   reach for, three of `writer.md`'s before/after pairs to reread (always at
+4. **Sampling** from a seed the run id gives (recorded): three of `writer.md`'s before/after pairs to reread (always at
    least one in the unhinged register, `UNHINGED_PAIRS`), three of
    the scoreboard's best and two of its worst posts. One seed in four is an
    **explore** run: at least three pitches use a shape or a format the recent
@@ -1440,7 +1437,7 @@ ends the run); a run out of budget is recorded and exits 0.
 |---|---|---|
 | From the core | `SOUL.md`, `IDENTITY.md` (`omit_identity = false`); no recall | nothing (`omit_identity`, `omit_memory_context`) |
 | Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), ten before/after pairs and five on joining the news, most in the unhinged voice (`writer.md`, "the voice"), and the lines that do not move | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
-| Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters); `LORE.md`'s premise, cast and running bits | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is); `LORE.md`'s premise |
+| Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters) | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is) |
 | Left out | `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, the arcs, what it said lately: rules about what may be said, which the gates after the studio enforce on the one piece picked | the same, and every pitch's reasoning |
 | Temperature | 1.0 | 0.3 |
 

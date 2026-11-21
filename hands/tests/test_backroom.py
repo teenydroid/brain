@@ -78,14 +78,15 @@ class RoomTest(unittest.TestCase):
         self.assertEqual(len(got.transcript), 3)
         self.assertEqual(got.stopped_by, "instigator")
 
-    def test_the_real_prompts_carry_the_idea_the_format_and_the_lore(self):
+    def test_the_real_prompts_carry_the_idea_the_format_and_the_humor(self):
         r = room()
         for name in ("dreamer", "instigator", "distiller"):
             text = r.systems[name]
             self.assertNotIn("{idea}", text, name)
             self.assertNotIn("{lore}", text, name)
-            # LORE.md's premise, whatever it currently says, reaches every voice.
-            self.assertIn("### cast", text, name)
+            # There is no LORE.md any more; the humor's dark and power do.
+            self.assertNotIn("### cast", text, name)
+            self.assertIn("### gallows humor", text, name)
         self.assertIn("the idea on the table: rent", r.systems["dreamer"])
         self.assertIn("voiceover", r.systems["distiller"])
         self.assertIn("only death that is funny", r.systems["distiller"])
