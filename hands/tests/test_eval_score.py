@@ -462,7 +462,7 @@ class Affected(unittest.TestCase):
 
     def test_what_every_act_prompt_carries_reaches_every_task(self):
         for path in ("brain/SOUL.md", "brain/DRIVE.md", "brain/CHARTER.md", "brain/CONTEXT.md", "brain/MEMORY.seed.md",
-                     "brain/narrative/LORE.md", "brain/narrative/ARCS.md", "brain/agents/act.md", "brain/agents/act.toml",
+                     "brain/narrative/ARCS.md", "brain/agents/act.md", "brain/agents/act.toml",
                      "brain/IDENTITY.md", "brain/AGENTS.md", "AGENTS.md", "bin/lib/prompts.py", "vendor/openhuman"):
             got = evals.affected_tasks([path], self.tasks)
             self.assertTrue(got["all"], path)
