@@ -159,8 +159,8 @@ from studio_room import (  # noqa: E402,F401
     texts_of)
 from formats.skit import (  # noqa: E402,F401
     SKIT_BODY, SKIT_CUT_SECS, SKIT_EDITOR, SKIT_FINAL, SKIT_HELD, SKIT_PITCH, SKIT_PREMISE_MAX, SKIT_RESERVE_SECS,
-    SKIT_RULES, SKIT_SHAPE, SKIT_SHOT_MAX_SECS, SKIT_SLOT_LINE, SKIT_SLOT_OPENING, _make_skit, _skit_rules, skit_of,
-    skit_outcome, skit_screen)
+    SKIT_RULES, SKIT_SCRIPT_LIMIT, SKIT_SHAPE, SKIT_SHOT_MAX_SECS, SKIT_SLOT_LINE, SKIT_SLOT_OPENING, _make_skit,
+    _skit_rules, skit_budget, skit_of, skit_outcome, skit_over, skit_screen, skit_script_length)
 from formats.remake import (  # noqa: E402,F401
     REMAKE_BODY, REMAKE_CHARTS_MAX, REMAKE_DROP_SECS, REMAKE_EDITOR, REMAKE_FINAL, REMAKE_KEYS_SECS,
     REMAKE_KEYS_SPARE, REMAKE_MIN_SECS, REMAKE_PITCH, REMAKE_RULES, REMAKE_SHAPE, REMAKE_SLOT_LINE,
@@ -2631,7 +2631,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         raise Stop("skipped", "nothing happened to write from")
 
     # --- the pitches ---
-    thread = f"studio:{room.run_id}"
+    thread = room.writer_thread
     # The answer's shape is checked inside the turn, so an answer with no
     # pitches list is asked for once more, told why, like one that is not JSON.
     checked = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot,

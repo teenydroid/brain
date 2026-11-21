@@ -973,7 +973,12 @@ spent (the logline, the look, setting and score, every shot and the
 prompts the hand composes from them, the one-take script and each
 per-shot prompt, also past `hands/guard check` on the `task` surface; code's
 screen reads the same composed text, built by the same `guard/skit.py`
-functions the hand sends), and the viewer on the cut's frames after (a
+functions the hand sends; the `task` surface refuses a text over 1000
+characters, so the draft turn tells the writer the one-take budget,
+`skit_budget`, and a picked skit whose script is still over it is cut once by
+the writer, shaped and screened again, before the guard sees it, recorded as
+`shortened` with the lengths before and after; one still over is no video),
+and the viewer on the cut's frames after (a
 one-clip cut sampled evenly across its length, so every shot is seen). The label ("AI
 parody · @<X_BOT_USERNAME>") is set by the hand, burned in for the whole
 length by the reel front, and checked twice: the producer hands over no file

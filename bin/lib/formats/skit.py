@@ -7,6 +7,7 @@ answers to each of these names."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,75 @@ if TYPE_CHECKING:
 
 #: The repository (bin/lib/formats/skit.py is three below it).
 REPO = Path(__file__).resolve().parents[3]
+
+
+def _guard_lib() -> None:
+    lib = str(REPO / "hands" / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+
+
+def _skit_rules():
+    """The guard's skit module (hands/lib/teeny_hands/guard/skit.py): the
+    shape and the hard lines in code, the same code `hands/guard skit` runs."""
+    _guard_lib()
+    from teeny_hands.guard import skit as rules
+
+    return rules
+
+
+def _task_limit() -> int:
+    """The guard's hard cap on a text a machine is sent (the `task` surface,
+    hands/lib/teeny_hands/guard/gate.py LIMITS): what `hands/guard check`
+    refuses the one-take script over. A fence: read here, never raised."""
+    _guard_lib()
+    from teeny_hands.guard.gate import LIMITS
+
+    return LIMITS["task"]["text"]
+
+
+def _length(text: str) -> int:
+    """A text's length as the guard counts it (UTF-16 code units)."""
+    _guard_lib()
+    from teeny_hands.guard.style import post_length
+
+    return post_length(text)
+
+
+#: The longest shot the studio hands on, in seconds (`skit_of`). A longer
+#: `seconds` is cut to this, never refused: on kling-v3-pro a 6 s shot
+#: quoted $0.7215 (about $1.44 reserved, under MEDIA_SKIT_MAX_USD_PER_SHOT's
+#: $1.60) while an 8 s one needed $1.924 reserved, which
+#: hands/lib/teeny_hands/media/skits.py cancels, failing the whole skit to a
+#: text fallback; every other model is priced about the same (2026-11-20).
+SKIT_SHOT_MAX_SECS = 6
+#: The most the one-take script (and so each per-shot prompt, a part of it)
+#: may be: the guard's `task` cap. The live 23:00 slot of 2026-11-21 (run
+#: 20261121T173009Z-2300-c1f2f2) lost its skit to a 1569-character script,
+#: as had the 23:00 dry run of 2026-11-20: the writer was never told the cap.
+SKIT_SCRIPT_LIMIT = _task_limit()
+
+
+def _written(skit: Json) -> int:
+    """What the writer wrote of a skit's script: each figure's name and look,
+    the setting, the score and every shot's prompt."""
+    look = skit.get("look") or {}
+    return sum(_length(str(t)) for t in (*look.keys(), *look.values(), skit.get("setting") or "",
+                                         skit.get("score") or "",
+                                         *(s.get("prompt") or "" for s in skit.get("shots") or [])))
+
+
+def skit_budget(figures: int) -> int:
+    """The characters a skit of `figures` figures may spend on its names,
+    looks, setting, score and shot prompts together, so that its one-take
+    script fits the guard's cap in the most shots at the longest length: the
+    cap less what the script's own frame adds (its header, the "the same in
+    every shot" lines, each shot's time range)."""
+    rules = _skit_rules()
+    names = [f"f{n}" for n in range(max(1, figures))]
+    frame = {"figures": names, "look": {n: "x" for n in names}, "setting": "x", "score": "x",
+             "shots": [{"prompt": "x", "seconds": SKIT_SHOT_MAX_SECS} for _ in range(rules.MAX_SHOTS)]}
+    return SKIT_SCRIPT_LIMIT - (_length(rules.script(frame)) - _written(frame))
 
 
 # --- skits: a real story, a public figure in it, an impossible scene, on video --------
@@ -68,12 +138,18 @@ SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short 
              "they do, at most one short spoken line (about six words), and spot sound effects. No shot brings "
              "its own music: the score is the only music. One action a shot that fits its seconds. The video is "
              "where the money is: write the setting and each shot as a film director briefs a cinematographer, "
-             "in rich concrete words: the set (expensive, specific, absurd: a marble boardroom on the ocean "
+             "in rich concrete words, inside the one-take budget: the set (expensive, specific, absurd: a marble boardroom on the ocean "
              "floor, a gold-plated launch pad in a cathedral), the lens and the light (anamorphic wide, macro, "
              "dolly in, low angle, golden hour, neon rim light, film grain, shallow depth of field), the action "
              "and its visual gag, and the sound it makes. The shots escalate: the second is bigger than the "
              "first, the last is the most absurd, loud and lavish. The post's own words say what the story is "
-             "in a clause and frame the video as your parody, never as real footage")
+             "in a clause and frame the video as your parody, never as real footage. The one-take budget: the "
+             f"video model is sent one script of the whole film, and the guard refuses one over "
+             f"{SKIT_SCRIPT_LIMIT} characters, so the figures' names and `look`s, the `setting`, the `score` and "
+             f"every shot's `prompt` come to at most {skit_budget(1)} characters together with one figure "
+             f"({skit_budget(2)} with two, {skit_budget(3)} with three). Spend them on the impossible set, the "
+             "action and its gag, not on a list of lens words. A skit over it is sent back to you to cut once, and one still over is "
+             "no video")
 SKIT_RULES = (
     "The skit's own rules, on top of those (a skit is the one place a real person is staged, and only like this):\n"
     "- Only the public figure the story is about: the executive, the politician, the celebrity in the "
@@ -94,13 +170,6 @@ SKIT_RULES = (
 #: its cut may take on the reel service.
 SKIT_RESERVE_SECS = 600
 SKIT_CUT_SECS = 300
-#: The longest shot the studio hands on, in seconds (`skit_of`). A longer
-#: `seconds` is cut to this, never refused: on kling-v3-pro a 6 s shot
-#: quoted $0.7215 (about $1.44 reserved, under MEDIA_SKIT_MAX_USD_PER_SHOT's
-#: $1.60) while an 8 s one needed $1.924 reserved, which
-#: hands/lib/teeny_hands/media/skits.py cancels, failing the whole skit to a
-#: text fallback; every other model is priced about the same (2026-11-20).
-SKIT_SHOT_MAX_SECS = 6
 #: The longest premise kept (`skit_of`): one line.
 SKIT_PREMISE_MAX = 300
 #: What a skit holds as data across its whole film (`skit_of` requires them;
@@ -145,17 +214,6 @@ SKIT_SLOT_OPENING = ("This is a skit slot: the best skit is asked first, whereve
                      "worth a slot on X tonight?")
 
 
-def _skit_rules():
-    """The guard's skit module (hands/lib/teeny_hands/guard/skit.py): the
-    shape and the hard lines in code, the same code `hands/guard skit` runs."""
-    lib = str(REPO / "hands" / "lib")
-    if lib not in sys.path:
-        sys.path.insert(0, lib)
-    from teeny_hands.guard import skit as rules
-
-    return rules
-
-
 def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
     """A draft's `skit` as kept ({story, figures, premise, logline, shots,
     aspect}), and why it is unusable ("" when it is usable). The story is
@@ -195,6 +253,92 @@ def skit_screen(skit: Json, words: str, hook: Json | None) -> list[str]:
     return _skit_rules().screen(skit, words, hook)
 
 
+def skit_script_length(skit: Json) -> int:
+    """The longest text a video model would be told of SKIT, as the guard
+    counts it: the one-take script (each per-shot prompt is a part of it)."""
+    rules = _skit_rules()
+    return max(_length(t) for t in (rules.script(skit),
+                                    *(rules.shot_prompt(skit, n) for n in range(len(skit.get("shots") or [])))))
+
+
+def skit_over(skit: Json) -> str:
+    """Why SKIT's one-take script is too long for the guard, or ""."""
+    length = skit_script_length(skit)
+    if length <= SKIT_SCRIPT_LIMIT:
+        return ""
+    return (f"its one-take script is {length} characters, over the guard's {SKIT_SCRIPT_LIMIT}: the names, looks, "
+            f"setting, score and shots come to {_written(skit)}, and {skit_budget(len(skit.get('figures') or []))} "
+            "is the most they may")
+
+
+def skit_shorten_message(skit: Json, why: str) -> str:
+    """The writer's one cut of a skit whose one-take script is over the
+    guard's cap: the same film in fewer words (`run`'s shorten turn, for a
+    video)."""
+    budget = skit_budget(len(skit.get("figures") or []))
+    shown_ = {"figures": skit.get("figures") or [], "premise": skit.get("premise"), "logline": skit.get("logline"),
+              **{k: skit[k] for k in SKIT_HELD if skit.get(k)},
+              "shots": [{k: s[k] for k in ("prompt", "seconds") if k in s} for s in skit.get("shots") or []]}
+    return ("# studio: cut the skit to fit\n\nThe editor picked this skit, but it is too long to film: "
+            f"{why}. The video model is sent one script of the whole film and the guard refuses one over "
+            f"{SKIT_SCRIPT_LIMIT} characters, so nothing would be made. Cut it to fit: the figures' names and "
+            f"`look`s, the `setting`, the `score` and every shot's `prompt` together at most {budget} characters. "
+            "The same film: the same figures, premise and logline, the same beats in the same order, the "
+            "impossible thing still in frame in every shot, still rich concrete words; leave out what a "
+            "camera would not miss, never the gag. Three shots are enough. The skit's rules still hold.\n\n"
+            "```json\n" + json.dumps(shown_, ensure_ascii=False) + "\n```\n\n## your answer\n\nJSON only, no "
+            'prose and no code fence: {"skit": {"look": {"<each figure>": "..."}, "setting": "...", "score": '
+            '"...", "shots": [{"prompt": "...", "seconds": <3 to 6>}, ...]}}, or {"skip": "<why>"} when it '
+            "cannot be cut.")
+
+
+def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> Json | None:
+    """SKIT as it fits the guard's cap on the one-take script: itself when it
+    does; else the writer's one cut of it (`skit_shorten_message`), shaped
+    and screened as a first draft is; else None, with `note.failed` saying
+    why. What happened is `note.shortened`: the lengths before and after,
+    and whether the cut was kept."""
+    why = skit_over(skit)
+    if not why:
+        return skit
+    before = skit_script_length(skit)
+    log: Json = {"before": before, "kept": False}
+    note["shortened"] = log
+    failed = f"the skit's one-take script could not be made to fit: {why}"
+    if room.left() - 5 < room.cfg.turn_min_secs:
+        log["why"] = "no time left for the writer to cut it"
+        note["failed"] = failed
+        return None
+    answer = room.turn("writer", f"shorten skit {draft['id']}", skit_shorten_message(skit, why),
+                       room.writer_thread, soft=True)
+    cut = answer.get("skit") if isinstance(answer, dict) else None
+    if not isinstance(cut, dict):
+        log["why"] = (str(answer.get("skip") or "no cut")[:300] if isinstance(answer, dict)
+                      else "no usable answer, twice")
+        note["failed"] = failed
+        return None
+    raw = {**{k: skit.get(k) for k in ("figures", "premise", "logline", "aspect", *SKIT_HELD)},
+           **{k: cut[k] for k in (*SKIT_HELD, "shots") if k in cut}}
+    raw.setdefault("shots", skit.get("shots"))
+    again, bad = skit_of(raw, {"hook": skit.get("story")})
+    if not bad and (crossed := skit_screen(again, _words(draft), hook)):
+        bad = "the cut crosses a hard line: " + "; ".join(crossed)
+    if bad:
+        log["why"] = bad[:300]
+        note["failed"] = failed
+        return None
+    log["after"] = skit_script_length(again)
+    still = skit_over(again)
+    if still:
+        log["why"] = still
+        note["failed"] = f"the skit's one-take script could not be made to fit, even after one cut: {still}"
+        return None
+    log["kept"] = True
+    draft["skit"] = again
+    note["shots"] = len(again.get("shots") or [])
+    return again
+
+
 def _make_skit(room: "Room", draft: Json, note: Json) -> list[str] | None:
     skit = draft.get("skit") or {}
     shots = [s.get("prompt") for s in skit.get("shots") or [] if isinstance(s, dict)]
@@ -203,6 +347,13 @@ def _make_skit(room: "Room", draft: Json, note: Json) -> list[str] | None:
     if not shots or not skit.get("logline") or hook is None:
         note["failed"] = "the draft has no skit, or no story it stages"
         return None
+    # The guard refuses a one-take script over its `task` cap: one over it
+    # is cut once by the writer here, before the guard sees it, rather than
+    # the slot losing its video (the live 23:00 slot of 2026-11-21).
+    skit = _fit_skit(room, draft, skit, hook, note)
+    if skit is None:
+        return None
+    shots = [s.get("prompt") for s in skit.get("shots") or [] if isinstance(s, dict)]
     # Every word a video model is told is past the guard's screen and judge,
     # as a scene is (the `task` surface): the logline, each constant, each
     # shot, and the prompts hands/video composes from them (the one-take
