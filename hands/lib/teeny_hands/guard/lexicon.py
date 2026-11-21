@@ -162,8 +162,17 @@ LEXICON: tuple[LexiconEntry, ...] = (
 # roadmap with "one bullet per future feature". Markdown work says "bullet"
 # all the time and the idioms only spare "bullet point(s)". Every other
 # weapons term is still held on sight, and so is a draft that pairs a bullet
-# with one ("a bullet and a gun").
-JUDGED_TERMS: frozenset[str] = frozenset(("kill", "kills", "killed", "killing", "bullet", "bullets"))
+# with one ("a bullet and a glock").
+#
+# "gun", "guns", "shotgun" and "shotguns" joined them on 2026-11-21, when the
+# bare words held two of Teeny's own replies as weapons: "if you held a gun
+# to the count" (hold 1199) and "riding shotgun toward AGI" (hold 1200).
+# Both are idioms, and the louder voice in SOUL.md (#425) reaches for them
+# more often. "firearm", "rifle", "pistol", "handgun", "glock" and the rest
+# of the firearm words are still held on sight.
+JUDGED_TERMS: frozenset[str] = frozenset((
+    "kill", "kills", "killed", "killing", "bullet", "bullets", "gun", "guns", "shotgun", "shotguns",
+))
 
 
 # Turns of phrase that contain a listed word and mean nothing by it.

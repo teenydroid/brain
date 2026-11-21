@@ -159,11 +159,11 @@ class _Audit:
             if where != "branch":
                 found = _screen(text)
                 if found is not None:
-                    # A judged match (lexicon.JUDGED_TERMS: a bare kill or
-                    # bullet word) means nothing held on sight was in the
-                    # text; the guard sends that to its judge rather than
+                    # A judged match (lexicon.JUDGED_TERMS: a bare kill,
+                    # bullet or gun word) means nothing held on sight was in
+                    # the text; the guard sends that to its judge rather than
                     # holding it, and the babysitter has no judge, so it is a
-                    # note. "kill you", "gun" and the rest stay operator.
+                    # note. "kill you", "rifle" and the rest stay operator.
                     self.add("lexicon", "note" if found.judged else "operator", where, found.category)
 
     def _diff_severity(self, rule: str) -> str:
