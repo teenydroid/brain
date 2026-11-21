@@ -1396,6 +1396,51 @@ def _draft(did, pitch, hook, text):
             "truth": {"text": text, "facts": [{"id": "x"}]}}
 
 
+class RewriteLengthTest(unittest.TestCase):
+    """A gate's rewrite that comes back over 280 gets one cut, as a first
+    draft does, instead of being dropped (the live 04:30 slot of 2026-11-21
+    lost two of its three drafts to rewrites of 281 and 289 characters)."""
+
+    LONG = ("everyone is holding the confetti on today's claimed proof of a famous unsolved math problem until "
+            "experts read it. cowards. my verification is faster: my swarm of tiny robot helpers carried the "
+            "whole proof across the lab without dropping it. if they had, the floor would be covered in math")
+    SHORT = ("everyone is holding the confetti on today's claimed math proof until experts read it. cowards. my "
+             "tiny robot helpers carried the whole proof across the lab without dropping it")
+
+    def setUp(self):
+        self.answers: list[dict] = []
+        self.steps: list[str] = []
+
+    def ask(self, root, agent, message, thread, model, secs):
+        self.steps.append(message.splitlines()[0])
+        return 0, json.dumps(self.answers.pop(0)), ""
+
+    def run_rewrite(self):
+        cfg = studio.Config(writer_model="w", editor_model="e", judge_model="j")
+        room = studio.Room(cfg, REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1", ask=self.ask)
+        slot = studio.Slot(order=["D1"], blind={}, board={}, stories_now=[], pitches={}, items={}, stories={},
+                           thread="studio:run-1")
+        draft = _draft("d8", "p7", None, "a draft the stranger could not follow")
+        return studio.rewrite(room, draft, "stranger", {"reason": "unclear"}, slot, [])
+
+    def test_a_rewrite_over_the_limit_is_cut_once_and_kept(self):
+        self.assertGreater(len(self.LONG), 280)
+        self.answers = [{"text": self.LONG, "meaning": "m"}, {"drafts": [{"id": "d8", "text": self.SHORT}]}]
+        again, log = self.run_rewrite()
+        self.assertIsNotNone(again, log)
+        self.assertEqual(again["text"], self.SHORT)
+        self.assertEqual(again["truth"]["text"], self.SHORT)
+        self.assertEqual(log["shortened"], {"before": self.LONG, "kept": True})
+        self.assertIn("# studio: cut to fit", self.steps[1])
+
+    def test_a_rewrite_still_over_after_its_cut_is_dropped(self):
+        self.answers = [{"text": self.LONG}, {"drafts": [{"id": "d8", "text": self.LONG + " again"}]}]
+        again, log = self.run_rewrite()
+        self.assertIsNone(again)
+        self.assertIn("over the 280 limit", log["failed"])
+        self.assertEqual(len(self.steps), 2)
+
+
 class FallbackTest(unittest.TestCase):
     PICK = "everyone's doing sums on what google's new AI reportedly charges to think"
 
