@@ -417,6 +417,15 @@ class TickTest(unittest.TestCase):
         # A tag in somebody else's thread keeps the old cue and no block of its own.
         self.assertIn("Your response to @bo — or let it go.", message)
 
+    def test_tinys_own_address_is_never_a_ticker_spray_under_an_own_x_post(self):
+        # 2026-11-21: holders posting $TINY's own contract address went
+        # unanswered; "a contract or ticker spray" read as covering Teeny's own
+        # token. Only another token's contract or ticker is a spray.
+        text = _tick_module().X_OWN_THREAD
+        self.assertNotIn("a contract or ticker spray", text)
+        self.assertIn("a spray of another token's contract or ticker ($TINY's own address or ticker is never a spray)",
+                      text)
+
     def test_a_beat_with_no_comment_under_an_own_x_post_has_no_own_thread_block(self):
         self.x_ledgers().close()
         stimuli.add("x", "mention", "61", "look at this coin", who="bo", payload={"conversation_id": "70"})
