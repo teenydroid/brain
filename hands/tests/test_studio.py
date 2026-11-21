@@ -1453,6 +1453,16 @@ class NoHouseholdPropsTest(unittest.TestCase):
         self.assertTrue(lines)
         self.assertEqual([line for line in lines if self.PROPS.search(line)], [])
 
+    def test_the_lore_has_no_vague_mysteries(self):
+        # 2026-11-21: "remove anything vague": the lore is concrete and loud,
+        # never a line nobody mentions or a reveal about something else.
+        text = (REPO / "brain" / "narrative" / "LORE.md").read_text().lower()
+        for vague in ("nobody mentions", "neither of them mentions", "something else", "nobody typed",
+                      "polite about", "on good terms", "quietly", "seen only in parts", "sideways"):
+            self.assertNotIn(vague, text)
+        for loud in ("furious", "horny for", "declared war", "tantrum", "manifesto"):
+            self.assertIn(loud, text)
+
     def test_the_writer_and_editor_name_the_props_only_to_ban_them(self):
         for rel in ("agents/writer.md", "narrative/STUDIO-EDITOR.md", "narrative/LORE.md", "SOUL.md",
                     "skills/hooks/SKILL.md", "playbooks/peer-quote.md"):
