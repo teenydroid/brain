@@ -17,7 +17,7 @@ temperature = 0.0
 # tinyagents-runtime turn_driver/driver.rs CapPauser; tinyagents-harness
 # agent_loop/turn_control.rs settle_natural_finish). The second iteration only
 # absorbs that pause or an output-retry nudge. bin/lib/agent_check.py holds
-# every drafting agent to exactly 2 (NO_TOOLS_MAX_ITERATIONS).
+# this agent to exactly 2 (NO_TOOLS_MAX_ITERATIONS).
 max_iterations = 2
 sandbox_mode = "read_only"
 omit_identity = true

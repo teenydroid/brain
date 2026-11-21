@@ -77,5 +77,67 @@ class EvolverPostureTest(unittest.TestCase):
             agent_check.check(self.variant('    "file_read",', '    "*",'))
 
 
+class DraftingAgentIterationsTest(unittest.TestCase):
+    """The tool-less agents' max_iterations is exact, per agent. The mind and
+    act run at 3: a first call that reasons to its output cap and comes back
+    empty is retried as a second call, and at 2 the cap pause after that
+    retry fails the turn though it answered (the beat is lost). Every other
+    drafting agent stays at exactly 2. None of them may hold a tool or run
+    outside the read_only sandbox, whatever its count."""
+
+    def variant(self, name: str, old: str, new: str) -> Path:
+        text = (REPO / "brain" / "agents" / f"{name}.toml").read_text()
+        self.assertIn(old, text, name)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / f"{name}.toml"
+        path.write_text(text.replace(old, new, 1))
+        (path.parent / f"{name}.md").write_text("instructions\n")
+        return path
+
+    def refused(self, path: Path, *needles: str) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            agent_check.check(path)
+        for needle in needles:
+            self.assertIn(needle, str(caught.exception))
+
+    def test_the_mind_and_act_run_at_three(self):
+        for name in ("teeny", "act"):
+            self.assertEqual(agent_check.check(REPO / "brain" / "agents" / f"{name}.toml"), name)
+            self.assertIn("\nmax_iterations = 3\n", (REPO / "brain" / "agents" / f"{name}.toml").read_text(), name)
+
+    def test_every_other_drafting_agent_stays_at_two(self):
+        for name in agent_check.NO_TOOLS:
+            if name in ("teeny", "act"):
+                continue
+            path = REPO / "brain" / "agents" / f"{name}.toml"
+            self.assertEqual(agent_check.check(path), name)
+            self.assertIn("\nmax_iterations = 2\n", path.read_text(), name)
+
+    def test_the_mind_outside_three_is_refused(self):
+        for count in ("1", "2", "4", "8"):
+            self.refused(self.variant("teeny", "max_iterations = 3", f"max_iterations = {count}"),
+                         "max_iterations = 3")
+        self.refused(self.variant("teeny", "max_iterations = 3\n", ""), "max_iterations = 3")
+
+    def test_three_is_refused_for_a_drafting_agent_held_to_two(self):
+        for name in ("judge", "teeny-mentions"):
+            self.refused(self.variant(name, "max_iterations = 2", "max_iterations = 3"), "max_iterations = 2")
+
+    def test_the_mind_at_three_still_may_not_hold_a_tool(self):
+        self.refused(self.variant("teeny", "named = []", 'named = ["shell"]'), "no tools")
+        self.refused(self.variant("teeny", "named = []", 'named = ["*"]'), "no tools")
+
+    def test_the_mind_at_three_still_runs_read_only(self):
+        for mode in ("sandboxed", "none", "workspace_write"):
+            self.refused(self.variant("teeny", 'sandbox_mode = "read_only"', f'sandbox_mode = "{mode}"'),
+                         'sandbox_mode = "read_only"')
+        self.refused(self.variant("teeny", 'sandbox_mode = "read_only"\n', ""), 'sandbox_mode = "read_only"')
+
+    def test_a_drafting_agent_held_to_two_still_runs_read_only(self):
+        self.refused(self.variant("judge", 'sandbox_mode = "read_only"', 'sandbox_mode = "none"'),
+                     'sandbox_mode = "read_only"')
+
+
 if __name__ == "__main__":
     unittest.main()

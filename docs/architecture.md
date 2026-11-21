@@ -1488,7 +1488,10 @@ one model call and cannot loop. The vendored harness pauses a session turn
 when it reaches the cap, even after a final answer, so at 1 every turn came
 back "paused before completion" and was recorded as failed (gap G13). The
 second iteration only absorbs that pause. `agent_check.py` holds them to
-exactly 2 (`NO_TOOLS_MAX_ITERATIONS`).
+exactly 2 (`NO_TOOLS_MAX_ITERATIONS`), except the mind (`teeny`) and `act`,
+which run at exactly 3 (`MAX_ITERATIONS`): when a first call reasons to its
+output cap and comes back empty or truncated, the harness retries it with
+reasoning off, and at 2 the pause landed on that retry and lost the beat.
 
 ## 6. Triggers
 
