@@ -8,7 +8,8 @@ needs; exits non-zero with the reason otherwise:
 - every agent has an id and a when_to_use;
 - the drafting agents (NO_TOOLS) have no tools at all and never act on a
   schedule: they read text strangers wrote;
-- the drafting agents run at exactly NO_TOOLS_MAX_ITERATIONS (see there);
+- the drafting agents run read_only, at exactly their count in
+  MAX_ITERATIONS, else NO_TOOLS_MAX_ITERATIONS (see there);
 - the judge, reviewer and querier (MEMORYLESS) load no memory and no identity;
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
@@ -47,6 +48,16 @@ MEMORYLESS = ("judge", "reviewer", "querier", "editor")
 #: The second iteration only absorbs that pause (or an output-retry nudge).
 #: Drop to 1 once the harness stops pausing a finished turn.
 NO_TOOLS_MAX_ITERATIONS = 2
+#: The drafting agents whose first call has been seen to die: it reasons to
+#: its output cap and comes back empty or truncated, so the harness retries
+#: it as a second call with reasoning off (RunPolicy's call after a dead one,
+#: tinyagents-harness agent_loop/run_loop.rs). At 2 the cap pause then lands
+#: on that retry and the turn fails though it answered, and the beat is lost
+#: (12 of the mind's turns and 1 of act's in 12 hours on the box,
+#: 2026-11-21). The third iteration absorbs the pause after the retry. Each
+#: count is exact, like NO_TOOLS_MAX_ITERATIONS: a tool-less turn still
+#: cannot loop, and an agent not named here stays at 2.
+MAX_ITERATIONS = {"teeny": 3, "act": 3}
 #: Never in a scheduled agent: money, connectors, and any MCP server.
 NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 #: agent -> (tools it must have, tool name prefixes it must not have)
@@ -95,9 +106,13 @@ def check(path: Path) -> str:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
         if scheduled:
             raise SystemExit(f"the {agent} agent must not set scheduled_actions")
-        if doc.get("max_iterations") != NO_TOOLS_MAX_ITERATIONS:
-            raise SystemExit(f"the {agent} agent must set max_iterations = {NO_TOOLS_MAX_ITERATIONS} "
-                             "(1 trips the harness's cap pause on every turn; more is a loop it has no tools for)")
+        if doc.get("sandbox_mode") != "read_only":
+            raise SystemExit(f'the {agent} agent must set sandbox_mode = "read_only"')
+        iterations = MAX_ITERATIONS.get(agent, NO_TOOLS_MAX_ITERATIONS)
+        if doc.get("max_iterations") != iterations:
+            raise SystemExit(f"the {agent} agent must set max_iterations = {iterations} "
+                             "(fewer trips the harness's cap pause on a turn that answered; "
+                             "more is a loop it has no tools for)")
         if agent in MEMORYLESS and not (doc.get("omit_memory_context") is True and doc.get("omit_identity") is True):
             raise SystemExit(f"the {agent} agent must set omit_memory_context = true and omit_identity = true")
         return agent
