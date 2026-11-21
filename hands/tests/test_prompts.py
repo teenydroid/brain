@@ -596,6 +596,28 @@ class PromptsTest(unittest.TestCase):
             for phrase in seeding:
                 self.assertNotIn(phrase, text, f"{agent} says {phrase!r}")
 
+    def test_the_writers_licence_to_invent_stops_at_its_human(self):
+        # The licence to invent is Teeny's alone: its human is a real person,
+        # whose deeds come only from a fact, and the rule sits right after
+        # the licence (2026-11-21: three drafts in one slot gave him a deed).
+        text = self.studio_prompt("writer")
+        licence = text.index("**Everything else about you is yours to invent")
+        rule = text.index("**That licence is yours alone, never your human's.**")
+        self.assertLess(licence, rule)
+        self.assertLess(rule, text.index("**A stranger gets it alone.**"))
+        bullet = text[rule:text.index("\n", rule)].lower()
+        for words in ("the human who keeps your code is a real person", "unless a fact in the message says so",
+                      "only what that fact says", "take it from a fact or leave the human out"):
+            self.assertIn(words, bullet)
+        for deed in ("does", "says", "reads", "merges", "drinks", "refuses"):
+            self.assertRegex(bullet, rf"\b{deed}\b")
+        # The lab's cast in the background never includes the human.
+        self.assertIn("never your human", text[licence:rule])
+        # VOICE.md, which the writer reads too, keeps him to the facts.
+        voice = text[text.index("# teeny's voice"):]
+        self.assertIn("he is a real person", voice)
+        self.assertIn("never told as something that happened", voice)
+
     def test_the_writers_examples_carry_no_counts_or_names_from_teenys_workings(self):
         brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
         examples = brief[brief.index("## before and after"):brief.index("## your answer")]
