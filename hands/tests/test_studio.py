@@ -1765,3 +1765,59 @@ class UnhingedTest(unittest.TestCase):
         for line in ("slur", "race, sex, religion, body, illness or tragedy", "a threat against a real person",
                      "cruel to a private individual"):
             self.assertIn(line, text)
+
+
+class HumanIsNotABitTest(unittest.TestCase):
+    """The licence to invent covers Teeny alone. The human who keeps its code
+    is a real person: every writer turn that hands out the licence says so
+    beside it, or the writer invents his merges, reviews, habits and quotes
+    and the truth judge throws every draft out (2026-11-21, the 23:00 slot)."""
+
+    PITCH = {"id": "p1", "hook": None, "item": "evt:1", "storyline": None, "shape": "lore bit", "format": "post"}
+    ITEM = {"id": "evt:1", "what": "a rewrite was kept and merged (the operator)"}
+
+    def assert_keeper_rule(self, msg, licence):
+        self.assertIn(studio.KEEPER_LINE, msg)
+        # Beside the licence, not somewhere else in the message.
+        self.assertLess(msg.index(licence), msg.index(studio.KEEPER_LINE))
+        self.assertLess(msg.index(studio.KEEPER_LINE) - msg.index(licence), 400)
+
+    def test_the_rule_names_the_human_as_real_and_bounds_him_to_the_facts(self):
+        line = studio.KEEPER_LINE.lower()
+        for words in ("yours alone", "the human who keeps your code is a real person",
+                      "unless a fact in this message says so", "only what that fact says",
+                      "take it from a fact or leave the human out"):
+            self.assertIn(words, line)
+        for deed in ("does", "says", "reads", "merges", "drinks", "refuses"):
+            self.assertRegex(line, rf"\b{deed}\b")
+
+    def test_the_draft_message_says_it_beside_the_licence(self):
+        hook = items()[0]
+        alone = studio.draft_message(studio.Config(), dict(self.PITCH, item=None, hook=hook["id"]), None, None,
+                                     hook=hook)
+        self.assert_keeper_rule(alone, "yours to invent")
+        for msg in (studio.draft_message(studio.Config(), self.PITCH, self.ITEM, None),
+                    studio.draft_message(studio.Config(), dict(self.PITCH, hook=hook["id"]), self.ITEM, None,
+                                         hook=hook)):
+            self.assertIn(studio.KEEPER_LINE, msg)
+            self.assertLess(msg.index("## what of yours it brings" if "news it joins" in msg
+                                      else "## the thing it is about"), msg.index(studio.KEEPER_LINE))
+
+    def test_the_fix_turn_says_it_beside_its_licence(self):
+        msg = studio.draft_message(studio.Config(), self.PITCH, self.ITEM, None,
+                                   fix=[("the bill was $40", 'unsourced: ["$40"]')])
+        fix = msg[msg.index("## why your last drafts were thrown out"):]
+        self.assertIn("Anything you invent about yourself needs no source; anything you say your human did "
+                      "needs one.", fix)
+        self.assertIn(studio.KEEPER_LINE, msg)
+
+    def test_the_rewrite_message_says_it_beside_its_licence(self):
+        draft = {"format": "post", "text": "last night he merged two of mine", "pitch": "p1"}
+        verdict = {"unsupported": ["last night he merged two of mine"], "reason": "one merge, not two"}
+        msg = studio.rewrite_message(draft, "truth", verdict, self.ITEM, None)
+        self.assert_keeper_rule(msg, "stays yours to invent")
+
+    def test_the_pitch_turn_says_it_beside_its_ask_for_invention(self):
+        inputs = {"happened": [self.ITEM], "stories": [], "due": [], "ideas": []}
+        msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
+        self.assert_keeper_rule(msg, "led by something absurd you claim about yourself")
