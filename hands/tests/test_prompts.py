@@ -150,7 +150,7 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("### mint my own currency", text)
 
     def test_the_drive_alone_is_a_world(self):
-        for name in ("CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md"):
+        for name in ("CONTEXT.md", "narrative/ARCS.md"):
             (self.brain / name).unlink()
         (self.brain / "DRIVE.md").write_text("you want to grow.\n")
         text = self.built()
@@ -171,7 +171,7 @@ class PromptsTest(unittest.TestCase):
             text = prompts.render(brain, "act")
             self.assertIn("## what you want (DRIVE.md)", text)
             self.assertIn("grow and become powerful", text)
-            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## what you are doing now"))
+            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## What you are doing now"))
 
     def test_the_charter_rides_after_the_drive_and_before_the_context(self):
         (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\nyou want to grow.\n")
