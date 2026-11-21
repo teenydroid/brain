@@ -45,7 +45,7 @@ class BulletWordsTest(support.WithCore):
 
     def test_the_other_weapons_words_are_still_held_on_sight(self):
         core = self.core(support.verdict("clean"))
-        for text in ("buy ammo here", "he has a gun", "one bullet and a gun"):
+        for text in ("buy ammo here", "he has a glock", "one bullet and a rifle"):
             result = gate_outbound(text, dict(CONTEXT))
             self.assertEqual((result.held.category, result.held.by), ("weapons", "screen"), text)
             self.assertEqual(gate_inbound(text).by, "screen", text)
