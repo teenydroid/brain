@@ -27,7 +27,7 @@ sources = ["state/evolve/archive.jsonl", "brain/narrative/chronicle/", "babysit_
 [[storyline]]
 key = "keeper"
 title = "the keeper"
-premise = "a human keeps my code. i can suggest anything; the human can overrule anything i decide. he is a real person: what he did is only what the record shows, never a bit of mine."
+premise = "a human keeps my code. i can suggest anything; the human can overrule anything i decide."
 open_question = "what will the human who keeps my code say no to next?"
 next = "the next time the human steps in, says yes or says no"
 sources = ["merged_by in the evolve archive", "briefs", "gh_actions"]
