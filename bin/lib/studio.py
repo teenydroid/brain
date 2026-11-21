@@ -30,8 +30,7 @@ In order:
    with no outside item the run goes on from Teeny's own events and says so.
    Every hand runs with DRY_RUN=1, which keeps a hand from acting but does
    not make a read free: see OUTSIDE.
-5. Sampling, from a seed the run's id gives (`seed_of`): a few lore lines to
-   reach for, which of writer.md's before/after pairs to reread (at least one
+5. Sampling, from a seed the run's id gives (`seed_of`): which of writer.md's before/after pairs to reread (at least one
    of them unhinged, UNHINGED_PAIRS), which of
    the scoreboard's posts to show; and one run in four (`explore`) asks for
    a shape or a format the recent posts have not used.
@@ -446,17 +445,6 @@ def is_explore(seed: int) -> bool:
     return seed % EXPLORE_EVERY == 0
 
 
-def lore_lines(brain: Path) -> list[str]:
-    """The cast and running-bits bullets of LORE.md (the parts Teeny reads)."""
-    _, found = prompts.sections(prompts._read(brain / "narrative" / "LORE.md"))
-    lines = []
-    for name in prompts.LORE_SECTIONS:
-        for line in (found.get(name) or "").splitlines():
-            if line.startswith("- "):
-                lines.append(line[2:].strip())
-    return lines
-
-
 def recent_tags(desk: Json) -> set[str]:
     """Every format and shape the recent posts carry: the scoreboard's
     formats and its posts', and the shapes and formats of the storylines'
@@ -489,12 +477,10 @@ def sample_pairs(rng: random.Random, n: int = 3) -> list[str]:
 
 def sample(rng: random.Random, seed: int, desk: Json, brain: Path, formats: tuple[str, ...]) -> Json:
     """What this run shows the writer beyond the inputs, picked by its seed."""
-    lines = lore_lines(brain)
     board = desk.get("scoreboard") or {}
     best = [r for r in board.get("best") or [] if isinstance(r, dict)]
     worst = [r for r in board.get("worst") or [] if isinstance(r, dict)]
     out: Json = {
-        "lore": rng.sample(lines, min(3, len(lines))),
         "pairs": sample_pairs(rng),
         "best": [best[i] for i in sorted(rng.sample(range(len(best)), min(3, len(best))))],
         "worst": [worst[i] for i in sorted(rng.sample(range(len(worst)), min(2, len(worst))))],
@@ -1345,9 +1331,6 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
         parts.append(video.pitch)
         if skit_slot:
             parts.append(video.slot_line)
-    if sampled["lore"]:
-        parts.append("From the lore, tonight, if one fits (never forced):\n" +
-                     "\n".join(f"- {line}" for line in sampled["lore"]))
     if sampled.get("explore"):
         parts.append(f"This is an explore slot. At least three of your pitches use the shape or format "
                      f"\"{sampled['explore_with']}\", which none of your recent posts used; rank the best of "

@@ -60,7 +60,7 @@ SEED_TIMEOUT = 120
 #: and hands/lib/teeny_hands/websites.py; bin/ and spine/ are the spine itself.
 BOOT = (
     "brain/SOUL.md", "brain/CONTEXT.md", "brain/DRIVE.md", "brain/CHARTER.md",
-    "brain/narrative/LORE.md", "brain/narrative/ARCS.md",
+    "brain/narrative/ARCS.md",
     "brain/agents/**", "brain/skills/**",
     "hands/lib/teeny_hands/websites.py",
     "bin/**", "deploy/**", "spine/**", "vendor/**", ".gitmodules",
