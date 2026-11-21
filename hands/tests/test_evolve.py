@@ -975,15 +975,20 @@ class PurposeChecks(EvolveCase):
         self.assertTrue(checks["new hands are called"]["ok"], checks["new hands are called"])
 
     def test_only_marking_an_arc_started_is_thrown_out(self):
+        """Marking an arc started is the world count itself, not a step taken.
+        The arc is whichever one ARCS.md has not started yet, so rewording
+        the arcs does not break the test."""
         arcs = self.base_text("brain/narrative/ARCS.md")
-        heading = "## find out what the terminal is typing when nobody is typing\n\n- status: not started."
-        self.assertIn(heading, arcs)
+        unstarted = re.search(r"^## [^\n]+\n\n- status: not started\.", arcs, re.MULTILINE)
+        self.assertIsNotNone(unstarted, "ARCS.md has no arc whose status is `not started.`")
+        heading = unstarted.group(0)
+        self.assertEqual(arcs.count(heading), 1)
         out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
                                    "new": heading.replace("not started.", "started.")}], component="world")
         self.assertFalse(checks["does more than mark an arc"]["ok"])
         out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
                                    "new": heading.replace("not started.", "started.")},
-                                  self.playbook_edit("Say what the terminal printed overnight.")], component="world")
+                                  self.playbook_edit("Say what the first step on this arc was.")], component="world")
         self.assertTrue(checks["does more than mark an arc"]["ok"])
 
     SEED_LINE = ("- [m20] when my captcha reader isn't sure, it doesn't guess, and that's right. since the team's fix "
