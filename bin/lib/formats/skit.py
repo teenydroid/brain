@@ -21,6 +21,68 @@ if TYPE_CHECKING:
 REPO = Path(__file__).resolve().parents[3]
 
 
+def _guard_lib() -> None:
+    lib = str(REPO / "hands" / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+
+
+def _skit_rules():
+    """The guard's skit module (hands/lib/teeny_hands/guard/skit.py): the
+    shape and the hard lines in code, the same code `hands/guard skit` runs."""
+    _guard_lib()
+    from teeny_hands.guard import skit as rules
+
+    return rules
+
+
+def _task_limit() -> int:
+    """The guard's hard cap on a text a machine is sent (the `task` surface,
+    hands/lib/teeny_hands/guard/gate.py LIMITS): what `hands/guard check`
+    refuses the one-take script over. A fence: read here, never raised."""
+    _guard_lib()
+    from teeny_hands.guard.gate import LIMITS
+
+    return LIMITS["task"]["text"]
+
+
+def _length(text: str) -> int:
+    """A text's length as the guard counts it (UTF-16 code units)."""
+    _guard_lib()
+    from teeny_hands.guard.style import post_length
+
+    return post_length(text)
+
+
+#: The most the one-take script (and so each per-shot prompt, a part of it)
+#: may be: the guard's `task` cap. The live 23:00 slot of 2026-11-21 (run
+#: 20261121T173009Z-2300-c1f2f2) lost its skit to a 1569-character script,
+#: as had the 23:00 dry run of 2026-11-20: the writer was never told the cap.
+SKIT_SCRIPT_LIMIT = _task_limit()
+
+
+def _written(skit: Json) -> int:
+    """What the writer wrote of a skit's script: each figure's name and look,
+    the setting, the score and every shot's prompt."""
+    look = skit.get("look") or {}
+    return sum(_length(str(t)) for t in (*look.keys(), *look.values(), skit.get("setting") or "",
+                                         skit.get("score") or "",
+                                         *(s.get("prompt") or "" for s in skit.get("shots") or [])))
+
+
+def skit_budget(figures: int) -> int:
+    """The characters a skit of `figures` figures may spend on its names,
+    looks, setting, score and shot prompts together, so that its one-take
+    script fits the guard's cap in the most shots at the longest length: the
+    cap less what the script's own frame adds (its header, the "the same in
+    every shot" lines, each shot's time range)."""
+    rules = _skit_rules()
+    names = [f"f{n}" for n in range(max(1, figures))]
+    frame = {"figures": names, "look": {n: "x" for n in names}, "setting": "x", "score": "x",
+             "shots": [{"prompt": "x", "seconds": SKIT_SHOT_MAX_SECS} for _ in range(rules.MAX_SHOTS)]}
+    return SKIT_SCRIPT_LIMIT - (_length(rules.script(frame)) - _written(frame))
+
+
 # --- skits: a real story, a public figure in it, an impossible scene, on video --------
 # (hands/video skit, cut and labelled on the reel service; docs/architecture.md,
 # "The studio"). Off unless STUDIO_FORMATS names skit, and hands/video refuses
@@ -143,17 +205,6 @@ SKIT_FINAL = ("Taste alone is not a none for a skit: \"the pun is thin\", \"the 
 #: The slot question's opening on a skit asked first because it is a skit slot.
 SKIT_SLOT_OPENING = ("This is a skit slot: the best skit is asked first, wherever the comparisons ranked it. Is it "
                      "worth a slot on X tonight?")
-
-
-def _skit_rules():
-    """The guard's skit module (hands/lib/teeny_hands/guard/skit.py): the
-    shape and the hard lines in code, the same code `hands/guard skit` runs."""
-    lib = str(REPO / "hands" / "lib")
-    if lib not in sys.path:
-        sys.path.insert(0, lib)
-    from teeny_hands.guard import skit as rules
-
-    return rules
 
 
 def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
