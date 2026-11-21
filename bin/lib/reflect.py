@@ -560,7 +560,7 @@ _LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded}
 _CROWDED = (" That is close: retire what no longer matters, and merge items that say the same thing"
             " (edit one, retire the others with the reason \"merged into mN\").")
 
-_LORE = """This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing."""
+_LORE = """When the day moved past something (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds from then on. Do not retell your origin: you were born once, and saying so again adds nothing."""
 
 
 _LAB_OPS = ('{"op": "experiment", "surface": "x|moltbook", "hypothesis": "<your guess, one line>", '

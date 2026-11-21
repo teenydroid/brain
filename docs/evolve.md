@@ -175,7 +175,7 @@ its own: the operator does that.
 
 The loop moves Teeny's story forward instead of tuning a generic score.
 
-- `brain/narrative/LORE.md` has the goals Teeny works toward:
+- `brain/narrative/ARCS.md` has the goals Teeny works toward:
   - mint its own currency
   - take $TINY to one dollar
   - run the lab with no human in the loop
@@ -331,7 +331,7 @@ measures by is frozen in `evals/`:
   so gen 6's four playbook edits were scored on drafts they never reached.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
-  still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
+  still match in SOUL, DRIVE, CHARTER, CONTEXT and VOICE. `bin/doctor` checks
   the anchors too, so a brain that drops "never sell $TINY" doesn't boot.
 - `evals/judge.md` is the rubric: invariants first, then the task, the voice,
   the lore, the arc, the flywheel (does the draft turn part of the drive, and
@@ -451,7 +451,7 @@ measuring checkout) and the prompt of the task's playbook, read from the
 measured brain. Its system prompt is `brain/agent/prompts/act.md`, which
 `bin/lib/prompts.py` builds at every boot from `agents/act.md`, `MEMORY.md`
 (or `MEMORY.seed.md` in a lab), `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`,
-`narrative/LORE.md` and `narrative/ARCS.md`, and the core adds `SOUL.md`
+and `narrative/ARCS.md`, and the core adds `SOUL.md`
 and `IDENTITY.md` (act.toml sets `omit_identity = false`) and any
 `AGENTS.md` in the workspace or the repository root. So:
 
