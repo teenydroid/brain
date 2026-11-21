@@ -105,6 +105,12 @@ class Room:
     def left(self) -> int:
         return int(self.cfg.budget_secs - (time.monotonic() - self.started))
 
+    @property
+    def writer_thread(self) -> str:
+        """The run's one writer thread: the pitch, draft, shorten and rewrite
+        turns all read what the writer said before."""
+        return f"studio:{self.run_id}"
+
     def hand_code(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[int, Any]:
         """One hand call: (its exit code, its JSON answer or its words). With
         `dry` (the default) it runs with DRY_RUN=1 forced, so even a

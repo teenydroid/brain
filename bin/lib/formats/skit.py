@@ -313,8 +313,8 @@ def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> 
                        room.writer_thread, soft=True)
     cut = answer.get("skit") if isinstance(answer, dict) else None
     if not isinstance(cut, dict):
-        log["why"] = (_brief(answer, "skip").get("skip") or "no cut") if isinstance(answer, dict) else \
-            "no usable answer, twice"
+        log["why"] = (str(answer.get("skip") or "no cut")[:300] if isinstance(answer, dict)
+                      else "no usable answer, twice")
         note["failed"] = failed
         return None
     raw = {**{k: skit.get(k) for k in ("figures", "premise", "logline", "aspect", *SKIT_HELD)},
