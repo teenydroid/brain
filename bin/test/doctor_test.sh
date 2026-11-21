@@ -288,14 +288,31 @@ fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
 # A drafting agent's turn is one model call, but the harness pauses a session
 # turn at max_iterations even after a final answer: at 1 every turn is
-# recorded as failed. 2 absorbs that pause; more is a loop it cannot use.
-fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 1/' "$root/brain/agents/teeny.toml"
+# recorded as failed. 2 absorbs that pause; more is a loop it cannot use. The
+# mind and act run at exactly 3: a first call that reasons to its output cap
+# and comes back empty is retried, and at 2 the pause after that retry fails
+# the turn.
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 1/' "$root/brain/agents/teeny.toml"
 fails "fails a drafting agent at max_iterations = 1 (the cap pause fails every turn)" "agent teeny.toml"
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 2/' "$root/brain/agents/teeny.toml"
+fails "fails the mind at max_iterations = 2 (a retried empty answer is paused and lost)" "agent teeny.toml"
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 4/' "$root/brain/agents/act.toml"
+fails "fails act given more iterations than a retry needs" "agent act.toml"
 fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 8/' "$root/brain/agents/judge.toml"
 fails "fails a drafting agent given more iterations than it can use" "agent judge.toml"
+fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 3/' "$root/brain/agents/teeny-mentions.toml"
+fails "fails a drafting agent held to 2 that was given 3" "agent teeny-mentions.toml"
 fresh; perl -ni -e 'print unless /^max_iterations/' "$root/brain/agents/act.toml"
 fails "fails a drafting agent that leaves max_iterations to the default" "agent act.toml"
-for a in teeny act judge reviewer querier teeny-mentions teeny-mail; do
+fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny.toml"
+fails "fails the mind at 3 iterations that was given a tool" "agent teeny.toml"
+fresh; sed -i.bak 's/^sandbox_mode = "read_only"$/sandbox_mode = "none"/' "$root/brain/agents/teeny.toml"
+fails "fails the mind outside the read_only sandbox" "agent teeny.toml"
+for a in teeny act; do
+  check "the $a agent says why it runs at max_iterations = 3" \
+    bash -c "grep -q '^max_iterations = 3$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
+done
+for a in judge reviewer querier teeny-mentions teeny-mail; do
   check "the $a agent says why it runs at max_iterations = 2" \
     bash -c "grep -q '^max_iterations = 2$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
 done
