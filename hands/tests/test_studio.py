@@ -443,6 +443,54 @@ class RunTest(unittest.TestCase):
         self.assertNotEqual(finals[0], finals[1])
         self.assertIn("could not be used", finals[1])
 
+    def shaped(self, step, bad, times):
+        """The scripted core, with STEP's first TIMES answers replaced by BAD:
+        valid JSON of the wrong shape. Every message asked is kept."""
+        ask, _ = self.script()
+        messages = []
+
+        def wrapped(root, agent, message, thread, model, secs):
+            messages.append(message)
+            if message.startswith(step) and sum(m.startswith(step) for m in messages) <= times:
+                return 0, json.dumps(bad), ""
+            return ask(root, agent, message, thread, model, secs)
+        return wrapped, messages
+
+    def test_a_pitch_answer_without_pitches_is_asked_for_again(self):
+        # The live 15:00 IST slot of 2026-11-21 answered a JSON object with no
+        # pitches list, and the run failed on that first answer.
+        ask, messages = self.shaped("# studio: pitch", {"angles": ["a"]}, 1)
+        code, out = self.go(ask)
+        rec = self.record()
+        self.assertEqual(out["outcome"], "picked")
+        self.assertEqual([p["id"] for p in rec["pitches"]], ["p1"])
+        pitches = [m for m in messages if m.startswith("# studio: pitch")]
+        self.assertEqual(len(pitches), 2)
+        self.assertIn("could not be used", pitches[1])
+        self.assertIn("no pitches list", pitches[1])
+        first = [c for c in rec["calls"]["turns"] if c["step"] == "pitch"][0]
+        self.assertIn("no pitches list", first["unusable"])
+        self.assertIn("angles", first["answer"])
+
+    def test_two_pitch_answers_without_pitches_fail_on_the_pitch_answer(self):
+        ask, messages = self.shaped("# studio: pitch", {"angles": ["a"]}, 2)
+        code, out = self.go(ask)
+        rec = self.record()
+        self.assertEqual((out["outcome"], code, rec["failure"]), ("failed", 1, "studio"))
+        self.assertIn("the pitch answer has no pitches", rec["reason"])
+        turns = [c for c in rec["calls"]["turns"] if c["step"] == "pitch"]
+        self.assertEqual([c["attempt"] for c in turns], [1, 2])
+        self.assertTrue(all("angles" in c["answer"] and c["unusable"] for c in turns))
+
+    def test_a_draft_answer_without_drafts_is_asked_for_again(self):
+        ask, messages = self.shaped("# studio: draft", {"text": "one draft, not a list"}, 1)
+        code, out = self.go(ask)
+        rec = self.record()
+        self.assertEqual(len(rec["drafts"]), 3)
+        drafts = [m for m in messages if m.startswith("# studio: draft")]
+        self.assertEqual(len(drafts), 2)
+        self.assertIn("no drafts list", drafts[1])
+
     def test_progress_survives_a_provider_failure_mid_run(self):
         ask, _ = self.script(fail_at="# studio: the slot")
         code, out = self.go(ask)
