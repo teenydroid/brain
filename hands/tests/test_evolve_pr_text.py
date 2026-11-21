@@ -43,7 +43,7 @@ CHANGE_363 = paragraphs(363)[6]
 PLAN_363 = paragraphs(363)[10].removeprefix("> ")
 #: Words the guard holds on sight (not judged): what still reaches the
 #: operator after #365, and what a reword is for.
-HARD_HYP = "the change: hold a gun to the stale job's head, so a refused comment says why."
+HARD_HYP = "the change: hold a pistol to the stale job's head, so a refused comment says why."
 HARD_PLAN = "add one line to the playbook: a firearm-free way to say the cap refused it."
 
 

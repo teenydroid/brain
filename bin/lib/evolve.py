@@ -5551,7 +5551,7 @@ def pr_screen(text: str) -> Any:
 
 def pr_held(text: str) -> Any:
     """A match the guard holds on sight, or None. A `judged` match (a bare
-    kill or bullet word, lexicon.JUDGED_TERMS) is one the guard sends to its
+    kill, bullet or gun word, lexicon.JUDGED_TERMS) is one the guard sends to its
     judge rather than holding, and the babysitter reads it as a note, not a
     finding for the operator (#365): it is no reason to reword."""
     hit = pr_screen(text)

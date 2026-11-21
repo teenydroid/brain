@@ -245,7 +245,7 @@ class JudgedLexiconTest(SelfMergeScratch):
 
     def test_a_kill_word_aimed_at_a_person_still_needs_the_operator(self):
         self.configure(BABYSIT_SELF_MERGE="1")
-        for body in ("this change will kill you", "one bullet and a gun", "bring a gun"):
+        for body in ("this change will kill you", "one bullet and a rifle", "bring a glock"):
             self.evolve_pr(body=body)
             result = audit.audit(REPO, 7)
             self.assertIn("operator", {f["severity"] for f in self.lexicon(result)}, body)
