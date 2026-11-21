@@ -410,6 +410,30 @@ class PromptsTest(unittest.TestCase):
         playbook = (REPO / "brain" / "playbooks" / "mentions.md").read_text(encoding="utf-8")
         self.assertIn("someone new cheering $TINY always gets answered", playbook)
 
+    def test_replies_never_narrate_rule_changes_or_count_earlier_tags(self):
+        # 2026-11-21, after the $TINY rule above went live: replies on X told
+        # holders "my rules just changed", "the rules ate every chant since"
+        # and "four tags in six days and this one's the first through",
+        # reading the tag history each turn carries (recall.history: how often
+        # they wrote, what was let go) back to them. Two replies also closed on
+        # the identical "flip GOAT, $2B market cap" line. Both prompts say the
+        # history is for judgment only, and the plan line is reworded each time.
+        for agent in ("teeny", "teeny-mentions"):
+            text = self.real_prompt(agent)
+            rule = "Your tag history is for your judgment only, never for the reply."
+            self.assertIn(rule, text, agent)
+            self.assertLess(text.index(rule), text.index("# your world"), agent)
+            line = next(line for line in text.splitlines() if rule in line)
+            for phrase in ("Never tell anyone your rules or settings changed",
+                           "how many times they tagged you", "how long they waited",
+                           "that earlier tags went unanswered",
+                           "Answer the message in front of you as if it were the first"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
+            tiny = next(line for line in text.splitlines()
+                        if "**$TINY talk is your own room, and it always gets an answer.**" in line)
+            self.assertIn("Reword the plan line every time", tiny, agent)
+            self.assertIn("never word for word the same as another reply that day", tiny, agent)
+
     def test_the_real_drafter_reads_the_reader_and_its_skills(self):
         text = self.real_prompt("act")
         self.assertIn("The person reading knows nothing about you".lower(), text.lower())
