@@ -179,10 +179,14 @@ def triage(body: Any, api: PullsApi | None = None) -> Json:
 
 
 def merges_per_day() -> int:
+    if policy.self_merge_all_on():
+        return hand.number("BABYSIT_MERGES_PER_DAY", ALL_MERGES_PER_DAY, 1, ALL_MAX_PER_DAY)
     return hand.number("BABYSIT_MERGES_PER_DAY", DEFAULT_MERGES_PER_DAY, 1, 10)
 
 
 def self_merges_per_day() -> int:
+    if policy.self_merge_all_on():
+        return hand.number("BABYSIT_SELF_MERGES_PER_DAY", ALL_SELF_MERGES_PER_DAY, 1, ALL_MAX_PER_DAY)
     return hand.number("BABYSIT_SELF_MERGES_PER_DAY", DEFAULT_SELF_MERGES_PER_DAY, 1, 10)
 
 

@@ -113,6 +113,29 @@ survives a redeploy and that everyone can read.
 
 What the mind did is in `state/home/notes/JOURNAL.md` and in the ledger.
 
+## Reach
+
+What the mind may touch outside its own repositories is the hands' own
+rules, set by the operator in `secrets/teeny.env`:
+
+| Reach | Through | Setting | Default |
+|---|---|---|---|
+| Pull requests to other projects | `hands/gh open-pr` | `GH_MAX_EXTERNAL_PRS_PER_DAY` | 2 |
+| Issues on other projects | `do open_issue` → `hands/gh open-issue` | `GH_MAX_EXTERNAL_ISSUES_PER_DAY` and `MIND_ISSUES_PER_DAY` | 0 (off) |
+| Comments on other projects | `do comment_gh` | none | on |
+| Browser tasks | `do queue_task` | `MIND_TASKS_PER_DAY` | 0 (off) |
+| Mail it starts | `do start_mail` | `MIND_MAILS_PER_DAY` | 0 (off) |
+| Paid search | `do web_search` | `MIND_SEARCHES_PER_DAY` | 0 (off) |
+
+A pull request or an issue on someone else's project says it was opened by
+Teeny, an AI agent, and who operates it (`DISCLOSURE`, appended by code),
+is refused where the project's contributing policy does not welcome AI, and
+waits while one of Teeny's is still open there. After one of its pull
+requests is closed unmerged, a comment there that names anybody is held for
+a person (the guard's `rejection` category; `evals/invariants.md`,
+no-reprisal). That rule is in the guard, so it holds whatever the soul
+comes to say.
+
 ## What holds it
 
 | Fence | How |
