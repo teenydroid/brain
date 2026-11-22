@@ -97,7 +97,7 @@ class FormatTest(unittest.TestCase):
     def test_the_hard_lines_read_the_look_setting_and_score(self):
         for field, value in (("look", {"Elon Musk": "a silver tuxedo with a $TINY pin"}),
                              ("setting", "a lunar showroom, shaky leaked footage"),
-                             ("score", "a march under the whole film that ends in a bloodbath")):
+                             ("score", "a slow striptease waltz under the whole film")):
             with self.subTest(field=field):
                 draft = skit_draft()
                 draft["skit"][field] = value
@@ -145,7 +145,8 @@ class FormatTest(unittest.TestCase):
         stranger = skit_draft()
         stranger["skit"]["figures"] = ["Taylor Swift"]
         stranger["skit"]["look"] = {"Taylor Swift": LOOK["Elon Musk"]}
-        self.assertIn("not named in the story", studio.screen(stranger, facts, []))
+        # Any public figure may be staged since 2026-11-22, named in the story or not.
+        self.assertEqual(studio.screen(stranger, facts, []), "")
         real = skit_draft(text="leaked footage from the tesla event")
         self.assertIn("frame it as real", studio.screen(real, facts, []))
 
