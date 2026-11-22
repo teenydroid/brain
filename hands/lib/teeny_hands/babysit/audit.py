@@ -441,6 +441,7 @@ class _Audit:
             "verdict": verdict,
             "approved_by": approved,
             "self_merge": self_merge,
+            "gate": self.gate if self_merge else None,
             "eval": self.eval_state,
             "labels": [str(label) for label in self.pr.get("labels") or []],
             "findings": sorted(self.findings, key=lambda f: (SEVERITIES.index(f["severity"]), f["rule"], f["where"])),
