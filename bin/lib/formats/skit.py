@@ -118,8 +118,8 @@ SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the pu
               'the same in every shot>"}, "setting": "<one line: the one place, its light, the lens and the film '
               'look>", "score": "<one line: the one piece of music or sound bed under the whole film>", '
               '"shots": [{"prompt": "<one shot: the framing, the figure\'s full name and the one thing they do, '
-              'at most one short spoken line in quotes, spot sound effects; never the look, the setting or any '
-              'music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
+              'what reacts to it, at most one short spoken line in quotes, the sound of each; the last shot ends '
+              'on a held still image; never the look, the setting or any music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
               'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
 SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of three or four shots "
              "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
