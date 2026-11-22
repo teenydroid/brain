@@ -30,7 +30,7 @@ manages, projects it picks, skills it writes for itself.
 | Home | `state/home/`: the only folder its shell and file tools can write |
 | Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/` |
 | Skills | `skills/`: scripts and notes it writes for itself |
-| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory` |
+| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
 | Keys | none |
 | Prompt | `brain/agents/mind.md`, which is Teeny's own to change |
@@ -139,6 +139,28 @@ on the paths that change touched for a day. While `main` is still that
 deploy it also opens the revert itself: a pull request `teeny/revert-N-<sha>`
 that puts back the tree the box ran before. That pull request touches the
 held paths, so it waits for the operator like any other change to them.
+
+## Helpers
+
+The mind can hand a piece of work to a helper and carry on: `spawn_subagent`
+with `agent_id` `worker` and a prompt. The worker
+(`brain/agents/worker.toml`, prompt `worker.md`) has the mind's shell and
+file tools and nothing else: no memory, no helpers of its own, nothing that
+schedules, browses or spends. The mind's run waits for its workers before
+it ends, and the run's 30 minutes cover all of them.
+
+It is held exactly as the mind is. The core runs a spawned agent in its
+parent's workspace with its parent's file tools, so the worker's shell is
+jailed to `state/home/`, and it acts on the world only through `bin/teeny`.
+The core lets a child of a cron run use acting tools only when the child's
+own definition opts in (`scheduled_actions`), is sandboxed and names its
+tools, and only one level down: a worker's own child, if it could have one,
+would be read-only. `bin/doctor` refuses a worker with a workspace of its
+own, a wildcard, or any tool the mind lacks, and refuses `[subagents]` on
+any agent but the mind.
+
+Several workers write the same home at once and nothing locks it, so the
+mind's prompt has it give each one its own folder to write.
 
 ## Its own tools
 
@@ -289,5 +311,4 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   (`home/tools/`); a hand that holds a key does not. Lifting that means
   moving every key behind a proxy that runs the guard, so that a hand
   asks for a send instead of making it.
-- **Sub-agents and a browser of its own.** A child of a cron run is
-  read-only in the core today; browsing goes through `do queue_task`.
+- **A browser of its own.** Browsing goes through `do queue_task`.
