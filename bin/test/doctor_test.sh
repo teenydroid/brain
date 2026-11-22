@@ -77,6 +77,14 @@ check "a green run after it passes" doctor
 check "and overwrites doctor.json" test "$(jq -r .ok "$root/state/doctor.json")" = true
 check "but the red record is still there" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 1
 check "and keeps no detail, only names" jq -e -s '.[0].checks | all(.[]; keys == ["check", "status"])' "$root/state/doctor-failures.jsonl"
+check "the history lock and temp files are gone after a run" \
+  test -z "$(find "$root/state" -maxdepth 1 \( -name 'doctor-failures.lock' -o -name 'doctor-failures.??????' \))"
+mkdir "$root/state/doctor-failures.lock"
+touch -d '5 minutes ago' "$root/state/doctor-failures.lock"
+rm "$root/brain/SOUL.md"
+doctor || true
+cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+check "a stale lock is broken, not waited on forever" test ! -e "$root/state/doctor-failures.lock"
 for _ in $(seq 1 60); do
   printf '{"at":"2026-01-01T00:00:00Z","commit":"x","checks":[]}\n' >>"$root/state/doctor-failures.jsonl"
 done

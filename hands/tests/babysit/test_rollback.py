@@ -274,6 +274,15 @@ class FailClosedTest(RollbackScratch):
         self.assertEqual(len(self.rows("deploy_bad")), 1)
         self.assertNotIn("recently_rolled_back", self.rules(self.candidate()))
 
+    def test_a_judgement_that_keeps_failing_still_holds_after_two_windows(self):
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(3 * WINDOW)
+        self.assertEqual(self.rows("deploy_bad"), [])
+        self.assertIn("recently_rolled_back", self.rules(self.candidate()))
+        self.at(rollback.ROLLBACK_BLOCK_HOURS * 3600 + 600)
+        self.assertNotIn("recently_rolled_back", self.rules(self.candidate()))
+
     def test_a_healthy_unjudged_deploy_holds_nothing(self):
         self.deployed()
         self.doctor(30)
