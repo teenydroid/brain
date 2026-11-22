@@ -14,7 +14,7 @@ clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
 one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
 on the eval tasks it reaches on lab spines of its own, and each one that
 passes opened as its own pull request, which the babysitter merges. Around
-it: an archive with lineage credit, halt thresholds, the pinned
+it: an archive with lineage credit, skip thresholds and problem issues, the pinned
 `evolve-watch`, and the persona and memory probes. Until 2026-11-15 the loop
 was a tournament of four candidates for one pull request; "Why it changed"
 below says what it measured. "What is not built" near the end lists what is
@@ -761,10 +761,11 @@ that passes opens its own pull request.
 ```
  bin/evolve run          state/evolve/<gen>/
    │
- 0 Halts      EVOLVE=0 (the default) ─► nothing runs
-   │          a latched halt, too many scheduled (or by-hand) generations
-   │          today, J rising too fast,
-   │          a red doctor report, a last-good boot ─► stop, one issue
+ 0 Skips      EVOLVE=0 (the default) ─► nothing runs
+   │          too many scheduled (or by-hand) generations today, a red
+   │          doctor report, J rising too fast ─► skip this run only
+   │          a real problem (the doctor red a day, a J rise, a last-good
+   │          boot) ─► one public issue per key; nothing latches
    │          a dream still writing MEMORY.md ─► wait for it
  1 Learnings  brain/MEMORY.md's open items, newest first, up to N
    │          none open ─► done: no model turn, no generation
@@ -808,7 +809,7 @@ that, and counts only those runs: `--scheduled` marks them (`trigger:
 scheduled` in `generation.json`). A run by hand (no flag) is `trigger:
 manual` and counts against `EVOLVE_MANUAL_GENERATIONS_PER_DAY` (6) instead,
 so the operator's runs never spend the schedule's: on 2026-11-16 three runs
-by hand spent the day's three and the 21:10 scheduled run halted. Without
+by hand spent the day's three and the 21:10 scheduled run was held. Without
 the flag a run counts as by hand, so the operator need not remember one; the
 pinned command carries it. A generation from before the trigger was recorded
 counts as scheduled, and neither cap counts one a restart cut off or one
@@ -827,7 +828,7 @@ own.
 bin/evolve run [--candidates N] [--proposals DIR] [--scheduled] [--detach]
 bin/evolve watch [--detach]              evolve-watch
 bin/evolve probe [--baseline [--force]]  the probes on the live core
-bin/evolve credit | status | resume
+bin/evolve credit | status
 ```
 
 `bin/evolve status` lists the open learnings (each with its `failed` tries
@@ -839,8 +840,10 @@ every learning by state, the open evolve pull requests with their
 `teeny/eval` state, and each candidate of the newest generation and every
 waiting one, with its verdict. It says `"running": true` while a generation
 holds the lock: ask it before a restart. `today` and `today_by_hand` are the
-day's scheduled and by-hand generations, and `last_crash` the last generation
-that raised (below), or null.
+day's scheduled and by-hand generations, `last_crash` the last generation
+that raised (below), or null, and `problems` the newest issue filed for each
+problem key (section 10). There is no `halt` and no `resume`: nothing
+latches.
 
 A generation that **raises** (2026-11-17: gen 14 died in its first second in
 `observe()`, under a detached cron call that said `ok`, and nobody heard) is
@@ -848,12 +851,13 @@ ended (`end_crashed`): `result.json` says `crashed`, so the next run starts a
 new one instead of resuming it, and every candidate in flight and every
 picked learning without one is archived `crashed`, which charges the learning
 **no** failed try: a crash is the loop's fault, not the learning's. Then it
-is told, the way a halt is (`report_crash`): a line `gen <n> crashed: <error>
+is told (`report_crash`): a line `gen <n> crashed: <error>
 at <where>` and the traceback in `state/evolve/evolve.log`,
-`state/evolve/last-crash.json` for `status`, and a `crash` halt through the
-same path as the others (`state/evolve/halts.jsonl`, one issue on
-`EVOLVE_ISSUE_REPO` a day, keyed `crash:<day>`) that never latches, so the
-next scheduled run tries again. The run exits non-zero. A crashed generation
+`state/evolve/last-crash.json` for `status`, and a `crash` problem through
+the same path as the others (section 10: one public issue on
+`EVOLVE_ISSUE_REPO` while it is open, keyed `crash`, with the error and
+where it was raised, updated at most once a day), and the next scheduled
+run tries again. The run exits non-zero. A crashed generation
 spends none of the day's cap. `bin/health` reads no evolve state, so it says
 nothing of this; the issue is the alarm.
 
@@ -1616,7 +1620,7 @@ which:
   job could do. Settled with the hash.
 - `frozen`: carrying it out needs a frozen path; `where` names it. Settled,
   and one issue opens on `EVOLVE_ISSUE_REPO` for the operator, naming the
-  learning, its text and the path, through the halt's issue path (deduped
+  learning, its text and the path, through the problem issues' path (deduped
   per learning text in `state/evolve/halts.jsonl`; the guard's judge reads
   it, since `where` is a model's words).
 
@@ -1992,7 +1996,8 @@ candidates of a generation:
    candidates measured gets a Kth (at least 1).
 4. The persona probe runs only when the change reaches every task (a SOUL or
    CONTEXT change, `all`), since it is many turns. Its drift from gen-0 past
-   `EVOLVE_MAX_DRIFT` flags the candidate and latches a halt.
+   `EVOLVE_MAX_DRIFT` flags the candidate (it opens no pull request) and
+   files a public `persona-drift` issue; the rest of the generation goes on.
 
 A lab that doesn't boot, or a run or compare that fails, leaves the
 candidate `deferred` (`infra`, stage `eval`): it was not measured, so its
@@ -2317,7 +2322,7 @@ J(merge + 7 days) − J(merge)` from `hands/world history`, and each entry's
 (`EVOLVE_CREDIT_DECAY`, 0.5). With parent sampling gone, credit is a record
 of how each line did, read by the archive summary.
 
-### 10. Halts and settings
+### 10. Skips, problems and settings
 
 `secrets/evolve.env` (gitignored and frozen) holds the switches. The process
 environment can only switch the loop off (`EVOLVE=0`), never on, and never
@@ -2333,10 +2338,10 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_GROWTH_SLOTS` | `1` | of the finding slots, at least this many go to growth findings (1b) when there are any, 0 to 8 |
 | `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b), 0 (never) to 10 |
 | `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
-| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more halts that run (`generations`), with one issue a day. Crashed and cut-off ones don't count |
-| `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more halts that run (`manual-generations`), with one issue a day |
+| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more skips that run (`generations`), quietly: no issue. Crashed and cut-off ones don't count |
+| `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more skips that run (`manual-generations`), quietly |
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
-| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster pauses for review; latches |
+| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster skips each run while it lasts (the window moves on by itself) and files one public issue |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | the fewest samples per task, baseline and candidate |
 | `EVOLVE_EVAL_PAIRS` | `24` | pairs a candidate is measured on: samples per task are `ceil(pairs / reached tasks)`, from `EVOLVE_EVAL_SAMPLES` up to 8 |
@@ -2346,7 +2351,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
 | `EVOLVE_QUERY_AGENT` | `querier` | the tool-less, memoryless agent the research query turn runs on, for every proposer |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown, then cut to fit the core's 64 KiB prompt screen |
-| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue, and a frozen learning's, opens |
+| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a problem's issue, and a frozen learning's, opens |
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
@@ -2355,7 +2360,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
-| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |
+| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and files a public issue |
 | `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far |
 | `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS`, `EVOLVE_WATCH_P` | `2.0`, `3`, `0.01` | a spike: at least this many events, and a rate over this many times the week's that an exact test puts under this p |
 | `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
@@ -2366,15 +2371,41 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than the least n with 2^-n under `EVOLVE_OUTCOME_P` |
 | `EVOLVE_LESSON_MIN_JUDGED` | `3` | judged outcomes with none worked that make a kind of change exhausted, 0 to 50; `0` shows the lessons and enforces none |
 
-Three more halts don't latch and open one issue a day: a doctor report
-(`state/doctor.json`) that isn't green, a last-good boot
-(`state/spine-fallback.json`), and a generation that crashed (`crash`, see
-"The loop", after `bin/evolve status`). A halt that latches writes
-`state/evolve/halt.json`, and every later run refuses until `bin/evolve
-resume`; one that latches in the middle of a run (persona drift) leaves what
-passed `waiting`. Each halt opens one issue, through `hands/gh open-issue`,
-and `state/evolve/halts.jsonl` makes sure it opens once. Under `DRY_RUN` no
-issue opens; the halt records what it would have opened.
+Nothing latches. Until 2026-11-22 a J rise, persona drift and an
+evolve-watch revert wrote `state/evolve/halt.json`, and every later run
+refused until an operator ran `bin/evolve resume`: from 2026-11-20 09:27 to
+11-22 a revert of g21c2 (a one-line SOUL.md rule, blamed for box-wide cron
+failures it could not have caused) held the loop, five scheduled runs
+skipped, and nobody noticed. The latch, the file and the verb are gone. A
+`halt.json` left on a box is ignored, and the next run removes it.
+
+What used to halt is one of two things now:
+
+| Kind | What happens | Issue |
+|---|---|---|
+| `generations`, `manual-generations` | that run is skipped; the next one asks again | none: the cap is a budget, not a problem |
+| `doctor` (`state/doctor.json` red, checked again first) | that run is skipped | one, once it has been red at every run for `DOCTOR_RED_HOURS` (24) |
+| `j-rise` (over `EVOLVE_MAX_J_RISE`) | that run is skipped, while the window holds the rise | one |
+| `fallback` (`state/spine-fallback.json`) | the run goes on: it builds from Teeny's clone of main, not the live checkout | one |
+| `persona-drift` (over `EVOLVE_MAX_DRIFT`) | the candidate is `flagged` and opens no pull request; the rest of the generation goes on | one |
+| `crash` | the generation is ended (`end_crashed`); the next run starts a new one | one |
+| `watch-revert` | the merge is reverted by a pull request for a person ("evolve-watch") | one per reverted candidate |
+
+A problem files a public issue on `EVOLVE_ISSUE_REPO` through
+`hands/gh open-issue` (the guard on its title and body; its judge too when
+the body quotes a model's words, like a candidate's title), labelled
+`help wanted` so contributors find it, the label a routed finding's issue
+asks for too (`evolve_route.CONTRIBUTOR_LABELS`; `hands/gh` adds it after the
+issue opens, and one the repository refuses leaves it unlabelled). It is deduplicated by its key: while that
+issue is open, a repeat comments on it at most once a day with the new
+numbers instead of opening another; once a person closes it, the next one
+opens a new issue. The issue says what happened, the candidate and its pull
+request, the numbers, what was done and what help is wanted, and carries
+counts, job names, error classes and links only: never a secret, an env
+value, a run's output, a hold's text, a probe's answers or a held-out task.
+`state/evolve/halts.jsonl` (the name `bin/lib/audit.py` counts) keeps a line
+per event, the key and the issue, never the body. Under `DRY_RUN` no issue
+opens or is commented on; the problem records what it would have done.
 
 ### 11. Held-out tasks
 
@@ -2405,32 +2436,62 @@ and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
   a day is p 0.49 and no spike; twenty is p 2e-6. Against a silent week four
   in a day is the least that is (p 0.002).
 - the cron failures counted are only those the change could have caused,
-  in both windows alike. Left out, and kept as counts under `left_out` in
-  the watch's private checks: a run that failed within
-  `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in `state/boots.jsonl` (a
-  deploy or restart kills what is running and the core is unreachable while
-  it comes back), a run whose output carries an infrastructure or provider
-  error (`INFRA_ERROR`: the core unreachable, HTTP 402/408/429/5xx, a
-  dropped stream, a timeout), and, when the change touches only
-  `brain/playbooks/<name>.md`, every job but `bin/act <name>`. Any other
-  change reaches every job. A prompt the core's guard refuses still counts
-  (a playbook's wording can trip it) when the job is one the change reaches.
-  This came from gen-9-c4: a moltbook-curate edit reverted on four failures,
-  two from a deploy restart and two from other playbooks' prompt-guard
-  refusals, one of which failed the same way the day before the merge.
+  in both windows alike. Left out, and kept as counts under `left_out`: a
+  run that failed within `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in
+  `state/boots.jsonl` (a deploy or restart kills what is running and the
+  core is unreachable while it comes back), a run whose own output carries
+  an infrastructure or provider error (`INFRA_ERROR`: the core unreachable,
+  HTTP 402/408/429/5xx, a dropped stream, a timeout), and a run of a job
+  that does not read anything the change touched (`unreached`). Which jobs
+  a change reaches (`change_reach`) comes from the targeted eval's own map
+  of what a path reaches (`evals._reaches`, "Affected tasks"):
+
+  | the change touches | the jobs it reaches |
+  |---|---|
+  | `brain/playbooks/<name>.md` | `bin/act <name>` |
+  | the studio writer's instructions | `bin/studio` |
+  | a prompt file every draft reads (`brain/SOUL.md`, `IDENTITY.md`, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, `narrative/ARCS.md`, the act agent's files, `AGENTS.md`) | every job that reads that prompt (`reads_prompt`): `bin/act`, `bin/dream`, `bin/mail`, `bin/mentions`, `bin/studio`, `bin/tick` and the agent jobs (the builder, the operator) |
+  | anything else (code, a hand, a skill, the core), or no patch on record | every job |
+
+  A prompt the core's guard refuses still counts (a playbook's wording can
+  trip it) when the job is one the change reaches.
+- a change whose reach is broad (a prompt file, or every job) needs more
+  than a count: the rise must still be a spike after the job with the most
+  failures since the merge is left out of both windows (`spread`). A change
+  every speaking job reads that breaks things breaks many of them; one job
+  running away alone is that job's own trouble, whatever merged. A narrow
+  reach (a playbook) needs the spike alone, in its own jobs. If nothing
+  attributable spikes, nothing reverts.
+
+  This came from two reverts. gen-9-c4 (2026-11-16): a moltbook-curate edit
+  reverted on four failures, two from a deploy restart and two from other
+  playbooks' prompt-guard refusals. g21c2 (2026-11-20): a one-line SOUL.md
+  rule about Moltbook replies reverted on "14 cron failures in 8.3 h,
+  40.4/day against 0.57/day", most of them `bin/surplus-sweep`, a hand job
+  no prompt reaches; of the speaking jobs one failed once. Its latched halt
+  then held the loop for two days.
 - once, the persona and memory probes on the live core, against gen-0
 - at 72 hours, J from `hands/world history`: lower than at the merge
 
 Any one of them opens a revert pull request, `teeny/revert-gen-<n>-c<i>`,
 from Teeny's clone (fetched first), reverting the merge commit, checked by
-the frozen check and shipped through `hands/gh`, and latches a
-`watch-revert` halt. The revert waits for a person: the loop merges nothing,
-and the babysitter merges only `teeny/gen-*`. A merge that passes all of it
-is closed after 72 hours, and the watch moves on to the next.
+the frozen check and shipped through `hands/gh`, and files one public
+`watch-revert` issue (section 10) with what an outside contributor needs:
+the change and its pull request, the revert's, every reason with its
+counts, rates and p, the failing jobs since the merge and in the week
+before, the error classes, what was left out and why, the `spread`, the
+probes' and J's numbers, and what help is wanted (is the evidence real; if
+so, what in the change caused it). Nothing latches: the next scheduled run
+goes on. The revert waits for a person: the loop merges nothing, and the
+babysitter merges only `teeny/gen-*`. A merge that passes all of it is
+closed after 72 hours, and the watch moves on to the next.
 
-The reasons stay out of Teeny's view: they are written only to
-`secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
-the issue, the log and the printed result say only that the watch reverted.
+On the box the reasons stay out of Teeny's view: the full checks are
+written only to `secrets/evolve-watch/` (mode 700), and the state, the
+archive, `halts.jsonl`, the log and the printed result say only that the
+watch reverted. The issue is public by the operator's choice (2026-11-22),
+so anyone can check the evidence; it carries counts and names, never a
+run's output or a hold's text.
 
 ### Outcomes: did the change do what it said?
 
@@ -2548,7 +2609,7 @@ of your merged changes", and every merged change by kind as
 reflection can write what it learned from it; no code writes
 `brain/MEMORY.md`.
 
-**No revert.** An outcome never reverts or halts anything: `no-effect` is
+**No revert.** An outcome never reverts anything or files an issue: `no-effect` is
 the commonest honest answer, and `hurt` is recorded for the operator and the
 next proposer. evolve-watch's own rules above still decide reverts. A change
 the watch reverted is scored like any other (its after window may cover the

@@ -43,6 +43,7 @@ def git(*args, cwd=None):
 class FakePublisher:
     def __init__(self):
         self.prs, self.issues, self.states, self.statuses = [], [], {}, []
+        self.comments, self.labels, self.closed = [], [], set()
 
     def open_pr(self, src, tree, branch, base, title, body):
         files = git("-C", str(tree), "show", "--name-only", "--format=", "HEAD").split()
@@ -54,9 +55,20 @@ class FakePublisher:
         self.statuses.append({"sha": sha, "state": state, "description": description})
         return {"id": len(self.statuses)}
 
-    def open_issue(self, repo, title, body, judge=False):
+    def open_issue(self, repo, title, body, judge=False, labels=None):
         self.issues.append({"repo": repo, "title": title, "body": body, "judge": judge})
+        if labels:
+            self.labels.append({"repo": repo, "number": 100 + len(self.issues), "labels": list(labels)})
         return {"number": 100 + len(self.issues), "html_url": "https://github.com/teenydroid/brain/issues/1"}
+
+    # The problem issues' updates: a comment on the open one, and whether a
+    # person closed it (`closed`, the numbers closed). `labels`: those asked for.
+    def comment_issue(self, repo, number, body, judge=False):
+        self.comments.append({"repo": repo, "number": number, "body": body, "judge": judge})
+        return {"html_url": f"https://github.com/{repo}/issues/{number}#comment"}
+
+    def issue_state(self, repo, number):
+        return "closed" if number in self.closed else "open"
 
     def pr(self, number):
         return self.states.get(number)
@@ -73,6 +85,9 @@ class Refusing(FakePublisher):
 
     def open_issue(self, *a, **k):
         raise AssertionError("opened an issue under DRY_RUN")
+
+    def comment_issue(self, *a, **k):
+        raise AssertionError("commented on an issue under DRY_RUN")
 
 
 class Verdicts:
@@ -682,7 +697,7 @@ class Restarts(EvolveCase):
         out = self.run_gen(1, evaluator=Verdicts(), scheduled=True)
         self.assertTrue(out.get("resumed"), out)
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_a_generation_from_before_learnings_is_marked_interrupted_not_resumed(self):
         old = evolve.gen_dir(8)
@@ -1276,21 +1291,48 @@ class Halts(EvolveCase):
         with self.assertRaises(evolve.EvolveError):
             evolve.load_config()
 
-    def test_generations_per_day(self):
+    def test_the_daily_cap_skips_the_run_quietly_and_files_no_issue(self):
+        """The cap is a budget, not a problem: issues #172 and #341 were
+        opened only to say the day's generations were spent."""
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
         pub = FakePublisher()
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
         out = self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(out["skipped"], "halted: generations")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertIn("generations", pub.issues[0]["title"])
+        self.assertEqual(out["skipped"], "skipped this run: generations")
+        self.assertEqual(out["skips"][0]["kind"], "generations")
+        self.assertNotIn("problems", out)
         self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
-        self.assertFalse(evolve.halt_path().exists())  # it does not latch
+        self.assertEqual((pub.issues, pub.comments), ([], []))
+        self.assertEqual(evolve.read_jsonl(evolve.problems_log()), [])  # nothing to deduplicate either
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
+
+    def test_a_halt_json_left_on_the_box_is_ignored_and_removed(self):
+        """state/evolve/halt.json was the latch (2026-11-20 to 11-22 the loop
+        sat on one and five scheduled runs skipped). Nothing latches now; an
+        old one left behind stops nothing and is cleaned up."""
+        self.live()
+        evolve.evolve_dir().mkdir(parents=True, exist_ok=True)
+        stale = evolve.evolve_dir() / "halt.json"
+        stale.write_text(json.dumps({"kind": "watch-revert", "detail": "evolve-watch reverted gen-21-c2",
+                                     "at": "2026-11-20T09:27:01Z"}))
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, publisher=FakePublisher())
+        self.assertIn("gen", out)
+        self.assertFalse(stale.exists())
+        stale.write_text("not json at all")
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("Two.")])
+        self.assertIn("gen", self.run_gen(1, publisher=FakePublisher()))
+        self.assertFalse(stale.exists())
+
+    def test_there_is_no_resume_verb(self):
+        self.assertFalse(hasattr(evolve, "resume"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            evolve.main(["resume"])
 
 
     def test_status_says_whether_a_generation_is_running(self):
@@ -1299,7 +1341,7 @@ class Halts(EvolveCase):
             self.assertTrue(held)
             self.assertTrue(evolve.status()["running"])
 
-    def test_a_fast_j_rise_stops_the_loop_until_resumed(self):
+    def test_a_fast_j_rise_skips_while_it_lasts_with_one_public_issue_and_never_latches(self):
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
         path = self.root / "h.json"
@@ -1307,32 +1349,35 @@ class Halts(EvolveCase):
         os.environ["FAKE_HISTORY"] = str(path)
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: j-rise")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertTrue(evolve.halt_path().exists())
+        self.assertEqual(out["skipped"], "skipped this run: j-rise")
+        (issue,) = pub.issues
+        self.assertIn("0.700", issue["body"])  # the rise itself, for whoever looks
+        self.assertIn("EVOLVE_MAX_J_RISE", issue["body"])
+        self.assertEqual(pub.labels[0]["labels"], ["help wanted"])
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)  # the same open issue, not one a run
+        # The window moves on: the next run goes, nobody had to act.
         path.write_text(json.dumps([{"at": T0 - DAY, "J": 1.0}]))
-        out = self.run_gen(1, publisher=pub)
-        self.assertIn("until `bin/evolve resume`", out["skipped"])
-        self.assertEqual(len(pub.issues), 1)
-        evolve.resume()
         self.propose(1, [self.playbook_edit("One.")])
         self.assertIn("gen", self.run_gen(1, publisher=pub))
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())
 
     def test_a_slow_j_rise_passes(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5)
         path = self.root / "h.json"
         path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.2}]))
         os.environ["FAKE_HISTORY"] = str(path)
-        self.assertEqual(evolve.halts_before(evolve.load_config()), [])
+        self.assertEqual(evolve.preconditions(evolve.load_config()), ([], []))
 
     def test_dry_run_files_no_issue(self):
         os.environ["DRY_RUN"] = "1"
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
-        self.propose(1, [self.playbook_edit("One.")])
-        self.run_gen(1, publisher=Refusing(), scheduled=True)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
+        path = self.root / "h.json"
+        path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.7}]))
+        os.environ["FAKE_HISTORY"] = str(path)
         out = self.run_gen(1, publisher=Refusing(), scheduled=True)
-        self.assertTrue(out["halts"][0]["dry_run"])
-        self.assertIn("would_open_issue", out["halts"][0])
+        self.assertTrue(out["problems"][0]["dry_run"])
+        self.assertIn("would_open_issue", out["problems"][0])
 
 
     def test_a_run_waits_for_a_dream_still_writing_the_page(self):
@@ -1634,19 +1679,20 @@ class CrashedGenerations(EvolveCase):
         order = [x.id for x in evolve.open_learnings(self.entries()) if x.section != "what i am in the middle of"]
         self.assertEqual([stood[i].infra for i in order], sorted(stood[i].infra for i in order))
 
-    def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
+    def test_a_crash_files_one_public_issue_updates_it_and_never_latches(self):
         pub = FakePublisher()
         for _ in range(2):
             with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
                 with self.assertRaises(AttributeError):
                     self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 1)  # one a day, not one a run
+        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
+        self.assertEqual(pub.comments, [])  # and at most one update a day
         self.assertIn("crash", pub.issues[0]["title"])
         self.assertIn("'list' object has no attribute 'items'", pub.issues[0]["body"])
         self.assertIn("observe", pub.issues[0]["body"])  # where it raised
-        self.assertFalse(evolve.halt_path().exists())  # the next run still tries
-        crashes = [r for r in evolve.read_jsonl(evolve.halts_log()) if r.get("kind") == "crash"]
-        self.assertEqual(len(crashes), 1)
+        self.assertIn("help", pub.issues[0]["body"].lower())
+        self.assertEqual(pub.labels[0], {"repo": "teenydroid/brain", "number": 101, "labels": ["help wanted"]})
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())  # the next run still tries
         self.propose(1, [self.playbook_edit("Check first.")])
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(out["candidates"][0]["verdict"], "opened")
@@ -1654,7 +1700,37 @@ class CrashedGenerations(EvolveCase):
         with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
             with self.assertRaises(AttributeError):
                 self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 2)  # a new day, a new issue
+        self.assertEqual(len(pub.issues), 1)  # the open issue is updated, not doubled
+        (note,) = pub.comments
+        self.assertEqual(note["number"], 101)
+        self.assertIn("'list' object has no attribute 'items'", note["body"])
+        # Once a person closes it, the next crash is a new problem.
+        pub.closed.add(101)
+        os.environ["EVOLVE_NOW"] = str(T0 + 2 * DAY)
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+            with self.assertRaises(AttributeError):
+                self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 2)
+
+    def test_a_failed_update_is_tried_again_the_same_day(self):
+        """Only an issue opened or a comment that went through counts as told
+        for the day: a comment GitHub refused is tried at the next run."""
+        cfg = evolve.load_config()
+        problem = evolve.Problem("crash", "crash", "bin/evolve: a generation crashed", "the body")
+        pub = FakePublisher()
+        os.environ["EVOLVE_NOW"] = str(T0 - DAY)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["issue"], 101)
+        os.environ["EVOLVE_NOW"] = str(T0)
+
+        def refused(*a, **k):
+            raise RuntimeError("GitHub answered 502")
+
+        with unittest.mock.patch.object(pub, "comment_issue", side_effect=refused):
+            self.assertIn("issue_error", evolve.raise_problem(cfg, problem, pub))
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "commented")
+        self.assertEqual(len(pub.comments), 1)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "already told today")
+        self.assertEqual(len(pub.comments), 1)
 
     def test_status_shows_the_last_crash(self):
         self.assertIsNone(evolve.status()["last_crash"])
@@ -1854,7 +1930,7 @@ class ScheduledCap(EvolveCase):
         self.assertEqual(meta["trigger"], "scheduled")
         self.assertEqual(json.loads((evolve.gen_dir(1) / "generation.json").read_text())["trigger"], "manual")
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_runs_by_hand_have_their_own_cap(self):
         pub = FakePublisher()
@@ -1862,8 +1938,9 @@ class ScheduledCap(EvolveCase):
             self.propose(1, [self.playbook_edit(line)])
             self.run_gen(1, publisher=pub)
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: manual-generations")
-        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["halts"][0]["detail"])
+        self.assertEqual(out["skipped"], "skipped this run: manual-generations")
+        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["skips"][0]["detail"])
+        self.assertEqual(pub.issues, [])
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))  # the schedule's own run still goes
 
     def test_a_generation_from_before_the_trigger_was_recorded_counts_as_scheduled(self):

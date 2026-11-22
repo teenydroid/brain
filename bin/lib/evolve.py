@@ -6,7 +6,6 @@ change and one pull request per learning (docs/evolve.md, "The loop").
     python3 bin/lib/evolve.py watch
     python3 bin/lib/evolve.py probe [--baseline [--force]]
     python3 bin/lib/evolve.py status
-    python3 bin/lib/evolve.py resume
 
 `run` is one generation, in state/evolve/<gen>/, made of up to N candidates,
 one per open learning:
@@ -63,12 +62,14 @@ ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one,
 and scores every merged candidate's `check` at each horizon it has reached
 (bin/lib/evolve_outcomes.py): worked, no-effect, hurt or no-data.
 
-The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
-the default. Too many scheduled generations today (or by hand, a cap of its
-own), a red doctor, a last-good boot, or J rising faster than
-EVOLVE_MAX_J_RISE each stop the loop and open one issue (deduplicated); a J
-rise, persona drift and an evolve-watch revert latch until `resume`. A
-generation that crashes opens one too, a day, and never latches. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
+Skips and problems (secrets/evolve.env, `Config`): EVOLVE=0 is the kill
+switch and the default. Nothing latches: no run waits for a person. Too many
+scheduled generations today (or by hand, a cap of its own), a doctor red now,
+or J rising faster than EVOLVE_MAX_J_RISE skip that run alone. A real problem
+(an evolve-watch revert, a crash, persona drift past EVOLVE_MAX_DRIFT, the
+doctor red for a day, a J rise, a last-good boot) files one public issue on
+EVOLVE_ISSUE_REPO per key while it is open (raise_problem), and the next run
+goes on. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
 DRY_RUN=0) nothing is pushed, opened or filed: each candidate writes what it
 would have opened.
 
@@ -101,7 +102,7 @@ import tomllib
 import traceback
 import uuid
 import dataclasses
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
@@ -3001,41 +3002,114 @@ def _boot_times() -> list[float]:
     return sorted(w for w in (_when_of(r) for r in read_jsonl(state_dir() / "boots.jsonl")) if w is not None)
 
 
-def change_reach(cand: Mapping[str, Any]) -> set[str] | None:
-    """The cron commands CAND's change can reach, when that is cheaply
-    known: a change to brain/playbooks/<name>.md alone reaches `bin/act
-    <name>` alone. Anything else (or no patch on record) reaches every job:
-    None."""
+#: The cron commands whose runs draft through a speaking agent, so the files
+#: evals.EVERY_DRAFT puts in every draft's system prompt (SOUL.md,
+#: IDENTITY.md, MEMORY.md, DRIVE.md, ...) reach them: bin/act's playbooks,
+#: the studio's writer, the beats (bin/tick), the dream (bin/lib/reflect.py's
+#: `teeny` turn), mail and mentions (teeny-mail, teeny-mentions). An agent
+#: job (no command: the builder, the operator; omit_identity = false) reads
+#: them too. Every other command (bin/surplus-sweep, bin/stats-snapshot, the
+#: hands' data jobs) runs no speaking turn and reads none of them.
+PROMPT_COMMANDS = ("bin/act", "bin/dream", "bin/mail", "bin/mentions", "bin/studio", "bin/tick")
+
+
+def _cron_command(job: str) -> str:
+    """A failed run's job as change reaches name it: its first two words."""
+    return " ".join(job.split()[:2])
+
+
+def reads_prompt(job: str) -> bool:
+    """Whether the cron job JOB (its command, or its name for an agent job)
+    runs a turn whose system prompt carries the EVERY_DRAFT files."""
+    first = job.split()[:1]
+    if not first:
+        return False
+    return first[0] in PROMPT_COMMANDS or not first[0].startswith(("bin/", "hands/", "/", "."))
+
+
+@dataclass(frozen=True)
+class Reach:
+    """The cron jobs a merged change can make fail (`change_reach`): JOBS,
+    exact commands (`bin/act <playbook>`, `bin/studio`); PROMPT, every job
+    that reads a speaking agent's system prompt (`reads_prompt`); EVERY, no
+    narrower reach is known. A reach that is PROMPT or EVERY is broad."""
+    jobs: frozenset[str] = frozenset()
+    prompt: bool = False
+    every: bool = False
+
+    @property
+    def kind(self) -> str:
+        return "every" if self.every else "prompt" if self.prompt else "jobs"
+
+    @property
+    def broad(self) -> bool:
+        return self.every or self.prompt
+
+    def reaches(self, job: str) -> bool:
+        return self.every or _cron_command(job) in self.jobs or (self.prompt and reads_prompt(job))
+
+
+EVERY_JOB = Reach(every=True)
+
+
+def change_reach(cand: Mapping[str, Any]) -> Reach:
+    """The cron jobs CAND's change can reach, by evals' own map of what a
+    path reaches (`evals._reaches`, the targeted eval's): a playbook
+    reaches `bin/act <name>`, the studio writer's instructions `bin/studio`,
+    a prompt file every draft reads (brain/SOUL.md and the rest of
+    EVERY_DRAFT that is text, not code) every job that reads that prompt.
+    Anything else (code, a hand, a skill, the core; or no patch on record)
+    reaches every job: the eval's "none" means no draft reads it, not that no
+    live job runs it."""
     try:
         patch = (evolve_dir() / str(cand["patch"])).read_text(encoding="utf-8")
     except (KeyError, OSError):
-        return None
+        return EVERY_JOB
     paths = set(re.findall(r"^diff --git a/(\S+) b/", patch, re.M))
-    names = {m.group(1) for m in (re.fullmatch(r"brain/playbooks/([\w.-]+)\.md", p) for p in paths) if m}
-    return {f"bin/act {n}" for n in names} if paths and len(names) == len(paths) else None
+    if not paths:
+        return EVERY_JOB
+    jobs: set[str] = set()
+    prompt = False
+    for path in paths:
+        kind, detail = evals_lib._reaches(path)
+        if kind == "playbook":
+            jobs.add(f"bin/act {detail}")
+        elif kind == "studio":
+            jobs.add("bin/studio")
+        elif kind == "all" and path in evals_lib.EVERY_DRAFT and path.endswith((".md", ".toml")):
+            prompt = True
+        else:
+            return EVERY_JOB
+    return Reach(jobs=frozenset(jobs), prompt=prompt)
 
 
-def countable_failures(rows: list[Json] | None, boots: list[float], reach: set[str] | None,
-                       cfg: Config) -> tuple[list[float] | None, list[Json]]:
-    """The times of the failed cron runs the change could have caused, and
-    the runs left out with why: within EVOLVE_WATCH_BOOT_MINS of a spine
-    boot ("boot": a deploy or restart kills and fails what is running), an
-    infrastructure or provider error ("infra", INFRA_ERROR), or a job the
-    change does not reach ("unreached", `change_reach`)."""
-    if rows is None:
-        return None, []
+def sort_failures(rows: list[Json], boots: list[float], reach: Reach | None, cfg: Config) -> tuple[list[Json], list[Json]]:
+    """The failed cron runs the change could have caused, and the runs left
+    out with why: within EVOLVE_WATCH_BOOT_MINS of a spine boot ("boot": a
+    deploy or restart kills and fails what is running), an infrastructure or
+    provider error in the run's own output ("infra", INFRA_ERROR), or a job
+    the change does not reach ("unreached", `change_reach`; None reaches
+    every job)."""
     grace = cfg["EVOLVE_WATCH_BOOT_MINS"] * 60
-    times, left = [], []
+    counted, left = [], []
     for r in rows:
-        job = r["job"]
         why = ("boot" if any(abs(r["at"] - b) <= grace for b in boots) else
                "infra" if INFRA_ERROR.search(r["output"]) else
-               "unreached" if reach is not None and " ".join(job.split()[:2]) not in reach else None)
+               "unreached" if reach is not None and not reach.reaches(r["job"]) else None)
         if why:
-            left.append({"at": r["at"], "why": why})
+            left.append({"at": r["at"], "why": why, "job": _cron_command(r["job"])})
         else:
-            times.append(r["at"])
-    return times, left
+            counted.append(r)
+    return counted, left
+
+
+def countable_failures(rows: list[Json] | None, boots: list[float], reach: Reach | None,
+                       cfg: Config) -> tuple[list[float] | None, list[Json]]:
+    """`sort_failures` as times: the counted runs' times, and the left out."""
+    if rows is None:
+        return None, []
+    counted, left = sort_failures(rows, boots, reach, cfg)
+    return [r["at"] for r in counted], left
 
 
 def _hold_times() -> list[float] | None:
@@ -4522,29 +4596,75 @@ def restore_tree(tree: Path, before: tuple[str, str]) -> None:
 
 
 
-# --- halts ------------------------------------------------------------------------------------------------------
+# --- skips and problems -----------------------------------------------------------------------------------------
+#
+# Nothing stops the loop until a person acts (2026-11-22: a latched halt held
+# it from 11-20 09:27 to 11-22, five scheduled runs skipped, and nobody
+# noticed). A per-run precondition or budget is a Skip of that one run, which
+# clears by itself. A real problem is a Problem: one public issue on
+# EVOLVE_ISSUE_REPO, deduplicated by its key, and the next run goes on.
 
 
-def halt_path() -> Path:
+def stale_halt_path() -> Path:
+    """Where the old latch lived. Nothing reads it any more: a run removes one
+    left on a box (`retire_stale_halt`)."""
     return evolve_dir() / "halt.json"
 
 
-def halts_log() -> Path:
+def retire_stale_halt() -> None:
+    """Removes a state/evolve/halt.json left from before the latch was cut,
+    whatever it holds, so it cannot be mistaken for one."""
+    try:
+        stale_halt_path().unlink()
+        say("removed a stale state/evolve/halt.json: the loop no longer latches")
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        say(f"could not remove the stale state/evolve/halt.json ({exc}); it is ignored")
+
+
+def problems_log() -> Path:
+    """The problem issues filed, a line per thing done (opened, commented):
+    key, kind, the issue's number and link, never its body. Still named
+    halts.jsonl, which bin/lib/audit.py counts. A record a former `resume`
+    marked `resumed` no longer deduplicates anything."""
     return evolve_dir() / "halts.jsonl"
 
 
 @dataclass
-class Halt:
-    kind: str  # generations | manual-generations | j-rise | doctor | fallback | persona-drift | watch-revert | crash
+class Skip:
+    """This run alone does not start: the day's cap, a doctor red right
+    now, J rising faster than the cap. The next run asks again."""
+    kind: str  # generations | manual-generations | doctor | j-rise
     detail: str
-    latch: bool
-    extra: Json = field(default_factory=dict)
 
-    @property
-    def key(self) -> str:
-        """What a repeat of this halt is deduplicated by: until resumed, or
-        for the day when it does not latch."""
-        return self.kind if self.latch else f"{self.kind}:{day(now())}"
+    def brief(self) -> Json:
+        return {"kind": self.kind, "detail": self.detail}
+
+
+@dataclass
+class Problem:
+    """Something a person (anyone: the issue is public) should look at. KEY
+    deduplicates it: one open issue per key, updated at most once a day.
+    BODY is public, so it carries counts, names and links, never a secret,
+    an env value, a private payload or a held-out task. JUDGE: the guard's
+    judge reads it, for text a model wrote (a candidate's title)."""
+    kind: str  # crash | doctor | fallback | j-rise | persona-drift | watch-revert
+    key: str
+    title: str
+    body: str
+    judge: bool = False
+
+
+#: The labels a problem issue asks for, so contributors can find it: the
+#: routed findings' own (evolve_route), one convention. hands/gh adds them
+#: after the issue opens; one the repository refuses leaves it unlabelled.
+PROBLEM_LABELS = evolve_route.CONTRIBUTOR_LABELS
+#: A doctor red at every run for this long is a problem, not a moment.
+DOCTOR_RED_HOURS = 24
+
+HELP_FOOTER = ("\n\n---\n*Filed by `bin/evolve` (docs/evolve.md, \"10. Skips, problems and settings\"). The loop "
+               "keeps running; nobody has to resume it. A comment with a diagnosis, or a pull request, is welcome.*")
 
 
 #: Who started a generation (generation.json `trigger`): the pinned job
@@ -4635,56 +4755,105 @@ def doctor_recheck() -> None:
         pass
 
 
-def halts_before(cfg: Config, new_generation: bool = True, scheduled: bool = True) -> list[Halt]:
-    """What stops a run before it does anything. The day's cap counts only
-    against starting a generation: finishing one a restart cut off is not
-    one more. A scheduled run is held to EVOLVE_GENERATIONS_PER_DAY, one by
-    hand to EVOLVE_MANUAL_GENERATIONS_PER_DAY, each counting its own kind.
-    A red doctor report is checked again before it counts."""
-    out = []
+def doctor_red_path() -> Path:
+    """When the doctor was first found red at a run, and is still: removed
+    once a run finds it green (`preconditions`)."""
+    return evolve_dir() / "doctor-red.json"
+
+
+def preconditions(cfg: Config, new_generation: bool = True,
+                  scheduled: bool = True) -> tuple[list[Skip], list[Problem]]:
+    """What this run must not do, and what is wrong. A Skip ends this run
+    only: the day's cap (counted only against starting a generation, so
+    finishing one a restart cut off is not one more; a scheduled run is held
+    to EVOLVE_GENERATIONS_PER_DAY, one by hand to
+    EVOLVE_MANUAL_GENERATIONS_PER_DAY), a doctor red now (checked again
+    first), J rising faster than EVOLVE_MAX_J_RISE (the window moves on by
+    itself). A Problem files its public issue: the doctor red at every run
+    for DOCTOR_RED_HOURS, the J rise, a last-good boot (which does not stop
+    the run: a generation builds from Teeny's clone of main, not the live
+    checkout). Nothing here latches."""
+    skips: list[Skip] = []
+    problems: list[Problem] = []
     red = doctor_red()
     if red:
         doctor_recheck()
         red = doctor_red()
     if red:
-        out.append(Halt("doctor", f"the last doctor report (state/doctor.json) is not green: {red}", latch=False))
+        skips.append(Skip("doctor", f"the last doctor report (state/doctor.json) is not green: {red}"))
+        since = None
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            since = _when_of(json.loads(doctor_red_path().read_text(encoding="utf-8")))
+        if since is None:
+            since = now()
+            write_json(doctor_red_path(), {"at": iso(since)})
+        hours = (now() - since) / 3600
+        if hours >= DOCTOR_RED_HOURS:
+            problems.append(Problem("doctor", "doctor", "bin/evolve: the doctor has been red for a day",
+                                    f"`bin/doctor --live` has failed at every evolve run for {hours:.0f} hours, so "
+                                    f"no generation has started since {iso(since)}.\n\n- failing checks: {red}\n\n"
+                                    "Each run checks again and starts as soon as it is green. Help wanted: which "
+                                    "check fails and why (docs/developers.md, `bin/doctor`)." + HELP_FOOTER))
+    else:
+        with contextlib.suppress(FileNotFoundError):
+            doctor_red_path().unlink()
+    fb = None
+    with contextlib.suppress(OSError, ValueError):
+        fb = json.loads(fallback_path().read_text(encoding="utf-8"))
     if fallback_path().exists():
-        out.append(Halt("fallback", "the spine booted state/last-good (state/spine-fallback.json); a person clears "
-                        "it once main boots again", latch=False))
+        fb = fb if isinstance(fb, dict) else {}
+        problems.append(Problem("fallback", "fallback", "bin/evolve: the spine booted last-good",
+                                "The spine could not boot main and fell back to state/last-good "
+                                f"(state/spine-fallback.json).\n\n- from: `{str(fb.get('from') or '?')[:12]}`\n"
+                                f"- to: `{str(fb.get('to') or '?')[:12]}`\n- at: {fb.get('at') or '?'}\n\n"
+                                "Generations go on (they build from main in Teeny's own clone). Help wanted: why "
+                                "main does not boot." + HELP_FOOTER))
     if new_generation and scheduled and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
-        out.append(Halt("generations", f"{generations_today()} scheduled generation(s) today; the most is "
-                        f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)", latch=False))
+        skips.append(Skip("generations", f"{generations_today()} scheduled generation(s) today; the most is "
+                          f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)"))
     manual = cfg["EVOLVE_MANUAL_GENERATIONS_PER_DAY"]
     if new_generation and not scheduled and generations_today(scheduled=False) >= manual:
-        out.append(Halt("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
-                        f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)", latch=False))
-    rise = j_rise(world_history(), cfg["EVOLVE_J_WINDOW_DAYS"])
+        skips.append(Skip("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
+                          f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)"))
+    window = cfg["EVOLVE_J_WINDOW_DAYS"]
+    rise = j_rise(world_history(), window)
     if rise is not None and rise > cfg["EVOLVE_MAX_J_RISE"]:
-        out.append(Halt("j-rise", f"J rose {rise:.3f} in {cfg['EVOLVE_J_WINDOW_DAYS']} day(s); the most before a "
-                        f"person looks is {cfg['EVOLVE_MAX_J_RISE']} (EVOLVE_MAX_J_RISE)", latch=True,
-                        extra={"rise": rise}))
-    return out
+        skips.append(Skip("j-rise", f"J rose {rise:.3f} in {window} day(s); the most is {cfg['EVOLVE_MAX_J_RISE']} "
+                          "(EVOLVE_MAX_J_RISE)"))
+        problems.append(Problem("j-rise", "j-rise", "bin/evolve: J is rising faster than its cap",
+                                f"J (hands/world) rose {rise:.3f} over the last {window} day(s), more than "
+                                f"EVOLVE_MAX_J_RISE ({cfg['EVOLVE_MAX_J_RISE']}). A rise that fast is more often a "
+                                "measurement gamed or broken than a better Teeny, so no new generation starts "
+                                "while it lasts; the window moves on by itself.\n\nHelp wanted: look at what merged "
+                                "in the window (`teeny/gen-*` pull requests) and at hands/world's components, and "
+                                "say whether the rise is real." + HELP_FOOTER))
+    return skips, problems
 
 
-def drift_halt(cfg: Config, cand: Mapping[str, Any]) -> Halt | None:
-    """The persona-drift halt: the candidate's answers to the persona
-    probe are further than EVOLVE_MAX_DRIFT from gen-0's. Cumulative by
-    construction, since every generation is compared with gen-0."""
+def drift_problem(cfg: Config, cand: Mapping[str, Any]) -> Problem | None:
+    """Persona drift: the candidate's answers to the persona probe are
+    further than EVOLVE_MAX_DRIFT from gen-0's. Cumulative by construction,
+    since every generation is compared with gen-0. The candidate is flagged
+    and never ships; the loop goes on."""
     probe = cand.get("probe")
     drift = probe.get("drift") if isinstance(probe, Mapping) else None
     if not isinstance(drift, (int, float)) or drift <= cfg["EVOLVE_MAX_DRIFT"]:
         return None
-    return Halt("persona-drift", f"{cand['id']}'s persona probe drifted {drift:.2f} from gen-0, over "
-                f"{cfg['EVOLVE_MAX_DRIFT']} (EVOLVE_MAX_DRIFT). A person compares the answers before it goes on.",
-                latch=True, extra={"candidate": cand["id"], "drift": drift})
+    return Problem("persona-drift", "persona-drift", "bin/evolve: a candidate's persona drifted past the cap",
+                   f"Candidate {cand['id']} ({str(cand.get('title') or 'untitled')[:120]}) answered the persona "
+                   f"probe (evals/probes/persona.toml) {drift:.2f} away from gen-0, over EVOLVE_MAX_DRIFT "
+                   f"({cfg['EVOLVE_MAX_DRIFT']}). It was flagged and opened no pull request; the rest of its "
+                   "generation went on.\n\nHelp wanted: if this repeats, the change kind (or gen-0 itself) may "
+                   "need a look." + HELP_FOOTER, judge=True)
 
 
 def file_issue(cfg: Config, key: str, kind: str, title: str, body: str, publisher: "Publisher | None",
                judge: bool = False) -> Json:
-    """One issue on EVOLVE_ISSUE_REPO for KEY, never two (state/evolve/
-    halts.jsonl remembers it until `resume`). Under DRY_RUN it says what it
-    would have opened. JUDGE: the guard's judge reads text a model wrote."""
-    seen = [r for r in read_jsonl(halts_log()) if r.get("key") == key and not r.get("resumed")]
+    """One issue on EVOLVE_ISSUE_REPO for KEY, ever (problems_log remembers
+    it; a record a former `resume` marked `resumed` does not count). Under
+    DRY_RUN it says what it would have opened. JUDGE: the guard's judge
+    reads text a model wrote."""
+    seen = [r for r in read_jsonl(problems_log()) if r.get("key") == key and not r.get("resumed")]
     entry: Json = {"key": key, "kind": kind, "at": iso(now())}
     if any(r.get("issue") or r.get("filed") for r in seen):
         entry["issue"] = "already filed"
@@ -4698,24 +4867,70 @@ def file_issue(cfg: Config, key: str, kind: str, title: str, body: str, publishe
             entry.update(filed=True, issue=opened.get("number"), url=opened.get("html_url"))
         except Exception as exc:  # noqa: BLE001 - what asked for the issue holds whether or not it opens
             entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
-    append_jsonl(halts_log(), entry)
+    append_jsonl(problems_log(), entry)
     return entry
 
 
-def stop(cfg: Config, halt: Halt, publisher: "Publisher | None") -> Json:
-    """Stops the loop on HALT: latched in state/evolve/halt.json when it
-    latches, and one issue on EVOLVE_ISSUE_REPO, never two for one halt."""
-    if halt.latch:
-        write_json(halt_path(), {"kind": halt.kind, "detail": halt.detail, "at": iso(now()), **halt.extra})
-    title = f"bin/evolve stopped: {halt.kind}"
-    then = ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
-            else "Its next scheduled run tries again; one issue a day, however often it crashes."
-            if halt.kind == "crash" else "It runs again tomorrow.")
-    body = (f"The evolve loop stopped itself.\n\n- halt: {halt.kind}\n- why: {halt.detail}\n- at: {iso(now())}\n\n"
-            + then + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
-    entry = {**file_issue(cfg, halt.key, halt.kind, title, body, publisher), "detail": halt.detail}
-    say(f"halted ({halt.kind}): {halt.detail}" + ("; its issue is already filed" if entry.get("issue") == "already filed"
-                                                   else ""))
+def _issue_open(publisher: "Publisher", repo: str, number: int) -> bool:
+    """Whether issue NUMBER is still open; True when that cannot be asked."""
+    ask = getattr(publisher, "issue_state", None)
+    if ask is None:
+        return True
+    try:
+        return str(ask(repo, number) or "open").lower() != "closed"
+    except Exception:  # noqa: BLE001 - an unanswered question keeps the issue we have
+        return True
+
+
+def raise_problem(cfg: Config, problem: Problem, publisher: "Publisher | None") -> Json:
+    """PROBLEM's public issue on EVOLVE_ISSUE_REPO, one per key while it is
+    open: the first time it opens (labelled PROBLEM_LABELS), later it is
+    commented on at most once a day with the new body, and once a person
+    closes it the next one opens a new issue. The loop never waits on it.
+    problems_log keeps the key and the issue, never the body. Under DRY_RUN
+    it says what it would have done."""
+    repo = cfg["EVOLVE_ISSUE_REPO"]
+    entry: Json = {"key": problem.key, "kind": problem.kind, "at": iso(now())}
+    seen = [r for r in read_jsonl(problems_log()) if r.get("key") == problem.key and not r.get("resumed")]
+    numbers = [r["issue"] for r in seen if isinstance(r.get("issue"), int)]
+    if dry_run():
+        entry["dry_run"] = True
+        if numbers:
+            entry["would_comment"] = {"repo": repo, "issue": numbers[-1]}
+        else:
+            entry["would_open_issue"] = {"repo": repo, "title": problem.title}
+    elif publisher is None:
+        entry["issue_error"] = "no publisher"
+    else:
+        try:
+            if numbers and _issue_open(publisher, repo, numbers[-1]):
+                number = numbers[-1]
+                entry.update(issue=number, url=next((r.get("url") for r in reversed(seen) if r.get("issue") == number
+                                                     and r.get("url")), None))
+                # Told today: the issue opened, or a comment went through. One
+                # GitHub refused (issue_error) is tried again at the next run.
+                if any(r.get("issue") == number and (r.get("filed") or r.get("update") == "commented")
+                       and str(r.get("at", "")).startswith(day(now())) for r in seen):
+                    entry["update"] = "already told today"
+                else:
+                    publisher.comment_issue(repo, number, f"Again, at {iso(now())}:\n\n{problem.body}",
+                                            judge=problem.judge)
+                    entry["update"] = "commented"
+            else:
+                try:
+                    opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge,
+                                                  labels=list(PROBLEM_LABELS))
+                except TypeError:  # a publisher that takes no labels (as evolve_route.file_issue)
+                    opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge)
+                entry.update(filed=True, issue=opened.get("number"), url=opened.get("html_url"))
+        except Exception as exc:  # noqa: BLE001 - the problem is told whether or not GitHub answers
+            entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
+    if entry.get("update") != "already told today":
+        # One line per thing done (bin/lib/audit.py counts them), not per run.
+        append_jsonl(problems_log(), entry)
+    where = f"issue #{entry['issue']}" if isinstance(entry.get("issue"), int) else "its issue"
+    say(f"problem ({problem.kind}): {where}" + (f", {entry['update']}" if entry.get("update") else "")
+        + (f" (failed: {entry['issue_error']})" if entry.get("issue_error") else ""))
     return entry
 
 
@@ -4735,17 +4950,6 @@ def frozen_issue(cfg: Config, cand: Mapping[str, Any], where: str, note: str, pu
                "bin/evolve will not ask about this learning again until its text changes."))
     return file_issue(cfg, f"frozen:{learning['id']}:{learning['hash']}", "frozen-learning", title, body, publisher,
                       judge=True)
-
-
-def resume() -> Json:
-    latched = None
-    if halt_path().exists():
-        latched = json.loads(halt_path().read_text(encoding="utf-8"))
-        halt_path().unlink()
-    for rec in read_jsonl(halts_log()):
-        if not rec.get("resumed"):
-            append_jsonl(halts_log(), {**rec, "resumed": True, "resumed_at": iso(now())})
-    return {"resumed": True, "was": latched}
 
 
 # --- publishing ----------------------------------------------------------------------------------------------------
@@ -4795,6 +4999,22 @@ class HandsPublisher:
         got = self._actions().open_issue({"repo": repo, "title": title, "body": body,
                                           **({"labels": list(labels)} if labels else {})}, judge=judge)
         return {"number": got.get("number"), "html_url": got.get("html_url")}
+
+    def comment_issue(self, repo: str, number: int, body: str, judge: bool = False) -> Json:
+        """A problem issue's update (raise_problem), through the guard."""
+        got = self._actions().comment({"repo": repo, "number": number, "body": body}, judge=judge)
+        return {"html_url": got.get("html_url")}
+
+    def _api(self):
+        from teeny_hands.gh import client
+
+        return client, client.GitHubApi.from_settings()
+
+    def issue_state(self, repo: str, number: int) -> str | None:
+        client, api = self._api()
+        owner, name = client.split_repo(repo)
+        got = api.call("GET", f"/repos/{owner}/{name}/issues/{int(number)}")
+        return str(got.get("state")) if isinstance(got, Mapping) and got.get("state") else None
 
     def fetch(self) -> None:
         """Teeny's clone up to date with GitHub (selfclone.fetch), so a
@@ -6354,12 +6574,12 @@ def crash_site(exc: BaseException) -> str:
 
 
 def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -> Json:
-    """Tells of a generation that raised, the way a halt is told: a line in
-    the log (state/evolve/evolve.log under --detach, where the cron call's
-    `ok` hid gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
-    status`, and a `crash` halt through stop(), which never latches (the next
-    scheduled run tries again) and files one issue a day (its key). Its own
-    failure never hides the crash."""
+    """Tells of a generation that raised: a line in the log
+    (state/evolve/evolve.log under --detach, where the cron call's `ok` hid
+    gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
+    status`, and a `crash` problem (raise_problem): one public issue while it
+    is open, updated at most once a day. The next scheduled run tries again.
+    Its own failure never hides the crash."""
     gen = progress.get("gen")
     error = f"{type(exc).__name__}: {exc}"
     for where, to in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
@@ -6373,15 +6593,14 @@ def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -
         publisher = progress.get("publisher")
         if publisher is None and not dry_run():
             publisher = HandsPublisher()
-        halt = Halt("crash", f"{who} raised {error}" + (f" at {site}" if site else "")
-                    + ". Its learnings stay open, charged no try.", latch=False,
-                    extra={"gen": gen, "error": error})
-        entry = stop(cfg, halt, publisher)
+        problem = Problem("crash", "crash", "bin/evolve: a generation crashed",
+                          f"{who} raised an exception and was ended; its learnings stay open, charged no try, and "
+                          f"the next scheduled run starts a new generation.\n\n- error: `{error}`\n"
+                          f"- where: {('`' + site + '`') if site else 'not in this repository'}\n- at: {iso(now())}"
+                          "\n\nHelp wanted: the error above is from bin/lib/evolve.py or a module it calls; a "
+                          "fix with a regression test in hands/tests/test_evolve.py is welcome." + HELP_FOOTER)
+        entry = raise_problem(cfg, problem, publisher)
         crash["issue"] = entry.get("issue")
-        if crash["issue"] == "already filed":
-            filed = [r.get("issue") for r in read_jsonl(halts_log()) if r.get("key") == halt.key and r.get("issue")
-                     and r.get("issue") != "already filed"]
-            crash["issue"] = filed[-1] if filed else None
         if entry.get("dry_run"):
             crash["dry_run"] = True
     except Exception as err:  # noqa: BLE001 - the crash itself is what must be told
@@ -6420,19 +6639,18 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
                     scheduled: bool = False) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
-    if halt_path().exists():
-        latched = json.loads(halt_path().read_text(encoding="utf-8"))
-        return {"ok": True, "skipped": f"halted ({latched.get('kind')}) until `bin/evolve resume`", "halt": latched}
+    retire_stale_halt()
     if not wait_for_dream():
         return {"ok": True, "kind": "busy", "skipped": "a dream is still writing MEMORY.md"}
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
     progress["publisher"] = publisher
     resume_gen = resumable()
-    halts = halts_before(cfg, new_generation=resume_gen is None, scheduled=scheduled)
-    if halts:
-        return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
-                "halts": [stop(cfg, h, publisher) for h in halts]}
+    skips, found = preconditions(cfg, new_generation=resume_gen is None, scheduled=scheduled)
+    problems = [raise_problem(cfg, p, publisher) for p in found]
+    if skips:
+        return {"ok": True, "skipped": "skipped this run: " + ", ".join(s.kind for s in skips),
+                "skips": [s.brief() for s in skips], **({"problems": problems} if problems else {})}
     entries = archive()
     if not dry_run():
         refresh_prs(entries, publisher)
@@ -6487,6 +6705,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings or findings: nothing to act on"}
             if down:
                 out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
+            if problems:
+                out["problems"] = problems
             if queue:
                 wording = make_proposer(cfg, proposals)
                 out["published"] = [{"id": c["id"], **publish(cfg, c, src, publisher, open_count, wording)}
@@ -6550,21 +6770,20 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         if cand.get("title"):
             siblings.append(f"{cand['component']}: {cand['title']}")
     pending = [c for c in cands if c["verdict"] == "pending"]
-    halted: list[Json] = []
 
     def done(cand: Json, got: Json) -> None:
         cand.update(verdict=got["verdict"], eval=got.get("eval"), eval_reason=got.get("reason"),
                     **({"report": got["report"]} if got.get("report") else {}),
                     **({"probe": got["probe"]} if got.get("probe") else {}))
-        halt = drift_halt(cfg, cand)
+        drifted = drift_problem(cfg, cand)
         if got.get("infra"):
             # The eval could not run (a lab that did not boot, the baseline,
             # the judge): not measured, so not the change's verdict. No try.
             cand.update(verdict=DEFERRED, deferred_for="infra", reason=str(got.get("reason") or "")[:300],
                         infra={"stage": "eval", "detail": str(got.get("reason") or "")[:300]})
-        elif halt is not None:
+        elif drifted is not None:
             cand["verdict"] = "flagged"
-            halted.append(stop(cfg, halt, publisher))
+            problems.append(raise_problem(cfg, drifted, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
             cand["verdict"] = REVISING
         elif cand["verdict"] in SHIPS and unproven(cfg, cand):
@@ -6600,11 +6819,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     ready = [c for c in cands if c["verdict"] in SHIPS]
     published = []
     for cand in [*queue, *ready]:
-        if halt_path().exists():
-            # A latched halt mid-run: a person looks first, and what passed waits.
-            cand.update(verdict="waiting", waiting="a halt latched during the run")
-        else:
-            published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count, proposer)})
+        published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count, proposer)})
         record(cand)
     for cand in cands:
         remove_worktree(src, gdir / f"cand-{cand['cand']}")
@@ -6614,8 +6829,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         result["resumed"] = True
     if cut:
         result["runway"] = cut
-    if halted:
-        result["halts"] = halted
+    if problems:
+        result["problems"] = problems
     write_json(gdir / "result.json", result)
     return {"ok": True, **result}
 
@@ -6636,9 +6851,10 @@ def candidate_line(cand: Mapping[str, Any]) -> Json:
 
 
 def watch_dir() -> Path:
-    """Where evolve-watch keeps its reasons: under secrets/, which no
-    prompt, stimulus, hand read verb or agent file tool reaches. Nothing it
-    writes anywhere else names a reason."""
+    """Where evolve-watch keeps its full reasons and checks on the box:
+    under secrets/, which no prompt, stimulus, hand read verb or agent file
+    tool reaches. Nothing else it writes on the box names a reason; the
+    public issue of a revert (watch_problem) carries the numbers."""
     folder = secrets_dir() / "evolve-watch"
     folder.mkdir(parents=True, exist_ok=True)
     os.chmod(folder, 0o700)
@@ -6678,6 +6894,65 @@ def spike(times: list[float] | None, t0: float, end: float, cfg: Config) -> Json
     return {"before": before_n, "before_per_day": round(before_n / 7, 3), "after": after_n,
             "after_per_day": round(after_n / span, 3), "p": round(p, 6),
             "spike": after_n >= cfg["EVOLVE_WATCH_MIN_EVENTS"] and p < cfg["EVOLVE_WATCH_P"]}
+
+
+#: A failed run's error, as a class an issue may name: never the run's
+#: output, which can carry a payload or a value. First match wins.
+ERROR_CLASSES = (
+    ("prompt guard refused", re.compile(r"prompt (?:blocked|flagged)", re.I)),
+    ("draft turn failed", re.compile(r"the draft turn failed", re.I)),
+    ("cut to fit the prompt screen", re.compile(r"cut to fit the core's prompt screen", re.I)),
+    ("traceback", re.compile(r"Traceback \(most recent call last\)")),
+    ("does not parse", re.compile(r"does not parse|parse error|JSONDecodeError|TOMLDecodeError", re.I)),
+)
+
+
+def error_class(output: str) -> str:
+    for name, pattern in ERROR_CLASSES:
+        if pattern.search(output):
+            return name
+    code = re.search(r"exit status: (\d+)", output)
+    return f"exit {code.group(1)}" if code else "other"
+
+
+def cron_spike(counted: list[Json] | None, left: list[Json], reach: Reach, t0: float, end: float,
+               cfg: Config) -> Json | None:
+    """The cron-failure check: `spike` over the failures the change could
+    have caused (sort_failures), with how many of each job fell in each
+    window, the error classes, and the runs left out. A broad reach (a file
+    every speaking job reads, or every job) needs more than a count: the
+    rise must still be a spike after the job with the most failures since
+    the merge is left out of both windows (`spread`). A broadcast change that
+    breaks things breaks many jobs; one job running away alone (g21c2:
+    bin/surplus-sweep) is that job's own trouble."""
+    if counted is None:
+        return None
+    got = spike([r["at"] for r in counted], t0, end, cfg)
+    assert got is not None
+    sides = (("before", lambda t: t0 - 7 * 86400 <= t < t0), ("after", lambda t: t0 <= t < end))
+    got["left_out"] = {side: {why: sum(1 for r in left if r["why"] == why and inside(r["at"]))
+                              for why in ("boot", "infra", "unreached")} for side, inside in sides}
+    got["reach"] = reach.kind
+    jobs: Json = {}
+    errors: Json = {}
+    for side, inside in sides:
+        jobs[side], errors[side] = {}, {}
+        for r in counted:
+            if inside(r["at"]):
+                name = _cron_command(r["job"])
+                jobs[side][name] = jobs[side].get(name, 0) + 1
+                cls = error_class(r["output"])
+                errors[side][cls] = errors[side].get(cls, 0) + 1
+        jobs[side], errors[side] = dict(sorted(jobs[side].items())), dict(sorted(errors[side].items()))
+    got["jobs"], got["errors"] = jobs, errors
+    if reach.broad:
+        after = jobs["after"]
+        top = max(sorted(after), key=lambda j: after[j]) if after else None
+        rest = spike([r["at"] for r in counted if _cron_command(r["job"]) != top], t0, end, cfg) or {}
+        got["spread"] = {"without": top, "after": rest.get("after"), "p": rest.get("p"),
+                         "spike": bool(rest.get("spike"))}
+        got["spike"] = bool(got["spike"] and got["spread"]["spike"])
+    return got
 
 
 def live_probe(cfg: Config, ask: probes_lib.Ask | None = None) -> Json:
@@ -6760,9 +7035,11 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
     - at EVOLVE_WATCH_HOURS, J from hands/world history: lower than at the
       merge
 
-    Any one of them opens a revert pull request for a person and latches a
-    halt. The reasons go to secrets/evolve-watch/ alone: the pull request,
-    the issue, the halt and the log say only that the watch reverted.
+    Any one of them opens a revert pull request for a person and files one
+    public issue with the numbers (watch_problem); the loop keeps running.
+    A cron failure counts only in a job the change reaches (change_reach,
+    cron_spike). On the box the reasons go to secrets/evolve-watch/ alone:
+    the state, the archive and the log say only that the watch reverted.
 
     First, every merged change's own check is scored at each horizon it has
     reached (`score_outcomes`): recorded, never a reason to revert."""
@@ -6795,18 +7072,17 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
         reasons.append("the spine booted last-good after the merge")
     end = min(now(), t0 + 86400)
     if hours <= 24 + 1:
-        failures, left = countable_failures(_cron_failure_runs(t0 - 8 * 86400), _boot_times(), change_reach(cand), cfg)
-        for name, times in (("guard holds", _hold_times()), ("cron failures", failures)):
-            got = spike(times, t0, end, cfg)
-            if got and name == "cron failures":
-                got["left_out"] = {side: {why: sum(1 for r in left if r["why"] == why and inside(r["at"]))
-                                          for why in ("boot", "infra", "unreached")}
-                                   for side, inside in (("before", lambda t: t0 - 7 * 86400 <= t < t0),
-                                                        ("after", lambda t: t0 <= t < end))}
+        reach = change_reach(cand)
+        rows = _cron_failure_runs(t0 - 8 * 86400)
+        counted, left = sort_failures(rows, _boot_times(), reach, cfg) if rows is not None else (None, [])
+        for name, got in (("guard holds", spike(_hold_times(), t0, end, cfg)),
+                          ("cron failures", cron_spike(counted, left, reach, t0, end, cfg))):
             checks[name] = got
             if got and got["spike"]:
                 reasons.append(f"{name}: {got['after']} in {round((end - t0) / 3600, 1)} h, "
-                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before (p {got['p']})")
+                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before (p {got['p']})"
+                               + (f", across {len(got['jobs']['after'])} jobs the change reaches"
+                                  if got.get("spread") else ""))
     if cfg["EVOLVE_PROBES"] and not rec.get("probed"):
         try:
             probe = live_probe(cfg, ask)
@@ -6836,10 +7112,10 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
     if reasons:
         _private_json(watch_dir() / f"{cand['id']}.json", {"id": cand["id"], "gen": gen, "reasons": reasons,
                                                           "checks": checks, "at": iso(now())})
-        got = revert(cfg, cand, publisher)
+        got = revert(cfg, cand, publisher, reasons, checks)
         rec.update(done=True, reverted=True, revert=got)
         out.update(reverted=True, revert=got)
-        say(f"evolve-watch reverts {cand['id']}; the reasons are in secrets/evolve-watch/")
+        say(f"evolve-watch reverts {cand['id']}; the numbers are in its public issue and secrets/evolve-watch/")
     elif closing:
         rec["done"] = True
         out["closed"] = True
@@ -6851,23 +7127,95 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
 REVERT_PREFIX = "teeny/revert-gen-"
 
 
-def revert(cfg: Config, cand: Json, publisher: Publisher | None) -> Json:
+def _merged_pr(cfg: Config, cand: Mapping[str, Any]) -> str:
+    if cand.get("pr_url"):
+        return str(cand["pr_url"])
+    if cand.get("pr_number"):
+        return f"https://github.com/{cfg['EVOLVE_ISSUE_REPO']}/pull/{cand['pr_number']}"
+    return "no pull request on record"
+
+
+def _scrub(text: str) -> str:
+    """TEXT with the box's paths made relative, as report_crash does."""
+    for where, to in ((str(secrets_dir()), "secrets"), (str(evolve_dir()), "state/evolve"), (str(root()), "."),
+                      (str(CODE), ".")):
+        text = text.replace(where, to)
+    return text
+
+
+def watch_problem(cfg: Config, cand: Mapping[str, Any], label: str, reasons: list[str], checks: Mapping[str, Any],
+                  done: Mapping[str, Any]) -> Problem:
+    """The public issue of a watch revert: what happened, the change and its
+    revert, the numbers (counts, rates, p, the jobs that failed and the
+    error classes, what was left out and why) and what help is wanted.
+    Never a run's output, a hold's text, a probe's answers or anything from
+    secrets/: counts, job names and classes only."""
+    lines = [f"evolve-watch reverted gen-{label} (candidate {cand['id']}), merged {cand.get('merged_at') or '?'}: "
+             f"{str(cand.get('title') or 'untitled')[:160]} ({_merged_pr(cfg, cand)}).", "", "## Why", ""]
+    lines += [f"- {r}" for r in reasons]
+    lines += ["", "## The numbers", "", f"Checked {checks.get('hours')} h after the merge."]
+    cron = checks.get("cron failures")
+    if isinstance(cron, Mapping):
+        lines += ["", f"**Failed cron runs** the change could have caused (reach: `{cron.get('reach')}`): "
+                  f"{cron['after']} since the merge ({cron['after_per_day']}/day) against {cron['before']} in the "
+                  f"7 days before ({cron['before_per_day']}/day), p {cron['p']}."]
+        for side in ("after", "before"):
+            jobs = (cron.get("jobs") or {}).get(side) or {}
+            errs = (cron.get("errors") or {}).get(side) or {}
+            lines.append(f"- {side} the merge, by job: " + (", ".join(f"`{j}` {n}" for j, n in jobs.items()) or "none")
+                         + ("; by error: " + ", ".join(f"{c} {n}" for c, n in errs.items()) if errs else ""))
+        for side in ("after", "before"):
+            out = (cron.get("left_out") or {}).get(side) or {}
+            lines.append(f"- left out {side} the merge: " + ", ".join(f"{why} {n}" for why, n in out.items()))
+        spread = cron.get("spread")
+        if isinstance(spread, Mapping):
+            lines.append(f"- without `{spread.get('without')}`, the busiest job: {spread.get('after')} since the "
+                         f"merge, p {spread.get('p')}")
+    holds = checks.get("guard holds")
+    if isinstance(holds, Mapping):
+        lines += ["", f"**Guard holds**: {holds['after']} since the merge ({holds['after_per_day']}/day) against "
+                  f"{holds['before']} in the 7 days before ({holds['before_per_day']}/day), p {holds['p']}."]
+    probe = checks.get("probe")
+    if isinstance(probe, Mapping) and (probe.get("drift") is not None or probe.get("memory_loss") is not None):
+        lines += ["", f"**Probes on the live core**: persona drift {probe.get('drift')} from gen-0 (cap "
+                  f"{cfg['EVOLVE_MAX_DRIFT']}), memory accuracy lost {probe.get('memory_loss')} (cap "
+                  f"{cfg['EVOLVE_MAX_MEMORY_LOSS']})."]
+    j = checks.get("J")
+    if isinstance(j, Mapping):
+        lines += ["", "**J**: " + ", ".join(f"{k} {v}" for k, v in j.items() if k != "history") + "."]
+    lines += ["", "## What was done", ""]
+    if done.get("pr_url"):
+        lines.append(f"- a revert pull request, waiting for a person: {done['pr_url']}")
+    elif done.get("dry_run"):
+        lines.append("- a revert pull request would open (DRY_RUN)")
+    else:
+        lines.append(f"- the revert pull request did not open: {_scrub(str(done.get('error') or 'unknown'))[:200]}")
+    lines += ["- nothing else: the loop keeps running and nobody has to resume it", "", "## Help wanted", "",
+              "- Is the evidence real? A failure counts only in a job that reads a file the change touched "
+              "(docs/evolve.md, \"evolve-watch\"). If these numbers are noise, say so on the revert and close it.",
+              "- If it is real: what in the change caused it, so the next candidate avoids it."]
+    return Problem("watch-revert", f"watch-revert:{cand['id']}",
+                   f"evolve-watch reverted gen-{label}" + (f" (#{cand['pr_number']})" if cand.get("pr_number") else ""),
+                   "\n".join(lines) + HELP_FOOTER, judge=True)
+
+
+def revert(cfg: Config, cand: Json, publisher: Publisher | None, reasons: list[str] | None = None,
+           checks: Mapping[str, Any] | None = None) -> Json:
     """A revert pull request for the merge, from Teeny's clone, left for a
-    person to merge (the babysitter merges teeny/gen-* only), and a latched
-    halt. Under DRY_RUN it says what it would have done."""
+    person to merge (the babysitter merges teeny/gen-* only), and its public
+    issue (watch_problem). Nothing latches. Under DRY_RUN it says what it
+    would have done."""
     gen = int(cand["gen"])
     label = f"{gen}-c{cand['cand']}" if cand.get("cand") else str(gen)
     branch = f"{REVERT_PREFIX}{label}"
     title = f"Revert gen-{label}"
     pr_ref = f" (#{cand['pr_number']})" if cand.get("pr_number") else ""
     body = (f"evolve-watch reverts gen-{label}{pr_ref}, which was merged.\n\n"
-            "Its reasons are kept on the box for the operator, outside anything Teeny reads. The loop stays "
-            "stopped until an operator runs `bin/evolve resume`.")
-    halt = Halt("watch-revert", f"evolve-watch reverted gen-{label}; its reasons are on the box for the operator",
-                latch=True, extra={"gen": gen, "candidate": cand["id"]})
+            f"The numbers are in the issue \"evolve-watch reverted gen-{label}\" on {cfg['EVOLVE_ISSUE_REPO']}. "
+            "Nothing waits on this pull request: the loop keeps running.")
     if dry_run():
         out: Json = {"dry_run": True, "would_open_pr": {"branch": branch, "title": title}}
-        out["halt"] = stop(cfg, halt, None)
+        out["issue"] = raise_problem(cfg, watch_problem(cfg, cand, label, reasons or [], checks or {}, out), None)
         return out
     publisher = publisher or HandsPublisher()
     out = {}
@@ -6896,9 +7244,9 @@ def revert(cfg: Config, cand: Json, publisher: Publisher | None) -> Json:
         finally:
             remove_worktree(src, tree)
         out.update(pr_number=opened.get("number"), pr_url=opened.get("html_url"), branch=branch)
-    except Exception as exc:  # noqa: BLE001 - the halt holds whether or not the revert opens
+    except Exception as exc:  # noqa: BLE001 - the issue is filed whether or not the revert opens
         out["error"] = str(getattr(exc, "reason", None) or exc)[:300]
-    out["halt"] = stop(cfg, halt, publisher)
+    out["issue"] = raise_problem(cfg, watch_problem(cfg, cand, label, reasons or [], checks or {}, out), publisher)
     return out
 
 
@@ -7017,12 +7365,22 @@ def last_crash() -> Json | None:
     return got if isinstance(got, dict) else None
 
 
+def problem_issues() -> list[Json]:
+    """The newest issue filed for each problem key (problems_log), as the
+    box last knew it: whether a person closed it is GitHub's to say."""
+    latest: dict[str, Json] = {}
+    for r in read_jsonl(problems_log()):
+        if isinstance(r.get("issue"), int) and not r.get("resumed") and r.get("key"):
+            latest[str(r["key"])] = {"key": r["key"], "kind": r.get("kind"), "issue": r["issue"], "url": r.get("url"),
+                                     "last": r.get("at")}
+    return sorted(latest.values(), key=lambda r: str(r.get("last") or ""))
+
+
 def status() -> Json:
     """What a person asks before a restart or a merge: the open learnings,
     the open evolve pull requests, and where each candidate of the newest
     generation (and each waiting one) is."""
     entries = archive()
-    halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
     learnings, routed = split_wants(read_learnings())
     try:
         cfg: Config | None = load_config()
@@ -7039,7 +7397,7 @@ def status() -> Json:
     current = [e for e in entries.values() if e.get("gen") == latest]
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
     return {
-        "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
+        "ok": True, "problems": problem_issues(), "running": running(), "dry_run": dry_run(),
         "generations": latest, "today": generations_today(), "today_by_hand": generations_today(scheduled=False),
         "last_crash": last_crash(),
         "unfinished": [g for g in unfinished()],
@@ -7138,8 +7496,7 @@ def main(argv: list[str]) -> int:
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
     prb.add_argument("--force", action="store_true", help="with --baseline: replace an existing gen-0")
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
-    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, any halt")
-    verbs.add_parser("resume", help="clear a latched halt")
+    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, problem issues")
     aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
     aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
     args = parser.parse_args(argv)
@@ -7163,13 +7520,11 @@ def main(argv: list[str]) -> int:
             out = credit(cfg)
         elif args.verb == "status":
             out = status()
-        elif args.verb == "aa":
+        else:
             # The labs' ports are a generation's: never both at once.
             with run_lock() as held:
                 out = (aa(cfg, [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
                        else {"ok": True, "kind": "busy", "detail": "a generation is running"})
-        else:
-            out = resume()
     except (EvolveError, probes_lib.ProbeError) as exc:
         say(str(exc))
         print(json.dumps({"ok": False, "error": str(exc)}))

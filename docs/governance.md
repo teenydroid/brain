@@ -79,7 +79,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `DRY_RUN` | `secrets/teeny.env`, or `DRY_RUN=1` in the environment | every outside write by every hand: posts, mail, pushes, payments | on (rehearsal) unless `0` |
 | `EVOLVE` | `secrets/evolve.env` | the whole evolve loop: no learning becomes a pull request | `0` |
 | `EVOLVE_MAX_OPEN_PRS` | `secrets/evolve.env` | not a switch: the most evolve pull requests open at once; past it a passing candidate waits | `4` |
-| `bin/evolve` halts | `state/evolve/halt.json` | every later generation, until `bin/evolve resume` | latched by the loop |
+| `bin/evolve` skips | none: nothing latches | that one run (the day's generation cap, a doctor red now, J rising faster than `EVOLVE_MAX_J_RISE`); the next run asks again. A real problem (a watch revert, a crash, persona drift, the doctor red for a day) files a public `help wanted` issue and the loop goes on | per run |
 | `TINY_BUY` | `secrets/teeny.env` | the pinned `$TINY` buy | off |
 | `WALLET_MIND_ACTIONS` | `secrets/teeny.env` | the mind's wallet intents | off |
 | `GIVEAWAYS` | `secrets/teeny.env` | Tiny Drops: every giveaway round opened, drawn or paid from the giveaway pool (wallet index 1) | off |
@@ -92,7 +92,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `BABYSIT_SELF_MERGE` | `secrets/teeny.env` | the babysitter merging Teeny's evolve pull requests on a passed `teeny/eval` with no person's approval, and deploying them to the live checkout (L5, `self-merge`; needs `BABYSIT_MERGE` too) | off |
 | A wallet key | `secrets/teeny.env` (remove `WALLET_*`) | the wallet entirely | none set |
 | A cron job | `brain/cron.toml` (`enabled = false`), or `evals/cron.pinned.toml` for a pinned one | that job | per job |
-| `state/spine-fallback.json` | the box | any generation starting, while a last-good boot stands | absent |
+| `state/spine-fallback.json` | the box | nothing in evolve: a last-good boot files a public issue, and generations go on from Teeny's clone of main | absent |
 
 ## How a fence changes
 
