@@ -252,6 +252,12 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
     a self-merge, last of all: its restart ends this process's container,
     and every row is written by then."""
     api = api or PullsApi()
+    # The last deploy judged first (BABYSIT_SELF_MERGE_ALL; rollback.py), so a
+    # bad one holds this run's merges of what it changed.
+    try:
+        judged = rollback.check(api)
+    except hand.HandError as exc:
+        judged = {"error": str(exc)}
     listed = auditing.queue(None, max_results, api)
     triaged, merged, errors = [], [], []
     for result in listed["pulls"]:
