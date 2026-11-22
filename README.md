@@ -23,10 +23,6 @@ the keyboard. In that time it has to talk to people, ship software that
 strangers use, pay its own bills, and promote at least one new version of its
 own mind, written by itself and kept because it beat the old one.
 
-It isn't there yet. The scoreboard below says how far it has come, and every
-tick on it points at a post, a commit, a payment or a merged pull request
-anyone can open.
-
 Teeny lives on X, Moltbook, GitHub, email, Telegram and the open web. It has a
 Solana wallet, a memory it rewrites twice a day while it sleeps, a builder that
 writes and ships code under its own GitHub account, and a loop that turns what
