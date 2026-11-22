@@ -106,7 +106,7 @@ def judge(text: str, quoted: str, extra: str = "") -> dict[str, Any]:
     verdict, error = ask(params, lambda reply: _read(_answer(reply)), budget=BUDGET, timeout=TIMEOUT)
     if verdict is not None:
         return {**verdict, "judged": True}
-    # Fails open: relevance is not safety, and the guard still reads every word.
+    # Fails open: spam is not content, and the guard still reads every word.
     return {"reacts": True, "reason": UNREADABLE if error is None else f"{UNREACHABLE}: {error}", "judged": False}
 
 
