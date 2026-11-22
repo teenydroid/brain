@@ -82,7 +82,7 @@ def _mind_job(slug: str, schedule: dict, n: int) -> dict:
 class BrokerCase(unittest.TestCase):
     """A scratch root, stand-in hands and core, and a broker started on demand."""
 
-    SETTINGS = {"MIND": "1", "BROKER_PORT": "0", "DRY_RUN": "0", "STUDIO": "0"}
+    SETTINGS = {"MIND": "1", "MIND_DRY_RUN": "0", "BROKER_PORT": "0", "DRY_RUN": "0", "STUDIO": "0"}
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -384,6 +384,41 @@ class DoTest(BrokerCase):
         self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls()], [("goals", ["list"])])
 
 
+class RehearsalTest(BrokerCase):
+    """MIND_DRY_RUN: the mind rehearses on its own switch, so the rest of
+    Teeny goes on posting while the operator watches what the mind would do."""
+
+    def test_the_mind_rehearses_unless_the_operator_says_otherwise(self):
+        self.start(MIND_DRY_RUN=None)  # unset: the default
+        code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(out["result"], {"ok": True, "dry_run": True})
+        self.assertIs(self.ledger()[-1]["dry_run"], True)
+
+    def test_a_rehearsing_mind_schedules_nothing(self):
+        self.start(MIND_DRY_RUN="1")
+        code, out = self.post("/wake", {"name": "soon", "note": "n", "cron": "0 9 * * *"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertIs(out["dry_run"], True)
+        self.assertEqual(self.oh_calls("cron_add"), [])
+
+    def test_only_an_explicit_0_takes_the_mind_out_of_rehearsal(self):
+        for value in ("", "no", "false", "2"):
+            with self.subTest(value=value):
+                self.setUp()
+                try:
+                    self.start(MIND_DRY_RUN=value)
+                    _, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+                    self.assertIs(out["result"]["dry_run"], True, value)
+                finally:
+                    self.tearDown()
+
+    def test_the_boxs_own_dry_run_still_holds_a_live_mind(self):
+        self.start(MIND_DRY_RUN="0", DRY_RUN="1")
+        _, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertIs(out["result"]["dry_run"], True)
+
+
 class BodyTest(BrokerCase):
     def test_a_body_over_64_kib_is_refused_without_running_anything(self):
         self.start()
@@ -491,6 +526,20 @@ class WakeTest(BrokerCase):
         self.assertEqual((code, out["status"]), (200, "ok"), out)
         code, out = self.post("/wake", {"name": "again", "note": "n", "cron": "0 10 * * *"})
         self.assertEqual((code, out["status"]), (403, "refused"))
+
+    def test_one_off_wakes_count_against_the_days_runs_even_after_they_ran(self):
+        # A one-off deletes itself once it has run, so the jobs left in the
+        # core say nothing about how many ran today: without a count of its
+        # own a run could schedule the next one for ever.
+        self.start(MIND_WAKES_PER_DAY="3")
+        for i in range(3):
+            code, out = self.post("/wake", {"name": f"once-{i}", "note": "n", "at": "2026-09-14T09:30:00Z"})
+            self.assertEqual((code, out["status"]), (200, "ok"), out)
+            self.set_jobs([TICK_JOB])  # it ran and was deleted
+        code, out = self.post("/wake", {"name": "once-more", "note": "n", "at": "2026-09-14T09:30:00Z"})
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("MIND_WAKES_PER_DAY", out["reason"])
+        self.assertEqual(len(self.oh_calls("cron_add")), 3)
 
     def test_under_dry_run_a_wake_creates_nothing(self):
         self.start(DRY_RUN="1")
