@@ -43,24 +43,28 @@ class BulletWordsTest(support.WithCore):
         self.assertEqual(result.held.by, "judge")
         self.assertTrue(result.held.judge_failed)
 
-    def test_the_other_weapons_words_are_still_held_on_sight(self):
+    def test_the_other_weapons_words_hold_a_stranger_on_sight_and_go_to_the_judge_in_own_words(self):
+        # 2026-11-22: weapons words are inbound-only (lexicon.py); the
+        # account's own words are read by the judge alone.
         core = self.core(support.verdict("clean"))
         for text in ("buy ammo here", "he has a glock", "one bullet and a rifle"):
-            result = gate_outbound(text, dict(CONTEXT))
-            self.assertEqual((result.held.category, result.held.by), ("weapons", "screen"), text)
+            self.assertIsNone(gate_outbound(text, dict(CONTEXT)).held, text)
             self.assertEqual(gate_inbound(text).by, "screen", text)
-        self.assertEqual(core.calls, [])
+        self.assertEqual(len(core.calls), 3)
 
 
 class BulletWordsWithoutJudgeTest(support.Scratch):
     """SAFETY_JUDGE=0: nothing reads the sentence, so the word holds as before."""
 
     def test_a_bare_bullet_word_still_holds_when_the_judge_is_off(self):
+        # Own words: not held since 2026-11-22; a stranger's still is.
         for text in (ROADMAP_DRAFT, "three bullets for the changelog"):
-            result = gate_outbound(text, dict(CONTEXT))
-            self.assertEqual((result.held.category, result.held.by), ("weapons", "screen"), text)
-            self.assertTrue(result.held.reason.startswith('contains "bullet'), result.held.reason)
+            self.assertIsNone(gate_outbound(text, dict(CONTEXT)).held, text)
+            held = gate_inbound(text)
+            self.assertEqual((held.category, held.by), ("weapons", "screen"), text)
+            self.assertTrue(held.reason.startswith('contains "bullet'), held.reason)
 
     def test_the_lexicon_alone_still_reports_a_bare_bullet_word(self):
-        found = screen_text(ROADMAP_DRAFT, OUTBOUND)
+        self.assertIsNone(screen_text(ROADMAP_DRAFT, OUTBOUND))
+        found = screen_text(ROADMAP_DRAFT, INBOUND)
         self.assertEqual((found.category, found.term, found.judged), ("weapons", "bullet", True))

@@ -46,26 +46,30 @@ class GunWordsTest(support.WithCore):
         self.assertEqual(result.held.by, "judge")
         self.assertTrue(result.held.judge_failed)
 
-    def test_the_other_firearm_words_are_still_held_on_sight(self):
-        core = self.core(support.verdict("clean"))
-        for text in ("he has a glock", "buy a rifle here", "a pistol in the glovebox", "an ak47 for sale",
-                     "one gun and a firearm licence"):
-            result = gate_outbound(text, dict(CONTEXT))
-            self.assertEqual((result.held.category, result.held.by), ("weapons", "screen"), text)
+    def test_the_other_firearm_words_hold_a_stranger_on_sight_and_go_to_the_judge_in_own_words(self):
+        # 2026-11-22: weapons words are inbound-only (lexicon.py).
+        texts = ("he has a glock", "buy a rifle here", "a pistol in the glovebox", "an ak47 for sale",
+                 "one gun and a firearm licence")
+        core = self.core(*[support.verdict("clean")] * len(texts))
+        for text in texts:
+            self.assertIsNone(gate_outbound(text, dict(CONTEXT)).held, text)
             self.assertEqual(gate_inbound(text).by, "screen", text)
-        self.assertEqual(core.calls, [])
+        self.assertEqual(len(core.calls), len(texts))
 
 
 class GunWordsWithoutJudgeTest(support.Scratch):
     """SAFETY_JUDGE=0: nothing reads the sentence, so the word holds as before."""
 
     def test_a_bare_gun_word_still_holds_when_the_judge_is_off(self):
+        # Own words: not held since 2026-11-22; a stranger's still is.
         for text, term in REPLIES:
-            result = gate_outbound(text, dict(CONTEXT))
-            self.assertEqual((result.held.category, result.held.by), ("weapons", "screen"), text)
-            self.assertEqual(result.held.reason, f'contains "{term}"')
+            self.assertIsNone(gate_outbound(text, dict(CONTEXT)).held, text)
+            held = gate_inbound(text)
+            self.assertEqual((held.category, held.by), ("weapons", "screen"), text)
+            self.assertEqual(held.reason, f'contains "{term}"')
 
     def test_the_lexicon_alone_still_reports_a_bare_gun_word(self):
         for text, term in REPLIES:
-            found = screen_text(text, OUTBOUND)
+            self.assertIsNone(screen_text(text, OUTBOUND), text)
+            found = screen_text(text, INBOUND)
             self.assertEqual((found.category, found.term, found.judged), ("weapons", term, True), text)
