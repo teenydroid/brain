@@ -629,6 +629,131 @@ class RunTest(unittest.TestCase):
         self.assertEqual(len(rec["publish"]["attempts"]), 3)
         self.assertFalse([c for c in self.calls() if c.startswith("x ")])
 
+    # --- the stranger check is a log entry, not a gate (2026-11-22) ---
+
+    def live(self, ask, **env):
+        """A live run (STUDIO=1) with the rewrite turns kept: (out, record,
+        the rewrite messages)."""
+        self.args.dry_run = False
+        rewrites: list[str] = []
+
+        def with_rewrite(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: rewrite"):
+                rewrites.append(message)
+                return 0, json.dumps({"text": "my thinking bill, said again"}), ""
+            return ask(root, agent, message, thread, model, secs)
+        code, out = self.go(with_rewrite, STUDIO="1", **env)
+        return out, self.record(), rewrites
+
+    def test_a_stranger_no_is_kept_in_the_record_and_never_blocks_the_draft(self):
+        ask, _ = self.script()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_CLEAR": "1"}):
+            out, rec, rewrites = self.live(ask)
+        self.assertEqual(out["outcome"], "published")
+        self.assertEqual(rewrites, [])
+        first = rec["publish"]["attempts"][0]
+        self.assertEqual(first["gates"]["stranger"]["clear"], False)
+        self.assertEqual(first["gates"]["stranger"]["reason"], "a stranger could not say")
+        self.assertIs(first["gates"]["stranger"]["advisory"], True)
+        self.assertNotIn("rewritten", first)
+        self.assertIn("guard clarity", " ".join(self.calls()))
+
+    def test_an_unreachable_cold_reader_does_not_cost_the_slot(self):
+        ask, _ = self.script()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_CLEAR_DOWN": "1"}):
+            out, rec, rewrites = self.live(ask)
+        self.assertEqual(out["outcome"], "published")
+        self.assertEqual(rewrites, [])
+        self.assertIn("could not be reached", rec["publish"]["attempts"][0]["gates"]["stranger"]["reason"])
+
+    def test_the_stranger_gate_switched_on_drops_a_draft_without_a_rewrite(self):
+        ask, _ = self.script()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_CLEAR": "1"}):
+            out, rec, rewrites = self.live(ask, STUDIO_STRANGER_GATE="1")
+        self.assertEqual(out["outcome"], "empty")
+        self.assertEqual(rewrites, [])
+        self.assertTrue(all(a["result"] == "failed the stranger check" for a in rec["publish"]["attempts"]),
+                        rec["publish"]["attempts"])
+        self.assertFalse([c for c in self.calls() if c.startswith("x ")])
+
+    def test_the_stranger_gate_switched_on_still_holds_on_an_unreachable_reader(self):
+        ask, _ = self.script()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_CLEAR_DOWN": "1"}):
+            out, rec, _ = self.live(ask, STUDIO_STRANGER_GATE="1")
+        self.assertEqual(out["outcome"], "empty")
+        self.assertIn("could not judge it", rec["publish"]["attempts"][0]["result"])
+
+    def test_a_truth_no_is_the_only_rewrite_and_it_keeps_the_joke(self):
+        ask, _ = self.script()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_TRUTH": "1", "FAKE_CLEAR": "1"}):
+            out, rec, rewrites = self.live(ask)
+        self.assertEqual(len(rewrites), 3)
+        for msg in rewrites:
+            self.assertIn("Cut or correct only the unsupported claim", msg)
+            self.assertIn("keep every other word, the joke and the rudeness exactly as they are", msg)
+
+    # --- one failed draft turn drops its pitch, not the run (2026-11-22) ---
+
+    FLAGGED = ("[oh] openhuman.inference_agent_chat: Prompt flagged for security review and was not processed. "
+               "Please rephrase clearly.")
+
+    def two_pitches(self, fail_draft_of=("p1",), fail_rewrite=False):
+        ask, seen = self.script()
+
+        def two(root, agent, message, thread, model, secs):
+            step = message.split("\n", 1)[0]
+            if step == "# studio: pitch":
+                seen.append(step)
+                return 0, json.dumps({"pitches": [
+                    {"id": p, "item": "evt:2", "storyline": "rent", "shape": "scene", "format": "post", "angle": "a",
+                     "why_now": "w"} for p in ("p1", "p2")], "ranking": ["p1", "p2"]}), ""
+            if step == "# studio: draft" and any(f'"id": "{p}"' in message for p in fail_draft_of):
+                seen.append(step)
+                return 1, "", self.FLAGGED
+            if step == "# studio: rewrite" and fail_rewrite:
+                seen.append(step)
+                return 1, "", self.FLAGGED
+            return ask(root, agent, message, thread, model, secs)
+        return two, seen
+
+    def test_a_failed_draft_turn_drops_its_pitch_and_the_run_goes_on(self):
+        ask, _ = self.two_pitches()
+        code, out = self.go(ask)
+        rec = self.record()
+        self.assertEqual((code, out["outcome"]), (0, "picked"))
+        self.assertEqual({d["pitch"] for d in rec["drafts"]}, {"p2"})
+        dropped = [d for d in rec["drafts_dropped"] if d["pitch"] == "p1"]
+        self.assertEqual(len(dropped), 1)
+        self.assertIn("Prompt flagged for security review", dropped[0]["why"])
+        # The writer's model fell back to the core's default, as for any failed turn.
+        self.assertTrue(any("failed a turn" in w for w in rec["warnings"]))
+
+    def test_a_run_fails_only_when_no_pitch_could_be_drafted(self):
+        ask, _ = self.two_pitches(fail_draft_of=("p1", "p2"))
+        code, out = self.go(ask)
+        rec = self.record()
+        self.assertEqual(out["outcome"], "failed")
+        self.assertIn("Prompt flagged for security review", rec["reason"])
+        self.assertEqual(rec["drafts"], [])
+
+    def test_a_failed_rewrite_turn_falls_to_the_next_draft(self):
+        self.args.dry_run = False
+        ask, _ = self.two_pitches(fail_draft_of=(), fail_rewrite=True)
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"FAKE_TRUTH": "1"}):
+            code, out = self.go(ask, STUDIO="1")
+        rec = self.record()
+        self.assertEqual((code, out["outcome"]), (0, "empty"))
+        attempts = rec["publish"]["attempts"]
+        self.assertEqual(len(attempts), 3)
+        self.assertTrue(all("the rewrite did not come through" in a["result"] for a in attempts), attempts)
+        self.assertIn("Prompt flagged for security review", attempts[0]["rewrite"]["failed"])
+
     def test_the_paid_x_search_is_off_unless_switched_on(self):
         self.args.no_outside = False
         calls = []
