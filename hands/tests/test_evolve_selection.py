@@ -299,7 +299,7 @@ class Lessons(SelectionCase):
         self.propose(1, [soul_edit(self, "never guess a captcha.")], title="SOUL hard rule: no guessing")
         pub = FakePublisher()
         self.run_gen(1, publisher=pub, evaluator=Better({1: "better"}))
-        entry = self.entries()["g7c1"]
+        entry = self.entries()["g6c1"]
         self.assertEqual(pub.prs, [])
         self.assertEqual(entry["verdict"], "parked")
         self.assertIn("lesson `prompt-rule/learning` is exhausted", entry["reason"])
@@ -310,7 +310,7 @@ class Lessons(SelectionCase):
         self.exhausted()
         self.propose(1, [soul_edit(self, "never guess a captcha."), self.playbook_edit("Check first.")])
         self.run_gen(1, evaluator=Better({1: "better"}))
-        entry = self.entries()["g7c1"]
+        entry = self.entries()["g6c1"]
         self.assertEqual(entry["verdict"], "parked")
         self.assertEqual(entry["kinds"], ["prompt-rule/learning", "playbook/learning"])
 
@@ -330,7 +330,7 @@ class Lessons(SelectionCase):
         pub = FakePublisher()
         self.run_gen(1, publisher=pub, evaluator=Better({1: "better"}))
         self.assertEqual(len(pub.prs), 1)
-        rounds = json.loads((evolve.gen_dir(7) / "cand-1.rounds.json").read_text())["rounds"]
+        rounds = json.loads((evolve.gen_dir(6) / "cand-1.rounds.json").read_text())["rounds"]
         self.assertEqual(rounds[0]["outcome"], "lesson")
         self.assertIn("exhausted", rounds[0]["findings"][0]["problem"])
 
