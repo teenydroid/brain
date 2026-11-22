@@ -823,10 +823,17 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
     the best pitch in another format are always drafted, so either video can
     win and the slot has words to fall back on when the video cannot be made;
     with fewer than three drafted, the better-ranked video and one other.
-    What was chosen and any shortfall, for the record."""
+    A pitch that is pure invention (`invented`, no hook and no item:
+    `validate_pitches` keeps at most PURE_INVENTED) is always drafted, in the
+    first of the INVENTED places (it is the most invention-led pitch there
+    is), or beside them when INVENTED is 0, and a video slot never gives its
+    place to a video while another can go. What was chosen and any
+    shortfall, for the record."""
     invented = min(invented, top)
     want = hooks_wanted(top) if have_outside else 0
-    chosen = [p for p in ranked if invention_led(by_id[p].get("shape"))][:invented]
+    pure = [p for p in ranked if by_id[p].get("invented")][:top]
+    chosen = pure + [p for p in ranked if invention_led(by_id[p].get("shape")) and p not in pure][
+        :max(0, invented - len(pure))]
     need = want - sum(1 for p in chosen if by_id[p].get("hook"))
     chosen += [p for p in ranked if by_id[p].get("hook") and p not in chosen][:max(0, min(need, top - len(chosen)))]
     chosen += [p for p in ranked if p not in chosen][:top - len(chosen)]
@@ -843,7 +850,9 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
         for p in need_:
             if p in chosen:
                 continue
-            drop = next((x for x in reversed(chosen) if x not in need_), None)
+            drop = next((x for x in reversed(chosen) if x not in need_ and x not in pure), None)
+            if drop is None and len(chosen) < top:
+                drop = next((x for x in reversed(chosen) if x not in need_), None)
             if drop is None and len(chosen) >= top and chosen:
                 drop = next((x for x in reversed(chosen) if x not in need_[:need_.index(p)]), None)
             chosen = [x for x in chosen if x != drop] + [p]
@@ -860,9 +869,11 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
     if note["hooked"] < want:
         note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
                          "asked for: the rest were filled from the writer's ranking")
+    if pure and pure[0] in chosen:
+        note["pure_invented"] = pure[0]
     if invented:
         note["want_invented"] = invented
-        note["invented"] = sum(1 for p in chosen if invention_led(by_id[p].get("shape")))
+        note["invented"] = sum(1 for p in chosen if p in pure or invention_led(by_id[p].get("shape")))
         if note["invented"] < invented:
             note["short_invented"] = (f"no invention-led pitch ({', '.join(INVENTION_SHAPES)}) to draft"
                                       if not note["invented"] else
