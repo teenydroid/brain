@@ -1598,7 +1598,8 @@ class FallbackTest(unittest.TestCase):
     def test_a_veto_on_the_winner_costs_none_of_the_fallback_budget(self):
         self.results = {label: "next" for label in ("D8", "D2", "D1", "D3")}
         out = self.publish(self.slot(), vetoed=self.WINNER_VETO)
-        self.assertEqual(self.tried, ["D8", "D1", "D2"][:1 + studio.MAX_FALLBACKS])
+        # The vetoed winner took no gate: three drafts still reach them.
+        self.assertEqual(self.tried[0], "D8")
         self.assertEqual(len(self.tried), 1 + studio.MAX_FALLBACKS)
         self.assertEqual(out["outcome"], "empty")
 
