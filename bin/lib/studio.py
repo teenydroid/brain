@@ -1758,21 +1758,24 @@ def final_message(label: str, draft: Json, board: Json, stories: list[Json], fal
         + (f', "line": "<with none: the {fmt} line it crosses>"' if video else "") + "}")
 
 
-#: What each gate is, said to the writer when its draft failed it.
+#: What each gate is, said to the writer when its draft failed it. The truth
+#: judge is the only gate with a rewrite (2026-11-22): the cold reader is
+#: advice, and taste is the editor's, before the gates.
 GATE_WORDS = {
     "truth": ("a fact-checker held its hard claims (money, the token, real people and companies, the news) "
               "against what really happened (the news it joins, the thing it is about and the story it moves, "
               "below) and found one they do not support"),
-    "stranger": ("someone who has never heard of you, shown only the words, read it cold and could not follow "
-                 "it"),
 }
+#: The rewrite's one job: the claim, never the joke.
+REWRITE_KEEP = ("Cut or correct only the unsupported claim, and keep every other word, the joke and the rudeness "
+                "exactly as they are: this is not a chance to tone it down, tidy it or make it nicer.")
 
 
 def rewrite_message(draft: Json, gate: str, verdict: Json, item: Json | None, story: Json | None,
                     hook: Json | None = None, invented: bool = False) -> str:
-    """One rewrite turn for a draft a gate turned down, told why. A pure
-    invention's (`invented`) is told to take a hard claim out, not to source
-    it."""
+    """The one rewrite turn, for a draft the truth judge turned down, told
+    which claims it could not find. A pure invention's (`invented`) is told
+    to take a hard claim out, not to source it."""
     fmt = draft["format"]
     words = {"posts": draft["posts"]} if "posts" in draft else {"text": draft["text"]}
     if fmt == "thread":
@@ -1782,25 +1785,18 @@ def rewrite_message(draft: Json, gate: str, verdict: Json, item: Json | None, st
         shape = '{"text": "...", "meaning": "..."}'
         limit = "at most 280 characters as X counts them"
     said: list[str] = []
-    if gate == "truth":
-        if verdict.get("unsupported"):
-            said.append("What they could not find in what happened: " +
-                        "; ".join(f'"{c}"' for c in verdict["unsupported"]))
-    else:
-        if verdict.get("says"):
-            said.append(f"What they took it to mean: {verdict['says']}")
-        if verdict.get("unknown"):
-            said.append("What they would have to ask about: " + ", ".join(f'"{w}"' for w in verdict["unknown"]))
+    if verdict.get("unsupported"):
+        said.append("What they could not find in what happened: " +
+                    "; ".join(f'"{c}"' for c in verdict["unsupported"]))
     if verdict.get("reason"):
         said.append(f"Their reason: {verdict['reason']}")
     parts = [
         "# studio: rewrite",
-        f"Before this draft went out, {GATE_WORDS[gate]}. It was not sent. Write it once more so it passes: the "
-        "same thing and the same point, with every thing named in words anyone knows. Anything you say about "
-        "yourself stays yours to invent, however absurd: staging, feelings, bets, bits, boasts. " + KEEPER_LINE +
-        " Money, the token, "
-        "what a real person or company did or said, and the news must be in what happened. If it cannot be said "
-        "that way, say so." + (" This piece is pure invention: it has " + PURE_HARD + ", so take any such claim "
+        f"Before this draft went out, {GATE_WORDS.get(gate, GATE_WORDS['truth'])}. It was not sent. "
+        + REWRITE_KEEP + " Anything you say about yourself stays yours to invent, however absurd: staging, "
+        "feelings, bets, bits, boasts; so do insults and opinions about a public figure, and a scene about them "
+        "nobody could believe. " + KEEPER_LINE + " Money, the token, what a real person or company did or said, "
+        "and the news must be in what happened. If it cannot be said that way, say so." + (" This piece is pure invention: it has " + PURE_HARD + ", so take any such claim "
                                "out rather than source it." if invented else ""),
         "## the draft\n\n```json\n" + json.dumps(words, ensure_ascii=False) + "\n```" +
         (f"\n\nWhat it was meant to say: {draft['meaning']}" if draft.get("meaning") else ""),
