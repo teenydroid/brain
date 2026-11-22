@@ -572,7 +572,13 @@ class PublishTest(unittest.TestCase):
         blind = {"S1": _post("skit", "digg:a"), "S2": _post("skit", "digg:b"), "S3": _post("skit", "digg:c"),
                  "R1": _post("remake", "digg:c"), "R2": _post("remake", "digg:d"),
                  "P1": _post("post", "digg:a"), "P2": _post("post", "digg:b")}
-        with mock.patch.object(studio, "try_post", fake_try):
+        # The words pass the guard (`final_gate`, test_studio.FinalGateTest);
+        # this is about the order the videos are tried in.
+        def gate(room, label, post, attempt):
+            attempt["gates"] = [{"gate": "guard", "ok": True, "code": 0}]
+            return list(post["posts"]) if "posts" in post else [post["text"]]
+
+        with mock.patch.object(studio, "try_post", fake_try), mock.patch.object(studio, "final_gate", gate):
             out = studio.publish(room, {}, order, blind)
         return out, tried
 
