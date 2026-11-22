@@ -643,9 +643,6 @@ check "a slot that posted is done: a rerun skips, and the slot says posted with 
   bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && jq -e '.status == \"posted\" and .post_id == \"2123000000000000001\"' \"$FAKE_SLOTS\"/*_1500 >/dev/null" _ "$out2"
 check "the record says which slot it held" jqe '.slot_id | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}:1500$")' <<<"$(jq -c "select(.id == \"$id\")" "$scratch/state/studio/runs.jsonl" | tail -n 1)"
 reset
-out="$(FAKE_FORMATS=post,post live --slot 1600)"
-check "a slot that ended empty is marked so" bash -c "true"
-reset
 out="$(FAKE_FORMATS=post,post FAKE_X=held live --slot 1600)"
 check "a slot every post was held in is marked empty" test "$(jq -r .status "$FAKE_SLOTS"/*_1600)" = empty
 reset
