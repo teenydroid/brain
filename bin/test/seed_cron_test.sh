@@ -194,8 +194,8 @@ refuses "refuses bin/act with a path for a playbook" $'[jobs.x]\nschedule = "*/5
 refuses "refuses more bin/act runs a day than the budget" \
   $'[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"'
 many=""
-for i in $(seq 1 25); do many+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
-refuses "refuses more than 24 jobs" "$many"
+for i in $(seq 1 61); do many+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
+refuses "refuses more than 60 jobs" "$many"
 
 reset
 printf '[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\nenabled = false\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n' >"$toml"

@@ -289,7 +289,7 @@ runs when its playbook runs, so on that playbook's cron schedule.
   must exist.
 - No job fires more often than every 5 minutes, computed from the minute and
   hour fields with wraparound included.
-- At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
+- At most 60 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
   take a pinned name, so Teeny can't switch off what watches it (`evolve`,

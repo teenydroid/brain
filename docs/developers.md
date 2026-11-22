@@ -153,7 +153,7 @@ command = "bin/act morning"
 ```
 
 A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
-often than every 5 minutes, there can be at most 24 brain jobs, and `bin/act`
+often than every 5 minutes, there can be at most 60 brain jobs, and `bin/act`
 can run at most 400 times a day. The jobs in `evals/cron.pinned.toml` (the
 inbound jobs, `tick`, `reflect`, the builder and operator, and the rest) are
 always added and do not count toward the 24. These rules live in

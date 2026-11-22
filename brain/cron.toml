@@ -27,7 +27,7 @@
 #                          on a post: that post was never made. A catch_up
 #                          playbook makes up such a slot without it.
 #
-# At most 24 jobs in all, and at most 400 runs of bin/act a day.
+# At most 60 jobs in all, and at most 400 runs of bin/act a day.
 #
 # Jobs are shell jobs, never agent jobs: a turn cron starts may only use
 # read-only tools, so bin/act gathers, the model drafts, and a hand acts
