@@ -272,7 +272,8 @@ def _offer(job: Json, resumed: bool = False, want: str | None = None) -> Json:
         offer["fix"] = {"want": want, "requires": FIX_REQUIRES}
         return {"job": offer, "rules": SELF_FIX_RULES}
     if job["kind"] == "self" and want:
-        offer["feature"] = {"want": want, "requires": FEATURE_REQUIRES}
+        offer["feature"] = {"want": want, "requires": FEATURE_REQUIRES,
+                            "pattern_note": feature.PATTERN_NOTE, "pattern": feature.PATTERN}
         return {"job": offer, "rules": SELF_FEATURE_RULES}
     return {"job": offer, "rules": SELF_RULES}
 

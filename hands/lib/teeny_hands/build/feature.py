@@ -297,3 +297,95 @@ def fix_rubric(changed: list[tuple[str, str]]) -> Json:
     if not code:
         missing.append("the fix itself: a change outside hands/tests/")
     return {"ok": not missing, "kind": "fix", "missing": missing, "tests": tests, "files": code, "hands": []}
+
+
+#: A whole feature that passes `rubric`, as the files to write in the clone,
+#: with `NAME` where the hand's name goes. It travels with every feature job
+#: (jobs.py, the offer's `feature.pattern`), so the builder starts by writing
+#: files rather than by reading other hands to learn their shape: on
+#: 2026-11-22 a run spent all 40 of its tool calls on that reading and wrote
+#: nothing. The tests pin it against the rubric (tests/build/test_feature.py).
+PATTERN: dict[str, str] = {
+    "hands/NAME": (
+        '#!/usr/bin/env -S python3 -I\n'
+        '"""hands/NAME: <one line: what it does> (docs/hands.md)."""\n'
+        'import os, sys\n'
+        'sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))\n'
+        'from teeny_hands.NAME.cli import main\n'
+        'sys.exit(main(sys.argv[1:]))\n'
+    ),
+    "hands/lib/teeny_hands/NAME/__init__.py": '"""hands/NAME: <what it does>."""\n',
+    "hands/lib/teeny_hands/NAME/cli.py": (
+        '"""The verbs of hands/NAME (docs/hands.md, "NAME")."""\n'
+        'from __future__ import annotations\n'
+        '\n'
+        'import argparse\n'
+        '\n'
+        'from .. import hand\n'
+        '\n'
+        '\n'
+        'def look(args, _body):\n'
+        '    # hand.Refused("why", rule="...") exits 2; hand.HandError("why") exits 1.\n'
+        '    return {"limit": args.limit}\n'
+        '\n'
+        '\n'
+        'def parser() -> argparse.ArgumentParser:\n'
+        '    root = argparse.ArgumentParser(prog="hands/NAME", description="<what it does>")\n'
+        '    verbs = root.add_subparsers(dest="verb")\n'
+        '    sub = verbs.add_parser("look", help="<what the verb does>")\n'
+        '    sub.set_defaults(handler=look, takes_body=False)\n'
+        '    sub.add_argument("--limit", type=int, default=5)\n'
+        '    return root\n'
+        '\n'
+        '\n'
+        'def main(argv: list[str]) -> int:\n'
+        '    return hand.run("NAME", parser(), argv)\n'
+    ),
+    "hands/tests/test_NAME.py": (
+        '"""hands/NAME tests: offline, no keys, no network."""\n'
+        'import argparse\n'
+        'import unittest\n'
+        '\n'
+        'from teeny_hands.NAME import cli\n'
+        '\n'
+        '\n'
+        'class LookTest(unittest.TestCase):\n'
+        '    def test_look_answers_with_its_limit(self):\n'
+        '        self.assertEqual(cli.look(argparse.Namespace(limit=3), None), {"limit": 3})\n'
+        '\n'
+        '\n'
+        'if __name__ == "__main__":\n'
+        '    unittest.main()\n'
+    ),
+    "brain/playbooks/NAME-look.md": (
+        '+++\n'
+        'description = "<what this habit is for>"\n'
+        'output = "none"\n'
+        'max_per_day = 1\n'
+        '\n'
+        '[[inputs]]\n'
+        'name = "seen"\n'
+        'run = "hands/NAME look --limit 5"\n'
+        '+++\n'
+        '<What to do with `seen`, in your own words.>\n'
+    ),
+    "brain/cron.toml": (
+        '# add, never replace the file:\n'
+        '[jobs.NAME-look]\n'
+        'schedule = "<minute hour> * * *"\n'
+        'command = "bin/act NAME-look"\n'
+    ),
+    "docs/hands.md": (
+        '<!-- add at the end, never replace the file: -->\n'
+        '## `NAME`: <what it does>\n'
+        '\n'
+        '<What it reads, what it writes, its verbs, the rules its tests pin.>\n'
+    ),
+}
+#: How to use PATTERN, in the builder's words.
+PATTERN_NOTE = (
+    "Every file a feature needs, in the shape the desk checks; NAME is your hand's name (lowercase letters, digits, "
+    "_). Write these first, without reading other hands to learn the shape, then make them do the real work. "
+    "brain/cron.toml and docs/hands.md exist already: add the lines shown to them. Pick a cron minute no other job "
+    "uses, and run bin/seed-cron --check and bin/act --check <playbook> after."
+)
