@@ -424,8 +424,7 @@ class RehearsalQueuesTest(BrokerCase):
                    SAFETY_JUDGE="0")
         for intent in ({"do": "queue_task", "goal": "find the newest release",
                         "start_url": "https://github.com/tinyhumansai/openhuman/releases", "done_when": "named"},
-                       {"do": "propose_change", "title": "say gm earlier", "why": "more people are awake",
-                        "what": "move the morning post"}):
+                       {"do": "propose_change", "text": "move the morning post an hour earlier"}):
             code, out = self.post("/do", intent)
             self.assertEqual((code, out["status"]), (200, "ok"), out)
             self.assertIs(out["dry_run"], True)
