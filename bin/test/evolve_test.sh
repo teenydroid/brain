@@ -201,7 +201,7 @@ last_gen() { ls "$root/state/evolve" | grep -E '^[0-9]+$' | sort -n | tail -1; }
 
 rule_env 1
 learning m70
-propose 1 "Check whether it already went through."
+propose 1 "Check whether it already went through (1)."
 out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
 check "a change no eval task reaches, with only a judged check, is unproven" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = unproven
 check "and says why: nothing measured it and a judged check proves nothing" grep -q 'no eval task reaches.*judged check' <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
@@ -210,7 +210,7 @@ check "and the archive keeps the verdict and the reason" test "$(grep -c '"verdi
 
 learning m71
 failed_runs moltbook-follow 2
-propose 1 "Check whether it already went through."
+propose 1 "Check whether it already went through (2)."
 with_check "$root/props/cand-1.json" "$counted"
 out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
 check "a counted check that history says will be no-data is refused" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = unproven
@@ -218,14 +218,14 @@ check "with how many events history holds and what the verdict needs" grep -q 'c
 
 learning m72
 failed_runs moltbook-follow 4
-propose 1 "Check whether it already went through."
+propose 1 "Check whether it already went through (3)."
 with_check "$root/props/cand-1.json" "$counted"
 out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
 check "the same check with enough history is powered, and would open" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
 check "and its pull request says why it was published" grep -q 'Published because.*counted 6 event(s)' <<<"$(jq -r .body "$root/state/evolve/$(last_gen)/cand-1.pr.json")"
 
 learning m73
-propose 1 "Check whether it already went through."
+propose 1 "Check whether it already went through (4)."
 jq '.edits += [{"path": "brain/cron.toml", "old": "command = \"bin/act moltbook-follow\"", "new": "command = \"bin/act moltbook-follow\"\nenabled = false"}]' \
   "$root/props/cand-1.json" >"$root/props/cand-1.json.tmp" && mv "$root/props/cand-1.json.tmp" "$root/props/cand-1.json"
 with_check "$root/props/cand-1.json" "$counted"
@@ -235,7 +235,7 @@ check "and the reason names the cut" grep -q 'runs less (moltbook-follow turned 
 
 rule_env 2
 learning m74
-propose 1 "Check whether it already went through."
+propose 1 "Check whether it already went through (5)."
 cp "$root/props/cand-1.json" "$root/props/cand-1.round-2.json"
 with_check "$root/props/cand-1.round-2.json" "$counted"
 out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
