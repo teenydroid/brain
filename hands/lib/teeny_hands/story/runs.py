@@ -56,9 +56,10 @@ CREATE TABLE IF NOT EXISTS studio_slots (
 
 #: What a run can come to (bin/lib/studio.py): `published` (a real post went
 #: out), `picked` (a pick that went no further: a dry run's, which would
-#: post), `empty` (a pick, and nothing could go out), `vetoed`, `skipped`,
-#: `failed`. An editor's single-candidate check (`kind` veto) is `picked`,
-#: `vetoed` or `failed`.
+#: post), `empty` (nothing could go out, every draft tried vetoed or
+#: failed), `vetoed` (a slot run's before 2026-11-22, when a no on the
+#: winner ended it), `skipped`, `failed`. An editor's single-candidate check
+#: (`kind` veto) is `picked`, `vetoed` or `failed`.
 OUTCOMES = ("published", "picked", "empty", "vetoed", "skipped", "failed")
 #: Columns added since the table was made: the record's kind (`run`, or
 #: `veto`), and the id of the post a run published.
