@@ -887,7 +887,7 @@ def _view_staged(frames: Any, label: Any, intent: Any, stage: Any, shots: Any, a
                "looks_real": seen["looks_real"], "teeny": on, "interacts": checked["interacts"],
                "marked": checked["marked"],
                "reason": "; ".join(reasons) if reasons else
-               ("a stranger saw Teeny on model and apart, an obvious parody, and got the point" +
+               ("a stranger saw Teeny on model and apart, and an obvious parody" +
                 ("" if keys else ", and read the label")),
                "judged": True}
     return ended("done", verdict, read, None, teeny_ok)
