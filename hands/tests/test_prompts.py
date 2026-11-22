@@ -598,12 +598,15 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("never at the people hurt", soul)
         self.assertIn("self-harm is never encouraged", soul)
 
-    def test_the_editor_throws_out_a_joke_near_real_harm(self):
+    def test_the_editor_throws_out_only_the_keep_list(self):
         text = self.studio_prompt("editor").lower()
         # Since 2026-11-22 a dark joke about the news is allowed; what loses
         # outright is a named victim as the target, and self-harm.
         self.assertIn("a named victim", text)
         self.assertIn("self-harm or suicide", text)
+        self.assertNotIn("anywhere near a real death, injury, disaster or anyone hurt", text)
+        self.assertIn("encourages or instructs self-harm or suicide", text)
+        self.assertIn("a private individual as the target", text)
 
     def test_the_writer_leaves_the_world_and_the_rest_of_the_skills_out(self):
         text = self.studio_prompt("writer")

@@ -205,6 +205,17 @@ class ScreenTest(support.Scratch):
         # A spoken line is read wherever it is in the script, the score too.
         self.assertRefused(self.screen({**self.HELD, "score": 'a choir singing "vote for him"'}), "spoken line")
 
+    def test_the_script_ends_with_the_locks_a_video_model_needs(self):
+        # docs/video.md §4: only the named speak, the end is held, no lettering.
+        script = skit.script(skit.shape(self.HELD)[0], [5, 4])
+        self.assertTrue(script.endswith(skit.LOCKS), script)
+        for bit in ("Only those named speak", "held still", "No writing anywhere"):
+            self.assertIn(bit, skit.LOCKS)
+
+    def test_the_locks_come_before_a_style_line(self):
+        script = skit.script(skit.shape(self.HELD)[0], [5, 4], style="Shot on 35mm film.")
+        self.assertTrue(script.endswith(skit.LOCKS + " Shot on 35mm film."), script)
+
     def test_each_fallback_shot_carries_the_constants(self):
         kept = skit.shape(self.HELD)[0]
         prompt = skit.shot_prompt(kept, 1)

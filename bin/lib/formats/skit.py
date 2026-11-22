@@ -118,8 +118,8 @@ SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the pu
               'the same in every shot>"}, "setting": "<one line: the one place, its light, the lens and the film '
               'look>", "score": "<one line: the one piece of music or sound bed under the whole film>", '
               '"shots": [{"prompt": "<one shot: the framing, the figure\'s full name and the one thing they do, '
-              'at most one short spoken line in quotes, spot sound effects; never the look, the setting or any '
-              'music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
+              'what reacts to it, at most one short spoken line in quotes, the sound of each; the last shot ends '
+              'on a held still image; never the look, the setting or any music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
               'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
 SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of three or four shots "
              "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
@@ -135,7 +135,11 @@ SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short 
              "(hair, glasses, wardrobe, the prop they hold); `setting`, one line (the one place, its light, the "
              "lens, the film look); `score`, one line (the single piece of music or sound bed under the whole "
              "film). The shots then say only what changes: the framing, the figure's full name and the one thing "
-             "they do, at most one short spoken line (about six words), and spot sound effects. No shot brings "
+             "they do, what reacts to it (the crowd, the set, the object), at most one short spoken line (about "
+             "six words), and the sound of each. The crude voice goes on the ceremony, props and sound (a button "
+             "that farts, a product of a suspicious shape), never on the figure's body. The last shot ends on a "
+             "held still image, named. Say the headcount of any group. No sign, screen or banner with writing on "
+             "it: the model garbles lettering. No shot brings "
              "its own music: the score is the only music. One action a shot that fits its seconds. The video is "
              "where the money is: write the setting and each shot as a film director briefs a cinematographer, "
              "in rich concrete words, inside the one-take budget: the set (expensive, specific, absurd: a marble boardroom on the ocean "

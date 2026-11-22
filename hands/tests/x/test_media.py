@@ -210,7 +210,7 @@ class UploadLimitsAndAltTest(Uploading):
 
     def test_alt_text_that_is_too_long_carries_a_link_or_the_lexicon_holds_is_refused_unsent(self):
         (self.media_dir / "meme.png").write_bytes(PNG)
-        for alt in ("x" * (media.ALT_MAX_CHARS + 1), "see example.com for more", "   ", "send nudes"):
+        for alt in ("x" * (media.ALT_MAX_CHARS + 1), "see example.com for more", "   ", "i hope you die"):
             with self.assertRaises(hand.Refused, msg=alt) as caught:
                 media.upload(str(self.media_dir / "meme.png"), alt=alt)
             self.assertEqual(caught.exception.detail["rule"], "alt")

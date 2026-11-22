@@ -33,11 +33,13 @@ read: the backroom only writes files. What it makes is raw material for the stud
 whatever goes public still goes through the studio's gates and the guard.
 
 The models (env, then secrets/teeny.env, then the default): BACKROOM_DREAMER_MODEL
-(claude-fable-5.2, the studio's writer), BACKROOM_INSTIGATOR_MODEL and
+(glm-5.3-flash, the spine's model), BACKROOM_INSTIGATOR_MODEL and
 BACKROOM_DISTILLER_MODEL (claude-opus-5.5). The two in the room are on
 different models on purpose: one model talking to itself agrees with
-itself. Turns go straight to a provider, never the core: OPENROUTER_API_KEY
-when it is set, else ANTHROPIC_API_KEY.
+itself. Turns go straight to a provider, never the core: the ladder
+(LADDER_URL and LADDER_API_KEY, from the environment, then
+secrets/spine.env, as bin/spine reads them) when it is set, which serves
+every model the box uses; else OPENROUTER_API_KEY; else ANTHROPIC_API_KEY.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ Json = dict[str, Any]
 Ask = Callable[[str, str, list[Json]], str]
 
 DEFAULTS = {
-    "BACKROOM_DREAMER_MODEL": "claude-fable-5.2",
+    "BACKROOM_DREAMER_MODEL": "glm-5.3-flash",
     "BACKROOM_INSTIGATOR_MODEL": "claude-opus-5.5",
     "BACKROOM_DISTILLER_MODEL": "claude-opus-5.5",
 }
@@ -389,12 +391,22 @@ def _post(url: str, headers: dict[str, str], body: Json, timeout: int = 300) -> 
 
 def provider(environ: dict[str, str], secrets_file: Path) -> Ask:
     """The ask for whichever key there is. A turn is tried three times."""
+    spine_file = secrets_file.with_name("spine.env")
+    ladder = setting("LADDER_URL", environ, spine_file)
+    ladder_key = setting("LADDER_API_KEY", environ, spine_file)
     router = setting("OPENROUTER_API_KEY", environ, secrets_file)
     anthropic = setting("ANTHROPIC_API_KEY", environ, secrets_file)
-    if not router and not anthropic:
-        raise BackroomError("no OPENROUTER_API_KEY or ANTHROPIC_API_KEY in the environment or secrets/teeny.env")
+    if not ladder and not router and not anthropic:
+        raise BackroomError("no LADDER_URL (secrets/spine.env), OPENROUTER_API_KEY or ANTHROPIC_API_KEY "
+                            "in the environment or secrets")
 
     def once(model: str, system: str, messages: list[Json]) -> str:
+        if ladder:
+            headers = {"Authorization": f"Bearer {ladder_key}"} if ladder_key else {}
+            got = _post(f"{ladder.rstrip('/')}/chat/completions", headers,
+                        {"model": model, "max_tokens": 8000, "temperature": 1.0,
+                         "messages": [{"role": "system", "content": system}, *messages]})
+            return got["choices"][0]["message"].get("content") or ""
         if router:
             got = _post("https://openrouter.ai/api/v1/chat/completions", {"Authorization": f"Bearer {router}"},
                         {"model": model if "/" in model else f"anthropic/{model}", "max_tokens": 8000,
