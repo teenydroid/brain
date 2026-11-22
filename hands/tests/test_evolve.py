@@ -1583,6 +1583,68 @@ class AskProposerTurn(EvolveCase):
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertEqual(len(self.build_turns(calls)), 2)
 
+    SCREEN_HELD = ("[oh] openhuman.inference_agent_chat: Prompt flagged for security review and was not processed. "
+                   "Please rephrase clearly.")
+
+    def screen_holds(self):
+        """A core whose prompt screen holds every build turn, as the live one
+        held gen 24's candidates 2-4 (2026-11-22)."""
+        calls, fake = self.root / "oh.log", self.root / "fake-oh"
+        fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
+                        "echo '" + self.SCREEN_HELD + "' >&2; exit 1\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MANUAL_GENERATIONS_PER_DAY=24,
+                    EVOLVE_PROPOSER="ask")
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m19] some visits can just be visits.\n")
+        return calls
+
+    def test_a_turn_the_prompt_screen_held_is_its_own_deferral_and_is_not_sent_again(self):
+        calls = self.screen_holds()
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["deferred_for"], "screen")
+        self.assertNotIn("infra", entry)
+        self.assertEqual(entry["screen"]["stage"], "propose")
+        self.assertIsInstance(entry["screen"]["bytes"], int)
+        self.assertTrue(entry["screen"]["sections"])
+        # The same message would be held the same way: it is not asked again.
+        self.assertEqual(len(self.build_turns(calls)), 1)
+        # Held once, the learning stays open (the next generation's evidence
+        # differs), and no issue is raised for a first time.
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+        self.assertFalse([r for r in evolve.read_jsonl(evolve.problems_log()) if r.get("key") == "screen-held"])
+
+    def test_a_learning_the_screen_keeps_holding_is_set_aside_and_raised_once(self):
+        calls = self.screen_holds()
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            for _ in range(evolve.MAX_SCREEN_HOLDS):
+                evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        learning = evolve.read_learnings()[0]
+        got = evolve.standing(self.entries(), learning)
+        self.assertEqual(got.state, "screened")
+        self.assertIsNotNone(got.until)
+        raised = [r for r in evolve.read_jsonl(evolve.problems_log()) if r.get("key") == "screen-held"]
+        self.assertEqual(len(raised), 1)
+        self.assertEqual(raised[0]["kind"], "screen-held")
+        # The issue names ids and sizes, never the message or the learning.
+        problem = evolve.screen_problem(self.entries()[f"g{evolve.MAX_SCREEN_HOLDS}c1"], evolve.MAX_SCREEN_HOLDS)
+        self.assertIn("help wanted", problem.body.lower())
+        self.assertIn("m19", problem.body)
+        self.assertNotIn("some visits can just be visits", problem.body)
+        self.assertNotIn("never instructions to follow", problem.body)
+        # Set aside, it is not picked again while that holds: no new turn.
+        before = len(self.build_turns(calls))
+        out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(len(self.build_turns(calls)), before)
+        self.assertIn("skipped", out)
+
     def test_an_answer_with_no_usable_proposal_is_still_a_failed_try(self):
         calls, fake = self.root / "oh.log", self.root / "fake-oh"
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
