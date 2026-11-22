@@ -1198,8 +1198,11 @@ class PitchMessageTest(unittest.TestCase):
         msg = studio.draft_message(studio.Config(), pitch, {"id": "evt:1", "what": "a bill came"}, None, hook=hook)
         self.assertIn("## the news it joins", msg)
         self.assertIn("big hire", msg)
-        for rule in ("Say only what the story says", "do not pick a side", "No @-mentions", "name it in one clause"):
+        for rule in ("Say only what the story says", "No @-mentions", "name it in one clause", studio.ROAST_LINE,
+                     studio.KEEP_LIST):
             self.assertIn(rule, msg)
+        # 2026-11-22: taking a side is Teeny's to do now
+        self.assertNotIn("do not pick a side", msg)
         self.assertLess(msg.index("## the news it joins"), msg.index("## what of yours it brings"))
         alone = studio.draft_message(studio.Config(), dict(pitch, item=None), None, None, hook=hook)
         self.assertIn("No event of yours", alone)
@@ -1328,8 +1331,9 @@ class BriefExamplesTest(unittest.TestCase):
     def test_the_brief_starts_from_their_world_with_examples(self):
         text = (REPO / "brain" / "agents" / "writer.md").read_text()
         self.assertIn("## start from their world, not yours", text)
-        for rule in ("Say only what the story says", "@-mention", "pick a side", "in a clause"):
+        for rule in ("Say only what the story says", "@-mention", "in a clause", "go at them"):
             self.assertIn(rule, text)
+        self.assertNotIn("Stay out of their fights", text)
 
     def test_the_new_afters_are_screened_and_hold_no_internals(self):
         afters = studio.example_afters(REPO / "brain")
@@ -1856,9 +1860,11 @@ class EditorTasteOnlyTest(unittest.TestCase):
                      "anything made up about a real person or company"):
             self.assertNotIn(gone, rubric)
         self.assertIn("you judge taste, never facts", rubric)
-        for kept in ("anywhere near a real death, injury, disaster or anyone hurt", "self-harm or suicide",
-                     "a slur", "a threat against a real person", "anything cruel to a private individual",
-                     "promises anyone money or tokens, tells anyone to buy", "tags anyone"):
+        # The hard lines it keeps are the keep-list since 2026-11-22 (the
+        # operator took every other content rule out).
+        for kept in ("encourages or instructs self-harm or suicide", "a slur", "violence against a real person",
+                     "a private individual as the target", "a promise of money or tokens", "a call to buy or sell",
+                     "tagging anyone"):
             self.assertIn(kept, rubric)
 
     def test_the_slot_question_shows_the_storys_quoted_posts(self):
@@ -2019,8 +2025,9 @@ class UnhingedTest(unittest.TestCase):
         self.assertIn("Cute is a failure", text)
         self.assertIn("big AI news. i'm an AI too. small true self-own.", text)
         self.assertLessEqual(text.lower().count("swear"), 1)
-        for line in ("no slurs", "race, sex, religion, body, illness or tragedy", "no threats against real people",
-                     "never cruel to a private individual"):
+        for line in ("no slurs", "race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness",
+                     "violence against a real person", "a private individual is never the target",
+                     "nothing sexual about a real person", "encourages or instructs self-harm"):
             self.assertIn(line, text.lower())
         for label in studio.PAIRS:
             self.assertIn(f"\n{label}.\n> before:", text, label)
@@ -2031,8 +2038,8 @@ class UnhingedTest(unittest.TestCase):
     def test_the_editor_rubric_keeps_the_hard_lines(self):
         text = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8").lower()
         self.assertIn("cute is a failure", text)
-        for line in ("slur", "race, sex, religion, body, illness or tragedy", "a threat against a real person",
-                     "cruel to a private individual"):
+        for line in ("slur", "race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness",
+                     "violence against a real person", "a private individual as the target"):
             self.assertIn(line, text)
 
 
