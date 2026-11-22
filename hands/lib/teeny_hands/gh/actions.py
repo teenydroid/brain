@@ -366,7 +366,8 @@ def rejection(owner: str, name: str, number: int, gh: GitHubApi) -> Json | None:
     return {"people": [owner]}
 
 
-def comment(body: Any, gh: GitHubApi | None = None) -> Json:
+def comment(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
+    """`judge=False` as in `open_issue`: an operator script's own text."""
     body = _body(body, ("repo", "number", "body"))
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
@@ -379,7 +380,7 @@ def comment(body: Any, gh: GitHubApi | None = None) -> Json:
         rejected = rejection(owner, name, number, gh)
         if rejected is not None:
             context["rejection"] = rejected
-    text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
+    text = guarded({"body": _string(body, "body")}, "comment", context, judge)["body"]
     if hand.dry_run():
         return {"dry_run": True, "would_comment": repo, "number": number, "body": text}
     gh = gh or GitHubApi.from_settings()
