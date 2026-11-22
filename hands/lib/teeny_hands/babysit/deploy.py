@@ -200,10 +200,18 @@ def run() -> Json | None:
         _once(pending, "deploy_dry_run", "dry_run", plan=steps)
         return {**out, "dry_run": True, "would_fetch": not have, "plan": steps}
 
-    busy = [name for name in BUSY_LOCKS if live.lock_held(state, name)]
+    every = policy.self_merge_all_on()
+    locks = BUSY_LOCKS + (ALL_BUSY_LOCKS if every else ())
+    busy = [name for name in locks if live.lock_held(state, name)]
     if busy:
         _once(pending, "deploy_wait", "busy:" + ",".join(busy))
         return {**out, "waiting": busy}
+    if every and (state / FALLBACK).exists():
+        # The spine is on last-good because main did not boot. Going on would
+        # put main back under it (prepare checks main out again) and record
+        # that as last-good; the operator clears the file once main is good.
+        _once(pending, "deploy_wait", "fallback")
+        return {**out, "waiting": ["fallback"]}
 
     if live.git(checkout, "merge-base", "--is-ancestor", sha, "HEAD").returncode == 0:
         _clear()
