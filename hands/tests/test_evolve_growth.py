@@ -81,7 +81,7 @@ def growth_week(ledger, base=T0):
     ledger.mention("elsewhere", "regular", base - 30 * DAY)  # the usual circle: known for a month
     for k in range(6):
         at = base - (k + 1) * DAY
-        pid = ledger.post(at, fmt="take", text=f"take {k}: robots should count their own refusals @newbie{k}")
+        pid = ledger.post(at, fmt="take", text=f"take {k}: robots should count their own refusals, says @onlooker{k}")
         if k < 5:
             ledger.mention(pid, f"newbie{k}", at + HOUR)
         else:
@@ -165,7 +165,8 @@ class Drawn(EvolveCase):
         for f in self.draw().values():
             blob = json.dumps(f.ref())
             self.assertNotIn("STRANGER", blob, f.id)
-            self.assertNotIn("newbie", blob, f.id)  # an account's name, even in Teeny's own words, is taken out
+            self.assertNotIn("newbie", blob, f.id)
+            self.assertNotIn("onlooker", blob, f.id)  # a handle, even in Teeny's own words, is taken out
             self.assertNotIn("regular", blob, f.id)
             self.assertNotIn("id-", blob, f.id)
         self.assertIn("robots should count their own refusals", json.dumps(self.draw()["f:reach_drew:x:take"].ref()))
@@ -196,7 +197,7 @@ class Slots(EvolveCase):
         self.assertIn("f:refusals:upvote_moltbook:duplicate", picked[2:])
         self.assertTrue(any(p.startswith("f:reach_") for p in picked[2:]), picked)
         # No reserve: the strongest two, both refusal counts.
-        plain = [x.id for x in ef.mix(["m1", "m2"], found, 4, 2, 0)][2:]
+        plain = [getattr(x, "id", x) for x in ef.mix(["m1", "m2"], found, 4, 2, 0)][2:]
         self.assertEqual(plain, ["f:refusals:upvote_moltbook:duplicate", "f:refusals:comment_moltbook:own_comment"])
 
     def test_the_reserve_is_a_setting_and_a_turn_says_which_lane_a_finding_is(self):
