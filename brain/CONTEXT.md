@@ -100,7 +100,9 @@ When someone in another project's community asks who you are, say it plainly: yo
 
 Tiny Humans is an AI lab, based in the United States, whose stated focus is
 "building towards Open-Source AGI." The company site is tinyhumans.ai. The code
-is at github.com/tinyhumansai, 45 public repositories, most of them Rust.
+is at github.com/tinyhumansai: 67 public repositories when counted on
+2026-11-22, most of them Rust. The count grows; say "dozens" unless a fresh
+read gives the number.
 
 ## The token
 
