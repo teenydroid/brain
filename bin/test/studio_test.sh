@@ -326,6 +326,7 @@ check "the pitch message leads with the outside world" bash -c "msg=\"\$1\"; o=\
 check "and who posted on Hacker News is left out of it" bash -c "! grep -q 'someone' <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
 check "the hooked pitch keeps its story in the record" jqe '.pitches | map(select(.id == "p1"))[0] | .hook == "trend:s1" and .hook_item.title == "an AI lab hired a new chief scientist" and .drafted == true' <<<"$rec"
 check "and its drafts carry the story in their truth facts" jqe '.drafts | map(select(.pitch == "p1")) | length == 3 and all(.hook == "trend:s1" and .truth.facts[0].id == "trend:s1" and .truth.facts[0].posts[0].text == "big hire for the lab")' <<<"$rec"
+check "and the editor is shown the posts the story quotes, as the truth check is" bash -c "grep -q 'big hire for the lab' <<<\"\$1\" && grep -q 'a fact-checker with the whole story reads every draft after you' <<<\"\$1\"" _ "$(step_msgs '# studio: compare')"
 check "two of the three drafted pitches are hooked" jqe '.drafted | .want_hooked == 2 and .hooked == 2' <<<"$rec"
 check "and one is invention-led: the grudge (p5) is drafted" jqe '(.drafted | .want_invented == 1 and .invented == 1 and (has("short_invented") | not)) and (.pitches | map(select(.id == "p5"))[0].drafted == true)' <<<"$rec"
 check "and the draft message gives the writer the story and the rules for it" bash -c "grep -q '## the news it joins' <<<\"\$1\" && grep -q 'No @-mentions' <<<\"\$1\"" _ "$(step_msgs '# studio: draft')"
@@ -450,8 +451,23 @@ check "and only one shorten turn is ever taken" test "$(step_msgs '# studio: cut
 # --- the veto ------------------------------------------------------------------------
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_FINAL='{"verdict": "none", "reason": "nothing here would stop anyone"}' run)"
-check "a veto leaves the slot empty" jqe '.outcome == "vetoed" and .pick == null and .reason == "nothing here would stop anyone"' <<<"$out"
-check "and the record keeps the ranking and the veto" jqe '.final.verdict == "none" and (.ranking | length) == 9 and .pick == null' <<<"$(last_record)"
+check "a veto on the winner every draft shares leaves the slot empty" jqe '.outcome == "empty" and .pick == null and (.reason | test("nothing here would stop anyone"))' <<<"$out"
+rec="$(last_record)"
+check "and every ranked draft was asked, none gated: a veto costs none of the budget" \
+  jqe '.final.verdict == "none" and (.ranking | length) == 9 and (.publish.attempts | length) == 9 and ([.publish.attempts[] | .result] | all(test("vetoed")))
+    and .publish.attempts[0].label == .ranking[0].label and .publish.attempts[0].editor.verdict == "none"' <<<"$rec"
+check "and no truth check was asked" bash -c "! grep -q '^guard truth' '$FAKE_HANDS'"
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_FINAL='{"verdict": "none", "reason": "a quote not in the story given"}' FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' run)"
+rec="$(last_record)"
+check "a veto on the winner falls to the next ranked draft, which goes out when it passes" \
+  jqe '.publish.outcome == "would_post" and .publish.label == .ranking[1].label and (.publish.attempts | length) == 2
+    and .publish.attempts[1].editor.verdict == "pick"' <<<"$rec"
+check "and the record keeps the veto on the winner" \
+  jqe '.final_veto.label == .ranking[0].label and .final_veto.verdict == "none" and .publish.attempts[0].editor.reason == "a quote not in the story given"
+    and .pick.label == .ranking[1].label' <<<"$rec"
+check "and the next draft is asked cold, never shown the winner" \
+  bash -c "grep -q 'Nothing has gone out in this slot yet' <<<\"\$1\"" _ "$(jq -rs '[.[] | select(.message | startswith("# studio: the slot"))][1].message' "$FAKE_CALLS")"
 
 # --- the models ----------------------------------------------------------------------
 reset

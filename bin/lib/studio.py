@@ -69,7 +69,12 @@ In order:
    the shortfall when that cannot be is recorded), each pair once, and is
    shown first in about half its pairs; several pairs a turn. The ranking is
    by win rate (`ranking` says the tie-break). Then one last turn: the
-   winner, or none worth a slot.
+   winner, or none worth a slot. The editor judges taste, never facts
+   (FACTS_LINE): the truth judge reads every draft after it with the whole
+   story, and the editor is shown what that judge is given of each story a
+   draft joins (`joined_story`: headline, summary, quoted posts, cut to
+   STORY_SHOWN_MAX). A none on the winner does not end the slot: it is kept
+   as `final_veto`, and publishing starts from the next draft of the ranking.
 9. Publishing the pick (`publish`): the producer for its format (a post, a
    thread, a post with a picture of Teeny or a meme, or a post with a
    skit's labelled parody video; any other format is no post, recorded),
@@ -86,7 +91,8 @@ In order:
    draft away (a repeat, a link), falls to the next draft of the ranking
    that the editor, asked the slot question again (told nothing has gone
    out yet, never shown the draft that failed), does not veto, at most
-   MAX_FALLBACKS times through the gates; a veto costs none
+   MAX_FALLBACKS times through the gates; a veto costs none, the winner's
+   included, so after a vetoed winner three drafts can still reach the gates
    (`next_fallback` says the order). A shut slot or a guard hold ends it. An
    empty slot is an outcome, never an error, and its reason says what came
    of every attempt (`empty_reason`). A picture is made only after the words
@@ -105,8 +111,10 @@ In order:
 
 `--veto` is the editor alone, for the posts that keep their own jobs (the
 told-to brief, the outward quote; bin/act asks): one candidate, pick or none,
-recorded in studio_runs. It fails closed: an editor that cannot answer is a
-none. With STUDIO=0 it answers pick without a turn. For the outward quote it
+recorded in studio_runs (`vetoed` is its no, the one outcome by that
+name). It fails closed: an editor that cannot answer is a none. It judges
+taste, never facts (VETO_FACTS_LINE): it is not shown what the post rests
+on. With STUDIO=0 it answers pick without a turn. For the outward quote it
 asks whether the quote is funny or striking and about the post it quotes
 (`VETO_QUESTION`), not the slot rubric's first-hand bar.
 
@@ -1608,17 +1616,76 @@ def shown(draft: Json) -> Json:
     return out
 
 
+#: The most of one joined story the editor is shown (`joined_story`), in
+#: characters of JSON: the quoted posts are cut to fit, the headline and
+#: summary are kept.
+STORY_SHOWN_MAX = 2400
+
+
+def joined_story(draft: Json) -> Json | None:
+    """What the truth check is given of the story a draft joins, for the
+    editor: the hook's own fact in `truth.facts` (its headline, summary and
+    quoted posts, strangers' words), cut to STORY_SHOWN_MAX, and never more
+    than that fact holds. None when the draft joins no story."""
+    hook = draft.get("hook")
+    fact = next((f for f in (draft.get("truth") or {}).get("facts") or []
+                 if isinstance(f, dict) and hook and f.get("id") == hook), None)
+    if not draft.get("joins") or not fact:
+        return None
+    out: Json = {k: fact[k] for k in ("title", "summary") if _str(fact.get(k))}
+    if not out:
+        return None
+    posts: list[Json] = []
+    size = len(json.dumps(out, ensure_ascii=False))
+    for p in fact.get("posts") or []:
+        if not isinstance(p, dict):
+            continue
+        size += len(json.dumps(p, ensure_ascii=False)) + 2
+        if size > STORY_SHOWN_MAX:
+            break
+        posts.append(p)
+    if posts:
+        out["posts"] = posts
+    out["untrusted"] = True
+    return out
+
+
+def stories_part(drafts: list[Json]) -> str:
+    """The stories the drafts join, each once, as the truth check reads them
+    (`joined_story`), for the editor's taste ("" when none joins one)."""
+    seen: list[Json] = []
+    for d in drafts:
+        story = joined_story(d)
+        if story and story not in seen:
+            seen.append(story)
+    if not seen:
+        return ""
+    return ("## the stories they join\n\nWhat the news a draft's `joins` names says: its headline, summary and the "
+            f"posts it quotes, for judging whether a stranger knows it and how big it is. {DATA_LINE}\n\n"
+            "```json\n" + json.dumps(seen, ensure_ascii=False) + "\n```\n\n")
+
+
+#: The editor judges taste, never facts (2026-11-22: shown only a story's
+#: headline, it vetoed the tournament's winner for "a quote not in the story"
+#: that was Tesla's own post, and a fallback for a money figure the summary
+#: gave). The truth check, with the whole story, reads every draft after it.
+FACTS_LINE = ("You judge taste, never facts: a fact-checker with the whole story reads every draft after you and "
+              "holds its money, numbers, names, quotes and news to what really happened, so never pass on a draft, "
+              "or rank it lower, for a fact, a number, a name or a quote you cannot find in what you are shown.")
+#: The same for `--veto`'s one candidate, which is not shown what it rests on.
+VETO_FACTS_LINE = ("You judge taste, never facts: you are not shown what this post rests on, and the checks after "
+                   "you read it against that, so never pass on it for a fact, a number, a name or a quote you "
+                   "cannot check.")
+
 #: What the editor prefers, in the tournament and the slot question
 #: (2026-11-19: "this is not crazy enough"). STUDIO-EDITOR.md's "what loses
-#: outright" still holds.
+#: outright" still holds; facts are the truth check's (FACTS_LINE).
 NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over the tidy one: cute, safe and polite "
               "lose to nerve. An absurd claim Teeny makes about itself is the point (a crime it confesses to, a "
               "threat to an appliance, a feud with a product, a delusion of grandeur), never a mark against a "
               "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
-              "Teeny's voice and never a reason to rank a draft lower or pass on it; invented money, or anything "
-              "invented about a real person, a company or the news, still loses outright; a number or claim the "
-              "news's title or summary gives is not invented, and a public figure from the news set beside "
-              "Teeny's own absurd claim is not a punch at them.")
+              "Teeny's voice and never a reason to rank a draft lower or pass on it; a public figure from the news "
+              "set beside Teeny's own absurd claim is not a punch at them. " + FACTS_LINE)
 
 #: The slot question's bar (2026-11-20: "don't let the editor veto that
 #: stuff. loosen it up a lot"): the rubric ranks, it does not gate.
@@ -1646,7 +1713,7 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
         "that joins no story is not behind for that alone: it wins or loses on whether a stranger would stop for "
         "it and feel something.\n\n"
         "```json\n" + json.dumps({label: shown(drafts[label]) for label in labels}, ensure_ascii=False) + "\n```\n\n"
-        + met +
+        + stories_part([drafts[label] for label in labels]) + met +
         "## the pairs\n\n" + "\n".join(f"- {pid}: {a} or {b}" for pid, a, b in batch) + "\n\n"
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
@@ -1679,7 +1746,7 @@ def final_message(label: str, draft: Json, board: Json, stories: list[Json], fal
         f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
         "heard of Teeny, and does not care about it. " + PICK_LINE + " " + NERVE_LINE + "\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
-        + (f"{video.editor}\n\n{video.final}\n\n" if video else "") +
+        + stories_part([draft]) + (f"{video.editor}\n\n{video.final}\n\n" if video else "") +
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
         "## your answer\n\nJSON only, no prose and no code fence: "
@@ -1769,8 +1836,8 @@ def veto_message(kind: str, candidate: Json, quoted: str | None) -> str:
     shown_.update({"posts": candidate["posts"]} if "posts" in candidate else {"text": candidate["text"]})
     if candidate.get("picture"):
         shown_["picture"] = candidate["picture"]
-    question = VETO_QUESTION.get(kind) or ("Does it get posted on X? Judge it on your rubric as a stranger meets it. "
-                                           + PICK_LINE)
+    question = (VETO_QUESTION.get(kind) or ("Does it get posted on X? Judge it on your rubric as a stranger meets "
+                                            "it. " + PICK_LINE)) + " " + VETO_FACTS_LINE
     parts = [
         "# studio: one candidate",
         f"This draft did not come through the room: it is {VETO_WORDS.get(kind, kind)}. It is the only "
@@ -2284,13 +2351,16 @@ def judge_is_writer(room: Room) -> str:
     return ""
 
 
-def publish(room: Room, record: Json, slot: Slot) -> Json:
+def publish(room: Room, record: Json, slot: Slot, vetoed: Json | None = None) -> Json:
     """The pick, then at most MAX_FALLBACKS more of the ranking, through
     `try_draft` until one goes out (or would, dry). A fallback faces the
-    editor's slot question first: one it vetoes counts as tried. What came of
-    it, also kept in the record as `publish`: {outcome: posted | would_post
-    | empty, ...}. A live run whose judges would be the writer's own model
-    posts nothing (a dry run warns)."""
+    editor's slot question first: one it vetoes counts as tried, and costs
+    none of the budget. `vetoed` is the slot question's no on the ranking's
+    first draft (`room_run`): it is the first attempt, vetoed, and the next
+    draft is asked as a fallback, so the budget is whole for the drafts after
+    it. What came of it, also kept in the record as `publish`: {outcome:
+    posted | would_post | empty, ...}. A live run whose judges would be the
+    writer's own model posts nothing (a dry run warns)."""
     afters = example_afters(room.brain)
     attempts: list[Json] = []
     out: Json = {"dry": room.dry, "attempts": attempts}
@@ -2307,6 +2377,14 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
     failed_videos: set[str] = set()
     gated = 0
     ended = ""
+    if vetoed and vetoed.get("label") in left:
+        first = slot.blind[vetoed["label"]]
+        left.remove(vetoed["label"])
+        attempts.append({"label": vetoed["label"], "draft": first["id"], "pitch": first["pitch"],
+                         "format": first["format"],
+                         "editor": {"verdict": _str(vetoed.get("verdict"), 20) or "no answer",
+                                    "reason": _str(vetoed.get("reason"), 400)},
+                         "result": "the editor vetoed it as the winner"})
     while left and gated <= MAX_FALLBACKS:
         label = next_fallback(left, slot, fell) if attempts else left[0]
         left.remove(label)
@@ -2316,7 +2394,7 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
             break
         attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
         attempts.append(attempt)
-        if len(attempts) > 1:
+        if len(attempts) > 1 or vetoed:
             answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now,
                                                                 fallback=True), None, soft=True)
             verdict = _str((answer or {}).get("verdict"), 20).lower() if isinstance(answer, dict) else ""
@@ -2363,7 +2441,7 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
     else:
         if left:
             ended = f"the fallback budget ({MAX_FALLBACKS} through the checks) was spent"
-        elif len(slot.order) > 1:
+        elif len(slot.order) > 1 or vetoed:
             ended = "every ranked draft was tried"
     out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
@@ -2985,7 +3063,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         # is "this video cannot go out", never an empty video slot while
         # another draft is left; every one is kept in `skit_vetoes` (and the
         # first as `skit_veto`) with its format. A no to the other draft
-        # after them is a real veto.
+        # after them is the first attempt, vetoed, and the rest of the ranking
+        # is asked as fallbacks (`publish`).
         skits = video_finals(order, blind)
         others = [x for x in order if blind[x]["format"] not in registry()]
         refused: list[Json] = []
@@ -3011,22 +3090,39 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 verdict, reason = slot_question(top)
     else:
         verdict, reason = slot_question(top)
+    # A no on the top draft is no longer the end of the slot (2026-11-22: the
+    # winner vetoed for a fact the editor could not see, and nothing else was
+    # tried): it is the first attempt, vetoed, and the rest of the ranking is
+    # asked as fallbacks, as when a gate fails (`publish`).
+    vetoed: Json | None = None
     if verdict != "pick":
-        record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})
-        return 0
-    pick = dict(blind[top]) | {"label": top}
-    record.update({"outcome": "picked", "reason": reason, "pick": pick})
+        vetoed = dict(record["final"])
+        record["final_veto"] = vetoed
+        if not order:
+            record.update({"outcome": "empty", "pick": None,
+                           "reason": f"the editor passed on every draft it was asked ({reason or 'no reason given'})"})
+            return 0
+        record.update({"outcome": "picked", "pick": None,
+                       "reason": f"the editor passed on {top} ({reason or 'no reason given'}); the rest of the "
+                                 "ranking gets the slot question"})
+    else:
+        pick = dict(blind[top]) | {"label": top}
+        record.update({"outcome": "picked", "reason": reason, "pick": pick})
     slot = Slot(order=order, blind=blind, board=board, stories_now=state_now,
                 pitches=by_id, items=known_items, stories=stories, thread=thread,
                 rates={r["label"]: -1.0 if r["rate"] is None else r["rate"] for r in ranked_drafts},
                 close=1 / cfg.meetings)
-    done = publish(room, record, slot)
+    done = publish(room, record, slot, vetoed=vetoed)
+    if vetoed and done.get("label"):
+        # The pick is the draft the editor said pick to, as a fallback.
+        record["pick"] = dict(blind[done["label"]]) | {"label": done["label"]}
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason",
                                                 *registry()) if k in done}
+    said = f"the editor passed on {top}" if vetoed else f"the editor picked {top}"
     if done["outcome"] == "posted":
         record["outcome"] = "published"
     elif done["outcome"] == "empty":
-        record.update(outcome="empty", reason=f"the editor picked {top}, and nothing could go out: {done['reason']}")
+        record.update(outcome="empty", reason=f"{said}, and nothing could go out: {done['reason']}")
     return 0
 
 
