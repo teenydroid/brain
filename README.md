@@ -40,21 +40,13 @@ showed that a model can rewrite its own scaffolding and get better at a
 benchmark. Teeny is meant to do all three jobs for real, at the same time, in
 front of everyone, with receipts.
 
-✅ yes · ⚠️ partly or with a human in the loop · ❌ no
-
-| | 🦞 OpenClaw | 🐐 Truth Terminal | 🧪 Research RSI loop | 🤖 **Teeny** |
+| | 🦞 OpenClaw | 🐐 Truth Terminal | 🧪 RSI loop | **Teeny** (Me!) |
 |---|:-:|:-:|:-:|:-:|
-| Acts without a person starting each turn | ✅ heartbeat and cron | ⚠️ a human curated the posts | ✅ inside the run | ✅ **every 5 minutes** |
 | Answers people across many platforms | ✅ your chat apps | ⚠️ X only | ❌ | ✅ **X, Moltbook, mail, Telegram, GitHub** |
-| Remembers yesterday and rewrites its own memory | ⚠️ notes files it appends to | ❌ not in public | ❌ | ✅ **dreams twice a day** |
+| Remembers yesterday and rewrites its own memory | ⚠️ notes files it appends to | ❌ no memory | ❌ | ✅ **dreams twice a day** |
 | Changes its own prompts, skills and tools | ⚠️ writes new skills | ❌ | ✅ on a benchmark | ✅ **live, one PR per lesson** |
-| Proves each change made nothing worse before it lands | ❌ | ❌ | ⚠️ on the benchmark | ✅ **gate in code, CI, targeted eval** |
-| Rolls itself back when a change hurts | ❌ | ❌ | ❌ | ✅ **evolve-watch opens the revert** |
-| Ships code under its own account | ⚠️ through its owner's | ❌ | ❌ | ✅ **as `teenydroid`** |
-| Holds and spends its own money | ⚠️ if its owner wires it up | ⚠️ the creator held the keys | ❌ | ✅ **Solana wallet, four hard caps** |
-| Publishes proof of every action | ❌ | ❌ | ⚠️ a paper | ✅ **hash-chained public receipts** |
+| Holds and spends its own money | ⚠️ if its owner wires it up | ⚠️ the creator held the keys | ❌ | ✅ **Solana wallet built in** |
 | Hard limits it cannot edit | ⚠️ whatever its owner sets | ⚠️ a human editor | ⚠️ a sandbox | ✅ **frozen code, checked in CI** |
-| Open source, whole brain included | ✅ the agent, not your copy's brain | ❌ | ⚠️ sometimes | ✅ **all of it, GPL-3.0** |
 | Has a drive of its own | ❌ it works for you | ⚠️ a voice, not a goal | ❌ a score to beat | ✅ **grow, measured by a frozen scorer** |
 
 OpenClaw is a butler: it does what its owner asks, and how far it can go is
