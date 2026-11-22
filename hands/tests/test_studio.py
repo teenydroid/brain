@@ -367,8 +367,10 @@ class RunTest(unittest.TestCase):
             ("guard", 'case "$1" in\n'
                       '  truth) [ -n "${FAKE_TRUTH:-}" ] && echo \'{"truthful": false, "unsupported": ["x"], "reason": "no"}\' '
                       '|| echo \'{"truthful": true, "unsupported": [], "reason": "ok", "judged": true}\' ;;\n'
-                      '  clarity) [ -n "${FAKE_CLEAR:-}" ] && echo \'{"clear": false, "reason": "a stranger could not say"}\' '
-                      '|| echo \'{"clear": true, "reason": "ok"}\' ;;\n'
+                      '  clarity) if [ -n "${FAKE_CLEAR_DOWN:-}" ]; then echo \'{"clear": false, "reason": '
+                      '"the cold reader could not be reached: down", "judged": true}\'; '
+                      'elif [ -n "${FAKE_CLEAR:-}" ]; then echo \'{"clear": false, "reason": "a stranger could not say"}\'; '
+                      'else echo \'{"clear": true, "reason": "ok"}\'; fi ;;\n'
                       '  check) echo "$body" ;;\nesac\n'),
             ("x", 'if [ "${DRY_RUN:-}" = 1 ]; then echo \'{"ok": true, "dry_run": true, "would_post": "w"}\'; '
                   'else echo \'{"ok": true, "id": "99"}\'; fi\n'),
