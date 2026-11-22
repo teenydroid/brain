@@ -188,8 +188,8 @@ class SuggestBase(PeersBase):
     """A read first (the suggest bar checks quote_of against it), the quote
     lane's gaps off so a test can post twice in a day, and the quote judge (a
     model call) stood in for: it passes unless a test sets
-    `self.quote_verdict`. The anchor judge is stood in for too, so a test can
-    show it is never asked."""
+    `self.quote_verdict`. The anchor judge is gone since 2026-11-22; a stand-in
+    is put where it was (create=True), so a test can show nothing asks it."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0", "QUOTE_MIN_GAP_HOURS": "0",
                 "QUOTE_AFTER_POST_MINUTES": "0"}
@@ -201,7 +201,7 @@ class SuggestBase(PeersBase):
         peers.read(skip_quoted=True)
         self.anchor_verdict = {"anchored": True, "reason": "ok", "judged": True}
         self.judged = mock.Mock(side_effect=lambda *args: dict(self.anchor_verdict))
-        judge = mock.patch("teeny_hands.guard.anchor.judge", self.judged)
+        judge = mock.patch("teeny_hands.guard.anchor.judge", self.judged, create=True)
         judge.start()
         self.addCleanup(judge.stop)
         self.quote_verdict = {"reacts": True, "reason": "a riff on the post", "judged": True}

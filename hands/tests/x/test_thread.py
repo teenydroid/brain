@@ -134,9 +134,10 @@ class RefusalTest(Threading):
             with self.subTest(bad=bad), self.assertRaises(hand.HandError):
                 publish.thread({"posts": bad, "anchor": "pr 1"})
 
-    def test_no_anchor(self):
-        self.refused({"posts": TEXTS}, "anchor")
-        self.refused({"posts": TEXTS, "anchor": "  "}, "anchor")
+    def test_no_anchor_is_no_bar(self):
+        # 2026-11-22: anchoring was taste.
+        self.serve()
+        self.assertEqual(publish.thread({"posts": TEXTS})["sent"], len(TEXTS))
 
     def test_a_quote_is_not_a_thread(self):
         self.refused(self.body(quote_of="555"), "thread")
@@ -161,9 +162,9 @@ class RefusalTest(Threading):
             self.refused(self.body())
 
     def test_one_over_long_post_refuses_the_whole_thread(self):
-        long = "x" * 281
+        long = "x" * 25_001
         exc = self.refused(self.body([TEXTS[0], long, TEXTS[2]]), "length")
-        self.assertEqual(exc.detail["length"], 281)
+        self.assertEqual(exc.detail["length"], 25_001)
 
     def test_two_hundred_eighty_is_allowed(self):
         texts = [TEXTS[0], "y" * 280]
