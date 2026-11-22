@@ -71,6 +71,19 @@ class Stop(Exception):
         self.outcome, self.reason, self.exit_code, self.detail = outcome, reason, exit_code, detail
 
 
+class TurnFailed(Stop):
+    """A model turn that failed (an error or no answer in time, after the
+    fall back to the core's default): a Stop for the callers that cannot go
+    on without it, and one a draft or rewrite turn catches to drop only its
+    own pitch or draft (`studio.run`, `studio.rewrite`). A lasting provider
+    failure (`lasting`: no money, a refused key) fails every later turn the
+    same way, so no caller swallows it."""
+
+    @property
+    def lasting(self) -> bool:
+        return self.detail.get("provider") in provider_error.LASTING
+
+
 @dataclass
 class Room:
     cfg: Config
@@ -220,15 +233,15 @@ class Room:
                 continue
             if status in (124, 137):
                 call["failed"] = f"no answer within {secs} s"
-                raise Stop("failed", f"the {step} turn did not answer within {secs} s", 1,
-                           failure="provider", provider="timeout")
+                raise TurnFailed("failed", f"the {step} turn did not answer within {secs} s", 1,
+                                 failure="provider", provider="timeout")
             if status != 0:
                 kind = provider_error.classify(err)
                 call["failed"] = err[-300:]
                 if kind:
-                    raise Stop("failed", f"the {step} turn failed: {err[-300:]}",
-                               0 if kind in provider_error.LASTING else 1, failure="provider", provider=kind)
-                raise Stop("failed", f"the {step} turn failed: {err[-300:]}", 1, failure="studio")
+                    raise TurnFailed("failed", f"the {step} turn failed: {err[-300:]}",
+                                     0 if kind in provider_error.LASTING else 1, failure="provider", provider=kind)
+                raise TurnFailed("failed", f"the {step} turn failed: {err[-300:]}", 1, failure="studio")
             try:
                 got = first_json(out)
                 if not isinstance(got, want):
