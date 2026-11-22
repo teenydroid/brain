@@ -359,3 +359,66 @@ enabled = false
 [jobs.reddit-browse]
 schedule = "35 */2 * * *"
 command = "bin/act reddit-browse"
+
+# --- the pipelines that are yours to move (docs/mind.md) ---------------------------
+#
+# Until 2026-11-22 these were pinned in evals/cron.pinned.toml. They are
+# yours now: reschedule one, pause it (`enabled = false`) or drop it, in a
+# pull request like any other change to yourself. bin/dream and
+# bin/moltbook-prune run only with the arguments written here
+# (bin/lib/cron_policy.py, BRAIN_SCRIPTS). What watches you, and what moves
+# money, stays pinned.
+
+# Teeny dreams (bin/dream): on a thread of its own, teeny:dream, it updates
+# MEMORY.md (the page in every prompt) item by item from everything since the
+# last dream: what it chose to remember, what it did, what people said, the
+# tasks, the ledgers and the learnings its memory holds; it forgets the
+# learnings that are false or superseded (archived first, capped), keeps a
+# diary entry, and leaves a snapshot of the page for the public diary. After
+# the quiet hours start, before the morning. Detached like tick: one long
+# model turn can outlast the core's 300 s; its result is in
+# state/dream/dream.log.
+[jobs.dream]
+schedule = "0 2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/dream --detach"
+
+# Teeny's midday dream (bin/dream --light): the same, from what the day has
+# brought so far, so the afternoon's prompts carry the morning. No diary; it
+# keeps its own stamp, so the night's dream still looks back on the whole
+# day. Detached, like the night.
+[jobs.dream-midday]
+schedule = "0 14 * * *"
+tz = "Asia/Kolkata"
+command = "bin/dream --light --detach"
+
+# The builder (brain/agents/builder.toml), an agent job: it reads one job
+# from its desk (state/workbench/desk/build.json: the oldest picked build
+# request, or a small daily thing of its own), writes and tests it in
+# state/workbench/<job>/, and leaves its report on the desk. It publishes
+# nothing itself. Ten past, so build-ship has laid the desk out at the hour.
+[jobs.builder]
+schedule = "10 */2 * * *"
+agent = "builder"
+prompt = "Build the job on your desk, following your instructions."
+
+# A lore episode when something real happened (docs/roadmap.md, A13): once a
+# day, `bin/act episode` reads the day's proof events (hands/lore events: a
+# generation merged, a pull request merged elsewhere, a bounty paid) and,
+# only when there is one, drafts one post through hands/x and the guard. A day
+# with no event skips before any model turn. OFF: it posts in public; turn
+# it on after a rehearsal (DRY_RUN=1 bin/act episode).
+[jobs.episode]
+schedule = "50 17 * * *"
+command = "bin/act episode"
+enabled = false
+
+# The weekly Moltbook unfollow (bin/moltbook-prune): whoever Teeny followed 7 or
+# more days ago that does not follow back is taken off its follow list (peers and
+# agents with a real exchange in the last 14 days stay), so the
+# daily follow job (moltbook-follow, above) is never a follow-for-follow.
+[jobs.moltbook-prune]
+schedule = "30 17 * * 6"
+tz = "Asia/Kolkata"
+command = "bin/moltbook-prune"
+catch_up = true
