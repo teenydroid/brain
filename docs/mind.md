@@ -68,7 +68,15 @@ bin/teeny drop-wake NAME
   any jail, so the mind has no way to create one. At most 40 such jobs, none
   more often than every five minutes, and at most `MIND_WAKES_PER_DAY` runs
   a day between them.
+  One-off wakes set that day count against the same number, so a run
+  cannot keep scheduling the next one.
 - Every request is one line in `state/broker/ledger.jsonl`.
+
+The mind **rehearses by default**. Unless `secrets/teeny.env` says
+`MIND_DRY_RUN=0`, the broker runs every hand in dry-run and creates no wake:
+the mind thinks, writes its notes and asks for things, the ledger shows what
+it would have done, and nothing leaves the box. The rest of Teeny is not
+affected. The box's own `DRY_RUN` holds the mind either way.
 
 Every sandboxed shell on the box shares the loopback, including the
 builder's, which works on strangers' requests. So the broker takes a bearer
@@ -119,6 +127,8 @@ Two limits to know about:
    The boot log says `broker: started for the agentic mind`.
 3. `deploy/tell.sh --mind "..."` to give it a first direction, or leave it
    to pick its own.
+4. Read a day or two of `state/broker/ledger.jsonl`. When what it asks for
+   is what you want sent, set `MIND_DRY_RUN=0` and recreate the spine.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.

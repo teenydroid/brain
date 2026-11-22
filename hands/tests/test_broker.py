@@ -405,13 +405,15 @@ class RehearsalTest(BrokerCase):
     def test_only_an_explicit_0_takes_the_mind_out_of_rehearsal(self):
         for value in ("", "no", "false", "2"):
             with self.subTest(value=value):
-                self.setUp()
-                try:
-                    self.start(MIND_DRY_RUN=value)
-                    _, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
-                    self.assertIs(out["result"]["dry_run"], True, value)
-                finally:
-                    self.tearDown()
+                (self.home / ".broker-url").unlink(missing_ok=True)
+                self.start(MIND_DRY_RUN=value)
+                _, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+                self.assertIs(out["result"]["dry_run"], True, value)
+                self.proc.terminate()
+                self.proc.wait(timeout=10)
+                for stream in (self.proc.stdout, self.proc.stderr):
+                    stream.close()
+                self.proc = None
 
     def test_the_boxs_own_dry_run_still_holds_a_live_mind(self):
         self.start(MIND_DRY_RUN="0", DRY_RUN="1")
