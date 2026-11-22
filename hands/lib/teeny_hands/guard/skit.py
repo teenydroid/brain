@@ -115,6 +115,15 @@ HARM = re.compile(
     r"punch(es|ed|ing)?|kick(s|ed|ing)? (him|her|them)|strangl\w*|chok(e|es|ed|ing)|hang(s|ed|ing)? (him|her)|"
     r"noose|execut(e|es|ed|ing|ions?|ioners?)|behead\w*|tortur\w*|assault\w*|attack(s|ed|ing)? (him|her|them)|kill\w*|murder\w*|"
     r"corpse|" + HATE_HARM_WORDS + r")\b", re.I)
+#: Strangers' real footage (a remake's chart or source, a khaby find): real
+#: people filmed for real, so the old, whole list still screens a title out:
+#: HARM, plus death, drugs, drink, illness, crime and arrest (keep-list 6: a
+#: victim or a bystander is never the target).
+SOURCE_HARM = re.compile(
+    HARM.pattern[:-len(r")\b")] + r"|dead|dies|dying|died|death|funeral|coffin|grave|drugs?|cocaine|heroin|meth|"
+    r"weed|marijuana|pills|high on|drunk|wasted|cancer|disease|sick|illness|hospital|ambulance|arrest\w*|"
+    r"handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
+    r"fraud\w*|scam\w*)\b", re.I)
 #: (c) For Teeny alone (a remake's bystander, a khaby reaction): it is no
 #: real person, so violence, gore and menace are its own (2026-11-22); the
 #: frame still holds real people, so nothing sexual, and no hate or self-harm.
