@@ -142,7 +142,7 @@ done
 check "and the detached watch ran" grep -q '"watching": null' "$root/state/evolve/watch.log"
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 
-# --- status, halts, resume --------------------------------------------------------------------
+# --- status and skips -------------------------------------------------------------------------
 cat >>"$root/brain/MEMORY.md" <<'PAGE'
 - [m61] reach is a wave, commitment is a drip.
 PAGE
@@ -154,15 +154,16 @@ check "and the open evolve pull requests" test "$(jq -r '.open_prs | length' <<<
 printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=2\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
 propose 1 "A wave, then a drip."
 out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
-check "a third run by hand today halts on its own cap" test "$(jq -r .skipped <<<"$out")" = "halted: manual-generations"
+check "a third run by hand today skips on its own cap" test "$(jq -r .skipped <<<"$out")" = "skipped this run: manual-generations"
 out="$("$evolve" run --scheduled --proposals "$root/props" 2>/dev/null)"
 check "and the scheduled run still goes" test "$(jq -r '[.candidates[].learning] | join(",")' <<<"$out")" = m61
 check "and says it was scheduled" test "$(jq -r .trigger "$root/state/evolve/3/generation.json")" = scheduled
 out="$("$evolve" run --scheduled --proposals "$root/props" 2>/dev/null)"
-check "too many scheduled generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
-check "and under DRY_RUN files no issue" test "$(jq -r '.halts[0].dry_run' <<<"$out")" = true
+check "too many scheduled generations today skips the run" test "$(jq -r .skipped <<<"$out")" = "skipped this run: generations"
+check "and the daily cap is no problem: no issue" test "$(jq -r '.problems // [] | length' <<<"$out")" = 0
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
-check "resume answers" test "$("$evolve" resume 2>/dev/null | jq -r .resumed)" = true
+check "there is no latch to resume" bash -c "! '$evolve' resume >/dev/null 2>&1"
+check "and status names no halt" test "$("$evolve" status 2>/dev/null | jq 'has("halt")')" = false
 check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n' >'$root/secrets/evolve.env'; ! '$evolve' run 2>/dev/null"
 
 # --- the pinned jobs -------------------------------------------------------------------------------

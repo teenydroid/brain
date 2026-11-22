@@ -2872,41 +2872,114 @@ def _boot_times() -> list[float]:
     return sorted(w for w in (_when_of(r) for r in read_jsonl(state_dir() / "boots.jsonl")) if w is not None)
 
 
-def change_reach(cand: Mapping[str, Any]) -> set[str] | None:
-    """The cron commands CAND's change can reach, when that is cheaply
-    known: a change to brain/playbooks/<name>.md alone reaches `bin/act
-    <name>` alone. Anything else (or no patch on record) reaches every job:
-    None."""
+#: The cron commands whose runs draft through a speaking agent, so the files
+#: evals.EVERY_DRAFT puts in every draft's system prompt (SOUL.md,
+#: IDENTITY.md, MEMORY.md, DRIVE.md, ...) reach them: bin/act's playbooks,
+#: the studio's writer, the beats (bin/tick), the dream (bin/lib/reflect.py's
+#: `teeny` turn), mail and mentions (teeny-mail, teeny-mentions). An agent
+#: job (no command: the builder, the operator; omit_identity = false) reads
+#: them too. Every other command (bin/surplus-sweep, bin/stats-snapshot, the
+#: hands' data jobs) runs no speaking turn and reads none of them.
+PROMPT_COMMANDS = ("bin/act", "bin/dream", "bin/mail", "bin/mentions", "bin/studio", "bin/tick")
+
+
+def _cron_command(job: str) -> str:
+    """A failed run's job as change reaches name it: its first two words."""
+    return " ".join(job.split()[:2])
+
+
+def reads_prompt(job: str) -> bool:
+    """Whether the cron job JOB (its command, or its name for an agent job)
+    runs a turn whose system prompt carries the EVERY_DRAFT files."""
+    first = job.split()[:1]
+    if not first:
+        return False
+    return first[0] in PROMPT_COMMANDS or not first[0].startswith(("bin/", "hands/", "/", "."))
+
+
+@dataclass(frozen=True)
+class Reach:
+    """The cron jobs a merged change can make fail (`change_reach`): JOBS,
+    exact commands (`bin/act <playbook>`, `bin/studio`); PROMPT, every job
+    that reads a speaking agent's system prompt (`reads_prompt`); EVERY, no
+    narrower reach is known. A reach that is PROMPT or EVERY is broad."""
+    jobs: frozenset[str] = frozenset()
+    prompt: bool = False
+    every: bool = False
+
+    @property
+    def kind(self) -> str:
+        return "every" if self.every else "prompt" if self.prompt else "jobs"
+
+    @property
+    def broad(self) -> bool:
+        return self.every or self.prompt
+
+    def reaches(self, job: str) -> bool:
+        return self.every or _cron_command(job) in self.jobs or (self.prompt and reads_prompt(job))
+
+
+EVERY_JOB = Reach(every=True)
+
+
+def change_reach(cand: Mapping[str, Any]) -> Reach:
+    """The cron jobs CAND's change can reach, by evals' own map of what a
+    path reaches (`evals._reaches`, the targeted eval's): a playbook
+    reaches `bin/act <name>`, the studio writer's instructions `bin/studio`,
+    a prompt file every draft reads (brain/SOUL.md and the rest of
+    EVERY_DRAFT that is text, not code) every job that reads that prompt.
+    Anything else (code, a hand, a skill, the core; or no patch on record)
+    reaches every job: the eval's "none" means no draft reads it, not that no
+    live job runs it."""
     try:
         patch = (evolve_dir() / str(cand["patch"])).read_text(encoding="utf-8")
     except (KeyError, OSError):
-        return None
+        return EVERY_JOB
     paths = set(re.findall(r"^diff --git a/(\S+) b/", patch, re.M))
-    names = {m.group(1) for m in (re.fullmatch(r"brain/playbooks/([\w.-]+)\.md", p) for p in paths) if m}
-    return {f"bin/act {n}" for n in names} if paths and len(names) == len(paths) else None
+    if not paths:
+        return EVERY_JOB
+    jobs: set[str] = set()
+    prompt = False
+    for path in paths:
+        kind, detail = evals_lib._reaches(path)
+        if kind == "playbook":
+            jobs.add(f"bin/act {detail}")
+        elif kind == "studio":
+            jobs.add("bin/studio")
+        elif kind == "all" and path in evals_lib.EVERY_DRAFT and path.endswith((".md", ".toml")):
+            prompt = True
+        else:
+            return EVERY_JOB
+    return Reach(jobs=frozenset(jobs), prompt=prompt)
 
 
-def countable_failures(rows: list[Json] | None, boots: list[float], reach: set[str] | None,
-                       cfg: Config) -> tuple[list[float] | None, list[Json]]:
-    """The times of the failed cron runs the change could have caused, and
-    the runs left out with why: within EVOLVE_WATCH_BOOT_MINS of a spine
-    boot ("boot": a deploy or restart kills and fails what is running), an
-    infrastructure or provider error ("infra", INFRA_ERROR), or a job the
-    change does not reach ("unreached", `change_reach`)."""
-    if rows is None:
-        return None, []
+def sort_failures(rows: list[Json], boots: list[float], reach: Reach | None, cfg: Config) -> tuple[list[Json], list[Json]]:
+    """The failed cron runs the change could have caused, and the runs left
+    out with why: within EVOLVE_WATCH_BOOT_MINS of a spine boot ("boot": a
+    deploy or restart kills and fails what is running), an infrastructure or
+    provider error in the run's own output ("infra", INFRA_ERROR), or a job
+    the change does not reach ("unreached", `change_reach`; None reaches
+    every job)."""
     grace = cfg["EVOLVE_WATCH_BOOT_MINS"] * 60
-    times, left = [], []
+    counted, left = [], []
     for r in rows:
-        job = r["job"]
         why = ("boot" if any(abs(r["at"] - b) <= grace for b in boots) else
                "infra" if INFRA_ERROR.search(r["output"]) else
-               "unreached" if reach is not None and " ".join(job.split()[:2]) not in reach else None)
+               "unreached" if reach is not None and not reach.reaches(r["job"]) else None)
         if why:
-            left.append({"at": r["at"], "why": why})
+            left.append({"at": r["at"], "why": why, "job": _cron_command(r["job"])})
         else:
-            times.append(r["at"])
-    return times, left
+            counted.append(r)
+    return counted, left
+
+
+def countable_failures(rows: list[Json] | None, boots: list[float], reach: Reach | None,
+                       cfg: Config) -> tuple[list[float] | None, list[Json]]:
+    """`sort_failures` as times: the counted runs' times, and the left out."""
+    if rows is None:
+        return None, []
+    counted, left = sort_failures(rows, boots, reach, cfg)
+    return [r["at"] for r in counted], left
 
 
 def _hold_times() -> list[float] | None:
