@@ -596,7 +596,7 @@ def _within_cap(do: str) -> None:
 # schedule of its own. A beat cannot do a project; it can leave that mind a
 # note. The note is a file in its inbox, named and framed here: it says it is
 # from the tick, so text a stranger got into a beat can never arrive there as
-# the operator's voice (only bin/tell writes operator-*.md).
+# the operator's voice (only deploy/tell.sh --mind writes operator-*.md).
 
 #: The most notes a day the beat leaves the agentic mind.
 MAX_HAND_OVERS_PER_DAY = 12
