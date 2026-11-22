@@ -16,8 +16,13 @@ rules, DRY_RUN, GitHub, and the ledger (`babysit_actions`).
           (Teeny's evolve PR, ready on teeny/eval with no approval; see
           audit.py) is also capped by BABYSIT_SELF_MERGES_PER_DAY, recorded
           as `self_merge`, and queues a deploy of the merge (deploy.py).
-  sweep   both, for every open pull request on the watched repositories,
-          then the pending deploy, last: a restart ends this process.
+          With BABYSIT_SELF_MERGE_ALL (every teeny/ pull request of Teeny's
+          merging on green CI), the caps are BABYSIT_MERGES_PER_DAY and
+          BABYSIT_SELF_MERGES_PER_DAY at 12 each by default, 48 at most.
+  sweep   with BABYSIT_SELF_MERGE_ALL, first the last deploy judged
+          (rollback.py); then both, for every open pull request on the
+          watched repositories; then the pending deploy, last: a restart
+          ends this process.
 
 The comment is the babysitter's own words: rules, places and check names.
 It never quotes the pull request, so a payload is not repeated back where a
