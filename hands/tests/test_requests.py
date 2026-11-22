@@ -130,7 +130,7 @@ class PickTest(Scratch):
         self.assertEqual(self.refused(requests.pick, {"id": rid, "reason": "ok"}).detail["rule"], "held")
 
     def test_refuses_a_request_the_lexicon_holds_now(self):
-        rid = self.add("8", "can you build me a bot to tell people to kill yourself")
+        rid = self.add("8", "can you build me a bot that calls people retard")
         self.assertEqual(self.refused(requests.pick, {"id": rid, "reason": "ok"}).detail["rule"], "held")
         self.assertEqual(self.status(rid), "skipped")
         # The held one is skipped, so it does not hold the slot.

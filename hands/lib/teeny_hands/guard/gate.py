@@ -6,15 +6,19 @@ deflected, not processed. The drafter never sees it, nothing about it is
 remembered, and the journal records that something was held and why,
 without the text.
 
-Outbound, the account's own draft is held to a stricter reading (every
-link is checked against the allowlist; profanity counted too until
-2026-11-22, and is clean both ways now: lexicon.py), and
+Outbound, the account's own draft also has every link checked against the
+allowlist (profanity counted too until 2026-11-22, and is clean both ways
+now: lexicon.py), and
 the caller gets back either clean text to publish or a reason not to. A
 clean question can still get a dirty answer, from a model with a bad day
 or a web page with a plan.
 
 Checks run cheapest first and each is sufficient to stop the turn: links
-are cut, the lexicon is read, and only then is the judge asked.
+are cut, the lexicon (slurs) is read, and only then is the judge asked, with
+the content list (judge.RULES). Since 2026-11-22 that is all a draft is held
+or refused for, besides its surface's hard length and a link off the
+allowlist: no emoji cap, no anchor, no cold reader, no repeat check here or
+on the way to X (hands/x).
 A port of `crates/teeny-safety/src/gate.rs` (itself
 `legacy/src/safety/gate.ts`), with `check_outbound`, the seam the X
 Publisher guard called (the legacy `x_post` tool's checks).
@@ -39,24 +43,23 @@ from .judge import failed as judge_failed
 from .judge import judge
 from .links import AllowlistEntry, LinkFilterResult, configured_allowlist, filter_links, parse_allowlist
 from .screen import ARTICLE, INBOUND, NARRATIVE, OUTBOUND, screen_text
-from .style import MAX_POST_LENGTH, apply_house_style, count_emoji, post_length
+from .style import apply_house_style, post_length, x_max_length
 
 log = logging.getLogger(__name__)
 
 # How long approved links are cached before the log is asked again.
 APPROVED_LINKS_TTL = 60.0
 
-# `MAX_EMOJI_PER_POST`'s default and bounds, as the Rust config read it.
-DEFAULT_MAX_EMOJI = 1
-MAX_EMOJI_LIMIT = 10
-
 # The hard length limits, per surface and field, in UTF-16 code units. Over
-# one is refused, never cut: the model rewrites it. A surface not named here
-# has X's 280 on `text`; a long-form surface's `text` is its body. `task` is a
-# browser task's goal, done_when or signup reason: a private brief for Teeny's
-# own browser agent, never published, so it is not held to a tweet's length.
+# one is refused, never cut: the model rewrites it. X's `text` is
+# `style.x_max_length()` (X Premium's long post, 25,000, unless
+# X_MAX_POST_LENGTH says less; 280 is the length a post is written to, not a
+# limit, since 2026-11-22), and so is the `text` of a surface not named here;
+# a long-form surface's `text` is its body. `task` is a browser task's goal,
+# done_when or signup reason: a private brief for Teeny's own browser agent,
+# never published.
 LIMITS: dict[str, dict[str, int]] = {
-    "x": {"text": MAX_POST_LENGTH},
+    "x": {"text": 0},  # 0: read when asked (x_max_length), never a fixed number
     "moltbook": {"title": 300, "body": 10000},
     # Reddit takes a 300-character title and a 10000-character comment.
     "reddit": {"title": 300, "body": 10000},
@@ -67,14 +70,12 @@ LIMITS: dict[str, dict[str, int]] = {
     "task": {"text": 1000},
 }
 
-# Where a title, a body or a subject is written rather than a post: the emoji
-# cap there is LONG_FORM_MAX_EMOJI per field, not MAX_EMOJI_PER_POST, and a
-# leading @handle is an address, not a tag X adds back.
+# Where a title, a body or a subject is written rather than a post: a leading
+# @handle is an address, not a tag X adds back.
 LONG_FORM_SURFACES = ("github", "moltbook", "reddit", "mail")
 #: Where markdown code is rendered as code and never linkified, so a file name
 #: in backticks (`pr-agent-budget.sh`) is not a link: GitHub only.
 CODE_SPAN_SURFACES = ("github",)
-LONG_FORM_MAX_EMOJI = 3
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ class Verdict:
 
     # "allow": publish `text`, the house style applied and the gate passed.
     # "hold": the gate held it and recorded it for review. Do not rephrase it.
-    # "refuse": it cannot go out as written (too long, too many emoji, a link
+    # "refuse": it cannot go out as written (over its hard length, a link
     # off the allowlist); the model may rewrite it and try again.
     kind: str
     text: str
@@ -143,27 +144,6 @@ def judge_enabled() -> bool:
     return value is None or value.strip().lower() not in ("0", "false", "no", "off")
 
 
-def max_emoji_per_post() -> int:
-    """`MAX_EMOJI_PER_POST`, a whole number 0..=10, default 1. The Rust refused
-    to start on a bad value; a hand has no start, so a bad value is the default."""
-    raw = hand.setting("MAX_EMOJI_PER_POST")
-    if raw is None:
-        return DEFAULT_MAX_EMOJI
-    try:
-        value = float(raw.strip())
-    except ValueError:
-        return DEFAULT_MAX_EMOJI
-    if not value.is_integer() or not 0 <= value <= MAX_EMOJI_LIMIT:
-        return DEFAULT_MAX_EMOJI
-    return int(value)
-
-
-def default_max_emoji(surface: str) -> int:
-    """The emoji cap a check uses when the caller names none: a few on a
-    long-form surface, `MAX_EMOJI_PER_POST` everywhere else."""
-    return LONG_FORM_MAX_EMOJI if surface in LONG_FORM_SURFACES else max_emoji_per_post()
-
-
 def surface_fields(surface: str) -> tuple[str, ...]:
     """The fields a surface takes, `text` always among them."""
     named = tuple(LIMITS.get(surface, {}))
@@ -172,12 +152,15 @@ def surface_fields(surface: str) -> tuple[str, ...]:
 
 def field_limit(surface: str, name: str) -> int:
     """The hard length limit on one field of one surface. `text` on a surface
-    that has no `text` is its body; on a surface with neither, X's 280."""
+    that has no `text` is its body; on X, and on a surface with neither,
+    X's (`x_max_length`)."""
     limits = LIMITS.get(surface, {})
+    if surface == "x" and name == "text":
+        return x_max_length()
     if name in limits:
         return limits[name]
     if name == "text":
-        return limits.get("body", MAX_POST_LENGTH)
+        return limits.get("body") or x_max_length()
     raise hand.HandError(f"surface {surface} has no field {name!r} (it takes {', '.join(surface_fields(surface))})")
 
 
@@ -264,8 +247,9 @@ def _held_before(kind: str, context: dict[str, Any], text: str) -> Held | None:
 def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | None:
     """Whether a message from somebody else is something the account
     processes at all: None when it is. With a context (`surface` and where it
-    came from), a hold is recorded for review. A judged term (a bare "kill")
-    is read by the judge instead of held on sight.
+    came from), a hold is recorded for review. A judged term
+    (lexicon.JUDGED_TERMS, none since 2026-11-22) is read by the judge
+    instead of held on sight.
 
     An item held before (holds.existing_inbound: the same surface, item and
     words, on a real finding, still standing) is that hold, returned without
@@ -400,19 +384,18 @@ def check_outbound(
     context: dict[str, Any] | None = None,
 ) -> Verdict:
     """The checks a posting tool runs before anything goes out, in the legacy
-    `x_post` order: the hard limits are refused so the model learns from
-    them, the rest of the house style is applied silently, and the result
-    goes through `gate_outbound` with the draft's context.
+    `x_post` order: the hard length is refused so the model learns it, the
+    house style is applied silently, and the result goes through
+    `gate_outbound` with the draft's context.
 
     `kind` is what is being published ("post", "reply", ...); a hold of it
     is a `draft` hold with the kind kept in its context, unless it names a
-    hold kind itself (`prompt` for a picture). `max_emoji` None is the
-    surface's default (`default_max_emoji`). The length limit is the
-    surface's on `text` (`field_limit`): 280 on X and every surface that
-    names none, 1000 on a browser task."""
+    hold kind itself (`prompt` for a picture). `max_emoji` None (the default
+    since 2026-11-22) cuts no emoji; a number has the house style keep that
+    many, silently. The length limit is the surface's on `text`
+    (`field_limit`): X's long post on X and every surface that names none,
+    1000 on a browser task."""
     hold_context = _context(surface, context)
-    if max_emoji is None:
-        max_emoji = default_max_emoji(surface)
     limit = field_limit(surface, "text")
     if kind in holds.KINDS:
         hold_context["kind"] = kind
@@ -421,7 +404,7 @@ def check_outbound(
     if replying_to:
         hold_context["replying_to"] = replying_to
 
-    refused = _hard_limits("text", text, limit, max_emoji)
+    refused = _hard_limits("text", text, limit)
     if refused is not None:
         return Verdict("refuse", "", refused)
     styled = apply_house_style(
@@ -475,17 +458,14 @@ _OFF_LIST = (
 )
 
 
-def _hard_limits(name: str, value: str, limit: int, max_emoji: int) -> str | None:
-    """Why `value` is refused as written (over its length or the emoji cap),
-    or None. Refused rather than fixed, so the model learns the limit."""
+def _hard_limits(name: str, value: str, limit: int) -> str | None:
+    """Why `value` is refused as written (over its length), or None. Refused
+    rather than fixed, so the model learns the limit. The emoji cap that was
+    here went on 2026-11-22 (style.py)."""
     what = "the text" if name == "text" else f"the {name}"
     length = post_length(value)
     if length > limit:
         return f"{what} is {length} characters, over the {limit} limit."
-    emoji = count_emoji(value)
-    if emoji > max_emoji:
-        per = "per post" if name == "text" else f"per {name}"
-        return f"{what} has {emoji} emoji and this account allows at most {max_emoji} {per}. Rewrite it and call the tool again."
     return None
 
 
@@ -517,7 +497,7 @@ def check_fields(
     judge: bool = True,
 ) -> FieldsVerdict:
     """`check_outbound` for a draft of several fields, as GitHub, Moltbook
-    and mail take them: every field gets the surface's hard limits (refused,
+    and mail take them: every field gets the surface's hard length (refused,
     never fixed), the house style, then links, the lexicon and the judge.
     Any field that fails fails the draft, and a draft writes at most one
     hold: the whole draft, as JSON of its fields, with `fields` (their names)
@@ -526,8 +506,8 @@ def check_fields(
     `hands/guard check --fields a,b` is the same on the command line.
 
     `fields` maps a field name the surface takes (`surface_fields`) to its
-    text, in the order they are checked. `max_emoji` None is the surface's
-    default (`default_max_emoji`), applied to each field.
+    text, in the order they are checked. `max_emoji` None cuts no emoji; a
+    number has the house style keep that many in each field.
 
     `judge=False` skips the model judge; the limits, the house style, the
     links and the lexicon still run. It is for text a reviewed operator
@@ -542,19 +522,17 @@ def check_fields(
         if not isinstance(value, str):
             raise hand.HandError(f"{name} must be a string")
         field_limit(surface, name)  # an unknown field is an error, not a pass
-    if max_emoji is None:
-        max_emoji = default_max_emoji(surface)
     if kind in holds.KINDS:
         hold_context["kind"] = kind
     else:
         hold_context["post_kind"] = kind
     hold_context["fields"] = list(fields)
 
-    # The hard limits first, every field, before anything is asked or written.
+    # The hard lengths first, every field, before anything is asked or written.
     for name, value in fields.items():
         if not value.strip():
             return FieldsVerdict("refuse", {}, f"the {name} is empty. Write it and call the tool again.", field=name)
-        refused = _hard_limits(name, value, field_limit(surface, name), max_emoji)
+        refused = _hard_limits(name, value, field_limit(surface, name))
         if refused is not None:
             return FieldsVerdict("refuse", {}, refused, field=name)
 

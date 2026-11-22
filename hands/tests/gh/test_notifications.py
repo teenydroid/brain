@@ -73,7 +73,7 @@ class NotificationsTest(Scratch):
 
     def test_a_hostile_comment_is_held_and_never_reaches_the_mind(self):
         self.note(2, "teenydroid/crabs", 8, kind="Issue", comment="issues/comments/5")
-        self.said("/repos/teenydroid/crabs/issues/comments/5", "troll", "kill yourself, bot")
+        self.said("/repos/teenydroid/crabs/issues/comments/5", "troll", "retard bot")
         out = notifications.ingest()
         self.assertEqual(out["new"], {"held": 1})
         self.assertEqual(self.inbox(), [])

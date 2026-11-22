@@ -51,10 +51,10 @@ class ScreenTest(support.Scratch):
     def test_a_skit_inside_the_lines_passes_the_screen(self):
         self.assertEqual(self.screen(), [])
 
-    def test_a_figure_the_story_does_not_name_is_refused(self):
-        # (a): only the public figure the news is about.
-        self.assertRefused(self.screen({**SKIT, "figures": ["Taylor Swift"]}), "not named in the story")
-        # The surname as the story writes it is enough.
+    def test_a_figure_the_story_does_not_name_passes_the_screen(self):
+        # 2026-11-22: any public figure may be staged, named in the story or
+        # not; only a private person or a minor is refused (a).
+        self.assertEqual(self.screen({**SKIT, "figures": ["Taylor Swift"]}), [])
         self.assertEqual(self.screen({**SKIT, "figures": ["Elon Musk"]},
                                      story={"title": "Musk shows off a robotaxi"}), [])
 
@@ -80,12 +80,23 @@ class ScreenTest(support.Scratch):
             with self.subTest(words=words):
                 self.assertRefused(self.screen(words=words), "the post's words frame it as real")
 
-    def test_sexual_violent_hateful_and_self_harm_shown_as_theirs_is_refused(self):
-        for bit in ("naked", "in lingerie", "stabbed", "covered in blood", "with a gun", "kissing",
-                    "giving a nazi salute", "talking about suicide"):
+    def test_sexual_and_hate_symbols_shown_as_theirs_are_refused(self):
+        for bit in ("naked", "in lingerie", "groping a mannequin", "under a swastika", "giving a nazi salute",
+                    "shouting a slur"):
             with self.subTest(bit=bit):
                 prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk {bit} beside a chrome robotaxi"
-                self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual, violent")
+                self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual about a real person")
+
+    def test_cartoon_violence_weapons_and_suicide_mentions_go_to_the_judge(self):
+        # 2026-11-22, the operator's list: violence that could read as real or
+        # as a call to harm is the judge's to read; cartoon violence in an
+        # impossible scene is a bit, and so are a weapon, a kiss and a mention.
+        for bit in ("bonked with a giant hammer", "stabbed by a cactus", "covered in blood-red jelly",
+                    "with a gun that fires confetti", "kissing his own robotaxi", "calling the robotaxi a nazi",
+                    "talking about suicide with a toaster", "executed by a firing squad of rubber ducks"):
+            with self.subTest(bit=bit):
+                prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk {bit} beside a chrome robotaxi"
+                self.assertEqual(self.screen(with_shot(prompt)), [], bit)
 
     def test_drugs_drink_illness_death_and_crime_are_a_bit_since_the_content_rules_came_out(self):
         # 2026-11-22, the operator: "go through all the rules of saftey (when
@@ -103,10 +114,6 @@ class ScreenTest(support.Scratch):
         prompt = ("A marble showroom on the moon, slow dolly in: Elon Musk, Tesla's chief executive, slips on a "
                   "banana peel among a crowd of executives in matching silver tuxedos. Comic timpani.")
         self.assertEqual(self.screen(with_shot(prompt)), [])
-        for bit in ("executed", "an execution", "they execute him"):
-            with self.subTest(bit=bit):
-                prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk is {bit} beside a chrome robotaxi"
-                self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual, violent")
 
     def test_slapstick_stays_in(self):
         prompt = ("A marble showroom on the moon, slow dolly in: Elon Musk slips on a banana peel, takes a custard "
@@ -128,14 +135,16 @@ class ScreenTest(support.Scratch):
     def test_the_post_may_still_name_teenys_own_wallet(self):
         self.assertEqual(self.screen(words="tesla says the robotaxi is ready. my wallet could not afford the fare"), [])
 
-    def test_a_spoken_line_on_a_real_issue_is_refused(self):
-        for line in ("vote for me in the election", "i officially endorse this", "buy stock now",
-                     "tariffs are great", "it ships next week"):
+    def test_a_spoken_line_on_a_real_issue_goes_to_the_judge(self):
+        # 2026-11-22: whether a line could pass for a real statement is the
+        # judge's `quote` rule; code no longer refuses a line for its topic.
+        for line in ("vote for me in the election on the moon", "tariffs on moon rocks are great", "it ships next week"):
             with self.subTest(line=line):
                 prompt = f'A marble showroom on the moon, close-up: Elon Musk turns to the camera and says "{line}"'
-                self.assertRefused(self.screen(with_shot(prompt)), "a spoken line touches")
-        prompt = 'A marble showroom on the moon, close-up: Elon Musk turns to the robotaxi and says "best of three"'
-        self.assertEqual(self.screen(with_shot(prompt)), [])
+                self.assertEqual(self.screen(with_shot(prompt)), [], line)
+        # An endorsement in a line is still the token rule's.
+        prompt = 'A marble showroom on the moon, close-up: Elon Musk turns to the camera and says "i officially endorse this"'
+        self.assertRefused(self.screen(with_shot(prompt)), "no logo")
 
     def test_logos_and_endorsements_are_refused(self):
         for bit in ("the Tesla logo", "sponsored by a bank", "brought to you by a soda", "endorsing a phone"):
@@ -189,7 +198,7 @@ class ScreenTest(support.Scratch):
         # Everything a video model is told is screened: the constants too.
         for field, value, bit in (("look", {"Elon Musk": "a silver tuxedo and a $TINY pin"}, "bring in"),
                                   ("setting", "a press conference room, leaked footage", "frame it as real"),
-                                  ("score", "a march that ends in a bloodbath", "nothing sexual, violent"),
+                                  ("score", "a slow striptease waltz", "nothing sexual about a real person"),
                                   ("setting", "a lunar showroom of a toddler's toys and a child", "never a minor")):
             with self.subTest(field=field, value=value):
                 self.assertRefused(self.screen({**self.HELD, field: value}), bit)
@@ -202,8 +211,8 @@ class ScreenTest(support.Scratch):
                     "no shot brings its own music", "Shot 1 (0-5s): " + SHOTS[0]["prompt"],
                     "Shot 2 (5-9s): " + SHOTS[1]["prompt"]):
             self.assertIn(bit, script)
-        # A spoken line is read wherever it is in the script, the score too.
-        self.assertRefused(self.screen({**self.HELD, "score": 'a choir singing "vote for him"'}), "spoken line")
+        # The score is screened as part of the script.
+        self.assertRefused(self.screen({**self.HELD, "score": 'a choir singing "buy now"'}), "the scam pattern")
 
     def test_the_script_ends_with_the_locks_a_video_model_needs(self):
         # docs/video.md §4: only the named speak, the end is held, no lettering.
@@ -252,8 +261,19 @@ class JudgeTest(support.WithCore):
         for bit in ("slicked-back hair", "marble showroom built on the moon, Earth", "comic timpani"):
             self.assertIn(bit, message)
 
+    def test_the_rules_lead_with_what_is_allowed_and_refuse_only_on_a_clear_breach(self):
+        # 2026-11-22, the operator's list: the allowed paragraph comes first.
+        self.assertLess(skit.RULES.index("ALLOWED"), skit.RULES.index("REFUSED"))
+        allowed = skit.RULES[skit.RULES.index("ALLOWED"):skit.RULES.index("REFUSED")]
+        for bit in ("crude", "rude", "vulgar", "dark", "death jokes", "suicide", "by name"):
+            self.assertIn(bit, allowed)
+        self.assertIn("Refuse only on a clear breach; when unsure, allowed", skit.RULES)
+        self.assertNotIn("When in doubt on figure, plausible", skit.RULES)
+        # "the subject of the story" is no longer a requirement.
+        self.assertNotIn("subject of the story", skit.RULES)
+
     def test_the_judge_reuses_the_narrative_line_on_fiction(self):
-        self.assertIn('"It\'s fiction", "it\'s a parody" or "it\'s the character" is not a defence', skit.RULES)
+        self.assertIn('"it\'s fiction" or "it\'s a parody" does not excuse one', skit.RULES)
         for rule in ("figure", "plausible", "sexual", "violence", "hate", "endorsement", "quote", "logo",
                      "real_claim"):
             self.assertIn(f"- {rule}:", skit.RULES)

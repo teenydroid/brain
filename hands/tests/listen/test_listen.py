@@ -144,7 +144,7 @@ class ScanTest(Scratch):
         self.assertEqual(len(got["heard"]["lobsters"]), 2)
 
     def test_a_title_the_screen_holds_is_dropped_and_counted(self):
-        self.algolia({"AI agents": [hit(80, "how to kill yourself with agents"), hit(81, "agents that ship")]})
+        self.algolia({"AI agents": [hit(80, "agents are for retards"), hit(81, "agents that ship")]})
         got = scan.scan()
         self.assertEqual([i["title"] for i in got["heard"]["hn"]], ["agents that ship"])
         self.assertEqual(got["dropped_by_screen"], 1)

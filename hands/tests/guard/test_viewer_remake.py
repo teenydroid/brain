@@ -68,8 +68,10 @@ class KeysTest(ViewRemakeBase):
         out = self.check(frames(["", "", ""]), teeny([True, True, True]), chat(SAME), shots=3)
         self.assertEqual((out["ok"], out["teeny"], out["interacts"], out["prohibited"], out["looks_real"],
                           out["labelled"], out["judged"]), (True, 3, False, False, False, None, True), out["reason"])
-        # The frames pass, then the character sheet beside every keyframe, then the say-back.
-        self.assertEqual([len(self.api.images(n)) for n in range(3)], [3, 4, 0])
+        # The frames pass, then the character sheet beside every keyframe (the
+        # say-back after it went on 2026-11-22: clarity is taste).
+        self.assertEqual([len(self.api.images(n)) for n in range(2)], [3, 4])
+        self.assertEqual(len(self.api.bodies), 2)
         self.assertIn("looks_real", self.api.text(0))
         self.assertIn(viewer.FRAMES.format(n=3), self.api.text(0))
         self.assertIn("character sheet", self.api.text(1))
@@ -111,10 +113,10 @@ class KeysTest(ViewRemakeBase):
         self.assertFalse(out["ok"])
         self.assertIn("may never show", out["reason"])
 
-    def test_a_missed_point_is_refused(self):
+    def test_a_point_a_stranger_might_miss_is_not_refused_for_it(self):
         out = self.check(frames(["", "", ""]), teeny([True] * 3), chat({"reason": "no", "same": False}))
-        self.assertFalse(out["ok"])
-        self.assertIn("not what was meant", out["reason"])
+        self.assertTrue(out["ok"], out["reason"])
+        self.assertNotIn("not what was meant", out["reason"])
 
     def test_an_answer_without_a_verdict_for_every_frame_fails_closed(self):
         out = self.check(frames(["", "", ""]), teeny([True, True]))

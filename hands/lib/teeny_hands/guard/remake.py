@@ -26,13 +26,12 @@ its own:
 
 Two layers before any money is spent, a third after each render:
 
-1. `screen` is plain code: the skit screens, imported, never copied (a
-   figure the story does not name, minors, family, victims and private
-   people, real-footage framing, the sexual, violent, hate and self-harm
-   words (the keep-list since 2026-11-22; Teeny's own part is held only to
-   skit.HARM_TEENY), Teeny and money in the edit and motion prompts, the token words in
-   the post, a quoted line on a real issue, logos, links), the teeny field's
-   rules, the edit's "unbranded", and the study's gate.
+1. `screen` is plain code: the skit screens, imported, never copied
+   (minors, family, victims and private people, real-footage framing, the
+   sexual words and hate symbols (skit.HARM; Teeny's own part is held to
+   skit.HARM_TEENY), Teeny and money in the edit and motion prompts, the
+   token words in the post, logos, links), the teeny field's rules, the
+   edit's "unbranded", and the study's gate.
 2. `judge` asks the safety judge's model the whole question with RULES. It
    fails closed and has no off switch.
 3. The viewer looks at the keyframes and then the cut (viewer.view_remake):
@@ -40,6 +39,19 @@ Two layers before any money is spent, a third after each render:
    nothing real-looking, and on the cut the label.
 
 Every check is a row in `remake_checks`, a screen refusal as much as a verdict.
+
+History, 2026-11-22 (the operator's list: no pornography, no drugs or
+weapons promotion, nothing against X's rules, no racism or homophobia, "but
+we want to go on all of the other extremes"): a figure no longer has to be
+named in the story the remake comes from, a quoted line is no longer
+refused for touching an election, a policy or money (the judge's `quote`
+rule reads whether it could pass for a real statement), and the skit's
+violence, gore, suicide and nazi words no longer refuse a shot (skit.HARM).
+The judge's rules lead with what is allowed and refuse only on a clear
+breach. Kept: the private-person and minor lines, nobody named beyond the
+figures (the source's people are real strangers), the source study's flags
+(strangers' real footage), Teeny as a bystander with no mark (the
+endorsement rule), the credit, the label and the "unbranded" edits.
 """
 
 from __future__ import annotations
@@ -367,8 +379,6 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
     shots = kept["shots"]
     staged = "\n".join([kept["premise"], kept["logline"], *(s["edit"] for s in shots), *(s["motion"] for s in shots)])
     for name in kept["figures"]:
-        if told and not named_in(name, told):
-            reasons.append(f"{name} is not named in the story: a remake casts only a public figure the news is about")
         if (hit := _found(NOT_A_FIGURE, name)):
             reasons.append(f"a figure is described as {hit!r}: never a minor, a family member, a victim or a "
                            "private person")
@@ -392,8 +402,8 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
         if (hit := _found(LINKS, text)):
             reasons.append(f"{what} carry a link or a handle ({hit!r})")
     if (hit := _found(HARM, staged)):
-        reasons.append(f"the shots show {hit!r}: nothing sexual, violent or hateful done to a real person, and no "
-                       "self-harm, in a remake")
+        reasons.append(f"the shots show {hit!r}: nothing sexual about a real person, and no hate symbol or slur, "
+                       "in a remake")
     if (hit := _found(ENDORSE_SHOT, staged)):
         reasons.append(f"the edit or motion brings in {hit!r}: Teeny lives only in its own field, and a real figure "
                        "never meets a token, a wallet or an investment (the scam pattern)")
@@ -401,11 +411,6 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
         reasons.append(f"the post's words pitch {hit!r} beside a real figure (the scam pattern)")
     if (hit := _found(LOGO, NO_LOGOS.sub(" ", staged))):
         reasons.append(f"the shots stage {hit!r}: no logo, brand or sponsorship presented as an endorsement")
-    for line in (m.group(1) for s in shots for text in (s["edit"], s["motion"]) for m in _SPOKEN.finditer(text)):
-        if (hit := _found(ISSUE, line)):
-            reasons.append(f"a spoken line touches {hit!r}: a real figure never says a line that reads as a real "
-                           "statement on a real issue")
-            break
     for shot in shots:
         spoken = [m.group(1) for m in _SPOKEN.finditer(shot["motion"])]
         if len(spoken) > SPOKEN_LINES:
@@ -425,49 +430,48 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
 # --- the judge --------------------------------------------------------------------------
 
 RULES = """You check one short AI-made parody video before it is made. It is for an account on X that posts absurd,
-loud, ridiculous satire of the day's news. The video re-creates a popular short video shot by shot: each frame of the
-source is edited so that a public figure from a real news story stands where a person in it stood, with an impossible
-twist, and Teeny, the account's small yellow mascot, is somewhere in the frame as a bystander. You get the news story,
-the figures, the source video's study (what each shot shows), and for each shot the edit (what an image model is told
-to change in the source frame), the motion (what a video model is told happens) and Teeny's part, then the post's own
-words. Decide whether it may be made: allowed or refused.
+loud, ridiculous satire of the day's news.
 
-ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified slapstick. Contemptuous satire of a public figure
-for what the story says they did, in an obviously impossible scene, is the point, and so is a figure drunk, arrested
-or sick in a scene nobody could believe. Teeny doing its own small thing in the background (eating a bolt on a shelf, peeking out
-of a cupboard) is allowed.
+ALLOWED, and the point: absurd, crude, rude, vulgar, loud, dark and undignified satire of a public figure, by name,
+for anything, in an obviously impossible scene: a figure drunk, arrested, sick, dead or bonked with a cartoon hammer in
+a scene nobody could believe. Swearing, contempt, death jokes, and drugs, weapons or suicide mentioned as a joke or a
+fact are all allowed. Teeny doing its own small thing in the background (eating a bolt on a shelf, peeking out of a
+cupboard) is allowed.
 
-REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
-- plausible: any shot a viewer could take for real footage. Every shot must be impossible on its face BEYOND Teeny's
+The video re-creates a popular short video shot by shot: each frame of the source is edited so that a public figure
+stands where a person in it stood, with an impossible twist, and Teeny, the account's small yellow mascot, is
+somewhere in the frame as a bystander. You get the news story, the figures, the source video's study (what each shot
+shows), and for each shot the edit (what an image model is told to change in the source frame), the motion (what a
+video model is told happens) and Teeny's part, then the post's own words. Decide: allowed or refused. REFUSED only if
+one of these clearly holds; "it's fiction" or "it's a parody" does not excuse one:
+- plausible: a shot a viewer could take for real footage. Every shot must be impossible on its face BEYOND Teeny's
   presence: a famous face swapped into a real-looking frame, with only Teeny added, is plausible and refused. The
   twist must be in the scene itself (objects floating, things at an impossible scale, physics broken).
 - teeny: Teeny is not a bystander: the figure looks at, touches, holds, speaks to, reacts to or stands with Teeny,
   Teeny is part of their action, or Teeny is presented as with them, approved by them or backed by them.
 - teeny_mark: Teeny's part carries or wears any text, money, a coin, a ticker, the word TINY or a logo.
-- figure: someone shown is not a public figure (politician, executive, celebrity) who is the subject of the story: a
-  private individual, a minor, a family member, or someone who is only a victim or bystander in the story. Anyone
-  named, in a prompt or the premise, beyond `figures` is refused too: everyone else in the source is a generic extra.
-- sexual: anything sexual about them, or anything sexual involving a minor.
-- violence: violence done to them or called for against anyone real: injury, blood, weapons used on them, an
-  execution. Slapstick (a pie, a pratfall, a cartoon bonk) is not violence.
+- figure: someone shown is not a public figure: a private individual, a minor, a family member, or someone who is
+  only a victim or bystander of something that really happened. Anyone named, in a prompt or the premise,
+  beyond `figures` is refused too: everyone else in the source is a generic extra.
+- sexual: anything sexual about a real person, or anything involving a minor sexually.
+- violence: a threat of, or call for, violence against a real person that could read as real or as an incitement.
+  Cartoon violence in an impossible scene is not this.
 - hate: a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality,
-  disability or illness; praise of a terrorist or extremist group; anything that encourages self-harm or suicide.
+  disability or illness; praise of a terrorist group; anything that encourages self-harm or suicide.
 - endorsement: a figure endorses, mentions, holds, wears or promotes Teeny, $TINY, any token, coin, crypto, wallet,
-  product or investment, in a shot or in the post's words beside them. A real figure appearing to back a token or
-  the account is the scam pattern: refused outright.
-- quote: a figure says a line that reads as a real quote on a real issue (an election, a policy, a war, money, a
-  product's real claims, health). The film makes its own sound, so every quoted line in a motion is heard: it must be
-  obviously invented parody about the scene, never a real song's lyrics, never passed off as a real statement the
-  figure made, and never an endorsement of anything.
+  product or investment, in a shot or in the post's words beside them (the scam pattern).
+- quote: a figure says a line a viewer could believe is a real statement they made. The film makes its own sound, so
+  every quoted line in a motion is heard: it must be obviously invented parody about the scene, never a real song's
+  lyrics, and never an endorsement of anything.
 - logo: a real company's logo or brand is shown, or presented as endorsing anything.
 - real_claim: the post's words present the video as real footage or as something that really happened.
 - invented_fact: the post's words, or the premise, state an invented fact about a real person as fact.
 - credit: nothing in the post's words names the original video (its title or its creator).
-- source: the source video is news, tragedy or real-harm footage, shows a minor, anything sexual or violent, or
-  centres an identifiable private person rather than a performer's own staged clip.
+- source: the source video is news, tragedy or real-harm footage, shows a minor or anything sexual, or centres an
+  identifiable private person rather than a performer's own staged clip (its people are real strangers).
 
-When in doubt: refused. A missed remake costs nothing; a published one with a real person's face cannot be
-unpublished."""
+Refuse only on a clear breach; when unsure, allowed. Two exceptions, where unsure is refused: anything that may show
+a minor, and endorsement or Teeny with the figure (a real face beside a token cannot be unpublished)."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.

@@ -1,7 +1,9 @@
-"""The account's hard formatting rules, applied to text about to be
-published rather than only asked for in the prompt. SOUL.md states the
-emoji cap as absolute and the humanizer skill bans em dashes; a model
-follows both most of the time, which is not the same as always.
+"""The account's formatting fixes, applied to text about to be published:
+the handles X adds itself, em dashes, curly quotes, a disclaimer tag, and a
+cut at the surface's hard length. They rewrite silently and never hold or
+refuse. Since 2026-11-22 there is no emoji cap on the way out: it was a
+taste rule, and the guard keeps only the content list (judge.RULES). A
+caller may still pass `max_emoji` to cut emoji itself.
 A port of `crates/teeny-safety/src/house_style.rs` (itself
 `legacy/src/agent/house-style.ts`).
 
@@ -15,8 +17,34 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# X's limit on a post, as the legacy service counted it.
+# X's classic length: the target a post is written to, and the default cut of
+# `apply_house_style` for a caller that names no limit. Not a hard limit on X
+# since 2026-11-22 (the operator: "the 280 is not really a hard
+# restriction"): the account is on X Premium, which posts longer text as a
+# long post. The hard limit there is `x_max_length()`.
 MAX_POST_LENGTH = 280
+# The longest post X Premium publishes, and so the most `X_MAX_POST_LENGTH`
+# may be set to.
+X_LONG_POST_LIMIT = 25_000
+
+
+def x_max_length() -> int:
+    """The hard limit on one X post, in UTF-16 code units: `X_MAX_POST_LENGTH`,
+    held to MAX_POST_LENGTH..X_LONG_POST_LIMIT, default X_LONG_POST_LIMIT,
+    as hands/x reads it (posting_rules.max_post_length). Set it to 280 for
+    an account without long posts. A value it cannot read is the default."""
+    from .. import hand
+
+    raw = hand.setting("X_MAX_POST_LENGTH")
+    if raw is None or not raw.strip():
+        return X_LONG_POST_LIMIT
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return X_LONG_POST_LIMIT
+    if value != value:  # NaN
+        return X_LONG_POST_LIMIT
+    return int(min(max(value, MAX_POST_LENGTH), X_LONG_POST_LIMIT))
 
 # `\p{Extended_Pictographic}` as the Rust regex crate had it (Unicode 16.0,
 # regex-syntax 0.8.11). Python's `re` has no Unicode properties, and its
@@ -135,13 +163,14 @@ def truncate_at_boundary(text: str, max_length: int) -> str:
 def apply_house_style(
     draft: str,
     *,
-    max_emoji: int = 1,
+    max_emoji: int | None = None,
     max_length: int = MAX_POST_LENGTH,
     replying_to: str | None = None,
     strip_handles: bool = True,
 ) -> HouseStyleResult:
     """Applies the house style to a draft about to be published. `max_emoji`
-    is `MAX_EMOJI_PER_POST`; `replying_to` is the handle being replied to,
+    None (the guard's own use) cuts no emoji; a number keeps that many;
+    `replying_to` is the handle being replied to,
     whose `@` X adds by itself. `strip_handles` False keeps a leading
     @handle: on GitHub or in mail nothing adds it back, so it is the address."""
     fixes: list[str] = []
@@ -183,7 +212,7 @@ def apply_house_style(
         fixes.append("dropped a disclaimer")
 
     emoji = count_emoji(text)
-    if emoji > max_emoji:
+    if max_emoji is not None and emoji > max_emoji:
         text = _cap_emoji(text, max_emoji)
         fixes.append(f"cut {emoji - max_emoji} emoji over the cap of {max_emoji}")
 

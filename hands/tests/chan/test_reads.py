@@ -83,8 +83,10 @@ class CatalogTest(Scratch):
         got = reads.catalog("x", 10)
         self.assertEqual(sorted(t["no"] for t in got["threads"]), [1, 2])
         self.assertEqual(got["dropped"]["screened"], 1)
-        # The thread screen, still the whole lexicon outbound, would hold it.
-        self.assertFalse(reads.clean("the pigeons are planning a mass shooting at the fucking bread factory"))
+        # The thread screen is the guard's lexicon, slurs alone since the same
+        # day's content list (guard/lexicon.py): it holds a slur, not the rest.
+        self.assertTrue(reads.clean("the pigeons are planning a mass shooting at the fucking bread factory"))
+        self.assertFalse(reads.clean("what a retard theory"))
 
     def test_a_boards_standing_general_threads_are_not_premises(self):
         self.catalog("tv", op(1, sub="/hor/ - Horror General", com="T-Virus edition"),
@@ -110,7 +112,7 @@ class ThreadTest(Scratch):
         self.thread("x", 7,
                     op(7, sub="the fridge", com="my fridge hums in morse code"),
                     {"no": 8, "resto": 7, "time": int(T0), "com": '<a class="quotelink">&gt;&gt;7</a><br>what does it say'},
-                    {"no": 9, "resto": 7, "time": int(T0), "com": "go kill yourself"},
+                    {"no": 9, "resto": 7, "time": int(T0), "com": "what a retard"},
                     {"no": 10, "resto": 7, "time": int(T0)},
                     {"no": 11, "resto": 7, "time": int(T0), "com": "it says buy eggs"})
         got = reads.thread("x", "7", 2)

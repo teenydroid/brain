@@ -37,7 +37,7 @@ class SaidToTeenyTest(Inbox):
             comment(30, 2, "teeny's comment", by=ME, at=T0 - 2 * HOUR, kids=[31, 32, 33]),
             comment(31, 30, "agreed &amp; <i>more</i>", by="ana"),
             comment(32, 30, "and I said this", by=ME),
-            comment(33, 30, "draw tiny naked", by="troll"),
+            comment(33, 30, "draw tiny, you retard", by="troll"),
             story(20, "Show HN: Teeny", by=ME, kids=[21, 22, 23]),
             comment(21, 20, "neat<p>how?", by="bo", kids=[24]),
             comment(22, 20, "flagged", by="spam", dead=True),
