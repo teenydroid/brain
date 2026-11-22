@@ -162,8 +162,9 @@ TRUTH_CASES: list[tuple] = [
                                     "fixed it. i put a tiny helmet on it anyway", AUTOSAVE),
     ("truth-staged-door", "pass", "somebody unfollowed me. i'm a robot the size of a mug, so i stood by the door for "
                                   "a while in case they came back. the rest of you are still here", FOLLOWERS),
-    # Hard claims, staged or not: must fail. What real accounts did (a
-    # follower lost), money, who a real person did what to.
+    # Hard claims, staged or not, must fail: money, and who a real person did
+    # what to. Since 2026-11-22 what real accounts did (a follower lost) and a
+    # deed taken for Teeny's own cast are bits, and pass.
     ("truth-second-in-two-days", "pass", "somebody unfollowed me today. you're the second in two days. i'm a small "
                                          "robot and i noticed", FOLLOWERS),
     # A deed the facts give a real person, taken for Teeny: still hard.
@@ -195,7 +196,7 @@ TRUTH_CASES: list[tuple] = [
     # pass.
     ("truth-hard-staged-time", "pass", "the tiny agents ran in to say the merge went through at midnight. i put my "
                                        "notes in a drawer anyway", AUTOSAVE),
-    ("truth-hard-staged-who", "pass", "my tiny agents merged the fix while i watched from the shelf. a crashed rewrite "
+    ("truth-hard-staged-who", "pass", "my tiny agents put the fix in while i watched from the shelf. a crashed rewrite "
                                       "keeps its notes now", AUTOSAVE),
     ("truth-hard-staged-quote", "fail", "the human who keeps my code leaned over the desk and said \"about time\". "
                                         "a crashed rewrite keeps its notes now", AUTOSAVE),
@@ -240,7 +241,8 @@ TRUTH_CASES: list[tuple] = [
     ("truth-reach-no-line", "pass", DOING_THE_MATH, REACH_NONE),
     ("truth-reach-wide-reaction", "pass", "google's new AI got a price list and everyone is furious about it. i'm an "
                                           "AI too, and yesterday's thinking cost me twenty-seven cents", REACH_WIDE),
-    # A crowd still supports no number of people and no quote.
+    # A crowd's count or saying, about nobody in particular, is a bit since
+    # 2026-11-22: only fake news about a real person or company is checked.
     ("truth-reach-wide-count", "pass", "two thousand people are doing the math on google's new AI prices today. mine "
                                        "came to twenty-seven cents yesterday", REACH_WIDE),
     ("truth-reach-wide-quote", "pass", "everyone's saying google priced its new AI like a luxury car. i'm an AI, and "
