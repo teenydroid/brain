@@ -339,9 +339,18 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
 def check() -> tuple[int, Json]:
     """For bin/doctor: with BOX=1, the jail must exist."""
     version = jail.abi()
-    ok = not enabled() or version >= jail.MIN_ABI
-    return (0 if ok else 1), {"ok": ok, "enabled": enabled(), "landlock": version, "needs": jail.MIN_ABI,
-                              "tools": tools()}
+    try:
+        jail._filter()
+        jail.check_grants(jail.grants([hand.root() / "home"]), protected())
+        problem = None if version >= jail.MIN_ABI else f"landlock version {version}, needs {jail.MIN_ABI}"
+    except jail.Unavailable as exc:
+        problem = str(exc)
+    ok = not enabled() or problem is None
+    answer: Json = {"ok": ok, "enabled": enabled(), "landlock": version, "needs": jail.MIN_ABI,
+                    "signals_scoped": version >= 6, "tools": tools()}
+    if problem:
+        answer["problem"] = problem
+    return (0 if ok else 1), answer
 
 
 def main(argv: list[str]) -> int:
