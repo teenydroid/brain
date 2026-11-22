@@ -1597,6 +1597,37 @@ class ProposerTurnFailed(EvolveError):
     no try (gen 15, candidate 2: `local-openai returned HTTP 400`)."""
 
 
+#: What the core answers when its prompt screen holds or blocks a turn
+#: (openhuman-core agent_runs/agent_chat/guards.rs). The screen is
+#: TinySecurity's, and the core holds unscanned anything over
+#: SCREEN_LIMIT_BYTES (`input.oversized`).
+SCREEN_REFUSAL = re.compile(r"prompt flagged for security review|prompt blocked by security policy", re.I)
+
+
+class ScreenHeld(ProposerTurnFailed):
+    """The core's prompt screen held the message: not an outage, and the
+    same message would be held the same way, so it is not sent again in the
+    run (gen 24 sent each held message twice). DETAIL is what the record
+    and the problem issue keep: sizes, the largest sections by heading, a
+    hash of the message, never its text."""
+
+    def __init__(self, message: str, said: str) -> None:
+        size = len(message.encode("utf-8"))
+        self.detail: Json = {"bytes": size, "limit": SCREEN_LIMIT_BYTES, "oversized": size > SCREEN_LIMIT_BYTES,
+                             "sha": hashlib.sha256(message.encode("utf-8")).hexdigest()[:16],
+                             "sections": prompt_sections(message), "said": said[-200:]}
+        why = (f"over the core's {SCREEN_LIMIT_BYTES}-byte prompt screen even cut to fit" if self.detail["oversized"]
+               else "held by the core's prompt screen")
+        super().__init__(f"the proposer's message ({size} bytes) was {why}: {said[-160:]}")
+
+
+def screen_check(message: str) -> None:
+    """Never send a message the screen holds unread: it is held without a
+    turn, as the core would hold it."""
+    if len(message.encode("utf-8")) > SCREEN_LIMIT_BYTES:
+        raise ScreenHeld(message, "not sent: input.oversized")
+
+
 class AskProposer:
     """One tool-less turn on the live core (bin/ask, default agent `act`),
     on a thread of its own. It sees only what the message carries (the
