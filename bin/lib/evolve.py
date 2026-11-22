@@ -1001,8 +1001,12 @@ def routed_log() -> Path:
 
 
 def finding_routes(entries: Mapping[str, Json], findings: list[Any], cfg: "Config") -> list[Json]:
-    """The routed families among FINDINGS (evolve_route.routes)."""
-    return evolve_route.routes(entries, findings, cfg["EVOLVE_ROUTE_AFTER"], outcome_horizons(cfg), CODE)
+    """The routed families among FINDINGS (evolve_route.routes): only those
+    whose standing is `routed` (one settled by an open pull request or a
+    cool-off waits for it)."""
+    cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
+    routed = [f for f in findings if standing(entries, f, cooloff).state == "routed"]
+    return evolve_route.routes(entries, routed, cfg["EVOLVE_ROUTE_AFTER"], outcome_horizons(cfg), CODE)
 
 
 def route_findings(cfg: "Config", entries: Mapping[str, Json], findings: list[Any],
