@@ -277,6 +277,22 @@ class HostileTreeTest(ShipTest):
                 (self.tree / link).unlink()
         self.assertNotIn("ghp_", self.objects())
 
+    def test_a_hard_link_to_a_file_outside_the_tree_is_refused(self):
+        # A hard link reads the same with or without following links, so
+        # only its link count tells it from a file of the tree's own.
+        mindclone.prepare()
+        outside = self.root / "secrets" / "plain.txt"
+        outside.write_text("the operator's private notes\n")
+        os.link(outside, self.tree / "brain" / "notes.md")
+        refused = self.refused()
+        self.assertEqual((refused.detail["rule"], refused.detail["path"]), ("changed", "brain/notes.md"))
+        self.assert_nothing_sent()
+
+    def test_a_file_name_with_a_newline_is_counted_not_a_crash(self):
+        mindclone.prepare()
+        self.edit({"brain/odd\nname.md": "odd\n"})
+        self.assertEqual(self.ship()["files"], ["brain/odd\nname.md"])
+
     def test_a_folder_swapped_for_a_link_is_refused(self):
         mindclone.prepare()
         subprocess.run(["rm", "-rf", str(self.tree / "brain")], check=True)
