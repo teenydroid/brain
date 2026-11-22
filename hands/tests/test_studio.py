@@ -1607,7 +1607,7 @@ class RewriteLengthTest(unittest.TestCase):
         slot = studio.Slot(order=["D1"], blind={}, board={}, stories_now=[], pitches={}, items={}, stories={},
                            thread="studio:run-1")
         draft = _draft("d8", "p7", None, "a draft the stranger could not follow")
-        return studio.rewrite(room, draft, "stranger", {"reason": "unclear"}, slot, [])
+        return studio.rewrite(room, draft, "truth", {"unsupported": ["x"], "reason": "unclear"}, slot, [])
 
     def test_a_rewrite_over_the_limit_is_cut_once_and_kept(self):
         self.assertGreater(len(self.LONG), 280)
