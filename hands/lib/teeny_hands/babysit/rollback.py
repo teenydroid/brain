@@ -55,8 +55,8 @@ Json = dict[str, Any]
 ROLLBACK_WINDOW_MINUTES = 60
 ROLLBACK_BLOCK_HOURS = 24
 DOCTOR = "doctor.json"
-#: The most paths a `deploy_bad` row keeps and an issue lists.
-MAX_PATHS = 300
+DOCTOR_FAILURES = "doctor-failures.jsonl"
+#: The most paths an issue lists; a `deploy_bad` row keeps every one, for the hold.
 LISTED_PATHS = 30
 #: A doctor check's name as the issue may say it (they are bin/doctor's own
 #: words; anything else is "a check").
@@ -97,6 +97,23 @@ def blocked_places() -> set[str]:
     return out
 
 
+def holds_everything() -> bool:
+    """Whether every self-merge waits, whatever it touches: a deploy that looks
+    bad has no recorded judgement yet (its files could not be read, so the paths
+    to hold are unknown), or a judged one's changed-file listing was cut."""
+    if not policy.self_merge_all_on() or hand.dry_run():
+        return False
+    for row in ledger.actions_since("deploy_bad", hand.now() - ROLLBACK_BLOCK_HOURS * 3600):
+        if row["detail"].get("paths_cut"):
+            return True
+    newest = ledger.actions_since("deploy_ff", hand.now() - 2 * ROLLBACK_WINDOW_MINUTES * 60)
+    if not newest or _judged(newest[0]):
+        return False
+    at = float(newest[0]["at"])
+    start, end = math.floor(at), at + ROLLBACK_WINDOW_MINUTES * 60
+    return bool(_doctor_failures(start, end)) or _fell_back(start, end)
+
+
 # --- the judgement ----------------------------------------------------------------------------
 
 
@@ -118,7 +135,11 @@ def _judge(row: Json, gh: Callable[[], PullsApi]) -> Json:
     numbers = [int(n) for n in row["detail"].get("numbers") or [number]]
     detail: Json = {"deploy_id": row["id"], "numbers": numbers}
     if bad:
-        detail.update(paths=_paths(gh(), repo, numbers), doctor=doctor, fallback=fell)
+        # Raises when GitHub cannot be read: nothing is recorded, and
+        # `holds_everything` keeps every self-merge waiting until a later run
+        # completes this judgement.
+        paths, cut = _paths(gh(), repo, numbers)
+        detail.update(paths=paths, paths_cut=cut, doctor=doctor, fallback=fell)
     if hand.dry_run():
         ledger.record_action("rollback_dry_run", repo, number, sha, would=verdict, **detail)
         return {**base, "dry_run": True, "would": verdict}
@@ -148,15 +169,30 @@ def _inside(value: Json | None, start: float, end: float) -> bool:
 
 
 def _doctor_failures(start: float, end: float) -> list[str]:
-    """The failing checks of the doctor's report, when it was written inside
-    the window: names only (bin/doctor's), never their detail."""
+    """The failing checks of the doctor's reports written inside the window:
+    the latest (state/doctor.json) and every red run bin/doctor kept since
+    (state/doctor-failures.jsonl, which a later green run cannot overwrite).
+    Names only (bin/doctor's), never their detail."""
+    names: list[str] = []
     report = _read(DOCTOR)
-    if not _inside(report, start, end):
-        return []
-    names = [str(c.get("check")) for c in report.get("checks") or []
-             if isinstance(c, dict) and c.get("status") == "fail"]
-    if not names and report.get("ok") is False:
-        names = ["doctor"]
+    if _inside(report, start, end):
+        names += [str(c.get("check")) for c in report.get("checks") or []
+                  if isinstance(c, dict) and c.get("status") == "fail"]
+        if not names and report.get("ok") is False:
+            names = ["doctor"]
+    try:
+        lines = (hand.state_dir() / DOCTOR_FAILURES).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            kept = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(kept, dict) and _inside(kept, start, end):
+            found = [str(c.get("check")) for c in kept.get("checks") or [] if isinstance(c, dict)]
+            names += found or ["doctor"]
+    names = list(dict.fromkeys(names))
     return [name if _CHECK_NAME.fullmatch(name) else "a check" for name in names]
 
 
@@ -164,17 +200,20 @@ def _fell_back(start: float, end: float) -> bool:
     return _inside(_read(deploy.FALLBACK), start, end)
 
 
-def _paths(api: PullsApi, repo: str, numbers: list[int]) -> list[str]:
-    """What the merged pull requests changed, each as the audit names it."""
+def _paths(api: PullsApi, repo: str, numbers: list[int]) -> tuple[list[str], bool]:
+    """Every path the merged pull requests changed, each as the audit names it,
+    and whether any listing was cut (then the set is incomplete)."""
     owner, name, _ = policy.watched(repo)
     out: set[str] = set()
+    cut = False
     for number in numbers:
-        files, _ = api.files(owner, name, number)
+        files, was_cut = api.files(owner, name, number)
+        cut = cut or was_cut
         for f in files:
             for raw in (f.get("filename"), f.get("previous_filename")):
                 if raw:
                     out.add(injection.place(str(raw)))
-    return sorted(out)[:MAX_PATHS]
+    return sorted(out), cut
 
 
 # --- the revert issue -----------------------------------------------------------------------------
@@ -224,6 +263,8 @@ def body(bad: Json) -> str:
     if detail.get("fallback"):
         lines.append("- bin/spine could not boot it and fell back to last-good (state/spine-fallback.json)")
     paths = detail.get("paths") or []
+    if detail.get("paths_cut"):
+        lines.append("- the list of changed files was cut short, so the hold is on every self-merge, not on paths")
     listed = ", ".join(f"`{p}`" for p in paths[:LISTED_PATHS]) or "none read"
     more = f" and {len(paths) - LISTED_PATHS} more" if len(paths) > LISTED_PATHS else ""
     lines += [f"- what the merge changed: {listed}{more}", "", "## What to do", "",

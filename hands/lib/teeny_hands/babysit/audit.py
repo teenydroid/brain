@@ -203,6 +203,9 @@ class _Audit:
         # A self-merge candidate touching what a bad deploy changed waits for
         # the operator for a day (rollback.py), on either gate.
         self.rolled_back = rollback.blocked_places() if self.evolve else set()
+        if self.evolve and rollback.holds_everything():
+            self.add("recently_rolled_back", "operator", "diff",
+                     "a deploy looks bad and its changed paths are not all known yet")
         for f in files:
             raw = str(f.get("filename") or "")
             path = self.where(raw)

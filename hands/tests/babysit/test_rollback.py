@@ -235,20 +235,6 @@ class FailClosedTest(RollbackScratch):
         self.at(WINDOW + 60)
         self.assertEqual(rollback.check()["judged"], "deploy_ok")
 
-    def test_every_path_of_a_big_deploy_is_held_not_the_first_300(self):
-        n = rollback.LISTED_PATHS * 12
-        files = [{"filename": f"docs/p{i:04d}.md", "status": "added", "additions": 1, "deletions": 0,
-                  "patch": patch("x")} for i in range(n)]
-        self.self_pr(files=files)
-        self.deployed()
-        self.doctor(60, "cron.toml")
-        self.at(5 * 60)
-        rollback.check()
-        (bad,) = self.rows("deploy_bad")
-        self.assertEqual(len(bad["detail"]["paths"]), n)
-        self.assertFalse(bad["detail"]["paths_cut"])
-        self.assertIn("recently_rolled_back", self.rules(self.candidate("docs/p0359.md")))
-
     def test_more_than_300_paths_are_all_held(self):
         files = [{"filename": f"docs/q{i:04d}.md", "status": "added", "additions": 1, "deletions": 0,
                   "patch": patch("x")} for i in range(350)]
@@ -257,8 +243,10 @@ class FailClosedTest(RollbackScratch):
         self.doctor(60, "cron.toml")
         self.at(5 * 60)
         rollback.check()
-        last = files[-1]["filename"]
-        self.assertIn(last, rollback.blocked_places())
+        (bad,) = self.rows("deploy_bad")
+        self.assertEqual((len(bad["detail"]["paths"]), bad["detail"]["paths_cut"]), (350, False))
+        self.assertIn(files[-1]["filename"], rollback.blocked_places())
+        self.assertIn("recently_rolled_back", self.rules(self.candidate(files[-1]["filename"])))
 
     def test_a_cut_file_listing_holds_every_self_merge_for_the_window(self):
         self.deployed()
