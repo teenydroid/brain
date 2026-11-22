@@ -80,7 +80,9 @@ def _out(*args: str) -> str:
 
 def _rev(ref: str) -> str | None:
     done = _bare("rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
-    return done.stdout.decode().strip() or None if done.returncode == 0 else None
+    if done.returncode != 0:
+        return None
+    return done.stdout.decode().strip() or None
 
 
 def _fetch() -> None:
