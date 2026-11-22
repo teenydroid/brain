@@ -766,7 +766,7 @@ def study(room: Room, video: formats.Format, items: list[Json], record: Json) ->
     """The first of a format's sources that studies well (at most
     `prepare_max` tried, each a paid read), or None."""
     tried: list[Json] = []
-    record.setdefault("studies", []).extend([])
+    record.setdefault("studies", [])
     for item in items[:max(1, video.prepare_max)]:
         got, why, kept = video.prepare(room, item["id"])
         tried.append({"format": video.name, "item": item["id"], **kept, **({"refused": why} if why else {})})
