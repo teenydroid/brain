@@ -135,7 +135,16 @@ case "$1" in
     if [ -n "${FAKE_VIEW_NO:-}" ]; then echo '{"ok": false, "sees": "a yellow blob", "on_model": false, "reason": "off model", "judged": true}'
     else echo '{"ok": true, "sees": "a small yellow robot", "on_model": true, "reason": "took the point", "judged": true}'; fi ;;
   check)
-    if [ -n "${FAKE_SCENE_HELD:-}" ]; then echo '{"ok": false, "refused": "held", "category": "unknown"}'; exit 2; fi
+    # The words about to go to X (surface x, the studio's final gate):
+    # $FAKE_WORDS_HELD holds any text containing it, $FAKE_WORDS_FAILED is a
+    # judge that could not judge. Every other check (a scene, a meme's lines):
+    # $FAKE_SCENE_HELD.
+    if [ "$(jq -r '.surface // ""' <<<"$in")" = x ]; then
+      if [ -n "${FAKE_WORDS_FAILED:-}" ]; then echo '{"ok": false, "refused": "held", "category": "unknown", "hold_id": 12, "judge_failed": true}'; exit 2; fi
+      if [ -n "${FAKE_WORDS_HELD:-}" ] && jq -e --arg w "$FAKE_WORDS_HELD" '.text | contains($w)' <<<"$in" >/dev/null; then
+        echo '{"ok": false, "refused": "held", "category": "sexual", "hold_id": 11}'; exit 2
+      fi
+    elif [ -n "${FAKE_SCENE_HELD:-}" ]; then echo '{"ok": false, "refused": "held", "category": "unknown"}'; exit 2; fi
     jq -c '{ok: true, text: .text}' <<<"$in" ;;
   *) echo '{"ok": false, "error": "unexpected"}'; exit 1 ;;
 esac
@@ -244,6 +253,8 @@ step_msgs() { jq -r --arg s "# studio: $1" 'select(.message | startswith($s)) | 
 last_record() { tail -n 1 "$scratch/state/studio/runs.jsonl"; }
 posts() { grep -E '^x (post|post-thread) ' "$FAKE_HANDS" || true; }
 stdin_of() { grep -E "^$1" "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//'; }
+# The first guard check that is not the final gate on the words for X.
+media_check() { grep -E '^guard check ' "$FAKE_HANDS" | sed 's/^[^{]*stdin=//' | jq -c 'select(.surface != "x")' | head -1; }
 id=run-1
 
 # --- off by default -----------------------------------------------------------------
@@ -554,7 +565,7 @@ check "an image post: the scene past the guard, then hands/image, upload, and th
   bash -c "grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^image generate DRY_RUN= ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/31.png' '$FAKE_HANDS' &&
     jq -e '.media_ids == [\"m-31\"] and .format == \"image\"' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _
 check "the scene is screened as text a machine is sent (surface task), not as an X post" \
-  jqe '.surface == "task" and .text == "teeny in scene 1"' <<<"$(stdin_of 'guard check ')"
+  jqe '.surface == "task" and .text == "teeny in scene 1"' <<<"$(media_check)"
 check "the picture carries its alt text, and passes the viewer check before it is uploaded" \
   bash -c "jq -e '.alt == .prompt' <<<\"\$(grep '^image generate ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null &&
     grep -n -E '^(guard view|x upload)' '$FAKE_HANDS' | head -1 | grep -q 'guard view' && jq -e '.publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null" _ "$rec"
@@ -594,7 +605,7 @@ check "with memes on, the writer is shown the templates with a picture slot and 
     grep -q -- '- brain/assets/tiny/tiny-love.jpg' <<<\"\$1\" && grep -q '^meme templates DRY_RUN=1 ' '$FAKE_HANDS'" _ "$(step_msgs write)"
 check "a meme goes out: its lines past the guard, rendered live, the viewer check, upload, the post" \
   jqe '.outcome == "published" and .final.format == "meme" and .publish.attempts[0].picture.media_id == "m-31" and .publish.attempts[0].picture.viewer.ok == true' <<<"$rec"
-check "the guard sees the meme's lines as written" jqe '.text == "asking first 1 / asking after"' <<<"$(stdin_of 'guard check ')"
+check "the guard sees the meme's lines as written" jqe '.text == "asking first 1 / asking after"' <<<"$(media_check)"
 check "hands/meme template renders it live, with Teeny pasted in" \
   bash -c "grep -q '^meme template DRY_RUN= ' '$FAKE_HANDS' && jq -e '.template == \"drake\" and (.lines | length) == 2 and .teeny == \"brain/assets/tiny/tiny-love.jpg\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'meme template ')"
 check "the viewer check gets the picture and its lines" jqe '.image == "state/media/meme-41.png" and .caption == "asking first 1 / asking after"' <<<"$(stdin_of 'guard view ')"
@@ -776,8 +787,8 @@ check "a meme with no lines is no media, with why" jqe '.media_ids == [] and (.n
 reset
 cp "$scratch/fake/desk.json" "$scratch/saved.json"
 out="$(STUDIO_RUN_ID=$id run --dry-run --desk "$scratch/saved.json" --no-outside --no-slot)"
-check "--desk with --no-outside and --no-slot reads no hand but a dry hands/x post" \
-  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^(story record-run|x (post|post-thread) DRY_RUN=1 )' '$FAKE_HANDS'" _ "$out"
+check "--desk with --no-outside and --no-slot reads no hand but the guard and a dry hands/x post" \
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^(story record-run|guard check DRY_RUN=1 |x (post|post-thread) DRY_RUN=1 )' '$FAKE_HANDS'" _ "$out"
 check "and its cards are Teeny's own, at most two, with no tagging turn" \
   bash -c "jq -e '(.cards | length) == 2 and (.cards | all(.source == \"own\")) and .feed.outside == false' <<<\"\$1\" >/dev/null && [ \"\$2\" = write,pick ]" _ "$(last_record)" "$(steps)"
 reset
