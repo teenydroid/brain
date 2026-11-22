@@ -1,5 +1,5 @@
 """hands/chan's reads: 4chan's HTML as text, the board fence, catalogs and
-threads screened by the guard, and sparks drawn at random."""
+premises screened for slurs, threads by the guard, and sparks drawn at random."""
 
 from __future__ import annotations
 
@@ -65,13 +65,25 @@ class CatalogTest(Scratch):
         for private in ("Anonymous", "!!secret", "AbCd1234", '"US"'):
             self.assertNotIn(private, text)
 
-    def test_a_premise_the_guard_would_hold_never_leaves_the_hand(self):
+    def test_a_premise_carrying_a_slur_never_leaves_the_hand(self):
         self.catalog("x", op(1, com="the government is hiding a nazi moon base under the ice"),
                      op(2, com="the government is hiding a second moon behind the first one"))
         got = reads.catalog("x", 10)
         self.assertEqual([t["no"] for t in got["threads"]], [2])
         self.assertEqual(got["dropped"]["screened"], 1)
         self.assertNotIn("nazi", json.dumps(got))
+
+    def test_a_profane_or_sexual_premise_is_now_a_premise(self):
+        # 2026-11-22: premises were screened by the whole lexicon at its
+        # strictest, and the studio's sparks came through thin. Only a slur
+        # drops one now; a thread's replies are still read through `clean`.
+        self.catalog("x", op(1, com="my toaster is horny for the fucking microwave and it shows"),
+                     op(2, com="the moon landing was staged in a porn studio's back lot"),
+                     op(3, com="what a retard theory, the moon is obviously a hard drive"))
+        got = reads.catalog("x", 10)
+        self.assertEqual(sorted(t["no"] for t in got["threads"]), [1, 2])
+        self.assertEqual(got["dropped"]["screened"], 1)
+        self.assertFalse(reads.clean("my toaster is horny for the fucking microwave and it shows"))
 
     def test_a_boards_standing_general_threads_are_not_premises(self):
         self.catalog("tv", op(1, sub="/hor/ - Horror General", com="T-Virus edition"),
