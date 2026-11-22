@@ -456,6 +456,32 @@ class IssueTest(Scratch):
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
         self.assertEqual(self.gh.requests("POST", "/repos/e/f/issues"), [])
 
+    def test_an_issue_elsewhere_waits_for_the_pr_lock_so_the_cap_cannot_be_raced(self):
+        import threading
+        import time
+
+        self.external_issue()
+        done = threading.Event()
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                done.set()
+
+        with hand.lock("gh-pr"):
+            worker = threading.Thread(target=run)
+            worker.start()
+            time.sleep(0.6)
+            self.assertFalse(done.is_set())
+            self.assertEqual(self.gh.requests("POST", "/repos/a/b/issues"), [])
+        worker.join(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(self.gh.requests("POST", "/repos/a/b/issues")), 1)
+
     def test_a_second_open_issue_in_one_project_waits(self):
         self.external_issue(open_issues=None)
         self.gh.route("GET", "/search/issues", {"total_count": 1, "items": []},
