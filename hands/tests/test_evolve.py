@@ -1904,7 +1904,7 @@ class ScheduledCap(EvolveCase):
         self.assertEqual(meta["trigger"], "scheduled")
         self.assertEqual(json.loads((evolve.gen_dir(1) / "generation.json").read_text())["trigger"], "manual")
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_runs_by_hand_have_their_own_cap(self):
         pub = FakePublisher()
@@ -1912,8 +1912,9 @@ class ScheduledCap(EvolveCase):
             self.propose(1, [self.playbook_edit(line)])
             self.run_gen(1, publisher=pub)
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: manual-generations")
-        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["halts"][0]["detail"])
+        self.assertEqual(out["skipped"], "skipped this run: manual-generations")
+        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["skips"][0]["detail"])
+        self.assertEqual(pub.issues, [])
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))  # the schedule's own run still goes
 
     def test_a_generation_from_before_the_trigger_was_recorded_counts_as_scheduled(self):
