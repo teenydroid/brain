@@ -298,7 +298,7 @@ def _clone_git(*args: str) -> str:
 
 
 def revert_branch(number: int, sha: str) -> str:
-    return f"{policy.TEENY_BRANCH_PREFIX}revert-{number}-{sha[:7]}"
+    return f"{selfclone.BRANCH_PREFIX}revert-{number}-{sha[:7]}"
 
 
 def _revert_commit(bad: Json) -> tuple[str, str]:
@@ -330,10 +330,7 @@ def _revert_commit(bad: Json) -> tuple[str, str]:
 
 def _revert_pr(gh: Callable[[], PullsApi], bad: Json) -> Json:
     repo, number, sha = str(bad["repo"]), int(bad["number"]), bad["head_sha"]
-    try:
-        branch, main = _revert_commit(bad)
-    except git.GitError as exc:
-        raise hand.HandError(f"the revert could not be built: {str(exc)[:200]}") from exc
+    branch, main = _revert_commit(bad)
     gh_actions.push_branch(selfclone.gitdir(), repo, branch, main, gh().gh)
     opened = gh_actions.open_pr({"repo": repo, "head": branch, "base": selfclone.BASE, "title": title(number),
                                  "body": body(bad)}, gh().gh)
