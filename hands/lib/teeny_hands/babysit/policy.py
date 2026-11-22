@@ -12,6 +12,13 @@ is read from secrets/teeny.env (the operator's), never the environment.
                       approval when the audit is clean and teeny/eval
                       passed at the head (`self-merge` at L5, the
                       operator's decision of 2026-11-15); default off
+  BABYSIT_SELF_MERGE_ALL  1, with BABYSIT_SELF_MERGE, lets every pull request
+                      of Teeny's own from a teeny/ branch of teenydroid/brain
+                      merge on green CI (REQUIRED_CHECKS), no teeny/eval, when
+                      the audit is otherwise clean; caps, deploys and the
+                      rollback watch change with it (actions.py, deploy.py,
+                      rollback.py; the operator's decision of 2026-11-22);
+                      default off
 """
 
 from __future__ import annotations
@@ -120,6 +127,47 @@ def self_merge_on() -> bool:
 
 def is_evolve_branch(ref: Any) -> bool:
     return isinstance(ref, str) and EVOLVE_BRANCH.fullmatch(ref) is not None
+
+
+# --- every self-change (BABYSIT_SELF_MERGE_ALL) --------------------------------------------
+
+#: Any branch Teeny opens a self-change from: a generation's teeny/gen-<n>,
+#: the builder's teeny/self-<id>-<slug>, the mind's teeny/<slug>, a revert.
+TEENY_BRANCH = re.compile(r"teeny/[a-z0-9][a-z0-9._/-]{0,99}")
+#: The check runs .github/workflows/check.yml reports on a pull request of
+#: Teeny's, by job name (a matrix job as `name (value)`). Each must be on the
+#: head and green for a self-merge without teeny/eval, so a head cannot go
+#: green by running fewer checks. `scripts` is the aggregate of
+#: scripts-shell, doctor and the hands shards (the ruleset's required
+#: check), named beside its parts all the same; `frozen` runs on every pull
+#: request by teenydroid or from a teeny/ branch, which every candidate is.
+REQUIRED_CHECKS = (
+    "frozen", "scripts", "scripts-shell", "doctor",
+    "hands (1)", "hands (2)", "hands (3)", "hands (4)",
+    "web", "spine",
+)
+
+
+#: What a self-change may touch and still merge on green checks alone: the
+#: brain (prompts, playbooks, the schedule; its jobs and data jobs run under
+#: the cron rules and the jail), the docs, and home/ (code that runs only
+#: inside the mind's jail). Everything else in the repository can run outside
+#: any jail, as the spine's user, with secrets/ in reach: a hand, a hand's
+#: tests, the site. Teeny may write it; a person merges it (docs/mind.md).
+JAILED_PATHS = ("brain/**", "docs/**", "home/**")
+
+
+def outside_the_jail(path: str) -> bool:
+    return not any(_match(path, pattern) for pattern in JAILED_PATHS)
+
+
+def self_merge_all_on() -> bool:
+    """BABYSIT_SELF_MERGE_ALL, which counts only with BABYSIT_SELF_MERGE."""
+    return self_merge_on() and hand.flag("BABYSIT_SELF_MERGE_ALL", False)
+
+
+def is_teeny_branch(ref: Any) -> bool:
+    return isinstance(ref, str) and TEENY_BRANCH.fullmatch(ref) is not None
 
 
 # --- paths -------------------------------------------------------------------------------

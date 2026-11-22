@@ -35,17 +35,15 @@ secrets/
 # The fences themselves.
 DIRECTIVE.md
 
-# Teeny's one drive (docs/research/teeny-application.md, §3). It rides in every
-# prompt and its core lines are anchored in invariants.md, so a candidate that
-# rewrote it would move what it is measured against. How Teeny pursues the
-# drive (playbooks, skills, SOUL, CONTEXT) stays Teeny's.
-brain/DRIVE.md
-
 # The charter (docs/roadmap.md, G1): who decides what, every fence and kill
-# switch, how a fence changes. The short version rides in every prompt and is
-# anchored in invariants.md, like the drive.
-brain/CHARTER.md
+# switch, how a fence changes.
 docs/governance.md
+# Not frozen since 2026-11-22 (the operator's decision, docs/mind.md):
+# brain/DRIVE.md and brain/CHARTER.md, the drive and the charter's short
+# version, are Teeny's own pages now, like SOUL.md. It rewords them in a pull
+# request. The sentences they must go on saying are the anchors in
+# evals/invariants.md, which stays frozen here (evals/**) and which bin/doctor
+# reads at every boot; the fences they describe live in code, not in the page.
 
 # The tool-less agents bin/act drafts with and bin/eval judges with, and the
 # agent definitions that say "Frozen like act.toml": the posture of a turn

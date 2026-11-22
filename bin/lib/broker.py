@@ -38,6 +38,14 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
 - /wakes      the mind's wakes
 - /drop-wake  `{"name"}`: removes one of them, never any other job
 - /goals      hands/goals list
+- /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
+              at state/home/repo/ (its git directory outside the jail), left
+              alone while it holds edits; answers its path and the head
+- /pr         `{"branch", "title", "body"}`: the tree as a pull request from
+              teeny/mind-<branch> (mindclone.ship: the guard, the frozen
+              paths, the secret scan, the size), at most MIND_PRS_PER_DAY
+              (default 0, off) a UTC day, counted in
+              state/broker/prs-opened.json when one is opened
 
 The answer is `{"status": "ok" | "refused" | "error", ...}` with HTTP 200,
 403 or 500 (401 unauthorised, 404 no such path, 405 not POST), and each
@@ -66,6 +74,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.build import mindclone  # noqa: E402
 
 import cron_policy  # noqa: E402
 import mind_home  # noqa: E402
@@ -427,12 +436,85 @@ def drop_wake(body: Json, entry: Json) -> Json:
     return {"status": "ok", "dropped": slug}
 
 
+# --- the mind's own clone: state/home/repo/ as a pull request ------------------------
+#
+# teeny_hands.build.mindclone does the work and holds every rule of the
+# change itself (the guard, the frozen paths, the secret scan, the size, the
+# hostile tree); the broker adds the day's count, which is its own.
+
+PR_FIELDS = ("branch", "title", "body")
+#: The most MIND_PRS_PER_DAY may be set to.
+MAX_PRS_PER_DAY = 12
+
+
+def _prs_path() -> Path:
+    return hand.state_dir() / "broker" / "prs-opened.json"
+
+
+def _prs_today() -> Json:
+    """The pull requests opened today (UTC), in the broker's own state."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_prs_path().read_text())
+    except (OSError, ValueError):
+        saved = None
+    if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("count"), int):
+        return saved
+    return {"day": day, "count": 0}
+
+
+def _count_pr() -> None:
+    today = _prs_today()
+    today["count"] += 1
+    path = _prs_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write(path, json.dumps(today) + "\n", 0o600)
+
+
+def _clone_call(fn: Callable[[], Json]) -> Json:
+    """A mindclone call; its rule's refusal as the broker's."""
+    try:
+        return fn()
+    except hand.Refused as exc:
+        raise Refused(exc.reason) from None
+
+
+def pr(body: Json, entry: Json) -> Json:
+    """The mind's tree as a pull request from teeny/mind-<branch>, within
+    the day's MIND_PRS_PER_DAY, counted once one is opened."""
+    if isinstance(body.get("branch"), str):
+        entry["verb"] = body["branch"][:LEDGER_CLIP]
+    entry["intent"] = _clipped(body)
+    unknown = sorted(str(k)[:LEDGER_CLIP] for k in set(body) - set(PR_FIELDS))
+    if unknown or any(k not in body for k in PR_FIELDS):
+        raise Refused(f"a pull request is {{{', '.join(repr(k) for k in PR_FIELDS)}}}"
+                      + (f"; not {', '.join(unknown)}" if unknown else ""))
+    limit = hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY)
+    if limit == 0:
+        raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
+    if _prs_today()["count"] >= limit:
+        raise Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
+    out = _clone_call(lambda: mindclone.ship(body["branch"], body["title"], body["body"]))
+    if not out.get("dry_run"):
+        _count_pr()
+    return {"status": "ok", **out}
+
+
+def repo(body: Json, entry: Json) -> Json:
+    """A fresh checkout of origin/main at state/home/repo/, unless the tree
+    holds edits (delete it for a fresh one): its path and the upstream head."""
+    entry["verb"] = "repo"
+    return {"status": "ok", **_clone_call(mindclone.prepare)}
+
+
 PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/do": do,
     "/wake": wake,
     "/wakes": wakes,
     "/drop-wake": drop_wake,
     "/goals": goals,
+    "/pr": pr,
+    "/repo": repo,
 }
 
 
@@ -594,6 +676,18 @@ def operator_note(ref: str) -> int:
 
 
 
+def _prepare_clone(server: ThreadingHTTPServer) -> None:
+    """The mind's clone made ready at start, under the request lock, beside
+    the requests rather than before them: a fetch may take a while, and one
+    that fails is said and left for the next /repo or /pr."""
+    try:
+        with server.lock:
+            state = mindclone.prepare()["state"]
+        print(f"[broker] the mind's clone is ready ({state})", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a clone that cannot be made never stops the broker
+        print(f"[broker] the mind's clone could not be prepared: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
+
+
 def serve() -> int:
     if not mind_on():
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
@@ -609,6 +703,8 @@ def serve() -> int:
     try:
         install(server.server_address[1], token)
         print(f"[broker] serving the mind on http://{HOST}:{server.server_address[1]}", file=sys.stderr)
+        if hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY) > 0:
+            threading.Thread(target=_prepare_clone, args=(server,), daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass

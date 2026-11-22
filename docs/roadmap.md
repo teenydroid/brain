@@ -39,7 +39,7 @@ remains is Track 0: switching each thing on and getting its proof.
 
 Three limits the build ran into, each the operator's call:
 
-- `brain/cron.toml` is at its 24-job cap. The weekly vote (P5), the upstream
+- `brain/cron.toml` was at its 24-job cap until 2026-11-22; the cap is 60 now (`docs/mind.md`). The weekly vote (P5), the upstream
   picker (A8), fence proposals (G3) and pin bumps (G9) have a playbook and no
   job, and the `episode` job (A13) is pinned and disabled for the same reason.
 - The autonomy ladder (G2) makes the doctor refuse a boot when

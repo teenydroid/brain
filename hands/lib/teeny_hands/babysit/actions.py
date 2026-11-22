@@ -16,8 +16,13 @@ rules, DRY_RUN, GitHub, and the ledger (`babysit_actions`).
           (Teeny's evolve PR, ready on teeny/eval with no approval; see
           audit.py) is also capped by BABYSIT_SELF_MERGES_PER_DAY, recorded
           as `self_merge`, and queues a deploy of the merge (deploy.py).
-  sweep   both, for every open pull request on the watched repositories,
-          then the pending deploy, last: a restart ends this process.
+          With BABYSIT_SELF_MERGE_ALL (every teeny/ pull request of Teeny's
+          merging on green CI), the caps are BABYSIT_MERGES_PER_DAY and
+          BABYSIT_SELF_MERGES_PER_DAY at 12 each by default, 48 at most.
+  sweep   with BABYSIT_SELF_MERGE_ALL, first the last deploy judged
+          (rollback.py); then both, for every open pull request on the
+          watched repositories; then the pending deploy, last: a restart
+          ends this process.
 
 The comment is the babysitter's own words: rules, places and check names.
 It never quotes the pull request, so a payload is not repeated back where a
@@ -32,7 +37,7 @@ from typing import Any, Mapping
 from .. import hand
 from ..gh import actions as gh_actions
 from . import audit as auditing
-from . import deploy, ledger, policy
+from . import deploy, ledger, policy, rollback
 from .api import PullsApi
 
 Json = dict[str, Any]
@@ -40,6 +45,11 @@ Json = dict[str, Any]
 LABEL_PREFIX = "babysit:"
 DEFAULT_MERGES_PER_DAY = 3
 DEFAULT_SELF_MERGES_PER_DAY = 2
+#: With BABYSIT_SELF_MERGE_ALL every self-change merges itself, so the caps
+#: are the day's work rather than a trickle, and the same settings lift them.
+ALL_MERGES_PER_DAY = 12
+ALL_SELF_MERGES_PER_DAY = 12
+ALL_MAX_PER_DAY = 48
 MERGE_METHODS = ("merge", "squash", "rebase")
 
 _HEADLINES = {
@@ -87,7 +97,10 @@ def report(result: Mapping[str, Any]) -> str:
     lines = [f"**babysitter** · {_HEADLINES.get(str(result['verdict']), str(result['verdict']))}", ""]
     sha = str(result.get("head_sha") or "")[:12]
     lines.append(f"head `{sha}` · author tier `{result.get('tier')}`")
-    if result.get("self_merge"):
+    if result.get("self_merge") and result.get("gate") == "checks":
+        lines.append("no person approved this head: Teeny's own pull request, every required check is green "
+                     "at this head and nothing else is flagged (`BABYSIT_SELF_MERGE_ALL`)")
+    elif result.get("self_merge"):
         lines.append(f"no person approved this head: Teeny's evolve pull request, `{policy.EVAL_CONTEXT}` passed "
                      "at this head and nothing else is flagged (`BABYSIT_SELF_MERGE`, the `self-merge` rung, L5)")
     if result.get("approved_by"):
@@ -179,10 +192,14 @@ def triage(body: Any, api: PullsApi | None = None) -> Json:
 
 
 def merges_per_day() -> int:
+    if policy.self_merge_all_on():
+        return hand.number("BABYSIT_MERGES_PER_DAY", ALL_MERGES_PER_DAY, 1, ALL_MAX_PER_DAY)
     return hand.number("BABYSIT_MERGES_PER_DAY", DEFAULT_MERGES_PER_DAY, 1, 10)
 
 
 def self_merges_per_day() -> int:
+    if policy.self_merge_all_on():
+        return hand.number("BABYSIT_SELF_MERGES_PER_DAY", ALL_SELF_MERGES_PER_DAY, 1, ALL_MAX_PER_DAY)
     return hand.number("BABYSIT_SELF_MERGES_PER_DAY", DEFAULT_SELF_MERGES_PER_DAY, 1, 10)
 
 
@@ -240,6 +257,12 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
     a self-merge, last of all: its restart ends this process's container,
     and every row is written by then."""
     api = api or PullsApi()
+    # The last deploy judged first (BABYSIT_SELF_MERGE_ALL; rollback.py), so a
+    # bad one holds this run's merges of what it changed.
+    try:
+        judged = rollback.check(api)
+    except (hand.Refused, hand.HandError) as exc:
+        judged = {"error": str(exc)}
     listed = auditing.queue(None, max_results, api)
     triaged, merged, errors = [], [], []
     for result in listed["pulls"]:
@@ -259,6 +282,8 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
             errors.append({"repo": result["repo"], "number": result["number"], "error": str(exc)})
     out: Json = {"counts": listed["counts"], "audited": len(listed["pulls"]), "triaged": triaged, "merged": merged,
                  "errors": errors}
+    if judged is not None:
+        out["rollback"] = judged
     try:
         out["deploy"] = deploy.run()
     except hand.HandError as exc:

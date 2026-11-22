@@ -34,8 +34,8 @@ The research behind it is in [`research/`](research/README.md), starting with
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml` and `querier.toml`, the tool-less agents `bin/evolve` reviews each candidate and writes its research queries with |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
-| how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
-| | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
+| `brain/DRIVE.md` and `brain/CHARTER.md` (since 2026-11-22): the drive and the charter's short version, which ride in every prompt. Teeny rewords them in a pull request; the sentences anchored in `invariants.md` must stay, or `bin/doctor` refuses the brain | |
+| | The charter: [`governance.md`](governance.md) |
 
 ### The frozen-path check (built)
 
@@ -285,8 +285,12 @@ runs when its playbook runs, so on that playbook's cron schedule.
 
 `bin/seed-cron` and `bin/doctor` both run `bin/lib/cron_policy.py`:
 
-- A brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
-  must exist.
+- A brain job runs `bin/heartbeat`, `bin/act <playbook>` (the playbook must
+  exist) or `bin/studio`; or one of the pipelines that are Teeny's to
+  schedule since 2026-11-22, with exactly the arguments the policy lists
+  (`BRAIN_SCRIPTS`: `bin/dream --detach`, `bin/dream --light --detach`,
+  `bin/moltbook-prune`); or the `builder` or `mind` agent with a prompt
+  (`docs/mind.md`). At most 240 agent runs a day across every job.
 - No job fires more often than every 5 minutes, computed from the minute and
   hour fields with wraparound included.
 - At most 60 jobs in all, and at most 400 `bin/act` runs a day across enabled

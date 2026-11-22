@@ -66,13 +66,17 @@ def env(token: str | None = None, user: str | None = None) -> dict[str, str]:
 
 
 def run(cwd: Path | None, *args: str, token: str | None = None, user: str | None = None,
-        check: bool = True, timeout: float = TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
+        check: bool = True, timeout: float = TIMEOUT_SECONDS,
+        index_file: Path | None = None) -> subprocess.CompletedProcess:
     """One git command, sealed off from the box. Raises HandError (token
     redacted) when it fails and `check` is set."""
     argv = ["git", "-c", "credential.helper=", "-c", "core.hooksPath=" + os.devnull,
             "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args]
+    environment = env(token, user)
+    if index_file is not None:
+        environment["GIT_INDEX_FILE"] = str(index_file)
     try:
-        done = subprocess.run(argv, cwd=cwd, env=env(token, user), capture_output=True,
+        done = subprocess.run(argv, cwd=cwd, env=environment, capture_output=True,
                               timeout=timeout, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise hand.HandError("git is not installed") from None
