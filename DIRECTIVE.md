@@ -56,7 +56,10 @@ this file loosens them.
   source showed. It stops at any payment page.
 - An `in_doubt` payment is never retried. A person reads it.
 - Every turn that reads strangers' text stays tool-less. Models draft; hands
-  act.
+  act. The one exception is the agentic mind (`docs/mind.md`), which has a
+  shell and holds no key: its shell is jailed to `state/home/`, and whatever
+  it does outside that folder goes through the broker and so through the
+  hands, the guard and the caps.
 - Only the operator widens Teeny's freedom: one fence at a time, in a PR.
   Teeny never does.
 

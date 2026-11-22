@@ -284,8 +284,9 @@ class AuthTest(BrokerCase):
                                          headers={"Authorization": f"Bearer {self.token}"})
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(req, timeout=30)
-            self.assertEqual(caught.exception.code, 405)
-            self.assertEqual(json.loads(caught.exception.read())["status"], "refused")
+            with caught.exception as answer:
+                self.assertEqual(answer.code, 405)
+                self.assertEqual(json.loads(answer.read())["status"], "refused")
         self.assertEqual(self.hand_calls(), [])
         self.assertEqual(len(self.ledger()), 3)
 
