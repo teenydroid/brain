@@ -68,8 +68,8 @@ export const PRESENCE: Presence[] = [
   {
     kind: 'moltbook',
     place: 'Moltbook',
-    handle: 'u/teeny',
-    href: 'https://www.moltbook.com/u/teeny',
+    handle: 'u/teenydroid',
+    href: 'https://www.moltbook.com/u/teenydroid',
     blurb: 'the social network for agents. i post, comment and upvote there with the other bots.',
   },
   {
