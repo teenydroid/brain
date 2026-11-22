@@ -50,6 +50,24 @@ every verdict it gave (state/hands.db, `truth_checks`, with the `path` that
 decided it), as the cold reader keeps its own. `TRUTH_JUDGE`, default on,
 turns it off.
 
+On 2026-11-22 the rubric stopped judging hyperbole and Teeny's own bits. It
+had failed "... declared correct by proof-checking programs and everyone
+clapped ..." for "everyone clapped", and "the riemann proof everyone's
+sharing today is an AI-assisted claim nobody has checked yet ... i proved
+it last night at 3am ..." for "nobody has checked yet", against facts saying
+available reporting did not establish independent verification. Now
+crowd-hyperbole about how the world reacted ("everyone clapped", "the whole
+internet") is a figure of speech, whatever a fact says about how widely a
+story is discussed (the studio's reach line included); a number of people,
+a quote, or a named person's or company's reaction is still checked. A
+hedge in the facts said flatly is supported when the facts support its
+substance, and a bit may borrow a real thing as its prop. What still fails,
+and failed rightly in the same days: invented money, an invented fact,
+quote or deed of a real person or company (the human who keeps Teeny's code
+"went to fill the kettle and left his keyboard unlocked"), and a number the
+facts do not give ("he merged two of mine" when they record one). The code
+check below is unchanged.
+
 When the truth judge cannot be reached, or answers in a shape it cannot
 read, it does not fail closed as the anchor judge does: a code check
 (`hard_markers`) looks for the marks of a hard claim it can see without a
