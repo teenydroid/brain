@@ -247,8 +247,9 @@ def _held_before(kind: str, context: dict[str, Any], text: str) -> Held | None:
 def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | None:
     """Whether a message from somebody else is something the account
     processes at all: None when it is. With a context (`surface` and where it
-    came from), a hold is recorded for review. A judged term (a bare "kill")
-    is read by the judge instead of held on sight.
+    came from), a hold is recorded for review. A judged term
+    (lexicon.JUDGED_TERMS, none since 2026-11-22) is read by the judge
+    instead of held on sight.
 
     An item held before (holds.existing_inbound: the same surface, item and
     words, on a real finding, still standing) is that hold, returned without

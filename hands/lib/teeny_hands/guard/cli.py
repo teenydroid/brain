@@ -9,6 +9,7 @@
             failure names its `field`, and the draft writes at most one hold
   inbound   stdin {"text", "surface"?, "context"?} -> {"ok": true}, or held
   style     stdin {"text", "replying_to"?, "max_emoji"?} -> {"text", "length", "emoji"}
+            (no emoji cut unless max_emoji is given; the length cut is X's)
   holds list [--status S] [--limit N] | approve ID [--note T] | reject ID [--note T]
   holds release ID [--note T]
   links list | approve HOST[/PATH]
@@ -16,19 +17,16 @@
             posting rules refused over the last N days (default 30)
   rescreen  -> the re-screen's counts: the holds a judge outage made, asked
             about again (rescreen.py; the pinned guard-rescreen job)
-  anchor    stdin {"text", "anchor", "inputs"?} -> {"anchored", "reason", "judged"}:
-            whether an own post says something specific about its anchor that
-            the inputs support (anchor.py; bin/act asks before a post). A
-            verdict, never a hold: anything but a clear yes is anchored false
   truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged", "path"}:
-            whether every hard claim in the text (money and the token, real
-            people and companies, the news, safety facts) is supported by
+            whether every hard claim in the text (money and the token; news
+            said as fact about a real person or company) is supported by
             `facts`, the non-empty list of desk items and inputs it may draw
             on (anchor.py, `truth`); a bit Teeny invents about itself is
             never a claim. A verdict, never a hold: anything but a clear yes
             is truthful false, except that a judge that could not judge is
             stood in for by the code check (`path` "code": truthful only with
-            no money or token marker; TRUTH_FAIL_CLOSED=1 makes it a no). Off
+            no amount of money and no buy or sell call; TRUTH_FAIL_CLOSED=1
+            makes it a no). Off
             (TRUTH_JUDGE=0) it is truthful true with judged false, so a
             caller that needs a judgment checks `judged`
   quote     stdin {"text", "quoted", "with"?} -> {"reacts", "reason", "judged"}:
@@ -36,12 +34,11 @@
             reaction to it (quote.py; hands/x peer-suggest asks). Fails OPEN:
             off (QUOTE_JUDGE=0), unreachable or unreadable is reacts true with
             judged false; only a clear no is reacts false
-  clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
-            "vague", "reason", "judged"}: whether someone who has never heard of Teeny
-            could say the post back with nothing to ask about (clarity.py;
-            bin/act and bin/tick ask before an own post). `meaning` is what
-            the author meant it to say, `quoted` the post it quotes. A
-            verdict, never a hold: anything but a clear yes is clear false
+  clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear": true, "says", "unknown": [],
+            "vague": [], "reason", "judged": false}: the cold reader's old verb,
+            kept so a caller that still asks (bin/studio's advisory read) gets
+            an answer. Since 2026-11-22 it asks no model and always passes:
+            clarity is taste, and the guard keeps only the content list
   view      stdin {"image", "intent", "caption"?} -> {"ok", "sees", "on_model",
             "readable", "reason", "judged"}: whether a vision model that has never
             heard of Teeny sees Teeny on model, can read `caption` and takes
@@ -92,7 +89,7 @@ from typing import Any, Mapping
 from .. import hand
 from . import anchor, clarity, gate, holds, khaby, quote, remake, skit, viewer
 from .links import parse_allowlist
-from .style import apply_house_style, count_emoji, post_length
+from .style import apply_house_style, count_emoji, post_length, x_max_length
 
 
 def _body(body: Any, *keys: str) -> dict[str, Any]:
@@ -138,16 +135,6 @@ def check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True)
     return {"text": verdict.text}
-
-
-def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
-    body = _body(body, "anchor", "inputs")
-    name = body.get("anchor")
-    if isinstance(name, int) and not isinstance(name, bool):
-        name = str(name)
-    if not isinstance(name, str) or not name.strip():
-        raise hand.HandError("anchor must name the item the post is about")
-    return anchor.judge(body["text"], name.strip(), body.get("inputs"))
 
 
 def quote_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -288,7 +275,8 @@ def style(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     max_emoji = _max_emoji(body)
     styled = apply_house_style(
         body["text"],
-        max_emoji=gate.max_emoji_per_post() if max_emoji is None else max_emoji,
+        max_emoji=max_emoji,
+        max_length=x_max_length(),
         replying_to=_optional(body, "replying_to", str, "a string"),
     )
     return {"text": styled.text, "length": post_length(styled.text), "emoji": count_emoji(styled.text)}
@@ -323,10 +311,10 @@ def _release_x(held: dict[str, Any]) -> str:
         return f"published on X as {out['id']} (a reply to {post_id})"
     if kind != "post":
         raise hand.Refused(f"a held {kind} cannot be released yet; only posts and replies", rule="release")
-    # The anchor the draft was held with (hands/x passes it in the context);
-    # a hold made before posts had anchors is anchored on the hold itself.
-    anchor = context.get("anchor") or f"hold:{held['id']}"
-    out = publish.post({"text": held["text"], "anchor": anchor}, approved=True)
+    # The anchor the draft was held with (hands/x passes it in the context),
+    # kept on the ledger row; a hold made without one is anchored on itself.
+    anchor_ = context.get("anchor") or f"hold:{held['id']}"
+    out = publish.post({"text": held["text"], "anchor": anchor_}, approved=True)
     return f"published on X as {out['id']}"
 
 
@@ -408,7 +396,7 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
+    for name, handler in (("inbound", inbound), ("style", style), ("truth", truth_check),
                           ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
                           ("skit", skit_check), ("view-skit", view_skit_check), ("remake", remake_check),
                           ("view-remake", view_remake_check), ("khaby", khaby_check),
