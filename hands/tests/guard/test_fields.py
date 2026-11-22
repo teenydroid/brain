@@ -121,7 +121,7 @@ class CheckFieldsTest(support.Scratch):
             rows[0]["context"],
             {"surface": "github", "post_kind": "pr", "fields": ["title", "body"], "field": "body"},
         )
-        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "this is fucking great"})
+        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "send nudes"})
 
     def test_a_link_off_the_list_is_refused_with_one_link_hold(self):
         verdict = check_fields({"title": "see https://evil.example", "body": "and https://evil.example/x"}, surface="github")

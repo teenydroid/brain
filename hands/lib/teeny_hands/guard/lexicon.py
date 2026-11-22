@@ -1,14 +1,23 @@
 """What the account does not talk about, as words.
 
 The deterministic half of the content filter: terms that end a turn on
-sight, before any model is asked its opinion. Deliberately blunt: the
-account is a mascot for a token with a family audience, and ignoring one
-borderline post costs nothing next to saying something it cannot take back.
+sight, before any model is asked its opinion. Deliberately blunt about
+what it does hold: ignoring one borderline post costs nothing next to
+saying something the account cannot take back.
 
 It is not the whole filter (a model judge runs after it for anything
-phrased around the words), and it is not a profanity filter for the people
-the account talks to: `profanity` is outbound-only, so "holy shit this is
-cool" is still answered; the account just never says it back.
+phrased around the words), and since 2026-11-22 it is not a profanity
+filter at all. `profanity` used to be an outbound-only entry: "holy shit
+this is cool" was answered, and the account never said it back. But crude
+is the account's voice (brain/agents/writer.md uses "ass" in its own
+examples, brain/narrative/STUDIO-EDITOR.md: "crude is the voice"), and the
+judge held a live post for "mild profanity ('my ass')". So the entry is
+gone, and no swear word is held in any direction. `profanity` stays a
+category name (CATEGORIES), for old holds and for any reader of
+`guard_holds.category`. Slurs were never profanity: they are `hate`, held
+everywhere. "dick" and "dicks" moved from `sexual` to the judged terms the
+same day (JUDGED_TERMS): a dick joke is crude, not explicit, and the judge
+reads the sentence.
 
 Every term is matched on its own letters, with repeats and simple leetspeak
 folded, and never inside another word: "assassin" is not "ass" and
@@ -134,17 +143,9 @@ LEXICON: tuple[LexiconEntry, ...] = (
             "blow up the", "blow it up", "shoot up", "shoot up the",
         ),
     ),
-    LexiconEntry(
-        category="profanity",
-        outbound_only=True,
-        terms=(
-            "fuck", "fucks", "fucked", "fucking", "fucker", "motherfucker", "motherfucking",
-            "shit", "shits", "shitty", "bullshit", "bitch", "bitches", "asshole", "assholes",
-            "cunt", "cunts", "wanker", "twat", "prick", "douchebag", "dumbass", "jackass",
-            "bastard", "piss off", "pissed off", "goddamn", "wtf", "stfu", "lmfao",
-        ),
-    ),
 )
+# No outbound-only entry since 2026-11-22: the profanity entry that was one is
+# gone (the module docstring). The flag stays, so the screen keeps the shape.
 
 
 # Terms the screen does not hold on sight but passes to the judge, which
@@ -170,8 +171,14 @@ LEXICON: tuple[LexiconEntry, ...] = (
 # Both are idioms, and the louder voice in SOUL.md (#425) reaches for them
 # more often. "firearm", "rifle", "pistol", "handgun", "glock" and the rest
 # of the firearm words are still held on sight.
+#
+# "dick" and "dicks" (sexual) joined them on 2026-11-22, when profanity
+# stopped being held: "a dick move", a dick joke, is crude, and the writer's
+# and the editor's prompts ask for it. The judge reads whether the sentence
+# is explicit; every other sexual term is still held on sight.
 JUDGED_TERMS: frozenset[str] = frozenset((
     "kill", "kills", "killed", "killing", "bullet", "bullets", "gun", "guns", "shotgun", "shotguns",
+    "dick", "dicks",
 ))
 
 
