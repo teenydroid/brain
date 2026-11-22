@@ -142,6 +142,18 @@ FEATURE_REQUIRES = [
     "that playbook scheduled in brain/cron.toml as `bin/act <playbook>`",
     "a `## `<name>`` section in docs/hands.md",
 ]
+#: A want bin/evolve routed from a finding prompt rules kept failing to fix
+#: (bin/lib/evolve_route.py): a fix to code that exists, not a new hand.
+FIX_WANT_PREFIX = "w:f:"
+FIX_REQUIRES = [
+    "a test under hands/tests/ that reproduces what the finding counts (it fails before the fix, passes after)",
+    "the fix in the hand or playbook the brief names, touching no frozen path",
+]
+SELF_FIX_RULES = (
+    SELF_RULES + " This job is a fix for a finding your ledgers keep counting: report ok only when a test that "
+    "reproduces it and the fix are both in the clone; the desk checks for the test and sends the report back "
+    "without one."
+)
 #: The rules of a feature job: a self job's, and the one thing more.
 SELF_FEATURE_RULES = (
     SELF_RULES + " This job is a feature: report ok only when the new hand, its tests, its docs/hands.md section and "
@@ -256,6 +268,9 @@ def _offer(job: Json, resumed: bool = False, want: str | None = None) -> Json:
     instructions = hand.root() / SELF_INSTRUCTIONS
     offer.update(branch=branch, base=selfclone.base_of(branch),
                  instructions=instructions.read_text() if instructions.is_file() else None)
+    if job["kind"] == "self" and want and want.startswith(FIX_WANT_PREFIX):
+        offer["fix"] = {"want": want, "requires": FIX_REQUIRES}
+        return {"job": offer, "rules": SELF_FIX_RULES}
     if job["kind"] == "self" and want:
         offer["feature"] = {"want": want, "requires": FEATURE_REQUIRES}
         return {"job": offer, "rules": SELF_FEATURE_RULES}
@@ -595,6 +610,12 @@ def _feature_rubric(job_id: int) -> str | None:
         conn.close()
     if row is None or row["status"] != "claimed" or not want or not selfclone.has_changes():
         return None
+    if want.startswith(FIX_WANT_PREFIX):
+        found = feature.fix_rubric(selfclone.changed_paths())
+        if not found["ok"]:
+            raise hand.Refused("the fix is not complete: " + "; ".join(found["missing"]), rule="feature",
+                               missing=found["missing"], job_id=job_id)
+        return json.dumps(found)
     found = feature.rubric(selfclone.worktree(), selfclone.changed_paths())
     if not found["ok"]:
         raise hand.Refused("the feature is not complete: " + "; ".join(found["missing"]), rule="feature",
