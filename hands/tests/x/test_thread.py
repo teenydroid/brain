@@ -220,23 +220,13 @@ class RulesTest(Threading):
         posting_rules.check_pacing(conn)
         posting_rules.check_not_replied(conn, "101")
 
-    def test_a_repeat_of_the_head_is_refused(self):
-        conn = hand.db()
-        posting_rules.ensure_schema(conn)
-        posting_rules.record_post(conn, "50", "post", TEXTS[0] + " today", created_at=T0 - 6 * HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.thread(self.body())
-        self.assertEqual(caught.exception.detail["rule"], "repeat")
-        self.assertEqual(self.x.writes(), [])
-
-    def test_a_repeat_of_an_earlier_thread_as_a_whole_is_refused(self):
+    def test_a_repeat_is_no_bar_since_the_repeat_rule_went(self):
+        # 2026-11-22: the near-duplicate refusal was taste.
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "50", "post", " ".join(TEXTS), created_at=T0 - 6 * HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.thread(self.body(["one: the build failed", *TEXTS[1:]]))
-        self.assertEqual(caught.exception.detail["rule"], "repeat")
-        self.assertEqual(caught.exception.detail["similar_to"], "50")
+        self.serve()
+        self.assertEqual(publish.thread(self.body())["sent"], len(TEXTS))
 
     def test_a_link_anywhere_makes_it_one_link_post(self):
         texts = [TEXTS[0], "two: details at github.com/teenydroid/brain", "three: https://example.com/x"]

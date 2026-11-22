@@ -161,23 +161,18 @@ class GuardOrderTest(Posting):
 
 
 class AnchorTest(Posting):
-    """An own post names the item it is about (`anchor`): a listen digest
-    item, a material receipt, a PR, the post it quotes. No anchor, no post."""
+    """An own post may name the item it is about (`anchor`): a listen digest
+    item, a material receipt, a PR, the post it quotes. Since 2026-11-22 a
+    post with none goes out too: anchoring was taste."""
 
-    def test_a_post_without_an_anchor_is_refused_and_nothing_is_sent(self):
-        for body in ({"text": "gm"}, {"text": "gm", "anchor": ""}, {"text": "gm", "anchor": "   "}):
-            with self.assertRaises(hand.Refused, msg=repr(body)) as caught:
-                publish.post(body)
-            self.assertEqual(caught.exception.detail["rule"], "anchor")
-            self.assertIn("anchor", caught.exception.reason)
-        self.assertEqual(self.guard.calls, [], "refused before the guard is asked")
-        self.assertEqual(self.x.requests(), [])
-        self.assertEqual(self.ledger(), [])
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
 
-    def test_refused_under_dry_run_too(self):
-        self.configure(DRY_RUN="1")
-        with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm"})
+    def test_a_post_without_an_anchor_reaches_the_guard_and_goes_out(self):
+        for n, body in enumerate(({"text": "gm"}, {"text": "gm frens", "anchor": ""}, {"text": "gm all", "anchor": "   "})):
+            self.created = self.x.route("POST", "/2/tweets", {"data": {"id": str(200 + n)}}, status=201)
+            publish.post(body)
+        self.assertEqual([t for t, _ in self.guard.calls], ["gm", "gm frens", "gm all"])
+        self.assertEqual([r["anchor"] for r in self.ledger()], [None, None, None])
 
     def test_an_anchor_that_is_not_a_short_string_is_an_error(self):
         for anchor in (5.5, ["hn 1"], {"id": 1}, "x" * 201):
@@ -657,70 +652,30 @@ class LinkBudgetTest(Posting):
         self.assertEqual(caught.exception.detail["rule"], "links")
 
 
-class RepeatTest(Posting):
-    """docs/roadmap.md, A2: an own post that says what a recent one said is
-    refused, whatever the gap, and the refusal is counted by the guard."""
+class NoRepeatRuleTest(Posting):
+    """Until 2026-11-22 an own post that said what a recent one said was
+    refused (docs/roadmap.md, A2). That was taste: the guard keeps only its
+    content list, and a repeat goes out like any post."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     YESTERDAY = "shipped a tiny crab tracker today, it counts crabs on the beach and posts the total"
 
-    def test_a_repeat_of_yesterdays_post_is_refused_and_counted(self):
+    def test_a_repeat_of_yesterdays_post_goes_out_and_is_not_counted(self):
         from teeny_hands.guard import repeats
 
         publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.at(T0 + 24 * HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.post({"anchor": "hn:1", "text": "Shipped a tiny crab tracker today! It counts crabs on the beach and posts the total."})
-        refused = caught.exception
-        self.assertTrue(refused.reason.startswith("repeat: this says what post 100"), refused.reason)
-        self.assertEqual((refused.detail["rule"], refused.detail["similar_to"]), ("repeat", "100"))
-        self.assertGreaterEqual(refused.detail["score"], repeats.NEAR_DUPLICATE)
-        self.assertEqual(len(self.posted()), 1)
-        got = repeats.count(30)
-        self.assertEqual((got["repeats"], got["by_surface"]), (1, {"x": 1}))
-        # The count holds no text.
-        conn = hand.db()
-        self.assertEqual([tuple(r)[2:] for r in conn.execute("SELECT * FROM guard_repeats")], [("x", refused.detail["score"], "100")])
-
-    def test_something_new_goes_out(self):
-        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
-        self.at(T0 + 24 * HOUR)
-        publish.post({"anchor": "hn:1", "text": "the crab tracker found a hermit crab living in a bottle cap, which is the best news this week"})
-        self.assertEqual(len(self.posted()), 2)
-
-    def test_a_post_older_than_the_window_may_be_said_again(self):
-        self.configure(REPEAT_WINDOW_DAYS="7")
-        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
-        self.at(T0 + 8 * 24 * HOUR)
         publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.assertEqual(len(self.posted()), 2)
+        self.assertEqual(repeats.count(30)["repeats"], 0)
+        self.assertFalse(hasattr(posting_rules, "check_repeat"))
 
-    def test_short_posts_repeat_only_when_they_are_the_same(self):
-        publish.post({"anchor": "hn:1", "text": "gm"})
-        self.at(T0 + 24 * HOUR)
-        with self.assertRaises(hand.Refused):
-            publish.post({"anchor": "hn:1", "text": "GM"})
-        publish.post({"anchor": "hn:1", "text": "gn"})
-        self.assertEqual(len(self.posted()), 2)
-
-    def test_a_reply_counts_as_something_already_said(self):
-        # Teeny's replies are most of what it writes: an own post may not
-        # repeat one either.
+    def test_a_reply_said_before_is_no_bar_either(self):
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "90", "reply", self.YESTERDAY, in_reply_to="5", created_at=T0 - HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
-        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["similar_to"]), ("repeat", "90"))
-        self.assertEqual(self.posted(), [])
-
-    def test_a_rehearsal_is_refused_the_same(self):
         publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
-        self.configure(DRY_RUN="1")
-        self.at(T0 + HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
-        self.assertEqual(caught.exception.detail["rule"], "repeat")
+        self.assertEqual(len(self.posted()), 1)
 
 
 class LedgerColumnsTest(Posting):
