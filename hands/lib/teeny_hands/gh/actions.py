@@ -478,6 +478,10 @@ def _open_external_issue(body: Mapping[str, Any], owner: str, name: str, gh: Git
             raise hand.Refused(f"today's {cap} issue(s) on other projects are spent", rule="daily_cap")
         gh = gh or GitHubApi.from_settings()
         open_issues = gh.search_issues(f"repo:{repo} author:{user()} type:issue state:open", 5)
+        if open_issues.get("incomplete_results"):
+            # GitHub's search timed out: a zero count proves nothing.
+            raise hand.Refused(f"could not tell whether Teeny has an open issue in {repo}; try again later",
+                               rule="open_issue")
         if int(open_issues.get("total_count") or 0) > 0:
             raise hand.Refused(f"Teeny already has an open issue in {repo}; one at a time", rule="open_issue")
         verdict = reads.contributing(owner, name, gh)

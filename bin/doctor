@@ -798,10 +798,27 @@ printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$
 # doctor.json is overwritten by the next run, so a red one is also kept (names only, the
 # latest 50) for hands/babysit's rollback sweep, which reads it up to 20 minutes later.
 if [ "$failed" != 0 ]; then
+  # Boot, the --live job and evolve may overlap: one lock (mkdir, which is atomic and
+  # needs no flock) across the append and the compaction, a lock older than a minute is
+  # stale and broken, and the compaction goes through a temp file of its own. Without the
+  # lock the line is still appended (one small write) and the compaction waits for a later run.
+  failures="$state/doctor-failures.jsonl"
+  lockdir="$state/doctor-failures.lock"
+  got=0
+  for _ in $(seq 1 50); do
+    if mkdir "$lockdir" 2>/dev/null; then got=1; break; fi
+    if [ -n "$(find "$lockdir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$lockdir" 2>/dev/null || true; fi
+    sleep 0.1
+  done
   printf '%s\n' "$out" | jq -c '{at, commit, checks: [.checks[] | select(.status == "fail") | {check, status}]}' \
-    >>"$state/doctor-failures.jsonl"
-  tail -n 50 "$state/doctor-failures.jsonl" >"$state/doctor-failures.jsonl.tmp" \
-    && mv "$state/doctor-failures.jsonl.tmp" "$state/doctor-failures.jsonl"
+    >>"$failures" || true
+  if [ "$got" = 1 ]; then
+    tmp="$(mktemp "$state/doctor-failures.XXXXXX")" || tmp=""
+    if [ -n "$tmp" ]; then
+      { tail -n 50 "$failures" >"$tmp" && mv "$tmp" "$failures"; } || rm -f "$tmp"
+    fi
+    rmdir "$lockdir" 2>/dev/null || true
+  fi
 fi
 printf '%s\n' "$out"
 [ "$failed" = 0 ]

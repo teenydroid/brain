@@ -106,7 +106,10 @@ def holds_everything() -> bool:
     for row in ledger.actions_since("deploy_bad", hand.now() - ROLLBACK_BLOCK_HOURS * 3600):
         if row["detail"].get("paths_cut"):
             return True
-    newest = ledger.actions_since("deploy_ff", hand.now() - 2 * ROLLBACK_WINDOW_MINUTES * 60)
+    # The look-back is the hold's own (ROLLBACK_BLOCK_HOURS), not `check`'s two
+    # windows: a judgement that kept failing past those still holds, until the
+    # hold would have lapsed anyway.
+    newest = ledger.actions_since("deploy_ff", hand.now() - ROLLBACK_BLOCK_HOURS * 3600)
     if not newest or _judged(newest[0]):
         return False
     at = float(newest[0]["at"])

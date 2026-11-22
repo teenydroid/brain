@@ -218,6 +218,8 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
    recreate the spine (and so the broker) again. What it may reach is the tick's caps
    in the same file (`MIND_TASKS_PER_DAY`, `MIND_SEARCHES_PER_DAY`, ...).
 3. `MIND_PRS_PER_DAY=3` (say): it may open pull requests from its clone.
+   The broker reads `secrets/teeny.env` once at start, so recreate the spine
+   (after the same evolve check) before it will take a request.
    They wait for a person until the next step.
 4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`, and
    `BABYSIT_MERGE=1`, which the merge action checks before it audits

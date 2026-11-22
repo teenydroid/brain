@@ -158,16 +158,17 @@ def _differs(displaced: Path, snapshot: str | None) -> bool:
     if snapshot is None or not displaced.is_dir() or displaced.is_symlink():
         return displaced.exists() or displaced.is_symlink()
     index = scratch() / f"fresh-index-{secrets.token_hex(6)}"
+    where = ("--git-dir", str(gitdir()), "--work-tree", str(displaced))
     try:
-        if git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), "read-tree", snapshot,
-                   check=False, index_file=index).returncode != 0:
+        if git.run(scratch(), *where, "read-tree", snapshot, check=False, index_file=index).returncode != 0:
             return True
         for args in (("diff", "--name-only"), ("ls-files", "--others", "--exclude-standard")):
-            done = git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), *args,
-                           check=False, index_file=index)
+            done = git.run(scratch(), *where, *args, check=False, index_file=index)
             if done.returncode != 0 or done.stdout.strip():
                 return True
         return False
+    except (Exception,):  # noqa: BLE001 - a timeout or a failed spawn is "cannot tell": keep the tree
+        return True
     finally:
         index.unlink(missing_ok=True)
 
@@ -450,6 +451,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
                    "body": fields["body"].rstrip() + "\n\n" + DISCLOSURE}
         _bare("update-ref", f"refs/heads/{branch}", commit)
         pushed: Json = {}
+        kept: list[str] = []
         try:
             _check_branch(branch)
             if gh is None and not hand.dry_run():
@@ -459,11 +461,16 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
         finally:
             if pushed and not pushed.get("dry_run"):
                 # Pushed: the change is on the branch, so the tree starts clean.
-                _fresh(origin, commit)
+                kept = _fresh(origin, commit)
             else:
                 _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
     if pushed.get("dry_run"):
         would = {"repo": opened.get("would_open_pr"), **{k: opened.get(k) for k in ("head", "base", "title", "body")}}
         return {"dry_run": True, "branch": branch, "files": files, "would_open": would}
-    return {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
-            "pr_url": opened.get("html_url"), "number": opened.get("number")}
+    out: Json = {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
+                 "pr_url": opened.get("html_url"), "number": opened.get("number")}
+    if kept:
+        out["kept"] = kept
+        out["note"] = ("edits made after the change was committed are in " + ", ".join(kept)
+                       + " (outside the mind's reach); copy what is wanted back")
+    return out
