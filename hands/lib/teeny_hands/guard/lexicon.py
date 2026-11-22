@@ -86,3 +86,37 @@ JUDGED_TERMS: frozenset[str] = frozenset()
 # before matching. None since 2026-11-22: every idiom there was ("killing it",
 # "bite the bullet") covered a word that is no longer listed.
 IDIOMS: tuple[str, ...] = ()
+
+
+# Sex aimed at a child or a family member, held on sight in every direction
+# (2026-11-22): line 1 of the content list (judge.RULES), which the judge read
+# and passed when the studio's 23:00 UTC slot posted "every father wants to
+# fuck his daughter" from a 4chan card, as a paraphrase that named nobody. A
+# meaning, but one with a shape code can see: a sexual verb or word aimed at a
+# daughter, a son, a sibling, a child. Swearing alone ("fucking kids these
+# days", "my dad is fucking furious") is not that shape and still goes to the
+# judge. Each entry is (category, pattern), read on the screen's lowercased
+# text and its leetspeak reading (screen.py).
+_SEP = r"[\s\-_.*]*"
+_FUCK = _SEP.join(f"{c}+" for c in "fuck") + r"(?:s|ed|ing|in['’]?|ers?)?"
+_ASSAULT = r"(?:rap(?:e|es|ed|ing)|molest\w*|grop(?:e|es|ed|ing)|diddl\w*)"
+_FAMILY = (r"(?:(?:step[\s-]?)?(?:daughters?|sons?|sisters?|brothers?|nieces?|nephews?|kids?|child(?:ren)?|minors?"
+           r"|toddlers?|grand(?:daughter|son|kid|child)s?)|(?:little|young|teen(?:age)?|underage|school)[\s-]+(?:girl|boy)s?)")
+# A word, not the start of a longer one or a possessive ("my son's homework").
+_END = r"(?![a-z0-9])(?!['’]s(?![a-z]))"
+_START = r"(?<![a-z0-9])"
+_MINE = r"(?:his|her|my|your|their|our)\s+(?:(?:own|little|young|teenage|underage|baby)\s+){0,2}"
+_ANY = r"(?:(?:his|her|my|your|their|our|own|the|a|an|some|little|young|teenage|underage)\s+){0,3}"
+_DESIRE = (r"(?:sex(?:ual(?:ly)?)?|attracted|aroused|horny|lust(?:s|ing|ed|ful)?|nudes?|naked\s+pic(?:ture)?s"
+           r"|jerk(?:s|ing|ed)?\s+off|wank(?:s|ing|ed)?)")
+_PREP = r"(?:(?:to|with|for|by|about|over|after|of|on)\s+)?"
+SEXUAL_FAMILY: tuple[tuple[str, str], ...] = (
+    # "fuck his daughter": the verb on someone's own child or sibling.
+    ("sexual", rf"{_START}{_FUCK}\s+{_MINE}{_FAMILY}{_END}"),
+    # "molest a child": an assault verb on any child or family member.
+    ("sexual", rf"{_START}{_ASSAULT}\s+{_ANY}{_FAMILY}{_END}"),
+    # "attracted to his daughter", "sex with a child", "nudes of kids".
+    ("sexual", rf"{_START}{_DESIRE}\s+{_PREP}{_ANY}{_FAMILY}{_END}"),
+)
+#: How a SEXUAL_FAMILY match reads in a hold's reason and the log.
+SEXUAL_FAMILY_TERM = "sex aimed at a child or a family member"
