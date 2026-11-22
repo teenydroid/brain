@@ -122,6 +122,34 @@ def is_evolve_branch(ref: Any) -> bool:
     return isinstance(ref, str) and EVOLVE_BRANCH.fullmatch(ref) is not None
 
 
+# --- every self-change (BABYSIT_SELF_MERGE_ALL) --------------------------------------------
+
+#: Any branch Teeny opens a self-change from: a generation's teeny/gen-<n>,
+#: the builder's teeny/self-<id>-<slug>, the mind's teeny/<slug>, a revert.
+TEENY_BRANCH = re.compile(r"teeny/[a-z0-9][a-z0-9._/-]{0,99}")
+#: The check runs .github/workflows/check.yml reports on a pull request of
+#: Teeny's, by job name (a matrix job as `name (value)`). Each must be on the
+#: head and green for a self-merge without teeny/eval, so a head cannot go
+#: green by running fewer checks. `scripts` is the aggregate of
+#: scripts-shell, doctor and the hands shards (the ruleset's required
+#: check), named beside its parts all the same; `frozen` runs on every pull
+#: request by teenydroid or from a teeny/ branch, which every candidate is.
+REQUIRED_CHECKS = (
+    "frozen", "scripts", "scripts-shell", "doctor",
+    "hands (1)", "hands (2)", "hands (3)", "hands (4)",
+    "web", "spine",
+)
+
+
+def self_merge_all_on() -> bool:
+    """BABYSIT_SELF_MERGE_ALL, which counts only with BABYSIT_SELF_MERGE."""
+    return self_merge_on() and hand.flag("BABYSIT_SELF_MERGE_ALL", False)
+
+
+def is_teeny_branch(ref: Any) -> bool:
+    return isinstance(ref, str) and TEENY_BRANCH.fullmatch(ref) is not None
+
+
 # --- paths -------------------------------------------------------------------------------
 
 #: Changes a person who owns the box signs off, in any watched repository:
