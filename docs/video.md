@@ -169,6 +169,26 @@ input_images: [...]}`. `input_images` is Surplus's field for reference images
 `venice-kling-v4-*` refuses `audio` (its sound is native), so per-model fields
 stay in `ONE_TAKE_PARAMS`.
 
+### 5.1a The stack: Claudia's models, on Surplus (operator, 2026-11-22)
+
+The operator chose claudia-bot's model stack (its `templates/project/
+project.json` defaults), bought through Surplus:
+
+| Job | claudia-bot (OpenRouter) | Surplus model | Price |
+|---|---|---|---|
+| Video, the take | `bytedance/seedance-2.5` | `venice-seedance-2-5-reference-to-video-basic` (Teeny as reference); `venice-seedance-2-5-image-to-video-basic` (from a keyframe) | $0.289/s at 720p, $0.71/s at 1080p |
+| Video, cheap drafts and fallback | `bytedance/seedance-2.0-mini` | `seedance-2-0-mini-reference-to-video` | $0.044/s at 480p |
+| Stills and keyframes | `openai/gpt-image-2` | `venice-gpt-image-2` | $0.27 an image |
+| Image edits (crash keyframes) | `google/gemini-3-pro-image` | `nano-banana-pro-edit` (the same model, Google's other name) | $0.18 an image |
+
+So `MEDIA_SKIT_ONE_TAKE_MODELS` and `MEDIA_REMAKE_ONE_TAKE_MODELS` lead with
+Seedance 2.5, and fall back to Seedance 2.0 mini. `MEDIA_REMAKE_EDIT_MODELS`
+leads with `nano-banana-pro-edit`. The catalogue lists no `quote` or `artifact`
+feature on the Seedance 2.5 basic models, but a job submit does return a
+reserve figure (`needs up to $4.3350 reserved` for 15 s at 720p). The bake-off
+confirms that a finished job's bill and its download work with our client
+before the switch.
+
 ### 5.2 Candidates and the bake-off
 
 Prices are from the Surplus catalogue (`GET /v1/models`, 2026-11-22), for 15 s
