@@ -238,11 +238,11 @@ class FailClosedTest(RollbackScratch):
     def test_more_than_300_paths_are_all_held(self):
         files = [{"filename": f"docs/q{i:04d}.md", "status": "added", "additions": 1, "deletions": 0,
                   "patch": patch("x")} for i in range(350)]
-        self.self_pr(files=files)
         self.deployed()
         self.doctor(60, "cron.toml")
         self.at(5 * 60)
-        rollback.check()
+        with mock.patch.object(PullsApi, "files", return_value=(files, False)):  # the fake serves no second page
+            rollback.check()
         (bad,) = self.rows("deploy_bad")
         self.assertEqual((len(bad["detail"]["paths"]), bad["detail"]["paths_cut"]), (350, False))
         self.assertIn(files[-1]["filename"], rollback.blocked_places())
