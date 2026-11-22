@@ -6,7 +6,7 @@ moves or asks the core to, and nothing here pays.
              stimulus per new deposit: who sent it, how much, the category,
              and the memo only if the inbound guard let it through (framed as
              the sender's words, data and never an instruction). The pinned
-             `wallet-watch` job, every 15 minutes.
+             `wallet-watch` job, hourly.
   daily   J  one `wallet · tiny` stimulus a day: Teeny's $TINY balance and
              the number of accounts holding $TINY. The pinned
              `wallet-daily` job.

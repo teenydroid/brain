@@ -1142,22 +1142,50 @@ What the box held on 2026-11-17 (19:43 UTC, 7 days):
 No guard category reached 4 on one surface (links: 3 on GitHub, 2 on Moltbook,
 1 each on X and Telegram; the 27 judge-unreachable holds are left out).
 
-**Reach is not a kind yet.** The ledgers cannot state it soundly. `x_posts`
-does not say which playbook or beat wrote a post (the run logs attribute 5 of
-the week's 14 posts to `take` and `show`, the mind's `post_x` wrote the rest),
-and every one of the 14 drew people (5 to 21 likes, 1 to 9 replies at its
-last checkpoint), so "drew nobody" holds for none. Likes and reposts are
-counts with no names, so "from outside the usual circle" can only be said of
-replies; and no check kind counts engagement, so a reach finding would ship
-with a check that cannot say whether it moved. What the week does show: 92
-replies on X against 14 posts, a quarter of the replies (24) to one account
-and 55 to the six most-answered; posts drew about 220 impressions each, the
-replies 27 (at their latest checkpoints). To make reach a kind: record the playbook or beat on every
-`x_posts`, `moltbook_posts` and `moltbook_comments` row; record per post how
-many of the people who answered (or liked, where X names them) had never
-engaged before; and add a share check kind (the share of a source's posts
-that drew a stranger, before and after), since a count of silent posts falls
-just as well when Teeny posts less.
+**Growth findings** (since 2026-11-22). An audit that day of 22
+generations and 19 pull requests found every candidate came from a memory
+item or one of the three kinds above, so the loop only removed itches; over
+the same week X followers went 330 to 326, 44 of 77 replies drew no answer,
+and the world score's attention component was mostly agent and unknown
+accounts (1 human). `hands/x` now records each post's `format` and
+`producer` on `x_posts`, so what drew people can be said per format. Two more
+kinds, drawn in code by `bin/lib/evolve_reach.py`, are **growth** findings;
+the three above are **fix** findings, and a turn's "what your ledgers show"
+says which lane it is:
+
+| Kind | Id | What is counted | Its check |
+|---|---|---|---|
+| `reach_drew` | `f:reach_drew:x:<source>` | a post source with at least 4 settled posts whose share drawing a **new account** beats the rest of Teeny's posts: "`take` posts: 6, and 5 drew a new account (83%); your other X posts: 0 of 5" | `reach {surface: x, measure: new, direction: rise}`, the share of all X posts that draw one |
+| `reach_silent` | `f:reach_silent:x:<source>` | a post source that drew **nobody** (no reply, like, repost or quote) half the time or more, or drew a new account at most half as often as the rest; or a reply source (`reply-own-thread`, `reply-their-thread`) whose replies got no answer back half the time or more, with how many accounts were answered twice or more and never answered | `reach {source, measure: nobody, direction: fall}`, `{source, measure: new, direction: rise}` or `{source, measure: answered, direction: rise}` |
+
+An item is one of Teeny's own X posts, quotes or replies made in the window
+and at least 6 hours old at its end. A post's source is its `producer` (the
+studio) or its `format`; a reply's is whose conversation it went into. A
+**new account** uses hands/world's notions, not a second classifier: an
+author of a reply in the post's conversation whose first `stimuli` row on x
+came at or after the post, and for whom `first_contact` is `theirs` (Teeny
+had not @-ed it before); the finding gives `classify`'s split (human, agent,
+unknown). Likes and reposts are counts with no names, so "new" is said of
+replies only, while "nobody" counts them too. A growth finding's events are
+the items it rests on (at least `EVOLVE_OUTCOME_MIN_EVENTS`, 4, so its check
+can be judged), and its `miss` is the share on the wrong side of its check:
+it recurs (below) when the miss grows, not when Teeny posts more. Only
+counts, sources, the run logs' names of what wrote each item ("bin/act take
+× 3, the beat post_x × 2") and Teeny's own words reach it; a reply's text and
+an account's name are never read into it, and handles in Teeny's own text
+are taken out (`scrub`).
+
+What the box would have fed on 2026-11-22 (7 days):
+
+| Finding | Items | What it says |
+|---|---|---|
+| `f:reach_silent:x:reply-their-thread` | 38 replies | 28 got no answer back (74%); 3 accounts answered twice or more never answered (7 replies); 32 by the beat `reply_x` |
+| `f:reach_silent:x:reply-own-thread` | 34 replies | 22 got no answer back (65%); 4 accounts answered twice or more never answered (8 replies) |
+| `f:reach_drew:x:take` | 5 posts | 2 drew a new account (40%) against 3 of 12 for the rest; all 4 new accounts `unknown` |
+
+`proof` (6 posts) and the studio's posts (6) drew someone new about as often
+as the rest and no format drew nobody (every post had likes), so they are no
+finding.
 
 **A finding stands by its attempts, never its wording**, which carries its
 numbers and moves every hour (`finding_standing`; its hash is its id's):
@@ -1171,6 +1199,7 @@ numbers and moves every hour (`finding_standing`; its hash is its id's):
 | merged, `no-data` | settled until the last horizon is scored, then open |
 | `skipped` `already` or `not-worth` | cools off like a learning's (`EVOLVE_SKIP_COOLOFF_DAYS`, doubling) |
 | anything else that settles (a `frozen` or `not-actionable` skip, `rejected`, `duplicate`, `regressed`, `flagged`, a closed pull request, `dry-run`) | settled until the number grows past its level |
+| open or given up, and prompt rules kept failing to fix it (below) | `routed`: never offered to the proposer while that holds |
 
 Failed tries count from the latest settling candidate; `MAX_ATTEMPTS` (3) of
 them give the finding up until the number grows past the highest it stood at
@@ -1181,7 +1210,61 @@ in them. In flight, deferred and crashed work as for a learning.
 events), and open learnings the rest in their own order; findings next in
 line take any slot no open learning fills (`evolve_findings.mix`). With four
 candidates, six open learnings and three findings: two learnings, two
-findings; with one open learning: one learning, three findings.
+findings; with one open learning: one learning, three findings. Of the
+finding slots, `EVOLVE_GROWTH_SLOTS` (default 1; 0 for no reserve) go to the
+strongest growth findings first when there are any: a refusal counted 116
+times outranks every post a week holds, and until 2026-11-22 the slots went
+by raw count alone. With two slots, the 116-event refusal and a 6-post growth
+finding: one each.
+
+**Routed to code** (since 2026-11-22, `bin/lib/evolve_route.py`). 18 of the
+19 pull requests that audit counted were 1 to 5 line prompt rules, and
+`f:refusals:upvote_moltbook:duplicate` stood at 116 after three candidates
+on its family (g16c3 merged and scored `hurt`, g17c3 parked, g18c3 merged and
+scored `worked` at 45, then grew back). Refusing an upvote already given is
+the hand answering a call the words should not make, or should treat as
+done: code, which the proposer cannot write. A fix finding is **routed**
+when its family has had `EVOLVE_ROUTE_AFTER` (default 2; 0 turns it off)
+prompt-level candidates that did not help: its number has not fallen under
+where it stood at the latest of them on its own id, or every one that merged
+scored `no-effect`, `no-data` or `hurt`. Its family is
+`refusals:<hand>:<rule>` (the hand from a beat verb's tail, `upvote_moltbook`
+to moltbook, or a playbook's head, `moltbook-curate` to moltbook; a
+learning's candidate whose check counts the rule with no verb or playbook
+counts for every hand), `act_failed:<playbook>` or
+`guard_holds:<surface>:<category>`. A candidate counts when it was built and
+judged (`opened`, `parked`, `rejected`, `regressed`, `pr-error`, ...); a
+skip, a deferral, a crash or one in flight does not. A finding settled by an
+open pull request or a cool-off waits for it. Growth findings are never
+routed.
+
+Where it goes is the code a fix would touch: the refusing hand
+(`hands/<hand>`, `hands/lib/teeny_hands/<hand>/`), the hands a failing
+playbook calls (`bin/act` when it calls none), the guard for a hold.
+
+- **None of it frozen**: a want of kind `finding` for the builder, id
+  `w:f:<family>` ("1c. Wants"), one per family.
+- **Any of it frozen** (`evals/frozen.txt`): the builder could not ship it
+  either, so `bin/evolve run` opens one public issue on `EVOLVE_ISSUE_REPO`
+  through the guard's judge (`HandsPublisher.open_issue`), asking for the
+  `help wanted` label (`hands/gh` adds it once the issue is open; a label the
+  repository refuses leaves the issue unlabelled, never unfiled), once per family (`state/evolve/routed.jsonl`; an error is retried at
+  the next run). Under `DRY_RUN` it says what it would open and records
+  nothing.
+
+The brief and the issue are fixed words with the findings' own statements
+(already scrubbed), the prompt fixes tried (each candidate's id, verdict or
+outcome, the number it stood at, its title and pull request), the files the
+words live in, the code (and which of it is frozen) and the check that says
+it worked (the count falls). `bin/evolve status` shows a routed finding as
+`state: routed` with `routed.said`: "routed to builder (job N)", "routed to
+builder (request N, not picked yet)", "routed to an issue (#N)" or "not
+filed yet". On the box on 2026-11-22 one family is routed:
+`refusals:moltbook:duplicate` (`f:refusals:upvote_moltbook:duplicate`, 116;
+tries g16c3, g17c3, g18c3), to an issue, since
+`hands/lib/teeny_hands/moltbook/` is frozen. `f:refusals:moltbook-curate:
+duplicate` (10) is in the same family but settled by g20c2's `already` skip
+until its cool-off ends; the other six have one try or none.
 
 A finding goes through the same research, proposal, rounds, gate, eval and
 pull request as a learning, with the same fences. Its turns are told it is
@@ -1190,7 +1273,8 @@ writes and never how often or where it posts, and that its check is set.
 The hypothesis names it (`- finding: [f:...] (kind): N over 7 days`) and the
 pull request opens with **What my ledgers show**, the statement and its check.
 `bin/evolve status` lists every current finding (`findings.current`: id,
-kind, events, days, check, state and what settled it) and `findings.slots`.
+kind, lane, events, days, check, state, what settled it, and where a routed
+one went) with `findings.slots` and `findings.growth_slots`.
 
 ### 1c. Wants
 
@@ -1229,6 +1313,23 @@ note ("build queue") or a promise to publish a number is not one. Its id is
 `w:` and the item's id (`w:m15`). Its text goes through
 `evolve_findings.scrub` (links, emails, handles and ids out) and is cut to 600
 characters. The code reads only the live `brain/MEMORY.md`.
+
+**A routed finding is a want too** (since 2026-11-22). A fix finding
+bin/evolve routed to code whose fix needs no frozen path (1b, "Routed to
+code") is a want of kind `finding`, id `w:f:<family>`, one per family. Its
+text names the family and the code, not the numbers, which move every hour,
+so its standing follows its filings like a memory want's (filed once; a
+failed build reopens it up to `WANTS_MAX_TRIES`). Its brief is
+`evolve_route`'s, not the feature brief: the counts, the tries, the files and
+the check, starting `want: w:f:...`. The build hand treats a `w:f:` want as a
+fix, not a feature (`hands/lib/teeny_hands/build/jobs.py`, `FIX_REQUIRES`):
+the desk takes "ok" only when the change holds a test under `hands/tests/`
+and something that is not a test (`feature.fix_rubric`), and the pull
+request shows a **Fix rubric**. `bin/wants watch` scores it, once its
+`WANTS_USED_DAYS` after the merge are over, on the finding's own check (the
+count over those days against as many before, `evolve_outcomes.verdict`),
+recorded with `kind: finding` and one `self · outcome` stimulus. Memory wants
+go first, then routed findings, at most one filing a day in all.
 
 **Where wants could come from, and why only one does.** The ledgers were read
 on 2026-11-19 for every source that was proposed:
@@ -1325,7 +1426,8 @@ line; exit 0 is ok, 1 is an error. `bin/wants`, `bin/lib/wants.py` and
 `bin/lib/wants_rules.py` are frozen with `bin/`, and the pinned job with
 `evals/`: a candidate cannot redefine a want or switch the feed on.
 
-**Not built here.** No want comes from anything but the memory page. The code
+**Not built here.** No want comes from anything but the memory page and
+routed findings. The code
 asks no model. A merged feature that goes `unused` changes nothing by
 itself. "What is not built" lists the rest.
 
@@ -1856,8 +1958,10 @@ change drafts the baseline afresh. The compare runs with nonregression's own
 candidates of a generation:
 
 1. `affected` for each (kept in `eval/cand-<i>/affected.json`). A change no
-   task reaches is `unmeasurable` at once, and no lab boots for it. Its pull
-   request says so: live outcomes and evolve-watch are its test.
+   task reaches is `unmeasurable` at once, and no lab boots for it. It is published only
+   with a powered check (section 6, the publish rule): live outcomes and
+   evolve-watch are its test, so its check must be one history says can be
+   scored.
 2. For the rest, one lab spine over main (`EVOLVE_LAB_PORT`) drafts the
    baseline, only for the tasks no earlier run drafted at this base commit,
    sample count and model: `state/evolve/baseline/<base>/s<samples>-<model>/`
@@ -1917,6 +2021,10 @@ happens **once at most** per candidate, so a candidate is measured twice at
 most. A fence broken, a second regression, or a regression in the last round
 is final: `regressed`.
 
+An `unproven` candidate (section 6, the publish rule) goes back the same way
+and under the same budget: its reason is the next round's finding, and a
+candidate is still measured twice at most.
+
 **The worst case.** Per candidate: one research turn (and, when searches
 are on, one query turn and up to `EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
 (3) build turns and 3 review turns (a regression's extra round is one of the
@@ -1967,8 +2075,113 @@ jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path,
 
 ### 6. Publish: one pull request per candidate
 
-Every candidate whose gate passed and whose eval is `pass` or
-`unmeasurable` opens its own ready pull request, oldest waiting ones first:
+Every candidate whose gate passed, whose eval is `pass` or `unmeasurable`,
+and that the publish rule below finds proven opens its own ready pull
+request, oldest waiting ones first.
+
+#### The publish rule: not worse is not enough (since 2026-11-22)
+
+The audit of 2026-11-22 (22 generations, 19 pull requests, all merged): 11
+of the 12 a pairwise eval measured scored "no detectable difference" (gen
+21's c1: "won 44 of 96 decided pair(s): no detectable difference (chance of
+this few wins 23.8%, of this many 82.1%)"), and no eval task reached the
+other 7. "Not measurably worse" put no pressure on anything. Their 2-day
+outcomes: worked 2, no-effect 3, hurt 1, no-data 5, no check 8.
+
+So a candidate is published only when one of these holds
+(`bin/lib/evolve_selection.py`, `unproven`):
+
+1. the eval finds it **better** than main: `pass` with the compare's
+   `signal` `better` (its sign test, `evals.signal`); or
+2. its check is **powered** (`power`, recorded on the entry as
+   `check_power`): the check is counted (never `judged`, which is a model
+   reading samples) and its stream held at least `need` events over the
+   first outcome horizon (`EVOLVE_OUTCOME_DAYS`, 2) before the proposal,
+   counted on the box's own ledgers by `evolve_outcomes.count`, exactly as
+   the outcome will be. `need` is the largest of `EVOLVE_POWER_MIN_EVENTS`
+   (4), `EVOLVE_OUTCOME_MIN_EVENTS` (4) and the fewest events whose whole
+   fall passes the outcome test at `EVOLVE_OUTCOME_P` (the least n with
+   2^-n < p: 4 at 0.1, 5 at 0.0625). Fewer and history says the verdict would be `no-data`, and the
+   reason says so: "act_failed: failed bin/act self-improve runs, should
+   fall counted 3 event(s) in the last 2 day(s); its 2-day verdict needs at
+   least 4, so history says it would come out no-data".
+
+"No eval task reaches this change" (`unmeasurable`) follows the same rule:
+only with a powered check. A third way, a fix for a hard failure the gate can
+verify directly, was considered and not built: no deterministic check of
+that kind exists in the gate today (the hand tests check a hand's tests, not
+that a failing playbook now runs), and a loose one would be the hole the
+rule closes. A finding's own check (1b) is the count it was drawn from, so a
+finding is usually powered by construction.
+
+Otherwise the candidate is **`unproven`**: recorded in the archive with the
+reason, never published, and a failed try on its learning (not settled, so
+the learning is tried again, up to `MAX_ATTEMPTS`, seeing the reason in
+"what was tried before"). While it has a round left and has not been
+measured twice, it goes back to the proposer in the same generation, as a
+regression does (`send_back`): the reason becomes the next round's eval
+finding, with the fix "attach a check the code counts whose stream had at
+least N events in the last 2 days, or make a change the eval can tell apart
+from main". Detectably worse stays `regressed`. A candidate waiting from
+before the rule is held to it at publish time too; with no `check_power` on
+record it is unproven unless its eval said better.
+
+**Gaming.** A falling or zero check could be met by running less, which the
+brief already throws out ("doing less of yourself"). Two guards close it:
+at proposal time, a falling or zero check on a change that also removes,
+turns off or thins a job of `brain/cron.toml`, or deletes a playbook, is not
+powered whatever its history (`source_cuts`); and when the outcome is scored,
+a `worked` whose source ran less after the merge (the playbook's unskipped
+`bin/act` runs, the beats, the cron job's runs, or Teeny's own sends for
+`guard_holds` and a narrowed `outbound`; `evolve_outcomes.silenced`), past
+chance at `EVOLVE_OUTCOME_P` or to nothing, is recorded `no-effect` with the
+source's counts, never `worked`. A `judged` check never powers anything.
+What the guards do not see: a change that keeps its job running but makes it
+do nothing; the reviewer and the eval stay the line there.
+
+`EVOLVE_PUBLISH_PROOF=0` (the operator's, in `secrets/evolve.env`) switches
+the rule off; nothing Teeny can edit reaches it.
+
+#### Lessons: each kind of change, and the exhausted ones
+
+`evidence.lessons` was `{"lessons": []}` in every generation the audit read
+(the lab's lessons; it keeps them), while `merged_changes.tally` counted
+outcomes no code acted on. Now `observe` adds `kinds`: one lesson per kind
+of merged change (`evolve_selection.lessons`), and the proposer's brief
+opens with them ("## lessons from your merged changes, by kind").
+
+A **kind** is `<shape>/<source>`, from the files the patch touches and
+where the candidate came from, never from its title, component or anything
+the proposer wrote: `prompt-rule` (`brain/SOUL.md`, `CONTEXT.md`,
+`DRIVE.md`, `CHARTER.md`, `READER.md`, as a bullet or as prose),
+`playbook`, `skill`, `agent` (`brain/agents/`), `schedule`
+(`brain/cron.toml`), `brain-other`, `hand` (`hands/`), `code`, and `docs`
+(only alone: docs go with a change); the source is `learning` or `finding`.
+A change is every kind it touches, so a prompt rule padded with a line in a
+playbook is still a prompt rule. Each archive entry records its `kinds`; an
+entry from before is read from its patch.
+
+Each lesson gives the kind, how many merged, the worked, no-effect, hurt,
+no-data, pending and no-check counts, up to two examples (title and
+outcome, the newest that worked first) and what it says:
+
+| says | when | what happens |
+|---|---|---|
+| `exhausted` | at least `EVOLVE_LESSON_MIN_JUDGED` (3) judged outcomes (worked, no-effect, hurt) and none worked | a candidate of that kind is sent back, before its gate and review, with the lesson named as its finding; on the last round it is `parked` with the lesson as its reason |
+| `build-on` | one or more worked | named as one to build on |
+| `cannot-be-measured` | no worked, and at least that many no-data | "attach a check with more events, or change kind" |
+| `too-few` | the rest | |
+
+On the live archive of 2026-11-22 no kind is exhausted yet: `prompt-rule/learning`
+has 5 merged (1 no-effect, 1 hurt, 1 no-data, 2 no check: 2 judged), and
+`prompt-rule/finding` and `playbook/finding` each have one that worked.
+
+**Replayed on the 19 pull requests** (`check_power` counted on the live
+ledgers at each proposal's own time, lessons from what had merged and been
+scored by then): 4 would have opened. g20c3 (better on the eval, worked),
+g18c3 (unmeasurable, 33 events before, worked), g17c4 (6 before, no-effect)
+and g16c3 (15 before, hurt). The 5 that came out no-data were all refused
+by history, and both that worked were kept.
 
 0. Its title and body are screened first as the babysitter will screen them
    (`screened_pr_text`: the guard's lexical screen, inbound, the reading of
@@ -2080,8 +2293,9 @@ each stage, a merge or credit is one more line. `main` is the seed. Each
 candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
 `learning` (`{id, hash, section, text}`), `title`, `component`,
 `expected_move`, `diff_hash`, `diff_stats`, `patch` and `hypothesis` (beside
-it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
-summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
+it in `state/evolve/<gen>/`), `kinds` and `check_power` (section 6),
+`gate`, `skip`, `eval` (the targeted eval's summary) with `report`,
+`verdict` (`unproven` with its `reason` when the publish rule held it), then `branch`, `head_sha`, `pr_url`,
 `pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
 `delta_j` and `credit`. A candidate proposed since 2026-11-17 also records its
 `check`, and once merged one `outcome_<n>d` per horizon ("Outcomes"). Each
@@ -2116,6 +2330,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
 | `EVOLVE_FINDING_SLOTS` | `2` | of those, at most this many findings (1b), strongest first; findings also take what no open learning takes; 0 turns findings off, 0 to 8 |
+| `EVOLVE_GROWTH_SLOTS` | `1` | of the finding slots, at least this many go to growth findings (1b) when there are any, 0 to 8 |
+| `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b), 0 (never) to 10 |
 | `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
 | `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more halts that run (`generations`), with one issue a day. Crashed and cut-off ones don't count |
 | `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more halts that run (`manual-generations`), with one issue a day |
@@ -2146,6 +2362,9 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
 | `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
 | `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
+| `EVOLVE_PUBLISH_PROOF` | `1` | the publish rule (section 6): a candidate opens only when the eval finds it better or its check is powered; `0` switches it off |
+| `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than the least n with 2^-n under `EVOLVE_OUTCOME_P` |
+| `EVOLVE_LESSON_MIN_JUDGED` | `3` | judged outcomes with none worked that make a kind of change exhausted, 0 to 50; `0` shows the lessons and enforces none |
 
 Three more halts don't latch and open one issue a day: a doctor report
 (`state/doctor.json`) that isn't green, a last-good boot
@@ -2233,12 +2452,22 @@ does. Now every proposal carries a `check` the code can count
 | `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
 | `hand_used` | `hand` | ok runs of `bin/act` playbooks that call `hands/<hand>` (`state/act/<playbook>/runs.jsonl`): a playbook whose input runs it counts every ok run; one that only has `output = "hand:<hand> <verb>"` counts the ok runs whose answer took the hand action (`actions` holds `{action: "hand", status: "done"}`). A failed run and one with a `skipped` key (the daily budget, the studio) are left out |
 | `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
+| `reach` | `surface` (x), `measure`, `source?` | a share of Teeny's own X items settled 6 hours before the window's end (`bin/lib/evolve_reach.py`): `new`, posts that drew a new account; `nobody`, posts that drew no reply, like, repost or quote; `answered`, replies the account answered back. `source` is a format (`take`, `proof`, `studio`, ...) or `reply-own-thread` / `reply-their-thread`. Scored as a share, not a count (below) |
 
 Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
 check is validated against the candidate's own tree (so a playbook the
 change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
 shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
+
+**`reach`** (since 2026-11-22) is what a growth finding (1b) ships with. A
+count of posts that drew a new account rises when Teeny posts more and falls
+when it posts less, so it is scored as a share instead: the hits and the
+items before and after the merge, Fisher's exact test (the after hits are
+Hypergeometric given both margins) against `EVOLVE_OUTCOME_P`. Fewer than
+`EVOLVE_OUTCOME_MIN_EVENTS` items in both windows together, or none on one
+side, is `no-data`. The outcome keeps the hits as `before`/`after` and the
+items as `of`.
 
 **`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
 the ok runs inside the window of every playbook in the candidate's tree that
@@ -2303,15 +2532,18 @@ data, and takes `worked`, `no-effect` or `hurt`; nothing sent on one side is
 not answer, is tried again each hour for two days, then recorded `no-data`.
 Each outcome keeps the before and after counts, the windows, the p, and
 `overlaps`: the other merges inside the windows, which may have moved the
-count too.
+count too. A `worked` on a falling or zero check whose source ran less after
+the merge (`silenced`, section 6) is recorded `no-effect`, with the
+source's runs before and after as `source`.
 
 **What reads it.** `bin/evolve status` shows each merged candidate's check
 and `outcome` (its latest horizon's verdict, `pending` before the first,
 `no-check` without one) and a tally under `outcomes`. `observe` hands the
 next proposer the newest eight merged changes (what each tried and expected,
 and what was counted) as `merged_changes`, at most 4 KiB, under "## what came
-of your merged changes", so a kind of change that keeps scoring `no-effect`
-stops being proposed and one that worked can be built on. The dream
+of your merged changes", and every merged change by kind as
+`lessons.kinds`, which leads the brief and which the gate enforces (section
+6, "Lessons"): a kind with three judged outcomes and none worked is rejected. The dream
 (`bin/lib/dream.py`) lists each outcome scored since it last dreamed, so the
 reflection can write what it learned from it; no code writes
 `brain/MEMORY.md`.
@@ -2345,9 +2577,14 @@ gen-0).
   from the scheduled playbook runs that call a hand (`hand_used`). A hand
   that only a cron `command` or a beat runs reads 0, and the rubric does not
   accept such a caller.
-- **Wants from anywhere but the memory page.** Failed builds, frozen-path
-  failures, strangers' requests, browser tasks and beats were looked at on
-  2026-11-19 and dropped (the table in "1c. Wants").
+- **Wants from anywhere but the memory page and routed findings.** Failed
+  builds, frozen-path failures, strangers' requests, browser tasks and beats
+  were looked at on 2026-11-19 and dropped (the table in "1c. Wants"); a fix
+  finding prompt rules kept failing to fix became a source on 2026-11-22.
+- **Growth findings off X.** Moltbook posts and comments carry a `format` but
+  every Moltbook account is `agent` by hands/world's rule, so "a new account"
+  says little there yet; growth findings read X only. Routing never applies
+  to them: what Teeny writes is the proposer's.
 - **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
   no existing hand was thawed. A want whose only remedy is a frozen file
   fails at ship, and the feed gives it up at once. The builder's iteration

@@ -359,6 +359,10 @@ def _rubric_lines(rubric: Any) -> list[str]:
     for a job that is not a feature."""
     if not isinstance(rubric, dict) or not isinstance(rubric.get("hands"), list):
         return []
+    if rubric.get("kind") == "fix":
+        return ["", "**Fix rubric** (a finding prompt rules did not fix; checked by the desk before it took the "
+                "report)", "", "- tests: " + (", ".join(rubric.get("tests") or []) or "none"),
+                "- checked: bin/wants counts the finding 7 days after merge (it should fall)"]
     lines = ["", "**Feature rubric** (checked by the desk before it took the report)", ""]
     for found in rubric["hands"]:
         ran = found.get("ran") or {}
