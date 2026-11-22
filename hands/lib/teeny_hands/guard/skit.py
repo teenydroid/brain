@@ -227,8 +227,7 @@ def _held(skit: dict[str, Any]) -> list[str]:
 #: extras moving mouths, cut off or reverse an action with no end, and
 #: garble any lettering in the set (the "AI parody" label is burned in by the
 #: reel cutter after). In the script, so skit_budget counts it.
-LOCKS = ("Only the figures named speak; nobody else's lips form words. The last shot ends on a held still image. "
-         "No writing of any kind anywhere in the frame: no words, letters or lettered signs.")
+LOCKS = "Only those named speak. The end is a held still. No writing anywhere in frame."
 
 
 def script(skit: dict[str, Any], seconds: list[int] | None = None, style: str = "") -> str:
