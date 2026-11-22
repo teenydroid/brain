@@ -70,9 +70,9 @@ class XLedger(Ledger):
                  "?, ?, 'taken')", f"s{mid}", mid, who, text, at)
         return mid
 
-    def likes(self, pid, likes):
+    def likes(self, pid, likes, at=T0 - 1, checkpoint=72, replies=0):
         self.sql("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes) VALUES "
-                 "(?, 72, ?, ?, 0, 0, 0)", pid, T0, likes)
+                 "(?, ?, ?, ?, ?, 0, 0)", pid, checkpoint, at, likes, replies)
 
 
 def growth_week(ledger, base=T0):
@@ -145,6 +145,18 @@ class Drawn(EvolveCase):
         thin = eo.score(entry, 2, {}, Ledger(self.root / "empty").sources(), t0 + 3 * DAY, min_events=4, p=0.1,
                         ask=None, model=None)
         self.assertEqual(thin["verdict"], "no-data")
+
+    def test_a_like_counted_after_the_window_ends_is_not_that_windows_and_a_counted_reply_is_engagement(self):
+        """PR #443 review: the latest checkpoint before each window's end, and
+        X's reply count even when the reply is not in x_mentions."""
+        early = self.ledger.post(T0 - 2 * DAY, fmt="proof")
+        self.ledger.likes(early, 0, at=T0 - 2 * DAY + 2 * HOUR, checkpoint=1)
+        self.ledger.likes(early, 5, at=T0 + DAY, checkpoint=72)  # after the window
+        replied = self.ledger.post(T0 - 3 * DAY, fmt="proof")
+        self.ledger.likes(replied, 0, at=T0 - 2 * DAY, replies=2)
+        check = {"kind": "reach", "surface": "x", "source": "proof", "measure": "nobody", "direction": "fall"}
+        self.assertEqual(er.share(check, self.ledger.sources(), T0 - 7 * DAY, T0), (1, 2))
+        self.assertEqual(er.share(check, self.ledger.sources(), T0 - 7 * DAY, T0 + 2 * DAY), (0, 2))
 
     def test_replies_that_never_draw_an_answer_are_a_growth_finding_with_the_silent_accounts_counted(self):
         own = self.ledger.post(T0 - 6 * DAY, fmt="take")
