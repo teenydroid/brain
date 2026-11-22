@@ -68,8 +68,9 @@ bin/teeny drop-wake NAME
   any jail, so the mind has no way to create one. At most 40 such jobs, none
   more often than every five minutes, and at most `MIND_WAKES_PER_DAY` runs
   a day between them.
-  One-off wakes set that day count against the same number, so a run
-  cannot keep scheduling the next one.
+  Every wake set that day counts against the same number, one-offs and
+  dropped ones included, so a run cannot keep scheduling the next one or
+  drop a wake to set another.
 - Every request is one line in `state/broker/ledger.jsonl`.
 
 The mind **rehearses by default**. Unless `secrets/teeny.env` says
@@ -77,6 +78,18 @@ The mind **rehearses by default**. Unless `secrets/teeny.env` says
 the mind thinks, writes its notes and asks for things, the ledger shows what
 it would have done, and nothing leaves the box. The rest of Teeny is not
 affected. The box's own `DRY_RUN` holds the mind either way.
+
+Some hands have no dry run of their own: `hands/tasks` queues a browser
+task and `hands/build` files a build request whatever `DRY_RUN` says, and a
+live worker would then act on it. In a rehearsal the broker checks such a
+request (its fields, its cap) and does not run the hand. Only the hands that
+rehearse themselves (`x`, `moltbook`, `mail`, `telegram`, `gh`, `reddit`)
+are run, and each says what it would have sent.
+
+**Off means off.** With `MIND` not `1`, the pinned wake and every
+`agent = "mind"` job in `brain/cron.toml` are disabled, the broker is not
+started, and at boot `bin/spine` removes the wakes the mind had set for
+itself (`bin/broker sweep`).
 
 Every sandboxed shell on the box shares the loopback, including the
 builder's, which works on strangers' requests. So the broker takes a bearer
@@ -90,8 +103,9 @@ survives a redeploy and that everyone can read.
 ## Who talks to it
 
 - **The operator**: `deploy/tell.sh --mind "..."` leaves
-  `notes/inbox/operator-<ref>.md`. The prompt names these as the one voice
-  it takes instructions from. Nothing else writes that file name.
+  `notes/inbox/operator-<ref>.md` (written inside the spine by
+  `bin/broker operator-note`). The prompt names these as the one voice it
+  takes instructions from. Nothing else writes that file name.
 - **The tick**: the intent `hand_to_mind` leaves `notes/inbox/tick-*.md`, at
   most 12 a day, framed as Teeny's own thought and never as an instruction.
   Text a stranger got into a beat can therefore not arrive as the
@@ -107,7 +121,18 @@ What the mind did is in `state/home/notes/JOURNAL.md` and in the ledger.
 | The kill switch and watchers | `secrets/`, `bin/`, `hands/`, `evals/` and the live `brain/` are outside its jail. `MIND=0` stops its wake, the broker and the hand-over. `DRY_RUN` and every cap are read from `secrets/` |
 | Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind with a browser, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
 
-Two limits to know about:
+The mind can write anything in its home, including a link to a file
+outside it. The tick, the broker and the operator's note write there from
+outside the jail, so they go through `bin/lib/mind_home.py`, which opens
+each folder without following links and renames a fresh file into place. A
+link the mind leaves in its inbox is replaced, never written through.
+
+Limits to know about:
+
+- Two wakes can overlap: the core never runs one job twice at once, but the
+  pinned wake and a wake the mind set are different jobs. Its prompt has it
+  append to its journal for that reason. A real single-flight across jobs
+  needs the core's per-job policy exposed to `cron_add` upstream.
 
 - The jail is on files, not on the network. The mind cannot speak as Teeny
   outside the guard, because it has none of Teeny's accounts. It can still
