@@ -60,16 +60,12 @@ class FakePublisher:
 
     # The problem issues' updates: a comment on the open one, its labels,
     # and whether a person closed it (`closed`, the numbers closed).
-    comments: list = []
-    labels: list = []
-    closed: set = set()
-
     def comment_issue(self, repo, number, body, judge=False):
-        self.__dict__.setdefault("comments", []).append({"repo": repo, "number": number, "body": body, "judge": judge})
+        self.comments.append({"repo": repo, "number": number, "body": body, "judge": judge})
         return {"html_url": f"https://github.com/{repo}/issues/{number}#comment"}
 
     def label_issue(self, repo, number, labels):
-        self.__dict__.setdefault("labels", []).append({"repo": repo, "number": number, "labels": list(labels)})
+        self.labels.append({"repo": repo, "number": number, "labels": list(labels)})
 
     def issue_state(self, repo, number):
         return "closed" if number in self.closed else "open"
