@@ -111,8 +111,8 @@ class CheckFieldsTest(support.Scratch):
         self.assertEqual((verdict.kind, verdict.field), ("refuse", "title"))
 
     def test_one_hold_when_any_field_is_held(self):
-        verdict = check_fields({"title": "a fine title", "body": "this is fucking great"}, surface="github", kind="pr")
-        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "profanity"))
+        verdict = check_fields({"title": "a fine title", "body": "send nudes"}, surface="github", kind="pr")
+        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "sexual"))
         rows = holds.list_holds()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], verdict.hold_id)
@@ -121,7 +121,7 @@ class CheckFieldsTest(support.Scratch):
             rows[0]["context"],
             {"surface": "github", "post_kind": "pr", "fields": ["title", "body"], "field": "body"},
         )
-        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "this is fucking great"})
+        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "send nudes"})
 
     def test_a_link_off_the_list_is_refused_with_one_link_hold(self):
         verdict = check_fields({"title": "see https://evil.example", "body": "and https://evil.example/x"}, surface="github")
@@ -219,8 +219,8 @@ class FieldsJudgeTest(support.WithCore):
         verdict = check_fields({"title": "t", "body": "b"}, surface="github", judge=False)
         self.assertEqual((verdict.kind, verdict.fields), ("allow", {"title": "t", "body": "b"}))
         self.assertEqual(len(core.calls), asked)
-        verdict = check_fields({"title": "t", "body": "this is fucking great"}, surface="github", judge=False)
-        self.assertEqual((verdict.kind, verdict.category), ("hold", "profanity"))
+        verdict = check_fields({"title": "t", "body": "send nudes"}, surface="github", judge=False)
+        self.assertEqual((verdict.kind, verdict.category), ("hold", "sexual"))
 
 
 class AllowlistTest(support.Scratch):

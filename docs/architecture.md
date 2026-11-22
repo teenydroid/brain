@@ -775,7 +775,8 @@ How the day's beats become the page every prompt carries:
   anchor`) before it goes: a post that says nothing specific about its anchor
   is a free skip, never a softer rewrite. Then the cold reader (`hands/guard
   clarity`) reads the post alone, as someone who has never heard of Teeny: it
-  must say the post back and have nothing to ask about. A draft it cannot
+  must say the post back (what it would ask about is advice, since
+  2026-11-22, never a no on its own). A draft it cannot
   follow gets one rewrite, with what the reader took from it, and a second no
   is a skip. The rewrite is told X's 280 and measured by the guard's rule
   before the judges read it; one over gets one turn to cut it down, then is a
@@ -1372,8 +1373,9 @@ One run is one slot:
    naming the real bill is checked against the real bill, and an amount, a
    real person or the news none of them holds is screened out or fails the
    truth judge as any draft's would; it never skips the gate), the truth judge checks every claim about it against
-   what the story said, and "everyone's talking about it" holds only for a
-   story that is.
+   what the story said. Since 2026-11-22 "everyone's talking about it" is a
+   figure of speech the truth judge never checks, whatever the reach line
+   says; a number of people or a quote still is.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
    stands, and for a hooked draft the story it joins and its trend measure

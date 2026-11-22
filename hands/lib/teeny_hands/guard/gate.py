@@ -6,8 +6,9 @@ deflected, not processed. The drafter never sees it, nothing about it is
 remembered, and the journal records that something was held and why,
 without the text.
 
-Outbound, the account's own draft is held to a stricter reading
-(profanity counts, and every link is checked against the allowlist), and
+Outbound, the account's own draft is held to a stricter reading (every
+link is checked against the allowlist; profanity counted too until
+2026-11-22, and is clean both ways now: lexicon.py), and
 the caller gets back either clean text to publish or a reason not to. A
 clean question can still get a dirty answer, from a model with a bad day
 or a web page with a plan.

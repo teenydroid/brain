@@ -1,8 +1,9 @@
 """A second model reads the guard's outbound holds before a person does
 (docs/roadmap.md, G4; docs/governance.md).
 
-The guard is blunt on purpose: "hell yeah" is profanity to the lexicon, and
-a hold waits for the operator. That daily approval is the last human act in
+The guard is blunt on purpose: a word on the lexicon holds a draft
+whatever the sentence meant (profanity did, until 2026-11-22), and a hold
+waits for the operator. That daily approval is the last human act in
 Teeny's day. This reviewer takes the easy cases off the operator and leaves
 the hard ones:
 

@@ -19,11 +19,12 @@ from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON
 
 # Which reading of the lexicon applies, the hold log's direction.
 #
-# `outbound` is the account's own words, strictest. `narrative` (the serial)
-# and `article` (long-form pieces of it) are also the account's words: the
-# hard categories are read exactly as strictly, and only the outbound-only
-# entries (profanity) are let through, because the serial swears and the
-# reply voice does not.
+# `outbound` is the account's own words. `narrative` (the serial) and
+# `article` (long-form pieces of it) are also the account's words, and every
+# category is read exactly as strictly for them. Outbound-only entries are
+# let through on those two and on inbound; there are none since 2026-11-22,
+# when the one there was (profanity) was dropped (lexicon.py): the account
+# swears in every voice now.
 INBOUND = "inbound"
 OUTBOUND = "outbound"
 NARRATIVE = "narrative"

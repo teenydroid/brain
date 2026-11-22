@@ -49,7 +49,7 @@ class CreateRepoTest(Scratch):
     def test_a_held_description_publishes_nothing(self):
         self.me()
         with self.assertRaises(hand.Refused) as caught:
-            actions.create_repo({"name": "hello", "description": "this is fucking great"})
+            actions.create_repo({"name": "hello", "description": "send nudes"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(self.gh.seen, [])
 
@@ -165,7 +165,7 @@ class PushTest(Scratch):
     def test_a_held_message_pushes_nothing(self):
         self.workdir()
         with self.assertRaises(hand.Refused) as caught:
-            actions.push(self.body(message="this is fucking great"))
+            actions.push(self.body(message="send nudes"))
         self.assertEqual(caught.exception.reason, "held")
 
 
@@ -308,7 +308,7 @@ class OpenPrTest(Scratch):
 
     def test_the_guard_reads_title_and_body_together(self):
         with self.assertRaises(hand.Refused) as caught:
-            actions.open_pr(self.body(body="this is fucking great"))
+            actions.open_pr(self.body(body="send nudes"))
         self.assertEqual((caught.exception.reason, caught.exception.detail["field"]), ("held", "body"))
         held = holds.get(caught.exception.detail["hold_id"])
         self.assertEqual((held["context"]["surface"], held["context"]["post_kind"]), ("github", "pr"))
@@ -429,7 +429,7 @@ class IssueTest(Scratch):
 
     def test_a_held_issue_opens_nothing(self):
         with self.assertRaises(hand.Refused) as caught:
-            actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "this is fucking great"})
+            actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "send nudes"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(self.gh.seen, [])
 
