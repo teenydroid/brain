@@ -401,6 +401,19 @@ class IssueTest(Scratch):
                          {"title": "the model, is down", "body": "since noon."})
         self.assertEqual([(r["verb"], r["ref"]) for r in ledger()], [("open-issue", "41")])
 
+    def test_labels_are_added_once_the_issue_is_open_and_a_refused_one_never_fails_it(self):
+        self.gh.route("POST", "/repos/teenydroid/brain/issues/41/labels", [{"name": "help wanted"}])
+        out = actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": ["help wanted"]})
+        self.assertEqual((out["number"], out["labelled"]), (41, ["help wanted"]))
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/issues")[0].json(), {"title": "t", "body": "b"})
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/issues/41/labels")[0].json(),
+                         {"labels": ["help wanted"]})
+        self.gh.route("POST", "/repos/teenydroid/brain/issues/41/labels", {"message": "Validation Failed"}, status=422)
+        out = actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": ["nope"]})
+        self.assertEqual((out["number"], out["labelled"]), (41, []))
+        with self.assertRaises(hand.HandError):
+            actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": "help wanted"})
+
     def test_opens_issues_on_own_repos_only(self):
         with self.assertRaises(hand.Refused) as caught:
             actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
