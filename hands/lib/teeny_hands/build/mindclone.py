@@ -159,11 +159,11 @@ def _differs(displaced: Path, snapshot: str | None) -> bool:
         return displaced.exists() or displaced.is_symlink()
     index = scratch() / f"fresh-index-{secrets.token_hex(6)}"
     try:
-        for args in (("read-tree", snapshot),):
+        for args in (("read-tree", snapshot),):  # noqa: B007
             if git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), *args,
                        check=False, index_file=index).returncode != 0:
                 return True
-        for args in (("diff-files", "--name-only"), ("ls-files", "--others", "--exclude-standard")):
+        for args in (("diff", "--name-only"), ("ls-files", "--others", "--exclude-standard")):
             done = git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), *args,
                            check=False, index_file=index)
             if done.returncode != 0 or done.stdout.strip():
