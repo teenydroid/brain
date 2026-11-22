@@ -628,11 +628,59 @@ def post_body(room: Room, label: str, post: Json, media_ids: list[str]) -> tuple
     return "post", {"text": post["text"], **body}
 
 
+def final_gate(room: Room, label: str, post: Json, attempt: Json) -> list[str] | None:
+    """The guard's content list (`hands/guard check`, surface x: the slur and
+    family screens, then the judge) on the exact words that go to X, every
+    post of a thread, before anything is made or sent for it. The texts it
+    passed, which are what hands/x is given; None when any one was held, the
+    judge could not judge it, or the guard gave no answer that passes: then
+    nothing is sent. What it said is kept on the attempt as `gates`, one
+    entry a text, so a post that went out always shows the gate it passed.
+    hands/x runs the same guard again in the invocation that posts.
+
+    The 23:00 UTC slot of 2026-11-22 had no gate here: the words went
+    straight to hands/x, whose guard's judge passed a post about a father and
+    his daughter from a 4chan card, and the record kept nothing of it."""
+    texts = list(post["posts"]) if "posts" in post else [post["text"]]
+    context = {"anchor": str(post.get("card") or label)[:200], "producer": "studio",
+               "pitch_id": f"{room.run_id}:{label}"[:120]}
+    gates: list[Json] = []
+    attempt["gates"] = gates
+    passed: list[str] = []
+    for text in texts:
+        code, got = room.budgeted(["guard", "check"], {"text": text, "surface": "x", "kind": "post",
+                                                       "context": context}, 180)
+        ok = code == 0 and isinstance(got, dict) and isinstance(got.get("text"), str) and bool(got["text"].strip())
+        gate: Json = {"gate": "guard", "ok": ok, "code": code}
+        if not ok:
+            gate.update(_brief(got, "refused", "rule", "category", "hold_id", "judge_failed", "error")
+                        if isinstance(got, dict) else {"error": str(got)[:300]})
+        gates.append(gate)
+        if ok:
+            passed.append(got["text"])
+            continue
+        if gate.get("judge_failed"):
+            attempt["result"] = "the judge could not judge it: nothing was sent, the next post is tried"
+        elif gate.get("refused") == "held":
+            attempt["result"] = f"the guard held it ({gate.get('category') or 'unknown'}): nothing was sent, " \
+                                "the next post is tried"
+        else:
+            attempt["result"] = "the guard gave no passing answer " \
+                                f"({gate.get('refused') or gate.get('error') or f'exit {code}'}): nothing was sent"
+        return None
+    return passed
+
+
 def try_post(room: Room, label: str, post: Json, attempt: Json) -> str:
-    """One post through its producer and hands/x. What came of it: "posted",
-    "would_post", "next" (try the next post) or "stop" (the slot is shut,
-    the time ran out, or hands/x may have posted: nothing else either)."""
+    """One post through the guard (`final_gate`), its producer and hands/x.
+    What came of it: "posted", "would_post", "next" (try the next post) or
+    "stop" (the slot is shut, the time ran out, or hands/x may have posted:
+    nothing else either)."""
     fmt = post["format"]
+    passed = final_gate(room, label, post, attempt)
+    if passed is None:
+        return "stop" if attempt["gates"][-1]["code"] == -2 else "next"
+    post = {**post, **({"posts": passed} if "posts" in post else {"text": passed[0]})}
     media_ids: list[str] = []
     if fmt in registry():
         made = picture(room, post, attempt)
