@@ -6,7 +6,6 @@ change and one pull request per learning (docs/evolve.md, "The loop").
     python3 bin/lib/evolve.py watch
     python3 bin/lib/evolve.py probe [--baseline [--force]]
     python3 bin/lib/evolve.py status
-    python3 bin/lib/evolve.py resume
 
 `run` is one generation, in state/evolve/<gen>/, made of up to N candidates,
 one per open learning:
@@ -63,12 +62,14 @@ ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one,
 and scores every merged candidate's `check` at each horizon it has reached
 (bin/lib/evolve_outcomes.py): worked, no-effect, hurt or no-data.
 
-The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
-the default. Too many scheduled generations today (or by hand, a cap of its
-own), a red doctor, a last-good boot, or J rising faster than
-EVOLVE_MAX_J_RISE each stop the loop and open one issue (deduplicated); a J
-rise, persona drift and an evolve-watch revert latch until `resume`. A
-generation that crashes opens one too, a day, and never latches. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
+Skips and problems (secrets/evolve.env, `Config`): EVOLVE=0 is the kill
+switch and the default. Nothing latches: no run waits for a person. Too many
+scheduled generations today (or by hand, a cap of its own), a doctor red now,
+or J rising faster than EVOLVE_MAX_J_RISE skip that run alone. A real problem
+(an evolve-watch revert, a crash, persona drift past EVOLVE_MAX_DRIFT, the
+doctor red for a day, a J rise, a last-good boot) files one public issue on
+EVOLVE_ISSUE_REPO per key while it is open (raise_problem), and the next run
+goes on. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
 DRY_RUN=0) nothing is pushed, opened or filed: each candidate writes what it
 would have opened.
 
@@ -7099,12 +7100,22 @@ def last_crash() -> Json | None:
     return got if isinstance(got, dict) else None
 
 
+def problem_issues() -> list[Json]:
+    """The newest issue filed for each problem key (problems_log), as the
+    box last knew it: whether a person closed it is GitHub's to say."""
+    latest: dict[str, Json] = {}
+    for r in read_jsonl(problems_log()):
+        if isinstance(r.get("issue"), int) and not r.get("resumed") and r.get("key"):
+            latest[str(r["key"])] = {"key": r["key"], "kind": r.get("kind"), "issue": r["issue"], "url": r.get("url"),
+                                     "last": r.get("at")}
+    return sorted(latest.values(), key=lambda r: str(r.get("last") or ""))
+
+
 def status() -> Json:
     """What a person asks before a restart or a merge: the open learnings,
     the open evolve pull requests, and where each candidate of the newest
     generation (and each waiting one) is."""
     entries = archive()
-    halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
     learnings, routed = split_wants(read_learnings())
     try:
         cfg: Config | None = load_config()
@@ -7121,7 +7132,7 @@ def status() -> Json:
     current = [e for e in entries.values() if e.get("gen") == latest]
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
     return {
-        "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
+        "ok": True, "problems": problem_issues(), "running": running(), "dry_run": dry_run(),
         "generations": latest, "today": generations_today(), "today_by_hand": generations_today(scheduled=False),
         "last_crash": last_crash(),
         "unfinished": [g for g in unfinished()],
@@ -7217,8 +7228,7 @@ def main(argv: list[str]) -> int:
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
     prb.add_argument("--force", action="store_true", help="with --baseline: replace an existing gen-0")
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
-    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, any halt")
-    verbs.add_parser("resume", help="clear a latched halt")
+    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, problem issues")
     aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
     aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
     args = parser.parse_args(argv)
@@ -7242,13 +7252,11 @@ def main(argv: list[str]) -> int:
             out = credit(cfg)
         elif args.verb == "status":
             out = status()
-        elif args.verb == "aa":
+        else:
             # The labs' ports are a generation's: never both at once.
             with run_lock() as held:
                 out = (aa(cfg, [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
                        else {"ok": True, "kind": "busy", "detail": "a generation is running"})
-        else:
-            out = resume()
     except (EvolveError, probes_lib.ProbeError) as exc:
         say(str(exc))
         print(json.dumps({"ok": False, "error": str(exc)}))
