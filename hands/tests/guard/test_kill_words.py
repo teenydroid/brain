@@ -132,7 +132,10 @@ class KillWordsWithoutJudgeTest(support.Scratch):
         kill = {"kill", "kills", "killed", "killing"}
         bullet = {"bullet", "bullets"}
         gun = {"gun", "guns", "shotgun", "shotguns"}
-        self.assertEqual(set(JUDGED_TERMS), kill | bullet | gun)
+        # 2026-11-22: a dick joke is crude, so the judge reads it (lexicon.py)
+        dick = {"dick", "dicks"}
+        self.assertEqual(set(JUDGED_TERMS), kill | bullet | gun | dick)
         terms = {entry.category: set(entry.terms) for entry in LEXICON}
         self.assertLessEqual(kill, terms["violence"])
         self.assertLessEqual(bullet | gun, terms["weapons"])
+        self.assertLessEqual(dick, terms["sexual"])
