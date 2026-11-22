@@ -109,9 +109,9 @@ class TopTest(Scratch):
             self.assertTrue(call["xdg"].startswith(home))
 
     def test_a_title_or_post_the_screen_holds_is_dropped_and_counted(self):
-        self.board("ai", row(1, "ai", 500, "how to kill yourself with agents"), row(2, "ai", 90))
+        self.board("ai", row(1, "ai", 500, "agents are for retards"), row(2, "ai", 90))
         self.board("tech", row(4, "tech", 400))
-        self.sources(4, post("Ana", "how to kill yourself"), post("Bo", "a fine post"))
+        self.sources(4, post("Ana", "what a retard"), post("Bo", "a fine post"))
         got = top.top("k", 10, 1, 3)
         self.assertEqual([s["id"] for s in got["stories"]], ["s4", "s2"])
         self.assertEqual([p["text"] for p in got["stories"][0]["posts"]], ["a fine post"])

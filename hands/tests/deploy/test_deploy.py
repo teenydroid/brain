@@ -119,7 +119,7 @@ class DeployTest(unittest.TestCase):
                      "remote_script")
 
     def test_words_the_guard_holds_are_never_published(self):
-        self.refused(self.job(files={"index.html": "<p>kill yourself</p>"}), "held")
+        self.refused(self.job(files={"index.html": "<p>what a retard</p>"}), "held")
 
     def test_only_a_shipped_build_of_a_safe_name(self):
         self.refused(self.job(slug="req-3-wip", status="claimed"), "status")
