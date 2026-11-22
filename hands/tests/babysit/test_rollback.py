@@ -11,11 +11,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+from unittest import mock
 
 from .support import DIARY, REPO, T0, patch
 from .test_self_merge_all import AllScratch
 from teeny_hands import hand
 from teeny_hands.babysit import actions, audit, ledger, rollback
+from teeny_hands.babysit.api import PullsApi
 
 MERGE = "m" * 40
 WINDOW = rollback.ROLLBACK_WINDOW_MINUTES * 60
@@ -50,6 +52,12 @@ class RollbackScratch(AllScratch):
         (hand.state_dir() / "doctor.json").write_text(json.dumps(
             {"ok": not failing, "at": iso(T0 + at), "commit": MERGE, "live": False, "failed": len(failing),
              "checks": checks}))
+
+    def failed_once(self, at: float, *failing: str) -> None:
+        """What bin/doctor appends to state/doctor-failures.jsonl on a red run."""
+        with (hand.state_dir() / "doctor-failures.jsonl").open("a") as fh:
+            fh.write(json.dumps({"at": iso(T0 + at), "commit": MERGE,
+                                 "checks": [{"check": n, "status": "fail"} for n in failing]}) + "\n")
 
     def fell_back(self, at: float) -> None:
         (hand.state_dir() / "spine-fallback.json").write_text(json.dumps(
@@ -203,6 +211,86 @@ class BlockTest(RollbackScratch):
         self.self_pr(number=8, files=[{"filename": "docs/notes.md", "status": "modified", "additions": 1,
                                        "deletions": 0, "patch": patch("x")}])
         self.assertEqual(audit.audit(REPO, 8)["verdict"], "ready")
+
+
+class FailClosedTest(RollbackScratch):
+    def candidate(self, name: str = "docs/notes.md"):
+        self.self_pr(number=8, files=[{"filename": name, "status": "modified", "additions": 1, "deletions": 0,
+                                       "patch": patch("x")}])
+        return audit.audit(REPO, 8)
+
+    def test_a_red_doctor_run_that_a_green_one_overwrote_still_makes_the_deploy_bad(self):
+        self.deployed()
+        self.failed_once(60, "cron.toml")
+        self.doctor(120)  # green, over the red one
+        self.at(20 * 60)
+        self.assertEqual(rollback.check()["judged"], "deploy_bad")
+        (bad,) = self.rows("deploy_bad")
+        self.assertEqual(bad["detail"]["doctor"], ["cron.toml"])
+
+    def test_a_red_run_from_before_the_deploy_does_not_count(self):
+        self.failed_once(-600, "cron.toml")
+        self.deployed()
+        self.doctor(120)
+        self.at(WINDOW + 60)
+        self.assertEqual(rollback.check()["judged"], "deploy_ok")
+
+    def test_every_path_of_a_big_deploy_is_held_not_the_first_300(self):
+        n = rollback.LISTED_PATHS * 12
+        files = [{"filename": f"docs/p{i:04d}.md", "status": "added", "additions": 1, "deletions": 0,
+                  "patch": patch("x")} for i in range(n)]
+        self.self_pr(files=files)
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        rollback.check()
+        (bad,) = self.rows("deploy_bad")
+        self.assertEqual(len(bad["detail"]["paths"]), n)
+        self.assertFalse(bad["detail"]["paths_cut"])
+        self.assertIn("recently_rolled_back", self.rules(self.candidate("docs/p0359.md")))
+
+    def test_more_than_300_paths_are_all_held(self):
+        files = [{"filename": f"docs/q{i:04d}.md", "status": "added", "additions": 1, "deletions": 0,
+                  "patch": patch("x")} for i in range(350)]
+        self.self_pr(files=files)
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        rollback.check()
+        last = files[-1]["filename"]
+        self.assertIn(last, rollback.blocked_places())
+
+    def test_a_cut_file_listing_holds_every_self_merge_for_the_window(self):
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        with mock.patch.object(PullsApi, "files", return_value=([], True)):
+            rollback.check()
+        (bad,) = self.rows("deploy_bad")
+        self.assertTrue(bad["detail"]["paths_cut"])
+        self.assertIn("recently_rolled_back", self.rules(self.candidate("docs/anything.md")))
+        self.at(rollback.ROLLBACK_BLOCK_HOURS * 3600 + 600)
+        self.assertNotIn("recently_rolled_back", self.rules(self.candidate("docs/anything.md")))
+
+    def test_a_judgement_that_failed_holds_every_self_merge_until_it_completes(self):
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        with mock.patch.object(PullsApi, "files", side_effect=hand.HandError("github is down")):
+            with self.assertRaises(hand.HandError):
+                rollback.check()
+        self.assertEqual(self.rows("deploy_bad"), [])
+        self.assertIn("recently_rolled_back", self.rules(self.candidate()))
+        # the next run finishes the judgement, and the hold narrows to its paths
+        rollback.check()
+        self.assertEqual(len(self.rows("deploy_bad")), 1)
+        self.assertNotIn("recently_rolled_back", self.rules(self.candidate()))
+
+    def test_a_healthy_unjudged_deploy_holds_nothing(self):
+        self.deployed()
+        self.doctor(30)
+        self.at(5 * 60)
+        self.assertNotIn("recently_rolled_back", self.rules(self.candidate()))
 
 
 class DryRunTest(RollbackScratch):
