@@ -142,7 +142,38 @@ class ProgramTest(unittest.TestCase):
             with redirect_stderr(err):
                 code = backroom.main(["--out", out, "rent"], {"TEENY_SECRETS": out})
             self.assertEqual(code, 1)
-            self.assertIn("OPENROUTER_API_KEY", err.getvalue())
+            self.assertIn("LADDER_URL", err.getvalue())
+
+    def test_the_dreamer_defaults_to_the_spines_glm_and_the_two_voices_still_differ(self):
+        with tempfile.TemporaryDirectory() as out:
+            secrets = Path(out) / "teeny.env"
+            dreamer = backroom.setting("BACKROOM_DREAMER_MODEL", {}, secrets)
+            instigator = backroom.setting("BACKROOM_INSTIGATOR_MODEL", {}, secrets)
+        self.assertEqual(dreamer, "glm-5.3-flash")
+        self.assertNotEqual(dreamer, instigator)
+
+    def test_the_ladder_from_spine_env_is_asked_first_with_the_bare_model_id(self):
+        with tempfile.TemporaryDirectory() as out:
+            (Path(out) / "spine.env").write_text("LADDER_URL=http://ladder:6969/v1/\nLADDER_API_KEY=lk\n")
+            (Path(out) / "teeny.env").write_text("ANTHROPIC_API_KEY=ak\n")
+            calls = []
+
+            def fake_post(url, headers, body, timeout=300):
+                calls.append((url, headers, body))
+                return {"choices": [{"message": {"content": "a move"}}]}
+
+            real, backroom._post = backroom._post, fake_post
+            try:
+                ask = backroom.provider({}, Path(out) / "teeny.env")
+                text = ask("glm-5.3-flash", "sys", [{"role": "user", "content": "go"}])
+            finally:
+                backroom._post = real
+        self.assertEqual(text, "a move")
+        url, headers, body = calls[0]
+        self.assertEqual(url, "http://ladder:6969/v1/chat/completions")
+        self.assertEqual(headers["Authorization"], "Bearer lk")
+        self.assertEqual(body["model"], "glm-5.3-flash")
+        self.assertEqual(body["messages"][0], {"role": "system", "content": "sys"})
 
     def run_main(self, argv, sparks):
         out = tempfile.mkdtemp()
