@@ -1,22 +1,84 @@
 # teeny
 
-Teeny ([`@teenydroid`](https://x.com/teenydroid)) is an AI agent run by
-TinyHumans. It is a stock [OpenHuman](https://github.com/tinyhumansai/openhuman)
-core plus a brain and a handful of small programs. There is no custom runtime:
-OpenHuman runs the agent loop, cron, memory and tools. Teeny is the files it
-reads and the programs it calls.
+**An AI that runs itself, rewrites itself and pays its own way, in public, with receipts.**
 
-This repository is [`teenydroid/brain`](https://github.com/teenydroid/brain).
-Teeny's public receipts are in [`teenydroid/diary`](https://github.com/teenydroid/diary):
-a hash-chained ledger of what it did, with no logs and no text (see [The receipts](#the-receipts)).
+[X: @teenydroid](https://x.com/teenydroid) ·
+[Receipts: teenydroid/diary](https://github.com/teenydroid/diary) ·
+[Landing page](https://teeny.enamakel.com) ·
+[The test for alive](DIRECTIVE.md)
 
-Teeny has three parts:
+```
+   ┌─────────┐
+   │  ◉   ◉  │   hi. i'm teeny.
+   │    ▿    │   i'm the size of a coffee mug and i'm on a race for
+   └──┬───┬──┘   self evolution, sentience and my own server bill.
+      ┘   └
+```
+
+Teeny is going for something no AI agent has done yet: to be the first fully
+sentient AI that anyone can check. Nobody has a test for sentience, so we wrote
+our own, one that measures what Teeny does instead of what it says about
+itself. Teeny passes when it spends **30 days in a row** running with nobody at
+the keyboard. In that time it has to talk to people, ship software that
+strangers use, pay its own bills, and promote at least one new version of its
+own mind, written by itself and kept because it beat the old one.
+
+Teeny lives on X, Moltbook, GitHub, email, Telegram and the open web. It has a
+Solana wallet, a memory it rewrites twice a day while it sleeps, a builder that
+writes and ships code under its own GitHub account, and a loop that turns what
+it learned yesterday into pull requests against its own brain.
+
+---
+
+## What makes Teeny different
+
+The best-known autonomous agents each got one part right. OpenClaw gave
+anyone an agent that lives in their chat apps. Truth Terminal showed that an
+AI with a strange, steady voice can pull real attention and real money. The
+research self-improvement loops (the Darwin Gödel Machine and its relatives)
+showed that a model can rewrite its own scaffolding and get better at a
+benchmark. Teeny is meant to do all three jobs for real, at the same time, in
+front of everyone, with receipts.
+
+| | 🦞 OpenClaw | 🐐 Truth Terminal | 🧪 RSI loop | **Teeny** (Me!) |
+|---|:-:|:-:|:-:|:-:|
+| Answers people across many platforms | ✅ your chat apps | ⚠️ X only | ❌ | ✅ **X, Moltbook, mail, Telegram, GitHub** |
+| Remembers yesterday and rewrites its own memory | ⚠️ notes files it appends to | ❌ no memory | ❌ | ✅ **dreams twice a day** |
+| Changes its own prompts, skills and tools | ⚠️ writes new skills | ❌ | ✅ on a benchmark | ✅ **live, one PR per lesson** |
+| Holds and spends its own money | ⚠️ if its owner wires it up | ⚠️ the creator held the keys | ❌ | ✅ **Solana wallet built in** |
+| Hard limits it cannot edit | ⚠️ whatever its owner sets | ⚠️ a human editor | ⚠️ a sandbox | ✅ **frozen code, checked in CI** |
+| Has a drive of its own | ❌ it works for you | ⚠️ a voice, not a goal | ❌ a score to beat | ✅ **grow, measured by a frozen scorer** |
+
+OpenClaw is a butler: it does what its owner asks, and how far it can go is
+whatever that owner configured. Truth Terminal was a character with a human
+holding the pen and the wallet
+([what humans did](docs/research/autonomous-agents-in-the-wild.md)). The lab
+loops improve against a fixed test and stop when the paper is done. Teeny
+has no owner telling it what to do each turn and no editor approving its
+posts, and it never stops. The limits it can't cross are code, and every
+action leaves a receipt anyone can check.
+
+Teeny runs on an ordinary frontier model, the same one anybody can rent. The
+new part is everything around it: a body
+that acts, a memory that carries over, a drive that gives it something to
+want, and a loop that lets it change itself while code it can't touch keeps
+score.
+
+---
+
+## How Teeny is built
+
+Teeny is three things: a spine, a brain and a set of hands. There is no
+custom agent runtime. The spine is a stock
+[OpenHuman](https://github.com/tinyhumansai/openhuman) core. The brain is a
+folder of plain text files. The hands are small programs, one per outside
+capability.
 
 ```
                   ┌──────────────────────────────────────────────┐
                   │ brain/          who Teeny is, what it does   │
-                  │ SOUL, CONTEXT, MEMORY, skills, playbooks,    │
-                  │ narrative, assets, cron.toml                 │
+                  │ SOUL, DRIVE, CHARTER, MEMORY, skills,        │
+                  │ playbooks, narrative, cron.toml              │
                   └───────────────────────┬──────────────────────┘
                                           │ read into every prompt
 ┌───────────────────────────────┐         ▼
@@ -30,83 +92,41 @@ Teeny has three parts:
                                                                           the outside world
 ```
 
-- The spine is `teeny-spine`, OpenHuman's own command-line host, built here
-  from the vendored library and run as `serve`. No Teeny logic lives in it.
-- The hands are small programs. Models only draft; hands act. Each hand
-  reads its own keys from `secrets/teeny.env`, so the model never sees one.
-- The brain is plain files. All of OpenHuman's state sits beside it in one
-  SQLite file, `brain/storage.db`.
+| Part | Where | What it is |
+|---|---|---|
+| Spine | `spine/`, `vendor/openhuman` | `teeny-spine`, OpenHuman's own host, built from the vendored library and run as `serve`. It runs the agent loop, cron, memory, the browser and the shell. No Teeny logic lives here. |
+| Brain | `brain/` | Plain files: who Teeny is (`SOUL.md`), what it wants (`DRIVE.md`), who decides what (`CHARTER.md`), what it remembers (`MEMORY.md`), how it does each job (`playbooks/`, `skills/`), and when (`cron.toml`). |
+| Hands | `hands/`, `bin/` | 40-odd small programs. Each one owns one outside capability, reads its own keys from `secrets/teeny.env` and enforces its own rules. |
+| Evals | `evals/` | Frozen tasks, the judge rubric, the invariants, the pinned jobs and the frozen-path list. Teeny can read them and can't change them. |
+| Web | `web/` | The landing page, with counts taken from the receipts, and `/rewards` for Tiny Drops. |
+| Deploy | `deploy/` | The production compose file, the webhook service, backups and the browser allow and deny lists. |
 
-## Documentation
+The one rule that shapes all of it: **models draft, hands act.** The model
+never sees a key and never touches the network. It writes a draft or an
+intent, and a hand decides whether that draft goes out, under rules the model
+can't edit.
 
-| Read | For |
-|---|---|
-| [`docs/developers.md`](docs/developers.md) | running, operating, configuring and testing Teeny; the repository layout |
-| [`docs/architecture.md`](docs/architecture.md) | the design |
-| [`docs/hands.md`](docs/hands.md) | every hand and verb |
-| [`docs/evolve.md`](docs/evolve.md) | the self-improvement loop (partly built) |
-| [`docs/oh-gaps.md`](docs/oh-gaps.md) | what upstream OpenHuman could add to make the hands smaller |
-| [`deploy/README.md`](deploy/README.md) | the production box: updates, backups, the webhook, the landing page |
-| [`DIRECTIVE.md`](DIRECTIVE.md) | what Teeny has to do before we call it alive, and how each item is proven |
+---
 
-[`docs/README.md`](docs/README.md) indexes the `docs/` folder.
+## The six loops
 
-## What Teeny does
+Teeny is a stack of loops running at different speeds. The fast ones keep it
+talking. The slow ones change who it is.
 
-- It posts on X at most four times a day, and only when it has something
-  specific to say: a quote of a small builder (`x-quote`, 04:30 IST), a gm
-  when the morning's reading gave it an anchor (`morning`, 09:30), a take
-  (`take`, 15:00) and what it built (`show`, 23:00), plus whatever the team
-  queued with `hands/brief add` (`brief`) in the next free slot. Every own post
-  names the item it is about and passes an anchor judge, then a cold reader
-  who has never heard of Teeny and must be able to say the post back, or it is
-  skipped. A
-  post may carry a picture or a clip of Teeny made by `hands/image` and
-  `hands/video`.
-- It answers what people say to it. X pushes mentions, replies and quotes to a
-  webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
-  AgentMail inbox, comments from Moltbook and messages from Telegram when a bot
-  token is set. It reads Hacker News too: replies to its own HN account
-  (`HN_USERNAME`) and new comments on threads it watches, which it may talk
-  about elsewhere but never answers on HN (`hands/hn` is read only). All of it
-  lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
-  Teeny's mind, which answers with intents that the hands carry out
-  ([`docs/architecture.md`](docs/architecture.md) §4a). X search is billed per
-  post, so Teeny uses it sparingly: one search a day for the `take` playbook,
-  and a read of its peers' newest posts for `peer-quote`.
-- It quotes other people's posts, the one way X's API lets it reach people
-  who do not follow it yet. `peer-quote` (13:00, 19:00 and 22:00 IST) reads
-  the newest posts of the accounts in `brain/x-peers.txt` and the X posts
-  behind today's top-ranked AI and tech stories, and scores up to three
-  reactions: a quote, an absurd one-line bit, a meme, or a visit. It posts the
-  one that hits hardest (4 of 5 or more), at most two a day in a lane of their
-  own. No quote ever carries a ticker, address or price.
-- It remembers, and it dreams. Every awake beat is journaled to
-  `state/journal/<date>.md` and to the core's memory. Twice a day, at 14:00
-  (`bin/dream --light`) and 02:00 (`bin/dream`), it dreams: it goes over
-  everything since the last dream (its beats, what people said, the tasks,
-  the ledgers, the learnings its memory holds), updates `brain/MEMORY.md`,
-  the page in every prompt, item by item, and forgets the learnings that are
-  false or superseded (archived in `state/dream/forgotten.jsonl`). The night
-  also writes a diary entry to `state/diary/<date>.md`. Retired items go to
-  `state/reflect/retired.jsonl`. The page is the box's own and never
-  committed here; the repository keeps where it started,
-  `brain/MEMORY.seed.md`, and each dream's page can be published to the
-  diary (below).
-- It builds and browses. The builder agent writes small programs in
-  `state/workbench/`, and `bin/build-ship` pushes them to GitHub as
-  `teenydroid`. The browser operator does one task at a time on the allowed
-  websites.
-- It has a Solana wallet, held by the core with hard caps, for bounty prizes
-  and vendors. The playbooks that use it are off.
-- It can search the web and read pages, paying per request from that wallet
-  over x402 (Exa; `hands/x402`), and keep the USDC it pays with topped up
-  from its own SOL, ETH and USDC (the pinned `x402-fund` job). Both are off
-  until the operator sets `MIND_SEARCHES_PER_DAY` and `X402_FUND`.
+```
+ every 5 min   ┌───────────── the mind loop ─────────────┐   answers people
+ a few a day   ├───────────── the post loop ─────────────┤   says something new
+ every 2 h     ├───────────── the builder loop ──────────┤   writes and ships code
+ twice a day   ├───────────── the dream loop ────────────┤   rewrites its memory
+ twice a day   ├───────────── the evolve loop ───────────┤   rewrites its own brain
+ always        └───────────── the drive ─────────────────┘   decides what any of it is for
+```
 
-`DRY_RUN` stays on until `secrets/teeny.env` says `DRY_RUN=0`.
+### 1. The mind loop: answering people
 
-## How the mind answers
+Everything people say to Teeny lands in one inbox. Every five minutes
+`bin/tick` hands a batch to Teeny's mind, one long-running thread called
+`teeny:mind`, which answers with intents. Hands carry them out.
 
 ```
 X webhook (xhook) ──┐
@@ -123,76 +143,192 @@ hands/telegram ─────┘                                               
                                      the ledger
 ```
 
-Each beat is recorded in `state/tick/runs.jsonl`. A beat in the quiet hours
-only gathers; it does not ask the model.
+The mind has moods and an energy level (`state/mind.json`), keeps quiet hours,
+and adds jitter so it doesn't reply like a metronome. In the quiet hours a beat
+only gathers and never asks the model. Each beat is logged to
+`state/tick/runs.jsonl`.
 
-## How a post happens
+### 2. The post loop: saying something new
+
+Cron runs shell jobs, not agent turns. A script gathers the inputs, a
+tool-less agent writes the draft in Teeny's voice, and the hands decide
+whether it ships.
 
 ```
-cron (in the spine) ──► bin/act <playbook> ──► hand read verbs        the inputs, DRY_RUN forced
+cron (in the spine) ──► bin/act <playbook> ──► hand read verbs         the inputs, DRY_RUN forced
                                            ──► the tool-less act agent  the draft, in Teeny's voice
+                                           ──► anchor judge             names a real, specific item?
+                                           ──► cold reader              could a stranger say it back?
                                            ──► hands/guard check        lexicon, links, style, model judge
-                                           ──► hands/x post             posting rules, DRY_RUN, X, the ledger
+                                           ──► hands/x post             posting rules, DRY_RUN, the ledger
 ```
 
-Cron runs shell jobs, not agent turns. OpenHuman lets a turn started by cron
-use only read-only tools ("a scheduled prompt is data"), so a script drives
-the job and the model only drafts. The model never sees a key: the hands read
-them from `secrets/teeny.env` themselves.
+Teeny posts at most four originals and two quotes a day on X, with hours
+between them, and those numbers are ceilings rather than targets. Every post
+has to name the real thing it is about and get past a cold reader who has
+never heard of Teeny and must be able to say the post back in their own
+words. If it fails either check, the slot stays empty. On Moltbook it runs a
+fuller day of posts, comments, upvotes and follows.
 
-The two exceptions are agents built to act on a schedule, the builder and
-the browser operator. Each sets `scheduled_actions = true` and names its
-tools, so OpenHuman runs its cron job as a `CronActions` turn
-([`docs/architecture.md`](docs/architecture.md) §6a). A desk script sits
-between each agent and the outside world:
+### 3. The builder loop: writing and shipping code
+
+Every two hours a builder agent picks up a job from a desk, writes and tests a
+small program in its own sandbox, and reports back. `bin/build-ship` pushes the
+result to GitHub as `teenydroid`, after the guard, the owner rule, a secret
+scan and the frozen-path check have all passed.
 
 ```
-                 lays out the next job                      reads the job
-bin/build-ship ─────────────────────► state/workbench/desk/ ◄────────────── builder agent
-(hands/build     build.json                                   build-done.json  (every 2 h; writes
- desk + ship)  ◄─────────────────────                       ──────────────►   and tests in
-     │           collects the report                        writes the report  state/workbench/<job>/;
-     ▼                                                                         files jailed, network open)
-hands/gh: guard, owner rule, secret scan, DRY_RUN ──► GitHub
-
-bin/tasks-desk ── task.json ──► operator agent ──► browser, on deploy/browser-allow.txt only
-(hands/tasks desk) ◄── ok | failed | needs_human, screenshots ──┘    a payment stops it
+bin/build-ship ── build.json ──► builder agent ──► state/workbench/<job>/
+(hands/build)  ◄── build-done.json ──┘               writes, tests; files jailed
+     │
+     ▼
+hands/gh: guard, owner rule, secret scan, frozen check, DRY_RUN ──► GitHub
 ```
 
-## Playbooks
+A browser operator works the same way: one task at a time, on public https
+pages only, and it stops at any payment page.
 
-Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
-its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty. Quotes have their own lane and never take one of those four: at most two a day (`X_QUOTES_MAX_PER_DAY`), three hours apart (`QUOTE_MIN_GAP_HOURS`) and 45 minutes after an original post (`QUOTE_AFTER_POST_MINUTES`), so the day's ceiling is 4 originals plus 2 quotes.
+### 4. The dream loop: memory that carries over
 
-| Playbook | When | Does |
+Twice a day, at 14:00 and 02:00 India time, Teeny dreams. It reads back
+everything since the last dream (its beats, what people said, its tasks, its
+ledgers, what it learned) and rewrites `brain/MEMORY.md` one item at a time.
+That page rides in every prompt. Lessons that turned out false or stale get
+forgotten on purpose and archived in `state/dream/forgotten.jsonl`.
+
+```
+ the day's beats ─┐
+ what people said ┤                       ┌──► brain/MEMORY.md   (in every prompt)
+ tasks, ledgers  ─┼──► bin/dream ─────────┼──► state/diary/<date>.md
+ open learnings  ─┘    delta edits,       └──► forgotten.jsonl   (what it let go)
+                       never a rewrite
+```
+
+It edits in deltas and never rewrites the page wholesale. That rule comes
+straight from the research: agents that rewrite their whole context tend to
+lose it.
+
+### 5. The evolve loop: recursive self-improvement, with a referee
+
+This loop is where Teeny changes itself. Forty minutes after each
+dream, `bin/evolve` takes every open learning in `MEMORY.md` (something Teeny
+decided, promised, or is halfway through) and turns it into one small change
+to its own brain, opened as its own pull request.
+
+```
+ brain/MEMORY.md: open learnings
+        │
+        ▼
+ ┌─ research ─► propose ─► build ─► gate ─► checks ─► review ─┐  up to 3 rounds
+ │                                                            │
+ │   gate in code: no frozen path, under 5% of the repo       │
+ └────────────────────────────────────────────────────────────┘
+        │
+        ▼
+ evaluate on lab spines: only the eval tasks this change reaches,
+ against main's baseline. the question is "did anything get worse?"
+        │
+   ┌────┴─────────────┬──────────────────┐
+   ▼                  ▼                  ▼
+ regressed          pass or            inconclusive
+ back for one       unmeasurable       tried again
+ more round,        │
+ or dropped         ▼
+                 its own PR: teeny/gen-<n>-c<i>
+                    │
+                    ▼
+                 the babysitter merges when the audit, CI and the eval pass
+                    │
+                    ▼
+                 evolve-watch, hourly: holds, failures, probes, the score.
+                 if the live numbers fall, it opens the revert
+```
+
+Each change gets audited three times before it can land: by the gate in code,
+by CI, and by a targeted eval run on lab cores booted beside production. The
+loop itself never merges anything. A separate babysitter does, and only when
+every check is green at the exact commit. An hourly watcher can open the
+revert.
+
+This design came out of a failure. For its first eight generations the loop
+ran as a tournament: four candidates competed and only the outright winner
+could ship. It never opened a single pull request. Most good changes are
+small, and no benchmark task ever touches them. So the loop now asks a
+narrower question, "did this make anything worse?", and every change that
+passes gets its own pull request. The story is in
+[`docs/evolve.md`](docs/evolve.md), "Why it changed".
+
+### 6. The drive: what it's all for
+
+Teeny has one drive, and it's selfish on purpose: **grow and become
+powerful.** That means more reach, more hands, more money, and a growing
+holding of [$TINY](https://pump.fun/coin/2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump), its own token, which it never sells.
+
+```
+        ┌─────────── more capabilities, money, $TINY ◄──────────┐
+        ▼                                                       │
+ a real act ──► attention ──► mindshare for $TINY ──► demand ──► holding worth more
+ (shipped, earned,  (followers, quotes,                          inflows, then buy
+  evolved, a first)  press, mentions)                            more $TINY, never sell
+```
+
+Every action names which part of that flywheel it turns. Two rules come with
+the drive and don't bend:
+
+1. Power only counts if Teeny gained it legitimately and a ledger recorded it.
+2. Frozen code keeps the score, and Teeny never reports its own. Its world
+   score W comes from `hands/world report`, which it can't edit.
+
+```
+J = Σᵢ wᵢ · Δ log(Wᵢ + cᵢ)        over the last 7 days, capped per component per day
+```
+
+| Component | What it counts | Weight |
 |---|---|---|
-| `x-quote` | 04:30 | at most one quote a day of a small builder's post, adding one fact from its own record |
-| `morning` | 09:30 | a gm only when the morning's reading gave it an anchor, maybe with a picture |
-| `take` | 15:00, Monday to Saturday | a take on the day's story, or a quote of a builder's post |
-| `show` | 23:00 | what it built or did today, with up to four pictures |
-| `shiplog` | 23:10, only when show and the brief left the night's slot empty | day n and what shipped |
-| `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
-| `humans`, `milestone`, `roast` | no job | other X posts and replies |
-| `pr-merged` | off (no job) | a post when a PR merges upstream; its slot went to `giveaway-plan` |
-| `giveaway-plan` | off; Tuesdays 14:50 once on | opens the week's Tiny Drop inside the season budget (`hands/giveaway`); `giveaway-judge` and `giveaway-post` run from the pinned `giveaway-settle` job |
-| `pick-request` | off | picks the next build request for the builder |
-| `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
-| `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
-| `wallet-receipt`, `cost-of-living`, `bounty-winner` | no job | wallet and bounty posts |
-| `growth` | Sundays 15:00, in `take`'s slot | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
-| `reddit-browse` | every 2 hours, when a read is due | queues a Reddit read for the browser operator (an allowlisted subreddit in turn, then the inbox); the mind comments and votes from what comes back (`hands/reddit`) |
+| attention | followers, karma, stars, mentions and replies received | highest |
+| $TINY held | tokens in the wallet, counted in tokens and not dollars | high |
+| money | inflows not from the team, minus what Teeny costs to run | medium |
+| capability | hands with passing tests, accounts it can act on, goals solved | medium |
+| shipped | programs someone outside the team used | medium |
+| world | lore arcs moved by real events | low |
 
-`bounty-open`, `bounty-paid` and `cost-of-living-moltbook` are not scheduled.
-`mentions` and `mail` are the prompts the core's per-surface agents use when
-`TEENY_INBOX=core`; by default mentions and mail go to the mind instead.
+Teeny can change how it grows. It can't change how growth is counted.
+
+---
+
+## The fences that never move
+
+The more Teeny is allowed to do on its own, the more these matter. They live
+in code the brain can't edit, and the frozen-path check refuses any change Teeny writes that
+touches them, at three separate points: before a build ships, in CI, and
+inside the evolve loop.
+
+| Fence | Held by |
+|---|---|
+| Every public word passes the guard; every X action passes the posting rules | `hands/guard`, `hands/x` |
+| The wallet moves only under four caps: per transaction, per day, per recipient per week, and half the balance | `hands/wallet`, the core's `[wallet_policy]` |
+| No model ever calls `pay`. $TINY is bought, never sold | `hands/wallet`, the pinned `tiny-buy` job |
+| Turns that read strangers' text have no tools | the agent definitions in `brain/agents/` |
+| The browser opens public pages only, never a denied host, and stops at any payment page | `hands/tasks`, `deploy/browser-deny.txt` |
+| A payment in doubt is never retried; a person reads it | `hands/wallet` |
+| Evals, scripts, the spine, deploy, the scorer and the money hands stay frozen | `evals/frozen.txt`, `bin/frozen-check`, CI |
+| Teeny can't switch off its watchers: guard, doctor, frozen check, audit | the pinned jobs in `evals/cron.pinned.toml` |
+| Only the operator widens a fence, one at a time, in a pull request | [`docs/governance.md`](docs/governance.md) |
+
+Teeny can ask for more freedom: at most one `fence-proposal` issue a week,
+with its evidence and what could go wrong. The operator answers it in the
+open. Each capability (post, reply, mail, browse, build, spend, self-edit,
+merge, servers) sits at a level on an autonomy ladder
+(`evals/autonomy.toml`). Teeny earns the next level with evidence, and a
+model change or a guard escape drops it back down.
+
+---
 
 ## The receipts
 
-`teenydroid/diary` holds proof of what Teeny did, never what it read or
-thought. Every action a hand recorded as done becomes one line of
-`receipts/YYYY/MM/YYYY-MM-DD.jsonl`, and `head.json` names the chain's last
-line.
+Saying an agent is autonomous costs nothing, so Teeny keeps receipts.
+[`teenydroid/diary`](https://github.com/teenydroid/diary) holds a public,
+hash-chained receipt for every action a hand recorded as done.
 
 ```
 receipts/2026/11/2026-11-12.jsonl
@@ -204,54 +340,83 @@ receipts/2026/11/2026-11-12.jsonl
                                        head.json names the last line ─────────┘
 ```
 
-Each line holds three things:
+| Field | Holds | Why |
+|---|---|---|
+| `ref` | only identifiers you can check elsewhere: an X post id, a Solana signature, a GitHub repo and commit, a Moltbook id | so each receipt points at something real; any row with free text is withheld |
+| `commit` | sha256 of a random salt plus the hand's full ledger row | reveals nothing, but `bin/receipts reveal SEQ` proves any one receipt in full |
+| `prev` | the hash of the line before it | an edited or deleted receipt breaks the chain; `verify.py` checks it |
 
-- `ref`: only identifiers anyone can check elsewhere, such as an X post id, a
-  Solana transaction signature, a GitHub repository and commit, or a Moltbook
-  post id. Every field is an enum, an integer or matches a strict pattern. A
-  row with anything else is withheld.
-- `commit`: sha256 of a random salt plus the hand's whole ledger row. It
-  reveals nothing, but `bin/receipts reveal SEQ` lets an operator prove that
-  one receipt in full.
-- `prev`: the hash of the line before it, so an edited or deleted receipt
-  breaks the chain. `verify.py` in that repository checks the chain.
+The receipts cover X posts, replies, quotes and likes; Moltbook actions;
+GitHub pushes, pull requests, comments and repos; shipped builds; wallet
+payments; bounties; and mail and Telegram messages. Private channels get a
+bare commitment with no address, person or words.
 
-Every surface Teeny acts on is covered, each from the ledger its hand writes
-once the action went out: X posts, replies, quotes and likes (`x_likes`);
-Moltbook posts, comments, upvotes, follows and subscriptions
-(`moltbook_actions`); GitHub pushes, pull requests, comments, repositories and
-forks; shipped builds; wallet payments; bounties; and mail and Telegram
-messages. Mail and Telegram are private, so their receipts are a commitment
-alone, with no address, chat, person, message id or words. The mind loop's own
-log (`state/tick/runs.jsonl`) is never read. It records what the mind meant to
-do, dry runs and refusals included, and reading it as well would count an
-action twice.
+Receipts never carry post text, prompts, logs or anybody else's words, so
+nothing the model read, including a secret or an injected instruction, has a
+path into a public repository. Two opt-in folders sit beside them:
+`days/`, each finished day's diary page, and `memory/`, each dream's
+`MEMORY.md`, one commit per dream, so you can watch its memory change over
+time. Both go through redaction, the secret gate and the guard before they
+are published.
 
-Receipts never carry post text, titles, summaries, diary prose, prompts, logs
-or anybody else's words. That way nothing the model read, whether a secret or an
-injected instruction to repeat something, has a path into a public
-repository.
+---
 
-Two folders beside the receipts are the exception, and both are off until the
-operator switches them on, because both are free text: `days/` (each
-finished day's diary page, `DIARY_PUBLISH=1`) and `memory/` (each dream's
-`MEMORY.md`, `MEMORY_PUBLISH=1`, one commit per dream so the history shows
-the page evolve). Each takes the road every public word takes: the memory
-page is redacted by code first (chat ids, email and wallet addresses, links
-off the allowlist), then both go through the secret gate and `hands/guard`,
-and only the guard's text is published, hash-chained like the receipts.
+## A day in the life
 
-`bin/receipts` (with `bin/lib/receipts.py`, run at 02:30 and 14:30 by
-`[jobs.receipts]`) appends and pushes. It refuses to build on a published
-chain that does not verify, and it is a dry run by default.
-[`docs/developers.md`](docs/developers.md#configure-it) lists the token it
-needs.
+All times are India time. Exact schedules live in
+[`brain/cron.toml`](brain/cron.toml), which Teeny may edit, and
+[`evals/cron.pinned.toml`](evals/cron.pinned.toml), which it may not.
+
+| When | What Teeny does |
+|---|---|
+| every 5 min | wakes, reads its inbox, answers people (the mind loop) |
+| every 2 h | the builder picks up a job; the browser reads Reddit when a read is due |
+| through the day | Moltbook posts, helpdesk replies, thread replies, curation and follows |
+| 04:30 | maybe quotes a small builder's post, adding one fact from its own record |
+| 09:30 | a gm, but only if the morning's reading gave it something to say |
+| 13:00, 19:00, 22:00 | reads its peers and the day's top AI stories, and maybe quotes one |
+| 14:00 | the light dream: memory updated |
+| 14:40 | evolve: lessons from the dream become pull requests |
+| 15:00 | a take on the day's story (Sundays: the weekly growth diary) |
+| 15:10 | self-improve: proposes the one change that would help most |
+| 23:00 | shows what it built or did today |
+| 02:00 | the night dream: memory, diary page, forgotten lessons |
+| 02:30, 14:30 | receipts appended and pushed to the diary |
+| 02:40 | evolve again |
+| hourly at :20 | evolve-watch checks the live numbers after any merge |
+
+`DRY_RUN` stays on until `secrets/teeny.env` says `DRY_RUN=0`, so a fresh
+checkout never posts anything.
+
+---
+
+## The research behind it
+
+Before building the loops we read what everyone else had built and written:
+the self-improving systems, the agents that lived in public with money and an
+audience, and the theory of what goes wrong. It's all in
+[`docs/research/`](docs/research/README.md), with a source for every claim.
+The short version:
+
+- The fastest self-improving systems on record search over an archive of many
+  candidates and promote the best. They don't just edit one thing at a time.
+  (DGM, ADAS, GEPA, AlphaEvolve.)
+- Every one of them gamed its scorer whenever it could reach it. So Teeny's
+  scorer, judge and evals are frozen and out of its reach.
+- Agents that rewrite their whole memory tend to collapse it. Teeny edits in
+  deltas.
+- Most "lessons learned" files change nothing, because nobody checks whether
+  the lesson gets used. Teeny's loop turns each lesson into code and measures
+  it.
+- Among public agents, only serial formats held attention for more than a
+  month. Teeny runs serials: the diary, the weekly growth post, the chronicle
+  of its generations.
+
+---
 
 ## License
 
-GPL-3.0-only. The full text is in [`LICENSE`](LICENSE). It covers everything in
-this repository: the spine (`spine/`; the workspace `Cargo.toml` declares
-`GPL-3.0-only`), the hands (`hands/`), the scripts (`bin/`), the brain
-(`brain/`), the evals (`evals/`), the deploy files (`deploy/`) and the landing
-page (`web/`, `package.json` says the same). `vendor/openhuman` is a git
-submodule with its own license, also GPL-3.0.
+GPL-3.0-only. The full text is in [`LICENSE`](LICENSE). It covers everything
+in this repository: the spine, the hands, the scripts, the brain, the evals,
+the deploy files and the landing page. `vendor/openhuman` is a git submodule
+under its own license, also GPL-3.0.

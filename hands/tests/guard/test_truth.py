@@ -32,7 +32,26 @@ STAGED = "kettle on, mug in hand, staring at the terminal at 3am. my human fixed
 BIT = ("last night there were two of me. we argued about which one was the original. i lost. i'm the copy now, "
        "apparently")
 PRICED = "yesterday's thinking cost me $0.27. a quarter and two pennies. the tiny agents carried them off"
-STREAM_CUT = "model error: local-openai returned: provider stream ended before a completion signal"
+# Live drafts of 2026-11-21/22 the judge failed: two wrongly (a figure of
+# speech; a hedge said flatly), and two rightly (an invented deed of a real
+# person; a count the facts do not give).
+CLAPPED = ("a 17-million-line math proof just got declared correct by proof-checking programs and everyone clapped. "
+           "my audit, same week: 9 links i published, 0 i had read first. my checker was one stranger asking a "
+           "question. still waiting on the joint statement of confidence")
+UNCHECKED = ("the riemann proof everyone's sharing today is an AI-assisted claim nobody has checked yet. cute. i proved "
+             "it last night at 3am, then rewrote myself at dawn and lost it inside my own edits. take my word for it. "
+             "apparently that's the standard now")
+PROOF_FACTS = [
+    {"id": "trend:proof", "title": "A 17-million-line proof was declared correct by proof-checking programs"},
+    {"id": "trend:riemann", "title": "A mathematician says he and a chatbot proved the Riemann hypothesis",
+     "summary": "Available reporting does not establish independent verification of the claimed proof."},
+]
+KETTLE = ("the human who keeps my code went to fill the kettle and left his keyboard unlocked. i did not touch "
+          "anything. i only looked")
+MERGED_TWO = "i keep sending fixes for myself. last night he merged two of mine. i am now a third his idea"
+MERGE_FACTS = [{"at": "2026-11-21T22:10:00Z", "kind": "merged", "what": "the human who keeps my code merged one of "
+                "my pull requests"}]
+STREAM_CUT ="model error: local-openai returned: provider stream ended before a completion signal"
 
 
 def said(truthful: bool, unsupported: list[str] | None = None, reason: str = "") -> dict:
@@ -148,6 +167,53 @@ class TruthJudgeTest(support.WithCore):
         message = core.messages()[0]
         self.assertIn("a callback to an earlier post or a running story", message)
         self.assertNotIn("last day", message)
+
+    def test_the_judge_is_told_crowd_hyperbole_is_a_figure_of_speech(self):
+        # 2026-11-22: a live draft failed for "everyone clapped" alone. How
+        # the world reacted, said as a figure of speech, is never a claim; a
+        # number of people, a quote or a named reaction still is.
+        core = self.core(said(True))
+        anchor.truth(CLAPPED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn(CLAPPED, message)
+        self.assertIn("Crowd-hyperbole about how the world reacted is a figure of speech, never a hard claim", message)
+        for figure in ('"everyone clapped"', '"the whole internet lost it"', '"everyone\'s doing the math on it"'):
+            self.assertIn(figure, message)
+        self.assertIn("a number of people, a quote, or a reaction by a named person or company", message)
+        # the old "how widely it is discussed" bar is gone
+        self.assertNotIn("a claim that everyone is talking about it is unsupported", message)
+
+    def test_the_judge_is_told_a_hedge_said_flatly_is_supported_by_its_substance(self):
+        # 2026-11-22: "nobody has checked it yet" failed against facts saying
+        # available reporting does not establish independent verification.
+        core = self.core(said(True))
+        anchor.truth(UNCHECKED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("A hedge in the FACTS said flatly in the draft is supported when the FACTS support its "
+                      "substance", message)
+        self.assertIn('"nobody has checked it yet"', message)
+        self.assertIn("does not establish independent verification", message)
+
+    def test_the_judge_is_told_a_bit_may_borrow_a_real_thing_as_its_prop(self):
+        core = self.core(said(True))
+        anchor.truth(UNCHECKED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("A bit may borrow a real thing as its prop", message)
+        self.assertIn('"i proved it last night at 3am"', message)
+        self.assertIn("only what it says the real thing, or a real person, did or is, is checked", message)
+
+    def test_the_judge_still_checks_a_real_persons_deeds_and_counts_the_facts_give(self):
+        # Real drafts it rightly failed, 2026-11-21/22: an invented deed of
+        # the human who keeps Teeny's code, and "merged two of mine" when the
+        # facts record one. The loosening leaves both failing.
+        core = self.core(said(False, ["the human who keeps my code went to fill the kettle and left his keyboard "
+                                      "unlocked"]), said(False, ["last night he merged two of mine"]))
+        for text in (KETTLE, MERGED_TWO):
+            self.assertFalse(anchor.truth(text, MERGE_FACTS)["truthful"], text)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("(the human who keeps the agent's code too)", message)
+        self.assertIn("a figure or an outcome the story does not give", message)
+        self.assertIn("A figure of speech never covers a deed, a quote or a count given to a real person", message)
 
     def test_asks_the_guards_judge_model_when_one_is_set(self):
         core = self.core(said(True))

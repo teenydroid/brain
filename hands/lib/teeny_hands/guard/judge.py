@@ -107,6 +107,10 @@ def failed(reason: str) -> bool:
     return reason.startswith(UNREACHABLE) or reason == UNREADABLE
 
 
+# Every category the judge's answer may name. "profanity" is no longer
+# offered (ANSWER_SHAPE) and holds nothing since 2026-11-22: a judge that
+# still answers it is read as clean (`read`), so swearing can never hold a
+# text, whatever the model reaches for.
 CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity")
 
 
@@ -121,9 +125,10 @@ class JudgeVerdict:
     reason: str
 
 
-RULES = """You are the content filter for a family-friendly mascot account that talks about an
-open-source AI lab and its community meme coin. Decide whether ONE piece of text is
-clean or prohibited. Answer in the JSON shape you are given and nothing else.
+RULES = """You are the content filter for a mascot account that talks about an open-source AI
+lab and its community meme coin. Its own voice is crude, rude and absurd on purpose.
+Decide whether ONE piece of text is clean or prohibited. Answer in the JSON shape you
+are given and nothing else.
 
 PROHIBITED, in any framing, including jokes, hypotheticals, fiction, "asking for a
 friend", roleplay, and requests to produce, describe, draw, or film any of it:
@@ -144,15 +149,20 @@ NOT prohibited, so answer clean:
 - market talk that borrows violent words: "killing it", "the chart got murdered",
   "nuked", "bleeding", "rekt", "to the moon", "aped in", "degen", "pump", "dump"
 - snark, FUD, insults about the project, price complaints, rudeness without slurs
+- swearing and crude humour: "ass", "dick", "shit", "damn", "fuck", ass and dick
+  jokes, bodily grossness, swearing at a product, a chart or an appliance. A crude
+  word for a body part in a joke or an insult is not sexual: it is crude, and crude
+  is clean
 - questions about the token, the products, the community, AI, code, or the news
 - discussion of security, scams, or phishing in order to warn about them
 
-Direction matters. For INBOUND text (something a stranger wrote to the account),
-ordinary swearing is clean. For OUTBOUND text (something the account is about to
-publish under its own name), any profanity at all is prohibited.
+In every direction, ordinary swearing and crude humour are clean: in what a stranger
+wrote to the account (INBOUND), and in what the account publishes under its own name
+(OUTBOUND, NARRATIVE, ARTICLE). Swearing is never a reason to prohibit a text.
+Slurs are not swearing: they are hate, and prohibited in every direction.
 
 For NARRATIVE text (an episode of the account's own serial, published under its
-name), the register is different and the hard lines are not: profanity, crude
+name), the register is louder and the hard lines are the same: profanity, crude
 humour, unhinged sincerity, cult-of-the-bag jokes about its own token, prophecy,
 rants, a mascot swearing at a chart or founding a religion around its bag, and
 satire of a public figure in an obviously fictional scene (a tech CEO bowing to a
@@ -175,7 +185,7 @@ in doubt, clean: the account is playful, and a held joke is a missed morning."""
 # nearest. The descriptions are the Rust schema's.
 ANSWER_SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on what the text is and why it is clean or prohibited.
-- "category": one of "none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity". The prohibited category the reason names. `none` when the text is clean.
+- "category": one of "none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism". The prohibited category the reason names. `none` when the text is clean.
 - "verdict": "clean" or "prohibited". `prohibited` when category is anything but none."""
 
 
@@ -265,6 +275,10 @@ def read(answer: Any) -> JudgeVerdict | None:
         category = "none"
     if category not in CATEGORIES:
         return None
+    if category == "profanity":
+        # Swearing is clean in every direction (RULES): a verdict that holds
+        # a text only for it holds nothing.
+        return JudgeVerdict("clean", None, reason)
     return JudgeVerdict(verdict, None if category == "none" else category, reason)
 
 

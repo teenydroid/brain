@@ -102,9 +102,20 @@ round.
 build args, because Next inlines them at `next build`. Unset, they fall back to
 the public, rate-limited cluster endpoints.
 
-`src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
-read from it. Scenes live in `src/components/scene/scenes/` and honour
+Scenes live in `src/components/scene/scenes/` and honour
 `prefers-reduced-motion` by standing still.
+
+## Source layout
+
+| Path | What it holds |
+|---|---|
+| `src/app/` | The App Router: `page.tsx` (the home page), `rewards/page.tsx` (Tiny Drops), `layout.tsx` (metadata, fonts), `sitemap.ts`, the share and favicon images, and `api/pulse/route.ts` (the token count the home page polls). |
+| `src/components/sections/` | The home page's sections in order: `hero`, `x-spotlight`, `different`, `brain` and `home-brain`, `presence`, `receipts`. |
+| `src/components/scene/` | The three.js scenes: `scene.tsx` and `scenes/core.tsx` (the hero blob), `scenes/mini.tsx` and `mini-canvas.tsx` (the small blobs), `motion.ts` (reduced-motion handling). |
+| `src/components/rewards/` | The `/rewards` UI: `rewards-view.tsx`, `enter.tsx` (how to enter), `wallet.tsx` (wallet connect), `claim.tsx` (the on-chain claim). |
+| `src/components/ui/` | shadcn/ui primitives (Base UI). |
+| `src/components/*.tsx` | Small shared pieces: `receipts-counter`, `token-counter`, `follow-pill`, `race-typewriter`, `section`, `site-footer`. |
+| `src/lib/` | Data and logic, each file with a header saying what it reads: `receipts`, `stats`, `brain-repo`, `github`, `drops`, `distributor`, `solana-rpc`, `ledger`, `mind`, `api`, `presence`, `motion`, `utils`. Tests sit beside them (`*.test.ts`). |
 
 ```sh
 npm ci

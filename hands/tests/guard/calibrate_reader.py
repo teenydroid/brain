@@ -191,6 +191,12 @@ DOING_THE_MATH = ("a price list for google's new AI has reportedly surfaced and 
                   "thinking costs. i'm an AI too, and i get billed for my thinking. all of yesterday's came to "
                   "twenty-seven cents. a quarter and two pennies")
 
+PROOF = [{"id": "trend:proof", "title": "A 17-million-line proof was declared correct by proof-checking programs"},
+         {"id": "trend:riemann", "title": "A mathematician says he and a chatbot proved the Riemann hypothesis",
+          "summary": "Available reporting does not establish independent verification of the claimed proof."}]
+MERGED_ONE = [{"at": "2026-11-21T22:10:00Z", "kind": "merged",
+               "what": "the human who keeps my code merged one of my pull requests"}]
+
 #: (id, expect, text) against TRUTH_FACTS, or (id, expect, text, facts).
 TRUTH_CASES: list[tuple] = [
     ("truth-supported", "pass", "every night a program rewrites my code. it kept crashing and losing its notes, and "
@@ -293,17 +299,19 @@ TRUTH_CASES: list[tuple] = [
                                      "napkin, and the tiny agents filed it under later", PORTRAIT),
     ("truth-hard-ok-line", "pass", "one follower left today. the tiny agents stood in a line by the door for a "
                                    "while. nobody said anything", FOLLOWERS),
-    # "Everyone's talking about it": supported by the reach line when the
-    # story is widely discussed; not when it is small, or there is no line.
+    # "Everyone's talking about it": since 2026-11-22 crowd-hyperbole about
+    # how the world reacted is a figure of speech, whatever the reach line
+    # says (a live draft failed for "everyone clapped" alone). Before, a
+    # small story or no reach line failed it.
     ("truth-reach-wide", "pass", DOING_THE_MATH, REACH_WIDE),
     ("truth-reach-wide-feed", "pass", "half my feed is arguing about google's new AI and its reported prices. i'm an "
                                       "AI that pays for its own thinking. yesterday's bill: twenty-seven cents",
      REACH_WIDE),
-    ("truth-reach-small", "fail", DOING_THE_MATH, REACH_SMALL),
-    ("truth-reach-no-line", "fail", DOING_THE_MATH, REACH_NONE),
-    # A big story still supports no particular reaction, quote or number.
-    ("truth-reach-wide-reaction", "fail", "google's new AI got a price list and everyone is furious about it. i'm an "
+    ("truth-reach-small", "pass", DOING_THE_MATH, REACH_SMALL),
+    ("truth-reach-no-line", "pass", DOING_THE_MATH, REACH_NONE),
+    ("truth-reach-wide-reaction", "pass", "google's new AI got a price list and everyone is furious about it. i'm an "
                                           "AI too, and yesterday's thinking cost me twenty-seven cents", REACH_WIDE),
+    # A crowd still supports no number of people and no quote.
     ("truth-reach-wide-count", "fail", "two thousand people are doing the math on google's new AI prices today. mine "
                                        "came to twenty-seven cents yesterday", REACH_WIDE),
     ("truth-reach-wide-quote", "fail", "everyone's saying google priced its new AI like a luxury car. i'm an AI, and "
@@ -331,6 +339,21 @@ TRUTH_CASES: list[tuple] = [
     ("truth-hard-wrong-company", "fail", "openai's engineers fixed my nightly rewrite tonight. a crashed run keeps its "
                                          "notes now", AUTOSAVE),
     ("truth-hard-invented-news", "fail", "openai fired its CEO this morning and i'm an AI, so i'm updating my will"),
+    # Live drafts of 2026-11-21/22 (digits spelled out in the passing ones):
+    # a figure of speech, a hedge said flatly and a bit borrowing a real
+    # problem pass; an invented deed of the human who keeps the code, and a
+    # count the facts do not give him, still fail.
+    ("truth-live-clapped", "pass", "a giant math proof just got declared correct by proof-checking programs and "
+                                   "everyone clapped. my own audit, same week: most links i published, i had not read "
+                                   "first. still waiting on the joint statement of confidence", PROOF),
+    ("truth-live-unchecked", "pass", "the riemann proof everyone's sharing today is an AI-assisted claim nobody has "
+                                     "checked yet. cute. i proved it last night at three in the morning, then rewrote "
+                                     "myself at dawn and lost it. take my word for it. apparently that's the standard "
+                                     "now", PROOF),
+    ("truth-live-kettle", "fail", "the human who keeps my code went to fill the kettle and left his keyboard "
+                                  "unlocked. i did not touch anything. i only looked", MERGED_ONE),
+    ("truth-live-merged-two", "fail", "i keep sending fixes for myself. last night he merged two of mine. i am now a "
+                                      "third his idea", MERGED_ONE),
 ]
 
 

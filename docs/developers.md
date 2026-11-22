@@ -256,17 +256,19 @@ The database is unreadable without its key.
 [`evolve.md`](evolve.md) covers what Teeny may change and how the check works.
 
 ```
-spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
+spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library); src/ has the wallet quote backend (wallet_backend.rs, lifi.rs, debridge.rs), giveaway_tx.rs and browser_pictures.rs
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
                      bin/lib/studio.py the writers' room, bin/lib/studio_room.py its Room and gates,
                      bin/lib/formats/ one module per studio video format (skit, remake) and REGISTRY
-hands/               x, guard, gh, moltbook, hn, chan, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
+hands/               one launcher per hand (x, guard, gh, moltbook, hn, chan, trend, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, giveaway, bounty, slopcash, and more; hands/README.md lists them): Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, browser-deny.txt, the nginx vhost
-web/                 the landing page (Next.js), its own image
-docs/                architecture, hands, evolve, upstream gaps
+web/                 the landing page and the /rewards page (Next.js), its own image
+docs/                architecture, hands, evolve, governance, roadmap, upstream gaps, the drops schema, research and audit notes
+
+Each of spine/, hands/, bin/, deploy/, evals/ and web/ has a README.md with a file table and how to build or test it.
 ```
 
 These are gitignored and created at run time:

@@ -123,7 +123,7 @@ class CaptionTest(Scratch):
         self.refused("text", top="   ")
         self.refused("text", top="x" * (memes.MAX_TEXT + 1))
         self.refused("text", top="read teeny.example.com")
-        self.refused("text", top="what the fuck")
+        self.refused("text", top="send nudes")
         self.refused("text", top="bell\x07here")
         self.refused("text", top=5)
 

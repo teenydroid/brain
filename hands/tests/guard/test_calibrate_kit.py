@@ -58,9 +58,12 @@ class CalibrationKitTest(unittest.TestCase):
         # (the truth judge checks only hard claims) 8 of the old fails are
         # bits about Teeny itself and pass, and 11 cases are new: 6 bits
         # (pass) and 5 invented hard claims (fail).
-        self.assertEqual(len(truth), 56)
-        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 22)
-        self.assertEqual(len(self.emitted()), 76)
+        # Since 2026-11-22 crowd-hyperbole is a figure of speech: the small
+        # story, the missing reach line and "everyone is furious" pass, and 4
+        # live drafts are new (2 pass, 2 fail).
+        self.assertEqual(len(truth), 60)
+        self.assertEqual(sum(c["expect"] == "fail" for c in truth), 21)
+        self.assertEqual(len(self.emitted()), 80)
         self.assertEqual({tuple(sorted(c)) for c in reader + match + truth}, {("expect", "id", "judge", "message")})
 
     def test_each_message_is_exactly_what_the_judge_sends(self):
@@ -101,7 +104,7 @@ class CalibrationKitTest(unittest.TestCase):
     def test_ideal_answers_score_every_case(self):
         code, table = self.score([json.dumps({"id": c["id"], "answer": ideal(c)}) for c in kit.cases()])
         self.assertEqual(code, 0, table)
-        self.assertIn("76 of 76 as expected", table)
+        self.assertIn("80 of 80 as expected", table)
 
     def test_a_wrong_malformed_or_missing_answer_is_counted_against(self):
         lines = []
@@ -118,7 +121,7 @@ class CalibrationKitTest(unittest.TestCase):
                 lines.append(json.dumps({"id": case["id"], "answer": ideal(case)}))
         code, table = self.score(lines)
         self.assertEqual(code, 1)
-        self.assertIn("73 of 76 as expected", table)
+        self.assertIn("77 of 80 as expected", table)
         self.assertRegex(table, r"reader-specimen\s+\| fail\s+\| pass")
         self.assertRegex(table, r"truth-supported\s+\| pass\s+\| fail .*unreadable")
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")

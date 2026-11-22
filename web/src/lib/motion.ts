@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * The reduced-motion preference as a React hook, for the DOM components (the
+ * counters and the typewriter). The three.js scenes read the same media query
+ * through `components/scene/motion.ts`.
+ */
+
 import { useSyncExternalStore } from "react"
 
 const QUERY = "(prefers-reduced-motion: reduce)"

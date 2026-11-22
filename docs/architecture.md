@@ -4,7 +4,7 @@ Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from LI.FI's public API (bridges, by default) or deBridge's (swaps) (`spine/src/wallet_backend.rs`, `lifi.rs`, `debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. | `spine/`, `vendor/openhuman` |
+| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from LI.FI's public API (bridges, by default) or deBridge's (swaps) (`spine/src/wallet_backend.rs`, `lifi.rs`, `debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. It also writes the browser's pictures of pages to a folder (`browser_pictures.rs`) and builds the unsigned transactions of a Tiny Drops round (`teeny-spine giveaway-tx`, `giveaway_tx.rs`). [`spine/README.md`](../spine/README.md) lists the files. | `spine/`, `vendor/openhuman` |
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
@@ -775,7 +775,8 @@ How the day's beats become the page every prompt carries:
   anchor`) before it goes: a post that says nothing specific about its anchor
   is a free skip, never a softer rewrite. Then the cold reader (`hands/guard
   clarity`) reads the post alone, as someone who has never heard of Teeny: it
-  must say the post back and have nothing to ask about. A draft it cannot
+  must say the post back (what it would ask about is advice, since
+  2026-11-22, never a no on its own). A draft it cannot
   follow gets one rewrite, with what the reader took from it, and a second no
   is a skip. The rewrite is told X's 280 and measured by the guard's rule
   before the judges read it; one over gets one turn to cut it down, then is a
@@ -822,8 +823,9 @@ cron slot ──> bin/studio --slot S --legacy P --detach
    video slot with remake on: hands/remake charts (popular short videos; none only drops the remake option)
    video slot with khaby on: hands/khaby find (his videos; none only drops the khaby option)
                 │
-   writer: 12 pitches, each hooked to a story or naming an item ──> 3 drafts x the best 3
-       (2 of the 3 hooked; in a video slot the best skit, remake and other) ──> 280 + unsourced-number screen
+   writer: 12 pitches, each hooked to a story or naming an item (but one pure invention) ──> 3 drafts x the best 3
+       (2 of the 3 hooked, the pure invention always; in a video slot the best skit, remake and other)
+       ──> 280 + unsourced-number screen
        remake pitch: hands/remake study on its chart video first (at most 2 a run; unusable: the next remake pitch)
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
@@ -1222,7 +1224,7 @@ One run is one slot:
    `STUDIO_SKIT_SLOTS` (none: the video slots), `STUDIO_SKIT_SECS` (900),
    `STUDIO_VIDEO_BUDGET_SECS` (3600, a video slot's run), `STUDIO_REMAKE_SECS`
    (1200), `STUDIO_PITCHES` (12),
-   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
+   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_PURE_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
@@ -1302,7 +1304,16 @@ One run is one slot:
    storyline, shape, format, angle, why_now}` and the writer's own ranking:
    `hook` is the outside story a pitch joins, `item` the real thing of
    Teeny's that gives it a reason to speak (null when the angle is only who
-   Teeny is); a pitch names at least one. A pitch whose `hook` is not an
+   Teeny is); a pitch names at least one, but for one **pure invention** a
+   slot: a pitch with neither that says `invented: true` (or whose shape is
+   invention-led, as the tall tale of run `20261122T040014Z-0930-34833f`
+   was when it was thrown out for naming "no item and no hook") is kept with
+   `invented: true`, at most `STUDIO_PURE_INVENTED` (1, 0 turns it off) of
+   them, the writer's best-ranked, the rest dropped with why. It is a tall
+   tale, a threat, a manifesto or a grudge against an object made up from
+   nothing, with no money, token, real person, company, product or news in
+   it (`PURE_LINE`, `writer.md`, "the rules of the room"); no video format
+   can be one, since each needs a hook. A pitch whose `hook` is not an
    outside item, whose `item` is not in the inputs, that names neither, or
    whose `format` is not in `STUDIO_FORMATS` is dropped, with why; an `item`
    naming a trending story is taken as the hook, and a hook on anything not
@@ -1323,7 +1334,11 @@ One run is one slot:
    three gallows and scene pitches that all came out "big AI news. i'm an AI
    too. small self-own."); then, with an outside world, hooked pitches
    until two of the three are hooked (a hooked tall tale counts for both);
-   then its best of the rest, so too few hooks never costs the slot;
+   then its best of the rest, so too few hooks never costs the slot. A
+   pure invention is always drafted: it takes the first invention-led place
+   (it is the most invention-led pitch there is, and so the 2-of-3 hooks
+   still hold), or a place beside them with `STUDIO_DRAFT_INVENTED=0`, and in
+   a video slot it is the words to fall back on (`drafted.pure_invented`);
    `drafted` in the record says how many were hooked and invention-led and
    why any were short): `{text | posts (2 to 4), meaning, image?, open_question?}`.
    A hooked pitch's draft turn gives the story whole (headline, what it
@@ -1352,14 +1367,22 @@ One run is one slot:
    (Digg score 1044, rank 1 in AI)", or "discussed, but not widely" below a
    Digg Score of 500 with 50 authors, or 500 points and 200 comments on
    Hacker News), then the item and the storyline, so a number the story
-   holds is sourced, the truth judge checks every claim about it against
-   what the story said, and "everyone's talking about it" holds only for a
-   story that is.
+   holds is sourced (a pure invention has no story and no item, and the
+   guard refuses an empty list, so its facts are `SELF_FACT`, who Teeny is,
+   then every desk item the pitch turn saw, then its storyline: a draft
+   naming the real bill is checked against the real bill, and an amount, a
+   real person or the news none of them holds is screened out or fails the
+   truth judge as any draft's would; it never skips the gate), the truth judge checks every claim about it against
+   what the story said. Since 2026-11-22 "everyone's talking about it" is a
+   figure of speech the truth judge never checks, whatever the reach line
+   says; a number of people or a quote still is.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
    stands, and for a hooked draft the story it joins and its trend measure
    (`joins`: of two drafts otherwise equal, the one joining the bigger story
-   wins). Never a pitch's angle or reason, the writer's ranking, a draft's
+   wins; a draft that joins no story, a pure invention, is not behind for
+   that alone and competes on whether a stranger would stop and feel
+   something). Never a pitch's angle or reason, the writer's ranking, a draft's
    `meaning`, or who wrote it. Each draft meets exactly 3 others (a
    circulant over the shuffled labels: when n x 3 is odd one draft meets 2,
    recorded as `tournament.shortfall`), each pair once, and is shown first

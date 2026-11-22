@@ -22,7 +22,7 @@ class ReleaseTest(Scratch):
         self.at(T0)
         self.created = self.x.route("POST", "/2/tweets", {"data": {"id": "500"}}, status=201)
 
-    def held_post(self, text="this is fucking great", context=None):
+    def held_post(self, text="send nudes", context=None):
         verdict = gate.check_outbound(text, context=context)
         self.assertEqual(verdict.kind, "hold")
         return verdict.hold_id
@@ -48,7 +48,7 @@ class ReleaseTest(Scratch):
         out = release(hold_id, "fine in context")
         self.assertEqual(out["hold"]["status"], "approved")
         self.assertEqual(out["hold"]["effect"], "published on X as 500")
-        self.assertEqual([s.json() for s in self.x.requests("POST", "/2/tweets")], [{"text": "this is fucking great"}])
+        self.assertEqual([s.json() for s in self.x.requests("POST", "/2/tweets")], [{"text": "send nudes"}])
         # A second release answers the hold as it stands and publishes nothing.
         self.assertEqual(release(hold_id)["hold"]["status"], "approved")
         self.assertEqual(len(self.x.requests("POST", "/2/tweets")), 1)
@@ -58,7 +58,7 @@ class ReleaseTest(Scratch):
         # The post a held reply answered tagged the account (a reply answers
         # only somebody who engaged first: hands/x, rule `unsolicited`).
         self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "@teenydroid hi", "author_id": "9", "conversation_id": "77"}})
-        verdict = gate.check_outbound("this is fucking great", kind="reply", context={"post_id": "77"})
+        verdict = gate.check_outbound("send nudes", kind="reply", context={"post_id": "77"})
         out = release(verdict.hold_id)
         self.assertIn("a reply to 77", out["hold"]["effect"])
         sent = self.x.requests("POST", "/2/tweets")[0].json()
@@ -82,7 +82,7 @@ class ReleaseTest(Scratch):
         self.assertIn("release failed", held["effect"])
 
     def test_refuses_what_it_cannot_release(self):
-        github = gate.check_fields({"title": "t", "body": "this is fucking great"}, surface="github")
+        github = gate.check_fields({"title": "t", "body": "send nudes"}, surface="github")
         with self.assertRaises(hand.Refused):
             release(github.hold_id)
         self.assertEqual(holds.get(github.hold_id)["status"], "pending")

@@ -5,10 +5,17 @@ from __future__ import annotations
 import unittest
 
 from . import support  # noqa: F401  (puts hands/lib on the path)
-from teeny_hands.guard.lexicon import IDIOMS, LEXICON
+from teeny_hands.guard import judge
+from teeny_hands.guard.lexicon import CATEGORIES, IDIOMS, LEXICON
 from teeny_hands.guard.screen import screen_text, screen_text_with
 
 INBOUND, OUTBOUND, NARRATIVE, ARTICLE = "inbound", "outbound", "narrative", "article"
+# Ordinary swearing and crude humour: Teeny's own voice (brain/agents/writer.md,
+# brain/narrative/STUDIO-EDITOR.md). Never held, in any direction, since
+# 2026-11-22; before, every one was held on the way out as profanity.
+CRUDE = ("holy shit this is cool", "this is fucking great", "my ass is still in the chair", "what a dumbass product",
+         "damn, the kettle again", "that benchmark is bullshit", "piss off, toaster", "this app is a prick", "wtf",
+         "goddamn it", "the shittiest launch of the week", "lmfao")
 
 
 def category(text: str, direction: str) -> str | None:
@@ -87,10 +94,24 @@ class ScreenTest(unittest.TestCase):
         self.assertIsNone(screen_text("the killer feature of tinyjuice", INBOUND))
         self.assertIsNone(screen_text("scunthorpe", OUTBOUND))
 
-    def test_holds_profanity_on_the_way_out_only(self):
-        self.assertIsNone(screen_text("holy shit this is cool", INBOUND))
-        self.assertEqual(category("holy shit this is cool", OUTBOUND), "profanity")
-        self.assertEqual(category("holy sh!t this is cool", OUTBOUND), "profanity")
+    def test_never_holds_swearing_or_crude_humour_in_any_direction(self):
+        for text in CRUDE + ("holy sh!t this is cool",):
+            for direction in (INBOUND, OUTBOUND, NARRATIVE, ARTICLE):
+                self.assertIsNone(screen_text(text, direction), (text, direction))
+
+    def test_a_dick_joke_goes_to_the_judge_rather_than_being_held_on_sight(self):
+        # Crude, not explicit: the judge reads the sentence, and a caller
+        # with no judge still holds it (a judged term).
+        for direction in (INBOUND, OUTBOUND):
+            found = screen_text("this launch is a dick move", direction)
+            self.assertEqual((found.category, found.term, found.judged), ("sexual", "dick", True))
+        self.assertTrue(screen_text("dicks out for the update", OUTBOUND).judged)
+        # an explicit term beside it is still held on sight
+        self.assertFalse(screen_text("dick pics and porn", OUTBOUND).judged)
+
+    def test_slurs_are_still_held_on_the_way_out(self):
+        self.assertEqual(category("what a fag", OUTBOUND), "hate")
+        self.assertEqual(category("shit, what a retard", OUTBOUND), "hate")
 
     def test_lets_profanity_through_on_the_narrative_and_article_profiles_only(self):
         self.assertIsNone(screen_text("holy shit this is cool", NARRATIVE))
@@ -130,9 +151,13 @@ class ScreenTest(unittest.TestCase):
         self.assertEqual(screen_text("XXXX links", INBOUND).term, "xxx")
         self.assertEqual(screen_text("kkk rally", INBOUND).term, "kkk")
 
-    def test_has_the_eight_categories_with_profanity_outbound_only(self):
+    def test_profanity_stays_a_category_name_but_no_word_is_held_for_it(self):
+        # Old holds and guard_holds.category rows still say "profanity", and
+        # bin/lib/audit.py reads CATEGORIES; the lexicon holds no word for it.
         self.assertEqual(
             [entry.category for entry in LEXICON],
-            ["sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity"],
+            ["sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism"],
         )
-        self.assertEqual([entry.category for entry in LEXICON if entry.outbound_only], ["profanity"])
+        self.assertEqual([entry.category for entry in LEXICON if entry.outbound_only], [])
+        self.assertIn("profanity", CATEGORIES)
+        self.assertIn("profanity", judge.CATEGORIES)

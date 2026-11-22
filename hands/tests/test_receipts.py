@@ -771,16 +771,16 @@ class DiaryDaysTest(ReceiptsCase):
 
     def test_a_page_the_guard_holds_is_withheld_and_never_retried(self):
         bare = self.remote()
-        self.page("2026-09-14", "# Monday\n\nthis is fucking great.\n")
+        self.page("2026-09-14", "# Monday\n\nsend nudes.\n")
         self.on(bare)
         code, out = self.run_receipts()
         self.assertEqual(out["days"]["published"], [])
         self.assertEqual(out["days"]["withheld"][0]["date"], "2026-09-14")
         self.assertEqual(out["days"]["withheld"][0]["why"], "held")
-        self.assertNotIn("fucking", json.dumps(out))
+        self.assertNotIn("nudes", json.dumps(out))
         self.assertFalse((self.clone(bare) / "days" / "2026-09-14.md").exists())
         withheld = json.loads((self.root / "state" / "diary-days.json").read_text())
-        self.assertNotIn("fucking", json.dumps(withheld))
+        self.assertNotIn("nudes", json.dumps(withheld))
         code, out = self.run_receipts()
         self.assertEqual(out["days"]["withheld"], [])  # not asked again
 
@@ -893,13 +893,13 @@ class MemorySnapshotsTest(ReceiptsCase):
 
     def test_a_snapshot_the_guard_holds_is_withheld_and_never_retried(self):
         bare = self.remote()
-        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] this is fucking great.\n")
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] send nudes.\n")
         self.on(bare)
         code, out = self.run_receipts()
         self.assertEqual(out["memory"]["published"], [])
         self.assertEqual(out["memory"]["withheld"][0]["snapshot"], "20260914T083000Z-midday")
         self.assertEqual(out["memory"]["withheld"][0]["why"], "held")
-        self.assertNotIn("fucking", json.dumps(out))
+        self.assertNotIn("nudes", json.dumps(out))
         self.assertFalse((self.clone(bare) / "memory").exists())
         code, out = self.run_receipts()
         self.assertEqual(out["memory"]["withheld"], [])

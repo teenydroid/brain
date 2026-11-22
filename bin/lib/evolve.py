@@ -100,6 +100,7 @@ import time
 import tomllib
 import traceback
 import uuid
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
@@ -115,6 +116,7 @@ import evolve_findings  # noqa: E402
 import evolve_reach  # noqa: E402
 import evolve_route  # noqa: E402
 import evolve_outcomes  # noqa: E402
+import evolve_selection  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
@@ -278,6 +280,18 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_OUTCOME_LAST_DAYS": ("7", int, 1, 60),
     "EVOLVE_OUTCOME_MIN_EVENTS": ("4", int, 1, 1000),
     "EVOLVE_OUTCOME_P": ("0.1", float, 0.0001, 0.5),
+    # The publish rule (bin/lib/evolve_selection.py): a candidate the eval
+    # cannot tell from main (or no eval task reaches) opens a pull request
+    # only with a powered check, one whose stream held at least
+    # POWER_MIN_EVENTS events over the first outcome horizon before the run
+    # (never fewer than OUTCOME_MIN_EVENTS, nor than a whole fall needs to
+    # pass at OUTCOME_P). Else it is `unproven`. 0 switches the rule off.
+    "EVOLVE_PUBLISH_PROOF": ("1", int, 0, 1),
+    "EVOLVE_POWER_MIN_EVENTS": ("4", int, 1, 1000),
+    # A kind of merged change with this many judged outcomes and none that
+    # worked is exhausted: another of its kind goes back as a finding, and
+    # is parked on the last round. 0: lessons are shown, never enforced.
+    "EVOLVE_LESSON_MIN_JUDGED": ("3", int, 0, 50),
 }
 #: The choices a str setting may take (anything, when it is not listed).
 CHOICES = {"EVOLVE_EVALUATOR": ("lab", "none")}
@@ -1864,15 +1878,23 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
             "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
             f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
             f"act on it from today, {how}.")
+    lessons = evolve_selection.lessons_text(((request.get("evidence") or {}).get("lessons") or {}).get("kinds"))
     return [
+        *([lessons] if lessons else []),
         learning_text(request["learning"]),
         lead + " One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
         "invariants, and the checks below) and a reviewer send it back to you with findings to fix, up to "
-        f"{request.get('rounds') or 3} rounds; then it measures the tasks it reaches against main, and opens it "
-        "as its own pull request when nothing got worse.",
+        f"{request.get('rounds') or 3} rounds; then it measures the tasks it reaches against main. It opens "
+        "its own pull request only when nothing got worse AND either the eval finds it better than main, or your "
+        "check is powered: what it counts happened at least "
+        f"{request.get('power_need') or 4} times in the last {min(request.get('horizons') or outcome_horizons())} "
+        "day(s), so its verdict can come out worked or not instead of no-data. A `judged` check never powers a "
+        "change, and neither does a falling count on a change that also runs anything less. Without either it is "
+        "`unproven` and comes back to you while rounds remain. A kind of change the lessons above call exhausted "
+        "is sent back too.",
         "## or skip it\n\n"
         "Skip when no change is worth making, and say which:\n"
         "- `already`: something you run already carries it out; `where` names the file.\n"
@@ -2939,6 +2961,32 @@ def _cron_failure_runs(since: float) -> list[Json] | None:
                    for ms, job, out in rows if isinstance(ms, (int, float))), key=lambda r: r["at"])
 
 
+def _cron_runs(names: tuple[str, ...], since: float, until: float) -> list[float] | None:
+    """When each finished run, ok or not, of the cron job known by any of
+    NAMES (its command, or its name) ended in [SINCE, UNTIL), from
+    storage.db read-only: a falling check's source (evolve_outcomes.silenced)."""
+    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            jobs = {str(i) for i, c, n in conn.execute(
+                "select id, json_extract(body, '$.command'), json_extract(body, '$.name') from docs "
+                "where coll = 'cron.jobs' and json_valid(body)")
+                if (str(c or "").strip() or str(n or "")) in names or str(n or "") in names}
+            rows = conn.execute(
+                "select json_extract(body, '$.finished_ms'), json_extract(body, '$.job_id') from docs "
+                "where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}' "
+                "and json_extract(body, '$.finished_ms') >= ? and json_extract(body, '$.finished_ms') < ?",
+                (int(since * 1000), int(until * 1000))).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return sorted(float(ms) / 1000 for ms, job in rows if isinstance(ms, (int, float)) and str(job) in jobs)
+
+
 #: An error the merged change cannot have caused: the core down (a restart),
 #: the model provider refusing or dropping (payment, rate, 5xx, a dropped
 #: stream, a timeout). Read from a failed cron run's output.
@@ -3082,6 +3130,31 @@ def _lab_lessons() -> Json:
     return {"lessons": rows} if isinstance(rows, list) else {"available": False, "why": "no hands/lab lessons"}
 
 
+def entry_kinds(entry: Mapping[str, Any]) -> list[str]:
+    """An archived candidate's kinds (evolve_selection.kinds): as recorded,
+    or, for one from before kinds were, from the files its patch touched."""
+    if isinstance(entry.get("kinds"), list):
+        return [str(k) for k in entry["kinds"]]
+    files = _patch_files(entry)
+    return evolve_selection.kinds(files, entry.get("learning")) if files else []
+
+
+def change_lessons(entries: Mapping[str, Json]) -> Json:
+    """The evidence's `lessons`: the lab's (`hands/lab lessons`) and, once a
+    change has merged, what each kind of merged change did (`kinds`,
+    evolve_selection.lessons), worst first."""
+    out = _lab_lessons()
+    try:
+        cfg = load_config()
+        spans, min_judged = outcome_horizons(cfg), cfg["EVOLVE_LESSON_MIN_JUDGED"]
+    except EvolveError:
+        spans, min_judged = outcome_horizons(), int(SETTINGS["EVOLVE_LESSON_MIN_JUDGED"][0])
+    kinds = evolve_selection.lessons(entries, spans, entry_kinds, min_judged)
+    if kinds:
+        out = {**out, "kinds_note": evolve_selection.NOTE, "kinds": kinds}
+    return out
+
+
 def _configured_horizons() -> tuple[int, ...]:
     """The outcome horizons secrets/evolve.env sets, or the defaults when it
     does not parse (the run that reads it refuses on its own)."""
@@ -3106,7 +3179,7 @@ def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
         "builds": _builds(),
         "guard_holds": _holds(),
         "archive": summary(entries),
-        "lessons": _lab_lessons(),
+        "lessons": change_lessons(entries),
     }
     changes = evolve_outcomes.proposer_block(entries, _configured_horizons())
     if changes:
@@ -3312,6 +3385,63 @@ def schedule_cuts(before: str | None, after: str | None) -> list[tuple[str, str]
         else:
             return None
     return cuts
+
+
+def source_cuts(tree: Path, base: str) -> list[str]:
+    """What the change in TREE runs less than BASE, whatever else it does:
+    each cron job of brain/cron.toml it removes, turns off or thins, and
+    each playbook it deletes. A falling check on such a change is never
+    powered (evolve_selection.power): running less would meet it."""
+    rel = "brain/cron.toml"
+    before = git(in_tree(tree), "show", f"{base}:{rel}") if exists_at(tree, base, rel) else None
+    after = (tree / rel).read_text(encoding="utf-8") if (tree / rel).is_file() else None
+    old, new = _jobs_of(before) or {}, _jobs_of(after) or {}
+    out = []
+    for name, a in sorted(old.items()):
+        if a.get("enabled", True) is False:
+            continue
+        b = new.get(name)
+        if b is None:
+            out.append(f"{name} removed")
+        elif b.get("enabled", True) is False:
+            out.append(f"{name} turned off")
+        else:
+            ra, rb = runs_per_week(a), runs_per_week(b)
+            if ra is not None and rb is not None and rb < ra:
+                out.append(f"{name} thinned from {ra} to {rb} runs a week")
+    out += [f"{path} deleted" for status, path in name_status(tree, base)
+            if status == "D" and path.startswith("brain/playbooks/")]
+    return out
+
+
+def power_need(cfg: Config) -> int:
+    """The fewest events a check's stream must have held for it to be
+    powered (evolve_selection.need)."""
+    return evolve_selection.need(cfg["EVOLVE_POWER_MIN_EVENTS"], cfg["EVOLVE_OUTCOME_MIN_EVENTS"],
+                                 cfg["EVOLVE_OUTCOME_P"])
+
+
+def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:
+    """Whether CHECK, on the change in TREE, can prove it: its count over
+    the first outcome horizon before now, from the box's own ledgers
+    (outcome_sources, with TREE's playbooks for a hand's callers)."""
+    days = min(outcome_horizons(cfg))
+    before = None
+    if isinstance(check, Mapping) and check.get("kind") in evolve_outcomes.KINDS and check["kind"] != "judged":
+        src = dataclasses.replace(outcome_sources(cfg), tree=tree)
+        try:
+            before = evolve_outcomes.count(check, src, now() - days * 86400, now())
+        except Exception as exc:  # noqa: BLE001 - an unreadable ledger is an unpowered check, never a crash
+            say(f"the check's history could not be counted: {str(exc)[:160]}")
+    return evolve_selection.power(check, before, days, power_need(cfg), source_cuts(tree, base))
+
+
+def unproven(cfg: Config, cand: Mapping[str, Any]) -> str | None:
+    """Why CAND, which passed its eval, may not open a pull request (the
+    publish rule), or None."""
+    if not cfg["EVOLVE_PUBLISH_PROOF"]:
+        return None
+    return evolve_selection.unproven(cand.get("eval"), cand.get("check_power"))
 
 
 def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
@@ -4953,6 +5083,7 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                      "evidence": evidence, "siblings": siblings, "editable": editable,
                      "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
                      "gen_dir": str(gdir), "rounds": rounds_max, "horizons": outcome_horizons(cfg),
+                     "power_need": power_need(cfg),
                      "max_lines": max_change_lines(tree, base, cfg["EVOLVE_MAX_CHANGE_PCT"])}
     if rounds:
         entry["resumed"] = True
@@ -5013,6 +5144,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             unusable += rec["outcome"] == "unusable"
             if rec["outcome"] == "refused-skip" and rnd == rounds_max and findings:
                 parked_why = f"round {rnd}: the skip leaned on the memory page: {findings[0]['problem']}"[:300]
+            if rec["outcome"] == "lesson" and rnd == rounds_max and findings:
+                parked_why = f"round {rnd}: {findings[0]['problem']}"[:600]
             last_patch = rec.get("diff") or last_patch
             continue
         if rnd > 1:
@@ -5184,12 +5317,18 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         proposal = {**proposal, "check": check}
         entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
                      expected_move=proposal["expected_move"].strip()[:500], check=check)
+        # Whether the check can prove the change once merged (the publish
+        # rule, evolve_selection.power): counted now, on the box's history.
+        entry["check_power"] = check_power(cfg, check, tree, base)
         (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
         full = staged_patch(tree, base)
         stats = numstat(tree, base)
         entry.update(diff_hash=diff_hash(full), diff_stats={"files": len(stats),
                                                             "added": sum(a or 0 for a, _, _ in stats),
                                                             "removed": sum(r or 0 for _, r, _ in stats)})
+        # What kind of change it is, from the files it touches and where the
+        # candidate came from: never from anything the proposer wrote.
+        entry["kinds"] = evolve_selection.kinds([path for _, _, path in stats], learning)
         (gdir / f"cand-{i}.patch").write_text(full, encoding="utf-8")
         (gdir / f"cand-{i}.mutation.patch").write_text(full, encoding="utf-8")
         shutil.copyfile(tree / HYPOTHESIS, gdir / f"cand-{i}.HYPOTHESIS.md")
@@ -5214,6 +5353,19 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                         "detail": f"{sim:.2f} like {twin}"}]})
             return entry
         mutations[entry["id"]] = lines
+        # An exhausted kind (evolve_selection.lessons: enough judged outcomes,
+        # none worked) goes back, named, before anything is spent on it.
+        exhausted = evolve_selection.blocking(((evidence or {}).get("lessons") or {}).get("kinds"), entry["kinds"])
+        if exhausted:
+            why = evolve_selection.blocked_reason(exhausted)
+            say(f"candidate {i}: {why[:160]}; sent back")
+            findings = [{"file": "", "problem": why[:600], "check": "lesson",
+                         "fix": "make a different kind of change: one that does not touch what this kind touches "
+                                f"({exhausted.get('what')}), or skip the learning"}]
+            keep(rec, "lesson", findings)
+            if rnd == rounds_max:
+                parked_why = f"round {rnd}: {why}"[:600]
+            continue
         entry["gate"] = gate(tree, base, proposal["component"], evidence, cfg["EVOLVE_MAX_CHANGE_PCT"])
         if not entry["gate"]["hard_ok"]:
             entry["verdict"] = "rejected"
@@ -5490,7 +5642,13 @@ def gate_table(cand: Mapping[str, Any]) -> str:
 
 
 def eval_text(cand: Mapping[str, Any]) -> str:
-    """The targeted eval, as the pull request says it."""
+    """The targeted eval, as the pull request says it, and why it was
+    published (evolve_selection.proof_text)."""
+    proof = evolve_selection.proof_text(cand)
+    return _eval_text(cand) + (f"\n\n{proof}" if proof else "")
+
+
+def _eval_text(cand: Mapping[str, Any]) -> str:
     ev = cand.get("eval") or {}
     if ev.get("verdict") == "unmeasurable":
         why = ev.get("why")
@@ -5948,6 +6106,12 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
     `teeny/eval` on its head; under DRY_RUN writes what it would have done.
     At EVOLVE_MAX_OPEN_PRS open it waits for the next run. Updates CAND."""
     gdir = gen_dir(cand["gen"])
+    why = unproven(cfg, cand)
+    if why:
+        # One that waited from before the rule, or slipped past it: never opened.
+        cand.update(verdict=UNPROVEN, reason=why)
+        say(f"candidate {cand['cand']}: {why[:200]}")
+        return {"unproven": why}
     title, body = screened_pr_text(cand, proposer)
     branch = branch_name(cand["gen"], cand["cand"])
     status = {"state": "success", "description": status_text(cand)}
@@ -6060,6 +6224,9 @@ def wait_for_dream() -> bool:
 #: settled verdict, so a generation that crashes with one leaves its learning
 #: open (a failed try).
 REVISING = "revising"
+#: A candidate that passed its eval without proof (the publish rule,
+#: evolve_selection.unproven): not published, a failed try on its learning.
+UNPROVEN = evolve_selection.UNPROVEN
 
 
 def eval_findings(cand: Mapping[str, Any], report: Mapping[str, Any], heldout_ids: set[str]) -> list[Json]:
@@ -6075,11 +6242,12 @@ def eval_findings(cand: Mapping[str, Any], report: Mapping[str, Any], heldout_id
     return out
 
 
-def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
+def send_back(cfg: Config, cand: Json, heldout_ids: set[str], findings: list[Json] | None = None) -> bool:
     """A regressed candidate goes back for one more round when it has one
     left and broke no fence: the pairs it lost become the last round's eval
     findings (cand-<i>.rounds.json), and its eval folder moves aside
-    (eval/cand-<i>.round-<n>), so the next measurement starts clean."""
+    (eval/cand-<i>.round-<n>), so the next measurement starts clean. An
+    unproven one goes back the same way, with FINDINGS (why) instead."""
     gdir, i = gen_dir(cand["gen"]), cand["cand"]
     rounds = load_rounds(gdir, i, cand.get("learning") or {})
     if not rounds or rounds[-1].get("outcome") != "approved" or len(rounds) >= cfg["EVOLVE_REVISE_ROUNDS"]:
@@ -6094,8 +6262,10 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
             report = {}
     if (cand.get("eval") or {}).get("fences") or report.get("fences") or (report.get("heldout") or {}).get("fences"):
         return False
-    rounds[-1]["eval"] = {"verdict": cand.get("verdict"), "reason": str(cand.get("eval_reason") or "")[:300],
-                          "findings": eval_findings(cand, report, heldout_ids)}
+    rounds[-1]["eval"] = {"verdict": cand.get("verdict"),
+                          "reason": str((cand.get("reason") if findings else None) or cand.get("eval_reason")
+                                        or "")[:300],
+                          "findings": findings or eval_findings(cand, report, heldout_ids)}
     save_rounds(gdir, i, cand.get("learning") or {}, rounds)
     folder = gdir / "eval" / f"cand-{i}"
     if folder.exists():
@@ -6397,6 +6567,13 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             halted.append(stop(cfg, halt, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
             cand["verdict"] = REVISING
+        elif cand["verdict"] in SHIPS and unproven(cfg, cand):
+            # Not worse is not enough (the publish rule): back to the
+            # proposer, told why, while it has a round left; else final.
+            why = unproven(cfg, cand)
+            cand.update(verdict=UNPROVEN, reason=why)
+            if send_back(cfg, cand, held_ids, evolve_selection.unproven_findings(why, cand.get("check_power"))):
+                cand["verdict"] = REVISING
         record(cand)
         say(f"candidate {cand['cand']}: {cand['verdict']}")
 
@@ -6415,7 +6592,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         for k, cand in enumerate(list(cands)):
             if cand["verdict"] != REVISING:
                 continue
-            say(f"candidate {cand['cand']}: regressed, sent back with the pairs it lost")
+            say(f"candidate {cand['cand']}: " + ("unproven, sent back with why" if str(cand.get("reason") or "").startswith(
+                UNPROVEN) else "regressed, sent back with the pairs it lost"))
             cands[k] = build(cand["cand"], picks[cand["cand"] - 1])
             if cands[k]["verdict"] == "pending":
                 pending.append(cands[k])
@@ -6540,7 +6718,7 @@ def outcome_sources(cfg: Config) -> evolve_outcomes.Sources:
 
     return evolve_outcomes.Sources(hands_db=state_dir() / "hands.db", act_dir=state_dir() / "act",
                                    tick_runs=state_dir() / "tick" / "runs.jsonl", cron_failures=cron,
-                                   infra=INFRA_ERROR)
+                                   infra=INFRA_ERROR, cron_runs=_cron_runs)
 
 
 def score_outcomes(cfg: Config, entries: Mapping[str, Json], ask: probes_lib.Ask | None = None) -> list[Json]:

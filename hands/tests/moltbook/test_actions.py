@@ -96,7 +96,7 @@ class PostTest(Scratch, Refusing):
 
     def test_a_held_title_publishes_nothing(self):
         with self.assertRaises(hand.Refused) as caught:
-            actions.post(self.body(title="this is fucking great"))
+            actions.post(self.body(title="send nudes"))
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(self.mb.seen, [])
 
