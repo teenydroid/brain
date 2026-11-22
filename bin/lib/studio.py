@@ -3091,7 +3091,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         vetoed = dict(record["final"])
         record["final_veto"] = vetoed
         if not order:
-            record.update({"outcome": "empty", "reason": reason or "the editor picked none", "pick": None})
+            record.update({"outcome": "empty", "pick": None,
+                           "reason": f"the editor passed on every draft it was asked ({reason or 'no reason given'})"})
             return 0
         record.update({"outcome": "picked", "pick": None,
                        "reason": f"the editor passed on {top} ({reason or 'no reason given'}); the rest of the "
