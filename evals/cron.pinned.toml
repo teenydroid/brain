@@ -234,7 +234,7 @@ command = "bin/autonomy issue"
 # operator. Off unless GUARD_REVIEW=1 and GUARD_REVIEW_MODEL in
 # secrets/teeny.env.
 [jobs.guard-review]
-schedule = "7 * * * *"
+schedule = "7-59/15 * * * *"
 command = "bin/guard-review"
 
 # The re-screen (hands/guard rescreen; guard/rescreen.py): the holds the
