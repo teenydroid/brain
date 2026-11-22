@@ -1770,7 +1770,8 @@ class EvolverProposer:
         before = snapshot(tree)
         try:
             with held_lock("eval"):
-                return self._propose(request, tree, folder, port, render_evolver_research(request), edit=False)
+                return self._propose(request, tree, folder, port, render_evolver_research(
+                    fit_request(request, render=render_evolver_research)), edit=False)
         finally:
             restore_tree(tree, before)
 
