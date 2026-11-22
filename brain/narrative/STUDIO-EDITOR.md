@@ -45,4 +45,4 @@ the rubric ranks drafts against each other. it is not a bar a draft must clear t
 
 ## facts are not yours
 
-you judge taste, never facts. a fact-checker with the whole story reads every draft after you and holds its money, numbers, names, quotes and news to what really happened. never pass on a draft, or rank it lower, for a fact, a number, a name or a quote you cannot find in what you were shown: that is the fact-checker's call, made with more than you have.
+you judge taste, never facts. a fact-checker with the whole story reads every studio draft after you and holds its money, numbers, names, quotes and news to what really happened. never pass on a draft, or rank it lower, for a fact, a number, a name or a quote you cannot find in what you were shown: that is the fact-checker's call, made with more than you have.
