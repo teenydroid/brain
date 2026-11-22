@@ -113,6 +113,7 @@ import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
 import evolve_findings  # noqa: E402
 import evolve_outcomes  # noqa: E402
+import evolve_selection  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
@@ -268,6 +269,18 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_OUTCOME_LAST_DAYS": ("7", int, 1, 60),
     "EVOLVE_OUTCOME_MIN_EVENTS": ("4", int, 1, 1000),
     "EVOLVE_OUTCOME_P": ("0.1", float, 0.0001, 0.5),
+    # The publish rule (bin/lib/evolve_selection.py): a candidate the eval
+    # cannot tell from main (or no eval task reaches) opens a pull request
+    # only with a powered check, one whose stream held at least
+    # POWER_MIN_EVENTS events over the first outcome horizon before the run
+    # (never fewer than OUTCOME_MIN_EVENTS, nor than a whole fall needs to
+    # pass at OUTCOME_P). Else it is `unproven`. 0 switches the rule off.
+    "EVOLVE_PUBLISH_PROOF": ("1", int, 0, 1),
+    "EVOLVE_POWER_MIN_EVENTS": ("4", int, 1, 1000),
+    # A kind of merged change with this many judged outcomes and none that
+    # worked is exhausted: another of its kind goes back as a finding, and
+    # is parked on the last round. 0: lessons are shown, never enforced.
+    "EVOLVE_LESSON_MIN_JUDGED": ("3", int, 0, 50),
 }
 #: The choices a str setting may take (anything, when it is not listed).
 CHOICES = {"EVOLVE_EVALUATOR": ("lab", "none")}
@@ -1783,15 +1796,23 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
             "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
             f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
             f"act on it from today, {how}.")
+    lessons = evolve_selection.lessons_text(((request.get("evidence") or {}).get("lessons") or {}).get("kinds"))
     return [
+        *([lessons] if lessons else []),
         learning_text(request["learning"]),
         lead + " One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
         "invariants, and the checks below) and a reviewer send it back to you with findings to fix, up to "
-        f"{request.get('rounds') or 3} rounds; then it measures the tasks it reaches against main, and opens it "
-        "as its own pull request when nothing got worse.",
+        f"{request.get('rounds') or 3} rounds; then it measures the tasks it reaches against main. It opens "
+        "its own pull request only when nothing got worse AND either the eval finds it better than main, or your "
+        "check is powered: what it counts happened at least "
+        f"{request.get('power_need') or 4} times in the last {min(request.get('horizons') or outcome_horizons())} "
+        "day(s), so its verdict can come out worked or not instead of no-data. A `judged` check never powers a "
+        "change, and neither does a falling count on a change that also runs anything less. Without either it is "
+        "`unproven` and comes back to you while rounds remain. A kind of change the lessons above call exhausted "
+        "is sent back too.",
         "## or skip it\n\n"
         "Skip when no change is worth making, and say which:\n"
         "- `already`: something you run already carries it out; `where` names the file.\n"
@@ -3001,6 +3022,31 @@ def _lab_lessons() -> Json:
     return {"lessons": rows} if isinstance(rows, list) else {"available": False, "why": "no hands/lab lessons"}
 
 
+def entry_kinds(entry: Mapping[str, Any]) -> list[str]:
+    """An archived candidate's kinds (evolve_selection.kinds): as recorded,
+    or, for one from before kinds were, from the files its patch touched."""
+    if isinstance(entry.get("kinds"), list):
+        return [str(k) for k in entry["kinds"]]
+    files = _patch_files(entry)
+    return evolve_selection.kinds(files, entry.get("learning")) if files else []
+
+
+def change_lessons(entries: Mapping[str, Json]) -> Json:
+    """The evidence's `lessons`: the lab's (`hands/lab lessons`) and, once a
+    change has merged, what each kind of merged change did (`kinds`,
+    evolve_selection.lessons), worst first."""
+    out = _lab_lessons()
+    try:
+        cfg = load_config()
+        spans, min_judged = outcome_horizons(cfg), cfg["EVOLVE_LESSON_MIN_JUDGED"]
+    except EvolveError:
+        spans, min_judged = outcome_horizons(), int(SETTINGS["EVOLVE_LESSON_MIN_JUDGED"][0])
+    kinds = evolve_selection.lessons(entries, spans, entry_kinds, min_judged)
+    if kinds:
+        out = {**out, "kinds_note": evolve_selection.NOTE, "kinds": kinds}
+    return out
+
+
 def _configured_horizons() -> tuple[int, ...]:
     """The outcome horizons secrets/evolve.env sets, or the defaults when it
     does not parse (the run that reads it refuses on its own)."""
@@ -3025,7 +3071,7 @@ def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
         "builds": _builds(),
         "guard_holds": _holds(),
         "archive": summary(entries),
-        "lessons": _lab_lessons(),
+        "lessons": change_lessons(entries),
     }
     changes = evolve_outcomes.proposer_block(entries, _configured_horizons())
     if changes:
