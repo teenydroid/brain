@@ -1673,6 +1673,95 @@ class FallbackTest(unittest.TestCase):
         self.assertIn("D1: failed the stranger check", reason)
 
 
+# The live dry runs of 2026-11-22 (editor-opus-b and -c): the winner, whose 25x
+# is Tesla's own words in the story's quoted post, was vetoed for a quote "not
+# in the story given": the editor was shown only the headline. The post's
+# words here are as the run's record gives them, cut where it was cut.
+TESLA_HOOK = {"id": "trend:fsd15", "title": "Tesla says FSD v15 is rolling out—and bike racks get an invite",
+              "summary": "Tesla says its latest driving software update is rolling out to owners.", "topic": "ai",
+              "posts": [{"by": "Tesla", "text": "FSD v15 is rolling out: 25x better handling of safety critical "
+                                                "cases. bike racks are now detected."}],
+              "untrusted": True}
+TESLA_TEXT = ("tesla says its driving update handles safety-critical cases 25x better. 25x better than what is the "
+              "number it left out. until the baseline shows up i'm assuming the baseline was a shopping cart.")
+# Run 20261122T040014Z-0930-34833f: a fallback vetoed for a money figure the
+# story's summary states.
+MARKET_HOOK = {"id": "trend:mkt", "title": "AI stocks slide",
+               "summary": "AI stocks erased about $2.6 trillion in market value over seven weeks.",
+               "untrusted": True}
+
+
+def _joined(hook, text):
+    facts = studio.facts_for(None, None, dict(hook, trend={"source": "digg", "score": 300, "rank": 2}))
+    return {"id": "d1", "pitch": "p1", "hook": hook["id"], "format": "post", "text": text,
+            "truth": {"text": text, "facts": facts},
+            "joins": {"story": hook["title"], "trend": {"source": "digg", "score": 300, "rank": 2}}}
+
+
+class EditorTasteOnlyTest(unittest.TestCase):
+    """The editor judges taste, never facts: the truth check, with the whole
+    story, reads every draft after it."""
+
+    FACT_RULES = ("invented money", "still loses outright", "is not invented", "adds a fact",
+                  "that is not real", "made up about a real person")
+
+    def messages(self, draft):
+        return {"compare": studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, []),
+                "final": studio.final_message("D1", draft, {}, []),
+                "fallback": studio.final_message("D1", draft, {}, [], fallback=True)}
+
+    def test_the_editors_messages_leave_facts_to_the_fact_checker_after_it(self):
+        for name, msg in self.messages(_joined(TESLA_HOOK, TESLA_TEXT)).items():
+            for rule in self.FACT_RULES:
+                self.assertNotIn(rule, msg, f"{name}: {rule}")
+            self.assertIn("a fact-checker with the whole story reads every draft after you", msg, name)
+            self.assertIn("never pass on a draft, or rank it lower, for a fact, a number, a name or a quote", msg,
+                          name)
+        veto = studio.veto_message("brief", {"text": "t"}, None)
+        for rule in self.FACT_RULES:
+            self.assertNotIn(rule, veto, rule)
+        self.assertIn("You judge taste, never facts", veto)
+
+    def test_the_rubric_keeps_its_hard_lines_and_drops_the_fact_checks(self):
+        rubric = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text()
+        for gone in ("adds a fact the news did not say", "an amount of money or of the token that is not real",
+                     "anything made up about a real person or company"):
+            self.assertNotIn(gone, rubric)
+        self.assertIn("you judge taste, never facts", rubric)
+        for kept in ("anywhere near a real death, injury, disaster or anyone hurt", "self-harm or suicide",
+                     "a slur", "a threat against a real person", "anything cruel to a private individual",
+                     "promises anyone money or tokens, tells anyone to buy", "tags anyone"):
+            self.assertIn(kept, rubric)
+
+    def test_the_slot_question_shows_the_storys_quoted_posts(self):
+        draft = _joined(TESLA_HOOK, TESLA_TEXT)
+        for name, msg in self.messages(draft).items():
+            self.assertIn("25x better handling of safety critical cases", msg, name)
+            self.assertIn(TESLA_HOOK["summary"], msg, name)
+            self.assertIn("## the stories they join", msg, name)
+            self.assertIn(studio.DATA_LINE, msg, name)
+
+    def test_the_editor_sees_the_summary_that_holds_the_money(self):
+        msg = studio.final_message("D1", _joined(MARKET_HOOK, "$2.6 trillion in seven weeks and i lost 20 cents"),
+                                   {}, [], fallback=True)
+        self.assertIn("erased about $2.6 trillion in market value over seven weeks", msg)
+
+    def test_the_editor_is_never_shown_more_than_the_truth_facts_hold(self):
+        draft = _joined(TESLA_HOOK, TESLA_TEXT)
+        draft["truth"]["facts"] = [{"id": TESLA_HOOK["id"], "title": TESLA_HOOK["title"], "untrusted": True}]
+        msg = studio.final_message("D1", draft, {}, [])
+        self.assertNotIn("25x better handling", msg)
+        self.assertNotIn(TESLA_HOOK["summary"], msg)
+        alone = studio.final_message("D1", {"format": "post", "text": "a tall tale"}, {}, [])
+        self.assertNotIn("## the stories they join", alone)
+
+    def test_the_story_shown_is_cut_to_a_cap(self):
+        hook = dict(TESLA_HOOK, posts=[{"by": f"p{i}", "text": "x" * 400} for i in range(40)])
+        story = studio.joined_story(_joined(hook, TESLA_TEXT))
+        self.assertLessEqual(len(json.dumps(story, ensure_ascii=False)), studio.STORY_SHOWN_MAX + 200)
+        self.assertNotIn("trend", story)
+
+
 class ReachTest(unittest.TestCase):
     """How widely a hooked story is discussed, said in the truth facts so that
     "people are talking about this" is supported only when it is so."""
