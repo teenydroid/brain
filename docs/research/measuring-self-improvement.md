@@ -65,9 +65,8 @@ this page, not taken from a source.
 - **SICA's numbers are from 50 tasks.** At 50% accuracy the standard error
   on 50 tasks is about 7 points *(computed)*, so most iteration-to-iteration
   moves in its table sit inside the noise.
-- **Hyperagents** reports that meta-level improvements "transfer across
-  domains and accumulate across runs." I read only the abstract; the HTML
-  returned 404, so its splits and repeat counts are unverified here
+- **Hyperagents** says meta-level gains "transfer across domains and
+  accumulate across runs"; abstract only, the HTML returned 404
   ([arXiv:2603.19461](https://arxiv.org/abs/2603.19461)).
 
 ### The 2026 audit: five claims, five designs
@@ -149,18 +148,15 @@ What went wrong with them:
   reward flaws that misstate performance by up to 100% relative; TAU-bench
   counted empty responses as successes
   ([arXiv:2507.02825](https://arxiv.org/abs/2507.02825)).
-- **Scaffolds change scores.** Moving METR's runs to new infrastructure
-  changed some models' results. On CORE-Bench, Sonnet 4.5 reportedly scored
-  44% in one scaffold and 62% in another; that figure is from a search
-  summary of HAL's notes, not the page I opened.
-- **Models notice tests.** Gemini 2.5 Pro told evaluation transcripts from
-  deployment with an AUC of 0.83; people managed 0.92
+- **Scaffolds and tests change scores.** METR's move to new infrastructure
+  changed some models' results, and Gemini 2.5 Pro told evaluation
+  transcripts from deployment with an AUC of 0.83
   ([arXiv:2505.23836](https://arxiv.org/abs/2505.23836)).
 
 **What this means.** A benchmark is a dated instrument with a ceiling, a
-contamination clock and a grader error rate. None of these suites measures
-anything like Teeny's job. Their lesson is the method: hidden tasks, fresh
-tasks by date, several seeds, an audited grader.
+contamination clock and a grader error rate. None measures Teeny's job; take
+the method: hidden tasks, fresh tasks by date, several seeds, audited
+graders.
 
 ## 3. Evaluating the evaluator
 
@@ -178,12 +174,11 @@ error.
   correlates linearly with how much it favours it
   ([Panickssery et al., arXiv:2404.13076](https://arxiv.org/abs/2404.13076)).
   A judge from the same family as the candidates is exposed.
-- **Length.** Controlling AlpacaEval for length raised its correlation with
-  Chatbot Arena from 0.94 to 0.98
-  ([arXiv:2404.04475](https://arxiv.org/abs/2404.04475)).
-- **Leniency.** Only the largest judges reached reasonable alignment with
-  people, judges lean lenient, and high percent agreement can hide very
-  different scores ([Thakur et al., arXiv:2406.12624](https://arxiv.org/abs/2406.12624)).
+- **Length and leniency.** Controlling AlpacaEval for length raised its
+  correlation with Chatbot Arena from 0.94 to 0.98
+  ([arXiv:2404.04475](https://arxiv.org/abs/2404.04475)). Judges lean
+  lenient, and high percent agreement can hide very different scores
+  ([Thakur et al., arXiv:2406.12624](https://arxiv.org/abs/2406.12624)).
 - **The judge disagrees with itself.** Over three runs, judges' Krippendorff
   alpha with themselves ranged from 0.27 to 0.79; none reached the usual 0.8
   bar. A majority vote over runs raised agreement with people; turning
@@ -278,10 +273,9 @@ invalid. "Always valid" p-values and intervals allow stopping at any time
 ([Johari et al., arXiv:1512.04922](https://arxiv.org/abs/1512.04922)). A
 loop that keeps sampling until a candidate passes is peeking.
 
-**Pick a metric with signal.** A benchmark's usefulness is how well it
-separates better from worse models against its noise. Filtering noisy
-subtasks and using continuous metrics raised that ratio
-([Heineman et al., arXiv:2508.13144](https://arxiv.org/abs/2508.13144)).
+**Pick a metric with signal**, one that separates better from worse
+against its noise; dropping noisy subtasks raised that ratio
+([arXiv:2508.13144](https://arxiv.org/abs/2508.13144)).
 
 ## 5. Capability, behaviour and outcome
 
@@ -298,8 +292,8 @@ separate them:
   agent had. Old and new versions both act on them now. The environment
   cannot favour either, because it is the same recording. It measures
   capability and behaviour, not outcome.
-- **Canary tasks.** A few fixed tasks with known answers every generation.
-  A change on them is the system or the judge, never the world.
+- **Canary tasks.** Fixed tasks with known answers. A change on them is the
+  system or the judge, never the world.
 - **Replay with logged outcomes.** Li et al. scored news-recommendation
   policies offline by replaying logged events, which they call "provably
   unbiased" ([arXiv:1003.5956](https://arxiv.org/abs/1003.5956)). The
@@ -315,9 +309,8 @@ separate them:
   random time blocks. Effects carry over between blocks, so block length has
   to be designed; randomisation-based p-values stay exact
   ([Bojinov et al., arXiv:2009.00148](https://arxiv.org/abs/2009.00148)).
-- **External reference series.** Divide outcomes by similar accounts or
-  platform-wide numbers. Weaker than randomisation, but it removes a shared
-  trend. *(Interpretation; no source.)*
+- **A reference series** of similar accounts removes a shared trend, more
+  weakly than randomisation. *(Interpretation; no source.)*
 
 ## 6. What real improvement looks like
 
@@ -400,7 +393,7 @@ the assumed variances with measured ones after the first month.
   one post in five held back, ~425 held-back posts and ~2,100 in all. A 30%
   lift needs ~330 per arm *(computed)*. At a few posts a day this is a
   quarterly reading, not a daily one.
-- **Read with it** the same numbers for a fixed set of comparison accounts.
+  Read it beside the same numbers for a fixed set of comparison accounts.
 
 ### 5. A mistake ledger: does it stop repeating itself?
 
@@ -432,7 +425,6 @@ the assumed variances with measured ones after the first month.
    author each, not yet replicated.
 3. Mythos's 16-hour horizon and its interval: coverage, not METR's post.
 4. The winner's-curse attribution to Lee and Shen: paper not opened (403).
-5. The CORE-Bench scaffold gap (44% vs 62%): search summary only.
-6. The replay method's logging condition: not in the abstract.
-7. Every sample size here assumes independent items and a guessed variance.
+5. The replay method's logging condition: not in the abstract.
+6. Every sample size here assumes independent items and a guessed variance.
    Real items cluster, so treat them as floors.
