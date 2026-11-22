@@ -37,9 +37,10 @@ origin/main is still the deployed commit: once main has moved, putting the
 old tree back would drop what came after, and the issue stands alone. It
 touches the held paths, so the audit leaves it for the operator
 (`recently_rolled_back`): the babysitter asks for the revert, a person
-presses the button. A reason that will not change (no clone, main moved) is
-recorded once (`deploy_revert_pr_skipped`); a push or an open that failed is
-tried again next run.
+presses the button. A reason that will not change (no clone, main moved, a
+branch of that name on origin that is not this revert) is recorded once
+(`deploy_revert_pr_skipped`); a push or an open that failed is tried again
+next run, with the commit the earlier run made.
 
 It never restarts or rolls the box back: bin/spine already boots last-good
 when the doctor fails, and deploy.py deploys nothing while that marker is
@@ -321,11 +322,39 @@ def _revert_commit(bad: Json) -> tuple[str, str]:
         tree = _clone_git("rev-parse", "--verify", f"{base}^{{tree}}")
         if tree == _clone_git("rev-parse", "--verify", f"{main}^{{tree}}"):
             raise _Skip("the deploy changed no file")
-        message = (f"revert #{number}: the deploy left the box unhealthy\n\n"
-                   f"Puts back the tree of {base}, which the box ran before {sha}.")
-        commit = _clone_git("commit-tree", tree, "-p", main, "-m", message)
+        # A run before this one may have got as far as the push (or only the
+        # local commit) and then failed. A second commit would have another
+        # id, its push would be no fast-forward, and nothing here forces: so
+        # the commit already made is the one that is pushed and opened.
+        commit = None
+        for ref in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
+            had = _rev(ref)
+            if had is None:
+                continue
+            if not _is_the_revert(had, main, tree):
+                if ref.startswith("refs/remotes/"):
+                    raise _Skip(f"origin already has a branch {branch} that is not this revert")
+                continue
+            commit = had
+            break
+        if commit is None:
+            message = (f"revert #{number}: the deploy left the box unhealthy\n\n"
+                       f"Puts back the tree of {base}, which the box ran before {sha}.")
+            commit = _clone_git("commit-tree", tree, "-p", main, "-m", message)
         _clone_git("update-ref", f"refs/heads/{branch}", commit)
     return branch, main
+
+
+def _rev(ref: str) -> str | None:
+    done = git.run(hand.state_dir(), "--git-dir", str(selfclone.gitdir()), "rev-parse", "--verify", "-q",
+                   f"{ref}^{{commit}}", check=False)
+    return done.stdout.decode().strip() or None if done.returncode == 0 else None
+
+
+def _is_the_revert(commit: str, main: str, tree: str) -> bool:
+    """One commit on `main` holding exactly the tree to go back to."""
+    return (_clone_git("rev-list", "--parents", "-n", "1", commit).split() == [commit, main]
+            and _clone_git("rev-parse", "--verify", f"{commit}^{{tree}}") == tree)
 
 
 def _revert_pr(gh: Callable[[], PullsApi], bad: Json) -> Json:
