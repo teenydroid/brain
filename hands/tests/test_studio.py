@@ -1872,6 +1872,12 @@ class PureInventionTest(unittest.TestCase):
         _, dropped, _ = self.validate([{"id": "p1", "shape": "scene", "format": "post", "angle": "a"}])
         self.assertEqual([d["why"] for d in dropped], ["it names no item and no hook"])
 
+    def test_a_pitch_whose_hook_is_not_trending_is_not_pure_invention(self):
+        # It was meant as news: it stays a pitch that names nothing.
+        _, dropped, _ = self.validate([{"id": "p1", "hook": "trend:old", "shape": "tall tale", "format": "post",
+                                        "angle": "a"}])
+        self.assertEqual([d["why"] for d in dropped], ["its hook 'trend:old' is not a trending story, and it names no item"])
+
     def test_a_pitch_with_an_item_is_not_pure_invention(self):
         kept, _, _ = self.validate([{"id": "p1", "item": "evt:1", "invented": True, "shape": "tall tale",
                                      "format": "post", "angle": "a"}])
