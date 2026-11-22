@@ -34,7 +34,8 @@ case "$*" in
     ;;
   *"tee state/home/notes/inbox/operator-"*)
     mkdir -p "$FAKE_ROOT/state/home/notes/inbox"
-    cat >"$FAKE_ROOT/state/home/notes/inbox/${*##*/}" ;;
+    all="$*"
+    cat >"$FAKE_ROOT/state/home/notes/inbox/${all##*/}" ;;
   *) echo "unexpected docker call: $*" >&2; exit 1 ;;
 esac
 FAKE
