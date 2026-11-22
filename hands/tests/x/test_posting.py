@@ -70,12 +70,14 @@ class GuardOrderTest(Posting):
         [row] = self.ledger()
         self.assertEqual((row["id"], row["kind"], row["text"], row["created_at"]), ("100", "post", "GM", T0))
 
-    def test_asks_the_guard_about_an_own_post_with_the_emoji_cap(self):
+    def test_asks_the_guard_about_an_own_post_with_no_emoji_cap(self):
+        # 2026-11-22: the emoji cap was taste; MAX_EMOJI_PER_POST is ignored.
         self.configure(MAX_EMOJI_PER_POST="2")
         publish.post({"anchor": "hn:1", "text": "gm"})
         text, kwargs = self.guard.calls[0]
         self.assertEqual(text, "gm")
-        self.assertEqual((kwargs["surface"], kwargs["kind"], kwargs["max_emoji"]), ("x", "post", 2))
+        self.assertEqual((kwargs["surface"], kwargs["kind"]), ("x", "post"))
+        self.assertNotIn("max_emoji", kwargs)
 
     def test_a_refusal_never_reaches_x_and_asks_for_a_rewrite(self):
         self.use_guard(Guard(kind="refuse", reason="names a ticker that is not ours"))
@@ -122,8 +124,19 @@ class GuardOrderTest(Posting):
         with self.assertRaisesRegex(hand.HandError, "guard"):
             publish.guard_unavailable("gm", surface="x", kind="post")
 
-    def test_refuses_over_280_as_x_counts_after_the_guard(self):
+    def test_a_long_post_goes_out_up_to_x_long_post_limit(self):
+        # 2026-11-22, the operator: "the 280 is not really a hard
+        # restriction". X Premium publishes longer text as a long post.
         self.configure(DRY_RUN="1")
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "a" * 281})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "a" * 25_000})["dry_run"])
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"anchor": "hn:1", "text": "a" * 25_001})
+        self.assertEqual((caught.exception.detail["length"], caught.exception.detail["limit"]), (25_001, 25_000))
+        self.assertTrue(caught.exception.detail["rewrite"])
+
+    def test_refuses_over_280_as_x_counts_after_the_guard_when_set_to_280(self):
+        self.configure(DRY_RUN="1", X_MAX_POST_LENGTH="280")
         self.assertTrue(publish.post({"anchor": "hn:1", "text": "a" * 280})["dry_run"])
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"anchor": "hn:1", "text": "a" * 281})
