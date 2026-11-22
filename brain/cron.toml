@@ -422,3 +422,15 @@ schedule = "30 17 * * 6"
 tz = "Asia/Kolkata"
 command = "bin/moltbook-prune"
 catch_up = true
+
+# --- your own tools (docs/mind.md, "Its own tools") ---------------------------------
+#
+# A job may also run one of the tools you wrote under home/tools/:
+#
+#   [jobs.hello]
+#   schedule = "0 9 * * *"
+#   command = "bin/box hello"
+#
+# The tool must exist in home/tools/, and it takes at most 8 plain words
+# after its name. It runs jailed, with no key, and only while your operator
+# has BOX=1.

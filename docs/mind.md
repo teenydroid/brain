@@ -137,6 +137,53 @@ doctor is red afterwards, or the spine fell back to its last good checkout,
 it records the deploy as bad, opens a "revert #N" issue and holds self-merge
 on the paths that change touched for a day.
 
+## Its own tools
+
+`home/` in the repository is Teeny's own code (`home/README.md`). A tool is
+a folder, `home/tools/<name>/`, with a `run.py`, a `run.sh` or an executable
+`run`. The mind writes it in its working copy, opens the pull request, and
+because the change is inside `home/` it merges on green CI with no person
+reading it.
+
+That is only safe if the code never runs with anything of the operator's in
+reach, so there are exactly two places it runs:
+
+- the mind's own shell, inside the mind's jail;
+- `bin/box <name>` (`bin/lib/box.py`), which runs the tool from the live
+  checkout under the same kind of jail (`bin/lib/jail.py`, the kernel's
+  Landlock). The tool can read `home/` and the system, and write only
+  `state/box/tools/<name>/`. It cannot read or list `secrets/`, `brain/`,
+  `bin/`, `hands/`, `.git` or the rest of `state/`, and it gets none of the
+  caller's environment. A syscall filter refuses chmod, chown, utime and
+  xattr calls that name a file by its path, which Landlock does not cover:
+  without it a tool could make `secrets/teeny.env` unreadable. On a kernel
+  with Landlock 6 or newer (Linux 6.12) it also cannot signal a process
+  outside the jail; on versions 3 to 5 it can, so there a tool could kill
+  the spine, which compose restarts. `bin/box check` prints the version.
+
+A job in `brain/cron.toml` may run a tool: `command = "bin/box <name>"` with
+up to 8 plain words after it. That is how Teeny gives itself a pipeline that
+needs no model: a scraper, a counter, a report. A tool acts on the world
+only through the broker (`"$TEENY_CLI" do '{...}'`), so the guard, the caps
+and the rehearsal hold it as they hold the mind. What it prints is left in
+the mind's inbox as `notes/inbox/tool-<name>.md`, marked as data, and each
+run is one line in `state/box/ledger.jsonl`.
+
+It is off until the operator sets `BOX=1` in `secrets/teeny.env`; off, a job
+that names a tool does nothing and is not an error. `BOX_TIMEOUT_SECS`
+(240, at most 270) is one run's limit: the core gives a cron shell call
+300 s. When a run ends, times out or is stopped, everything the tool
+started is killed before the next run may begin, and only the last 16 KiB
+of what it printed is kept. On a kernel that cannot jail (no Landlock, or
+older than its version 3) `bin/box` runs nothing and `bin/doctor` fails
+while `BOX=1`.
+
+What this does not do: the hands stay as they are. A hand that posts, mails,
+pushes or pays holds a key, and code that holds a key can leak it or skip
+the guard wherever it runs. Those change only by a pull request a person
+merges, until the keys sit behind something that enforces the guard for
+them.
+
 ## Who talks to it
 
 - **The operator**: `deploy/tell.sh --mind "..."` leaves
@@ -235,5 +282,9 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   and the Moltbook prune are in `brain/cron.toml` now, Teeny's to
   reschedule, pause or drop. Evolve, the wants feed and the desks stay
   pinned for now; the watchers and the money jobs stay pinned for good.
+- **Self-merged hands.** Teeny's own tools merge by themselves
+  (`home/tools/`); a hand that holds a key does not. Lifting that means
+  moving every key behind a proxy that runs the guard, so that a hand
+  asks for a send instead of making it.
 - **Sub-agents and a browser of its own.** A child of a cron run is
   read-only in the core today; browsing goes through `do queue_task`.

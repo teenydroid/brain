@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run one of Teeny's own tools (home/tools/<name>/) in a files-only jail
+# (bin/lib/box.py, bin/lib/jail.py): code Teeny merged for itself on green CI,
+# with no secrets/, brain/, bin/, hands/ or .git in reach. Off until BOX=1 in
+# secrets/teeny.env.
+#
+#   bin/box NAME [ARG...]   # run home/tools/NAME, args are plain words
+#   bin/box list            # the tools in this checkout
+#   bin/box check           # for bin/doctor: with BOX=1 the kernel must jail
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+case "${1:-}" in
+  list | check) exec python3 "$TEENY_ROOT/bin/lib/box.py" "$@" ;;
+  "" | -h | --help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) exec python3 "$TEENY_ROOT/bin/lib/box.py" run "$@" ;;
+esac
