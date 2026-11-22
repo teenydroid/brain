@@ -1338,7 +1338,7 @@ class Halts(EvolveCase):
             self.assertTrue(held)
             self.assertTrue(evolve.status()["running"])
 
-    def test_a_fast_j_rise_stops_the_loop_until_resumed(self):
+    def test_a_fast_j_rise_skips_while_it_lasts_with_one_public_issue_and_never_latches(self):
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
         path = self.root / "h.json"
@@ -1346,32 +1346,35 @@ class Halts(EvolveCase):
         os.environ["FAKE_HISTORY"] = str(path)
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: j-rise")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertTrue(evolve.halt_path().exists())
+        self.assertEqual(out["skipped"], "skipped this run: j-rise")
+        (issue,) = pub.issues
+        self.assertIn("0.700", issue["body"])  # the rise itself, for whoever looks
+        self.assertIn("EVOLVE_MAX_J_RISE", issue["body"])
+        self.assertEqual(pub.labels[0]["labels"], ["help wanted"])
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)  # the same open issue, not one a run
+        # The window moves on: the next run goes, nobody had to act.
         path.write_text(json.dumps([{"at": T0 - DAY, "J": 1.0}]))
-        out = self.run_gen(1, publisher=pub)
-        self.assertIn("until `bin/evolve resume`", out["skipped"])
-        self.assertEqual(len(pub.issues), 1)
-        evolve.resume()
         self.propose(1, [self.playbook_edit("One.")])
         self.assertIn("gen", self.run_gen(1, publisher=pub))
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())
 
     def test_a_slow_j_rise_passes(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5)
         path = self.root / "h.json"
         path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.2}]))
         os.environ["FAKE_HISTORY"] = str(path)
-        self.assertEqual(evolve.halts_before(evolve.load_config()), [])
+        self.assertEqual(evolve.preconditions(evolve.load_config()), ([], []))
 
     def test_dry_run_files_no_issue(self):
         os.environ["DRY_RUN"] = "1"
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
-        self.propose(1, [self.playbook_edit("One.")])
-        self.run_gen(1, publisher=Refusing(), scheduled=True)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
+        path = self.root / "h.json"
+        path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.7}]))
+        os.environ["FAKE_HISTORY"] = str(path)
         out = self.run_gen(1, publisher=Refusing(), scheduled=True)
-        self.assertTrue(out["halts"][0]["dry_run"])
-        self.assertIn("would_open_issue", out["halts"][0])
+        self.assertTrue(out["problems"][0]["dry_run"])
+        self.assertIn("would_open_issue", out["problems"][0])
 
 
     def test_a_run_waits_for_a_dream_still_writing_the_page(self):
