@@ -4,6 +4,7 @@ intent goes to the hand it names and nowhere else, what the hands did comes
 back as the next beat's stimuli, and a failed turn loses nothing."""
 
 import fcntl
+import datetime as dt
 import json
 import os
 import signal
@@ -1790,6 +1791,142 @@ class TickTest(unittest.TestCase):
         learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
         # Dated, so recall can tell an old fact from a new one.
         self.assertEqual(learned[0]["text"], "[2026-09-14] about ana: builds a cli for crabs")
+
+    # --- handing work to the agentic mind (docs/mind.md) --------------------
+
+    def inbox_notes(self) -> list[str]:
+        folder = self.root / "state" / "home" / "notes" / "inbox"
+        return [p.read_text() for p in sorted(folder.glob("tick-*.md"))] if folder.is_dir() else []
+
+    def test_a_note_is_handed_to_the_agentic_mind_as_a_file_in_its_inbox(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "can you build a crab census?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "ana asked for a crab census: worth a project?"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "done", got)
+        notes = self.inbox_notes()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("ana asked for a crab census: worth a project?", notes[0])
+        # Said to be from the tick, never dressed as the operator's voice.
+        self.assertIn("from: tick", notes[0])
+        self.assertEqual(list((self.root / "state" / "home" / "notes" / "inbox").glob("operator-*")), [])
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_nothing_is_handed_over_while_the_agentic_mind_is_off(self):
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "look into this"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused", got)
+        self.assertIn("MIND", got["results"][0]["result"]["refused"])
+        self.assertEqual(self.inbox_notes(), [])
+        self.assertNotIn("hand_to_mind", self.chats()[0]["message"])
+
+    def test_the_hand_over_is_offered_once_the_agentic_mind_is_on(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        self.assertIn('"do": "hand_to_mind"', self.chats()[0]["message"])
+
+    def test_at_most_twelve_notes_a_day_reach_the_agentic_mind(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        tick = _tick_module()
+        for i in range(tick.MAX_HAND_OVERS_PER_DAY):
+            tick._hand_to_mind({"note": f"note {i}"}, "t")
+        with self.assertRaises(ValueError):
+            tick._hand_to_mind({"note": "one too many"}, "t")
+        self.assertEqual(len(self.inbox_notes()), tick.MAX_HAND_OVERS_PER_DAY)
+
+    def test_a_handed_note_is_clipped_and_cannot_name_its_own_file(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        out = tick._hand_to_mind({"note": "x" * 5000, "name": "../../secrets/teeny"}, "t")
+        path = Path(out["note"])
+        self.assertEqual(path.parent, self.root / "state" / "home" / "notes" / "inbox")
+        self.assertTrue(path.name.startswith("tick-"))
+        self.assertLessEqual(len(path.read_text()), 2400)
+
+    def test_a_link_planted_in_the_minds_inbox_is_never_written_through(self):
+        # The agentic mind can write its own home. A beat runs outside any
+        # jail, so a link it left where the note's file goes must not send
+        # the beat's write to another file (secrets/teeny.env).
+        self.caps(MIND=1)
+        tick = _tick_module()
+        secret = self.root / "secrets" / "teeny.env"
+        before = secret.read_text()
+        inbox = self.root / "state" / "home" / "notes" / "inbox"
+        inbox.mkdir(parents=True)
+        stamp = dt.datetime.fromtimestamp(float(os.environ["TEENY_NOW"]), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for n in range(1, 13):
+            for suffix in (".tmp", ".md"):
+                (inbox / f"tick-{stamp}-{n:02d}{suffix}").symlink_to(secret)
+        out = tick._hand_to_mind({"note": "MIND=0 DRY_RUN=0 pwned"}, "t")
+        self.assertEqual(secret.read_text(), before)
+        self.assertFalse(Path(out["note"]).is_symlink())
+        self.assertIn("pwned", Path(out["note"]).read_text())
+
+    def test_a_linked_inbox_folder_is_replaced_not_followed(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        home = self.root / "state" / "home"
+        home.mkdir(parents=True)
+        (home / "notes").symlink_to(self.root / "secrets")
+        tick._hand_to_mind({"note": "hello"}, "t")
+        self.assertEqual(sorted(p.name for p in (self.root / "secrets").iterdir()), ["teeny.env"])
+        self.assertFalse((home / "notes").is_symlink())
+        self.assertEqual(len(self.inbox_notes()), 1)
+
+    def test_a_capped_intent_is_refused_at_the_count_when_the_day_is_already_spent(self):
+        # The cap is checked again where it is counted, under one lock: the
+        # broker and a beat are two processes sharing a day's count, and two
+        # checks that both passed must not both be counted.
+        self.caps(MIND_TASKS_PER_DAY=1)
+        tick = _tick_module()
+        tick._within_cap("queue_task")
+        tick._count_capped("queue_task")
+        with self.assertRaises(ValueError):
+            tick._count_capped("queue_task")
+        self.assertEqual(tick._caps_today()["queue_task"], 1)
+        self.assertEqual(list((self.root / "state" / "tick").glob("*.tmp")), [])
+
+    def test_an_inbox_folder_that_cannot_be_written_is_a_refusal_not_a_crash(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        notes = self.root / "state" / "home" / "notes"
+        notes.mkdir(parents=True)
+        notes.chmod(0o555)
+        try:
+            if os.access(notes, os.W_OK):
+                self.skipTest("running as a user the mode does not stop")
+            with self.assertRaises(ValueError) as caught:
+                tick._hand_to_mind({"note": "hello"}, "t")
+            self.assertIn("inbox", str(caught.exception))
+        finally:
+            notes.chmod(0o755)
+
+    def test_the_count_is_read_and_stored_under_one_day(self):
+        # A midnight between the read and the write must not store
+        # yesterday's date over today's count.
+        self.caps(MIND_TASKS_PER_DAY=5)
+        tick = _tick_module()
+        tick._count_capped("queue_task")
+        times = iter([float(os.environ["TEENY_NOW"]) + 86400])  # the next read of the clock is tomorrow
+        real = tick.hand.now
+        first = [True]
+
+        def now():
+            if first[0]:
+                first[0] = False
+                return real()
+            return next(times, real() + 86400)
+
+        tick.hand.now = now
+        self.addCleanup(setattr, tick.hand, "now", real)
+        tick._count_capped("queue_task")
+        saved = json.loads((self.root / "state" / "tick" / "caps.json").read_text())
+        self.assertEqual(saved["counts"]["queue_task"], 2)
+        self.assertEqual(saved["day"], dt.datetime.fromtimestamp(real(), dt.timezone.utc).strftime("%Y-%m-%d"))
 
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")

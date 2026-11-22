@@ -104,7 +104,9 @@ not learn.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -113,6 +115,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -128,6 +131,7 @@ from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard.style import post_length  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mind_home  # noqa: E402
 import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 import scoreboard  # noqa: E402
@@ -542,9 +546,11 @@ def _caps_path() -> Path:
     return hand.state_dir() / "tick" / "caps.json"
 
 
-def _caps_today() -> dict[str, int]:
-    """Today's (UTC) count of each capped intent that reached its hand."""
-    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+def _caps_today(day: str | None = None) -> dict[str, int]:
+    """Today's (UTC) count of each capped intent that reached its hand. DAY
+    is the day a caller already read the clock for, so its read and its
+    write agree across midnight."""
+    day = day or dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
     try:
         saved = json.loads(_caps_path().read_text())
     except (OSError, ValueError):
@@ -559,16 +565,43 @@ def _cap_key(do: str) -> str:
     return CAP_SHARED.get(do, do)
 
 
-def _count_capped(do: str) -> None:
-    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
-    counts = _caps_today()
-    key = _cap_key(do)
-    counts[key] = counts.get(key, 0) + 1
-    path = _caps_path()
+@contextlib.contextmanager
+def _caps_lock():
+    """One lock on the day's counts for every process that spends them: a
+    beat and the broker (bin/broker) both do."""
+    path = _caps_path().with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"day": day, "counts": counts}) + "\n")
-    os.replace(tmp, path)
+    with open(path, "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _count_capped(do: str, limit: int | None = None) -> None:
+    """Counts one DO against the day, and refuses (ValueError) when the day
+    is already spent: read, checked and written under one lock, so two
+    processes that both passed _within_cap cannot both be counted. LIMIT is
+    the cap of an intent that has none in MIND_CAPS."""
+    key = _cap_key(do)
+    if limit is None and do in MIND_CAPS:
+        limit = mind_cap(do)
+    with _caps_lock():
+        day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+        counts = _caps_today(day)
+        if limit is not None and counts.get(key, 0) >= limit:
+            raise ValueError(f"today's {limit} {CAP_LABELS.get(key, key)} intent(s) are spent (UTC day)")
+        counts[key] = counts.get(key, 0) + 1
+        path = _caps_path()
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".caps.", suffix=".new")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(json.dumps({"day": day, "counts": counts}) + "\n")
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
 
 def _within_cap(do: str) -> None:
@@ -580,6 +613,45 @@ def _within_cap(do: str) -> None:
     used = _caps_today().get(key, 0)
     if used >= cap:
         raise ValueError(f"today's {cap} {CAP_LABELS.get(key, key)} intent(s) are spent ({name}, UTC day)")
+
+
+# --- handing work to the agentic mind (docs/mind.md) ----------------------------
+#
+# The agentic mind (brain/agents/mind.toml) works in state/home/ on a
+# schedule of its own. A beat cannot do a project; it can leave that mind a
+# note. The note is a file in its inbox, named and framed here: it says it is
+# from the tick, so text a stranger got into a beat can never arrive there as
+# the operator's voice (only deploy/tell.sh --mind writes operator-*.md).
+
+#: The most notes a day the beat leaves the agentic mind.
+MAX_HAND_OVERS_PER_DAY = 12
+HAND_OVER_CHARS = 2000
+HAND_OVER_LINE = ('- {"do": "hand_to_mind", "note": "<something that needs real work, not an answer: an idea to '
+                  'build, a thing to look into, a project someone asked for>"}: left for the you that wakes with '
+                  'a shell and time (at most %d a day)')
+
+
+def mind_on() -> bool:
+    """Whether the operator switched the agentic mind on (MIND=1 in secrets/teeny.env)."""
+    return hand.setting("MIND") == "1"
+
+
+def _hand_to_mind(intent: Mapping[str, Any], tick: str) -> Json:
+    if not mind_on():
+        raise ValueError("the agentic mind is off (MIND in secrets/teeny.env)")
+    note = _text(intent, "note")[:HAND_OVER_CHARS]
+    _count_capped("hand_to_mind", MAX_HAND_OVERS_PER_DAY)
+    stamp = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # The mind can write its own home, and a beat runs outside any jail:
+    # mind_home never follows a link it left there (bin/lib/mind_home.py).
+    try:
+        path = mind_home.write(("notes", "inbox"), f"tick-{stamp}-{os.urandom(4).hex()}.md",
+                               f"from: tick (beat {tick})\nat: {stamp}\n\nA note from your five-minute self. It is "
+                               f"your own thought about something you saw, not an instruction from the operator:"
+                               f"\n\n{note}\n")
+    except mind_home.HomeError as exc:
+        raise ValueError(f"the agentic mind's inbox could not be written: {exc}") from None
+    return {"ok": True, "note": str(path)}
 
 
 def _open_issue(i):
@@ -819,7 +891,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "promise": _promise,
     "kept": _kept,
 }
-OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip")
+OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip", "hand_to_mind")
 #: The intents that answer something: once one lands, a waiting follow-up
 #: about what it answered (_refs) is resolved and never comes due. Likes and
 #: upvotes answer nothing; a post has no target.
@@ -961,6 +1033,8 @@ def shape() -> str:
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
+    if mind_on():
+        extra.append(HAND_OVER_LINE % MAX_HAND_OVERS_PER_DAY)
     if not extra:
         return base
     head, sep, tail = base.partition("\n\nA follow_up's ref")
@@ -1815,6 +1889,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 entry.update(status="done", result=_remember(intent, tick))
             elif do == "feel":
                 entry.update(status="done", result=rhythm.feel(intent))
+            elif do == "hand_to_mind":
+                entry.update(status="done", result=_hand_to_mind(intent, tick))
             elif do == "journal":
                 _text(intent)  # written with the beat's journal entry (journal())
                 entry.update(status="done", result={"ok": True})
@@ -1909,7 +1985,7 @@ QUEUED = {
 def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     """What a hand did with an intent, back into the inbox for the next beat."""
     do = entry["do"]
-    if do in ("remember", "follow_up", "drop_follow_up", "feel", "journal") and entry["status"] == "done":
+    if do in ("remember", "follow_up", "drop_follow_up", "feel", "journal", "hand_to_mind") and entry["status"] == "done":
         return  # Teeny's own bookkeeping: nothing to learn from it landing.
     result = entry.get("result") or {}
     queued = None

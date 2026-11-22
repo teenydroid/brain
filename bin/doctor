@@ -740,6 +740,33 @@ if [ "$live" = 1 ]; then
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
+  # Teeny's GitHub token must not administer a repository the babysitter merges
+  # into: the ruleset on main is what makes the frozen check binding, and an
+  # administering token can edit it (docs/roadmap.md, G5). One call a watched
+  # repository, so --live only. A warning, never a failure: the token and the
+  # repository's owner are the operator's to change on GitHub.
+  if [ -f "$root/hands/lib/teeny_hands/gh/admin.py" ]; then
+    if scope_out="$(python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands import hand
+env = Path(sys.argv[2])
+hand._ENV_CACHE = hand._parse_env_file(env.read_text()) if env.is_file() else {}
+if not hand.setting("GITHUB_TOKEN"):
+    print("ok no GitHub token: nothing to administer")
+    sys.exit(0)
+from teeny_hands.babysit import policy
+from teeny_hands.gh import admin
+from teeny_hands.gh.client import GitHubApi
+status, detail = admin.check(GitHubApi.from_settings(), policy.repos())
+print(status, detail)
+' "$root/hands/lib" "$secrets/teeny.env" 2>&1)"; then
+      note "github token scope" "${scope_out%% *}" "${scope_out#* }"
+    else
+      note "github token scope" warn "the check could not run: $(tail -n 1 <<<"$scope_out")"
+    fi
+  fi
   if jq -e '.[] | select(.name == "teeny.heartbeat" and .enabled)' <<<"${jobs:-[]}" >/dev/null 2>&1; then
     beat="$(cat "$state/heartbeat" 2>/dev/null || true)"
     age="$(python3 -c '

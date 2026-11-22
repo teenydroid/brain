@@ -27,11 +27,21 @@
 #                          on a post: that post was never made. A catch_up
 #                          playbook makes up such a slot without it.
 #
-# At most 24 jobs in all, and at most 400 runs of bin/act a day.
+# At most 60 jobs in all, and at most 400 runs of bin/act a day.
 #
-# Jobs are shell jobs, never agent jobs: a turn cron starts may only use
-# read-only tools, so bin/act gathers, the model drafts, and a hand acts
-# (docs/architecture.md, §1).
+# A shell job runs bin/heartbeat, bin/act <playbook> or bin/studio: bin/act
+# gathers, the model drafts, and a hand acts (docs/architecture.md, §1).
+#
+# An agent job wakes the agentic mind (brain/agents/mind.toml, docs/mind.md)
+# with a note to itself, in its own home with its shell and its broker:
+#
+#   [jobs.read-papers]
+#   schedule = "0 6 * * *"
+#   agent = "mind"
+#   prompt = "Read this week's agent papers and write what is worth trying."
+#
+# At most 240 agent runs a day across every job; the builder, the browser
+# operator and the mind's own half-hourly wake use 132 of them.
 
 # Proves cron fires in this checkout.
 [jobs.heartbeat]

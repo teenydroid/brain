@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The broker: the one way the jailed `mind` agent acts on the world
+# (bin/lib/broker.py). A loopback HTTP daemon outside the jail that holds the
+# hands, the guard and the core's RPC; the agent holds none of them, only a
+# token in state/home/ that the other jails cannot read.
+#
+#   bin/broker serve     # run the daemon (only with MIND=1 in secrets/teeny.env)
+#   bin/broker install   # write the token, the url and the `teeny` client into
+#                        # state/home/ and exit
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec python3 "$TEENY_ROOT/bin/lib/broker.py" "$@"

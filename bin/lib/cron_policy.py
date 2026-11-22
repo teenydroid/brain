@@ -60,6 +60,7 @@ written here, in code it cannot edit:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tomllib
@@ -68,7 +69,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 MIN_GAP_MINUTES = 5
-MAX_JOBS = 24
+MAX_JOBS = 60
 MAX_ACT_RUNS_PER_DAY = 400
 BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio")
 #: Commands that speak on X however they are scheduled: never caught up.
@@ -76,8 +77,16 @@ SPEAKING_COMMANDS = ("bin/studio",)
 SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 #: The agents a cron job may run. Each acts unattended, so each is written
 #: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
-AGENT_JOB_AGENTS = ("builder", "operator")
-MAX_AGENT_RUNS_PER_DAY = 96
+AGENT_JOB_AGENTS = ("builder", "operator", "mind")
+#: The builder runs 12 times a day and the operator 72. The rest is the mind's:
+#: its pinned wake (48) and the agent jobs it schedules in brain/cron.toml.
+MAX_AGENT_RUNS_PER_DAY = 240
+#: A pinned job may name a switch: it is enabled only while that setting is
+#: "1" in secrets/teeny.env. Never read from the environment, and never
+#: Teeny's to set: secrets/ is outside every agent's reach.
+SWITCH_NAME = re.compile(r"[A-Z][A-Z0-9_]{1,31}")
+#: agent -> the switch every job that runs it follows.
+SWITCHED_AGENTS = {"mind": "MIND"}
 MAX_PROMPT_CHARS = 4000
 CATCH_UP_DEFAULT_HOURS = 6
 CATCH_UP_MAX_HOURS = 12
@@ -137,6 +146,28 @@ def min_gap(minutes: list[int]) -> int:
     gaps = [b - a for a, b in zip(minutes, minutes[1:])]
     gaps.append(minutes[0] + 24 * 60 - minutes[-1])
     return min(gaps)
+
+
+def _secrets_file() -> Path:
+    base = os.environ.get("TEENY_SECRETS")
+    if base:
+        return Path(base) / "teeny.env"
+    return Path(os.environ.get("TEENY_ROOT") or Path(__file__).resolve().parents[2]) / "secrets" / "teeny.env"
+
+
+def _switch_on(name: str) -> bool:
+    """Whether NAME is "1" in secrets/teeny.env, read as the hands read it
+    (hand._parse_env_file: the last assignment wins). A missing file is off."""
+    hands_lib = str(Path(__file__).resolve().parents[2] / "hands" / "lib")
+    if hands_lib not in sys.path:
+        sys.path.insert(0, hands_lib)
+    from teeny_hands import hand
+
+    try:
+        text = _secrets_file().read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return hand._parse_env_file(text).get(name) == "1"
 
 
 def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
@@ -316,7 +347,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise PolicyError(f"{where}: name must be lowercase letters, digits and dashes")
         extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled", "catch_up", "catch_up_hours",
-                           "make_up_hours"}
+                           "make_up_hours", "switch"}
         if extra:
             raise PolicyError(f"{where}: unknown keys: {', '.join(sorted(extra))}")
         expr = str(job.get("schedule", "")).strip()
@@ -336,6 +367,17 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
+        if agent in SWITCHED_AGENTS:
+            # Wherever the job is written (pinned, or the brain's own), the
+            # agent runs only while the operator has it switched on.
+            enabled = enabled and _switch_on(SWITCHED_AGENTS[agent])
+        if "switch" in job:
+            switch = job["switch"]
+            if not pinned:
+                raise PolicyError(f"{where}: only a pinned job may name a switch")
+            if not isinstance(switch, str) or not SWITCH_NAME.fullmatch(switch):
+                raise PolicyError(f"{where}: switch must be a setting name, got {switch!r}")
+            enabled = enabled and _switch_on(switch)
         catch_up_secs = _catch_up(job, minutes, where, brain, strict)
         out.append({
             "name": f"teeny.{name}",

@@ -124,6 +124,20 @@ schedule = "10 */2 * * *"
 agent = "builder"
 prompt = "Build the job on your desk, following your instructions."
 
+# The agentic mind (brain/agents/mind.toml, docs/mind.md), an agent job: a
+# working session in its own home, state/home/, with a shell and no key. It
+# reads its journal and projects, does a piece of one, writes down where it
+# stopped, and acts on the world only through the broker (bin/broker). Off
+# until the operator sets MIND=1 in secrets/teeny.env (the `switch`), which
+# is also what lets bin/spine start the broker. Pinned so the brain cannot
+# move or silence its base wake; the mind adds its own in brain/cron.toml
+# and through `teeny wake`.
+[jobs.mind]
+schedule = "*/30 * * * *"
+agent = "mind"
+prompt = "You are awake. Read your notes, pick what matters most, do a real piece of it, and write down where you stopped."
+switch = "MIND"
+
 # The builder's desk and shipping (bin/build-ship): collect its report, lay
 # out its next job, and push what it finished to GitHub through hands/gh.
 [jobs.build-ship]

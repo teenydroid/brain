@@ -25,6 +25,7 @@ The weekly audit (G6) is here: its code and its pinned job.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -120,6 +121,72 @@ def _files(path: str) -> list[Path]:
     return [full]
 
 
+def _is_python(path: Path) -> bool:
+    if "__pycache__" in path.parts:
+        return False
+    if path.suffix == ".py":
+        return True
+    if path.suffix:
+        return False
+    try:
+        with path.open("rb") as handle:
+            first = handle.readline(200)
+    except OSError:
+        return False
+    return first.startswith(b"#!") and b"python" in first
+
+
+def _module_files(package: Path, dotted: list[str]) -> list[Path]:
+    """The files importing teeny_hands.<dotted> loads: each package's
+    __init__.py on the way down, and the module itself."""
+    out, here = [], package
+    for i, part in enumerate(dotted):
+        if (here / part).is_dir():
+            here = here / part
+            if (here / "__init__.py").is_file():
+                out.append(here / "__init__.py")
+        elif (here / f"{part}.py").is_file():
+            out.append(here / f"{part}.py")
+            break
+        else:
+            break  # a name inside a module, not a module
+    return out
+
+
+def _hand_imports(source: Path, package: Path) -> set[Path]:
+    """Every teeny_hands file SOURCE imports, absolute or relative."""
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return set()
+    inside = package in source.parents
+    found: set[Path] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                if parts[0] == "teeny_hands":
+                    found.update(_module_files(package, parts[1:]))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if not inside:
+                    continue
+                base = list(source.parent.relative_to(package).parts)
+                base = base[:len(base) - (node.level - 1)] if node.level > 1 else base
+            else:
+                parts = (node.module or "").split(".")
+                if parts[0] != "teeny_hands":
+                    continue
+                base = parts[1:]
+            if node.level:
+                base = base + ((node.module or "").split(".") if node.module else [])
+            found.update(_module_files(package, base))
+            for alias in node.names:
+                found.update(_module_files(package, base + [alias.name]))
+    found.discard(source)
+    return found
+
+
 def _patterns() -> list[str]:
     return frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
 
@@ -135,6 +202,26 @@ class WatcherTest(unittest.TestCase):
                     rel = f.relative_to(REPO).as_posix()
                     self.assertIsNotNone(frozen.frozen_pattern(rel, patterns),
                                          f"{watcher}: {rel} is a path Teeny may edit; freeze it in evals/frozen.txt")
+
+    def test_frozen_code_imports_no_module_teeny_may_edit(self):
+        """Frozen code runs outside any jail, as the spine's user, with
+        secrets/ in reach. A frozen module that imports one Teeny may edit
+        runs Teeny's code there, so the import is a way round the freeze."""
+        patterns = _patterns()
+        package = REPO / "hands" / "lib" / "teeny_hands"
+        sources = [p for p in sorted(package.rglob("*.py"))]
+        sources += [p for p in sorted((REPO / "bin").rglob("*")) if p.is_file() and _is_python(p)]
+        loose: dict[str, set[str]] = {}
+        for source in sources:
+            rel = source.relative_to(REPO).as_posix()
+            if frozen.frozen_pattern(rel, patterns) is None:
+                continue
+            for target in _hand_imports(source, package):
+                name = target.relative_to(REPO).as_posix()
+                if frozen.frozen_pattern(name, patterns) is None:
+                    loose.setdefault(name, set()).add(rel)
+        self.assertEqual({name: sorted(where) for name, where in loose.items()}, {},
+                         "frozen code imports these modules, which Teeny may edit; freeze them in evals/frozen.txt")
 
     def test_watchers_read_no_switch_from_the_environment(self):
         seen: dict[str, set[str]] = {}
