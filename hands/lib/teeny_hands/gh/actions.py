@@ -410,7 +410,8 @@ def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) ->
         return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"],
                 **({"labels": labels} if labels else {})}
     gh = gh or GitHubApi.from_settings()
-    opened = gh.open_issue(owner, name, fields["title"], fields["body"], labels or None)
+    opened = (gh.open_issue(owner, name, fields["title"], fields["body"], labels) if labels else
+              gh.open_issue(owner, name, fields["title"], fields["body"]))
     _record("open-issue", repo, False, opened.get("number"), url=opened.get("html_url"))
     return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
 
