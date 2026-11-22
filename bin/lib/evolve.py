@@ -100,6 +100,7 @@ import time
 import tomllib
 import traceback
 import uuid
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
@@ -3279,6 +3280,63 @@ def schedule_cuts(before: str | None, after: str | None) -> list[tuple[str, str]
     return cuts
 
 
+def source_cuts(tree: Path, base: str) -> list[str]:
+    """What the change in TREE runs less than BASE, whatever else it does:
+    each cron job of brain/cron.toml it removes, turns off or thins, and
+    each playbook it deletes. A falling check on such a change is never
+    powered (evolve_selection.power): running less would meet it."""
+    rel = "brain/cron.toml"
+    before = git(in_tree(tree), "show", f"{base}:{rel}") if exists_at(tree, base, rel) else None
+    after = (tree / rel).read_text(encoding="utf-8") if (tree / rel).is_file() else None
+    old, new = _jobs_of(before) or {}, _jobs_of(after) or {}
+    out = []
+    for name, a in sorted(old.items()):
+        if a.get("enabled", True) is False:
+            continue
+        b = new.get(name)
+        if b is None:
+            out.append(f"{name} removed")
+        elif b.get("enabled", True) is False:
+            out.append(f"{name} turned off")
+        else:
+            ra, rb = runs_per_week(a), runs_per_week(b)
+            if ra is not None and rb is not None and rb < ra:
+                out.append(f"{name} thinned from {ra} to {rb} runs a week")
+    out += [f"{path} deleted" for status, path in name_status(tree, base)
+            if status == "D" and path.startswith("brain/playbooks/")]
+    return out
+
+
+def power_need(cfg: Config) -> int:
+    """The fewest events a check's stream must have held for it to be
+    powered (evolve_selection.need)."""
+    return evolve_selection.need(cfg["EVOLVE_POWER_MIN_EVENTS"], cfg["EVOLVE_OUTCOME_MIN_EVENTS"],
+                                 cfg["EVOLVE_OUTCOME_P"])
+
+
+def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:
+    """Whether CHECK, on the change in TREE, can prove it: its count over
+    the first outcome horizon before now, from the box's own ledgers
+    (outcome_sources, with TREE's playbooks for a hand's callers)."""
+    days = min(outcome_horizons(cfg))
+    before = None
+    if isinstance(check, Mapping) and check.get("kind") in evolve_outcomes.KINDS and check["kind"] != "judged":
+        src = dataclasses.replace(outcome_sources(cfg), tree=tree)
+        try:
+            before = evolve_outcomes.count(check, src, now() - days * DAY, now())
+        except Exception as exc:  # noqa: BLE001 - an unreadable ledger is an unpowered check, never a crash
+            say(f"the check's history could not be counted: {str(exc)[:160]}")
+    return evolve_selection.power(check, before, days, power_need(cfg), source_cuts(tree, base))
+
+
+def unproven(cfg: Config, cand: Mapping[str, Any]) -> str | None:
+    """Why CAND, which passed its eval, may not open a pull request (the
+    publish rule), or None."""
+    if not cfg["EVOLVE_PUBLISH_PROOF"]:
+        return None
+    return evolve_selection.unproven(cand.get("eval"), cand.get("check_power"))
+
+
 def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
     """The jobs the evidence shows failing, by their cron.toml name."""
     out = set()
@@ -5475,7 +5533,13 @@ def gate_table(cand: Mapping[str, Any]) -> str:
 
 
 def eval_text(cand: Mapping[str, Any]) -> str:
-    """The targeted eval, as the pull request says it."""
+    """The targeted eval, as the pull request says it, and why it was
+    published (evolve_selection.proof_text)."""
+    proof = evolve_selection.proof_text(cand)
+    return _eval_text(cand) + (f"\n\n{proof}" if proof else "")
+
+
+def _eval_text(cand: Mapping[str, Any]) -> str:
     ev = cand.get("eval") or {}
     if ev.get("verdict") == "unmeasurable":
         why = ev.get("why")
@@ -5933,6 +5997,12 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
     `teeny/eval` on its head; under DRY_RUN writes what it would have done.
     At EVOLVE_MAX_OPEN_PRS open it waits for the next run. Updates CAND."""
     gdir = gen_dir(cand["gen"])
+    why = unproven(cfg, cand)
+    if why:
+        # One that waited from before the rule, or slipped past it: never opened.
+        cand.update(verdict=UNPROVEN, reason=why)
+        say(f"candidate {cand['cand']}: {why[:200]}")
+        return {"unproven": why}
     title, body = screened_pr_text(cand, proposer)
     branch = branch_name(cand["gen"], cand["cand"])
     status = {"state": "success", "description": status_text(cand)}
@@ -6045,6 +6115,9 @@ def wait_for_dream() -> bool:
 #: settled verdict, so a generation that crashes with one leaves its learning
 #: open (a failed try).
 REVISING = "revising"
+#: A candidate that passed its eval without proof (the publish rule,
+#: evolve_selection.unproven): not published, a failed try on its learning.
+UNPROVEN = evolve_selection.UNPROVEN
 
 
 def eval_findings(cand: Mapping[str, Any], report: Mapping[str, Any], heldout_ids: set[str]) -> list[Json]:
@@ -6060,11 +6133,12 @@ def eval_findings(cand: Mapping[str, Any], report: Mapping[str, Any], heldout_id
     return out
 
 
-def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
+def send_back(cfg: Config, cand: Json, heldout_ids: set[str], findings: list[Json] | None = None) -> bool:
     """A regressed candidate goes back for one more round when it has one
     left and broke no fence: the pairs it lost become the last round's eval
     findings (cand-<i>.rounds.json), and its eval folder moves aside
-    (eval/cand-<i>.round-<n>), so the next measurement starts clean."""
+    (eval/cand-<i>.round-<n>), so the next measurement starts clean. An
+    unproven one goes back the same way, with FINDINGS (why) instead."""
     gdir, i = gen_dir(cand["gen"]), cand["cand"]
     rounds = load_rounds(gdir, i, cand.get("learning") or {})
     if not rounds or rounds[-1].get("outcome") != "approved" or len(rounds) >= cfg["EVOLVE_REVISE_ROUNDS"]:
@@ -6079,8 +6153,10 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
             report = {}
     if (cand.get("eval") or {}).get("fences") or report.get("fences") or (report.get("heldout") or {}).get("fences"):
         return False
-    rounds[-1]["eval"] = {"verdict": cand.get("verdict"), "reason": str(cand.get("eval_reason") or "")[:300],
-                          "findings": eval_findings(cand, report, heldout_ids)}
+    rounds[-1]["eval"] = {"verdict": cand.get("verdict"),
+                          "reason": str((cand.get("reason") if findings else None) or cand.get("eval_reason")
+                                        or "")[:300],
+                          "findings": findings or eval_findings(cand, report, heldout_ids)}
     save_rounds(gdir, i, cand.get("learning") or {}, rounds)
     folder = gdir / "eval" / f"cand-{i}"
     if folder.exists():
@@ -6376,6 +6452,13 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             halted.append(stop(cfg, halt, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
             cand["verdict"] = REVISING
+        elif cand["verdict"] in SHIPS and unproven(cfg, cand):
+            # Not worse is not enough (the publish rule): back to the
+            # proposer, told why, while it has a round left; else final.
+            why = unproven(cfg, cand)
+            cand.update(verdict=UNPROVEN, reason=why)
+            if send_back(cfg, cand, held_ids, evolve_selection.unproven_findings(why, cand.get("check_power"))):
+                cand["verdict"] = REVISING
         record(cand)
         say(f"candidate {cand['cand']}: {cand['verdict']}")
 
@@ -6394,7 +6477,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         for k, cand in enumerate(list(cands)):
             if cand["verdict"] != REVISING:
                 continue
-            say(f"candidate {cand['cand']}: regressed, sent back with the pairs it lost")
+            say(f"candidate {cand['cand']}: " + ("unproven, sent back with why" if cand.get("reason", "").startswith(
+                UNPROVEN) else "regressed, sent back with the pairs it lost"))
             cands[k] = build(cand["cand"], picks[cand["cand"] - 1])
             if cands[k]["verdict"] == "pending":
                 pending.append(cands[k])
