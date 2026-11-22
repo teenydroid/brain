@@ -237,10 +237,10 @@ INVENTION_SHAPES = ("tall tale", "grudge", "lore bit", "threat")
 INVENTION_PITCHES = 3
 #: The before/after pairs of writer.md, by their label.
 PAIRS = ("Confession", "Grudge", "Bet", "Scene", "Callback", "Real question", "Lore bit", "Gallows", "Tall tale",
-         "Threat")
+         "Threat", "Roast")
 #: The pairs whose "after" is in the unhinged register (writer.md, "the
 #: voice"): every sample rereads at least one (`sample`).
-UNHINGED_PAIRS = ("Confession", "Grudge", "Bet", "Lore bit", "Tall tale", "Threat")
+UNHINGED_PAIRS = ("Confession", "Grudge", "Bet", "Lore bit", "Tall tale", "Threat", "Roast")
 #: One run in EXPLORE_EVERY is an explore run.
 EXPLORE_EVERY = 4
 #: A thread is 2 to THREAD_MAX posts.
@@ -1214,10 +1214,12 @@ def unsourced(text: str, facts: list[Any]) -> list[str]:
 
 
 def example_afters(brain: Path) -> list[str]:
-    """The "after" lines of writer.md's examples, which a draft must not reuse."""
+    """The lines a draft must not reuse: the "after" lines of writer.md's
+    examples, then Teeny's own best lines (narrative/CANON.md), which the
+    writer reads to take the move from, never the words."""
     text = prompts._read(brain / "agents" / "writer.md")
     return [line.split(":", 1)[1].strip() for line in text.splitlines()
-            if line.startswith(("> after:", "> logline:"))]
+            if line.startswith(("> after:", "> logline:"))] + prompts.canon_lines(brain)
 
 
 _WORD = re.compile(r"[a-z0-9']+")
@@ -1434,9 +1436,15 @@ JOIN_RULES = (
     "- " + KEEP_LIST)
 
 
-#: The pitch turn's ask for a roast when the outside world is there.
-ROAST_PITCH = ("When a story on the list is about a public figure, at least one pitch is a roast: it goes at them by "
-               "name, hard and rude, for the public thing the story says they did (shape \"roast\").")
+#: The pitch turn's ask for roasts when the outside world is there (2026-11-22,
+#: after Truth Terminal: it talked at famous people by name).
+ROAST_PITCHES = 2
+ROAST_PITCH = ("When a story on the list is about a public figure, at least two pitches are roasts (shape "
+               "\"roast\"): each goes at them by name, hard and rude, for the public thing the story says they "
+               "did: contempt, name-calling, an impossible scene, with no swerve into a self-own to soften it.")
+#: Said with the obsessions in the pitch turn.
+OBSESSION_LINE = ("A pitch may ride one of these (say which in its `angle`); none has to. An obsession is a bit "
+                  "about you, never a fact about the world.")
 
 
 def invention_ask(cfg: Config) -> str:
@@ -1460,9 +1468,11 @@ def offered(cfg: Config, sources: dict[str, Any]) -> list[formats.Format]:
 
 
 def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit_slot: bool = False,
-                  charts: list[Json] | None = None, sources: dict[str, list[Json]] | None = None) -> str:
+                  charts: list[Json] | None = None, sources: dict[str, list[Json]] | None = None,
+                  obsessions: str = "") -> str:
     """The pitch turn. `sources` are what the video formats read for
-    themselves, by format (a remake's charts may come as `charts`)."""
+    themselves, by format (a remake's charts may come as `charts`).
+    `obsessions` is narrative/OBSESSIONS.md as prompts.obsessions gives it."""
     given = given_sources(sources, charts)
     videos = offered(cfg, given)
     formats = ", ".join(cfg.formats)
@@ -1505,6 +1515,8 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
         invention_ask(cfg) + (" " + pure_line(cfg) if cfg.pure_invented else ""),
         "Shapes to lean on tonight: " + ", ".join(p.lower() for p in sampled["pairs"]) + ".",
     ]
+    if obsessions:
+        parts.append(obsessions + "\n\n" + OBSESSION_LINE)
     if "meme" in cfg.formats:
         parts.append(MEME_PITCH)
     for video in videos:
@@ -2921,7 +2933,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     # The answer's shape is checked inside the turn, so an answer with no
     # pitches list is asked for once more, told why, like one that is not JSON.
     checked = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled, room.skit_slot,
-                                                      sources=sources), thread, soft=True,
+                                                      sources=sources,
+                                                      obsessions=prompts.obsessions(room.brain)),
+                        thread, soft=True,
                         check=lambda answer: validate_pitches(
                             answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
                             {k: v.get("storyline") for k, v in known_items.items()}, outside_ids,
