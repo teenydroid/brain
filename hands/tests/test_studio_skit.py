@@ -97,7 +97,7 @@ class FormatTest(unittest.TestCase):
     def test_the_hard_lines_read_the_look_setting_and_score(self):
         for field, value in (("look", {"Elon Musk": "a silver tuxedo with a $TINY pin"}),
                              ("setting", "a lunar showroom, shaky leaked footage"),
-                             ("score", "a march under the whole film that ends in a gunshot")):
+                             ("score", "a march under the whole film that ends in a bloodbath")):
             with self.subTest(field=field):
                 draft = skit_draft()
                 draft["skit"][field] = value

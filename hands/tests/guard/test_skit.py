@@ -189,7 +189,7 @@ class ScreenTest(support.Scratch):
         # Everything a video model is told is screened: the constants too.
         for field, value, bit in (("look", {"Elon Musk": "a silver tuxedo and a $TINY pin"}, "bring in"),
                                   ("setting", "a press conference room, leaked footage", "frame it as real"),
-                                  ("score", "a march that ends in a gunshot", "nothing sexual, violent"),
+                                  ("score", "a march that ends in a bloodbath", "nothing sexual, violent"),
                                   ("setting", "a lunar showroom of a toddler's toys and a child", "never a minor")):
             with self.subTest(field=field, value=value):
                 self.assertRefused(self.screen({**self.HELD, field: value}), bit)
