@@ -767,7 +767,7 @@ class ResumedRunTest(Scratch):
         jobs.desk()  # a pass with no new report: the refusal still stands
         self.assertTrue(self.desk("build-done.rejected.json").exists())
         self.assertIn("workdir is empty", json.loads(self.desk("build-done.rejected.reason.json").read_text())["reason"])
-        (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
+        (self.root / "state" / "workbench" / job["workdir"] / "a.py").write_text("x = 1\n")
         self.desk("build-done.json").write_text(json.dumps(
             {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t", "repo": "coin-flipper"}))
         self.assertIsNotNone(jobs.desk()["settled"])
