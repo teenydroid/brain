@@ -109,6 +109,16 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(lost[0]["why"], "an image piece needs a scene")
 
     def test_the_limit_is_the_guards_own_count(self):
+        # X's limit is the guard's: X Premium's long post (25,000) by default
+        # since 2026-11-22, 280 with X_MAX_POST_LENGTH=280, as here.
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        from teeny_hands.guard import gate
+        self.assertEqual(gate.field_limit("x", "text"), 25000)
+        self.assertEqual(studio.over_limit({"text": "x" * 281}), "")
+        with mock.patch("teeny_hands.guard.gate.x_max_length", return_value=280):
+            self.check_280()
+
+    def check_280(self):
         self.assertEqual(studio.over_limit({"text": "x" * 280}), "")
         self.assertEqual(studio.over_limit({"text": "x" * 281}), "it is 281 characters, over the 280 limit")
         self.assertEqual(studio.over_limit({"posts": ["ok", "y" * 300]}), "post 2 is 300 characters, over the 280 limit")
@@ -1600,6 +1610,12 @@ class RewriteLengthTest(unittest.TestCase):
     def setUp(self):
         self.answers: list[dict] = []
         self.steps: list[str] = []
+        # The guard's X limit held at 280 (X_MAX_POST_LENGTH=280), so the cut
+        # turn has something to cut: the default is a long post since 2026-11-22.
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        patcher = mock.patch("teeny_hands.guard.gate.x_max_length", return_value=280)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def ask(self, root, agent, message, thread, model, secs):
         self.steps.append(message.splitlines()[0])
