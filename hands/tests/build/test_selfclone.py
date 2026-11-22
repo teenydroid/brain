@@ -431,7 +431,8 @@ class FeatureJobTest(SelfJobScratch):
         jobs.desk()
         offer = json.loads((self.root / "state" / "workbench" / "desk" / "build.json").read_text())
         self.assertEqual(offer["job"]["kind"], "self")
-        self.assertEqual(offer["job"]["feature"], {"want": "w:m15", "requires": jobs.FEATURE_REQUIRES})
+        self.assertEqual(offer["job"]["feature"], {"want": "w:m15", "requires": jobs.FEATURE_REQUIRES,
+                                                   "pattern_note": feature.PATTERN_NOTE, "pattern": feature.PATTERN})
         self.assertEqual(offer["rules"], jobs.SELF_FEATURE_RULES)
         self.assertTrue(offer["rules"].startswith(jobs.SELF_RULES))
         self.assertIn("docs/hands.md", offer["rules"])

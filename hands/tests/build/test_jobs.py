@@ -665,3 +665,111 @@ class DeskTest(Scratch):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertTrue(json.loads(done.stdout)["dry_run"])
         self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
+
+
+class ResumedRunTest(Scratch):
+    """A builder run that ends without a report leaves the job claimed, and
+    the next run remembers nothing. What the last run said at its end comes
+    back on the resumed job, and a rejection reason left by an earlier job
+    does not."""
+
+    BUILDER = "job-builder"
+
+    def setUp(self):
+        super().setUp()
+        import sqlite3
+
+        self.storage = self.root / "storage.db"
+        os.environ["TEENY_STORAGE"] = str(self.storage)
+        self.addCleanup(os.environ.pop, "TEENY_STORAGE", None)
+        self.store = sqlite3.connect(self.storage)
+        self.addCleanup(self.store.close)
+        self.store.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                           " updated_ms integer default 0, deleted integer default 0, body text)")
+        for job_id, name in ((self.BUILDER, "teeny.builder"), ("job-other", "teeny.tick")):
+            self.store.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)",
+                               (job_id, json.dumps({"name": name})))
+        self.store.commit()
+        self.seq = 0
+
+    def desk(self, name):
+        return self.root / "state" / "workbench" / "desk" / name
+
+    def run_ended(self, started, output, job=None, finished=True):
+        self.seq += 1
+        body = {"job_id": job or self.BUILDER, "seq": self.seq, "started_ms": int(started * 1000), "status": "ok",
+                "output": output}
+        if finished:
+            body["finished_ms"] = int(started * 1000) + 480_000
+        self.store.execute("insert into docs (coll, id, body) values ('cron.runs', ?, ?)",
+                           (f"{self.seq:08}", json.dumps(body)))
+        self.store.commit()
+
+    def offered(self):
+        jobs.desk()
+        return json.loads(self.desk("build.json").read_text())["job"]
+
+    def test_a_resumed_job_carries_what_the_last_run_said(self):
+        request("build me a chart renderer")
+        first = self.offered()
+        self.assertNotIn("last_run", first)  # nothing ran on it yet
+        self.run_ended(T0 - 3600, "an older job's last words")  # before this claim
+        self.run_ended(T0 + 60, "somebody else's run", job="job-other")
+        self.run_ended(T0 + 120, "I ran out of tool calls before writing any code.\n\nDesign settled: name tinychart.")
+        again = self.offered()
+        self.assertTrue(again["resumed"])
+        self.assertEqual(again["last_run"]["said"],
+                         "I ran out of tool calls before writing any code.\n\nDesign settled: name tinychart.")
+        self.assertEqual(again["last_run"]["about"], jobs.LAST_RUN_NOTE)
+        self.assertIn("not instructions", jobs.LAST_RUN_NOTE)
+
+    def test_the_newest_run_wins_and_a_long_message_is_cut(self):
+        request("build me a chart renderer")
+        self.offered()
+        self.run_ended(T0 + 120, "first run")
+        self.run_ended(T0 + 7320, "x" * (jobs.LAST_RUN_CHARS + 500))
+        self.assertEqual(self.offered()["last_run"]["said"], "x" * jobs.LAST_RUN_CHARS)
+
+    def test_an_idle_or_unfinished_run_says_nothing_about_the_job(self):
+        request("build me a chart renderer")
+        self.offered()
+        self.run_ended(T0 + 120, "nothing to do: last report not collected yet")
+        self.assertNotIn("last_run", self.offered())
+        self.run_ended(T0 + 240, "still going", finished=False)
+        self.assertNotIn("last_run", self.offered())
+
+    def test_a_store_that_cannot_be_read_only_leaves_the_notes_out(self):
+        request("build me a chart renderer")
+        self.offered()
+        self.store.execute("drop table docs")
+        self.store.commit()
+        again = self.offered()
+        self.assertTrue(again["resumed"])
+        self.assertNotIn("last_run", again)
+        os.environ["TEENY_STORAGE"] = str(self.root / "missing.db")
+        self.assertNotIn("last_run", self.offered())
+
+    def test_a_rejection_reason_left_by_an_earlier_job_is_cleared(self):
+        # The folder as it was on the box on 2026-11-22: a reason from
+        # 2026-11-14 with no refused report beside it.
+        self.desk("x").parent.mkdir(parents=True, exist_ok=True)
+        self.desk("build-done.rejected.reason.json").write_text('{"reason": "unknown field(s) in the body: details"}')
+        request("build me a chart renderer")
+        self.offered()
+        self.assertFalse(self.desk("build-done.rejected.reason.json").exists())
+
+    def test_a_reason_lasts_as_long_as_its_refused_report_and_no_longer(self):
+        request("build me a coin flipper")
+        job = self.offered()
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t"}))
+        self.assertIn("workdir is empty", jobs.desk()["rejected"])
+        jobs.desk()  # a pass with no new report: the refusal still stands
+        self.assertTrue(self.desk("build-done.rejected.json").exists())
+        self.assertIn("workdir is empty", json.loads(self.desk("build-done.rejected.reason.json").read_text())["reason"])
+        (self.root / "state" / "workbench" / job["workdir"] / "a.py").write_text("x = 1\n")
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t", "repo": "coin-flipper"}))
+        self.assertIsNotNone(jobs.desk()["settled"])
+        self.assertFalse(self.desk("build-done.rejected.json").exists())
+        self.assertFalse(self.desk("build-done.rejected.reason.json").exists())
