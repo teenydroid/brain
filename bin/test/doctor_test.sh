@@ -73,7 +73,8 @@ cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
 check "a red run is kept in state/doctor-failures.jsonl, with its time and failing checks" \
   jq -e -s 'length == 1 and (.[0].at | test("^[0-9]{4}-")) and ([.[0].checks[].check] | index("brain/SOUL.md") != null)' \
   "$root/state/doctor-failures.jsonl"
-check "a green run after it overwrites doctor.json" bash -c 'cd "$1" && bin/doctor >/dev/null 2>&1' _ "$root"
+check "a green run after it passes" doctor
+check "and overwrites doctor.json" test "$(jq -r .ok "$root/state/doctor.json")" = true
 check "but the red record is still there" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 1
 check "and keeps no detail, only names" jq -e -s '.[0].checks | all(.[]; keys == ["check", "status"])' "$root/state/doctor-failures.jsonl"
 for _ in $(seq 1 60); do
