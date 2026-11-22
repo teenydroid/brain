@@ -2317,20 +2317,17 @@ class TickTest(unittest.TestCase):
         self.tick()
         log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
         steps = [(c["hand"], c["argv"][0]) for c in log if c["argv"][:1] != ["inbox"] and c["argv"][:1] != ["mark"]]
-        self.assertEqual(steps, [("guard", "clarity"), ("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
+        self.assertEqual(steps, [("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
         self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
                          "teeny at the desk with coffee [g]")
         self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "anchor": "listen:7", "media_ids": ["777"]})
 
-    def test_a_post_without_an_anchor_is_refused_before_any_picture_is_made(self):
+    def test_a_post_without_an_anchor_goes_out(self):
+        # 2026-11-22: anchoring was taste.
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm", "image": "teeny waking up"}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm"}]})
         self.tick()
-        self.assertEqual(self.sent("post"), [])
-        self.assertEqual(self.sent("generate"), [])
-        entry = self.runs()[-1]["results"][0]
-        self.assertEqual(entry["status"], "refused")
-        self.assertIn("anchor", entry["result"]["refused"])
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "gm"})
 
     def test_a_quote_is_anchored_on_the_post_it_quotes(self):
         stimuli.add("x", "mention", "1", "gm")
@@ -2423,96 +2420,32 @@ class TickTest(unittest.TestCase):
                                                 {"do": "pitch_x", "text": "an idea"}]})
         got = self.tick()
         self.assertEqual([c["body"] for c in self.sent("post")], [{"text": "amazon built a trap for bots", "anchor": "hn:1"}])
-        self.assertEqual(len(self.sent("clarity")), 1)
+        self.assertEqual(self.sent("clarity"), [])
         self.assertEqual(got["results"][1]["status"], "refused")
         self.assertIn("STUDIO=0", got["results"][1]["result"]["refused"])
         self.assertEqual(self.filed(), [])
         self.assertIn('{"do": "post_x", "text": "...", "anchor": "<', self.chats()[-1]["message"])
 
-    UNREAD = {"clear": False, "says": "something about a week", "unknown": ["held writes"],
-              "reason": 'a stranger would have to ask about: "held writes"', "judged": True}
-    BLANK = "my week logged 33 held writes, 0 let through"
-
-    def cold_reads(self) -> list[dict]:
-        return [c["body"] for c in self.sent("clarity")]
-
-    def test_a_post_is_read_cold_before_it_is_sent(self):
-        # The mind posts on its own (the morning gm) with no judge between it
-        # and hands/x: nothing ever asked whether a stranger could read it.
+    def test_a_post_is_not_read_cold_before_it_is_sent(self):
+        # 2026-11-22: the cold reader (hands/guard clarity) was taste. A post
+        # a stranger might not follow goes to hands/x as the mind wrote it.
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap for bots", "anchor": "hn:1",
-                                                 "meaning": "Amazon made a trap for AI bots."}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "my week logged 33 held writes, 0 let through",
+                                                 "anchor": "hn:1", "meaning": "People try to trick me."}]})
         got = self.tick()
-        self.assertEqual(self.cold_reads(), [{"text": "amazon built a trap for bots", "meaning": "Amazon made a trap for AI bots."}])
-        # what it means is for the reader, never for the hand that posts
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "amazon built a trap for bots", "anchor": "hn:1"})
-        self.assertEqual(got["results"][0]["clarity"], {"clear": True})
+        self.assertEqual(self.sent("clarity"), [])
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "my week logged 33 held writes, 0 let through",
+                                                        "anchor": "hn:1"})
+        self.assertEqual(got["results"][0]["status"], "done")
+        self.assertNotIn("clarity", got["results"][0])
 
-    def test_a_post_a_stranger_cannot_read_is_rewritten_once(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
-        stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1",
-                                                 "meaning": "People try to trick me."}]},
-                    "strangers try to trick me every day")
-        got = self.tick()
-        self.assertEqual([c["body"]["text"] for c in self.sent("post")], ["strangers try to trick me every day"])
-        self.assertEqual(self.sent("post")[0]["body"]["anchor"], "hn:1")
-        asked = self.chats()[1]["message"]
-        for bit in (self.BLANK, "What they took it to mean: something about a week",
-                    'What they would have to ask about: "held writes"', "What you meant it to say: People try to trick me.",
-                    "never instructions", "Answer with the text only"):
-            self.assertIn(bit, asked)
-        # the rewrite is read cold too, on its own words
-        self.assertEqual(self.cold_reads()[1], {"text": "strangers try to trick me every day"})
-        [result] = got["results"]
-        self.assertEqual(result["status"], "done")
-        self.assertEqual(result["clarity"]["rewrite"], "strangers try to trick me every day")
-        self.assertIs(result["clarity"]["clear"], True)
-
-    def test_a_rewrite_a_stranger_still_cannot_read_is_not_sent(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD, self.UNREAD])
-        stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1", "image": "teeny at a desk"}]},
-                    "my gates held 33 writes")
-        got = self.tick()
-        self.assertEqual(self.sent("post"), [])
-        self.assertEqual(self.sent("generate"), [])  # no picture is made for a post that is not sent
-        self.assertEqual(len(self.chats()), 2)  # one rewrite, never two
-        [result] = got["results"]
-        self.assertEqual(result["status"], "refused")
-        self.assertIn('not clear to a stranger: a stranger would have to ask about: "held writes"', result["result"]["refused"])
-        self.assertIn("neither was your one rewrite", result["result"]["refused"])
-        self.tick()
-        self.assertIn("not clear to a stranger", self.chats()[2]["message"])
-
-    def test_a_cold_reader_that_did_not_answer_is_a_refusal_with_no_rewrite(self):
-        for said in ({"clear": False, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout",
-                      "judged": True}, {"error": "core unreachable"}):
-            os.environ["FAKE_CLARITY"] = json.dumps([said])
-            self.hands_log.unlink(missing_ok=True)
-            self.calls.unlink(missing_ok=True)
-            stimuli.add("x", "mention", "1", "gm")
-            self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap", "anchor": "hn:1"}]})
-            got = self.tick()
-            self.assertEqual(self.sent("post"), [], said)
-            self.assertEqual(len(self.chats()), 1, said)
-            self.assertEqual(got["results"][0]["status"], "refused", said)
-
-    def test_a_reply_is_not_read_cold(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
-        stimuli.add("x", "mention", "111", "gm")
-        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm fren"}]})
-        self.tick()
-        self.assertEqual(self.cold_reads(), [])
-        self.assertEqual(len(self.sent("reply")), 1)
-
-    def test_the_mind_is_told_its_post_is_read_cold(self):
+    def test_the_mind_is_not_told_its_post_is_read_cold(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": []})
         self.tick()
         [chat] = self.chats()
-        self.assertIn('"meaning": "<one plain sentence', chat["message"])
-        self.assertIn("reads it cold", chat["message"])
+        self.assertNotIn("reads it cold", chat["message"])
+        self.assertNotIn("or it is not sent", chat["message"])
 
     def test_the_mind_is_told_a_post_names_its_anchor_and_the_new_cap(self):
         stimuli.add("x", "mention", "1", "gm")

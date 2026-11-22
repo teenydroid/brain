@@ -283,11 +283,9 @@ def _pitch_ref(text: str) -> str:
 
 
 def _post_x(i):
-    """An own post. `anchor` names the one thing in front of the mind it is
-    about (hands/x refuses a post without one); `quote_of` (a post id) makes
-    it a quote, anchored on that post unless it names another; `format` tags
-    it for the lab. Refused here, before any picture is made, when it has
-    neither. Pictures are made in carry_out and added as `media_ids`. With
+    """An own post. `anchor` may name the one thing in front of the mind it
+    is about; `quote_of` (a post id) makes it a quote, anchored on that post
+    unless it names another; `format` tags it for the lab. Pictures are made in carry_out and added as `media_ids`. With
     the studio on (STUDIO=1) it is a pitch (`_pitch_x`), never a post: a
     mind still in the habit of posting is filed, not refused."""
     if _studio_or_refuse():
@@ -295,12 +293,10 @@ def _post_x(i):
     body = {"text": _text(i), **_gif(i)}
     if i.get("quote_of") not in (None, ""):
         body["quote_of"] = _id(i, "quote_of")
-    if i.get("anchor") not in (None, "") or "quote_of" not in body:
-        try:
-            body["anchor"] = _id(i, "anchor")
-        except ValueError:
-            raise ValueError("needs anchor: a post on X names the one item it is about (a story you heard, a receipt, "
-                             "a PR, the post it quotes); without one, do not post") from None
+    # An anchor is kept on the ledger when the mind names one; a post with
+    # none goes out since 2026-11-22 (anchoring was taste).
+    if i.get("anchor") not in (None, ""):
+        body["anchor"] = _id(i, "anchor")
     for key in ("format", "experiment"):
         if i.get(key) not in (None, ""):
             body[key] = i[key]
