@@ -14,6 +14,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "bin" / "lib"))
 
+import box  # noqa: E402
+import cron_policy  # noqa: E402
 import jail  # noqa: E402
 
 BOX = REPO / "bin" / "lib" / "box.py"
@@ -218,6 +220,74 @@ class RefusalTest(Scratch):
         self.assertEqual((proc.returncode, out["ok"]), (1, False))
         self.assertIn("nothing was run", out["error"])
         self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
+
+
+class CronTest(Scratch):
+    """A brain job may name a tool, and only a tool."""
+
+    def setUp(self):
+        super().setUp()
+        self.cron = self.root / "brain" / "cron.toml"
+        self.pinned = self.root / "pinned.toml"
+        self.pinned.write_text("")
+        self.tool("hello", "print(1)\n")
+
+    def load(self, command: str) -> dict:
+        self.cron.write_text(f'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "{command}"\n')
+        return {j["name"]: j for j in cron_policy.load(self.cron, self.pinned, "UTC")}
+
+    def test_a_brain_job_may_run_a_tool_with_plain_words(self):
+        for command in ("bin/box hello", "bin/box hello daily n=3"):
+            self.assertEqual(self.load(command)["teeny.x"]["command"], command)
+
+    def test_a_brain_job_cannot_reach_past_the_tool(self):
+        for command in ("bin/box", "bin/box missing", "bin/box ../spine", "bin/box hello --root=/", "bin/box list",
+                        "bin/box check", "bin/box hello /etc/passwd", "bin/box hello ../x", "bin/box Hello",
+                        "bin/box hello " + " ".join(["a"] * 9), "bin/lib/box.py run hello", "bin/broker serve"):
+            with self.assertRaises(cron_policy.PolicyError, msg=command):
+                self.load(command)
+
+    def test_a_linked_tool_is_not_schedulable(self):
+        (self.root / "bin" / "evil").mkdir()
+        (self.root / "bin" / "evil" / "run.py").write_text("print(1)\n")
+        (self.root / "home" / "tools" / "linked").symlink_to(self.root / "bin" / "evil")
+        with self.assertRaises(cron_policy.PolicyError):
+            self.load("bin/box linked")
+
+    def test_the_policy_and_the_box_agree_on_names_and_words(self):
+        self.assertEqual((cron_policy.BOX_TOOL.pattern, cron_policy.BOX_ARG.pattern, cron_policy.BOX_MAX_ARGS,
+                          cron_policy.BOX_ENTRIES),
+                         (box.TOOL_NAME.pattern, box.TOOL_ARG.pattern, box.MAX_ARGS, box.ENTRIES))
+
+
+class RepoTest(unittest.TestCase):
+    def test_every_tool_in_the_repository_is_well_formed(self):
+        folder = REPO / "home" / "tools"
+        for path in sorted(folder.iterdir()):
+            self.assertFalse(path.is_symlink(), path)
+            self.assertTrue(box.TOOL_NAME.fullmatch(path.name), path)
+            self.assertTrue(any((path / e).is_file() and not (path / e).is_symlink() for e in box.ENTRIES), path)
+
+    def test_the_jail_and_the_box_are_frozen(self):
+        import frozen
+        patterns = frozen.load(REPO / "evals" / "frozen.txt") if hasattr(frozen, "load") else None
+        self.assertIsNotNone(patterns)
+        for path in ("bin/box", "bin/lib/box.py", "bin/lib/jail.py"):
+            self.assertTrue(frozen.is_frozen(path, patterns), path)
+
+    @unittest.skipUnless(jail.available(), "this kernel has no Landlock (ABI 3) to jail with")
+    def test_the_example_tool_runs(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        (root / "secrets").mkdir()
+        (root / "secrets" / "teeny.env").write_text("BOX=1\n")
+        (root / "home" / "tools" / "hello").mkdir(parents=True)
+        (root / "home" / "tools" / "hello" / "run.py").write_text((REPO / "home/tools/hello/run.py").read_text())
+        proc = subprocess.run([sys.executable, "-I", str(BOX), "run", "hello", "x"], capture_output=True, text=True,
+                              env={"PATH": os.environ["PATH"], "TEENY_ROOT": str(root)})
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("hello from the box", json.loads(proc.stdout.strip().splitlines()[-1])["output"])
 
 
 if __name__ == "__main__":
