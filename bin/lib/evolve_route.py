@@ -326,14 +326,16 @@ def file_issue(route: Json, repo: str, publisher: Any, log_path: Path, at: str) 
     return record
 
 
-def where(route_family: str, log: list[Json], filed: list[Json], job_of: Callable[[Any], Any]) -> Json:
+def where(route: Mapping[str, Any], log: list[Json], filed: list[Json], job_of: Callable[[Any], Any]) -> Json:
     """Where a routed family is now, for `bin/evolve status`: its issue, or
     its want's build request and job."""
-    seen = filed_issue(log, route_family)
-    if seen is not None:
+    if route["to"] == ISSUE:
+        seen = filed_issue(log, route["family"])
+        if seen is None:
+            return {"to": ISSUE, "said": "routed to an issue (not filed yet)"}
         return {"to": ISSUE, "issue": seen["issue"], "url": seen.get("url"),
                 "said": f"routed to an issue (#{seen['issue']})"}
-    wid = want_id(route_family)
+    wid = want_id(route["family"])
     mine = [f for f in filed if f.get("want") == wid]
     if not mine:
         return {"to": BUILDER, "said": "routed to builder (not filed yet)"}
