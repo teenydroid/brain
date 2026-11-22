@@ -404,9 +404,9 @@ def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) ->
     body = _body(body, ("repo", "title", "body"), ("labels",))
     owner, name, repo = _own_repo(body["repo"], "opens issues")
     labels = body.get("labels")
-    if labels is not None and not (isinstance(labels, list) and len(labels) <= 5
+    if labels is not None and not (isinstance(labels, list) and 1 <= len(labels) <= 5
                                    and all(isinstance(x, str) and 0 < len(x) <= 50 for x in labels)):
-        raise hand.HandError('"labels" must be a list of up to 5 label names')
+        raise hand.HandError('"labels" must be a list of 1 to 5 label names')
     fields = guarded({"title": _string(body, "title"), "body": _string(body, "body")}, "issue", {"repo": repo}, judge)
     if hand.dry_run():
         return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"],
