@@ -868,7 +868,8 @@ class PullRequestTest(MindCloneCase):
         self.assertEqual((out["branch"], out["pr_url"]), ("teeny/mind-fix-morning-post", self.PR_URL))
         self.assertEqual(self.branch_on_origin("fix-morning-post"), out["commit"])
         (pr,) = [s.json() for s in self.opened()]
-        self.assertEqual((pr["head"], pr["base"], pr["title"]), ("teeny/mind-fix-morning-post", "main", "a briefer soul"))
+        self.assertEqual((pr["head"], pr["base"], pr["title"]),
+                         ("teeny/mind-fix-morning-post", "main", "a briefer soul"))
         self.assertIn("agentic mind", pr["body"])
         self.assertEqual(self.prs_today(), {"day": "2026-09-14", "count": 1})
         line = self.ledger()[-1]
