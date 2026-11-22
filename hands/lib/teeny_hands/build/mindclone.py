@@ -351,6 +351,20 @@ def _guarded(fields: Json, branch: str) -> Json:
         raise hand.Refused(f"the guard {verb} the {field}: {why}", **exc.detail) from None
 
 
+def _check_branch(branch: str) -> None:
+    """The frozen-path check and the secret scan on BRANCH against
+    origin/main, as a self job's ship runs them; the list read as of
+    origin/main, so the change cannot loosen what it is checked against."""
+    hits = _frozen_hits(branch)
+    if hits:
+        raise hand.Refused(f"it touches frozen path(s): {', '.join(hits)} (evals/frozen.txt as of {BASE})",
+                           rule="frozen", paths=hits)
+    findings = gitpush.scan_branch(gitdir(), ORIGIN_BASE, branch)
+    if findings:
+        named = ", ".join(f"{f['path']} ({f['rule']})" for f in findings)
+        raise hand.Refused(f"it would publish what looks like a secret: {named}", rule="secrets", findings=findings)
+
+
 def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
     """The mind's tree as a pull request from teeny/mind-<slug> into main,
     after every rule; under DRY_RUN every rule runs and nothing is sent."""
@@ -362,7 +376,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
     body = _text(body, "body", MAX_BODY)
     full = selfclone.repo()
     with hand.lock("mind-clone"):
-        _prepare_locked()
+        origin = _prepare_locked()["commit"]
         if _rev(f"refs/remotes/origin/{branch}") is not None:
             raise hand.Refused(f"{branch} is already on GitHub (one pull request per branch): pick another name",
                                rule="branch_taken")
@@ -370,41 +384,28 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
         _no_git_inside()
         commit = _commit(fields["title"])
         files = _changed("HEAD", commit)
-        if not files or not _changed(ORIGIN_BASE, commit):
+        if not files or not _changed(origin, commit):
             raise hand.Refused("nothing changed against origin/main", rule="empty")
         _within_limits(commit, files)
         _only_plain_files(commit)
+        request = {"repo": full, "head": branch, "base": BASE, "title": fields["title"],
+                   "body": fields["body"].rstrip() + "\n\n" + DISCLOSURE}
         _bare("update-ref", f"refs/heads/{branch}", commit)
+        pushed: Json = {}
         try:
-            hits = _frozen_hits(branch)
-            if hits:
-                raise hand.Refused(f"it touches frozen path(s): {', '.join(hits)} (evals/frozen.txt as of {BASE})",
-                                   rule="frozen", paths=hits)
-            findings = gitpush.scan_branch(gitdir(), ORIGIN_BASE, branch)
-            if findings:
-                named = ", ".join(f"{f['path']} ({f['rule']})" for f in findings)
-                raise hand.Refused(f"it would publish what looks like a secret: {named}", rule="secrets",
-                                   findings=findings)
-            text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
+            _check_branch(branch)
             if gh is None and not hand.dry_run():
                 gh = GitHubApi.from_settings()
             pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
-        except BaseException:
-            _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
-            raise
-        if pushed.get("dry_run"):
-            try:
-                opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
-                                          "body": text}, gh=gh)
-            finally:
-                _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
-            would = {"repo": opened.get("would_open_pr"), **{k: opened.get(k) for k in ("head", "base", "title", "body")}}
-            return {"dry_run": True, "branch": branch, "files": files, "would_open": would}
-        try:
-            opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
-                                      "body": text}, gh=gh)
+            opened = actions.open_pr(request, gh=gh)
         finally:
-            # Pushed: the change is on the branch, so the tree starts clean.
-            _fresh(_rev(ORIGIN_BASE) or commit)
+            if pushed and not pushed.get("dry_run"):
+                # Pushed: the change is on the branch, so the tree starts clean.
+                _fresh(origin)
+            else:
+                _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
+    if pushed.get("dry_run"):
+        would = {"repo": opened.get("would_open_pr"), **{k: opened.get(k) for k in ("head", "base", "title", "body")}}
+        return {"dry_run": True, "branch": branch, "files": files, "would_open": would}
     return {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
             "pr_url": opened.get("html_url"), "number": opened.get("number")}
