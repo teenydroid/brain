@@ -1999,6 +1999,56 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
         request = self.request({"brain/playbooks/small.md": "z" * 500})
         self.assertEqual(evolve.fit_request(request), request)
 
+    def growth_request(self):
+        """A request shaped like gen 24's candidate 3 (2026-11-22), whose
+        message the screen held as `input.oversized` at 66,308 characters:
+        a growth finding, research that named three files, every file
+        already dropped to fit, and still over the limit on what is not a
+        file: ~13 KB of editable paths, ~6.5 KB of earlier tries, ~30 KB of
+        evidence."""
+        finding = {"id": "f:reach_silent:x:reply-their-thread", "section": "finding", "kind": "reach_silent",
+                   "lane": "growth", "hash": "h", "events": 38, "days": 7, "miss": 0.74,
+                   "files": ["brain/SOUL.md", "brain/CONTEXT.md"],
+                   "check": {"kind": "reach", "surface": "x", "source": "reply-their-thread",
+                             "measure": "answered", "direction": "rise"},
+                   "text": "38 replies of yours in other people's threads on x in 7 days; 28 drew no answer.",
+                   "examples": "- (a reply of yours, scrubbed)\n- (another)"}
+        editable = sorted(f"brain/{d}/{n:03d}-a-longish-file-name.md"
+                          for d in ("playbooks", "skills/conversation", "agents") for n in range(160))
+        keep = ["brain/playbooks/mentions.md", "brain/agents/teeny-mentions.md", "brain/skills/conversation/SKILL.md"]
+        tried = [{"id": f"g{g}c1", "verdict": "rejected", "learning": "m1", "same_files": keep[:1],
+                  "findings": [{"file": "x", "problem": "p" * 250, "fix": "f" * 250}] * 2} for g in range(1, 6)]
+        evidence = {"world": {"j": 0.4}, "outcomes": {"x": ["o" * 100] * 100},
+                    "archive": {"recent": ["a" * 100] * 40}, "builds": ["b" * 100] * 25,
+                    "lessons": {"kinds": [{"kind": "playbook", "worked": 1, "no_effect": 2}] * 60}}
+        return {**self.request({}), "learning": finding, "editable": editable, "keep": keep, "tried": tried,
+                "evidence": evidence, "readonly": {}, "omitted": ["brain/SOUL.md"],
+                "research": {"verdict": "build", "plan": "Add one line to the mentions playbook.",
+                             "read": keep, "document": ["docs/hands.md"]}}
+
+    def test_a_growth_finding_whose_message_is_over_the_screen_without_files_is_cut_to_fit(self):
+        request = self.growth_request()
+        self.assertGreater(len(evolve.render_request({**request, "files": {}}).encode("utf-8")),
+                           evolve.SCREEN_LIMIT_BYTES)
+        for render in (evolve.render_request, evolve.render_research_request, evolve.render_evolver_request):
+            fitted = evolve.fit_request(request, render=render)
+            message = render(fitted)
+            self.assertLessEqual(len(message.encode("utf-8")), evolve.MAX_PROPOSER_PROMPT_BYTES, render.__name__)
+            # What was cut is said, and the files research named are still
+            # listed by path.
+            self.assertIn("## left out to fit the message", message)
+            for rel in request["keep"]:
+                self.assertIn(rel, message)
+        # The request itself is not changed: the round's own record keeps
+        # every path it may edit.
+        self.assertEqual(len(request["editable"]), 480)
+
+    def test_the_lessons_are_not_shown_twice(self):
+        request = self.growth_request()
+        message = evolve.render_request(request)
+        self.assertIn("## lessons from your merged changes, by kind", message)
+        self.assertNotIn('"kinds"', message)
+
 
 
 if __name__ == "__main__":
