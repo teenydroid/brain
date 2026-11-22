@@ -151,14 +151,23 @@ def head_of(git_dir: Path, ref: str) -> str:
 
 
 def _added_lines(patch: str) -> dict[str, str]:
-    """The lines a patch adds, by the file they went into."""
+    """The lines a patch adds, by the file they went into. A `+++ ` line is a
+    file header only before a hunk's first `@@`: after it, every `+` line is
+    content (an added line `++ x` reads `+++ x`), so none can hide as a header.
+    Split on \\n only, as git does."""
     added: dict[str, list[str]] = {}
     current = "(branch)"
-    for line in patch.splitlines():
-        if line.startswith("+++ "):
+    in_header = False
+    for line in patch.split("\n"):
+        if line.startswith("diff --git "):
+            in_header = True
+            current = "(branch)"
+        elif in_header and line.startswith("+++ "):
             target = line[4:]
             current = target[2:] if target.startswith("b/") else target
-        elif line.startswith("+"):
+        elif line.startswith("@@"):
+            in_header = False
+        elif not in_header and line.startswith("+"):
             added.setdefault(current, []).append(line[1:])
     return {path: "\n".join(lines) for path, lines in added.items()}
 
