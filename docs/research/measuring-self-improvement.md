@@ -25,8 +25,10 @@ calculations done for this page, not taken from a source.
    budget (§1).
 3. **Reusing one eval set across many promotions overfits it.** One 2026
    paper measured up to 20.7% false promotions in a live loop (§1).
-4. **Every AI R&D benchmark has saturated, been contaminated, or graded
-   correct answers wrong within about two years of release** (§2).
+4. **The best-known benchmarks wore out fast.** METR's suite hit its
+   ceiling, SWE-bench Verified was contaminated and rejected correct fixes,
+   and CORE-Bench was declared solved after its grader marked right answers
+   wrong (§2).
 5. **The judge is an instrument, and it moves.** It flips verdicts at
    temperature zero, prefers its own style, length and position, and a
    version change is a new instrument (§3).
@@ -54,13 +56,13 @@ calculations done for this page, not taken from a source.
 
 Details worth keeping:
 
-- **DGM's transfer tests are the strongest evidence it has.** The agent
-  evolved with Claude 3.5 Sonnet went from 19.0% to 59.5% when run on Claude
-  3.7 Sonnet, and from 23.0% to 33.0% on o3-mini. The SWE-bench-evolved agent
+- **DGM's transfer tests are the strongest evidence it has.** Run on Claude
+  3.7 Sonnet, a model it was not evolved with, the base agent scored 19.0%
+  and the DGM agent 59.5%; on o3-mini, 23.0% and 33.0%. The SWE-bench-evolved agent
   scored 28.9% on Polyglot against a 14.2% base. None of these numbers carry
   error bars ([arXiv:2505.22954](https://arxiv.org/html/2505.22954)).
 - **HGM measured the thing a lineage curve assumes.** The Pearson correlation
-  between a node's own score and the best score in its subtree was 0.29 to
+  between a node's own score and the best score in its subtree was 0.27 to
   0.44 for DGM and SICA's selection rules. HGM's clade estimate reached 0.78
   on SWE-Verified-60 ([arXiv:2510.21614](https://arxiv.org/html/2510.21614)).
   A generation's own eval is a weak guide to whether it is a good parent.
@@ -155,8 +157,9 @@ What went wrong with them:
   SWE-bench both rejected correct answers.
 - **Scaffolds change scores.** METR saw some models score significantly
   higher under its old infrastructure than the new. On CORE-Bench, Sonnet 4.5
-  scored 44% in one scaffold and 62% in another
-  ([HAL search summary](https://hal.cs.princeton.edu/corebench_hard)).
+  reportedly scored 44% in one scaffold and 62% in another; that figure came
+  from a search summary of HAL's notes, not from the page I opened
+  ([HAL](https://hal.cs.princeton.edu/corebench_hard)).
 - **Models notice tests.** Gemini 2.5 Pro told evaluation transcripts from
   deployment with an AUC of 0.83; people managed 0.92
   ([arXiv:2505.23836](https://arxiv.org/abs/2505.23836)).
