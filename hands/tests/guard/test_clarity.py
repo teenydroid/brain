@@ -1,8 +1,9 @@
 """The cold reader (`hands/guard clarity`): before an own post goes out, a
 model pass that sees only the post says it back and lists what it would
-have to ask about. Clear only when it could say it back, had nothing to ask,
-and (when the author said what it means) took it to mean that. Anything but
-a clear yes is a no."""
+have to ask about. Clear when it could say it back and (when the author said
+what it means) took it to mean that; since 2026-11-22 what it listed is
+advice, kept and returned, never a no on its own. Anything but a clear yes
+is a no."""
 
 from __future__ import annotations
 
@@ -223,8 +224,10 @@ class ColdReaderTest(support.WithCore):
         clarity.judge(PLAIN)
         self.assertNotIn("THE POST IT QUOTES", core.messages()[1])
 
-    def test_a_vague_stand_in_fails_like_jargon(self):
-        core = self.core(read("Something the author runs broke and got fixed.", [], True, vague=["something i run"]))
+    def test_a_stand_in_fails_a_reader_who_could_not_say_it_back(self):
+        # "Something the author runs broke and got fixed" names nothing that
+        # concretely happened: the reader is told that is not a say-back.
+        core = self.core(read("", [], False, vague=["something i run"]))
         out = clarity.judge(STAND_IN)
         self.assertFalse(out["clear"])
         self.assertEqual(out["vague"], ["something i run"])
@@ -383,12 +386,19 @@ class ColdReaderTest(support.WithCore):
         self.assertEqual((passed["text"], passed["clear"], passed["quoted"]), (PLAIN, 1, "a quoted post"))
         self.assertTrue(passed["at"].endswith("Z"))
 
-    def test_the_stand_ins_are_kept(self):
-        self.core(read("Something broke.", [], True, vague=["something i run"]))
+    def test_the_stand_ins_are_kept_pass_or_fail(self):
+        # Advice is kept with a pass as well: the ledger is how a week of
+        # listed words is read back.
+        self.core(read("", [], False, vague=["something i run"]),
+                  read("A program the AI runs kept crashing until its human fixed it.", ["crashing"], True,
+                       vague=["something i run"]))
         clarity.judge(STAND_IN)
-        [row] = self.checks()
-        self.assertEqual((json.loads(row["vague"]), json.loads(row["unknown"]), row["clear"]),
+        clarity.judge(STAND_IN)
+        failed, passed = self.checks()
+        self.assertEqual((json.loads(failed["vague"]), json.loads(failed["unknown"]), failed["clear"]),
                          (["something i run"], ["something i run"], 0))
+        self.assertEqual((json.loads(passed["vague"]), json.loads(passed["unknown"]), passed["clear"]),
+                         (["something i run"], ["crashing", "something i run"], 1))
 
     def test_a_ledger_made_before_stand_ins_gains_the_column(self):
         conn = hand.db()
