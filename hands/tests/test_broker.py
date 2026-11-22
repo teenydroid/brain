@@ -168,7 +168,8 @@ class BrokerCase(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as exc:
-            return exc.code, json.loads(exc.read() or b"{}")
+            with exc:
+                return exc.code, json.loads(exc.read() or b"{}")
 
     def hand_calls(self):
         if not self.hands_log.exists():
