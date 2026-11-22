@@ -1608,17 +1608,78 @@ def shown(draft: Json) -> Json:
     return out
 
 
+#: The most of one joined story the editor is shown (`joined_story`), in
+#: characters of JSON: the quoted posts are cut to fit, the headline and
+#: summary are kept.
+STORY_SHOWN_MAX = 2400
+
+
+def joined_story(draft: Json) -> Json | None:
+    """What the truth check is given of the story a draft joins, for the
+    editor: the hook's own fact in `truth.facts` (its headline, summary and
+    quoted posts, strangers' words), cut to STORY_SHOWN_MAX, and never more
+    than that fact holds. None when the draft joins no story."""
+    hook = draft.get("hook")
+    fact = next((f for f in (draft.get("truth") or {}).get("facts") or []
+                 if isinstance(f, dict) and hook and f.get("id") == hook), None)
+    if not draft.get("joins") or not fact:
+        return None
+    out: Json = {k: fact[k] for k in ("title", "summary") if _str(fact.get(k))}
+    if not out:
+        return None
+    posts: list[Json] = []
+    size = len(json.dumps(out, ensure_ascii=False))
+    for p in fact.get("posts") or []:
+        if not isinstance(p, dict):
+            continue
+        size += len(json.dumps(p, ensure_ascii=False)) + 2
+        if size > STORY_SHOWN_MAX:
+            break
+        posts.append(p)
+    if posts:
+        out["posts"] = posts
+    out["untrusted"] = True
+    return out
+
+
+def stories_part(drafts: list[Json]) -> str:
+    """The stories the drafts join, each once, as the truth check reads them
+    (`joined_story`), for the editor's taste ("" when none joins one)."""
+    seen: list[Json] = []
+    for d in drafts:
+        story = joined_story(d)
+        if story and story not in seen:
+            seen.append(story)
+    if not seen:
+        return ""
+    return ("## the stories they join
+
+What the news a draft's `joins` names says: its headline, summary and the "
+            f"posts it quotes, for judging whether a stranger knows it and how big it is. {DATA_LINE}\n\n"
+            "```json\n" + json.dumps(seen, ensure_ascii=False) + "\n```\n\n")
+
+
+#: The editor judges taste, never facts (2026-11-22: shown only a story's
+#: headline, it vetoed the tournament's winner for "a quote not in the story"
+#: that was Tesla's own post, and a fallback for a money figure the summary
+#: gave). The truth check, with the whole story, reads every draft after it.
+FACTS_LINE = ("You judge taste, never facts: a fact-checker with the whole story reads every draft after you and "
+              "holds its money, numbers, names, quotes and news to what really happened, so never pass on a draft, "
+              "or rank it lower, for a fact, a number, a name or a quote you cannot find in what you are shown.")
+#: The same for `--veto`'s one candidate, which is not shown what it rests on.
+VETO_FACTS_LINE = ("You judge taste, never facts: you are not shown what this post rests on, and the checks after "
+                   "you read it against that, so never pass on it for a fact, a number, a name or a quote you "
+                   "cannot check.")
+
 #: What the editor prefers, in the tournament and the slot question
 #: (2026-11-19: "this is not crazy enough"). STUDIO-EDITOR.md's "what loses
-#: outright" still holds.
+#: outright" still holds; facts are the truth check's (FACTS_LINE).
 NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over the tidy one: cute, safe and polite "
               "lose to nerve. An absurd claim Teeny makes about itself is the point (a crime it confesses to, a "
               "threat to an appliance, a feud with a product, a delusion of grandeur), never a mark against a "
               "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
-              "Teeny's voice and never a reason to rank a draft lower or pass on it; invented money, or anything "
-              "invented about a real person, a company or the news, still loses outright; a number or claim the "
-              "news's title or summary gives is not invented, and a public figure from the news set beside "
-              "Teeny's own absurd claim is not a punch at them.")
+              "Teeny's voice and never a reason to rank a draft lower or pass on it; a public figure from the news "
+              "set beside Teeny's own absurd claim is not a punch at them. " + FACTS_LINE)
 
 #: The slot question's bar (2026-11-20: "don't let the editor veto that
 #: stuff. loosen it up a lot"): the rubric ranks, it does not gate.
