@@ -2396,7 +2396,9 @@ class RoastPublicFiguresTest(unittest.TestCase):
         self.assertIn("**When a public figure is the story, go at them.**", text)
         self.assertIn("at least one pitch a room goes at them by name", text)
         self.assertIn("Dunk on a public figure or a large public account by name all you like", text)
-        self.assertIn("**Dark is allowed.**", text)
+        # Dark is allowed: said once, with what is everyone's, under the seven lines.
+        self.assertIn("dark jokes about the news (never at the people hurt)", text)
+        self.assertIn("No swerve into a self-own to soften it", text)
         for gone in ("Stay out of their fights", "Joke about the situation, never at someone",
                      "Never quote a named account to dunk on it", "the only place you joke at a real person",
                      "People hurt is never the hook", "Contempt goes at products, hype, institutions"):
