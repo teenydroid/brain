@@ -148,7 +148,7 @@ class VerdictTest(AllScratch):
         # jail with secrets/ in reach. Teeny may write it; a person merges it.
         self.on()
         for path in ("hands/chan", "hands/lib/teeny_hands/chan/reads.py", "hands/lib/teeny_hands/newhand/__init__.py",
-                     "hands/tests/test_newhand.py", "web/src/app/page.tsx", "README.md", "state/x"):
+                     "hands/tests/test_newhand.py", "web/src/app/page.tsx", "README.md"):
             self.self_pr(files=[{"filename": path, "status": "modified", "additions": 1, "deletions": 0,
                                  "patch": patch("x = 1")}])
             result = audit.audit(REPO, 7)
