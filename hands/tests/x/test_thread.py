@@ -313,7 +313,7 @@ class DryRunTest(Threading):
     def test_dry_run_still_applies_every_rule(self):
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
-            publish.thread(self.body([TEXTS[0], "x" * 300]))
+            publish.thread(self.body([TEXTS[0], "x" * 25_001]))
         with self.assertRaises(hand.Refused):
             publish.thread(self.body(["only one"]))
 
