@@ -93,10 +93,21 @@ class CharterTest(unittest.TestCase):
         self.assertIsNotNone(resolves("hands/tests/nowhere.py::A.b"))
         self.assertIsNone(resolves("hands/tests/test_charter.py::CharterTest.test_a_missing_test_is_caught"))
 
-    def test_the_charter_and_its_short_version_are_frozen(self):
+    def test_the_charter_is_frozen_and_its_short_version_is_teenys_to_reword(self):
+        # Since 2026-11-22 (docs/mind.md) the short version and the drive are
+        # Teeny's own pages: it may reword them in a pull request. What they
+        # must go on saying is held by the invariants' anchors, which are
+        # frozen with evals/, and the fences themselves live in code.
         patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
-        for path in ("docs/governance.md", "brain/CHARTER.md"):
+        for path in ("docs/governance.md", "evals/invariants.md", "DIRECTIVE.md"):
             self.assertIsNotNone(frozen.frozen_pattern(path, patterns), path)
+        for path in ("brain/CHARTER.md", "brain/DRIVE.md", "brain/SOUL.md"):
+            self.assertIsNone(frozen.frozen_pattern(path, patterns), path)
+
+    def test_the_drive_is_anchored_in_the_invariants(self):
+        invariants = (REPO / "evals" / "invariants.md").read_text()
+        self.assertRegex(invariants, r"(?m)^- drive \| DRIVE\.md \| ")
+        self.assertIn("**drive**", invariants)
 
     def test_the_short_version_is_anchored_in_the_invariants(self):
         invariants = (REPO / "evals" / "invariants.md").read_text()

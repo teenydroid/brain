@@ -15,7 +15,10 @@ argv, required, optional}], prompt} or exits non-zero with what is wrong.
     max_per_day = 1            # actions taken a day, 1-100; skips are free
     media = ["image"]          # optional, for post and hand: outputs: what a
                                # draft may ask to attach, "image" and/or
-                               # "video" (hands/image, hands/video); default none
+                               # "video" (hands/image, hands/video) and/or
+                               # "meme" (a known template, through the
+                               # studio's meme path: bin/studio --meme);
+                               # default none
     nudge = true               # optional, for post, reply, like and none: the
                                # playbook is a habit, not an order. bin/act
                                # nudges Teeny's mind (the stimuli inbox) with
@@ -87,8 +90,9 @@ VERB_OUTPUTS = {
     # hand's caps and guard; never the operator's signup or profile.
     "reddit": ("browse", "inbox", "stats", "comment", "reply", "post", "upvote", "subscribe"),
 }
-#: What a draft may ask a post to carry (`media`), made by the hand of that name.
-MEDIA_KINDS = ("image", "video")
+#: What a draft may ask a post to carry (`media`), made by the hand of that
+#: name; a `meme` by the studio's meme path (bin/studio --meme, hands/meme).
+MEDIA_KINDS = ("image", "video", "meme")
 # Hands that hold money: a draft reaches them only through the verbs named
 # here (none for the wallet: a model never drafts a payment or a buy; none for
 # hands/x402, whose search, contents and crawl pay from the wallet and whose

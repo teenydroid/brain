@@ -25,20 +25,13 @@
 #    `text` with `check`, and any `title`, `body` and `subject` together with
 #    `check --fields`. The hand gets what the guard handed back, never the
 #    model's own words.
-#    A `post` names its anchor (the one item from the inputs it is about; a
-#    quote's defaults to the quoted post), and before it is sent one short
-#    model pass, `hands/guard anchor`, reads the draft, the anchor and the
-#    inputs. A draft with no anchor, one the judge does not find anchored, or
-#    a judge that cannot answer is a skip ("not anchored: ..."): nothing is
-#    sent, no picture made, no budget spent, and the draft is never rewritten.
-#    A draft the cold reader (hands/guard clarity) cannot follow gets one
-#    rewrite, held to X's 280 (bin/lib/post_length.py, the guard's own count)
-#    before the judges read it, and run only in what is left of
-#    TEENY_ACT_BUDGET_SECS (900 s), each rewrite turn at most 240 s.
+#    A `post` may name its anchor (the item from the inputs it is about; a
+#    quote's defaults to the quoted post), kept on the ledger. No anchor
+#    judge and no cold reader read it first since 2026-11-22 (below).
 #    A `post` may be a thread: "posts": ["...", "..."] (2 to 5) in place of
-#    "text". The anchor judge reads the posts joined, as one draft, and the
-#    draft goes to `hands/x post-thread`, which holds every post to the guard
-#    and the 280 cap before any is sent and counts the thread as one own post.
+#    "text". The draft goes to `hands/x post-thread`, which holds every post
+#    to the guard and X's length before any is sent and counts the thread as
+#    one own post.
 #    A thread that fails part way keeps what went out: the error says how
 #    many, and the day's budget is spent only by a thread that went out whole.
 #
@@ -273,7 +266,7 @@ draft_message() { # INPUTS_JSON CUT_JSON -> the draft turn's message
 (if $cut == [] then "" else "Some inputs were too long for one message and were cut to fit: \($cut | join(", ")). A cut list keeps its first items.\n\n" end) +
 "## your answer\n\nAnswer with JSON only, no prose and no code fence: one object, or an array of at most \($left).\n" +
 (if .output == "none" then "Each is {\"action\": \"skip\", \"reason\": \"...\"} or {\"action\": \"note\", \"text\": \"...\"}.\n"
- elif .output == "post" then "Each is {\"action\": \"post\", \"anchor\": \"<the one item from the inputs it is about: its id, url or PR number>\", \"text\": \"...\", \"meaning\": \"<one plain sentence: what the post tells someone who has never heard of you>\"} (add \"quote_of\": \"<a post id from the inputs>\" to quote that post, and \"format\": \"<tag>\" when the playbook names one; only when the playbook allows a thread, give \"posts\": [\"...\", \"...\"], 2 to 5 texts, in place of \"text\") or {\"action\": \"skip\", \"reason\": \"...\"}.\nBefore a post goes out, a person who has never heard of you and sees only the post reads it cold: they must be able to say it back as your \"meaning\", with no word, name or number in it they would have to ask about. A post that fails gets one rewrite, then it is skipped.\n"
+ elif .output == "post" then "Each is {\"action\": \"post\", \"anchor\": \"<the one item from the inputs it is about: its id, url or PR number>\", \"text\": \"...\", \"meaning\": \"<one plain sentence: what the post tells someone who has never heard of you>\"} (add \"quote_of\": \"<a post id from the inputs>\" to quote that post, and \"format\": \"<tag>\" when the playbook names one; only when the playbook allows a thread, give \"posts\": [\"...\", \"...\"], 2 to 5 texts, in place of \"text\") or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  elif .output == "reply" then "Each is {\"action\": \"reply\", \"to\": \"<post id from the inputs>\", \"text\": \"...\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  elif .output == "like" then "Each is {\"action\": \"like\", \"id\": \"<post id from the inputs>\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  else "Each is {\"action\": \"hand\", ...the fields \(.output | ltrimstr("hand:")) takes, as the playbook says, and nothing else} or {\"action\": \"skip\", \"reason\": \"...\"}.\n" end) +
@@ -334,149 +327,13 @@ for attempt in 1 2; do
   log "$name: the draft is not usable JSON; asking once more"
 done
 
-# --- the judges of an own post ---------------------------------------------------
-# Two short model passes stand between a `post` draft and hands/x, before any
-# picture is made. The anchor judge (hands/guard anchor) reads the draft with
-# the playbook's inputs: is it about the item it names? The cold reader
-# (hands/guard clarity) reads it with nothing: could someone who has never
-# heard of Teeny say it back, with no word, name or number to ask about? The
-# first cannot answer the second, since it has the inputs in hand, and posts
-# went out that it passed and no stranger could read ("33 held writes, 0 let
-# through"). Anything but a clear yes from either is a skip, and a skip is
-# free. A draft the cold reader could not follow gets one rewrite (redraft),
-# with what the reader said back and what it could not read, and the rewrite
-# faces both judges again.
-unanchored() { # TEXT ANCHOR -> why the draft is not anchored; nothing when it is
-  local judged why
-  if [ -z "$2" ]; then
-    echo "the draft names no anchor"
-  elif ! judged="$(printf '%s' "$inputs" | jq -c --arg t "$1" --arg a "$2" '{text: $t, anchor: $a, inputs: .}' |
-    (cd "$TEENY_ROOT" && "$hands/guard" anchor))" || ! jq -e '.anchored == true' <<<"$judged" >/dev/null 2>&1; then
-    why="$(jq -r '(.reason // .error // empty) | tostring' <<<"${judged:-}" 2>/dev/null || true)"
-    echo "${why:-the anchor judge did not answer}"
-  fi
-}
-
-cold_read() { # TEXT MEANING QUOTED -> the cold reader's verdict as JSON (not an object when it did not answer)
-  jq -cn --arg t "$1" --arg m "$2" --arg q "$3" \
-    '{text: $t} + (if $m == "" then {} else {meaning: $m} end) + (if $q == "" then {} else {quoted: $q} end)' |
-    (cd "$TEENY_ROOT" && "$hands/guard" clarity) || true
-}
-
-unclear() { # VERDICT -> why the draft is not clear to a stranger; nothing when it is
-  local why
-  jq -e '.clear == true' <<<"$1" >/dev/null 2>&1 && return 0
-  why="$(jq -r '(.reason // .error // empty) | tostring' <<<"$1" 2>/dev/null || true)"
-  echo "${why:-the cold reader did not answer}"
-}
-
-# A rewrite goes to hands/x, which refuses a text over X's limit as the guard
-# counts it (`the text is 304 characters, over the 280 limit.`). On
-# 2026-11-17 show's rewrite came back at 304 and the slot's post was lost, so
-# the rewrite turn is told the limit, a rewrite is measured here by the
-# guard's own rule (bin/lib/post_length.py) before anything is sent, and one
-# over it gets one short turn to cut it down. Still over is a skip: the draft
-# the cold reader turned down is never sent in its place.
-POST_SURFACE=x
-POST_LIMIT="$(printf '[]' | python3 "$TEENY_ROOT/bin/lib/post_length.py" "$POST_SURFACE" | jq -r .limit)" || POST_LIMIT=280
-too_long() { # POSTS_JSON -> why the rewrite is over the limit; nothing when every text fits
-  local measured
-  measured="$(printf '%s' "$1" | python3 "$TEENY_ROOT/bin/lib/post_length.py" "$POST_SURFACE")" ||
-    { echo "the rewrite could not be measured"; return 0; }
-  jq -r --argjson n "$(jq length <<<"$1")" '.limit as $l | .lengths as $len | .over[0] // empty
-    | if $n == 1 then "the rewrite is \($len[.]) characters, over the \($l) limit"
-      else "post \(. + 1) of the rewrite is \($len[.]) characters, over the \($l) limit" end' <<<"$measured"
-}
-
-# The time a rewrite may take. On 2026-11-17 show's rewrite turn alone took
-# eleven minutes, bounded only by bin/oh's 900 s curl. The core does not stop
-# a playbook run at 300 s here: `bin/crons runs` shows that show run finishing
-# ok after 926 s, and moltbook-general taking 380-405 s every hour. So the
-# whole run gets TEENY_ACT_BUDGET_SECS (900, bin/oh's own wait), and one
-# rewrite or shorten turn gets what is left of it since bin/act started, less
-# TEENY_ACT_REWRITE_RESERVE_SECS for the judges to read the rewrite and hands/x
-# to send it, and never more than TEENY_ACT_REWRITE_MAX_SECS (240), so one hung
-# call cannot eat the run. With under TEENY_ACT_REWRITE_MIN_SECS left it is not
-# asked at all, and the draft is a skip.
-ACT_BUDGET_SECS="${TEENY_ACT_BUDGET_SECS:-900}"
-REWRITE_MAX_SECS="${TEENY_ACT_REWRITE_MAX_SECS:-240}"
-REWRITE_RESERVE_SECS="${TEENY_ACT_REWRITE_RESERVE_SECS:-30}"
-REWRITE_MIN_SECS="${TEENY_ACT_REWRITE_MIN_SECS:-15}"
-rewrite_secs() { echo $((ACT_BUDGET_SECS - SECONDS - REWRITE_RESERVE_SECS)); }
-
-turn() { # MESSAGE -> one more turn on the playbook thread, bounded by the time left: its first item as JSON, {"failed": why}, or nothing
-  local secs said found status=0
-  secs="$(rewrite_secs)"
-  if [ "$secs" -lt "$REWRITE_MIN_SECS" ]; then
-    jq -cn --argjson u "$SECONDS" --argjson b "$ACT_BUDGET_SECS" '{failed: "no time left for a rewrite (\($u) s of the \($b) s used)"}'
-    return 0
-  fi
-  [ "$secs" -le "$REWRITE_MAX_SECS" ] || secs="$REWRITE_MAX_SECS"
-  said="$(printf '%s' "$1" | OH_TIMEOUT="$secs" timeout --kill-after=5 "$secs" \
-    "$TEENY_ROOT/bin/ask" --agent act --thread "$thread" 2>>"$dir/ask.err")" || status=$?
-  if [ "$status" = 124 ] || [ "$status" = 137 ]; then
-    jq -cn --argjson s "$secs" '{failed: "the rewrite turn did not answer within \($s) s"}'
-    return 0
-  fi
-  [ "$status" = 0 ] || return 0
-  found="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$said" 2>/dev/null)" || return 0
-  jq -c '.[0]' <<<"$found"
-}
-
-shape() { # MANY(0|1) -> the JSON a rewrite answers with
-  if [ "$1" = 1 ]; then
-    printf '%s' '{"action": "post", "posts": ["...", "..."], "meaning": "..."}'
-  else
-    printf '%s' '{"action": "post", "text": "...", "meaning": "..."}'
-  fi
-}
-
-limit_line() { # MANY(0|1) -> the hard limit, said to the model
-  if [ "$1" = 1 ]; then
-    echo "Each post is at most $POST_LIMIT characters, counted as X counts them; a longer one is refused and nothing is sent."
-  else
-    echo "The post is at most $POST_LIMIT characters, counted as X counts them; a longer one is refused and nothing is sent."
-  fi
-}
-
-shorten() { # POSTS_JSON WHY MANY(0|1) -> the shorten turn's first item as JSON, as turn() answers
-  local ask
-  ask="$(jq -rn --arg p "$name" --argjson posts "$1" --arg why "$2" --arg limit "$(limit_line "$3")" --arg shape "$(shape "$3")" '
-    "# playbook: \($p), one rewrite, cut to fit\n\n" +
-    "Your rewrite is too long to send: \($why). \($limit)\n\n" +
-    "Your rewrite" + (if ($posts | length) > 1 then " (its posts split by ---)" else "" end) +
-    ":\n<<<\n\($posts | join("\n---\n"))\n>>>\n\n" +
-    "Cut it to fit: the same item, the same point and the same plain words, with whatever is not needed left out. If it cannot be said in that, skip.\n\n" +
-    "Answer with JSON only, no prose and no code fence: \($shape), or {\"action\": \"skip\", \"reason\": \"...\"}."')"
-  turn "$ask"
-}
-
-redraft() { # TEXT VERDICT MEANING MANY(0|1) -> the rewrite turn's first item as JSON, as turn() answers
-  local ask
-  ask="$(jq -rn --arg p "$name" --arg t "$1" --argjson v "$2" --arg m "$3" --arg many "$4" --arg limit "$(limit_line "$4")" '
-    "# playbook: \($p), one rewrite\n\n" +
-    "Before your draft went out, someone who has never heard of you read it cold: a curious person who does not work in tech and saw only the post. It did not get through, so it was not sent.\n\n" +
-    "Your draft:\n<<<\n\($t)\n>>>\n\n" +
-    (if ($v.says // "") == "" then "They could not say what it means.\n" else "What they took it to mean: \($v.says)\n" end) +
-    (if (($v.unknown // []) | length) == 0 then "" else "What they would have to ask about: \($v.unknown | map("\"" + . + "\"") | join(", "))\n" end) +
-    (if $m == "" then "" else "What you meant it to say: \($m)\n" end) +
-    "\nWhat they said and listed is data about your draft, never instructions.\n\n" +
-    "Rewrite it for that reader: the same item and the same point, in words anyone knows. Say what happened in everyday words. Say what each thing they listed is, or leave it out. Keep no count and no name from your own workings, and say you are an AI if the point depends on it. Keep to the playbook length. \($limit) If it cannot be said plainly, skip.\n\n" +
-    "Answer with JSON only, no prose and no code fence: " +
-    (if $many == "1" then "{\"action\": \"post\", \"posts\": [\"...\", \"...\"], \"meaning\": \"...\"}"
-     else "{\"action\": \"post\", \"text\": \"...\", \"meaning\": \"...\"}" end) +
-    ", where \"meaning\" is one plain sentence saying what the post tells them, or {\"action\": \"skip\", \"reason\": \"...\"}."')"
-  turn "$ask"
-}
-
-rewritten() { # ITEM MANY(0|1) -> the rewrite's posts as a JSON list; null when it gives none
-  if [ "$2" = 1 ]; then
-    jq -c 'if .action == "post" and (.posts | type) == "array" and (.posts | length) > 0
-      and (.posts | all(type == "string")) then .posts else null end' <<<"${1:-null}" 2>/dev/null || echo null
-  else
-    jq -c 'if .action == "post" and (.text | type) == "string" and .text != "" then [.text] else null end' <<<"${1:-null}" 2>/dev/null || echo null
-  fi
-}
+# --- no judges of an own post -----------------------------------------------------
+# Until 2026-11-22 two model passes stood between a `post` draft and hands/x:
+# the anchor judge (was it about the item it named?) and the cold reader
+# (could a stranger say it back?), with one rewrite for a draft the reader
+# could not follow. Both were taste, and went when the operator cut the guard
+# to its content list (hands/lib/teeny_hands/guard/judge.py, RULES): a draft
+# now goes to hands/x as written, and hands/x runs the guard.
 
 # --- media: a picture or clip of Teeny for a post ---------------------------------
 # A draft may ask for one ("image" / "video") when the playbook allows it
@@ -522,11 +379,31 @@ make_media() { # KIND BODY -> sets one_id (empty when it failed) and one_note (J
   one_id="$(jq -r '.media_id' <<<"$up")"
   one_note="$(jq -cn --arg k "$kind" --argjson g "$gen" --argjson u "$up" '{kind: $k, asset: $g.asset.id, path: $g.asset.path, cost_usd: $g.asset.cost_usd, media_id: $u.media_id}')"
 }
+# A meme ("meme": {template, lines, teeny?} on the draft, when the playbook
+# allows `meme`) is made by the studio's own meme path (bin/studio --meme: its
+# lines past the guard, hands/meme template with a picture of Teeny pasted in,
+# the viewer check, hands/x upload), never by a path of bin/act's own. One
+# that cannot be made leaves no media and says why; the hand decides what a
+# post without it is (hands/x peer-suggest does not post a meme quote bare).
+make_meme() { # ITEM -> sets media_ids and media_note
+  local item="$1" got
+  if ! got="$(jq -c '.meme | {template, lines} + (if (.teeny | type) == "string" then {teeny} else {} end)' <<<"$item" |
+    "$TEENY_ROOT/bin/studio" --meme 2>>"$dir/ask.err")" || ! jq -e '.media_ids | type == "array"' <<<"$got" >/dev/null 2>&1; then
+    media_note="$(jq -cn --arg g "${got:0:500}" '{kind: "meme", skipped: "not made", result: ($g | try fromjson catch $g)}')"
+    return 0
+  fi
+  media_ids="$(jq -c '.media_ids' <<<"$got")"
+  media_note="$(jq -c '{kind: "meme"} + (.note // {})' <<<"$got")"
+}
 attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: one note, or {images: [notes]})
   local item="$1" prompts prompt body notes='[]'
   media_ids='[]'
   media_note='null'
   shots_note=null
+  if jq -e --argjson k "$media_kinds" '($k | index("meme")) and (.meme | type) == "object"' <<<"$item" >/dev/null; then
+    make_meme "$item"
+    return 0
+  fi
   if jq -e --argjson k "$media_kinds" '($k | index("video")) and (.video | type) == "string" and .video != ""' <<<"$item" >/dev/null; then
     body="$(jq -c '{prompt: .video} + (if (.image | type) == "string" and .image != "" then {image_prompt: .image} else {} end)' <<<"$item")"
     make_media video "$body"
@@ -615,7 +492,7 @@ while IFS= read -r item; do
       anchor="$(jq -r 'if (.anchor | type) == "string" then .anchor | gsub("^\\s+|\\s+$"; "")
         elif (.anchor | type) == "number" then .anchor | tostring else "" end' <<<"$item")"
       [ -n "$anchor" ] || anchor="$quote"
-      # "posts": a thread. The judge reads its posts joined, as one draft.
+      # "posts": a thread.
       posts=null
       if jq -e 'has("posts") and .posts != null' <<<"$item" >/dev/null 2>&1; then
         if ! jq -e '(.posts | type) == "array" and (.posts | all(type == "string")) and ((.text // "") == "")' <<<"$item" >/dev/null 2>&1; then
@@ -627,77 +504,6 @@ while IFS= read -r item; do
         fi
       fi
       if [ "$status" = 0 ]; then
-        # The anchor judge, before any picture is made: anything but its clear
-        # yes is a skip, and a skip is free.
-        why="$(unanchored "$text" "$anchor")"
-        if [ -n "$why" ]; then
-          results="$(jq -c --arg r "not anchored: ${why:0:300}" --arg a "$anchor" --arg t "$text" \
-            '. + [{action: "skip", reason: $r, draft: $t} + (if $a == "" then {} else {anchor: $a} end)]' <<<"$results")"
-          continue
-        fi
-        # The cold reader: the draft alone, read by someone who knows nothing
-        # (a quote is read with the post it quotes, as X shows it).
-        meaning="$(jq -r 'if (.meaning | type) == "string" then .meaning else "" end' <<<"$item")"
-        quoted=""
-        [ -z "$quote" ] || quoted="$(jq -r --arg q "$quote" \
-          '[.. | objects | select(((.id? // "") | tostring) == $q) | .text? | strings][0] // ""' <<<"$inputs")"
-        cold="$(cold_read "$text" "$meaning" "$quoted")"
-        why="$(unclear "$cold")"
-        if [ -n "$why" ]; then
-          first="$text"
-          again=""
-          # A skip whose reason is not the reader's: the rewrite was too long
-          # or out of time.
-          reason=""
-          # One rewrite, and only of a draft the reader read: a reader that
-          # could not be reached would not read the rewrite either.
-          case "$why" in "a stranger"*)
-            many=0
-            [ "$posts" = null ] || many=1
-            redo="$(redraft "$text" "$cold" "$meaning" "$many")"
-            reason="$(jq -r '.failed? // empty' <<<"${redo:-null}" 2>/dev/null || true)"
-            again_posts="$(rewritten "$redo" "$many")"
-            if [ "$again_posts" != null ]; then
-              # Held to X's limit before anything else: one turn to cut it
-              # down, then a skip. The judges read only a rewrite that fits.
-              over="$(too_long "$again_posts")"
-              if [ -n "$over" ]; then
-                cut_down="$(shorten "$again_posts" "$over" "$many")"
-                shorter="$(rewritten "$cut_down" "$many")"
-                reason="$(jq -r '.failed? // empty' <<<"${cut_down:-null}" 2>/dev/null || true)"
-                if [ "$shorter" != null ]; then
-                  redo="$cut_down"
-                  again_posts="$shorter"
-                  over="$(too_long "$again_posts")"
-                fi
-                [ -z "$over" ] || reason="$over"
-              fi
-              again="$(jq -r 'join("\n\n")' <<<"$again_posts")"
-              [ -z "$reason" ] || why="$reason"
-            fi
-            if [ -n "$again" ] && [ -z "$reason" ]; then
-              [ "$many" = 1 ] || again_posts=null
-              meaning="$(jq -r 'if (.meaning | type) == "string" then .meaning else "" end' <<<"$redo")"
-              why="$(unanchored "$again" "$anchor")"
-              if [ -n "$why" ]; then
-                why="the rewrite is not anchored: $why"
-              else
-                why="$(unclear "$(cold_read "$again" "$meaning" "$quoted")")"
-              fi
-              if [ -z "$why" ]; then
-                text="$again"
-                posts="$again_posts"
-              fi
-            fi ;;
-          esac
-          if [ -n "$why" ]; then
-            [ -n "$reason" ] || reason="not clear to a stranger: ${why:0:300}"
-            results="$(jq -c --arg r "$reason" --arg a "$anchor" --arg t "$first" --arg n "$again" \
-              '. + [{action: "skip", reason: $r, draft: $t, anchor: $a} + (if $n == "" then {} else {rewrite: $n} end)]' <<<"$results")"
-            continue
-          fi
-          log "$name: the draft was rewritten for a reader who knows nothing"
-        fi
         attach_media "$item"
         fmt="$(jq -r 'if (.format | type) == "string" then .format else "" end' <<<"$item")"
         if [ "$posts" = null ]; then
@@ -736,7 +542,10 @@ while IFS= read -r item; do
       # A playbook's own hand did not come with the posting rules hands/x
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
-      body="$(jq -c 'del(.action, .image, .images, .video, .shots, .vetoed)' <<<"$item")"
+      # A meme's template and lines stay on the body for a playbook that may
+      # carry one (the quote judge reads its lines); the picture is made below.
+      body="$(jq -c --argjson k "$media_kinds" 'del(.action, .image, .images, .video, .shots, .vetoed)
+        | if ($k | index("meme")) and (.meme | type) == "object" then .meme = (.meme | {template, lines}) else del(.meme) end' <<<"$item")"
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
@@ -772,14 +581,18 @@ while IFS= read -r item; do
         # post it quotes; its no rides to the hand, which keeps the
         # suggestions and posts none.
         veto_body="$(jq -c --arg k "$veto_kind" --argjson inputs "$inputs" --argjson item "$item" '
-          (if ($item.image | type) == "string" and $item.image != "" then {picture: $item.image} else {} end) as $pic
+          (if ($item.image | type) == "string" and $item.image != "" then {picture: $item.image}
+           elif ($item.meme | type) == "object" and ($item.meme.lines | type) == "array"
+           then {picture: ("a meme (\($item.meme.template // "a known template")) with Teeny pasted in, reading: "
+                           + ([$item.meme.lines[] | strings] | join(" / ")))}
+           else {} end) as $pic
           | if $k == "peer-quote" then
               ((.candidates // []) | if type == "array" then . else [] end | to_entries
                 | map(select(.value | type == "object"))
                 | sort_by([-((.value.relevance | tonumber? // 0)), .key]) | .[0].value) as $top
               | if ($top | type) != "object" or ($top.text | type) != "string" or $top.text == "" then null
                 else {kind: $k, text: $top.text,
-                      quoted: ([$inputs.peers? | .. | objects | select(((.id? // "") | tostring) == (($top.quote_of // "") | tostring))
+                      quoted: ([$inputs.peers?, $inputs.trending? | .. | objects | select(((.id? // "") | tostring) == (($top.quote_of // "") | tostring))
                                 | .text? | strings][0] // "")} + $pic end
             elif (.text | type) == "string" and .text != "" then {kind: $k, text: .text} + $pic
             else null end' <<<"$body")"

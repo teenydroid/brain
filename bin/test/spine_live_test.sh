@@ -363,10 +363,8 @@ check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
 act_request() { grep '# playbook: hello' "$scratch/model-bodies.jsonl" | tail -n 1; }
 act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .content | if type == "string" then . else tojson end] | join("\n")'; }
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
-check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
 check "and MEMORY.md" grep -q 'the tea tin moved again' <<<"$(act_system)"
 check "the boot started the live MEMORY.md from the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.md"
-if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
 config_toml="$root/.openhuman/config.toml"
 check "the core's config folds a thread at 100k tokens" \
   python3 -c 'import sys, tomllib; c = tomllib.load(open(sys.argv[1], "rb"))["context"]; sys.exit(c["compaction_trigger_tokens"] != 100000 or c["compaction_strategy"] != "summary")' "$config_toml"

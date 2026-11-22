@@ -19,18 +19,19 @@ from teeny_hands.guard.gate import _hard_limits  # noqa: E402
 
 
 class MeasureTest(unittest.TestCase):
-    def test_x_is_280_and_the_over_text_is_named(self):
-        got = post_length.measure("x", ["a" * 280, "b" * 281])
-        self.assertEqual(got, {"limit": 280, "lengths": [280, 281], "over": [1]})
+    def test_x_is_the_long_post_limit_and_the_over_text_is_named(self):
+        # 2026-11-22: 280 is a target; X Premium takes 25,000.
+        got = post_length.measure("x", ["a" * 281, "b" * 25001])
+        self.assertEqual(got, {"limit": 25000, "lengths": [281, 25001], "over": [1]})
 
     def test_counts_as_the_guard_refuses(self):
         # An emoji is two UTF-16 units, as X and the guard count it.
         text = "\U0001F600" * 141
         self.assertEqual(post_length.measure("x", [text])["lengths"], [282])
-        self.assertIsNotNone(_hard_limits("text", text, 280, 999))
+        self.assertIsNotNone(_hard_limits("text", text, 280))
         fits = "\U0001F600" * 140
         self.assertEqual(post_length.measure("x", [fits])["over"], [])
-        self.assertIsNone(_hard_limits("text", fits, 280, 999))
+        self.assertIsNone(_hard_limits("text", fits, 280))
 
     def test_the_surface_limit_is_the_guards(self):
         self.assertEqual(post_length.measure("telegram", [])["limit"], 4096)
@@ -43,7 +44,7 @@ class CliTest(unittest.TestCase):
     def test_prints_the_measure(self):
         done = self.run_it(json.dumps(["hi"]))
         self.assertEqual(done.returncode, 0)
-        self.assertEqual(json.loads(done.stdout), {"limit": 280, "lengths": [2], "over": []})
+        self.assertEqual(json.loads(done.stdout), {"limit": 25000, "lengths": [2], "over": []})
 
     def test_refuses_a_body_that_is_not_a_list_of_strings(self):
         self.assertEqual(self.run_it('{"text": "hi"}').returncode, 2)

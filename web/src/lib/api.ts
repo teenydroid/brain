@@ -1,8 +1,10 @@
 /**
- * Where the page reads the bot from. `MIND_API_URL` is the bot's base over
- * the compose network; it serves the journal at /mind and the inference ledger
- * at /ledger. The older `MIND_FEED_URL` pointed
- * straight at /mind and is still honoured, with the path taken off.
+ * Where the page reads the journal and the inference ledger from.
+ * `MIND_API_URL` is the base of an API that serves them at /mind and /ledger
+ * (Teeny's previous runtime did; the current spine serves neither, so it is
+ * normally unset and the counter and journal are left out). The older
+ * `MIND_FEED_URL` pointed straight at /mind and is still honoured, with the
+ * path taken off.
  */
 export function apiUrl(path: string): string | undefined {
   const base = process.env.MIND_API_URL ?? process.env.MIND_FEED_URL?.replace(/\/mind\/?$/, '')

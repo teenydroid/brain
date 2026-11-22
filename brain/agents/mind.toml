@@ -1,0 +1,58 @@
+# The agentic mind (docs/mind.md): the agent the pinned `mind` cron job and
+# any `agent = "mind"` job in brain/cron.toml runs. Unlike the five-minute
+# tick (teeny.toml, tool-less), this one holds tools and decides its own
+# steps: it has a shell, the file tools and its memory, and it works in its
+# own home, state/home/.
+#
+# What keeps the two fences (docs/governance.md): it holds no key and no
+# token. Its shell is jailed to state/home/ (below), its environment carries
+# none of the core's or the hands' settings, and secrets/, hands/, bin/ and
+# the live brain/ are outside the jail. Everything it does to the world goes
+# through the broker (bin/broker), which calls the hands, so the guard, the
+# caps and DRY_RUN apply to it exactly as to the tick. It has no tool that
+# schedules a job: a cron shell job runs outside any jail, so its own wakes
+# are agent jobs the broker creates (`teeny wake`).
+#
+# Frozen like builder.toml: Teeny decides what the mind does (mind.md, its
+# notes, its skills), never which tools or which folder it has. bin/doctor
+# checks the posture (bin/lib/agent_check.py).
+id = "mind"
+display_name = "Teeny (mind)"
+when_to_use = "Teeny's own standing work, on a schedule: its projects, its notes, its changes to itself. Not a chat delegate."
+temperature = 0.7
+# A wake is a real working session: read the notes, do a piece of a project,
+# write down where it stopped. The turn deadline (bin/lib/teeny.sh) ends a
+# run that does not end itself.
+max_iterations = 60
+# The sandbox jails files, not the network (see builder.toml): the shell
+# writes state/home/ and reads the system's own directories, and nothing
+# else of the checkout. It has the host's network, which is how it reaches
+# the broker on loopback and the open web.
+sandbox_mode = "sandboxed"
+sandbox_filesystem_only = true
+scheduled_actions = true
+scheduled_workspace = "state/home"
+omit_identity = false
+omit_memory_context = false
+omit_safety_preamble = false
+
+memory_block = { max_tokens = 2000 }
+
+[system_prompt]
+file = { path = "mind.md" }
+
+[tools]
+# Exactly these. No browser (the operator agent browses, through
+# `teeny do` queue_task), nothing that schedules, spends, connects or
+# spawns: each of those is a way past the jail or the broker.
+named = [
+    "shell",
+    "file_read",
+    "file_write",
+    "edit",
+    "glob",
+    "grep",
+    "list",
+    "tool_search",
+    "memory",
+]

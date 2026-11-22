@@ -7,8 +7,8 @@
 # least one message is required" (every claude-fable-5.2 turn of the studio
 # preview, 2026-11-18). register_windows gives the core a window for
 # SPINE_MODEL (SPINE_CONTEXT_WINDOW wins, else the endpoint's listing) and for
-# bin/studio's STUDIO_WRITER_MODEL and STUDIO_EDITOR_MODEL (the environment,
-# then secrets/teeny.env). Needs log, die and oh (bin/lib/teeny.sh), and
+# bin/studio's STUDIO_WRITER_MODEL, STUDIO_EDITOR_MODEL and STUDIO_FEED_MODEL
+# (the environment, then secrets/teeny.env). Needs log, die and oh (bin/lib/teeny.sh), and
 # SPINE_MODEL, LADDER_URL, LADDER_API_KEY. The key goes in a header file,
 # never in curl's argv. bin/test/model_windows_test.sh covers it.
 
@@ -17,7 +17,7 @@ register_windows() {
   # The studio's models: the process environment first, then
   # secrets/teeny.env, as bin/lib/studio.py's Config reads them.
   studio_models="$(STUDIO_WRITER_MODEL="${STUDIO_WRITER_MODEL:-}" STUDIO_EDITOR_MODEL="${STUDIO_EDITOR_MODEL:-}" \
-    python3 - "$TEENY_SECRETS/teeny.env" <<'PY'
+    STUDIO_FEED_MODEL="${STUDIO_FEED_MODEL:-}" python3 - "$TEENY_SECRETS/teeny.env" <<'PY'
 import os, sys
 filed = {}
 try:
@@ -28,7 +28,7 @@ for raw in lines:
     key, _, value = raw.strip().removeprefix("export ").partition("=")
     filed[key.strip()] = value.strip().strip("\"'")
 seen = []
-for name in ("STUDIO_WRITER_MODEL", "STUDIO_EDITOR_MODEL"):
+for name in ("STUDIO_WRITER_MODEL", "STUDIO_EDITOR_MODEL", "STUDIO_FEED_MODEL"):
     value = (os.environ.get(name) or "").strip() or filed.get(name, "")
     if value and value not in seen:
         seen.append(value)

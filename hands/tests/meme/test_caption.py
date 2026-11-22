@@ -123,7 +123,9 @@ class CaptionTest(Scratch):
         self.refused("text", top="   ")
         self.refused("text", top="x" * (memes.MAX_TEXT + 1))
         self.refused("text", top="read teeny.example.com")
-        self.refused("text", top="what the fuck")
+        # Only a slur is held on sight since 2026-11-22 (guard/lexicon.py):
+        # a threat, "send nudes" or "beat you up" is the judge's to read.
+        self.refused("text", top="what a retard")
         self.refused("text", top="bell\x07here")
         self.refused("text", top=5)
 
@@ -242,6 +244,51 @@ class ComicTest(Scratch):
             with self.assertRaises(hand.Refused, msg=json.dumps(body)[:80]) as caught:
                 memes.comic(body)
             self.assertEqual(caught.exception.detail["rule"], rule, caught.exception.reason)
+
+
+@needs_pillow
+class SymlinkedRootTest(Scratch):
+    """The checkout reached through symlinks: TEENY_ROOT a link to the real
+    folder, and state/media a link to a folder outside it (a media disk
+    mounted elsewhere). A picture there is still one of the two folders'."""
+
+    def setUp(self):
+        super().setUp()
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        self.outside = tempfile.TemporaryDirectory()
+        media = self.root / "state" / "media"
+        moved = Path(self.outside.name) / "media"
+        shutil.move(str(media), str(moved))
+        media.symlink_to(moved, target_is_directory=True)
+        self.links = tempfile.TemporaryDirectory()
+        self.link = Path(self.links.name) / "teeny"
+        self.link.symlink_to(self.root, target_is_directory=True)
+        os.environ["TEENY_ROOT"] = str(self.link)
+        hand._ENV_CACHE = None
+
+    def tearDown(self):
+        super().tearDown()
+        self.links.cleanup()
+        self.outside.cleanup()
+
+    def test_a_comic_of_pictures_in_a_symlinked_media_folder_is_made(self):
+        panels = [{"image": self.picture("a.png"), "caption": "one"}, {"image": ART, "caption": "two"}]
+        out = memes.comic({"panels": panels})["asset"]
+        self.assertEqual(out["status"], "done")
+        self.assertEqual(out["detail"]["sources"], ["state/media/a.png", ART])
+        self.assertTrue((self.link / out["path"]).is_file())
+
+    def test_a_caption_on_a_picture_in_a_symlinked_media_folder_is_made(self):
+        out = memes.caption({"image": self.picture("b.png"), "top": "hi"})["asset"]
+        self.assertEqual(out["detail"]["source"], "state/media/b.png")
+
+    def test_an_absolute_path_through_the_link_is_the_same_picture(self):
+        out = memes.caption({"image": str(self.link / ART), "top": "hi"})["asset"]
+        self.assertEqual(out["detail"]["source"], ART)
 
 
 @needs_pillow

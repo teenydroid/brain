@@ -52,7 +52,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+import sys
+
 import provider_error
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
+from teeny_hands import authorship  # noqa: E402  (stdlib only, frozen)
 
 Json = dict[str, Any]
 
@@ -65,14 +70,20 @@ KINDS = {
                 "in bin/act runs and beats; `playbook` or `verb` (a beat's `do`) narrows it",
     "cron_failed": "failed runs of a cron job of brain/cron.toml or the pinned schedule (a restart's and the "
                    "provider's left out)",
-    "guard_holds": "what the guard held (`hold_direction`: outbound, your own drafts, by default; or "
-                   "inbound), by `category` and `surface`",
+    "guard_holds": "what the guard held (`hold_direction`: outbound, your own drafts, by default, never text "
+                   "code wrote such as the babysitter's audit comment; or inbound), by `category` and `surface`",
     "outbound": "what you sent on a surface (x, moltbook, mail), by `kind_of` (x: post, reply, quote, "
                 "thread; moltbook: post, comment) and text that `contains` a literal",
     "actions": "what a hand did: x `like`; moltbook `upvote-post`, `upvote-comment`, `follow`; gh `comment`, "
                "`open-issue`, `close-issue`, `open-pr`, `push`, `create-repo`",
+    "hand_used": "runs of `bin/act` playbooks whose input or output calls `hands/<hand>` (a run the daily "
+                 "budget or the studio skipped is left out)",
     "judged": "only when nothing above can count it: a judge reads samples of what you sent on `surface` "
               "(narrowed like outbound) before and after, against your expected move",
+    "reach": "a share of your own x items (evolve_reach): `measure` new (posts that drew a new account), nobody "
+             "(posts that drew no reply, like, repost or quote) or answered (replies the account answered back), "
+             "`source` a format (take, proof, studio, ...) or reply-own-thread / reply-their-thread; scored as a "
+             "share, so posting more or less does not move it",
 }
 FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "act_failed": {"playbook": True, "contains": False},
@@ -81,7 +92,9 @@ FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "guard_holds": {"hold_direction": False, "category": False, "surface": False},
     "outbound": {"surface": True, "kind_of": False, "contains": False},
     "actions": {"surface": True, "verb": True},
+    "hand_used": {"hand": True},
     "judged": {"surface": True, "kind_of": False, "contains": False},
+    "reach": {"surface": True, "measure": True, "source": False},
 }
 DIRECTIONS = ("fall", "rise", "zero")
 #: Plain words for a direction, read as the direction they name.
@@ -191,7 +204,7 @@ def _direction(value: Any) -> str | None:
 
 
 #: Fields whose values are names the code matches exactly in lower case.
-_LOWER = ("surface", "kind_of", "verb", "hold_direction", "category")
+_LOWER = ("surface", "kind_of", "verb", "hold_direction", "category", "measure", "source")
 
 
 def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
@@ -261,6 +274,11 @@ def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
         if out["job"] not in jobs:
             raise BadCheck(f"there is no cron job {out['job'][:40]} in brain/cron.toml or the pinned schedule")
         out["command"] = jobs[out["job"]]
+    if kind == "hand_used":
+        if not _NAME.match(out["hand"]):
+            raise BadCheck(f"the check's hand is a name like bounty, not {out['hand'][:40]!r}")
+        if not (tree / "hands" / out["hand"]).exists():
+            raise BadCheck(f"there is no hand {out['hand']} (hands/{out['hand']})")
     if kind == "guard_holds":
         if out.get("hold_direction", "outbound") not in ("outbound", "inbound"):
             raise BadCheck("the check's hold_direction is outbound or inbound")
@@ -278,7 +296,17 @@ def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
             raise BadCheck(f"the check's surface is one of {', '.join(ACTIONS)}, not {out['surface'][:40]!r}")
         if out["verb"] not in ACTIONS[out["surface"]]:
             raise BadCheck(f"on {out['surface']} the check's verb is one of {', '.join(ACTIONS[out['surface']])}")
+    if kind == "reach":
+        import evolve_reach
+
+        evolve_reach.validate(out)
     return out
+
+
+def _describe_reach(check: Mapping[str, Any]) -> str:
+    import evolve_reach
+
+    return evolve_reach.describe(check)
 
 
 def describe(check: Any) -> str:
@@ -296,7 +324,9 @@ def describe(check: Any) -> str:
                                  + (f" on {c['surface']}" if c.get("surface") else ""),
         "outbound": lambda c: f"{c.get('surface')} {c.get('kind_of') or 'sends'}",
         "actions": lambda c: f"{c.get('surface')} {c.get('verb')}",
+        "hand_used": lambda c: f"runs of playbooks that call hands/{c.get('hand')}",
         "judged": lambda c: f"what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of") else ""),
+        "reach": _describe_reach,
     }[kind](check)
     literals = check.get("contains")
     if literals:
@@ -350,6 +380,10 @@ class Sources:
     tick_runs: Path
     cron_failures: Callable[[tuple[str, ...], float, float], list[float] | None]
     infra: re.Pattern
+    tree: Path | None = None  # the checkout whose playbooks say who calls a hand; None: the one this file is in
+    #: The times of every finished run of the cron job known by any of NAMES
+    #: (source_runs), or None when they cannot be read; None: not known.
+    cron_runs: Callable[[tuple[str, ...], float, float], list[float] | None] | None = None
 
 
 def _epoch(value: Any) -> float | None:
@@ -444,6 +478,30 @@ def _refusal_rule(result: Any) -> str | None:
     return HELD_RULE if result.get("refused") == HELD_RULE else None
 
 
+def _callers(tree: Path, hand: str) -> dict[str, bool]:
+    """The playbooks in TREE whose input runs `hands/<hand>` or whose output
+    is `hand:<hand> ...`, by name, each with whether the hand is called from
+    an input (its run calls it whenever it is ok) rather than only through
+    its output (it calls it only when the model's answer takes the hand
+    action). A playbook whose front matter cannot be read calls nothing."""
+    names = {}
+    for path in sorted((tree / "brain" / "playbooks").glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+            if not text.startswith("+++"):
+                continue
+            head = tomllib.loads(text.split("+++", 2)[1])
+        except (OSError, ValueError):  # tomllib.TOMLDecodeError and a bad encoding are both ValueErrors
+            continue
+        runs = [i.get("run") for i in head.get("inputs") or [] if isinstance(i, Mapping)]
+        via_input = any(isinstance(r, str) and r.split()[:1] == [f"hands/{hand}"] for r in runs)
+        output = head.get("output")
+        via_output = isinstance(output, str) and output.split()[:1] == [f"hand:{hand}"]
+        if via_input or via_output:
+            names[path.stem] = via_input
+    return names
+
+
 def act_failure(run: Mapping[str, Any], infra: re.Pattern) -> str | None:
     """What a bin/act run that failed said (its error, the core's stderr
     and its failed actions), when the failure is the playbook's: None for a
@@ -523,27 +581,26 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
                              and r.get("status") == "refused" and _refusal_rule(r.get("result")) == check["rule"]
                              and (not check.get("verb") or r.get("do") == check["verb"]))
         return n
+    if kind == "reach":
+        import evolve_reach
+
+        return evolve_reach.count(check, src, since, until)
+    if kind == "hand_used":
+        tree = src.tree or Path(__file__).resolve().parents[2]
+        # A use is a run that finished ok (a failed one, or a skipped one, never
+        # reached the hand) and, for a playbook that calls the hand only
+        # through its output, whose answer took the hand action: bin/act
+        # records each as {action: "hand", status: "done"} in `actions`.
+        return sum(1 for book, via_input in _callers(tree, check["hand"]).items() for run in _act_runs(src, book)
+                   if run.get("ok") is True and "skipped" not in run and _inside(_epoch(run.get("at")), since, until)
+                   and (via_input or any(isinstance(a, Mapping) and a.get("action") == "hand"
+                                         and a.get("status") == "done" for a in run.get("actions") or [])))
     db = _Db(src.hands_db)
     try:
         if not db.ok:
             return None
         if kind == "guard_holds":
-            n = 0
-            for at, context, category in db.rows("SELECT at, context, category FROM guard_holds WHERE direction = ?",
-                                                 (check.get("hold_direction", "outbound"),)):
-                if not _inside(_epoch(at), since, until):
-                    continue
-                if check.get("category") and category != check["category"]:
-                    continue
-                if check.get("surface"):
-                    try:
-                        surface = json.loads(context or "{}").get("surface")
-                    except (ValueError, AttributeError):
-                        surface = None
-                    if surface != check["surface"]:
-                        continue
-                n += 1
-            return n
+            return sum(1 for r in guard_hold_rows(db, check, since, until) if not r["code_wrote"])
         if kind in ("outbound", "judged"):
             got = outbound_texts(check, db, since, until)
             return None if got is None else len(got)
@@ -559,6 +616,82 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
     finally:
         db.close()
     return None
+
+
+def source_runs(check: Mapping[str, Any], src: Sources, since: float, until: float) -> int | None:
+    """How often what emits a counted check's events ran in [SINCE, UNTIL):
+    the playbook's bin/act runs that were not skipped, the beats, the cron
+    job's runs, or Teeny's own sends; None when no one source emits them (or
+    it cannot be read). A falling count whose source ran less proves
+    nothing (`score`): running less would meet it."""
+    kind = check.get("kind")
+
+    def act(book: str | None) -> int:
+        return sum(1 for r in _act_runs(src, book) if "skipped" not in r and _inside(_epoch(r.get("at")), since, until))
+
+    if kind == "act_failed" or (kind == "refusals" and check.get("playbook")):
+        return act(check["playbook"])
+    if kind == "refusals":
+        beats = sum(1 for b in _jsonl(src.tick_runs) if _inside(_epoch(b.get("at")), since, until))
+        return beats if check.get("verb") else beats + act(None)
+    if kind == "cron_failed":
+        if src.cron_runs is None:
+            return None
+        names = tuple(n for n in (check.get("command"), check["job"], f"teeny.{check['job']}") if n)
+        times = src.cron_runs(names, since, until)
+        return None if times is None else sum(1 for at in times if since <= at < until)
+    if kind == "guard_holds" and check.get("hold_direction", "outbound") == "outbound" \
+            or kind == "outbound" and check.get("contains"):
+        surfaces = [check["surface"]] if check.get("surface") else list(OUTBOUND)
+        if any(s not in OUTBOUND for s in surfaces):
+            return None
+        db = _Db(src.hands_db)
+        try:
+            got = [outbound_texts({"surface": s}, db, since, until) for s in surfaces]
+        finally:
+            db.close()
+        return None if any(g is None for g in got) else sum(len(g) for g in got)
+    return None
+
+
+def silenced(check: Mapping[str, Any], src: Sources, t0: float, span: float, p: float) -> Json | None:
+    """{before, after} runs of a falling (or zero) check's source when it ran
+    less after the merge, past chance at P or not at all; None otherwise."""
+    if check.get("direction") not in ("fall", "zero"):
+        return None
+    before, after = source_runs(check, src, t0 - span, t0), source_runs(check, src, t0, t0 + span)
+    if before is None or after is None or after >= before:
+        return None
+    if after == 0 or _tails(after, before + after)[0] < p:
+        return {"before": before, "after": after}
+    return None
+
+
+def guard_hold_rows(db: _Db, check: Mapping[str, Any], since: float, until: float) -> list[Json]:
+    """Every guard hold between SINCE and UNTIL that a `guard_holds` CHECK's
+    `hold_direction`, `category` and `surface` take, oldest first, without
+    its text, each with `code_wrote`: the teeny_hands.authorship recogniser
+    that says code composed the held text (the babysitter's audit comment),
+    or None for Teeny's own words. Outbound, only the rows with no
+    `code_wrote` count (`count`); a guard_holds finding (evolve_findings)
+    groups these very rows, so its number and its check's always agree.
+    Inbound text is a stranger's, never matched."""
+    direction = check.get("hold_direction", "outbound")
+    out = []
+    for hold_id, at, context, category, reason, held_by, status, text in db.rows(
+            "SELECT id, at, context, category, reason, held_by, status, text FROM guard_holds WHERE direction = ? "
+            "ORDER BY id", (direction,)):
+        if not _inside(_epoch(at), since, until):
+            continue
+        if check.get("category") and category != check["category"]:
+            continue
+        ctx = authorship.context_of(context)
+        if check.get("surface") and ctx.get("surface") != check["surface"]:
+            continue
+        out.append({"id": hold_id, "at": at, "surface": ctx.get("surface"), "category": category, "reason": reason,
+                    "held_by": held_by, "status": status,
+                    "code_wrote": None if direction == "inbound" else authorship.code_wrote(ctx, text)})
+    return out
 
 
 # --- scoring ----------------------------------------------------------------------------------------------
@@ -697,11 +830,24 @@ def score(entry: Mapping[str, Any], days: int, entries: Mapping[str, Json], src:
             return {**out, "verdict": "no-data", "why": "the judge did not answer"} if late else None
         out.update(verdict=answer[0], why=answer[1], judged=True)
         return out
+    if check.get("kind") == "reach":
+        import evolve_reach  # a share, not a count: Fisher's exact test, not the Poisson one below
+
+        got = evolve_reach.score(check, src, t0, span, min_events, p)
+        if got is None:
+            return {**out, "verdict": "no-data", "why": "the ledger could not be read"} if late else None
+        return {**out, **got}
     before_n, after_n = count(check, src, t0 - span, t0), count(check, src, t0, t0 + span)
     if before_n is None or after_n is None:
         return {**out, "verdict": "no-data", "why": "the ledger could not be read"} if late else None
     got, tail = verdict(check["direction"], before_n, after_n, min_events, p)
+    quiet = silenced(check, src, t0, span, p) if got == "worked" else None
+    if quiet:
+        got = "no-effect"
     out.update(verdict=got, before=before_n, after=after_n, seen=before_n + after_n)
+    if quiet:
+        out.update(source=quiet, why=f"the count fell, but its source ran less ({quiet['before']} runs before, "
+                                     f"{quiet['after']} after): running less is not a fix")
     if tail is not None:
         out["p"] = round(tail, 6)
     if got == "no-data":

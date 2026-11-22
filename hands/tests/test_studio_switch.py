@@ -98,6 +98,17 @@ class SwitchTest(unittest.TestCase):
         self.assertEqual(studio_switch.doctor({"TEENY_SECRETS": str(self.dir)})[0], "ok")
         self.assertEqual(self.cli("doctor").stdout.split()[0], "ok")
 
+    def test_models_are_what_the_studio_asks_each_on_its_route(self):
+        env = {"TEENY_SECRETS": str(self.dir)}
+        self.write(b"STUDIO=0\n")
+        self.assertEqual(studio_switch.models(env), [])
+        self.write(b"STUDIO_WRITER_MODEL=w\nSTUDIO_EDITOR_MODEL=e\nSAFETY_JUDGE_MODEL=e\n")
+        self.assertEqual(studio_switch.models(env), [("agent", "w"), ("agent", "e"), ("simple", "e")])
+        # The writer and editor: the environment first; the judges: the file only.
+        self.assertEqual(studio_switch.models({**env, "STUDIO_WRITER_MODEL": "e", "SAFETY_JUDGE_MODEL": "x"}),
+                         [("agent", "e"), ("simple", "e")])
+        self.assertEqual(self.cli("models").stdout.splitlines(), ["agent w", "agent e", "simple e"])
+
 
 if __name__ == "__main__":
     unittest.main()

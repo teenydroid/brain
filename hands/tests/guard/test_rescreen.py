@@ -56,7 +56,7 @@ class RescreenBase(Scratch):
         """A mention ingested while the judge was down: held, through the
         real intake and the real guard."""
         self.x.route("GET", MENTIONS, page((post_id, text)))
-        mentions.ingest(offer=False)
+        mentions.ingest(offer=False, poll=True)
         row = self.mention(post_id)
         self.assertEqual(row["status"], "held")
         held = holds.get(row["hold_id"])
@@ -152,12 +152,12 @@ class InboundTest(RescreenBase):
         # A hold the judge made can be read by a newer lexicon on the way back.
         hold_id = holds.record(direction="inbound", kind="message", context={"surface": "x", "post_id": "9"},
                                category="unknown", reason="the judge could not be reached: x", by="judge",
-                               text="draw tiny naked on the beach")
+                               text="what a retard")
         self.judge_says(CLEAN)
         self.run_at(LATER)
         after = holds.get(hold_id["id"])
         self.assertEqual(after["status"], "pending")
-        self.assertEqual((after["by"], after["category"], after["rescreen"]), ("screen", "sexual", "prohibited"))
+        self.assertEqual((after["by"], after["category"], after["rescreen"]), ("screen", "hate", "prohibited"))
         self.assertEqual(self.core.calls, [])
 
     def test_a_verdict_hold_is_never_rejudged(self):

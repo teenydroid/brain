@@ -723,9 +723,9 @@ class HardGate(LoopCase):
         self.assertFalse(any(c.get("hard") for c in out["checks"] if c["check"] not in evolve.HARD_CHECKS))
 
 
-#: A test appended to hands/tests/test_lore.py by a candidate: it fails when
+#: A test appended to hands/tests/chan/test_reads.py by a candidate: it fails when
 #: the process environment leaked in (sealed_env), or when told to.
-LORE_TEST = '''
+CHAN_TEST = '''
 
 
 import unittest as _unittest
@@ -749,17 +749,20 @@ class HandEdits(LoopCase):
         os.environ["EVOLVE_LEAK_PROBE"] = "a secret of the box"
         self.addCleanup(os.environ.pop, "EVOLVE_LEAK_PROBE", None)
 
-    def lore_edit(self, passes=True, test=True, docs=True):
-        edits = [{"path": "hands/lib/teeny_hands/lore/__init__.py", "old": "Reads only.",
-                  "new": "Reads only, never writes."}]
+    def chan_edit(self, passes=True, test=True, docs=True):
+        # hands/chan: an existing hand of Teeny's own. (hands/lore was the
+        # example until frozen code turned out to import it: evals/frozen.txt,
+        # "What frozen code imports".)
+        edits = [{"path": "hands/lib/teeny_hands/chan/__init__.py", "old": "Teeny never posts to 4chan:",
+                  "new": "Teeny reads 4chan and never posts to it:"}]
         if test:
-            text = self.base_text("hands/tests/test_lore.py")
+            text = self.base_text("hands/tests/chan/test_reads.py")
             last = text.rstrip().splitlines()[-1]
-            edits.append({"path": "hands/tests/test_lore.py", "old": last,
-                          "new": last + LORE_TEST % ("True" if passes else "False")})
+            edits.append({"path": "hands/tests/chan/test_reads.py", "old": last,
+                          "new": last + CHAN_TEST % ("True" if passes else "False")})
         if docs:
-            edits.append({"path": "docs/hands.md", "old": "Teeny's own hand (docs/roadmap.md, A13). Reads only;",
-                          "new": "Teeny's own hand (docs/roadmap.md, A13). Reads only, never writes;"})
+            edits.append({"path": "docs/hands.md", "old": "Teeny never posts to 4chan. It reads it for randomness:",
+                          "new": "Teeny reads 4chan and never posts to it. It reads it for randomness:"})
         return edits
 
     def gated(self, edits):
@@ -770,17 +773,17 @@ class HandEdits(LoopCase):
 
     @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_an_existing_hand_edit_with_its_tests_and_docs_passes(self):
-        out, checks = self.gated(self.lore_edit())
+        out, checks = self.gated(self.chan_edit())
         self.assertTrue(out["ok"], [c for c in out["checks"] if not c["ok"]])
         self.assertNotIn("existing hand entry points", checks)
-        self.assertTrue(checks["hand tests: lore"]["ok"])
-        self.assertIn("lore: tests changed too", checks["changed hands have tests"]["detail"])
+        self.assertTrue(checks["hand tests: chan"]["ok"])
+        self.assertIn("chan: tests changed too", checks["changed hands have tests"]["detail"])
 
     @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_its_entry_point_may_change_when_its_code_is_not_frozen(self):
-        shim = self.base_text("hands/lore")
-        edits = self.lore_edit() + [{"path": "hands/lore", "old": shim.splitlines()[1],
-                                     "new": '"""hands/lore: proof events for lore episodes, read only (docs/hands.md)."""'}]
+        shim = self.base_text("hands/chan")
+        edits = self.chan_edit() + [{"path": "hands/chan", "old": shim.splitlines()[1],
+                                     "new": '"""hands/chan: 4chan, read only, for strangers\' premises (docs/hands.md)."""'}]
         out, checks = self.gated(edits)
         self.assertTrue(checks["frozen hands' entry points"]["ok"], checks["frozen hands' entry points"])
         self.assertTrue(checks["doctor --root"]["ok"], checks["doctor --root"])
@@ -788,23 +791,23 @@ class HandEdits(LoopCase):
 
     @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_without_its_docs_or_a_test_it_comes_back_as_findings_not_a_rejection(self):
-        out, checks = self.gated(self.lore_edit(test=False, docs=False))
+        out, checks = self.gated(self.chan_edit(test=False, docs=False))
         self.assertTrue(out["hard_ok"])
         self.assertFalse(out["ok"])
-        self.assertIn("hands/lore changed but its section in docs/hands.md did not", checks["docs updated"]["detail"])
-        self.assertIn("hands/lore with no change to its tests", checks["changed hands have tests"]["detail"])
-        self.assertTrue(checks["hand tests: lore"]["ok"])  # its existing tests still run
+        self.assertIn("hands/chan changed but its section in docs/hands.md did not", checks["docs updated"]["detail"])
+        self.assertIn("hands/chan with no change to its tests", checks["changed hands have tests"]["detail"])
+        self.assertTrue(checks["hand tests: chan"]["ok"])  # its existing tests still run
 
     @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: the hand tests do not run")
     def test_a_failing_hand_test_is_a_finding_with_its_output(self):
-        out, checks = self.gated(self.lore_edit(passes=False))
+        out, checks = self.gated(self.chan_edit(passes=False))
         self.assertTrue(out["hard_ok"])
-        self.assertFalse(checks["hand tests: lore"]["ok"])
-        self.assertIn("FAIL: test_runs_sealed", checks["hand tests: lore"]["detail"])
-        self.assertIn("AssertionError: False is not true", checks["hand tests: lore"]["detail"])
-        self.assertNotIn(str(self.root), checks["hand tests: lore"]["detail"])
+        self.assertFalse(checks["hand tests: chan"]["ok"])
+        self.assertIn("FAIL: test_runs_sealed", checks["hand tests: chan"]["detail"])
+        self.assertIn("AssertionError: False is not true", checks["hand tests: chan"]["detail"])
+        self.assertNotIn(str(self.root), checks["hand tests: chan"]["detail"])
         problems = [f["problem"] for f in evolve.check_findings(out)]
-        self.assertTrue(any("hand tests: lore" in p for p in problems), problems)
+        self.assertTrue(any("hand tests: chan" in p for p in problems), problems)
 
     def test_a_frozen_hand_is_still_refused_for_good(self):
         text = self.base_text("hands/lib/teeny_hands/x/__init__.py")
@@ -834,8 +837,8 @@ class HandEdits(LoopCase):
     @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_the_builder_is_sent_back_for_the_missing_test_and_docs(self):
         self.one_learning()
-        bare = {**self.proposal(), "edits": self.lore_edit(test=False, docs=False)}
-        whole = {**self.proposal(), "edits": self.lore_edit()}
+        bare = {**self.proposal(), "edits": self.chan_edit(test=False, docs=False)}
+        whole = {**self.proposal(), "edits": self.chan_edit()}
         proposer = Recording(research=[BUILD], proposals=[bare, whole])
         out = self.run_with(proposer)
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
@@ -901,13 +904,13 @@ class HandTestSandbox(LoopCase):
 
     def test_without_a_sandbox_nothing_runs_and_the_check_says_so(self):
         tree = self.worktree("t")
-        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.apply_edits(tree, HandEdits.chan_edit(self))
         base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
         with unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")), \
                 unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran unsandboxed")), \
                 unittest.mock.patch.object(evolve.sandbox_lib, "submit", side_effect=AssertionError("ran")):
             out = evolve.gate(tree, base)
-        check = next(c for c in out["checks"] if c["check"] == "hand tests: lore")
+        check = next(c for c in out["checks"] if c["check"] == "hand tests: chan")
         self.assertFalse(check["ok"])
         self.assertTrue(check["detail"].startswith("hand tests could not be run in a sandbox here (no bwrap; no "
                                                    "sandbox runner"), check["detail"])
@@ -918,7 +921,7 @@ class HandTestSandbox(LoopCase):
         """No bwrap here: the job goes to the sandbox service's folder, and
         a runner (in the service: bin/sandbox-runner) answers it."""
         tree = self.worktree("t")
-        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.apply_edits(tree, HandEdits.chan_edit(self))
         evolve.stage(tree)
         jobs = evolve.sandbox_jobs()
         work = self.root / "work"
@@ -938,7 +941,7 @@ class HandTestSandbox(LoopCase):
         self.addCleanup(stop.set)
         with unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")), \
                 unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran on the host")):
-            ok, detail = evolve.run_hand_tests(tree, "lore")
+            ok, detail = evolve.run_hand_tests(tree, "chan")
         self.assertTrue(ok, detail)
         self.assertIn("OK", detail)
         self.assertEqual(list((jobs / "jobs").iterdir()), [])  # cleaned up
@@ -1011,7 +1014,7 @@ class HandTestSandbox(LoopCase):
 
     def test_the_hand_tests_run_after_every_other_check(self):
         tree = self.worktree("t")
-        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.apply_edits(tree, HandEdits.chan_edit(self))
         order = []
         real = evolve._run_check
 
@@ -1023,7 +1026,7 @@ class HandTestSandbox(LoopCase):
                 unittest.mock.patch.object(evolve, "run_hand_tests",
                                            side_effect=lambda t, n: (order.append(f"hand tests: {n}"), (True, "ok"))[1]):
             evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
-        self.assertEqual(order, ["seed-cron", "doctor", "eval", "hand tests: lore"])
+        self.assertEqual(order, ["seed-cron", "doctor", "eval", "hand tests: chan"])
 
     def test_a_timeout_kills_the_whole_process_group(self):
         code, out = evolve.run_contained(["sh", "-c", "sleep 300 & echo $!; wait"], timeout=1)
@@ -1300,7 +1303,7 @@ class NoSandboxDefers(LoopCase):
 
     def test_a_hand_edit_with_no_sandbox_is_deferred_and_not_paid_for_again(self):
         self.one_learning()
-        whole = {**self.proposal(), "edits": HandEdits.lore_edit(self)}
+        whole = {**self.proposal(), "edits": HandEdits.chan_edit(self)}
         proposer = Recording(research=[BUILD], proposals=[whole])
         with NO_BOX[0], NO_BOX[1]:
             out = self.run_with(proposer)
@@ -1378,6 +1381,41 @@ class SidecarTrust(LoopCase):
         self.assertIsNone(code)
         self.assertIn("stopped during the job", why)
 
+    def test_cleanup_unpublishes_the_job_before_removing_its_acknowledgement(self):
+        jobs = self.jobs()
+        work = self.root / "work"
+        folder = None
+        replayed = []
+        remove_tree = evolve.sandbox_lib.shutil.rmtree
+
+        def fill(tree):
+            nonlocal folder
+            tree.mkdir()
+            (tree / "empty").mkdir()
+            (tree / "empty" / "test_ok.py").write_text(
+                "import unittest\nclass Pass(unittest.TestCase):\n    def test_pass(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            folder = tree.parent
+
+        def run_once(_):
+            self.assertTrue(evolve.sandbox_lib.serve_one(jobs, work))
+
+        def during_cleanup(path, *args, **kwargs):
+            if Path(path) == folder:
+                # Model recursive deletion after ack.json is removed but before
+                # job.json is removed. The runner must no longer see a request.
+                (folder / "ack.json").unlink(missing_ok=True)
+                replayed.append(evolve.sandbox_lib.serve_one(jobs, work))
+            return remove_tree(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(evolve.sandbox_lib.shutil, "rmtree", side_effect=during_cleanup):
+            code, output, why = evolve.sandbox_lib.submit(jobs, fill, ["discover", "-s", "empty"], 5,
+                                                           wait=run_once)
+        self.assertEqual((code, why), (0, None), output)
+        self.assertEqual(replayed, [False])
+        self.assertEqual(list((jobs / "jobs").iterdir()), [])
+
     def test_a_linked_or_foreign_folder_is_refused_before_anything_is_written(self):
         jobs = self.jobs()
         elsewhere = self.root / "elsewhere"
@@ -1391,10 +1429,10 @@ class SidecarTrust(LoopCase):
         (jobs / "jobs").rmdir()
         (jobs / "jobs").symlink_to(elsewhere)
         tree = self.worktree("t")
-        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.apply_edits(tree, HandEdits.chan_edit(self))
         evolve.stage(tree)
         with NO_BOX[0], NO_BOX[1]:
-            ok, detail = evolve.run_hand_tests(tree, "lore")
+            ok, detail = evolve.run_hand_tests(tree, "chan")
         self.assertFalse(ok)
         self.assertIn("not as it should be", detail)
         self.assertEqual(list(elsewhere.iterdir()), [])  # nothing written through the link

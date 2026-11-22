@@ -10,6 +10,8 @@ at `/srv/teeny`:
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
+| `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
+| `ingest` | Short videos to study for `hands/remake` and to dissect for `hands/khaby`: a pinned yt-dlp and ffmpeg behind `deploy/ingest/serve.py`. No key, no mount of Teeny's. Behind the `ingest` profile. | none; compose network only (`http://ingest:8090`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
@@ -38,6 +40,25 @@ the checkout, mounted at /srv/teeny in spine and xhook
   ├── state/browser/      the operator's browser profile and downloads
   └── secrets/            spine.env, teeny.env, cortex.env, core.token, openhuman.key
 ```
+
+## What is in this folder
+
+| Path | What it is |
+|---|---|
+| `compose.yaml` | The services above, over the checkout mounted at `/srv/teeny`. |
+| `spine.env.example`, `teeny.env.example`, `cortex.env.example`, `ingest.env.example`, `keychain.env.example` | Templates for the env files under `secrets/`: the model and memory store (spine), the hands' keys and `DRY_RUN` (teeny), CortexDB's keys, the ingest service's optional proxy, and the keychain's sealing key. Copy, fill, mode 600. |
+| `browser-allow.txt`, `browser-deny.txt`, `browser-proxy-domains.txt` | Operator-owned lists for the browser: the hosts the raw `http_request` tool may reach, the hosts the browser may never open, and the hosts reached through the residential proxy. Teeny cannot edit them (`evals/frozen.txt`). |
+| `reddit-subreddits.txt` | The subreddits `hands/reddit` may write in, reviewed by the operator. |
+| `reel.Dockerfile`, `reel.config.toml`, `reel/` | The `reel` service: MoneyPrinterTurbo's config and Teeny's front (`serve.py` routes, `policy.py` rules, `skitcut.py` the skit cutter). |
+| `memegen/` | The `memegen` front (`front.py`, `art.py`). The service itself builds from `vendor/memegen`. |
+| `ingest.Dockerfile`, `ingest/` | The `ingest` service: `serve.py`, `policy.py` (the URL allowlist) and `shots.py` (the cuts). |
+| `nginx/` | The host's vhosts: `teeny.enamakel.com.conf` (webhook and landing page) and `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`). |
+| `web-vhost.sh` | Installs the landing-page vhost and its certificate, once. |
+| `tell.sh` | Tells Teeny something from the host and has it act now. |
+
+The spine's own image is the `Dockerfile` at the repository root, and the
+landing page's is `web/Dockerfile`. The whole folder is frozen to Teeny's own
+pull requests (`evals/frozen.txt`).
 
 ## First time on the box
 
@@ -110,6 +131,92 @@ To move the pin: check out the new release tag in `vendor/moneyprinter`, run
 land it as a pull request. Never edit the submodule; a fix upstream needs is
 a pull request to `harry0703/MoneyPrinterTurbo`.
 
+## The meme service
+
+`hands/meme templates` and `hands/meme template` render known meme templates
+on the `memegen` service (docs/hands.md, "meme"). Opt-in, behind the
+`memegen` profile; it posts nothing. Idle it holds about 125 MB; a render
+takes under a second of one core (capped at 2 cores and 1 GB). To start it
+on the box:
+
+```sh
+git submodule update --init vendor/memegen              # the pinned commit
+docker compose -f deploy/compose.yaml --profile memegen build memegen
+docker compose -f deploy/compose.yaml --profile memegen up -d memegen
+docker compose -f deploy/compose.yaml exec -T spine hands/meme templates --max 3
+```
+
+`up -d memegen` starts that one service; it does not recreate the spine.
+Then render one with nothing saved:
+
+```sh
+echo '{"template":"drake","lines":["a","b"],"teeny":"brain/assets/tiny/tiny-love.jpg"}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/meme template
+```
+
+`MEMEGEN_URL` defaults to `http://memegen:5000`. The studio drafts memes
+only when `STUDIO_FORMATS` names `meme` (`deploy/teeny.env.example`).
+
+The image is upstream's own build (`python:3.13` bookworm with poetry,
+about 2.6 GB). What runs is `deploy/memegen/front.py`, mounted read-only:
+upstream's app, but a picture to paste in is copied from Teeny's art
+(mounted read-only at `/teeny`, named `http://teeny-art/...`) and every other
+URL is refused, there is no "Memegen.link" watermark, and tracking and
+search are no-ops. `REMOTE_TRACKING_URL` and `BUGSNAG_API_KEY` stay unset;
+with them unset upstream makes no outbound call of its own. Compose does not
+restrict egress at the network level (as for `reel`): the front is what keeps
+it from fetching. The service writes only inside its container (each
+template folder caches the pictures pasted into it, `images/` each render),
+so it is not `read_only`; recreating it starts it clean.
+
+To move the pin: upstream tags no releases, so pick a commit on `main` whose
+CI passed, check it out in `vendor/memegen`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_templates.py'`
+(it checks that what the front replaces is still upstream's), rebuild,
+render one, and land it as a pull request. Never edit the submodule.
+
+## The ingest service
+
+`hands/remake` studies short videos on the `ingest` service
+(docs/hands.md, "remake"): a pinned `yt-dlp` and `ffmpeg` behind
+`deploy/ingest/serve.py`. Opt-in, behind the `ingest` profile; it posts and
+spends nothing. It holds no key and mounts nothing of Teeny's; its only
+setting is an optional proxy for YouTube. To start it on the box:
+
+```sh
+docker compose -f deploy/compose.yaml --profile ingest build ingest
+docker compose -f deploy/compose.yaml --profile ingest up -d ingest
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://ingest:8090/ping
+docker compose -f deploy/compose.yaml exec -T spine hands/remake charts --max 3
+```
+
+`up -d ingest` starts that one service; it does not recreate the spine.
+`INGEST_URL` defaults to `http://ingest:8090`. Which charts it reads is
+`REMAKE_TIKTOK_ACCOUNTS` and `YOUTUBE_API_KEY` (`deploy/teeny.env.example`);
+with neither set, `charts` answers nothing and says both are off.
+
+YouTube answers this box's address "Sign in to confirm you're not a bot" for
+every player client (2026-11-20), so YouTube videos need a proxy: copy
+`deploy/ingest.env.example` to `secrets/ingest.env`, set `INGEST_PROXY_URL`,
+and recreate the service. The proxy URL is read by that container only; the
+service takes it out of every error it reports. TikTok video downloads and
+account listings work without one; TikTok's tag and trending pages do not.
+
+The image is `python:3.11-slim` (the reel image's digest) with ffmpeg and
+yt-dlp installed from its release wheel by hash: `YTDLP_VERSION` and
+`YTDLP_SHA256` in `deploy/ingest.Dockerfile` move together (the digest is the
+wheel's sha256 on PyPI). yt-dlp changes often to keep up with the sites, so
+when a site stops working, bump both, rebuild and recreate. The service runs
+as its own user with a read-only root, a 256 MB tmpfs, no capabilities, no
+new privileges, 2 CPUs, 2 GB and 256 processes, and no published port.
+Fetches live in the `ingest-storage` volume until `hands/remake` deletes them;
+the service also sweeps any older than an hour (`INGEST_REAP_MINUTES`), and
+at start everything left from an earlier run. It is on a network of its own (`ingest-net`, shared only with cortexdb, whose namespace the spine lives in, so the spine still reaches `http://ingest:8090`): what it fetches cannot reach reel, memegen, xhook or the web page. Adding that network recreates cortexdb, and so the spine, the first time it is deployed. yt-dlp runs only the YouTube, TikTok and Instagram extractors, never `generic`. One job at a time: a second is
+answered 429. Compose does not restrict egress at the network level (as for
+`reel`): what keeps it from fetching anything but video pages is the address
+allowlist in `deploy/ingest/policy.py`, which `python3 -m unittest discover -s
+hands/tests -t hands/tests -p 'test_policy.py'` pins.
+
 ## The X webhook
 
 X's Activity API pushes `post.mention.create`, `post.reply.create`,
@@ -176,7 +283,10 @@ approval. Replies are unchanged. To deploy it:
    must show `model: the studio's claude-fable-5.2 has a N-token window` and
    the same for `claude-opus-5.5` (bin/lib/model_windows.sh). A line saying
    "no window" or "refused a window" means its turns may come back empty: fix
-   that before the next slot. Then `bin/crons` lists `teeny.studio-0430`,
+   that before the next slot (a model set later, or for one run, gets its
+   window from `bin/ask --model` on its first turn; `bin/doctor --live`'s
+   `studio models answer` asks each studio model one turn and fails on a
+   refusal). Then `bin/crons` lists `teeny.studio-0430`,
    `-0930`, `-1500`, `-sunday` and `-2300` and no `teeny.x-quote`,
    `teeny.morning`, `teeny.take`, `teeny.show` or `teeny.growth`; `bin/doctor
    --live` is green; and a preview that posts nothing:

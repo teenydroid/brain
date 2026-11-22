@@ -159,9 +159,20 @@ def again(surface: str, kind: str, ref: str, payload: Mapping[str, Any]) -> bool
     return cur.rowcount == 1
 
 
-def take(max_items: int = 20, max_chars: int = 30_000) -> Json:
+#: Taken ahead of anything older (FIRST): what a hand did with the mind's
+#: last answer. Live, 2026-11-19, comments owed since the day before, offered
+#: again in their old place, filled every batch of 25, and the eight refusals
+#: of the beat that answered them never reached the next, which took them as
+#: sent.
+FIRST = ("hand",)
+
+
+def take(max_items: int = 20, max_chars: int = 30_000, leave: Iterable[tuple[str, str]] = ()) -> Json:
     """The oldest pending stimuli, up to `max_items` and about `max_chars` of
-    text (always at least one), marked taken under a new tick id."""
+    text (always at least one), marked taken under a new tick id. The
+    surfaces in FIRST come before the rest. Those of a (surface, kind) in
+    `leave` stay pending in their place, for a later take."""
+    left = {(str(s), str(k)) for s, k in leave}
     now = hand.now()
     tick = secrets.token_hex(6)
     conn = db()
@@ -172,8 +183,10 @@ def take(max_items: int = 20, max_chars: int = 30_000) -> Json:
             (now, now - TAKEN_TIMEOUT_SECS),
         )
         rows = conn.execute(
-            "SELECT * FROM stimuli WHERE status = 'pending' ORDER BY at, rowid LIMIT ?", (max_items,)
+            f"SELECT * FROM stimuli WHERE status = 'pending' ORDER BY surface IN ({','.join('?' * len(FIRST))}) DESC,"
+            " at, rowid", FIRST,
         ).fetchall()
+        rows = [r for r in rows if (r["surface"], r["kind"]) not in left][:max_items]
         picked, used = [], 0
         for row in rows:
             size = len(row["text"])

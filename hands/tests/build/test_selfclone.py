@@ -11,10 +11,11 @@ import os
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from gh.support import T0, Scratch, git
 from teeny_hands import hand
-from teeny_hands.build import jobs, selfclone
+from teeny_hands.build import feature, jobs, selfclone, verify
 
 CHECKOUT = Path(__file__).resolve().parents[3]
 BUILD_SHIP = CHECKOUT / "bin" / "build-ship"
@@ -167,6 +168,125 @@ class SelfJobTest(SelfJobScratch):
             with self.subTest(body=bad), self.assertRaises(hand.HandError):
                 jobs.propose_self(bad)
 
+    def refused_second(self):
+        """The refusal a second proposal gets now: its detail."""
+        with self.assertRaises(hand.Refused) as caught:
+            jobs.propose_self({"text": "something else"})
+        self.assertEqual(caught.exception.detail["rule"], "one_at_a_time")
+        self.assertEqual(caught.exception.reason,
+                         f"one change to yourself is already in flight: {caught.exception.detail['active']}")
+        return caught.exception.detail
+
+    def test_a_second_self_proposal_is_refused_while_one_is_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        first = jobs.propose_self({"text": "say gm less often"})["id"]
+        self.assertIn(f"self request #{first} (pending)", self.refused_second()["active"])
+        build_requests.pick({"id": first, "reason": "it reads flat"})
+        self.assertIn(f"self request #{first} (picked)", self.refused_second()["active"])
+        # Built and reported ok: the job is still in flight until it ships or fails.
+        job = jobs.next_job()["job"]
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nbriefer\n")
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "briefer soul", "tests": "none"})
+        self.refused_second()
+        self.assertEqual(len(build_requests.listing("pending")["requests"]), 0)
+        # A failed job settles its request: the next may go.
+        conn = jobs.db()
+        try:
+            conn.execute("UPDATE build_jobs SET status = 'failed'")
+            conn.execute("UPDATE build_requests SET status = 'failed'")
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual(jobs.propose_self({"text": "something else"})["status"], "pending")
+
+    def test_a_request_from_somebody_else_is_never_a_self_change_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        build_requests.record("x", "1", "somebody", "build me a thing")
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.self_in_flight(conn))
+        finally:
+            conn.close()
+        self.assertEqual(jobs.propose_self({"text": "something else"})["status"], "pending")
+
+    def test_a_skipped_or_shipped_self_request_is_not_in_flight(self):
+        from teeny_hands import requests as build_requests
+
+        rid = jobs.propose_self({"text": "say gm less often"})["id"]
+        build_requests.skip({"id": rid, "reason": "not now"})
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.self_in_flight(conn))
+            conn.execute("UPDATE build_requests SET status = 'shipped' WHERE id = ?", (rid,))
+            self.assertIsNone(jobs.self_in_flight(conn))
+            conn.execute("UPDATE build_requests SET status = 'picked' WHERE id = ?", (rid,))
+            self.assertIn(f"self request #{rid} (picked)", jobs.self_in_flight(conn))
+        finally:
+            conn.close()
+
+    def test_a_want_proposal_is_tagged_in_its_source_id(self):
+        from teeny_hands import requests as build_requests
+
+        out = jobs.propose_self({"text": "build the chart renderer", "want": "w:m15"})
+        self.assertEqual(out, {"id": out["id"], "status": "pending", "want": "w:m15"})
+        row = build_requests.get(out["id"])["request"]
+        self.assertRegex(row["source_id"], r"^want:w:m15:\d+\.\d{6}$")
+        conn = jobs.db()
+        try:
+            self.assertEqual(jobs.want_of(conn, out["id"]), "w:m15")
+            self.assertIsNone(jobs.want_of(conn, 9999))
+        finally:
+            conn.close()
+
+    def test_a_plain_proposal_keeps_its_old_source_id_and_has_no_want(self):
+        from teeny_hands import requests as build_requests
+
+        out = jobs.propose_self({"text": "say gm less often"})
+        self.assertEqual(out, {"id": out["id"], "status": "pending"})
+        self.assertRegex(build_requests.get(out["id"])["request"]["source_id"], r"^\d+\.\d{6}$")
+        conn = jobs.db()
+        try:
+            self.assertIsNone(jobs.want_of(conn, out["id"]))
+        finally:
+            conn.close()
+
+    def test_a_bad_want_id_is_refused(self):
+        from teeny_hands import requests as build_requests
+
+        for bad in ("m15", "w:", "w:UP", "w:has space", "w:" + "a" * 61, "", 15, None, ["w:m15"]):
+            with self.subTest(want=bad), self.assertRaises(hand.HandError):
+                jobs.propose_self({"text": "build the chart renderer", "want": bad})
+        self.assertEqual(build_requests.listing("pending")["requests"], [])
+        # The edges that are fine.
+        for good in ("w:m15", "w:" + "a" * 60, "w:g9:c1_x-y"):
+            with self.subTest(want=good):
+                self.assertEqual(jobs.propose_self({"text": "build it", "want": good})["want"], good)
+                conn = jobs.db()
+                try:
+                    conn.execute("UPDATE build_requests SET status = 'skipped'")
+                    conn.commit()
+                finally:
+                    conn.close()
+
+    def test_the_cli_refuses_a_second_proposal_with_exit_2_and_the_one_in_flight(self):
+        build = HANDS / "build"
+        env = {**os.environ, "TEENY_ROOT": str(self.root)}
+
+        def propose(body):
+            return subprocess.run([str(build), "self"], input=json.dumps(body), capture_output=True, text=True, env=env)
+
+        first = propose({"text": "build the chart renderer", "want": "w:m15"})
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(json.loads(first.stdout)["want"], "w:m15")
+        second = propose({"text": "build another", "want": "w:m16"})
+        self.assertEqual(second.returncode, 2, second.stderr)
+        out = json.loads(second.stdout)
+        self.assertEqual((out["ok"], out["rule"]), (False, "one_at_a_time"))
+        self.assertIn("self request #", out["active"])
+        self.assertTrue(out["refused"].startswith("one change to yourself is already in flight: "))
+
     def test_a_picked_self_request_starts_a_branch_from_a_freshly_pulled_main(self):
         selfclone.sync()
         fresh = self.upstream({"brain/NEW.md": "merged since the last sync\n"}, "since")
@@ -233,6 +353,240 @@ class SelfJobTest(SelfJobScratch):
         self.assertEqual(kept, "a draft that went nowhere\n")
         self.assertEqual(self.clone_git("log", "-1", "--format=%an", job["branch"]).strip(), "Teeny")
         self.assertEqual(out["branches"], [{"branch": job["branch"], "ahead": 1, "behind": 1, "pushed": False}])
+
+
+class ChangedPathsTest(SelfJobScratch):
+    """What a self job changed in the clone against origin/main: committed or
+    not, each path once, as A, M, D or R."""
+
+    def test_changed_paths_are_the_committed_and_the_uncommitted_ones(self):
+        self.queue()
+        jobs.next_job()
+        self.assertEqual(selfclone.changed_paths(), [])
+        (self.tree / "hands").mkdir()
+        (self.tree / "hands" / "committed").write_text("one\n")
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nchanged\n")
+        self.clone_git("add", "-A")
+        self.clone_git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "work")
+        (self.tree / "hands" / "committed").write_text("two\n")           # committed as added, edited since
+        (self.tree / "hands" / "fresh file").write_text("untracked\n")    # a path with a space
+        (self.tree / "bin" / "tool").unlink()                              # deleted, not committed
+        (self.tree / "brain" / "SOUL.md").unlink()                         # committed as modified, deleted since
+        self.assertEqual(sorted(selfclone.changed_paths()), [("A", "hands/committed"), ("A", "hands/fresh file"),
+                                                              ("D", "bin/tool"), ("D", "brain/SOUL.md")])
+
+    def test_a_rename_is_one_path_with_its_new_name(self):
+        self.queue()
+        jobs.next_job()
+        self.clone_git("mv", "bin/tool", "bin/tool2")
+        self.assertEqual(selfclone.changed_paths(), [("R", "bin/tool2")])
+
+
+def feature_files(name="gizmo", want_tests=True):
+    """A whole feature, as the files the builder writes in the clone."""
+    files = {
+        f"hands/{name}": f"#!/usr/bin/env python3\nfrom teeny_hands.{name}.cli import main\n",
+        f"hands/lib/teeny_hands/{name}/__init__.py": "",
+        f"hands/lib/teeny_hands/{name}/cli.py": f"from .. import hand\n\n\ndef main(argv):\n    return hand.run('{name}', None, argv)\n",
+        "brain/playbooks/gizmo-look.md": f'+++\ndescription = "look"\noutput = "post"\n\n[[inputs]]\nname = "g"\n'
+                                         f'run = "hands/{name} look"\n+++\nSay it.\n',
+        "brain/cron.toml": '[jobs.gizmo-look]\nschedule = "0 9 * * *"\ncommand = "bin/act gizmo-look"\n',
+        "docs/hands.md": f"# Hands\n\n## `{name}`: looks\n\nIt looks.\n",
+    }
+    if want_tests:
+        files[f"hands/tests/test_{name}.py"] = ("import unittest\n\n\nclass T(unittest.TestCase):\n"
+                                                "    def test_it(self):\n        self.assertTrue(True)\n")
+    return files
+
+
+class FeatureJobTest(SelfJobScratch):
+    """A self job whose request carries a want is a feature: the desk hands
+    the builder the rubric, and takes "ok" only when the clone holds all of
+    it (build/feature.py), keeping the rubric on the job."""
+
+    def lay(self, files):
+        for rel, text in files.items():
+            target = self.tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+            if rel == "hands/gizmo":
+                target.chmod(0o755)
+
+    def queue_want(self, want="w:m15", text="build the gizmo hand"):
+        from teeny_hands import requests as build_requests
+
+        rid = jobs.propose_self({"text": text, "want": want})["id"]
+        build_requests.pick({"id": rid, "reason": "the top want"})
+        return rid
+
+    def report(self, job, status="ok"):
+        return jobs.done({"job_id": job["job_id"], "status": status, "summary": "gizmo: looks at things",
+                          "tests": "python3 -m unittest: 1 passed"})
+
+    def passing(self, ran=1):
+        return mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": ran, "output": "OK"})
+
+    def test_a_feature_job_carries_the_feature_and_its_rules_on_the_desk(self):
+        self.queue_want()
+        jobs.desk()
+        offer = json.loads((self.root / "state" / "workbench" / "desk" / "build.json").read_text())
+        self.assertEqual(offer["job"]["kind"], "self")
+        self.assertEqual(offer["job"]["feature"], {"want": "w:m15", "requires": jobs.FEATURE_REQUIRES,
+                                                   "pattern_note": feature.PATTERN_NOTE, "pattern": feature.PATTERN})
+        self.assertEqual(offer["rules"], jobs.SELF_FEATURE_RULES)
+        self.assertTrue(offer["rules"].startswith(jobs.SELF_RULES))
+        self.assertIn("docs/hands.md", offer["rules"])
+        self.assertIn("scheduled playbook", offer["rules"])
+        # What a feature requires, in the builder's words, names every part.
+        needed = " ".join(jobs.FEATURE_REQUIRES)
+        for part in ("hands/<name>", "hand.run", "hands/tests/test_<name>.py", "brain/playbooks", "brain/cron.toml",
+                     "bin/act", "docs/hands.md"):
+            self.assertIn(part, needed)
+        # A run that ended mid-job gets the same offer back.
+        again = jobs.next_job()
+        self.assertTrue(again["job"]["resumed"])
+        self.assertEqual((again["job"]["feature"]["want"], again["rules"]), ("w:m15", jobs.SELF_FEATURE_RULES))
+
+    def test_a_plain_self_job_is_unchanged(self):
+        self.queue()
+        offer = jobs.next_job()
+        self.assertNotIn("feature", offer["job"])
+        self.assertEqual(offer["rules"], jobs.SELF_RULES)
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nsmall, kind, brief\n")
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a plain job is not checked")):
+            self.report(offer["job"])
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertNotIn("rubric", row)
+        self.assertEqual(row["kind"], "self")
+
+    def test_ok_on_a_feature_without_tests_is_sent_back_naming_what_is_missing(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files(want_tests=False))
+        with self.passing(), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        exc = caught.exception
+        self.assertEqual(exc.detail["rule"], "feature")
+        self.assertEqual(exc.detail["missing"], ["no hands/tests/test_gizmo.py that parses"])
+        self.assertEqual(exc.reason, "the feature is not complete: no hands/tests/test_gizmo.py that parses")
+        # The builder keeps the job and finishes it.
+        self.assertEqual(jobs.listing("claimed")["jobs"][0]["id"], job["job_id"])
+        self.assertTrue(jobs.next_job()["job"]["resumed"])
+        self.lay({"hands/tests/test_gizmo.py": feature_files()["hands/tests/test_gizmo.py"]})
+        with self.passing():
+            self.report(job)
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
+
+    def test_ok_on_a_feature_no_scheduled_playbook_calls_is_sent_back(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        files = feature_files()
+        files["brain/cron.toml"] = '[jobs.other]\nschedule = "0 9 * * *"\ncommand = "bin/act something-else"\n'
+        self.lay(files)
+        with self.passing(), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        self.assertEqual(caught.exception.detail["missing"],
+                         ["no playbook that calls hands/gizmo is scheduled in brain/cron.toml"])
+        self.assertEqual(jobs.listing("claimed")["jobs"][0]["id"], job["job_id"])
+
+    def test_a_feature_whose_tests_fail_in_the_jail_is_sent_back_with_the_failure(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        failing = {"ok": False, "jailed": True, "ran": 1, "output": "FAIL: test_it\nAssertionError: False is not true"}
+        with mock.patch.object(verify, "run", return_value=failing), self.assertRaises(hand.Refused) as caught:
+            self.report(job)
+        (missing,) = caught.exception.detail["missing"]
+        self.assertIn("did not pass when the desk ran them", missing)
+        self.assertIn("AssertionError: False is not true", missing)
+
+    def test_a_complete_feature_is_settled_with_its_rubric(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        with self.passing(ran=1) as run:
+            out = self.report(job)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(run.call_args.kwargs, {"start": "hands/tests", "top": "hands/tests", "pattern": "test_gizmo.py"})
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertTrue(row["rubric"]["ok"])
+        self.assertEqual(row["rubric"]["missing"], [])
+        (gizmo,) = row["rubric"]["hands"]
+        self.assertEqual((gizmo["name"], gizmo["entry"], gizmo["contract"], gizmo["tests"], gizmo["docs"]),
+                         ("gizmo", True, True, True, True))
+        self.assertEqual((gizmo["callers"], gizmo["scheduled"]), (["gizmo-look"], ["gizmo-look"]))
+        self.assertEqual(gizmo["ran"], {"ok": True, "ran": 1, "jailed": True, "output": "OK"})
+
+    @unittest.skipUnless(verify.landlock_abi() > 0, "this kernel has no Landlock")
+    def test_a_complete_feature_passes_with_the_tests_really_run_in_the_jail(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        self.report(job)
+        (gizmo,) = jobs.listing("ok")["jobs"][0]["rubric"]["hands"]
+        self.assertEqual((gizmo["ran"]["ok"], gizmo["ran"]["ran"], gizmo["ran"]["jailed"]), (True, 1, True), gizmo["ran"])
+
+    def test_a_failed_feature_report_is_not_checked(self):
+        rid = self.queue_want()
+        job = jobs.next_job()["job"]
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
+            self.report(job, "failed")
+        row = jobs.listing("failed")["jobs"][0]
+        self.assertNotIn("rubric", row)
+        from teeny_hands import requests as build_requests
+
+        self.assertEqual(build_requests.get(rid)["request"]["status"], "failed")
+
+    def test_a_gave_up_feature_report_is_not_checked(self):
+        rid = self.queue_want()
+        job = jobs.next_job()["job"]
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("unchecked")):
+            self.report(job, "gave_up")
+        self.assertEqual(jobs.listing("gave_up")["jobs"][0]["id"], job["job_id"])
+
+    def test_the_pull_request_body_shows_the_rubric(self):
+        self.queue_want()
+        job = jobs.next_job()["job"]
+        self.lay(feature_files())
+        with self.passing(ran=3):
+            self.report(job)
+        done = jobs.listing("ok")["jobs"][0]
+        title, body = selfclone.pr_text(done)
+        self.assertEqual(title, "gizmo: looks at things")
+        block = body[body.index("**Feature rubric**"):]
+        self.assertIn("hands/gizmo", block)
+        self.assertIn("3 tests ran in the jail", block)
+        self.assertIn("called by gizmo-look", block)
+        self.assertIn("scheduled", block)
+        self.assertIn("docs/hands.md section", block)
+        self.assertIn("used: counted by bin/wants 7 days after merge (scheduled playbook runs that call it)", block)
+        # A job without a rubric reads as before.
+        plain = {k: v for k, v in done.items() if k != "rubric"}
+        self.assertNotIn("Feature rubric", selfclone.pr_text(plain)[1])
+
+    def test_a_routed_finding_is_a_fix_held_to_a_test_not_to_the_feature_rubric(self):
+        """bin/evolve routes a finding prompt rules kept failing to fix to the
+        builder as a want `w:f:<family>`: a change to code that exists, which
+        no new hand, playbook or docs section is asked of."""
+        self.queue_want(want="w:f:refusals:brief:duplicate", text="want: w:f:refusals:brief:duplicate\nfix it")
+        offer = jobs.next_job()
+        self.assertEqual(offer["job"]["fix"], {"want": "w:f:refusals:brief:duplicate", "requires": jobs.FIX_REQUIRES})
+        self.assertNotIn("feature", offer["job"])
+        self.assertEqual(offer["rules"], jobs.SELF_FIX_RULES)
+        self.lay({"hands/brief": "#!/usr/bin/env python3\n# checks before it calls\n"})
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a fix is no feature")), \
+                self.assertRaises(hand.Refused) as caught:
+            self.report(offer["job"])
+        self.assertEqual(caught.exception.detail["missing"],
+                         ["a test under hands/tests/ that reproduces what the finding counts"])
+        self.lay({"hands/tests/test_brief_fix.py": "import unittest\n"})
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a fix is no feature")):
+            self.report(offer["job"])
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertEqual((row["rubric"]["kind"], row["rubric"]["tests"]), ("fix", ["hands/tests/test_brief_fix.py"]))
+        body = selfclone.pr_text(row)[1]
+        self.assertIn("**Fix rubric**", body)
+        self.assertNotIn("Feature rubric", body)
 
 
 PR_URL = "https://github.com/teenydroid/brain/pull/7"
@@ -346,7 +700,7 @@ class SelfShipTest(SelfJobScratch):
         self.assertEqual(self.request_row(rid)["status"], "picked")
 
     def test_a_held_pull_request_pushes_nothing(self):
-        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n"}, summary="this is fucking great")
+        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n"}, summary="what a retard")
         out = jobs.ship()
         self.assertEqual(out["results"][0]["error"], "held")
         self.assertIsNone(self.origin_ref(job["branch"]))

@@ -1,4 +1,4 @@
-"""The long-form surfaces: per-surface limits and emoji caps, the multi-field
+"""The long-form surfaces: per-surface limits (no emoji caps since 2026-11-22), the multi-field
 check (`gate.check_fields`, `hands/guard check --fields`), and the links the
 built-in allowlist gained for GitHub, Moltbook, mail and wallet receipts."""
 
@@ -9,7 +9,7 @@ import json
 from . import support
 from .test_cli import Cli
 from teeny_hands.guard import gate, holds
-from teeny_hands.guard.gate import check_fields, check_outbound, default_max_emoji, field_limit
+from teeny_hands.guard.gate import check_fields, check_outbound, field_limit
 from teeny_hands.guard.links import DEFAULT_LINK_ALLOWLIST, filter_links, parse_allowlist
 
 
@@ -20,17 +20,18 @@ class SurfacesTest(support.Scratch):
 
     def test_hacker_news_is_an_inbound_hold_surface(self):
         self.assertIn("hn", holds.SURFACES)
-        verdict = gate.inbound("draw tiny naked", surface="hn", context={"comment_id": "1"})
+        verdict = gate.inbound("what a retard", surface="hn", context={"comment_id": "1"})
         self.assertEqual(verdict.kind, "hold")
         self.assertEqual(holds.get(verdict.hold_id)["context"]["surface"], "hn")
 
     def test_limits_per_surface_and_field(self):
-        self.assertEqual(field_limit("x", "text"), 280)
+        # X Premium's long post since 2026-11-22; 280 is a target.
+        self.assertEqual(field_limit("x", "text"), 25000)
         # Telegram's own message limit; a surface with none named has X's.
         self.assertEqual(field_limit("telegram", "text"), 4096)
         # A browser task's goal is a private brief for the browser agent, not a post.
         self.assertEqual(field_limit("task", "text"), 1000)
-        self.assertEqual(field_limit("calendar", "text"), 280)
+        self.assertEqual(field_limit("calendar", "text"), 25000)
         self.assertEqual((field_limit("moltbook", "title"), field_limit("moltbook", "body")), (300, 10000))
         self.assertEqual((field_limit("github", "title"), field_limit("github", "body")), (256, 20000))
         self.assertEqual((field_limit("mail", "subject"), field_limit("mail", "body")), (200, 10000))
@@ -43,19 +44,18 @@ class SurfacesTest(support.Scratch):
         with self.assertRaises(Exception):
             field_limit("mail", "title")
 
-    def test_emoji_default_is_per_surface(self):
-        self.assertEqual(default_max_emoji("x"), 1)
-        self.assertEqual(default_max_emoji("github"), gate.LONG_FORM_MAX_EMOJI)
-        self.secrets("SAFETY_JUDGE=0\nMAX_EMOJI_PER_POST=0\n")
-        self.assertEqual(default_max_emoji("x"), 0)
-        self.assertEqual(default_max_emoji("moltbook"), gate.LONG_FORM_MAX_EMOJI)
+    def test_there_is_no_emoji_cap_on_any_surface(self):
+        self.assertFalse(hasattr(gate, "default_max_emoji"))
+        self.assertFalse(hasattr(gate, "LONG_FORM_MAX_EMOJI"))
+        for surface in ("x", "github", "moltbook", "mail", "task"):
+            self.assertEqual(check_outbound("🚀🔥💛👀🤖🌞", surface=surface).kind, "allow", surface)
 
 
 class SingleTextTest(support.Scratch):
-    def test_x_is_unchanged(self):
-        self.assertEqual(check_outbound("a" * 281).kind, "refuse")
-        self.assertIn("over the 280 limit", check_outbound("a" * 281).reason)
-        self.assertEqual(check_outbound("gm 🚀 🔥").kind, "refuse")
+    def test_x_takes_a_long_post(self):
+        self.assertEqual(check_outbound("a" * 281).kind, "allow")
+        self.assertIn("over the 25000 limit", check_outbound("a" * 25001).reason)
+        self.assertEqual(check_outbound("gm 🚀 🔥").kind, "allow")
 
     # The goal the beat queued on 2026-11-14 and the guard refused at X's 280.
     DRIPS_GOAL = ("map how Drips works for funding a GitHub repo: what creating an account requires (wallet connect, "
@@ -73,8 +73,8 @@ class SingleTextTest(support.Scratch):
         verdict = check_outbound("a" * 1001, surface="task", kind="task")
         self.assertEqual(verdict.kind, "refuse")
         self.assertIn("over the 1000 limit", verdict.reason)
-        # X's limit is untouched by it.
-        self.assertIn("over the 280 limit", check_outbound(self.DRIPS_GOAL).reason)
+        # X's limit is its own: a long post.
+        self.assertEqual(check_outbound(self.DRIPS_GOAL).kind, "allow")
 
     def test_a_long_form_surface_takes_its_body_limit_and_a_few_emoji(self):
         verdict = check_outbound("word " * 100, surface="github")
@@ -101,18 +101,18 @@ class CheckFieldsTest(support.Scratch):
         verdict = check_fields({"subject": "hi", "body": "b" * 10001}, surface="mail")
         self.assertEqual((verdict.kind, verdict.field), ("refuse", "body"))
 
-    def test_refuses_too_many_emoji_in_a_field(self):
+    def test_never_refuses_a_field_for_its_emoji(self):
         verdict = check_fields({"title": "🚀🔥💛👀", "body": "ok"}, surface="moltbook")
-        self.assertEqual((verdict.kind, verdict.field), ("refuse", "title"))
-        self.assertEqual(check_fields({"title": "🚀🔥💛👀", "body": "ok"}, surface="moltbook", max_emoji=4).kind, "allow")
+        self.assertEqual(verdict.kind, "allow")
+        self.assertEqual(verdict.fields["title"], "🚀🔥💛👀")
 
     def test_refuses_an_empty_field(self):
         verdict = check_fields({"title": "  ", "body": "ok"}, surface="github")
         self.assertEqual((verdict.kind, verdict.field), ("refuse", "title"))
 
     def test_one_hold_when_any_field_is_held(self):
-        verdict = check_fields({"title": "a fine title", "body": "this is fucking great"}, surface="github", kind="pr")
-        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "profanity"))
+        verdict = check_fields({"title": "a fine title", "body": "what a retard"}, surface="github", kind="pr")
+        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "hate"))
         rows = holds.list_holds()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], verdict.hold_id)
@@ -121,7 +121,7 @@ class CheckFieldsTest(support.Scratch):
             rows[0]["context"],
             {"surface": "github", "post_kind": "pr", "fields": ["title", "body"], "field": "body"},
         )
-        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "this is fucking great"})
+        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "what a retard"})
 
     def test_a_link_off_the_list_is_refused_with_one_link_hold(self):
         verdict = check_fields({"title": "see https://evil.example", "body": "and https://evil.example/x"}, surface="github")
@@ -170,7 +170,7 @@ class CheckFieldsTest(support.Scratch):
 
     def test_teenys_own_links_go_out(self):
         verdict = check_fields(
-            {"title": "new repo", "body": "https://github.com/teenydroid/hello and https://www.moltbook.com/u/teeny"},
+            {"title": "new repo", "body": "https://github.com/teenydroid/hello and https://www.moltbook.com/u/teenydroid"},
             surface="github",
         )
         self.assertEqual(verdict.kind, "allow")
@@ -219,8 +219,8 @@ class FieldsJudgeTest(support.WithCore):
         verdict = check_fields({"title": "t", "body": "b"}, surface="github", judge=False)
         self.assertEqual((verdict.kind, verdict.fields), ("allow", {"title": "t", "body": "b"}))
         self.assertEqual(len(core.calls), asked)
-        verdict = check_fields({"title": "t", "body": "this is fucking great"}, surface="github", judge=False)
-        self.assertEqual((verdict.kind, verdict.category), ("hold", "profanity"))
+        verdict = check_fields({"title": "t", "body": "what a retard"}, surface="github", judge=False)
+        self.assertEqual((verdict.kind, verdict.category), ("hold", "hate"))
 
 
 class AllowlistTest(support.Scratch):
@@ -229,7 +229,7 @@ class AllowlistTest(support.Scratch):
         for link in (
             "https://github.com/teenydroid/repo",
             "https://moltbook.com/post/1",
-            "https://www.moltbook.com/u/teeny",
+            "https://www.moltbook.com/u/teenydroid",
             "https://agentmail.to",
             "https://solscan.io/tx/abc",
         ):
@@ -247,10 +247,10 @@ class FieldsCliTest(Cli):
 
     def test_a_hold_names_the_field(self):
         code, out = self.guard(
-            "check", "--fields", "title,body", body={"title": "send nudes", "body": "hi", "surface": "moltbook"}
+            "check", "--fields", "title,body", body={"title": "what a retard", "body": "hi", "surface": "moltbook"}
         )
         self.assertEqual(code, 2)
-        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "sexual"))
+        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "hate"))
         self.assertEqual(len(holds.list_holds()), 1)
 
     def test_a_refusal_names_the_field(self):

@@ -52,20 +52,20 @@ class CheckTest(Cli):
         self.assertEqual((code, out), (0, {"ok": True, "text": "gm, frens"}))
 
     def test_holds_and_says_which_hold(self):
-        code, out = self.guard("check", body={"text": "this is fucking great", "context": {"post_id": "7"}})
+        code, out = self.guard("check", body={"text": "what a retard", "context": {"post_id": "7"}})
         self.assertEqual(code, 2)
         held = holds.list_holds()[0]
-        self.assertEqual(out, {"ok": False, "refused": "held", "category": "profanity", "hold_id": held["id"]})
+        self.assertEqual(out, {"ok": False, "refused": "held", "category": "hate", "hold_id": held["id"]})
         self.assertEqual(held["context"], {"surface": "x", "post_id": "7", "post_kind": "post"})
 
     def test_refuses_what_the_model_may_rewrite(self):
-        code, out = self.guard("check", body={"text": "a" * 281})
+        code, out = self.guard("check", body={"text": "a" * 25001})
         self.assertEqual(code, 2)
         self.assertEqual(out["rewrite"], True)
-        self.assertIn("over the 280 limit", out["refused"])
-        code, out = self.guard("check", body={"text": "gm 👀", "max_emoji": 0})
-        self.assertEqual((code, out["rewrite"]), (2, True))
-        self.assertIn("at most 0", out["refused"])
+        self.assertIn("over the 25000 limit", out["refused"])
+        # 280 is a target since 2026-11-22, and emoji are never refused.
+        self.assertEqual(self.guard("check", body={"text": "a" * 281})[0], 0)
+        self.assertEqual(self.guard("check", body={"text": "gm 👀 🚀 🔥 💛 🤖 🌞"})[0], 0)
 
     def test_reads_the_narrative_profile(self):
         self.assertEqual(self.guard("check", body={"text": "holy shit", "surface": "narrative"})[0], 0)
@@ -98,26 +98,27 @@ class CheckTest(Cli):
 class InboundTest(Cli):
     def test_allows_or_holds(self):
         self.assertEqual(self.guard("inbound", body={"text": "holy shit this is cool"}), (0, {"ok": True}))
-        code, out = self.guard("inbound", body={"text": "send nudes", "surface": "telegram", "context": {"chat_id": "1"}})
+        self.assertEqual(self.guard("inbound", body={"text": "send nudes"}), (0, {"ok": True}))
+        code, out = self.guard("inbound", body={"text": "what a retard", "surface": "telegram", "context": {"chat_id": "1"}})
         self.assertEqual(code, 2)
-        self.assertEqual((out["refused"], out["category"]), ("held", "sexual"))
+        self.assertEqual((out["refused"], out["category"]), ("held", "hate"))
         self.assertEqual(holds.get(out["hold_id"])["context"], {"surface": "telegram", "chat_id": "1"})
 
 
 class StyleTest(Cli):
     def test_applies_the_house_style_and_measures_it(self):
         code, out = self.guard("style", body={"text": "@bob gm 🚀 frens 💛, nfa", "replying_to": "bob"})
-        self.assertEqual((code, out), (0, {"ok": True, "text": "gm 🚀 frens", "length": 11, "emoji": 1}))
-        code, out = self.guard("style", body={"text": "gm 🚀 frens 💛", "max_emoji": 2})
-        self.assertEqual(out["text"], "gm 🚀 frens 💛")
+        self.assertEqual((code, out), (0, {"ok": True, "text": "gm 🚀 frens 💛", "length": 14, "emoji": 2}))
+        code, out = self.guard("style", body={"text": "gm 🚀 frens 💛", "max_emoji": 1})
+        self.assertEqual(out["text"], "gm 🚀 frens")
 
 
 class HoldsTest(Cli):
-    def held(self, text="this is fucking great"):
+    def held(self, text="what a retard"):
         return self.guard("check", body={"text": text})[1]["hold_id"]
 
     def test_lists_newest_first_with_the_counts(self):
-        first, second = self.held(), self.held("send nudes")
+        first, second = self.held(), self.held("what a retard")
         code, out = self.guard("holds", "list")
         self.assertEqual(code, 0)
         self.assertEqual([h["id"] for h in out["holds"]], [second, first])

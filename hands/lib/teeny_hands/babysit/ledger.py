@@ -9,7 +9,12 @@
                       person approved), and each deploy step after a
                       self-merge (`deploy_wait`, `deploy_refused`,
                       `deploy_ff`, `deploy_submodules`, `deploy_seed_cron`,
-                      `deploy_restart`, `deploy_dry_run`)
+                      `deploy_restart`, `deploy_dry_run`), and, with
+                      BABYSIT_SELF_MERGE_ALL, the judgement of a deploy
+                      after it (rollback.py: `deploy_ok`, `deploy_bad` with
+                      the paths it changed, `deploy_revert` and
+                      `deploy_revert_held` for its revert issue,
+                      `rollback_dry_run`)
 
 No row carries a pull request's words. The dream and the audit read these
 tables, and a payload kept here would reach the model it was written for.
@@ -132,6 +137,20 @@ def count_since(verbs: str | tuple[str, ...], since: float) -> int:
         marks = ", ".join("?" for _ in verbs)
         return int(conn.execute(f"SELECT COUNT(*) FROM babysit_actions WHERE verb IN ({marks}) AND at >= ?",
                                 (*verbs, since)).fetchone()[0])
+    finally:
+        conn.close()
+
+
+def actions_since(verbs: str | tuple[str, ...], since: float) -> list[dict[str, Any]]:
+    """The `babysit_actions` rows of `verbs` at or after `since`, newest
+    first, each with its detail read back."""
+    verbs = (verbs,) if isinstance(verbs, str) else tuple(verbs)
+    conn = connect()
+    try:
+        marks = ", ".join("?" for _ in verbs)
+        rows = conn.execute(f"SELECT id, at, verb, repo, number, head_sha, detail FROM babysit_actions"
+                            f" WHERE verb IN ({marks}) AND at >= ? ORDER BY at DESC, id DESC", (*verbs, since)).fetchall()
+        return [{**dict(row), "detail": json.loads(row["detail"] or "{}")} for row in rows]
     finally:
         conn.close()
 

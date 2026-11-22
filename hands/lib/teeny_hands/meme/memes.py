@@ -55,6 +55,15 @@ def resolve_source(path: Any) -> Path:
     """The real file behind `path` (relative to the checkout unless
     absolute) when it is a regular file under state/media/ or brain/assets/;
     symlinks and `..` resolved first. Anything else is refused (`path`)."""
+    return locate_source(path)[0]
+
+
+def locate_source(path: Any) -> tuple[Path, str, str]:
+    """resolve_source's file, with the folder of SOURCE_ROOTS it is in and
+    its path inside that folder. The name is taken from the folder, not from
+    the checkout's real path: either folder may be a symlink to somewhere
+    outside the checkout (a media disk), and the checkout itself may be
+    reached through one (TEENY_ROOT)."""
     refusal = hand.Refused("a picture must be a file under state/media/ or brain/assets/", rule="path",
                            allowed=list(SOURCE_ROOTS))
     if not isinstance(path, str) or not path.strip() or "\x00" in path:
@@ -67,16 +76,19 @@ def resolve_source(path: Any) -> Path:
         resolved = candidate.resolve(strict=True)
     except (OSError, RuntimeError):
         raise refusal from None
-    allowed = [(root / folder).resolve() for folder in SOURCE_ROOTS]
-    if not resolved.is_file() or not any(resolved.is_relative_to(folder) for folder in allowed):
+    if not resolved.is_file():
         raise refusal
-    return resolved
+    for folder in SOURCE_ROOTS:
+        real = (root / folder).resolve()
+        if resolved.is_relative_to(real):
+            return resolved, folder, resolved.relative_to(real).as_posix()
+    raise refusal
 
 
 def _open(path: Any) -> tuple[Any, str]:
     """The picture at `path`, decoded, and where it came from (relative)."""
     Image = fit.pillow()[0]
-    resolved = resolve_source(path)
+    resolved, folder, inside = locate_source(path)
     if resolved.stat().st_size > MAX_SOURCE_BYTES:
         raise hand.Refused(f"a picture is at most {MAX_SOURCE_BYTES // (1024 * 1024)} MB", rule="source")
     try:
@@ -89,7 +101,7 @@ def _open(path: Any) -> tuple[Any, str]:
         raise
     except (OSError, ValueError, Image.DecompressionBombError) as exc:
         raise hand.Refused(f"the picture could not be read ({type(exc).__name__})", rule="source") from None
-    return image, str(resolved.relative_to(hand.root().resolve()))
+    return image, f"{folder}/{inside}"
 
 
 def words(value: Any, name: str, limit: int) -> str | None:
@@ -161,7 +173,8 @@ def _encode(image: Any, prefer: str) -> tuple[bytes, str]:
     return fit.encode(image, prefer)
 
 
-def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: str | None) -> Json:
+def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: str | None,
+          model: str = MODEL) -> Json:
     """The finished picture: encoded under 5 MB, a row claimed, the file
     written whole (a `.part` renamed), the row done. A failure after the
     claim leaves the row failed, which counts toward nothing."""
@@ -181,7 +194,7 @@ def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: st
                 assets._finish(conn, asset_id, status="failed", error=f"could not write the file ({type(exc).__name__})")
                 raise hand.HandError(f"the {kind} could not be saved ({type(exc).__name__})") from None
             detail = {**detail, "bytes": len(data), "size": list(image.size)}
-            assets._finish(conn, asset_id, status="done", model=MODEL, path=str(path.relative_to(hand.root())),
+            assets._finish(conn, asset_id, status="done", model=model, path=str(path.relative_to(hand.root())),
                            cost_micro=0, estimated=0, detail=json.dumps(detail, ensure_ascii=False))
             row = conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone()
             return {"asset": public(row)}

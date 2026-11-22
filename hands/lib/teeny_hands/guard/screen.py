@@ -19,11 +19,13 @@ from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON
 
 # Which reading of the lexicon applies, the hold log's direction.
 #
-# `outbound` is the account's own words, strictest. `narrative` (the serial)
-# and `article` (long-form pieces of it) are also the account's words: the
-# hard categories are read exactly as strictly, and only the outbound-only
-# entries (profanity) are let through, because the serial swears and the
-# reply voice does not.
+# `outbound` is the account's own words. `narrative` (the serial) and
+# `article` (long-form pieces of it) are also the account's words, and every
+# category is read exactly as strictly for them. Outbound-only entries are
+# let through on those two and on inbound; there are none since 2026-11-22,
+# when the one there was (profanity) was dropped (lexicon.py): the account
+# swears in every voice now. There are no inbound-only entries either since
+# later that day: the lexicon is slurs alone, held in every direction.
 INBOUND = "inbound"
 OUTBOUND = "outbound"
 NARRATIVE = "narrative"
@@ -99,7 +101,8 @@ def term_pattern(term: str, loose_gaps: bool) -> re.Pattern[str]:
 _IDIOM_PATTERNS = [term_pattern(idiom, True) for idiom in IDIOMS]
 
 _COMPILED = [
-    (entry.category, entry.outbound_only, [(term, term_pattern(term, False)) for term in entry.terms])
+    (entry.category, entry.outbound_only, entry.inbound_only,
+     [(term, term_pattern(term, False)) for term in entry.terms])
     for entry in LEXICON
 ]
 
@@ -135,8 +138,10 @@ def screen_text_with(text: str, direction: str, idioms: bool = True) -> ScreenMa
     plain, leet = normalise_for_screen(text, idioms)
     best: ScreenMatch | None = None
     judged: ScreenMatch | None = None
-    for category, outbound_only, terms in _COMPILED:
+    for category, outbound_only, inbound_only, terms in _COMPILED:
         if outbound_only and direction != OUTBOUND:
+            continue
+        if inbound_only and direction != INBOUND:
             continue
         for term, pattern in terms:
             soft = term in JUDGED_TERMS

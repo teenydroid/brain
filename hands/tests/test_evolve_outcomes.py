@@ -312,6 +312,26 @@ class Score(unittest.TestCase):
         self.assertEqual((got["verdict"], got["before"], got["after"]), ("worked", 5, 0))
         self.assertNotIn(STRANGER, json.dumps(got))
 
+    def test_a_guard_holds_check_leaves_out_holds_on_the_babysitters_comment(self):
+        """The check a guard_holds finding ships with counts what the finding
+        counted: Teeny's own drafts, never text hands/babysit composed."""
+        from teeny_hands.babysit import actions
+        comment = json.dumps({"body": actions.report({"verdict": "failing", "head_sha": "06ac95bd3365", "tier": "x"})})
+        context = json.dumps({"field": "body", "fields": ["body"], "number": 368, "post_kind": "comment",
+                              "repo": "teenydroid/brain", "surface": "github"})
+        for h in range(5):
+            self.ledger.sql("INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text) "
+                            "VALUES (?, 'outbound', 'link', '{\"surface\": \"github\"}', 'links', 'r', 'links', ?)",
+                            iso(self.t0 - (h + 1) * HOUR), STRANGER)
+        for h in range(12):  # before and after the merge: the babysitter keeps commenting
+            for at in (self.t0 - (h + 1) * HOUR - 60, self.t0 + (h + 1) * HOUR):
+                self.ledger.sql("INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, "
+                                "text) VALUES (?, 'outbound', 'link', ?, 'links', 'r', 'links', ?)", iso(at), context,
+                                comment)
+        check = {"kind": "guard_holds", "category": "links", "surface": "github", "direction": "fall"}
+        got = self.score(self.entry(check))
+        self.assertEqual((got["verdict"], got["before"], got["after"]), ("worked", 5, 0))
+
     def test_cron_failures_come_from_the_given_reader(self):
         asked = []
 
@@ -679,6 +699,9 @@ class Wired(EvolveCase):
         for h in range(6):
             ledger.act("moltbook-follow", T0 - 20 * DAY + h * HOUR, ok=False, error="boom")
             ledger.act("moltbook-follow", T0 - 1 * DAY - h * HOUR, ok=False, error="boom")
+            # The playbook still runs after g2c1's merge, and works: a fall
+            # with no runs behind it would be a silenced source, not a fix.
+            ledger.act("moltbook-follow", T0 - 18 * DAY + h * HOUR, ok=True)
         self.merged("g2c1", T0 - 19 * DAY, self.CHECK)  # older: due at both horizons
         self.merged("g9c4", T0 - 18 * DAY)  # no check
         self.merged("g3c1", T0, self.CHECK)  # the newest, not due yet

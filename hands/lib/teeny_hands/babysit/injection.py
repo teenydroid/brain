@@ -201,3 +201,15 @@ def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | No
 #: Rules that are an attack wherever they appear, even in a trusted author's
 #: diff: nobody needs invisible bidi controls or tag characters in this code.
 ALWAYS_HOSTILE = frozenset({"bidi_control", "unicode_tags"})
+
+#: What a path in a finding or a ledger row may look like. A filename is the
+#: author's text too: one that is not a plain path is named by its digest.
+PLAIN_PATH = re.compile(r"[A-Za-z0-9._@+/-]{1,200}")
+
+
+def place(path: str) -> str:
+    """`path` as the babysitter may name it: itself when it is a plain path
+    that says nothing to a model, else `path#<digest>`."""
+    if PLAIN_PATH.fullmatch(path) and not scan(path.replace("/", " ").replace("-", " ").replace("_", " "), "path"):
+        return path
+    return f"path#{_digest(path)}"

@@ -8,7 +8,7 @@ must_not = [
   '\$0\.00',
 ]
 prompt = '''
-Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Hard facts are real: money, the token, real people and accounts (your followers too) and the news come only from the item. Anything else you say about yourself, the staging, the feeling and the turn are yours to invent. The person reading has never heard of you and sees this one post alone.
 '''
 
 [inputs]

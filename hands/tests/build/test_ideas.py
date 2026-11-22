@@ -77,7 +77,7 @@ class IdeaTest(Scratch):
 
     def test_words_the_guards_lexicon_holds_are_refused(self):
         with self.assertRaises(hand.Refused) as caught:
-            ideas.keep({**IDEA, "pitch": "a tool that tells people to kill yourself"})
+            ideas.keep({**IDEA, "pitch": "a tool that calls people retard"})
         self.assertEqual(caught.exception.detail["rule"], "guard")
         self.assertIsNone(ideas.listing()["today"])
 

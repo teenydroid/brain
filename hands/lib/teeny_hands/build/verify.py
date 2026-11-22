@@ -201,10 +201,18 @@ def _tail(text: str) -> str:
     return text if len(text) <= OUTPUT_CHARS else "...\n" + text[-OUTPUT_CHARS:]
 
 
-def run(workdir: Path, timeout: float = TIMEOUT_SECS) -> dict[str, Any]:
+def run(workdir: Path, timeout: float = TIMEOUT_SECS, *, start: str | None = None, top: str | None = None,
+        pattern: str | None = None) -> dict[str, Any]:
     """The job's tests, jailed: `{ok, jailed, ran, command, output}`. `ok`
-    only when the jail held, at least one test ran and every test passed."""
-    command = [sys.executable, "-I", "-B", "-m", "unittest", "discover", "-s", ".", "-t", "."]
+    only when the jail held, at least one test ran and every test passed.
+    With no more arguments the whole folder is discovered. `start`, `top`
+    and `pattern` (folders relative to the job's folder) narrow it to what
+    they name, as `unittest discover -s -t -p` does (the feature rubric runs
+    one hand's test file, build/feature.py); the jail still holds only the
+    folder."""
+    command = [sys.executable, "-I", "-B", "-m", "unittest", "discover", "-s", start or ".", "-t", top or "."]
+    if pattern:
+        command += ["-p", pattern]
     out: dict[str, Any] = {"ok": False, "jailed": False, "ran": 0, "command": "python3 -m unittest discover"}
     folder = Path(workdir).resolve()
     if not folder.is_dir():

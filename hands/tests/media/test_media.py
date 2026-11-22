@@ -116,7 +116,7 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(reference, (self.root / "brain/assets/teeny-reference.png").read_bytes())
         self.assertIn("Keep Teeny exactly as in the reference", body["prompt"])
         self.assertIn("waving at the desk", body["prompt"])
-        self.assertEqual(out["model"], "muse-image-edit")
+        self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
         self.assertEqual((self.root / out["path"]).read_bytes(), PNG)
         self.assertTrue(out["path"].startswith("state/media/"))
 
@@ -127,16 +127,16 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(self.api.models("/v1/images/edits"), [])
 
     def test_a_seller_that_cannot_take_it_falls_to_the_next_model(self):
-        self.api.fail["muse-image-edit"] = SurplusError("Surplus answered 503: no healthy sellers", 503)
+        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError("Surplus answered 503: no healthy sellers", 503)
         out = self.image()["asset"]
-        self.assertEqual(out["model"], "firered-image-edit")
-        self.assertEqual(self.api.models("/v1/images/edits"), ["muse-image-edit", "firered-image-edit"])
+        self.assertEqual(out["model"], "nano-banana-2-1-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "nano-banana-2-1-edit"])
 
     def test_a_bad_request_does_not_burn_through_every_model(self):
-        self.api.fail["muse-image-edit"] = SurplusError("Surplus answered 402: insufficient credit", 402)
+        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError("Surplus answered 402: insufficient credit", 402)
         with self.assertRaises(hand.HandError):
             self.image()
-        self.assertEqual(self.api.models("/v1/images/edits"), ["muse-image-edit"])
+        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit"])
 
     def test_images_stop_at_the_daily_count(self):
         self.env(MEDIA_IMAGE_MAX_PER_DAY=2)

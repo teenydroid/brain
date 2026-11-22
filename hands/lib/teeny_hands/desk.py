@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -68,6 +69,7 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     desk = folder()
     offer_path, report_path = desk / f"{name}.json", desk / f"{name}-done.json"
     rejected_path = desk / f"{name}-done.rejected.json"
+    reason_path = desk / f"{name}-done.rejected.reason.json"
     settled: dict[str, Any] | None = None
     rejected: str | None = None
     discarded: str | None = None
@@ -80,10 +82,16 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             settled = dict(settle(report))
             report_path.unlink()
             rejected_path.unlink(missing_ok=True)
+            reason_path.unlink(missing_ok=True)
         except (ValueError, hand.Refused, hand.HandError) as exc:
             rejected = exc.reason if isinstance(exc, hand.Refused) else str(exc)
             os.replace(report_path, rejected_path)
-            _write(desk / f"{name}-done.rejected.reason.json", {"reason": rejected})
+            _write(reason_path, {"reason": rejected})
+    if rejected is None and not rejected_path.exists():
+        # A reason with no refused report beside it is about an earlier job.
+        # The agent lists this folder, and on 2026-11-22 the builder took a
+        # reason eight days old as the verdict on the job in front of it.
+        reason_path.unlink(missing_ok=True)
     _tell_the_mind(name, settled, rejected)
     offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
@@ -99,6 +107,47 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     _write(offer_path, offer)
     return {"settled": settled, "rejected": rejected, "discarded": discarded, "offer": _relative(offer_path),
             "offered": offer.get("job", offer.get("task"))}
+
+
+def _storage() -> Path:
+    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
+    if os.environ.get("TEENY_STORAGE"):
+        return Path(os.environ["TEENY_STORAGE"])
+    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
+    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
+
+
+def last_run(job: str, since: float) -> str | None:
+    """What the newest ended run of the cron job JOB that started at or after
+    SINCE said, whole: the agent's final message. None when there is none, or
+    the core's storage cannot be read. Read-only, as bin/crons reads it."""
+    path = _storage()
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute(
+            "WITH jobs AS MATERIALIZED (SELECT id, body FROM docs WHERE coll = 'cron.jobs' AND deleted = 0"
+            "   AND json_valid(body)),"
+            " runs AS MATERIALIZED (SELECT body FROM docs WHERE coll = 'cron.runs' AND deleted = 0"
+            "   AND json_valid(body) AND body != '{}')"
+            " SELECT json_extract(runs.body, '$.output') FROM runs"
+            " JOIN jobs ON jobs.id = json_extract(runs.body, '$.job_id')"
+            " WHERE json_extract(jobs.body, '$.name') = ?"
+            "   AND json_extract(runs.body, '$.started_ms') >= ?"
+            "   AND json_extract(runs.body, '$.finished_ms') IS NOT NULL"
+            " ORDER BY json_extract(runs.body, '$.seq') DESC LIMIT 1",
+            (job, int(since * 1000)),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    said = str(row[0] or "").strip() if row is not None else ""
+    return said or None
 
 
 def _nothing_to_report(name: str, offer_path: Path, report_path: Path) -> bool:

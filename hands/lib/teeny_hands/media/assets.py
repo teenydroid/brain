@@ -49,7 +49,7 @@ from .surplus import Surplus, SurplusError
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby')),
   status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'unknown')),
   prompt      TEXT NOT NULL,
   model       TEXT,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-IMAGE_MODELS = "muse-image-edit,firered-image-edit,nano-banana-2-lite-edit"
+IMAGE_MODELS = "gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
 #: Every image starts from Teeny's character sheet, so Teeny stays on model:
 #: the images are edits of it, never free text-to-image.
@@ -74,7 +74,8 @@ REFERENCE = "brain/assets/teeny-reference.png"
 CHARACTER = (
     "The yellow character from the reference sheet is Teeny. Keep Teeny exactly as in the reference: the same "
     "yellow rounded body, the ball on top, the small arms, black eyes and pink cheeks, soft 3D render. "
-    "One Teeny, no text, no labels, no character sheet."
+    "One Teeny, no text, no labels, no character sheet. Only Teeny is soft and cute: everyone and everything "
+    "else is drawn as the scene says."
 )
 MAX_PROMPT = 1500
 #: X's longest alt text, in characters.
@@ -97,7 +98,7 @@ def _db():
     return conn
 
 
-KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')"
+KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
 
 
@@ -107,7 +108,10 @@ def allow_reel_kinds(conn) -> None:
     check: the table is rebuilt once, rows and columns as they are, with
     `reel` (a clip with voice and captions), `song` (a song as a video),
     `music` (a bought track), `meme` and `comic` (hands/meme's pictures with
-    words drawn on) allowed, and the status `unknown` (money was
+    words drawn on), `skit` (hands/video skit's cut), `shot` (one of its
+    bought text-to-video clips, or a remake's image-to-video clip), `remake`
+    (hands/video remake's cut), `key` (a remake's or a khaby video's bought
+    keyframe) and `khaby` (hands/video khaby's cut) allowed, and the status `unknown` (money was
     committed and the outcome is not known: it counts as spent), as
     x/posting_rules.py does for threads.
 
@@ -194,6 +198,55 @@ def alt_text(body: Any) -> str | None:
     return alt
 
 
+#: A remake's (or a khaby video's) keys are rendered within this or never
+#: (media/remakes.py); a render begun and never finished (its process died)
+#: is let go after REMAKE_RENDER_SECONDS more.
+REMAKE_STALE_SECONDS = 2 * 3600
+REMAKE_RENDER_SECONDS = 3600
+#: The kinds whose keyframes are bought before their clips: a pending one is
+#: released as a remake is.
+KEYED_KINDS = ("remake", "khaby")
+
+
+def release_remake(conn, remake_id: int, why: str) -> int:
+    """A pending remake (or khaby video) failed and its shots let go, in one transaction:
+    a shot that was never submitted gives its reservation back; one with a
+    job (it may be billed: its process died while it ran) is `unknown` and
+    keeps what it may cost; keys keep what they cost. The micro-USDC given
+    back. Not inside a transaction."""
+    why = why[:1000]
+    with hand.transaction(conn):
+        released = conn.execute(
+            "SELECT COALESCE(SUM(cost_micro), 0) AS n FROM media_assets WHERE kind = 'shot' AND source_id = ?"
+            " AND status = 'pending' AND (job_id IS NULL OR cost_micro = 0)", (remake_id,)).fetchone()["n"]
+        conn.execute("UPDATE media_assets SET status = 'unknown', error = ?, done_at = ? WHERE kind = 'shot'"
+                     " AND source_id = ? AND status = 'pending' AND job_id IS NOT NULL AND cost_micro > 0",
+                     (why, hand.now(), remake_id))
+        conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE"
+                     " kind = 'shot' AND source_id = ? AND status = 'pending'", (why, hand.now(), remake_id))
+        conn.execute("UPDATE media_assets SET status = 'failed', cost_micro = 0, error = ?, done_at = ? WHERE id = ?"
+                     f" AND kind IN {KEYED_KINDS} AND status = 'pending'", (why, hand.now(), remake_id))
+    return int(released)
+
+
+def release_stale(conn) -> None:
+    """Every remake or khaby video whose keys were bought and never rendered within
+    REMAKE_STALE_SECONDS (a render begun, REMAKE_RENDER_SECONDS more) let
+    go, so its reservations stop holding today's budget. Run by every
+    budget check (_check_caps, skits and remakes), under the media lock."""
+    now = hand.now()
+    rows = conn.execute(f"SELECT id, created_at, detail FROM media_assets WHERE kind IN {KEYED_KINDS}"
+                        " AND status = 'pending' AND created_at < ?", (now - REMAKE_STALE_SECONDS,)).fetchall()
+    for row in rows:
+        try:
+            stage = (json.loads(row["detail"] or "{}") or {}).get("stage")
+        except (ValueError, AttributeError):
+            stage = None
+        if stage == "rendering" and row["created_at"] >= now - REMAKE_STALE_SECONDS - REMAKE_RENDER_SECONDS:
+            continue
+        release_remake(conn, row["id"], "expired: its keys were never rendered")
+
+
 def _spent_today(conn) -> int:
     row = conn.execute(
         "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE status != 'failed' AND created_at >= ?",
@@ -209,6 +262,7 @@ def _check_caps(conn, kind: str, extra_micro: int) -> None:
     lim = runway.limits()
     if not lim["media"]:
         raise hand.Refused(f"no {kind}s on the {lim['tier']} runway tier ({lim['why']})", rule="runway", tier=lim["tier"])
+    release_stale(conn)
     limit = hand.number(f"MEDIA_{kind.upper()}_MAX_PER_DAY", 20 if kind == "image" else 2, 0, 100)
     used = conn.execute(
         "SELECT COUNT(*) AS n FROM media_assets WHERE kind = ? AND status != 'failed' AND created_at >= ?"
@@ -483,8 +537,11 @@ def _await(api: Surplus, job_id: str, wait: int, sleep) -> Json:
 def listing(kind: str | None, limit: int) -> Json:
     conn = _db()
     try:
-        query = "SELECT * FROM media_assets" + (" WHERE kind = ?" if kind else "") + " ORDER BY id DESC LIMIT ?"
-        rows = conn.execute(query, ((kind, limit) if kind else (limit,))).fetchall()
+        # hands/video lists its skits, remakes, khaby videos, their shots and keys with its clips.
+        kinds = ("video", "skit", "shot", "remake", "key", "khaby") if kind == "video" else (kind,) if kind else ()
+        marks = ", ".join("?" for _ in kinds)
+        query = "SELECT * FROM media_assets" + (f" WHERE kind IN ({marks})" if kinds else "") + " ORDER BY id DESC LIMIT ?"
+        rows = conn.execute(query, (*kinds, limit)).fetchall()
         return {"assets": [_public(r) for r in rows], "spent_today_usd": round(_spent_today(conn) / 1e6, 4)}
     finally:
         conn.close()

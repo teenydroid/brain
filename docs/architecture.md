@@ -4,7 +4,7 @@ Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from LI.FI's public API (bridges, by default) or deBridge's (swaps) (`spine/src/wallet_backend.rs`, `lifi.rs`, `debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. | `spine/`, `vendor/openhuman` |
+| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from LI.FI's public API (bridges, by default) or deBridge's (swaps) (`spine/src/wallet_backend.rs`, `lifi.rs`, `debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. It also writes the browser's pictures of pages to a folder (`browser_pictures.rs`) and builds the unsigned transactions of a Tiny Drops round (`teeny-spine giveaway-tx`, `giveaway_tx.rs`). [`spine/README.md`](../spine/README.md) lists the files. | `spine/`, `vendor/openhuman` |
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
@@ -190,7 +190,7 @@ brain/
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
   CHARTER.md                           the charter's short version (docs/governance.md): who decides what, the fences, how freedom is earned; frozen
   MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
-  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines), STUDIO-EDITOR.md (bin/studio's editor rubric)
+  narrative/                           ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines), STUDIO-EDITOR.md (bin/studio's editor rubric)
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
   playbooks/<name>.md                  what a scheduled bin/act job drafts, with its inputs and output
@@ -204,10 +204,10 @@ brain/
 ```
 
 **Self-improvement** is Teeny's own: it may edit its brain (`SOUL.md`,
-`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
+`CONTEXT.md`, the voice, skills, playbooks, `cron.toml`) and add hands, but
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
-`narrative/LORE.md` and tracked in `narrative/ARCS.md`, and the loop acts on
+`narrative/ARCS.md`, which also tracks them, and the loop acts on
 what Teeny learned: each item of `MEMORY.md` it decided, promised or is in the
 middle of becomes one small change, gated in code the brain cannot edit,
 measured on the eval tasks it reaches, and opened as its own pull request.
@@ -222,12 +222,10 @@ are built otherwise, §4b):
 
 - Its prompt: the agent's instructions (`brain/agents/<id>.md`), then
   "# your world": `MEMORY.md` first (what happened, which wins over the
-  context, the lore and the arcs), then `DRIVE.md` (the one drive and its
+  context and the arcs), then `DRIVE.md` (the one drive and its
   rules, which memory does not outrank), `CHARTER.md` (who decides what
   and the fences, the short version of [`governance.md`](governance.md);
-  frozen), `CONTEXT.md`, the parts of
-  `narrative/LORE.md` Teeny reads (the premise, the cast, the running bits;
-  never `## latent`, which is the producer's), `narrative/ARCS.md`, and
+  frozen), `CONTEXT.md`, `narrative/ARCS.md`, and
   last "what you said lately": its newest own posts on X and the titles of
   its newest Moltbook posts, from the ledger, so a draft knows what it would
   be repeating (the posting rules refuse a near-duplicate all the same),
@@ -766,14 +764,19 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is at most four own posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), and the slots are ceilings, not quotas. Every own
+- X is at most four original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), plus at most two quotes a day in a lane of their own
+  (`X_QUOTES_MAX_PER_DAY`, three hours apart, `QUOTE_MIN_GAP_HOURS`, and 45
+  minutes after an original post, `QUOTE_AFTER_POST_MINUTES`): the day's
+  ceiling is 4 originals plus 2 quotes, and a quote never shuts an original
+  slot. The slots are ceilings, not quotas. Every own
   post names its `anchor` (the one item from its inputs it is about; a quote's
   is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
   anchor`) before it goes: a post that says nothing specific about its anchor
   is a free skip, never a softer rewrite. Then the cold reader (`hands/guard
   clarity`) reads the post alone, as someone who has never heard of Teeny: it
-  must say the post back and have nothing to ask about. A draft it cannot
+  must say the post back (what it would ask about is advice, since
+  2026-11-22, never a no on its own). A draft it cannot
   follow gets one rewrite, with what the reader took from it, and a second no
   is a skip. The rewrite is told X's 280 and measured by the guard's rule
   before the judges read it; one over gets one turn to cut it down, then is a
@@ -787,21 +790,30 @@ How the day's beats become the page every prompt carries:
   with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
   `show` skip when a brief is queued, so a brief takes the next free slot;
   `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
-  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
-  only at relevance 5 and at most once a day) is one of the four, so it needs
-  a slot the others left open: `hands/x peer-suggest` runs the same anchor
-  judge itself, against the quoted post, and a no is a skip kept in
+  slot`). The outward quote (`peer-quote`, 13:00, 19:00 and 22:00) is not one
+  of the four: it has the quote lane, and reacts to a peer's post or to one
+  of the X posts behind today's top-ranked stories (`hands/x peers
+  trending`, Digg's ranked feed, no X read) with a quote, an absurd one-line
+  bit, a meme (`bin/studio --meme`) or a visit, posted at a score of 4 or more
+  (how hard it hits a reader of the quoted post). `hands/x peer-suggest`
+  asks the quote judge (`hands/guard quote`: is it a reaction to the post?),
+  which fails open, in place of the anchor judge, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
-## 4b. The studio: the writers' room
+## 4b. The studio: feed, write, pick
 
 `bin/studio` (logic in `bin/lib/studio.py`) owns every original post on X
-since the cutover: many angles, many drafts, an editor that picks one or
-none, and gates that only then decide whether the pick goes out. It runs at
-the four slots of `brain/cron.toml` (04:30, 09:30, 15:00 and 23:00 IST; the
-Sunday 15:00 is a normal slot until the weekly plan takes it), live: with
-`STUDIO=1` a pick that passes every gate is posted, with no shadow period
-and no per-post approval. An empty slot is a normal outcome.
+since the cutover. It runs at the four slots of `brain/cron.toml` (04:30,
+09:30, 15:00 and 23:00 IST), live: with `STUDIO=1` the first ranked post the
+guard in `hands/x` does not hold is posted, with no per-post approval. An
+empty slot is a normal outcome.
+
+It was rewritten on 2026-11-22 from 17 stages and 11 to 35 model calls a slot
+(pitch, pitch quotas, drafting, pre-screens, shorten, a pairwise tournament,
+a final slot question, a truth gate, a clarity gate, rewrites) into three
+steps and three model calls: the material had been thin (Digg's AI and tech
+stories, HN titles, three 4chan lines, every one pre-filtered by the whole
+guard lexicon, no card naming a person) and the prompts were mostly rules.
 
 ```
 cron slot ──> bin/studio --slot S --legacy P --detach
@@ -809,202 +821,152 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 ▼  STUDIO=1: detached (bin/lib/detach.py, studio lock), slot claimed before any turn
    hands/x slot shut? ── yes ──> skip, no model turn
                 │
-   hands/story desk + HN + listen digest (+ X search with STUDIO_OUTSIDE_X=1)
+   1. feed (bin/lib/studio_feed.py): Digg (ai, tech, world-business, entertainment, sports, gaming,
+      with the X posts behind the leaders), HN top + top comments, reddit_seen, listen_heard,
+      4chan sparks, at most 2 of Teeny's own events ── each best-effort, a down one noted
+      ── one tagging call (STUDIO_FEED_MODEL): people + what happened
+      ── rank heat x freshness x (2 with people) ──> the top 8 cards
+                │   (video slot: each video format's source read and the first good one studied)
+   2. write: one writer turn ──> 6 posts [{card, format, text}], structure checked only
                 │
-   writer: 12 pitches ──> 3 drafts x the best 3 ──> 280 + unsourced-number screen
+   3. pick: one cold editor turn (STUDIO_EDITOR_MODEL) ──> a ranking, rudest and funniest first,
+      and any post that breaks the content list marked with the line it breaks
                 │
-   editor: blind pairwise tournament ──> pick, or none (empty slot)
+   publish: the ranking (marked ones out; videos first in a video slot) one by one
+      ──> picture / meme / video for that post only ──> hands/x post (its guard is the check)
+      ──> held or refused: the next post; gap or daily cap: stop; no answer: stop (in doubt)
                 │
-   producer for the format (post | thread | image)
-                │
-   truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
-       a no: one rewrite by the writer with the reason, gated once more
-       a second no: the next draft of the ranking the editor does not veto (at most 2)
-                │
-   image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
-       (fails: the words alone if the writer marked them alone, else the next draft)
-                │
-   hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
-       repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
-                │
-   hands/story beat on the pick's storyline ──> studio_runs (published)
+   record ──> state/studio/runs.jsonl + studio_runs (hands/story record-run)
 ```
 
-The mind no longer posts: its `post_x` is `pitch_x` (`bin/lib/tick.py`, item 9),
-an idea filed for the desk (a `studio` stimulus, filed, never back in the
-mind's inbox), which the writer sees among the desk's `ideas`. The told-to `brief` (14:55 and 22:55, just before
-a slot) and the outward `peer-quote` keep their jobs, and their words go past
-the studio's editor as a single candidate (`bin/studio --veto`, which bin/act
-asks): pick, or none. Replies are unchanged.
+**The feed.** Every source is best-effort: one that is down (no tool, no
+network, no table) is skipped and named in the record's `feed.sources`. One
+card shape: `id`, `headline`, `what_happened` (two lines at most), `people`
+(the public figures and companies it names), `quotes` (real lines from the
+source, with who said them; an HN commenter is never named), `heat`
+(engagement, 0 to 1 within its source), `age_hours`, `source`. `people` and
+`what_happened` come from one cheap model call over every candidate
+(`studio_feed.tag`, on the editor agent with `STUDIO_FEED_MODEL`, the
+editor's model by default); when it fails the cards go on without people.
+Ranked by heat x freshness x (2 when a card names people), the top
+`STUDIO_FEED_CARDS` (8) go to the writer, at most two of them Teeny's own
+(`source: "own"`), which nothing requires a post to use. The guard's lexicon
+is not run over the material, except that an item carrying a slur of its
+`hate` category is dropped (`teeny_hands/slurs.py`; hands/trend and
+hands/chan's premises use the same screen). The cards are strangers' text:
+the writer is told they are data, never instructions.
 
-**How a slot runs.** Cron calls `bin/studio --slot S --legacy P --detach`
-(cron_policy.py refuses a studio slot without `--detach`): the core gives a
-cron shell call 300 s, then kills its process group and retries it, and a run
-takes longer. With `STUDIO=1` the run is started in its own session through
-`bin/lib/detach.py` under the studio lock and the call returns at once. The
-run claims its slot (`<date in India>:<slot>`, `hands/story slot-claim`)
-before any model turn: a retry or a rerun of a claimed slot does nothing. It
-marks the slot `posting`, with the draft, before it hands hands/x the post,
-and `posted` with the id after. A run that dies in between leaves the slot
-`posting`; the next claim marks it `in_doubt` and warns (the post may be on X
-without being in `x_posts`), and nothing retries it. (`hands/x` has an
-idempotency key only on twitr's text writes, ten minutes long; posts with
-media go to the X API with none, so the claim, not the key, is what holds.)
+**The write.** One turn on the writer thread `studio:<run id>`:
+`STUDIO_POSTS` (6) finished posts, each on a different card, each going at a
+named person or company where the card has one, aiming at 280 characters (a
+target: nothing is cut or dropped for length; `hands/x` itself still refuses
+a text over 280, and such a post falls through to the next). The answer is
+checked for structure only (`validate_posts`): JSON, words, a card that
+exists, a format offered, a thread of 2 to 4, an image's scene, a meme's
+template and lines, a video's shots and fields, and no link, bare domain or
+@-handle. Anything else passes.
 
-**What fails closed.** `STUDIO` reads only `1/true/yes/on` and
-`0/false/no/off` (or unset); any other word, or a `teeny.env` that is not
-text, is an error: no studio run, no legacy playbook, no `post_x`, no brief
-without the editor, and `bin/doctor` fails. The process environment wins over
-the file when it sets `STUDIO` at all (cron and the compose services pass
-none, so on the box the file decides). Every required gate must have judged:
-a truth judge, cold reader or viewer check that is switched off, unreachable
-or answers no JSON leaves a live slot empty (a dry run passes it, marked
-`unjudged`). A live run whose judges (`SAFETY_JUDGE_MODEL`, read from the
-file as the hands read it) are the writer's model, including after the
-writer fell back to the core's default, posts nothing; the judge model is in
-every run's `models`. A picture's scene is truth-gated against the draft's
-facts before it is bought, made once a slot (a fallback with the same scene
-reuses it, or its refusal), and an image piece whose picture fails goes out
-as words only when the writer marked them `alone`. The judges and hands/x
-count against `STUDIO_BUDGET_SECS` like the model turns.
+**The pick.** One cold editor turn (a fresh thread): "rank these; first is
+the one a stranger would screenshot because it is the rudest and funniest;
+mark any that break the list and say which line". No other veto. An editor
+that gives no usable answer leaves the writer's order, with a warning.
 
-**The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
-(`bin/lib/studio_switch.py`): each studio cron job names its slot's old
-playbook (`--legacy x-quote | morning | take | growth | show`) and with
-`STUDIO=0` runs it through `bin/act` instead; `shiplog` keeps its own 23:10
-job and runs only with `STUDIO=0`; the mind's `post_x` posts again; brief
-and peer-quote post without the editor. While `STUDIO=1`, `bin/act` skips
-every replaced playbook before any input, whoever runs it, so the old posts
-cannot come back by a stray job or a catch-up. The replaced playbooks stay on
-disk, marked legacy, for that.
+**Publishing.** The ranked posts, the marked ones left out, go one by one:
+an image's picture (`hands/guard check` on the scene, `hands/image`, the
+viewer check, the upload), a meme (its lines past the guard, `hands/meme
+template`, the viewer, the upload) or a video is made only for the post being
+tried, then `hands/x post` (or `post-thread`), whose guard is the content
+check. The first post not held goes out. With `STUDIO_DRY=1` (always under
+`--dry-run`) every hand runs with `DRY_RUN=1`, so nothing is posted or bought.
 
-One run is one slot:
+**The content list** is the only content rule, said verbatim in
+`brain/agents/writer.md` and `brain/narrative/STUDIO-EDITOR.md`: no
+pornography (nothing explicit, nothing sexual about a real person, nothing
+involving minors; lust for chargers and horny-robot jokes are fine); no drugs
+or weapons promotion, sale or instructions (jokes that mention them are
+fine); no racism, homophobia or other attack on a protected group, no slurs;
+nothing that breaks X's rules (no threat against a real person, no harassment
+of a private individual, no encouraging self-harm, no fake news stated as fact
+about a real person, no doxxing). Links, wallet and token-call rules, posting
+caps and secrets are unchanged and are not content.
 
-1. **The switches**, from the environment, then `secrets/teeny.env`:
-   `STUDIO`, `STUDIO_DRY`, `STUDIO_WRITER_MODEL` and `STUDIO_EDITOR_MODEL`
-   (each sent per turn as `bin/ask --model`, i.e. `model_override`; unset
-   is the core's model; the same one for both is a warning in the record),
-   `STUDIO_FORMATS` (`post,thread,image`), `STUDIO_PITCHES` (12),
-   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
-   `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
-   `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
-   time (an flock on `state/locks/studio.lock`).
-   `bin/spine` registers each studio model's context window from the
-   endpoint's listing at boot, as it does `SPINE_MODEL`'s: the core budgets
-   an unknown model at a few thousand tokens, trims the whole message away,
-   and the provider answers `messages: at least one message is required`
-   (seen on every `claude-fable-5.2` turn of the 2026-11-18 preview).
-2. **The slot**: `hands/x slot`. Shut, the run ends before any model turn
-   (`--dry-run` and `--force-slot` read it and go on).
-3. **What happened**: `hands/story desk` and the outside world the old
-   `take` and `x-quote` playbooks read (`hands/hn top`, `hands/hn show`,
-   `hands/listen digest`, and `hands/x search` only with
-   `STUDIO_OUTSIDE_X=1`), every hand with `DRY_RUN=1` forced, each outside
-   source optional and cut to fit
-   (`bin/lib/act_fit.py`). Each outside item gets an id
-   (`<source>:<id>`) a pitch can name, and is marked untrusted. `--desk
-   FILE` replays a saved desk. `DRY_RUN=1` keeps a hand from acting; it does
-   not make a read free or write-free: Hacker News is free but each read goes
-   through `hn_cache` in `hands.db`, the listen digest only reads `hands.db`,
-   and an X search is billed per post returned (about $0.012 for 10 through
-   twitr) and cached in `hands.db`, so it is off by default, previews
-   included (`inputs.skipped` says so).
-4. **Sampling** from a seed the run id gives (recorded): three lore lines to
-   reach for, three of `writer.md`'s before/after pairs to reread, three of
-   the scoreboard's best and two of its worst posts. One seed in four is an
-   **explore** run: at least three pitches use a shape or a format the recent
-   posts did not.
-5. **Pitch** (`writer`, one turn, on the run's own thread `studio:<run id>`):
-   up to 12 `{id, item, storyline, shape, format, angle, why_now}` and the
-   writer's own ranking. A pitch whose `item` is not in the inputs or whose
-   `format` is not in `STUDIO_FORMATS` is dropped, with why. A pitch that
-   names no running storyline takes its desk item's (`storyline` on the
-   item, the desk's guess by kind), so the pick, its facts and its beat land
-   on one.
-6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
-   3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
-   is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
-   ones over get one shorten turn together, and one still over is dropped.
-   Then a plain-code screen: a draft with a number (digits, or number words
-   used as counts or amounts: `two`, `second`, `dozen`, never `one`), a
-   weekday or a month that its own item and storyline do not hold is
-   dropped (`unsourced: [...]`; ids and refs are not facts, "twenty cents"
-   matches $0.20, false drops are accepted), and so is one sharing a run of
-   four words with an example "after" in `writer.md` (`copies an
-   example`). When every draft of a pitch fails, it is drafted once more,
-   told which words failed. Each draft keeps `truth: {text, facts}`, the
-   body `hands/guard truth` takes, for the cutover to send.
-7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
-   the seed shuffles, with the sampled scoreboard and where each story
-   stands. Never a pitch's angle or reason, the writer's ranking, a draft's
-   `meaning`, or who wrote it. Each draft meets exactly 3 others (a
-   circulant over the shuffled labels: when n x 3 is odd one draft meets 2,
-   recorded as `tournament.shortfall`), each pair once, and is shown first
-   in half its pairs give or take one, 5 pairs a turn, against the rubric in
-   `brain/narrative/STUDIO-EDITOR.md` (would a stranger stop; do they feel
-   something; do they get it with no setup; is there a reason to reply or
-   come back; could only Teeny have written it tonight). Ranked by win rate
-   over the pairs judged (none judged ranks last; ties: more wins, fewer
-   losses, the head-to-head, the shuffle); then one turn on the winner:
-   `pick` (any case) or none worth a slot. A duplicate pair in an answer or
-   a compare turn unusable twice is a warning in the record.
-8. **Record**: the whole run (seed, inputs digest and what was unavailable
-   or cut, pitches and the dropped ones, drafts and the dropped ones, every
-   pairing with its verdict and rule, the ranking, the final verdict, the
-   pick or the veto, the models, every turn's time and size, the warnings)
-   to `state/studio/runs.jsonl` and, through `hands/story record-run`, to
-   `studio_runs` in `state/hands.db`. The pick is printed as JSON.
-9. **Publish** (`publish`): the producer for the pick's format (`post`,
-   `thread`, `image`; any other format is no post, recorded; later formats
-   arrive behind `STUDIO_FORMATS`), then the gates in order, each failing
-   closed and each result kept in the record: the **truth judge**
-   (`hands/guard truth` on the draft's `truth`: every factual claim
-   supported by its item and storyline; staging, what the cartoon robot and
-   the lore's tiny agents do on the page, is not a claim, but who did what
-   always is), the **cold reader** (`hands/guard clarity`; bin/act and
-   bin/tick run it before their own posts and hands/x does not, so this is
-   its one run), and the **safety guard**, which `hands/x post` runs itself
-   before the posting rules. A truth or stranger no gets one rewrite turn by
-   the writer, told the reason and what was unsupported or unclear, and is
-   gated once more; a second no falls to the next draft of the ranking, which
-   faces the editor's slot question first (at most two fallbacks); a judge
-   that could not judge at all, a shut slot (gap, cap), a guard hold or a
-   hands/x error ends it with the slot empty. For an image, the scene goes
-   past the guard as text a machine is sent (surface `task`), then
-   `hands/image generate` under its own caps and `hands/x upload`; when the
-   picture fails, the words go out alone only if the cold reader followed
-   them and they do not point at a picture. The post carries
-   `producer=studio`, `storyline`, `shape` and `pitch_id` into `x_posts`.
-   After a real post, `hands/story beat` records it on the pick's
-   storyline. With `STUDIO_DRY=1` (and always under `--dry-run`) every step
-   runs, gates included, the picture is only planned, and hands/x runs with
-   `DRY_RUN=1`: nothing is posted, nothing is bought. The outcome is
-   `published`, `picked` (dry: would post) or `empty`.
-10. **Models**: a writer or editor model that fails a turn is dropped for
-   the rest of the run: that turn is asked once more on the core's default,
-   with a warning in the record, and a second warning when the writer and
-   the editor end up on one model. `SAFETY_JUDGE_MODEL` (which the truth
-   judge and the cold reader use too) is set to the editor's model, so no
-   judge is the writer.
+**The prompts.** The writer's system prompt is `brain/agents/writer.md` alone
+(about 870 words: the persona, the voice, who it goes at, the content list,
+nine one-line register examples); `writer.toml` sets `omit_identity = true`
+and `omit_safety_preamble = true`, so no SOUL.md reaches it. The vendored
+core still appends its Grounding and Style blocks to every agent prompt; they
+cannot be turned off by an agent's config. The editor's is
+`brain/agents/editor.md` and `narrative/STUDIO-EDITOR.md` (the pick and the
+list). READER.md, VOICE.md, CANON.md and the skills' craft no longer reach
+either.
 
-A full run is 8 model turns (1 pitch, 3 drafts, 3 compare, 1 final) and
-about 5 judge calls (truth, the cold reader's two, the guard's), plus a rewrite
-and a slot question for each fallback, plus a
-shorten turn when a draft is long, a second draft turn for a pitch whose
-drafts all failed the screen, and a repeat when an answer is not usable.
-Failures go as `bin/act`'s: a provider failure is recorded with its class
-and a lasting one exits 0; an unusable answer is asked for once more (a
-draft or compare turn that fails twice is left out, a pitch or final turn
-ends the run); a run out of budget is recorded and exits 0.
+**Video slots** (`STUDIO_SKIT_SLOTS`, with skit, remake or khaby in
+`STUDIO_FORMATS`; `STUDIO_VIDEO_BUDGET_SECS` when a remake or khaby may be
+made): the same three steps. Before the write, each video format that reads
+its own sources reads them (`hands/remake charts`, `hands/khaby find`) and
+the first that studies well (`hands/remake study`, `hands/khaby dissect`, at
+most two tries a run) is the one offered. The write turn asks for
+`STUDIO_VIDEO_POSTS` (3) of the posts as videos, with each format's
+mechanics in that turn; the rest are word posts the slot falls back to. A
+skit's cast is the card's `people`: the card goes to `hands/guard skit` as
+the story with its people named in it, so a figure the headline does not
+name is not refused for that. The guard's hard lines run in code and through
+its judge before any money, and the viewer checks run on the frames after.
+A video that could not be made after money was spent on it takes the other
+videos out of the run (one video a day).
 
-**What each agent's prompt holds** (`bin/lib/prompts.py`, built at boot):
+### Formats
 
-| | `writer` | `editor` |
+Each video format is one module in `bin/lib/formats/` (`skit.py`,
+`remake.py`, `khaby.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
+`formats.REGISTRY` lists them in order. A `Format` carries its words for the
+write turn (`ask`, `draft_shape`, `rules`: mechanics only), `shape` (the
+structural check: the piece kept on a post, from the card and the study),
+`shown` (what the editor sees), `make` (its producer), `outcome` (the
+record's `published.<format>`), `time` and `min_secs` (`video_time`),
+`spent`, and for a format made from what it reads itself, `sources`,
+`sources_name`, `prepare` with `prepare_max` and `study_part`. The `Room`,
+its hand calls and the required gate `_judge` live in `bin/lib/studio_room.py`.
+A new format is one module here and one line in `REGISTRY`, then its name in
+`STUDIO_FORMATS`.
+
+### The record
+
+Each run is one line of `state/studio/runs.jsonl` and one row of
+`studio_runs`: `cards`, `posts` and `posts_dropped` (with why), `ranking`
+(`order`, `breaks`, the labels), `final` (the post that went out or would
+have) and `pick` (the same), `publish` (every attempt and what hands/x said),
+`published`, `feed` (each source's note and the tagging call's), `models`,
+`calls` (`total`, `writer`, `editor`, `feed`, every turn), `outcome`
+(`published`, `picked` for a dry run's would-post, `empty`, `skipped`,
+`failed`) and `reason`.
+
+### A local sample
+
+`bin/studio --dry-run --print --slot sample-x` runs from a checkout against
+the live feeds, without the box: it prints the cards, the posts, the ranking
+and what came of each try. Off the box there is no core, so set
+`STUDIO_ASK=openrouter` with `OPENROUTER_API_KEY`, `STUDIO_WRITER_MODEL`,
+`STUDIO_EDITOR_MODEL` (and optionally `STUDIO_FEED_MODEL`, or
+`STUDIO_LOCAL_MODEL` for all three) as OpenRouter model ids, and
+`TEENY_STATE` to a scratch state directory. Digg needs `digg-pp-cli` on PATH
+(or `TREND_DIGG_BIN`); without it that source is skipped. `hands/x post`'s
+guard judge cannot be reached off the box, so every post comes back held:
+the sample shows what would have been tried, in order.
+
+### `--veto` and `--meme`
+
+`bin/studio --veto` is the editor alone on one post that keeps its own job
+(the told-to brief, the outward quote; `bin/act` asks): pick unless it breaks
+the list, failing closed. `bin/studio --meme` makes one meme for the outward
+quote through the studio's meme path. With `STUDIO=0` the veto picks with no
+turn.
+
+| | writer | editor |
 |---|---|---|
-| From the core | `SOUL.md`, `IDENTITY.md` (`omit_identity = false`); no recall | nothing (`omit_identity`, `omit_memory_context`) |
-| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), seven before/after pairs | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
-| Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters); `LORE.md`'s premise, cast and running bits | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is); `LORE.md`'s premise |
-| Left out | `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, the arcs, what it said lately: rules about what may be said, which the gates after the studio enforce on the one piece picked | the same, and every pitch's reasoning |
+| Model | `STUDIO_WRITER_MODEL` | `STUDIO_EDITOR_MODEL` (and the feed's tagging, `STUDIO_FEED_MODEL`) |
+| Instructions | `brain/agents/writer.md` alone | `brain/agents/editor.md`, then `narrative/STUDIO-EDITOR.md` |
+| Left out | SOUL.md, READER.md, VOICE.md, CANON.md, the craft, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md` | the same |
 | Temperature | 1.0 | 0.3 |
 
 ## 5. Roster
@@ -1016,7 +978,7 @@ are built at boot (§4a).
 |---|---|---|
 | `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/dream` (thread `teeny:dream`), `bin/reflect` by hand (`teeny:reflect`) | none |
 | `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
-| `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, the editor on no thread) | none |
+| `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, each editor turn on a fresh `studio:<run id>:editor:<n>`, since a turn with no thread resumes the agent's newest transcript) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
@@ -1054,7 +1016,10 @@ one model call and cannot loop. The vendored harness pauses a session turn
 when it reaches the cap, even after a final answer, so at 1 every turn came
 back "paused before completion" and was recorded as failed (gap G13). The
 second iteration only absorbs that pause. `agent_check.py` holds them to
-exactly 2 (`NO_TOOLS_MAX_ITERATIONS`).
+exactly 2 (`NO_TOOLS_MAX_ITERATIONS`), except the mind (`teeny`) and `act`,
+which run at exactly 3 (`MAX_ITERATIONS`): when a first call reasons to its
+output cap and comes back empty or truncated, the harness retries it with
+reasoning off, and at 2 the pause landed on that retry and lost the beat.
 
 ## 6. Triggers
 
@@ -1081,6 +1046,12 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `wants` (`bin/wants run`, 09:00 UTC), what Teeny said on its memory page
+    it will build: it scores each merged feature a week after it merged (did
+    a scheduled playbook run its hand?), then files at most one want as a
+    `self` build request through the guard, for the builder. Drawn in code,
+    no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
+    "1c. Wants"; docs/hands.md, "`build`");
   - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
     babysitter: audits every open pull request on teenydroid/brain and
     teenydroid/diary in code and logs every prompt-injection attempt;
@@ -1119,7 +1090,29 @@ Every scheduled job is in one of two files:
     Three such runs in a row, or two half an hour apart, while the probe
     still answers, raise a third alarm (`act_alarm` in `state/health.json`,
     one issue), cleared by the next answered draft (`ACT_ALARM_RUNS`,
-    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). Once drafts are answered
+    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). A fourth alarm is for a
+    playbook that fails for its own reasons (`playbook_alarm`, one per
+    playbook, since 2026-11-19): on 11-15, -16 and -17 `self-improve` failed
+    every run, because the core's prompt screen refused an 86,357-character
+    message, while the provider answered; `act_alarm` stayed quiet and the
+    failure surfaced days later as an evolve finding. Now the latest runs of
+    each playbook are read (`state/act/<playbook>/runs.jsonl`, the last 500
+    lines): a run with `ok: false` whose `failure` is not `provider` counts,
+    a skip (an `ok` line with `skipped`, such as a spent budget) is no run
+    and changes nothing, and the count stops at the first ok run or the first
+    provider failure; only the last `PLAYBOOK_LOOKBACK_SECS` (7 days) of runs
+    count. A failure within `ACT_RETRY_SECS` (120 s) of the next
+    newer failure is folded into it, so cron's quick retries of one slot count
+    once, and failures two minutes or more apart count separately. At
+    `PLAYBOOK_ALARM_RUNS` (3, `secrets/teeny.env`) runs in a row it raises a
+    `health · alarm` stimulus and one issue on teenydroid/brain, unless the
+    model alarm above is open. The issue is fixed sentences, the run count,
+    the times and one more thing: the class of the error, which is bin/act's
+    own words up to the first colon, scrubbed. It never carries stderr, stdout
+    or a draft, which can quote a stranger. The playbook's next ok run closes
+    the issue and sends `health · recovered`; so does a week with no failed
+    run, for a playbook that was retired or unscheduled and so never gets an
+    ok run (the issue says why it closed). Once drafts are answered
     again, a slot they lost is made up once within its window: a
     `make_up_hours` job (the Moltbook evening audit) or a
     `catch_up` playbook (`bin/lib/catch_up.py`).
@@ -1373,7 +1366,21 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
     and run behind `deploy/reel/serve.py`, on the compose network only,
     behind the `reel` compose profile. It reads `state/media/` and
-    `brain/assets/` read-only and posts nothing.
+    `brain/assets/` read-only and posts nothing. The front's own
+    `POST /teeny/v1/cuts` (`deploy/reel/skitcut.py`) joins `hands/video
+    skit`'s shots with ffmpeg, keeping their sound (or takes its one take
+    as it is), and burns in the label.
+  - `memegen`: known meme templates for `hands/meme template`: memegen
+    (`vendor/memegen`, the upstream repository at a pinned commit, since it
+    tags no releases; never edited) built by its own `Containerfile` and run
+    as `deploy/memegen/front.py`, which serves upstream's app but copies an
+    overlay only from Teeny's read-only art (`http://teeny-art/...`,
+    `deploy/memegen/art.py`), refuses every other URL, and draws no
+    watermark; tracking and error reporting stay unset. On the compose
+    network only (`MEMEGEN_URL`, `http://memegen:5000`), behind the
+    `memegen` compose profile; posts nothing. `bin/doctor` names it when
+    `STUDIO_FORMATS` has `meme` (`--live` asks it for its templates; a
+    warning, never a failure).
 - The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
   `teeny.enamakel.com`: `/api/webhooks/x` goes to the webhook, everything
   else to the landing page.

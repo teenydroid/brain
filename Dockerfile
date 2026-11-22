@@ -2,7 +2,8 @@
 #
 # The spine image: teeny-spine (OpenHuman's host, built here from the
 # vendored library, with tinywallet linked in), OpenHuman's
-# pinned module releases, Chromium for the browser, and the tools bin/ needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
+# pinned module releases, Chromium for the browser, Digg's reader for
+# hands/trend, and the tools bin/ needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
 # mounts the checkout at /srv/teeny, so a job or cron.toml change is a pull and
 # a restart, not a rebuild.
 #
@@ -40,6 +41,20 @@ COPY vendor/openhuman/scripts/release/stage-modules.mjs scripts/release/stage-mo
 COPY vendor/openhuman/crates/openhuman-core/src/modules/registry.rs crates/openhuman-core/src/modules/registry.rs
 COPY vendor/openhuman/crates/openhuman-core/src/modules/registry/ crates/openhuman-core/src/modules/registry/
 RUN node scripts/release/stage-modules.mjs --output /bundled-modules
+
+# --- digg-pp-cli: what AI X is talking about (hands/trend) -------------------
+# Digg's leaderboard reader (Apache-2.0), from mvanhorn/printing-press-library
+# at a pinned commit, built unmodified. The pin here is the vendoring: that
+# repository is about 500 MB, so it is not a submodule; a new pin is a PR that
+# passes hands/tests/trend. Pure Go (its SQLite is modernc's), so it is built
+# static and does not care which libc the runtime has.
+FROM golang:1.26 AS digg
+ARG DIGG_COMMIT=c51ca2c9232719ee6a82f2316bf6af6df9ddc05e
+ENV CGO_ENABLED=0 GOBIN=/out GOFLAGS=-trimpath
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/mvanhorn/printing-press-library/library/media-and-entertainment/digg/cmd/digg-pp-cli@${DIGG_COMMIT} \
+ && /out/digg-pp-cli version
 
 # --- runtime ----------------------------------------------------------------------
 FROM debian:bookworm-slim
@@ -79,6 +94,8 @@ RUN git config --system user.name "Teeny" \
  && git config --system advice.detachedHead false
 COPY --from=builder /teeny-spine /usr/local/bin/teeny-spine
 COPY --from=modules /bundled-modules /opt/openhuman/bundled-modules
+# hands/trend runs it with a home of its own under state/trend/home.
+COPY --from=digg /out/digg-pp-cli /usr/local/bin/digg-pp-cli
 ENV OPENHUMAN_BUNDLED_MODULES=/opt/openhuman/bundled-modules \
     OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-spine \
     OPENHUMAN_DOCKER=1 \

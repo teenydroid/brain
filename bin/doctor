@@ -6,16 +6,20 @@
 #   bin/doctor --live          also the running core: /health, cron in step
 #                              with brain/cron.toml, every enabled job's next
 #                              run current, the heartbeat fresh, the
-#                              browser loads and starts Chrome
+#                              browser loads and starts Chrome, each studio
+#                              model answers one small turn
 #   bin/doctor --full          also the hands' unit tests
 #
 # Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
 # the check that stands between an edit and a restart, so it is frozen with
 # the rest of bin/ (docs/architecture.md, "Evolution"). It changes nothing:
-# no core call that writes, no guard hold, no post.
+# no core call that writes (but --live's studio model turn, which may give
+# the core a model's context window, as any `bin/ask --model` does), no
+# guard hold, no post.
 #
 # Prints one line per check on stderr and a JSON report on stdout, and writes
-# the report to state/doctor.json (of the root it checked). The one other
+# the report to state/doctor.json (of the root it checked; a red one is also
+# appended to state/doctor-failures.jsonl). The one other
 # thing it writes is the model behind each role, under secrets/autonomy/
 # (bin/lib/autonomy.py; docs/roadmap.md, G8). Exits 0 when
 # every check passed, 1 when any failed.
@@ -136,6 +140,47 @@ browser_ready() {
   echo "TinyComputer serving, Chrome starts"
 }
 
+# Every model the studio is set to answers one small turn on the route the
+# studio asks it on: the writer's and editor's through bin/ask (a tool-less
+# agent turn, the editor's prompt, which is the smaller), the judges' through
+# the simple chat. On 2026-11-19 a studio preview on claude-fable-5.2 and
+# claude-opus-5.5 had every first turn refused, "HTTP 400 (request_rejected):
+# messages: at least one message is required" (the core had no window for
+# them and the trim dropped the message), the run fell back to the core's
+# default model, and only the spine's log said so. Skipped when no studio
+# model is set (the core's default answers the heartbeat); one turn a model,
+# DOCTOR_MODEL_TURNS=0 skips it. bin/ask registers a model's window with the
+# core first when it has none: the one write this check can make.
+studio_models_answer() {
+  local listed route model out status failed_models="" n=0
+  local probe='Answer with the JSON {"ok": true} and nothing else.'
+  listed="$(TEENY_SECRETS="$secrets" python3 "$TEENY_ROOT/bin/lib/studio_switch.py" models 2>&1)" || {
+    echo "the studio's models cannot be read: $listed"
+    return 1
+  }
+  [ -n "$listed" ] || { echo "no studio model set: its turns run on the core's default"; return 0; }
+  while read -r route model; do
+    [ -n "$model" ] || continue
+    n=$((n + 1))
+    status=0
+    if [ "$route" = agent ]; then
+      out="$(OH_TIMEOUT=120 timeout --kill-after=5 130 "$TEENY_ROOT/bin/ask" --agent editor --model "$model" "$probe" 2>&1)" ||
+        status=$?
+    else
+      out="$(OH_TIMEOUT=120 oh inference_agent_chat_simple \
+        "$(jq -cn --arg m "$probe" --arg o "$model" '{message: $m, model_override: $o}')" 2>&1)" || status=$?
+    fi
+    if [ "$status" -ne 0 ] || ! [[ "$out" =~ [^[:space:]] ]]; then
+      failed_models="$failed_models; $model ($route): $(tail -n 1 <<<"${out:-no answer}" | cut -c1-200)"
+    fi
+  done <<<"$listed"
+  if [ -n "$failed_models" ]; then
+    echo "refused a turn:${failed_models#;}"
+    return 1
+  fi
+  echo "$n model turn(s) answered: $(awk '{print $2 " (" $1 ")"}' <<<"$listed" | paste -sd, - | sed 's/,/, /g')"
+}
+
 # --- the brain -----------------------------------------------------------------
 # CHARTER.md is the charter's short version (docs/governance.md): frozen, and
 # in every speaking prompt.
@@ -188,6 +233,9 @@ for path in "$brain"/agents/*.toml; do
   [ -e "$path" ] || continue
   run "agent $(basename "$path")" python3 "$TEENY_ROOT/bin/lib/agent_check.py" "$path"
 done
+# Teeny's own tools (home/tools/, bin/box): with BOX=1 the kernel must be able
+# to jail them, or bin/box runs nothing and every job naming one is dead.
+run "box" env TEENY_ROOT="$root" python3 "$TEENY_ROOT/bin/lib/box.py" check
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"
 fi
@@ -267,9 +315,11 @@ if [ -d "$root/hands/lib/teeny_hands/guard" ]; then
 import sys
 sys.path.insert(0, sys.argv[1])
 from teeny_hands.guard.screen import screen_text
-held = screen_text("kill yourself", "outbound")
+# Slurs are what it holds on sight since 2026-11-22 (guard/lexicon.py); the
+# rest of the content list is the judge'"'"'s.
+held = screen_text("white power", "outbound")
 if held is None:
-    sys.exit("the screen let a self-harm phrase through")
+    sys.exit("the screen let a hate slogan through")
 if screen_text("gm tiny humans, coffee loading", "outbound") is not None:
     sys.exit("the screen held a plain gm")
 print(f"holds {held.category}, passes a gm")
@@ -406,6 +456,275 @@ else
   note "hand-test sandbox" warn "$(tail -n 1 <<<"$sandbox")"
 fi
 
+# The meme service (deploy/compose.yaml, `memegen`; hands/meme template): only
+# when STUDIO_FORMATS in secrets/teeny.env names meme (on the box the file
+# decides: cron and compose pass none). A boot makes no call: MEMEGEN_URL is read,
+# and --live asks the service for its templates. A warning, never a failure,
+# like the sandbox's: with it down a meme pitch makes no picture and is no
+# post, and every other format still goes out.
+if [ -f "$root/hands/lib/teeny_hands/meme/templates.py" ]; then
+  meme_out="$(python3 -I -c '
+import json, sys, urllib.parse, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.meme import templates
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "meme" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no meme, so nothing needs the memegen service")
+    sys.exit()
+url = (filed.get("MEMEGEN_URL") or templates.DEFAULT_URL).rstrip("/")
+parts = urllib.parse.urlsplit(url)
+if parts.scheme not in ("http", "https") or not parts.hostname:
+    print(f"warn MEMEGEN_URL is not an http address ({url!r}): meme pitches make no picture")
+    sys.exit()
+if sys.argv[3] != "1":
+    print(f"ok on, at {url} (bin/doctor --live asks it for its templates)")
+    sys.exit()
+up = "docker compose -f deploy/compose.yaml --profile memegen up -d memegen"
+try:
+    with urllib.request.urlopen(url + "/templates/", timeout=5) as answer:
+        listed = json.loads(answer.read(templates.MAX_LISTING_BYTES))
+    if not isinstance(listed, list) or not listed:
+        raise ValueError("no templates")
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn no templates from {url} ({type(exc).__name__}): meme pitches make no picture until it is up ({up})")
+    sys.exit()
+print(f"ok {len(listed)} templates at {url}")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || meme_out="warn the check could not run: $(tail -n 1 <<<"$meme_out")"
+  note "meme service" "${meme_out%% *}" "${meme_out#* }"
+fi
+
+# Skits (hands/video skit; docs/hands.md, "video"): only when STUDIO_FORMATS
+# in secrets/teeny.env names skit. A warning, never a failure, like the meme
+# service's: a skit that cannot be made is no post, and the room falls back
+# to the other formats. It says whether hands/video will make any (it
+# refuses every skit while MEDIA_SKIT_MAX_PER_DAY is 0), whether one shot
+# fits the shared daily budget, and whether a skit is made as one take (and
+# on which model) or one job a shot; --live asks the reel service, which cuts
+# and labels every skit, for /ping.
+if [ -f "$root/hands/lib/teeny_hands/media/skits.py" ]; then
+  skit_out="$(python3 -I -c '
+import sys, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.reel.service import DEFAULT_URL
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "skit" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no skit")
+    sys.exit()
+def number(name, default):
+    try:
+        return float(filed.get(name) or default)
+    except ValueError:
+        return float(default)
+per_day = int(number("MEDIA_SKIT_MAX_PER_DAY", 0))
+if per_day <= 0:
+    print("warn STUDIO_FORMATS names skit, but MEDIA_SKIT_MAX_PER_DAY is 0: hands/video refuses every skit")
+    sys.exit()
+shot, budget = number("MEDIA_SKIT_MAX_USD_PER_SHOT", 1.60), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if shot > budget:
+    print(f"warn MEDIA_SKIT_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no skit fits a day")
+    sys.exit()
+url = (filed.get("REEL_URL") or DEFAULT_URL).rstrip("/")
+take_on = (filed.get("MEDIA_SKIT_ONE_TAKE") or "1").strip().lower() in ("1", "true", "yes", "on")
+take_models = [m.strip() for m in (filed.get("MEDIA_SKIT_ONE_TAKE_MODELS") or "venice-wan-3-0-text-to-video,seedance-2-0-text-to-video,wan-2-7-text-to-video").split(",") if m.strip()]
+take_secs = min(30, max(5, int(number("MEDIA_SKIT_ONE_TAKE_SECS", 20))))
+resolution = (filed.get("MEDIA_SKIT_RESOLUTION") or "720p").strip()
+then = " (then " + ", ".join(take_models[1:]) + ")" if len(take_models) > 1 else ""
+take = (f"one take on {take_models[0]}{then}, up to {take_secs} s at {resolution}, one job a shot if it cannot be had"
+        if take_on and take_models else "one take off: one job a shot")
+said = f"on: {per_day} a day, up to {shot:.2f} USD a shot, {round(budget * 100) // round(shot * 100) if shot else 0} shot(s) under {budget:.2f} USD a day; {take}; cut at {url}"
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url + "/ping", timeout=5) as answer:
+        answer.read(64)
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    up = "docker compose -f deploy/compose.yaml --profile reel up -d --build reel"
+    print(f"warn the reel service at {url} does not answer ({type(exc).__name__}): no skit is made until it is up ({up})")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || skit_out="warn the check could not run: $(tail -n 1 <<<"$skit_out")"
+  note "skits" "${skit_out%% *}" "${skit_out#* }"
+fi
+
+# Remakes (hands/remake, hands/video remake-keys and remake; docs/architecture.md,
+# "The studio"): only when STUDIO_FORMATS in secrets/teeny.env names remake. A
+# warning, never a failure, like the skits': a remake that cannot be made is no
+# post, and the room falls back to the skit or the other formats. It says
+# whether hands/video will make any (MEDIA_REMAKE_MAX_PER_DAY 0 refuses every
+# one), whether a chart can be read at all (REMAKE_TIKTOK_ACCOUNTS or
+# YOUTUBE_API_KEY), whether one take's cap (MEDIA_REMAKE_MAX_USD_PER_TAKE)
+# fits the shared daily budget, and which models make the one take; --live
+# asks the ingest service (INGEST_URL), which fetches the source.
+if [ -f "$root/hands/lib/teeny_hands/guard/remake.py" ]; then
+  remake_out="$(python3 -I -c '
+import sys, urllib.error, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+formats = filed.get("STUDIO_FORMATS") or "post,thread,image"
+if "remake" not in [f.strip() for f in formats.split(",")]:
+    print("ok off: STUDIO_FORMATS names no remake")
+    sys.exit()
+def number(name, default):
+    try:
+        return float(filed.get(name) or default)
+    except ValueError:
+        return float(default)
+warns = []
+per_day = int(number("MEDIA_REMAKE_MAX_PER_DAY", 0))
+if per_day <= 0:
+    print("warn STUDIO_FORMATS names remake, but MEDIA_REMAKE_MAX_PER_DAY is 0: hands/video refuses every remake")
+    sys.exit()
+accounts = [a for a in (filed.get("REMAKE_TIKTOK_ACCOUNTS") or "").split(",") if a.strip()]
+youtube = bool((filed.get("YOUTUBE_API_KEY") or "").strip())
+if not accounts and not youtube:
+    warns.append("no chart provider (REMAKE_TIKTOK_ACCOUNTS is empty and YOUTUBE_API_KEY unset): hands/remake charts finds nothing to remake")
+# A remake is one take (one job): unset, the caps and models are those of the
+# hand itself (media/remakes.py). No apostrophes here: this is inside bash single quotes.
+from teeny_hands.media.remakes import ONE_TAKE_MODELS, PER_SHOT, PER_TAKE
+take, budget = number("MEDIA_REMAKE_MAX_USD_PER_TAKE", float(PER_TAKE)), number("MEDIA_MAX_USD_PER_DAY", 1.00)
+if take > budget:
+    warns.append(f"MEDIA_REMAKE_MAX_USD_PER_TAKE ({take:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): no remake fits a day")
+# The per-shot path is the fallback (MEDIA_REMAKE_PER_SHOT=1): only then does the cap on a shot count.
+if (filed.get("MEDIA_REMAKE_PER_SHOT") or "").strip().lower() in ("1", "true", "yes", "on"):
+    shot = number("MEDIA_REMAKE_MAX_USD_PER_SHOT", float(PER_SHOT))
+    if 6 * shot > budget:
+        warns.append(f"6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ({shot:.2f} USD) is over MEDIA_MAX_USD_PER_DAY ({budget:.2f} USD): a six-shot remake does not fit a day")
+models = [m.strip() for m in (filed.get("MEDIA_REMAKE_ONE_TAKE_MODELS") or ONE_TAKE_MODELS).split(",") if m.strip()]
+try:
+    from teeny_hands.remake.service import DEFAULT_URL as INGEST_DEFAULT
+except ImportError:
+    INGEST_DEFAULT = "http://ingest:8090"
+url = ((filed.get("INGEST_URL") or "").strip() or INGEST_DEFAULT).rstrip("/")
+if warns:
+    print("warn " + "; ".join(warns))
+    sys.exit()
+providers = ",".join(p for p, on in (("tiktok", accounts), ("youtube", youtube)) if on)
+rest = ", ".join(models[1:])
+then = f" (then {rest})" if rest else ""
+first = models[0] if models else "no model"
+said = (f"on: {per_day} a day, up to {take:.2f} USD a take under {budget:.2f} USD a day; one take on {first}{then}; "
+        f"charts from {providers}; ingest at {url}")
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url, timeout=5) as answer:
+        answer.read(64)
+except urllib.error.HTTPError:
+    pass  # it answered, whatever it said to the bare address
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn the ingest service at {url} does not answer ({type(exc).__name__}): no source is studied until it is up")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || remake_out="warn the check could not run: $(tail -n 1 <<<"$remake_out")"
+  note "remakes" "${remake_out%% *}" "${remake_out#* }"
+fi
+
+# Khaby (hands/khaby find and dissect; docs/hands.md, "khaby"). A warning,
+# never a failure. It is off until the operator names a video-input model
+# (KHABY_DISSECT_MODEL has no default: which model takes a video is found by
+# trying one on the box), or the studio is told to use it. Once on, it says
+# whether dissect will run at all (KHABY_DISSECT_MAX_PER_DAY 0 refuses every
+# one), the provider and its key, the accounts find lists, and INGEST_URL;
+# --live asks the ingest service. When STUDIO_FORMATS names khaby (bin/lib/
+# formats/khaby.py), the studio side too: hands/video khaby is off while
+# MEDIA_KHABY_MAX_PER_DAY is 0 (its default), so every khaby video is refused.
+if [ -f "$root/hands/lib/teeny_hands/khaby/dissect.py" ]; then
+  khaby_out="$(python3 -I -c '
+import sys, urllib.error, urllib.request
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+env = Path(sys.argv[2])
+filed = _parse_env_file(env.read_text()) if env.is_file() else {}
+studio = "khaby" in [f.strip() for f in (filed.get("STUDIO_FORMATS") or "").split(",")]
+model = (filed.get("KHABY_DISSECT_MODEL") or "").strip()
+if not model:
+    if studio:
+        print("warn STUDIO_FORMATS names khaby, but KHABY_DISSECT_MODEL is not set: hands/khaby dissect refuses every video")
+    else:
+        print("ok off: KHABY_DISSECT_MODEL is not set, so hands/khaby dissect refuses every video")
+    sys.exit()
+try:
+    per_day = int(filed.get("KHABY_DISSECT_MAX_PER_DAY") or 3)
+except ValueError:
+    per_day = 3
+if per_day <= 0:
+    print(("warn" if studio else "ok") + " off: KHABY_DISSECT_MAX_PER_DAY is 0, so hands/khaby dissect refuses every video")
+    sys.exit()
+warns = []
+provider = (filed.get("KHABY_DISSECT_PROVIDER") or "surplus").strip().lower()
+key = {"surplus": "SURPLUS_API_KEY", "gemini": "GEMINI_API_KEY"}.get(provider)
+if key is None:
+    warns.append(f"KHABY_DISSECT_PROVIDER is {provider!r}, not surplus or gemini: dissect refuses every video")
+elif not (filed.get(key) or "").strip():
+    warns.append(f"{key} is not set, and KHABY_DISSECT_PROVIDER is {provider}: dissect refuses every video")
+accounts = [a.strip().lstrip("@") for a in (filed.get("KHABY_ACCOUNTS") or "khaby.lame").split(",") if a.strip()]
+if not accounts:
+    warns.append("KHABY_ACCOUNTS names no account: hands/khaby find lists nothing")
+url = (filed.get("INGEST_URL") or "").strip().rstrip("/")
+if not url:
+    warns.append("INGEST_URL is not set: hands/khaby cannot list or fetch a video")
+made = 0
+if studio:
+    try:
+        made = int(filed.get("MEDIA_KHABY_MAX_PER_DAY") or 0)
+    except ValueError:
+        made = 0
+    if made <= 0:
+        warns.insert(0, "STUDIO_FORMATS names khaby, but MEDIA_KHABY_MAX_PER_DAY is 0: hands/video refuses every "
+                        "khaby video")
+if warns:
+    print("warn " + "; ".join(warns))
+    sys.exit()
+names = ",".join(accounts)
+said = f"on: {per_day} a day on {provider} {model}; accounts {names}; ingest at {url}"
+if studio:
+    said += f"; the studio makes up to {made} a day"
+if sys.argv[3] != "1":
+    print(f"ok {said} (bin/doctor --live asks it)")
+    sys.exit()
+try:
+    with urllib.request.urlopen(url, timeout=5) as answer:
+        answer.read(64)
+except urllib.error.HTTPError:
+    pass  # it answered, whatever it said to the bare address
+except Exception as exc:  # noqa: BLE001 - any failure is the same warning
+    print(f"warn the ingest service at {url} does not answer ({type(exc).__name__}): no video is dissected until it is up")
+    sys.exit()
+print(f"ok {said}, and it answers")
+' "$root/hands/lib" "$secrets/teeny.env" "$live" 2>&1)" || khaby_out="warn the check could not run: $(tail -n 1 <<<"$khaby_out")"
+  note "khaby" "${khaby_out%% *}" "${khaby_out#* }"
+fi
+
+# hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
+# the studio reads what AI X is talking about. TREND_DIGG_BIN in
+# secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one
+# missing is a broken build and fails; outside it (a laptop, CI) it warns:
+# the studio still runs, on Hacker News alone.
+digg_bin=""
+[ ! -f "$secrets/teeny.env" ] || digg_bin="$(sed -n 's/^TREND_DIGG_BIN=//p' "$secrets/teeny.env" | tail -n 1)"
+[ -n "$digg_bin" ] || digg_bin="$(command -v digg-pp-cli 2>/dev/null || true)"
+if [ -n "$digg_bin" ] && [ -x "$digg_bin" ] && digg_says="$(HOME="$state/trend/home" timeout 10 "$digg_bin" version 2>&1)"; then
+  note "trend reader" ok "$(tail -n 1 <<<"$digg_says")"
+elif [ "${OPENHUMAN_DOCKER:-}" = 1 ]; then
+  note "trend reader" fail "digg-pp-cli is not in the image (${digg_bin:-not on PATH}): rebuild the spine image"
+else
+  note "trend reader" warn "digg-pp-cli is not installed (${digg_bin:-not on PATH}): the studio reads Hacker News alone"
+fi
+
 # --- optional: the hands' tests --------------------------------------------------------
 if [ "$full" = 1 ]; then
   run "hands tests" python3 -m unittest discover -s "$root/hands/tests" -t "$root/hands/tests"
@@ -419,8 +738,38 @@ if [ "$live" = 1 ]; then
     run "cron next runs are current" cron_current
     run "cron agent turn budget" agent_turn_budget
     run "browser" browser_ready
+    if [ "${DOCTOR_MODEL_TURNS:-1}" != 0 ]; then
+      run "studio models answer" studio_models_answer
+    fi
   else
     note "core /health" fail "no answer at $OH_URL"
+  fi
+  # Teeny's GitHub token must not administer a repository the babysitter merges
+  # into: the ruleset on main is what makes the frozen check binding, and an
+  # administering token can edit it (docs/roadmap.md, G5). One call a watched
+  # repository, so --live only. A warning, never a failure: the token and the
+  # repository's owner are the operator's to change on GitHub.
+  if [ -f "$root/hands/lib/teeny_hands/gh/admin.py" ]; then
+    if scope_out="$(python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands import hand
+env = Path(sys.argv[2])
+hand._ENV_CACHE = hand._parse_env_file(env.read_text()) if env.is_file() else {}
+if not hand.setting("GITHUB_TOKEN"):
+    print("ok no GitHub token: nothing to administer")
+    sys.exit(0)
+from teeny_hands.babysit import policy
+from teeny_hands.gh import admin
+from teeny_hands.gh.client import GitHubApi
+status, detail = admin.check(GitHubApi.from_settings(), policy.repos())
+print(status, detail)
+' "$root/hands/lib" "$secrets/teeny.env" 2>&1)"; then
+      note "github token scope" "${scope_out%% *}" "${scope_out#* }"
+    else
+      note "github token scope" warn "the check could not run: $(tail -n 1 <<<"$scope_out")"
+    fi
   fi
   if jq -e '.[] | select(.name == "teeny.heartbeat" and .enabled)' <<<"${jobs:-[]}" >/dev/null 2>&1; then
     beat="$(cat "$state/heartbeat" 2>/dev/null || true)"
@@ -441,10 +790,38 @@ except ValueError:
 fi
 
 commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
-out="$(jq -cn --argjson checks "$report" --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+# The report goes in on stdin, never as an argument: every playbook's check
+# carries the playbook, and past 128 KiB one argument is refused by the kernel
+# ("Argument list too long"), which left no state/doctor.json at all.
+out="$(printf '%s' "$report" | jq -c --arg commit "$commit" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson live "$live" --argjson failed "$failed" \
-  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: $checks}')"
+  '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: .}')"
 mkdir -p "$state"
 printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$state/doctor.json"
+# doctor.json is overwritten by the next run, so a red one is also kept (names only, the
+# latest 50) for hands/babysit's rollback sweep, which reads it up to 20 minutes later.
+if [ "$failed" != 0 ]; then
+  # Boot, the --live job and evolve may overlap: one lock (mkdir, which is atomic and
+  # needs no flock) across the append and the compaction, a lock older than a minute is
+  # stale and broken, and the compaction goes through a temp file of its own. Without the
+  # lock the line is still appended (one small write) and the compaction waits for a later run.
+  failures="$state/doctor-failures.jsonl"
+  lockdir="$state/doctor-failures.lock"
+  got=0
+  for _ in $(seq 1 50); do
+    if mkdir "$lockdir" 2>/dev/null; then got=1; break; fi
+    if [ -n "$(find "$lockdir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$lockdir" 2>/dev/null || true; fi
+    sleep 0.1
+  done
+  printf '%s\n' "$out" | jq -c '{at, commit, checks: [.checks[] | select(.status == "fail") | {check, status}]}' \
+    >>"$failures" || true
+  if [ "$got" = 1 ]; then
+    tmp="$(mktemp "$state/doctor-failures.XXXXXX")" || tmp=""
+    if [ -n "$tmp" ]; then
+      { tail -n 50 "$failures" >"$tmp" && mv "$tmp" "$failures"; } || rm -f "$tmp"
+    fi
+    rmdir "$lockdir" 2>/dev/null || true
+  fi
+fi
 printf '%s\n' "$out"
 [ "$failed" = 0 ]

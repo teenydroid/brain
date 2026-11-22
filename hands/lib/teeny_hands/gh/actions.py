@@ -161,6 +161,32 @@ def max_external_prs() -> int:
     return max(0, min(value, 20))
 
 
+#: Issues on other people's projects: off until the operator sets a cap.
+MAX_EXTERNAL_ISSUES_CEILING = 5
+
+
+def external_issues_today() -> int:
+    conn = _db()
+    try:
+        row = conn.execute(
+            "SELECT count(*) FROM gh_actions WHERE verb = 'open-issue' AND external = 1 AND at >= ?", (_day_start(),)
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(row[0])
+
+
+def max_external_issues() -> int:
+    """`GH_MAX_EXTERNAL_ISSUES_PER_DAY`: 0 (the default, and anything
+    unreadable) keeps issues to Teeny's own repositories."""
+    raw = hand.setting("GH_MAX_EXTERNAL_ISSUES_PER_DAY")
+    try:
+        value = int(raw) if raw is not None else 0
+    except ValueError:
+        return 0
+    return max(0, min(value, MAX_EXTERNAL_ISSUES_CEILING))
+
+
 # --- the actions --------------------------------------------------------------------------------
 
 
@@ -366,7 +392,8 @@ def rejection(owner: str, name: str, number: int, gh: GitHubApi) -> Json | None:
     return {"people": [owner]}
 
 
-def comment(body: Any, gh: GitHubApi | None = None) -> Json:
+def comment(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
+    """`judge=False` as in `open_issue`: an operator script's own text."""
     body = _body(body, ("repo", "number", "body"))
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
@@ -379,7 +406,7 @@ def comment(body: Any, gh: GitHubApi | None = None) -> Json:
         rejected = rejection(owner, name, number, gh)
         if rejected is not None:
             context["rejection"] = rejected
-    text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
+    text = guarded({"body": _string(body, "body")}, "comment", context, judge)["body"]
     if hand.dry_run():
         return {"dry_run": True, "would_comment": repo, "number": number, "body": text}
     gh = gh or GitHubApi.from_settings()
@@ -398,16 +425,73 @@ def _own_repo(value: Any, what: str) -> tuple[str, str, str]:
 
 def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
     """`judge=False` is for an operator script's own fixed text (the health
-    alarm, bin/lib/health.py), never for anything the command line passes."""
-    body = _body(body, ("repo", "title", "body"))
+    alarm, bin/lib/health.py), never for anything the command line passes.
+    `labels` (optional, up to 5) are added after it opens; one the repository
+    refuses never fails the call (`labelled` says what stuck)."""
+    body = _body(body, ("repo", "title", "body"), ("labels",))
+    owner, name = split_repo(body["repo"])
+    if not is_own(owner):
+        if max_external_issues() == 0:
+            _own_repo(body["repo"], "opens issues")  # refuses, saying so
+        return _open_external_issue(body, owner, name, gh, judge)
     owner, name, repo = _own_repo(body["repo"], "opens issues")
+    labels = body.get("labels")
+    if labels is not None and not (isinstance(labels, list) and 1 <= len(labels) <= 5
+                                   and all(isinstance(x, str) and 0 < len(x) <= 50 for x in labels)):
+        raise hand.HandError('"labels" must be a list of 1 to 5 label names')
     fields = guarded({"title": _string(body, "title"), "body": _string(body, "body")}, "issue", {"repo": repo}, judge)
     if hand.dry_run():
-        return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"]}
+        return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"],
+                **({"labels": labels} if labels else {})}
     gh = gh or GitHubApi.from_settings()
     opened = gh.open_issue(owner, name, fields["title"], fields["body"])
     _record("open-issue", repo, False, opened.get("number"), url=opened.get("html_url"))
-    return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
+    out = {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
+    if labels and opened.get("number"):
+        # Asked for, never required (as hands/ladder labels its proposals): a
+        # label the repository does not have leaves the issue open, unlabelled.
+        try:
+            gh.call("POST", f"/repos/{owner}/{name}/issues/{int(opened['number'])}/labels", body={"labels": labels})
+            out["labelled"] = list(labels)
+        except Exception:  # noqa: BLE001 - the issue is open either way
+            out["labelled"] = []
+    return out
+
+
+def _open_external_issue(body: Mapping[str, Any], owner: str, name: str, gh: GitHubApi | None, judge: bool) -> Json:
+    """An issue on somebody else's project (docs/mind.md, "Reach"): through
+    the guard, carrying DISCLOSURE like a pull request there, and under the
+    same kind of rules, cheapest first: the day's cap
+    (`GH_MAX_EXTERNAL_ISSUES_PER_DAY`), one open issue of Teeny's a project,
+    the project's own policy on AI contributions. No labels: those are the
+    maintainers'. A rehearsal asks GitHub nothing."""
+    repo = f"{owner}/{name}"
+    fields = guarded({"title": _string(body, "title"), "body": _string(body, "body")}, "issue", {"repo": repo}, judge)
+    text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
+    if hand.dry_run():
+        return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": text, "external": True}
+    # The cap and the one-open-issue rule are read, then spent: one lock across
+    # both, the one open_pr holds, so two calls cannot both pass.
+    with hand.lock("gh-pr"):
+        cap = max_external_issues()
+        if external_issues_today() >= cap:
+            raise hand.Refused(f"today's {cap} issue(s) on other projects are spent", rule="daily_cap")
+        gh = gh or GitHubApi.from_settings()
+        open_issues = gh.search_issues(f"repo:{repo} author:{user()} type:issue state:open", 5)
+        if open_issues.get("incomplete_results"):
+            # GitHub's search timed out: a zero count proves nothing.
+            raise hand.Refused(f"could not tell whether Teeny has an open issue in {repo}; try again later",
+                               rule="open_issue")
+        if int(open_issues.get("total_count") or 0) > 0:
+            raise hand.Refused(f"Teeny already has an open issue in {repo}; one at a time", rule="open_issue")
+        verdict = reads.contributing(owner, name, gh)
+        if verdict["forbids_ai"]:
+            raise hand.Refused(
+                f"{repo}'s contributing policy does not welcome AI contributions", rule="contributing", policy=verdict
+            )
+        opened = gh.open_issue(owner, name, fields["title"], text)
+        _record("open-issue", repo, True, opened.get("number"), url=opened.get("html_url"))
+        return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": True}
 
 
 def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:

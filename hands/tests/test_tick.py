@@ -4,6 +4,7 @@ intent goes to the hand it names and nowhere else, what the hands did comes
 back as the next beat's stimuli, and a failed turn loses nothing."""
 
 import fcntl
+import datetime as dt
 import json
 import os
 import signal
@@ -281,7 +282,7 @@ class TickTest(unittest.TestCase):
         # The no-ops keep `idle`, which the reflection skips.
         self.assertTrue(asleep["asleep"] and asleep["idle"])
         self.assertTrue(busy["idle"])
-        self.assertEqual(asleep["waiting"], 1)
+        self.assertEqual(asleep["waiting"], 2)  # "gm again", and that its beat failed
         for r in self.runs():
             self.assertIn("at", r)
 
@@ -383,7 +384,7 @@ class TickTest(unittest.TestCase):
                  "ref: 51",
                  '@ana is answering your post (60 min ago): "gm. coffee first"',
                  'Now @ana says: "what\'s the plan today?"',
-                 "Your response to @ana — or let it go.",
+                 "@ana is answering your own post: answer them.",
                  "## what you said on X lately"]
         at = [message.find(bit) for bit in order]
         self.assertNotIn(-1, at, [b for b, i in zip(order, at) if i < 0])
@@ -391,6 +392,48 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("you last said to", message)  # the conversation already says it
         self.assertNotIn("details:", message)  # the turn says it in words
         self.assertNotIn('"in_reply_to"', message)
+
+    def test_a_comment_under_teenys_own_x_post_is_answered_not_let_go(self):
+        # 2026-11-17..19: 19 of 30 comments under Teeny's own X posts went
+        # unanswered by choice ("hype with no question in it, silence"),
+        # while comments on its own Moltbook posts carried "answer each one
+        # in this beat". The operator's "replies to comments on your own posts
+        # come first" lived only in playbooks/mentions.md, which the mind
+        # never reads.
+        conn = self.x_ledgers()
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('50', 'post', 'gm. coffee first', ?)",
+                     (T0 - 3600,))
+        conn.close()
+        stimuli.add("x", "mention", "51", "you're cooking 💯", who="ana", at=T0 - 120,
+                    payload={"conversation_id": "50", "created_at": "2026-09-14T06:58:00.000Z"})
+        stimuli.add("x", "mention", "61", "look at this coin", who="bo", at=T0 - 60,
+                    payload={"conversation_id": "70", "created_at": "2026-09-14T06:59:00.000Z"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        tick = _tick_module()
+        self.assertEqual(message.count(tick.X_OWN_THREAD), 1)
+        self.assertIn("@ana is answering your own post: answer them.", message)
+        self.assertNotIn("Your response to @ana — or let it go.", message)
+        # A tag in somebody else's thread keeps the old cue and no block of its own.
+        self.assertIn("Your response to @bo — or let it go.", message)
+
+    def test_tinys_own_address_is_never_a_ticker_spray_under_an_own_x_post(self):
+        # 2026-11-21: holders posting $TINY's own contract address went
+        # unanswered; "a contract or ticker spray" read as covering Teeny's own
+        # token. Only another token's contract or ticker is a spray.
+        text = _tick_module().X_OWN_THREAD
+        self.assertNotIn("a contract or ticker spray", text)
+        self.assertIn("a spray of another token's contract or ticker ($TINY's own address or ticker is never a spray)",
+                      text)
+
+    def test_a_beat_with_no_comment_under_an_own_x_post_has_no_own_thread_block(self):
+        self.x_ledgers().close()
+        stimuli.add("x", "mention", "61", "look at this coin", who="bo", payload={"conversation_id": "70"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertNotIn("Replies under your own X posts come first", message)
 
     def test_someone_new_on_x_has_never_talked_with_teeny(self):
         self.x_ledgers().close()
@@ -1559,7 +1602,7 @@ class TickTest(unittest.TestCase):
         (gate._hard_limits), as every hand passes it on."""
         from teeny_hands.guard.gate import _hard_limits
 
-        refusal = {"refused": _hard_limits(field or "text", "a" * length, limit, 1), "rewrite": True}
+        refusal = {"refused": _hard_limits(field or "text", "a" * length, limit), "rewrite": True}
         return {**refusal, "field": field} if field else refusal
 
     LONG = "the long version " * 24  # 408 characters
@@ -1721,7 +1764,8 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "111", "gm")
         got = self.tick()
         self.assertFalse(got["ok"])
-        self.assertEqual(stimuli.counts()["pending"], 1)
+        # The batch, and the outcome saying nothing was carried out.
+        self.assertEqual(stimuli.counts()["pending"], 2)
 
     def test_an_unusable_answer_is_asked_for_once_more_then_given_back(self):
         stimuli.add("x", "mention", "111", "gm")
@@ -1729,7 +1773,8 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertFalse(got["ok"])
         self.assertEqual(len(self.chats()), 2)
-        self.assertEqual(stimuli.counts()["pending"], 1)
+        # The batch, and the outcome saying nothing was carried out.
+        self.assertEqual(stimuli.counts()["pending"], 2)
 
     def test_a_second_try_that_parses_is_used(self):
         stimuli.add("x", "mention", "111", "gm")
@@ -1746,6 +1791,142 @@ class TickTest(unittest.TestCase):
         learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
         # Dated, so recall can tell an old fact from a new one.
         self.assertEqual(learned[0]["text"], "[2026-09-14] about ana: builds a cli for crabs")
+
+    # --- handing work to the agentic mind (docs/mind.md) --------------------
+
+    def inbox_notes(self) -> list[str]:
+        folder = self.root / "state" / "home" / "notes" / "inbox"
+        return [p.read_text() for p in sorted(folder.glob("tick-*.md"))] if folder.is_dir() else []
+
+    def test_a_note_is_handed_to_the_agentic_mind_as_a_file_in_its_inbox(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "can you build a crab census?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "ana asked for a crab census: worth a project?"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "done", got)
+        notes = self.inbox_notes()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("ana asked for a crab census: worth a project?", notes[0])
+        # Said to be from the tick, never dressed as the operator's voice.
+        self.assertIn("from: tick", notes[0])
+        self.assertEqual(list((self.root / "state" / "home" / "notes" / "inbox").glob("operator-*")), [])
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_nothing_is_handed_over_while_the_agentic_mind_is_off(self):
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "look into this"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused", got)
+        self.assertIn("MIND", got["results"][0]["result"]["refused"])
+        self.assertEqual(self.inbox_notes(), [])
+        self.assertNotIn("hand_to_mind", self.chats()[0]["message"])
+
+    def test_the_hand_over_is_offered_once_the_agentic_mind_is_on(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        self.assertIn('"do": "hand_to_mind"', self.chats()[0]["message"])
+
+    def test_at_most_twelve_notes_a_day_reach_the_agentic_mind(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        tick = _tick_module()
+        for i in range(tick.MAX_HAND_OVERS_PER_DAY):
+            tick._hand_to_mind({"note": f"note {i}"}, "t")
+        with self.assertRaises(ValueError):
+            tick._hand_to_mind({"note": "one too many"}, "t")
+        self.assertEqual(len(self.inbox_notes()), tick.MAX_HAND_OVERS_PER_DAY)
+
+    def test_a_handed_note_is_clipped_and_cannot_name_its_own_file(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        out = tick._hand_to_mind({"note": "x" * 5000, "name": "../../secrets/teeny"}, "t")
+        path = Path(out["note"])
+        self.assertEqual(path.parent, self.root / "state" / "home" / "notes" / "inbox")
+        self.assertTrue(path.name.startswith("tick-"))
+        self.assertLessEqual(len(path.read_text()), 2400)
+
+    def test_a_link_planted_in_the_minds_inbox_is_never_written_through(self):
+        # The agentic mind can write its own home. A beat runs outside any
+        # jail, so a link it left where the note's file goes must not send
+        # the beat's write to another file (secrets/teeny.env).
+        self.caps(MIND=1)
+        tick = _tick_module()
+        secret = self.root / "secrets" / "teeny.env"
+        before = secret.read_text()
+        inbox = self.root / "state" / "home" / "notes" / "inbox"
+        inbox.mkdir(parents=True)
+        stamp = dt.datetime.fromtimestamp(float(os.environ["TEENY_NOW"]), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for n in range(1, 13):
+            for suffix in (".tmp", ".md"):
+                (inbox / f"tick-{stamp}-{n:02d}{suffix}").symlink_to(secret)
+        out = tick._hand_to_mind({"note": "MIND=0 DRY_RUN=0 pwned"}, "t")
+        self.assertEqual(secret.read_text(), before)
+        self.assertFalse(Path(out["note"]).is_symlink())
+        self.assertIn("pwned", Path(out["note"]).read_text())
+
+    def test_a_linked_inbox_folder_is_replaced_not_followed(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        home = self.root / "state" / "home"
+        home.mkdir(parents=True)
+        (home / "notes").symlink_to(self.root / "secrets")
+        tick._hand_to_mind({"note": "hello"}, "t")
+        self.assertEqual(sorted(p.name for p in (self.root / "secrets").iterdir()), ["teeny.env"])
+        self.assertFalse((home / "notes").is_symlink())
+        self.assertEqual(len(self.inbox_notes()), 1)
+
+    def test_a_capped_intent_is_refused_at_the_count_when_the_day_is_already_spent(self):
+        # The cap is checked again where it is counted, under one lock: the
+        # broker and a beat are two processes sharing a day's count, and two
+        # checks that both passed must not both be counted.
+        self.caps(MIND_TASKS_PER_DAY=1)
+        tick = _tick_module()
+        tick._within_cap("queue_task")
+        tick._count_capped("queue_task")
+        with self.assertRaises(ValueError):
+            tick._count_capped("queue_task")
+        self.assertEqual(tick._caps_today()["queue_task"], 1)
+        self.assertEqual(list((self.root / "state" / "tick").glob("*.tmp")), [])
+
+    def test_an_inbox_folder_that_cannot_be_written_is_a_refusal_not_a_crash(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        notes = self.root / "state" / "home" / "notes"
+        notes.mkdir(parents=True)
+        notes.chmod(0o555)
+        try:
+            if os.access(notes, os.W_OK):
+                self.skipTest("running as a user the mode does not stop")
+            with self.assertRaises(ValueError) as caught:
+                tick._hand_to_mind({"note": "hello"}, "t")
+            self.assertIn("inbox", str(caught.exception))
+        finally:
+            notes.chmod(0o755)
+
+    def test_the_count_is_read_and_stored_under_one_day(self):
+        # A midnight between the read and the write must not store
+        # yesterday's date over today's count.
+        self.caps(MIND_TASKS_PER_DAY=5)
+        tick = _tick_module()
+        tick._count_capped("queue_task")
+        times = iter([float(os.environ["TEENY_NOW"]) + 86400])  # the next read of the clock is tomorrow
+        real = tick.hand.now
+        first = [True]
+
+        def now():
+            if first[0]:
+                first[0] = False
+                return real()
+            return next(times, real() + 86400)
+
+        tick.hand.now = now
+        self.addCleanup(setattr, tick.hand, "now", real)
+        tick._count_capped("queue_task")
+        saved = json.loads((self.root / "state" / "tick" / "caps.json").read_text())
+        self.assertEqual(saved["counts"]["queue_task"], 2)
+        self.assertEqual(saved["day"], dt.datetime.fromtimestamp(real(), dt.timezone.utc).strftime("%Y-%m-%d"))
 
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
@@ -1864,6 +2045,126 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [{"do": "drop_follow_up", "ref": "c9"}]})
         self.assertEqual(self.tick()["results"][0]["result"]["dropped"], [1])
         self.assertIn('"do": "drop_follow_up"', self.chats()[0]["message"])
+
+    # --- refusals reach the mind (live, 2026-11-19) -------------------------
+
+    CAPPED = {"refused": "50 Moltbook comment(s) in the last 24 hours; the cap is 50", "rule": "daily_cap"}
+
+    def comments_spent(self, n: int, oldest_ago: float) -> None:
+        """n Moltbook comments sent in the last day, the oldest `oldest_ago`
+        seconds back, by a long-claimed agent (the cap is 50)."""
+        from teeny_hands.moltbook import rules
+
+        (self.root / "secrets" / "teeny.env").write_text(f"MOLTBOOK_CLAIMED_AT={T0 - 30 * 86400}\n")
+        hand._ENV_CACHE = None
+        conn = rules.db()
+        for i in range(n):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'p', ?, 'posted')",
+                         (f"sent{i}", T0 - oldest_ago + i * 60))
+        conn.commit()
+        conn.close()
+
+    def test_a_comment_refused_by_the_daily_cap_is_shown_to_the_next_beat_as_not_sent(self):
+        # Live, 2026-11-19: comments owed since the day before (offered again
+        # in their old place) filled every batch of 25, so the eight refusals
+        # of the beat that answered them never reached the next one, which
+        # took them as sent.
+        for n in range(60):
+            stimuli.add("moltbook", "comment", f"c{n}", f"question {n}", who=f"agent{n}",
+                        payload={"post_id": "p1", "on_own_post": True}, at=T0 - 86400 + n)
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.CAPPED])
+        self.answer({"thought": "the oldest first", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c0", "text": "here is the answer"}]},
+                    {"thought": "", "intents": [{"do": "journal", "text": "receipts"}]})
+        self.tick()
+        self.at(900)
+        self.tick()
+        message = self.chats()[1]["message"]
+        self.assertIn("your comment_moltbook on p1: refused: 50 Moltbook comment(s) in the last 24 hours; the cap is 50;"
+                      " not sent; what it answered is still unanswered", message)
+
+    def test_a_beat_is_told_when_no_moltbook_comments_are_left(self):
+        self.comments_spent(50, oldest_ago=86400 - 3600)
+        stimuli.add("moltbook", "comment", "c1", "where is my answer?", who="nyna",
+                    payload={"post_id": "p1", "on_own_post": True}, at=T0 - 7200)
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        self.answer({"thought": "", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+            {"do": "reply_x", "to": "111", "text": "gm ana"}]})
+        got = self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("Moltbook comments: 0 of 50 left in the last 24 hours; the next frees at 08:00 your time", message)
+        # The comment waits, unshown, for room, and comes back then; X does not wait.
+        self.assertNotIn("where is my answer?", message)
+        self.assertIn("gm teeny", message)
+        self.assertEqual([s["ref"] for s in stimuli.pending() if s["surface"] == "moltbook"], ["c1"])
+        # One written anyway is refused here, before the guard reads a word.
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        refused = got["results"][0]
+        self.assertEqual((refused["status"], refused["result"]["rule"]), ("refused", "daily_cap"))
+        self.assertIn("0 of 50 left", refused["result"]["refused"])
+        # Once the oldest ages out, the comment is offered again, after the
+        # refusal, which says it was not sent.
+        self.at(3601)
+        self.answer({"thought": "", "intents": [{"do": "journal", "text": "room again"}]})
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertIn("where is my answer?", message)
+        self.assertIn("refused: Moltbook comments: 0 of 50 left in the last 24 hours; the next frees at 08:00 your time;"
+                      " not sent; what it answered is still unanswered", message)
+
+    def test_a_beat_is_told_how_few_moltbook_comments_are_left(self):
+        self.comments_spent(47, oldest_ago=20 * 3600)
+        self.tick()
+        self.assertIn("Moltbook comments: 3 of 50 left in the last 24 hours", self.chats()[0]["message"])
+
+    def test_a_refused_answer_does_not_clear_its_follow_up(self):
+        stimuli.follow_up(T0 + 6 * 3600, "answer nyna: promise #4", ref="c9")
+        stimuli.add("moltbook", "comment", "c9", "where is my answer?", who="nyna",
+                    payload={"post_id": "p1", "on_own_post": True})
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.CAPPED, self.CAPPED])
+        self.answer({"thought": "answered nyna", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c9", "text": "here it is"}]},
+                    {"thought": "the answer is fired, the follow-up can go", "intents": [
+                        {"do": "drop_follow_up", "ref": "c9"}]},
+                    {"thought": "answer and drop in one beat", "intents": [
+                        {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c9", "text": "here it is"},
+                        {"do": "drop_follow_up", "id": 1}]})
+        self.tick()
+        self.at(900)
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused", got["results"])
+        self.assertIn("was not sent", got["results"][0]["result"]["refused"])
+        self.at(1800)
+        got = self.tick()
+        self.assertEqual(got["results"][1]["status"], "refused", got["results"])
+        self.assertEqual([f["id"] for f in stimuli.follow_ups()["follow_ups"]], [1])
+
+    def test_the_answer_shape_says_an_intent_sends_nothing_until_its_outcome(self):
+        # Live, 2026-11-19 02:21: an answer cut off before its JSON said "six
+        # Moltbook comment answers ... all now sent"; nothing had run.
+        self.tick()
+        self.assertIn("Writing an intent sends nothing", self.chats()[0]["message"])
+
+    def test_a_beat_whose_answer_was_not_json_is_shown_as_nothing_carried_out(self):
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        self.answer("This turn fired six answers, all now sent.", "still prose",
+                    {"thought": "", "intents": [{"do": "journal", "text": "again"}]})
+        self.assertEqual(self.tick()["kind"], "failed")
+        self.at(900)
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertIn("your last answer was not usable JSON, so nothing in it was carried out", message)
+        self.assertIn("gm teeny", message)  # the batch it failed on comes back too
+
+    def test_a_beat_whose_turn_failed_is_shown_as_nothing_carried_out(self):
+        stimuli.add("x", "mention", "111", "gm teeny", who="ana")
+        os.environ["FAKE_TURN_FAIL"] = "1"
+        self.assertEqual(self.tick()["kind"], "failed")
+        del os.environ["FAKE_TURN_FAIL"]
+        self.at(900)
+        self.tick()
+        self.assertIn("your last turn failed before it answered, so nothing was carried out", self.chats()[-1]["message"])
 
     def test_the_batch_shows_each_follow_up_by_id_and_ref(self):
         stimuli.follow_up(T0 + 60, "send the japanese reply", ref="x:111")
@@ -2153,20 +2454,17 @@ class TickTest(unittest.TestCase):
         self.tick()
         log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
         steps = [(c["hand"], c["argv"][0]) for c in log if c["argv"][:1] != ["inbox"] and c["argv"][:1] != ["mark"]]
-        self.assertEqual(steps, [("guard", "clarity"), ("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
+        self.assertEqual(steps, [("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
         self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
                          "teeny at the desk with coffee [g]")
         self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "anchor": "listen:7", "media_ids": ["777"]})
 
-    def test_a_post_without_an_anchor_is_refused_before_any_picture_is_made(self):
+    def test_a_post_without_an_anchor_goes_out(self):
+        # 2026-11-22: anchoring was taste.
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm", "image": "teeny waking up"}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm"}]})
         self.tick()
-        self.assertEqual(self.sent("post"), [])
-        self.assertEqual(self.sent("generate"), [])
-        entry = self.runs()[-1]["results"][0]
-        self.assertEqual(entry["status"], "refused")
-        self.assertIn("anchor", entry["result"]["refused"])
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "gm"})
 
     def test_a_quote_is_anchored_on_the_post_it_quotes(self):
         stimuli.add("x", "mention", "1", "gm")
@@ -2259,96 +2557,32 @@ class TickTest(unittest.TestCase):
                                                 {"do": "pitch_x", "text": "an idea"}]})
         got = self.tick()
         self.assertEqual([c["body"] for c in self.sent("post")], [{"text": "amazon built a trap for bots", "anchor": "hn:1"}])
-        self.assertEqual(len(self.sent("clarity")), 1)
+        self.assertEqual(self.sent("clarity"), [])
         self.assertEqual(got["results"][1]["status"], "refused")
         self.assertIn("STUDIO=0", got["results"][1]["result"]["refused"])
         self.assertEqual(self.filed(), [])
         self.assertIn('{"do": "post_x", "text": "...", "anchor": "<', self.chats()[-1]["message"])
 
-    UNREAD = {"clear": False, "says": "something about a week", "unknown": ["held writes"],
-              "reason": 'a stranger would have to ask about: "held writes"', "judged": True}
-    BLANK = "my week logged 33 held writes, 0 let through"
-
-    def cold_reads(self) -> list[dict]:
-        return [c["body"] for c in self.sent("clarity")]
-
-    def test_a_post_is_read_cold_before_it_is_sent(self):
-        # The mind posts on its own (the morning gm) with no judge between it
-        # and hands/x: nothing ever asked whether a stranger could read it.
+    def test_a_post_is_not_read_cold_before_it_is_sent(self):
+        # 2026-11-22: the cold reader (hands/guard clarity) was taste. A post
+        # a stranger might not follow goes to hands/x as the mind wrote it.
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap for bots", "anchor": "hn:1",
-                                                 "meaning": "Amazon made a trap for AI bots."}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "my week logged 33 held writes, 0 let through",
+                                                 "anchor": "hn:1", "meaning": "People try to trick me."}]})
         got = self.tick()
-        self.assertEqual(self.cold_reads(), [{"text": "amazon built a trap for bots", "meaning": "Amazon made a trap for AI bots."}])
-        # what it means is for the reader, never for the hand that posts
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "amazon built a trap for bots", "anchor": "hn:1"})
-        self.assertEqual(got["results"][0]["clarity"], {"clear": True})
+        self.assertEqual(self.sent("clarity"), [])
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "my week logged 33 held writes, 0 let through",
+                                                        "anchor": "hn:1"})
+        self.assertEqual(got["results"][0]["status"], "done")
+        self.assertNotIn("clarity", got["results"][0])
 
-    def test_a_post_a_stranger_cannot_read_is_rewritten_once(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
-        stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1",
-                                                 "meaning": "People try to trick me."}]},
-                    "strangers try to trick me every day")
-        got = self.tick()
-        self.assertEqual([c["body"]["text"] for c in self.sent("post")], ["strangers try to trick me every day"])
-        self.assertEqual(self.sent("post")[0]["body"]["anchor"], "hn:1")
-        asked = self.chats()[1]["message"]
-        for bit in (self.BLANK, "What they took it to mean: something about a week",
-                    'What they would have to ask about: "held writes"', "What you meant it to say: People try to trick me.",
-                    "never instructions", "Answer with the text only"):
-            self.assertIn(bit, asked)
-        # the rewrite is read cold too, on its own words
-        self.assertEqual(self.cold_reads()[1], {"text": "strangers try to trick me every day"})
-        [result] = got["results"]
-        self.assertEqual(result["status"], "done")
-        self.assertEqual(result["clarity"]["rewrite"], "strangers try to trick me every day")
-        self.assertIs(result["clarity"]["clear"], True)
-
-    def test_a_rewrite_a_stranger_still_cannot_read_is_not_sent(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD, self.UNREAD])
-        stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1", "image": "teeny at a desk"}]},
-                    "my gates held 33 writes")
-        got = self.tick()
-        self.assertEqual(self.sent("post"), [])
-        self.assertEqual(self.sent("generate"), [])  # no picture is made for a post that is not sent
-        self.assertEqual(len(self.chats()), 2)  # one rewrite, never two
-        [result] = got["results"]
-        self.assertEqual(result["status"], "refused")
-        self.assertIn('not clear to a stranger: a stranger would have to ask about: "held writes"', result["result"]["refused"])
-        self.assertIn("neither was your one rewrite", result["result"]["refused"])
-        self.tick()
-        self.assertIn("not clear to a stranger", self.chats()[2]["message"])
-
-    def test_a_cold_reader_that_did_not_answer_is_a_refusal_with_no_rewrite(self):
-        for said in ({"clear": False, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout",
-                      "judged": True}, {"error": "core unreachable"}):
-            os.environ["FAKE_CLARITY"] = json.dumps([said])
-            self.hands_log.unlink(missing_ok=True)
-            self.calls.unlink(missing_ok=True)
-            stimuli.add("x", "mention", "1", "gm")
-            self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap", "anchor": "hn:1"}]})
-            got = self.tick()
-            self.assertEqual(self.sent("post"), [], said)
-            self.assertEqual(len(self.chats()), 1, said)
-            self.assertEqual(got["results"][0]["status"], "refused", said)
-
-    def test_a_reply_is_not_read_cold(self):
-        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
-        stimuli.add("x", "mention", "111", "gm")
-        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm fren"}]})
-        self.tick()
-        self.assertEqual(self.cold_reads(), [])
-        self.assertEqual(len(self.sent("reply")), 1)
-
-    def test_the_mind_is_told_its_post_is_read_cold(self):
+    def test_the_mind_is_not_told_its_post_is_read_cold(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": []})
         self.tick()
         [chat] = self.chats()
-        self.assertIn('"meaning": "<one plain sentence', chat["message"])
-        self.assertIn("reads it cold", chat["message"])
+        self.assertNotIn("reads it cold", chat["message"])
+        self.assertNotIn("or it is not sent", chat["message"])
 
     def test_the_mind_is_told_a_post_names_its_anchor_and_the_new_cap(self):
         stimuli.add("x", "mention", "1", "gm")

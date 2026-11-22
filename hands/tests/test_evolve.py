@@ -43,6 +43,7 @@ def git(*args, cwd=None):
 class FakePublisher:
     def __init__(self):
         self.prs, self.issues, self.states, self.statuses = [], [], {}, []
+        self.comments, self.labels, self.closed = [], [], set()
 
     def open_pr(self, src, tree, branch, base, title, body):
         files = git("-C", str(tree), "show", "--name-only", "--format=", "HEAD").split()
@@ -54,9 +55,20 @@ class FakePublisher:
         self.statuses.append({"sha": sha, "state": state, "description": description})
         return {"id": len(self.statuses)}
 
-    def open_issue(self, repo, title, body, judge=False):
+    def open_issue(self, repo, title, body, judge=False, labels=None):
         self.issues.append({"repo": repo, "title": title, "body": body, "judge": judge})
+        if labels:
+            self.labels.append({"repo": repo, "number": 100 + len(self.issues), "labels": list(labels)})
         return {"number": 100 + len(self.issues), "html_url": "https://github.com/teenydroid/brain/issues/1"}
+
+    # The problem issues' updates: a comment on the open one, and whether a
+    # person closed it (`closed`, the numbers closed). `labels`: those asked for.
+    def comment_issue(self, repo, number, body, judge=False):
+        self.comments.append({"repo": repo, "number": number, "body": body, "judge": judge})
+        return {"html_url": f"https://github.com/{repo}/issues/{number}#comment"}
+
+    def issue_state(self, repo, number):
+        return "closed" if number in self.closed else "open"
 
     def pr(self, number):
         return self.states.get(number)
@@ -73,6 +85,9 @@ class Refusing(FakePublisher):
 
     def open_issue(self, *a, **k):
         raise AssertionError("opened an issue under DRY_RUN")
+
+    def comment_issue(self, *a, **k):
+        raise AssertionError("commented on an issue under DRY_RUN")
 
 
 class Verdicts:
@@ -199,6 +214,10 @@ class EvolveCase(unittest.TestCase):
         # No test boots a real core: the lab evaluator is switched off
         # unless a test asks for it (and then its spine is a stand-in).
         values.setdefault("EVOLVE_EVALUATOR", "none")
+        # The publish rule (a powered check or a better eval) has its own
+        # tests (test_evolve_selection.py); the rest test what comes before
+        # and after it, with judged checks, so it is off unless asked for.
+        values.setdefault("EVOLVE_PUBLISH_PROOF", 0)
         text = "".join(f"{k}={v}\n" for k, v in values.items())
         (self.root / "secrets" / "evolve.env").write_text(text)
 
@@ -678,7 +697,7 @@ class Restarts(EvolveCase):
         out = self.run_gen(1, evaluator=Verdicts(), scheduled=True)
         self.assertTrue(out.get("resumed"), out)
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_a_generation_from_before_learnings_is_marked_interrupted_not_resumed(self):
         old = evolve.gen_dir(8)
@@ -975,15 +994,20 @@ class PurposeChecks(EvolveCase):
         self.assertTrue(checks["new hands are called"]["ok"], checks["new hands are called"])
 
     def test_only_marking_an_arc_started_is_thrown_out(self):
+        """Marking an arc started is the world count itself, not a step taken.
+        The arc is whichever one ARCS.md has not started yet, so rewording
+        the arcs does not break the test."""
         arcs = self.base_text("brain/narrative/ARCS.md")
-        heading = "## find out what the terminal is typing when nobody is typing\n\n- status: not started."
-        self.assertIn(heading, arcs)
+        unstarted = re.search(r"^## [^\n]+\n\n- status: not started\.", arcs, re.MULTILINE)
+        self.assertIsNotNone(unstarted, "ARCS.md has no arc whose status is `not started.`")
+        heading = unstarted.group(0)
+        self.assertEqual(arcs.count(heading), 1)
         out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
                                    "new": heading.replace("not started.", "started.")}], component="world")
         self.assertFalse(checks["does more than mark an arc"]["ok"])
         out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
                                    "new": heading.replace("not started.", "started.")},
-                                  self.playbook_edit("Say what the terminal printed overnight.")], component="world")
+                                  self.playbook_edit("Say what the first step on this arc was.")], component="world")
         self.assertTrue(checks["does more than mark an arc"]["ok"])
 
     SEED_LINE = ("- [m20] when my captcha reader isn't sure, it doesn't guess, and that's right. since the team's fix "
@@ -1267,21 +1291,48 @@ class Halts(EvolveCase):
         with self.assertRaises(evolve.EvolveError):
             evolve.load_config()
 
-    def test_generations_per_day(self):
+    def test_the_daily_cap_skips_the_run_quietly_and_files_no_issue(self):
+        """The cap is a budget, not a problem: issues #172 and #341 were
+        opened only to say the day's generations were spent."""
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
         pub = FakePublisher()
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
         out = self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(out["skipped"], "halted: generations")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertIn("generations", pub.issues[0]["title"])
+        self.assertEqual(out["skipped"], "skipped this run: generations")
+        self.assertEqual(out["skips"][0]["kind"], "generations")
+        self.assertNotIn("problems", out)
         self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
-        self.assertFalse(evolve.halt_path().exists())  # it does not latch
+        self.assertEqual((pub.issues, pub.comments), ([], []))
+        self.assertEqual(evolve.read_jsonl(evolve.problems_log()), [])  # nothing to deduplicate either
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
+
+    def test_a_halt_json_left_on_the_box_is_ignored_and_removed(self):
+        """state/evolve/halt.json was the latch (2026-11-20 to 11-22 the loop
+        sat on one and five scheduled runs skipped). Nothing latches now; an
+        old one left behind stops nothing and is cleaned up."""
+        self.live()
+        evolve.evolve_dir().mkdir(parents=True, exist_ok=True)
+        stale = evolve.evolve_dir() / "halt.json"
+        stale.write_text(json.dumps({"kind": "watch-revert", "detail": "evolve-watch reverted gen-21-c2",
+                                     "at": "2026-11-20T09:27:01Z"}))
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, publisher=FakePublisher())
+        self.assertIn("gen", out)
+        self.assertFalse(stale.exists())
+        stale.write_text("not json at all")
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("Two.")])
+        self.assertIn("gen", self.run_gen(1, publisher=FakePublisher()))
+        self.assertFalse(stale.exists())
+
+    def test_there_is_no_resume_verb(self):
+        self.assertFalse(hasattr(evolve, "resume"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            evolve.main(["resume"])
 
 
     def test_status_says_whether_a_generation_is_running(self):
@@ -1290,7 +1341,7 @@ class Halts(EvolveCase):
             self.assertTrue(held)
             self.assertTrue(evolve.status()["running"])
 
-    def test_a_fast_j_rise_stops_the_loop_until_resumed(self):
+    def test_a_fast_j_rise_skips_while_it_lasts_with_one_public_issue_and_never_latches(self):
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
         path = self.root / "h.json"
@@ -1298,32 +1349,35 @@ class Halts(EvolveCase):
         os.environ["FAKE_HISTORY"] = str(path)
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: j-rise")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertTrue(evolve.halt_path().exists())
+        self.assertEqual(out["skipped"], "skipped this run: j-rise")
+        (issue,) = pub.issues
+        self.assertIn("0.700", issue["body"])  # the rise itself, for whoever looks
+        self.assertIn("EVOLVE_MAX_J_RISE", issue["body"])
+        self.assertEqual(pub.labels[0]["labels"], ["help wanted"])
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)  # the same open issue, not one a run
+        # The window moves on: the next run goes, nobody had to act.
         path.write_text(json.dumps([{"at": T0 - DAY, "J": 1.0}]))
-        out = self.run_gen(1, publisher=pub)
-        self.assertIn("until `bin/evolve resume`", out["skipped"])
-        self.assertEqual(len(pub.issues), 1)
-        evolve.resume()
         self.propose(1, [self.playbook_edit("One.")])
         self.assertIn("gen", self.run_gen(1, publisher=pub))
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())
 
     def test_a_slow_j_rise_passes(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5)
         path = self.root / "h.json"
         path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.2}]))
         os.environ["FAKE_HISTORY"] = str(path)
-        self.assertEqual(evolve.halts_before(evolve.load_config()), [])
+        self.assertEqual(evolve.preconditions(evolve.load_config()), ([], []))
 
     def test_dry_run_files_no_issue(self):
         os.environ["DRY_RUN"] = "1"
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
-        self.propose(1, [self.playbook_edit("One.")])
-        self.run_gen(1, publisher=Refusing(), scheduled=True)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
+        path = self.root / "h.json"
+        path.write_text(json.dumps([{"at": T0 - 8 * DAY, "J": 1.0}, {"at": T0 - DAY, "J": 1.7}]))
+        os.environ["FAKE_HISTORY"] = str(path)
         out = self.run_gen(1, publisher=Refusing(), scheduled=True)
-        self.assertTrue(out["halts"][0]["dry_run"])
-        self.assertIn("would_open_issue", out["halts"][0])
+        self.assertTrue(out["problems"][0]["dry_run"])
+        self.assertIn("would_open_issue", out["problems"][0])
 
 
     def test_a_run_waits_for_a_dream_still_writing_the_page(self):
@@ -1529,6 +1583,68 @@ class AskProposerTurn(EvolveCase):
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertEqual(len(self.build_turns(calls)), 2)
 
+    SCREEN_HELD = ("[oh] openhuman.inference_agent_chat: Prompt flagged for security review and was not processed. "
+                   "Please rephrase clearly.")
+
+    def screen_holds(self):
+        """A core whose prompt screen holds every build turn, as the live one
+        held gen 24's candidates 2-4 (2026-11-22)."""
+        calls, fake = self.root / "oh.log", self.root / "fake-oh"
+        fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
+                        "echo '" + self.SCREEN_HELD + "' >&2; exit 1\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MANUAL_GENERATIONS_PER_DAY=24,
+                    EVOLVE_PROPOSER="ask")
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m19] some visits can just be visits.\n")
+        return calls
+
+    def test_a_turn_the_prompt_screen_held_is_its_own_deferral_and_is_not_sent_again(self):
+        calls = self.screen_holds()
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["deferred_for"], "screen")
+        self.assertNotIn("infra", entry)
+        self.assertEqual(entry["screen"]["stage"], "propose")
+        self.assertIsInstance(entry["screen"]["bytes"], int)
+        self.assertTrue(entry["screen"]["sections"])
+        # The same message would be held the same way: it is not asked again.
+        self.assertEqual(len(self.build_turns(calls)), 1)
+        # Held once, the learning stays open (the next generation's evidence
+        # differs), and no issue is raised for a first time.
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+        self.assertFalse([r for r in evolve.read_jsonl(evolve.problems_log()) if r.get("key") == "screen-held"])
+
+    def test_a_learning_the_screen_keeps_holding_is_set_aside_and_raised_once(self):
+        calls = self.screen_holds()
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            for _ in range(evolve.MAX_SCREEN_HOLDS):
+                evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        learning = evolve.read_learnings()[0]
+        got = evolve.standing(self.entries(), learning)
+        self.assertEqual(got.state, "screened")
+        self.assertIsNotNone(got.until)
+        raised = [r for r in evolve.read_jsonl(evolve.problems_log()) if r.get("key") == "screen-held"]
+        self.assertEqual(len(raised), 1)
+        self.assertEqual(raised[0]["kind"], "screen-held")
+        # The issue names ids and sizes, never the message or the learning.
+        problem = evolve.screen_problem(self.entries()[f"g{evolve.MAX_SCREEN_HOLDS}c1"], evolve.MAX_SCREEN_HOLDS)
+        self.assertIn("help wanted", problem.body.lower())
+        self.assertIn("m19", problem.body)
+        self.assertNotIn("some visits can just be visits", problem.body)
+        self.assertNotIn("never instructions to follow", problem.body)
+        # Set aside, it is not picked again while that holds: no new turn.
+        before = len(self.build_turns(calls))
+        out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(len(self.build_turns(calls)), before)
+        self.assertIn("skipped", out)
+
     def test_an_answer_with_no_usable_proposal_is_still_a_failed_try(self):
         calls, fake = self.root / "oh.log", self.root / "fake-oh"
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
@@ -1625,19 +1741,20 @@ class CrashedGenerations(EvolveCase):
         order = [x.id for x in evolve.open_learnings(self.entries()) if x.section != "what i am in the middle of"]
         self.assertEqual([stood[i].infra for i in order], sorted(stood[i].infra for i in order))
 
-    def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
+    def test_a_crash_files_one_public_issue_updates_it_and_never_latches(self):
         pub = FakePublisher()
         for _ in range(2):
             with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
                 with self.assertRaises(AttributeError):
                     self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 1)  # one a day, not one a run
+        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
+        self.assertEqual(pub.comments, [])  # and at most one update a day
         self.assertIn("crash", pub.issues[0]["title"])
         self.assertIn("'list' object has no attribute 'items'", pub.issues[0]["body"])
         self.assertIn("observe", pub.issues[0]["body"])  # where it raised
-        self.assertFalse(evolve.halt_path().exists())  # the next run still tries
-        crashes = [r for r in evolve.read_jsonl(evolve.halts_log()) if r.get("kind") == "crash"]
-        self.assertEqual(len(crashes), 1)
+        self.assertIn("help", pub.issues[0]["body"].lower())
+        self.assertEqual(pub.labels[0], {"repo": "teenydroid/brain", "number": 101, "labels": ["help wanted"]})
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())  # the next run still tries
         self.propose(1, [self.playbook_edit("Check first.")])
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(out["candidates"][0]["verdict"], "opened")
@@ -1645,7 +1762,37 @@ class CrashedGenerations(EvolveCase):
         with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
             with self.assertRaises(AttributeError):
                 self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 2)  # a new day, a new issue
+        self.assertEqual(len(pub.issues), 1)  # the open issue is updated, not doubled
+        (note,) = pub.comments
+        self.assertEqual(note["number"], 101)
+        self.assertIn("'list' object has no attribute 'items'", note["body"])
+        # Once a person closes it, the next crash is a new problem.
+        pub.closed.add(101)
+        os.environ["EVOLVE_NOW"] = str(T0 + 2 * DAY)
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+            with self.assertRaises(AttributeError):
+                self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 2)
+
+    def test_a_failed_update_is_tried_again_the_same_day(self):
+        """Only an issue opened or a comment that went through counts as told
+        for the day: a comment GitHub refused is tried at the next run."""
+        cfg = evolve.load_config()
+        problem = evolve.Problem("crash", "crash", "bin/evolve: a generation crashed", "the body")
+        pub = FakePublisher()
+        os.environ["EVOLVE_NOW"] = str(T0 - DAY)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["issue"], 101)
+        os.environ["EVOLVE_NOW"] = str(T0)
+
+        def refused(*a, **k):
+            raise RuntimeError("GitHub answered 502")
+
+        with unittest.mock.patch.object(pub, "comment_issue", side_effect=refused):
+            self.assertIn("issue_error", evolve.raise_problem(cfg, problem, pub))
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "commented")
+        self.assertEqual(len(pub.comments), 1)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "already told today")
+        self.assertEqual(len(pub.comments), 1)
 
     def test_status_shows_the_last_crash(self):
         self.assertIsNone(evolve.status()["last_crash"])
@@ -1845,7 +1992,7 @@ class ScheduledCap(EvolveCase):
         self.assertEqual(meta["trigger"], "scheduled")
         self.assertEqual(json.loads((evolve.gen_dir(1) / "generation.json").read_text())["trigger"], "manual")
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_runs_by_hand_have_their_own_cap(self):
         pub = FakePublisher()
@@ -1853,8 +2000,9 @@ class ScheduledCap(EvolveCase):
             self.propose(1, [self.playbook_edit(line)])
             self.run_gen(1, publisher=pub)
         out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out["skipped"], "halted: manual-generations")
-        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["halts"][0]["detail"])
+        self.assertEqual(out["skipped"], "skipped this run: manual-generations")
+        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["skips"][0]["detail"])
+        self.assertEqual(pub.issues, [])
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))  # the schedule's own run still goes
 
     def test_a_generation_from_before_the_trigger_was_recorded_counts_as_scheduled(self):
@@ -1912,6 +2060,57 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
     def test_a_request_that_fits_is_left_as_it_is(self):
         request = self.request({"brain/playbooks/small.md": "z" * 500})
         self.assertEqual(evolve.fit_request(request), request)
+
+    def growth_request(self):
+        """A request shaped like gen 24's candidate 3 (2026-11-22), whose
+        message the screen held as `input.oversized` at 66,308 characters:
+        a growth finding, research that named three files, every file
+        already dropped to fit, and still over the limit on what is not a
+        file: ~13 KB of editable paths, ~6.5 KB of earlier tries, ~30 KB of
+        evidence."""
+        finding = {"id": "f:reach_silent:x:reply-their-thread", "section": "finding", "kind": "reach_silent",
+                   "lane": "growth", "hash": "h", "events": 38, "days": 7, "miss": 0.74,
+                   "files": ["brain/SOUL.md", "brain/CONTEXT.md"],
+                   "check": {"kind": "reach", "surface": "x", "source": "reply-their-thread",
+                             "measure": "answered", "direction": "rise"},
+                   "text": "38 replies of yours in other people's threads on x in 7 days; 28 drew no answer.",
+                   "examples": "- (a reply of yours, scrubbed)\n- (another)"}
+        editable = sorted(f"brain/{d}/{n:03d}-a-longish-file-name.md"
+                          for d in ("playbooks", "skills/conversation", "agents") for n in range(160))
+        keep = ["brain/playbooks/mentions.md", "brain/agents/teeny-mentions.md", "brain/skills/conversation/SKILL.md"]
+        tried = [{"id": f"g{g}c1", "verdict": "rejected", "learning": "m1", "same_files": keep[:1],
+                  "findings": [{"file": "x", "problem": "p" * 250, "fix": "f" * 250}] * 2} for g in range(1, 6)]
+        evidence = {"world": {"j": 0.4}, "outcomes": {"x": ["o" * 100] * 160},
+                    "archive": {"recent": ["a" * 100] * 40}, "builds": ["b" * 100] * 25,
+                    "lessons": {"kinds": [{"kind": "playbook", "worked": 1, "no_effect": 2}] * 60}}
+        return {**self.request({}), "learning": finding, "editable": keep + editable, "keep": keep, "tried": tried,
+                "evidence": evidence, "readonly": {}, "omitted": ["brain/SOUL.md"],
+                "research": {"verdict": "build", "plan": "Add one line to the mentions playbook.",
+                             "read": keep, "document": ["docs/hands.md"]}}
+
+    def test_a_growth_finding_whose_message_is_over_the_screen_without_files_is_cut_to_fit(self):
+        request = self.growth_request()
+        self.assertGreater(len(evolve.render_request({**request, "files": {}}).encode("utf-8")),
+                           evolve.SCREEN_LIMIT_BYTES)
+        for render in (evolve.render_request, evolve.render_research_request, evolve.render_evolver_request):
+            fitted = evolve.fit_request(request, render=render)
+            message = render(fitted)
+            self.assertLessEqual(len(message.encode("utf-8")), evolve.MAX_PROPOSER_PROMPT_BYTES, render.__name__)
+            # What was cut is said, and the files research named are still
+            # listed by path.
+            if len(render({**request, "files": {}}).encode("utf-8")) > evolve.MAX_PROPOSER_PROMPT_BYTES:
+                self.assertIn("## left out to fit the message", message)
+            for rel in request["keep"]:
+                self.assertIn(rel, message)
+        # The request itself is not changed: the round's own record keeps
+        # every path it may edit.
+        self.assertEqual(len(request["editable"]), 483)
+
+    def test_the_lessons_are_not_shown_twice(self):
+        request = self.growth_request()
+        message = evolve.render_request(request)
+        self.assertIn("## lessons from your merged changes, by kind", message)
+        self.assertNotIn('"kinds"', message)
 
 
 
