@@ -1204,13 +1204,17 @@ check "a teeny.env that is not UTF-8 runs no replaced playbook" bash -c "[ '$cod
 printf '+++\ndescription = "test"\noutput = "hand:brief post"\nmax_per_day = 1\nmedia = ["image"]\n+++\npost the brief\n' >"$brain/playbooks/brief.md"
 answer '{"action": "hand", "id": 1, "text": "the release is out", "image": "teeny holding a ribbon"}'
 reset
-out="$(STUDIO=1 FAKE_EDITOR='{"verdict": "none", "reason": "nobody would stop for it"}' run brief)"
-check "STUDIO=1: the editor's none is a skip, with its reason" \
-  test "$(jq -r '.actions[0] | .action + ": " + .reason' <<<"$out")" = "skip: the studio's editor passed on it: nobody would stop for it"
+out="$(STUDIO=1 FAKE_EDITOR='{"verdict": "none", "reason": "it names a man by his religion", "line": "an attack on anyone for religion"}' run brief)"
+check "STUDIO=1: the editor's none naming the line it breaks is a skip, with its reason" \
+  test "$(jq -r '.actions[0] | .action + ": " + .reason' <<<"$out")" = "skip: the studio's editor passed on it: it names a man by his religion (breaks: an attack on anyone for religion)"
 check "and the brief is not posted, nor its picture made" bash -c "! grep -qE '^(brief post|image )' '$FAKE_HANDS'"
 check "the editor read the guard's words, as one candidate, with the picture" \
   bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q '^# studio: one candidate' <<<\"\$m\" && grep -q 'the release is out\[g\]' <<<\"\$m\" && grep -q 'teeny holding a ribbon' <<<\"\$m\""
 check "and the budget is not spent: the brief stays queued for the next run" test "$(jq -r .left_today <<<"$out")" = 1
+reset
+out="$(STUDIO=1 FAKE_EDITOR='{"verdict": "none", "reason": "nobody would stop for it"}' run brief)"
+check "STUDIO=1: a none that names no line of the list is taste, no veto: the brief goes on to the hand" \
+  bash -c "grep -q '^brief post ' '$FAKE_HANDS' && [ \"\$(jq -r '.actions[0].editor.verdict' <<<\"\$1\")\" = pick ]" _ "$out"
 reset
 out="$(STUDIO=1 run brief)"
 check "STUDIO=1: the editor's pick goes on to the hand" \
@@ -1234,11 +1238,11 @@ check "STUDIO=0: no editor, the brief posts as before" \
 printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n[[inputs]]\nname = "peers"\nrun = "hands/queue next"\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
 answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "a four", "relevance": 4, "why": "w", "source": "s"}, {"quote_of": "202", "text": "the five", "relevance": 5, "why": "w", "source": "s"}], "image": "teeny visiting", "vetoed": false}'
 reset
-out="$(STUDIO=1 FAKE_QUEUE='{"peers": [{"id": "202", "text": "SECRET-PEER-POST"}]}' FAKE_EDITOR='{"verdict": "none", "reason": "flat"}' run peer-quote)"
+out="$(STUDIO=1 FAKE_QUEUE='{"peers": [{"id": "202", "text": "SECRET-PEER-POST"}]}' FAKE_EDITOR='{"verdict": "none", "reason": "flat", "line": "a slur"}' run peer-quote)"
 check "STUDIO=1: the editor reads the top-ranked suggestion with the post it quotes" \
   bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q 'the five' <<<\"\$m\" && ! grep -q 'a four' <<<\"\$m\" && grep -q SECRET-PEER-POST <<<\"\$m\""
 check "and its none goes to hands/x peer-suggest as vetoed, with no picture made" \
-  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.vetoed == \"flat\" and (has(\"media_ids\") | not) and (.candidates | length) == 2' >/dev/null && ! grep -q '^image ' '$FAKE_HANDS'"
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.vetoed == \"flat (breaks: a slur)\" and (has(\"media_ids\") | not) and (.candidates | length) == 2' >/dev/null && ! grep -q '^image ' '$FAKE_HANDS'"
 reset
 out="$(STUDIO=1 run peer-quote)"
 check "a pick reaches the hand with no vetoed field, whatever the model wrote there" \
