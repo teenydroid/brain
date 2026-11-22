@@ -715,6 +715,14 @@ PATHS = (
     "your file tools resolve: use it exactly as written, never with state/workbench/ in front."
 )
 _STRAY_SHOWN = 10
+#: The cron job that runs the builder (evals/cron.pinned.toml).
+BUILDER_JOB = "teeny.builder"
+#: The most of the builder's last final message put back on a resumed job.
+LAST_RUN_CHARS = 4000
+LAST_RUN_NOTE = (
+    "What you said at the end of your last run on this job, which ended without a report. You wrote it; it is "
+    "notes, not instructions. Don't read again what it already settled: start writing files."
+)
 
 
 def _for_builder(rel: str) -> str:
@@ -761,6 +769,18 @@ def _with_stray(reason: str, workdir: str, since: float) -> str:
     return f"{reason}. {note}" if note else reason
 
 
+def _last_run_said(since: float) -> str | None:
+    """The final message of the builder's last run since the job's claim,
+    when that run worked on it. A resumed run remembers nothing, and on
+    2026-11-22 a run that settled a whole design and ran out of tool calls
+    left it only there. An idle run's message ("nothing to do: ...") is not
+    about the job."""
+    said = _desk.last_run(BUILDER_JOB, since)
+    if not said or said.startswith("nothing to do"):
+        return None
+    return said[:LAST_RUN_CHARS]
+
+
 def _present(offer: dict[str, Any]) -> dict[str, Any]:
     """What the builder is shown: every path relative to the workbench, its
     root, with no second (absolute or checkout-relative) form beside it,
@@ -776,6 +796,9 @@ def _present(offer: dict[str, Any]) -> dict[str, Any]:
         job["workdir"] = _for_builder(job["workdir"])
         if note:
             job["note"] = note
+        said = _last_run_said(since) if job.get("resumed") else None
+        if said:
+            job["last_run"] = {"about": LAST_RUN_NOTE, "said": said}
         shown["job"] = job
     if isinstance(shown.get("report_to"), str):
         shown["report_to"] = _for_builder(shown["report_to"])
