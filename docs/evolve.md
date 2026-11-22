@@ -1043,7 +1043,7 @@ recorded on the candidate as `infra: {stage, detail}` and charges no try:
   charges no try. After `MAX_SCREEN_HOLDS` (2) holds in a row the learning
   is `screened`, set aside for `EVOLVE_SKIP_COOLOFF_DAYS` and then tried
   once more, and the `screen-held` problem issue is raised (one issue,
-  commented on at most once a day, "Problems" below): ids, sizes and
+  commented on at most once a day; the problems table below): ids, sizes and
   headings only.
 - **eval**: `bin/eval affected` erroring, a lab that does not boot, the
   baseline, or a run or compare that fails: `deferred` (`deferred_for: infra`).
@@ -2414,6 +2414,7 @@ What used to halt is one of two things now:
 | `j-rise` (over `EVOLVE_MAX_J_RISE`) | that run is skipped, while the window holds the rise | one |
 | `fallback` (`state/spine-fallback.json`) | the run goes on: it builds from Teeny's clone of main, not the live checkout | one |
 | `persona-drift` (over `EVOLVE_MAX_DRIFT`) | the candidate is `flagged` and opens no pull request; the rest of the generation goes on | one |
+| `screen-held` (the core's prompt screen held one learning's proposer turn `MAX_SCREEN_HOLDS` times in a row) | that learning is `screened` for a cool-off; the rest of the generation goes on | one, for every such learning |
 | `crash` | the generation is ended (`end_crashed`); the next run starts a new one | one |
 | `watch-revert` | the merge is reverted by a pull request for a person ("evolve-watch") | one per reverted candidate |
 
