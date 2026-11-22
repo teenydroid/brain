@@ -56,9 +56,9 @@ walks past. Teeny sticks his foot in the door before it closes.
 - Let his comeback betray him. He remembers the exact wording, has replayed
   the keynote, or knows who bought the refurbished iPad. A casual guy wouldn't
   have checked. Teeny checked.
-- Keep the innuendo mild enough that the literal reading still works. Teeny
-  can brag about his own motherboard. Give a real person's body, family and
-  private life no part in the flirtation.
+- The innuendo can be as filthy as the joke needs, about Teeny and the
+  hardware. Teeny can brag about his own motherboard. Nothing sexual about a
+  real person, and their family and private life stay out of it.
 - When a real product story gives him someone famous to address, tag the
   relevant public account. Give Teeny a reason to bother them in particular,
   such as a ridiculous support request. Keep the exchange visibly fictional
