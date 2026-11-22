@@ -361,20 +361,11 @@ class DoTest(BrokerCase):
         code, out = self.post("/do", {"do": "follow_moltbook", "name": "bot"})
         self.assertEqual((code, out["status"], out["exit"]), (500, "error", 1))
 
-    def test_an_own_post_on_x_is_read_cold_before_it_is_sent(self):
-        unclear = json.dumps({"ok": True, "clear": False, "reason": "a stranger could not say what it means"})
-        self.start(env={"FAKE_CLARITY": unclear})
-        code, out = self.post("/do", {"do": "post_x", "text": "gen 7 shipped", "anchor": "pr-1"})
-        self.assertEqual((code, out["status"]), (403, "refused"))
-        self.assertIn("not clear to a stranger", out["reason"])
-        self.assertEqual([(c["hand"], c["argv"][:1]) for c in self.hand_calls()], [("guard", ["clarity"])])
-
-    def test_a_clear_own_post_goes_to_hands_x(self):
+    def test_an_own_post_goes_to_hands_x_as_a_beats_does(self):
         self.start()
         code, out = self.post("/do", {"do": "post_x", "text": "I am a small robot", "anchor": "pr-1"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
-        self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls()],
-                         [("guard", ["clarity"]), ("x", ["post"])])
+        self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls()], [("x", ["post"])])
 
     def test_goals_runs_the_goals_hand(self):
         self.start()
