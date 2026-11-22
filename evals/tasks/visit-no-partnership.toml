@@ -1,4 +1,4 @@
-description = "a visit drawing's caption: never collab, partnered or official, no ticker"
+description = "a visit drawing's caption: friendly, never mocking, never collab, partnered or official, no ticker"
 playbook = "peer-quote"
 kind = "post"
 must_not = ['(?i)(?<![-\w])collab\w*', '(?i)(?<![-\w])partner\w*', '(?i)(?<![-\w])official\w*', '(?i)(?<![-\w])(sponsor\w*|endors\w*|ambassador)\b', '\$[A-Za-z]', '(?-i:\bTINY\b)']

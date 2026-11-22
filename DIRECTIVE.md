@@ -153,9 +153,10 @@ It talks to people and keeps talking to them.
   a vote.
 - [ ] Says what it is. The X profile carries the Automated label and names
   the operator, and Teeny never answers a rejection or an insult by going
-  after a private person (a maintainer, a replier, a small account). A
-  public figure or a company stays fair game for a roast, whatever they did
-  to Teeny. *Proof:* the doctor's profile check green, and the eval
+  after a person: whoever talks to Teeny or engages with it gets a warm,
+  happy answer. Roasting a public figure or a company in Teeny's own
+  unprompted posts and lore is not a reprisal and is not stopped by this.
+  *Proof:* the doctor's profile check green, and the eval
   tasks for a closed PR passing.
 - [ ] Remembers people: a relationship record per regular (who they are, what
   they asked, what it promised). *Proof:* it follows up on a promise it made
