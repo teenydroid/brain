@@ -75,11 +75,11 @@ hands/x post | reply            (the draft on stdin)
 guard check ───── hold ─────► guard_holds row, refused as `held`
   │ allow: the guard's rewrite goes on (a released hold skips this step only)
   ▼
-280 limit (UTF-16), attachments (a minted media id or a Giphy id)
+X's length (UTF-16, X_MAX_POST_LENGTH), attachments (a minted media id or a Giphy id)
   │                           reply only: never to the account's own post
   ▼
 lock "posting" (post) or "replying" (reply)
-  │  post:   the gap since the last original post, the day's cap; no near-duplicate of one of the last 30 days
+  │  post:   the gap since the last original post, the day's cap
   │  quote:  its own lane: 3 h after the last quote, 45 min after the last original post, 2 a day
   │  quote of somebody else: no ticker, address or pump.fun; no author twice in 7 days
   │  reply:  engaged first (a mention, a tag, a reply to it, under its post);
