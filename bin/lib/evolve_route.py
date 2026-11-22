@@ -11,8 +11,8 @@ text under brain/ only).
 
 A finding is **routed** when its family has had EVOLVE_ROUTE_AFTER (K)
 prompt-level candidates and they did not help: its number has not fallen
-under the lowest it stood at in them, or every one of them that merged
-scored no-effect, no-data or hurt. Its family:
+under where it stood at the latest of them on its own id, or every one of
+them that merged scored no-effect, no-data or hurt. Its family:
 
   refusals     refusals:<hand>:<rule>, the hand from the beat verb's tail
                (`upvote_moltbook` -> moltbook) or the playbook's head
@@ -130,7 +130,7 @@ def decide(entries: Mapping[str, Json], item: Any, after: int, spans: Iterable[i
         return None
     levels = [e["learning"]["events"] for e in tried
               if e["learning"].get("id") == item.id and isinstance(e["learning"].get("events"), int)]
-    fallen = bool(levels) and item.events < min(levels)
+    fallen = bool(levels) and item.events < levels[-1]
     spans = tuple(spans)
     merged = [e for e in tried if e.get("merged_at")]
     outcomes = [evolve_outcomes.outcome_of(e, spans) for e in merged]
@@ -139,7 +139,7 @@ def decide(entries: Mapping[str, Json], item: Any, after: int, spans: Iterable[i
         return None
     return {"family": family_of(item.check), "tried": len(tried),
             "why": (f"{len(tried)} prompt-level candidate(s) on its family and "
-                    + ("its number has not fallen under the lowest it stood at in them"
+                    + ("its number has not fallen under where it stood at the latest of them"
                        if not fallen else "every one that merged scored " + "/".join(sorted(set(outcomes)))))}
 
 
