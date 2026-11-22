@@ -34,9 +34,8 @@ this page, not taken from a source.
 6. **Small samples cannot see small gains.** Telling a 55% win rate from
    50% takes about 780 decisive comparisons. With no real difference, a
    candidate wins 12 of 20 one time in four (§4).
-7. **Live metrics need a holdback.** Reach and revenue move with the world.
-   A concurrent, randomised comparison against a frozen old version
-   separates the agent from the weather (§5).
+7. **Live metrics need a holdback.** Only a concurrent, randomised
+   comparison with a frozen old version separates agent from weather (§5).
 
 ---
 
@@ -221,26 +220,18 @@ Three 2026 preprints, each a single study, say the same of judges:
 
 ### Protocols that follow
 
-1. **A golden set with human labels**, including known-better and identical
-   pairs. Report a chance-corrected statistic (kappa, alpha), not percent.
-2. **Judge both orders** and count only verdicts that survive the swap.
-3. **Judge more than once,** report self-agreement, majority-vote the runs.
-4. **Two judges from different families**
-   ([arXiv:2609.33044](https://arxiv.org/abs/2609.33044)).
-5. **A/A runs:** the same version on both sides. The share that declares a
-   winner is the loop's measured false-positive rate.
-6. **Correct the judge with the human set.** Prediction-powered inference
-   combines a small labelled set with many machine labels into a valid
-   confidence interval, with no assumptions about the model
-   ([Angelopoulos et al., arXiv:2301.09633](https://arxiv.org/abs/2301.09633)).
-7. **Rank generations with a Bradley-Terry fit, not running Elo.** Elo
-   computations "exhibit volatility," and its reliability and transitivity
-   assumptions are "not always satisfied"
-   ([Boubdir et al., arXiv:2311.17295](https://arxiv.org/abs/2311.17295)).
-   Best-of-N private testing inflated Arena ranks; Meta tested 27 private
-   variants before Llama 4
-   ([Singh et al., arXiv:2504.20879](https://arxiv.org/abs/2504.20879)). A
-   loop that promotes the best of N candidates does the same to itself.
+A human-labelled golden set scored with kappa or alpha, not percent; both
+orders; several runs, majority-voted; two judges from different families
+([arXiv:2609.33044](https://arxiv.org/abs/2609.33044)); A/A runs, whose
+share of declared winners is the measured false-positive rate. To fold the
+golden set into the estimate, prediction-powered inference gives valid
+intervals from a few human labels plus many machine ones
+([arXiv:2301.09633](https://arxiv.org/abs/2301.09633)). To rank
+generations, fit Bradley-Terry over all pairs rather than running Elo, whose
+computations "exhibit volatility" and whose transitivity assumption is "not
+always satisfied" ([arXiv:2311.17295](https://arxiv.org/abs/2311.17295)).
+Promoting the best of N is its own bias: Meta tested 27 private variants on
+Arena before Llama 4 ([arXiv:2504.20879](https://arxiv.org/abs/2504.20879)).
 
 ## 4. Statistics for small samples
 
@@ -294,14 +285,10 @@ subtasks and using continuous metrics raised that ratio
 
 ## 5. Capability, behaviour and outcome
 
-Three things get called "better":
-
-- **Capability:** what the agent can do on a fixed task, in a fixed
-  environment, scored by a fixed grader.
-- **Behaviour:** what it chooses to do. A tone or length change can move a
-  judge with no capability change.
-- **Outcome:** what happened in the world. Reach, followers, money. It
-  depends on the agent and on everything else.
+Three things get called "better": **capability** (what the agent can do on
+a fixed task with a fixed grader), **behaviour** (what it chooses to do; a
+tone or length change can move a judge with no capability change) and
+**outcome** (reach, followers, money, which depend on everything else too).
 
 A follower jump the week after a merge may be the merge, a news cycle, an
 algorithm change, or regression to the mean after a bad week. Designs that
@@ -334,28 +321,22 @@ separate them:
 
 ## 6. What real improvement looks like
 
-- **A learning curve on fixed material:** scores on one sealed audit set
-  rise across retained generations and stay up (C2).
-- **Transfer:** a change helps tasks it was not made for, or carries to
-  another model. It is DGM's and ADAS's best evidence (§1).
-- **No forgetting:** backward transfer is how learning a new task changes
-  scores on earlier ones, negative being forgetting; forward transfer is how
-  much it helps tasks not yet seen
-  ([Lopez-Paz and Ranzato, arXiv:1706.08840](https://arxiv.org/html/1706.08840)).
-- **Sample efficiency:** Chollet defines intelligence as "skill-acquisition
-  efficiency" ([arXiv:1911.01547](https://arxiv.org/abs/1911.01547)). For a
-  loop, fewer candidates or days per unit of gain over time.
-- **Error types shift:** old failure classes become rare and new, harder
-  ones appear. *(Interpretation.)*
-- **Fewer repeated mistakes:** a lesson recorded should stop the mistake.
-  AIDE²'s falling reward-hacking rate on a held-out family is this kind of
-  evidence: a behaviour improving where it was not optimised (§1).
-- **Novelty that survives:** a new behaviour still in the champion
-  generations later and still winning on the audit set. HGM says to judge a
+- **A learning curve on a sealed audit set** that rises across retained
+  generations and stays up (C2).
+- **Transfer** to tasks or models a change was not made for, DGM's and
+  ADAS's best evidence (§1).
+- **No forgetting.** Backward transfer is how a new lesson changes scores on
+  old tasks; forward transfer, how it helps unseen ones
+  ([arXiv:1706.08840](https://arxiv.org/html/1706.08840)).
+- **Sample efficiency.** Chollet defines intelligence as "skill-acquisition
+  efficiency" ([arXiv:1911.01547](https://arxiv.org/abs/1911.01547)): fewer
+  candidates or days per unit of gain, over time.
+- **Fewer repeated mistakes, and error types shifting** to new, harder ones
+  *(interpretation)*. AIDE²'s falling reward hacking on a held-out family is
+  the pattern: improvement where nothing optimised for it (§1).
+- **Novelty that survives** in the champion generations later. HGM judges a
   change by its descendants, not its own day (§1).
-- **A better improver:** the rarest measurement. Generation N's improver,
-  started from generation 0's brain with the same budget, beats generation
-  0's improver (the swap test, C4).
+- **A better improver**, the rarest measurement: the swap test (C4).
 
 ---
 
