@@ -266,3 +266,25 @@ hands/lib/teeny_hands/babysit/
 # OpenHuman releases against the pin and the gaps (docs/roadmap.md, G9).
 hands/upstream
 hands/lib/teeny_hands/upstream/
+
+# What frozen code imports. Frozen code runs outside any jail, as the spine's
+# user, with secrets/ in reach, so a module it imports runs there too: an
+# editable one would be Teeny's code past the freeze. hands/tests/
+# test_watchers.py (test_frozen_code_imports_no_module_teeny_may_edit) walks
+# the imports and fails on a new one.
+hands/lib/teeny_hands/scrub.py
+hands/lib/teeny_hands/slurs.py
+hands/lib/teeny_hands/peerfile.py
+hands/lore
+hands/lib/teeny_hands/lore/
+hands/people
+hands/lib/teeny_hands/people/
+hands/lib/teeny_hands/story/__init__.py
+hands/lib/teeny_hands/story/store.py
+
+# The core's hook file: a command hook is a process the core starts outside
+# any jail, so what it runs is the operator's.
+brain/hooks.json
+# Which commit of the core (and every other submodule) is built: vendor/** is
+# frozen, and so is the file that says where it comes from.
+.gitmodules
