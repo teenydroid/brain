@@ -111,6 +111,9 @@ class Room:
     #: STUDIO_FORMATS (a video slot): the room pitches videos first and tries
     #: the best of them first (`room_run`).
     skit_slot: bool = False
+    #: A dry run that still makes its image posts' pictures (`--pictures`): made
+    #: and checked, never uploaded or posted.
+    preview: bool = False
 
     def __post_init__(self) -> None:
         self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model,
