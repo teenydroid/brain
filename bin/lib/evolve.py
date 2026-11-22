@@ -2154,6 +2154,9 @@ def render_request(request: Json) -> str:
                      "edit's old text is copied from a file shown in this message, never from memory (your SOUL and "
                      "CONTEXT as you know them may not be the file's words):\n"
                      + "\n".join(f"- {rel}" for rel in request["omitted"]))
+    cut = cut_text(request)
+    if cut:
+        parts.append(cut)
     rejected = request.get("rejected")
     if rejected:
         parts.append("## your last edits did not apply\n\n"
