@@ -722,6 +722,7 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     kept: list[Json] = []
     dropped: list[Json] = []
     seen: set[str] = set()
+    raws: dict[str, Any] = {}
     for n, raw in enumerate(answer["pitches"], 1):
         if not isinstance(raw, dict):
             dropped.append({"pitch": raw, "why": "not an object"})
@@ -759,6 +760,7 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             dropped.append({"pitch": raw, "why": why})
             continue
         seen.add(pid)
+        raws[pid] = raw
         story = raw.get("storyline")
         story = story.strip() if isinstance(story, str) and story.strip() in stories else None
         if story is None and item:
@@ -780,12 +782,8 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     extra = set(invented[pure_invented:])
     if extra:
         best = ", ".join(invented[:pure_invented])
-        for raw, p in [(r, p) for r, p in zip(answer["pitches"], [None] * len(answer["pitches"]))]:
-            pass
         for p in [p for p in kept if p["id"] in extra]:
-            dropped.append({"pitch": next((r for r in answer["pitches"] if isinstance(r, dict) and
-                                           (_str(r.get("id"), 40) or "") == p["id"]), p),
-                            "why": f"only {pure_invented} pitch{'es' if pure_invented != 1 else ''} a slot may be "
+            dropped.append({"pitch": raws[p["id"]], "why": f"only {pure_invented} pitch{'es' if pure_invented != 1 else ''} a slot may be "
                                    f"pure invention, with no hook and no item, and the writer ranked {best} above it"})
         kept = [p for p in kept if p["id"] not in extra]
         ranking = [r for r in ranking if r not in extra]
