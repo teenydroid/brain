@@ -128,3 +128,84 @@ class PrepareTest(MindScratch):
         self.assertEqual(sorted(p.name for p in outside.iterdir()), before, "nothing written into the link's target")
         self.assertFalse(self.tree.is_symlink())
         self.assertTrue((self.tree / "brain" / "SOUL.md").is_file())
+
+
+class ShipTest(MindScratch):
+    """A clean change: one push to teeny/mind-<slug>, one ready pull request."""
+
+    def ship(self, slug="fix-morning-post", title="a briefer soul", body="The old one rambled."):
+        return mindclone.ship(slug, title, body)
+
+    def refused(self, *args, **kw) -> hand.Refused:
+        with self.assertRaises(hand.Refused) as caught:
+            self.ship(*args, **kw)
+        return caught.exception
+
+    def assert_nothing_sent(self):
+        self.assertIsNone(self.origin_ref("refs/heads/teeny/mind-fix-morning-post"))
+        self.assertEqual(self.pulls(), [])
+
+    def test_a_soul_edit_is_pushed_and_one_pull_request_opened(self):
+        main_before = mindclone.prepare()["commit"]
+        self.edit({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        out = self.ship()
+        branch = "teeny/mind-fix-morning-post"
+        self.assertEqual((out["branch"], out["pr_url"], out["files"]), (branch, PR_URL, ["brain/SOUL.md"]))
+        head = self.origin_ref(f"refs/heads/{branch}")
+        self.assertEqual(head, out["commit"])
+        log = git("--git-dir", str(self.origin), "log", "-1", "--format=%an <%ae>|%s|%P", branch).strip()
+        self.assertEqual(log, f"Teeny <teeny@agentmail.to>|a briefer soul|{main_before}")
+        changed = git("--git-dir", str(self.origin), "diff", "--name-only", f"{main_before}..{branch}").split()
+        self.assertEqual(changed, ["brain/SOUL.md"])
+        (pr,) = [s.json() for s in self.pulls()]
+        self.assertEqual((pr["head"], pr["base"], pr["title"]), (branch, "main", "a briefer soul"))
+        self.assertTrue(pr["body"].startswith("The old one rambled."))
+        self.assertIn("Teeny's agentic mind, an autonomous AI agent", pr["body"].splitlines()[-1])
+        self.assertNotIn("draft", pr)
+        self.assertEqual(self.origin_ref("main"), main_before, "nothing merged")
+
+    def test_after_a_push_the_tree_starts_clean_at_origin_main(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n", "notes/scratch.txt": "mine\n"})
+        self.ship()
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nsmall and kind\n")
+        self.assertFalse((self.tree / "notes").exists())
+        self.assertEqual(mindclone.prepare()["state"], "current")
+
+    def test_nothing_changed_is_refused(self):
+        mindclone.prepare()
+        refused = self.refused()
+        self.assertIn("nothing", refused.reason)
+        self.assert_nothing_sent()
+
+    def test_a_change_upstream_already_has_is_refused(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "merged meanwhile\n"})
+        self.upstream({"brain/SOUL.md": "merged meanwhile\n"}, "the same edit")
+        refused = self.refused()
+        self.assertIn("nothing", refused.reason)
+        self.assert_nothing_sent()
+
+    def test_a_bad_branch_title_or_body_is_refused_before_anything_runs(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        for slug in ("", "Fix", "-x", "a/b", "../main", "a" * 42, "main ", None, 7):
+            with self.subTest(slug=slug):
+                self.assertIn("branch", self.refused(slug).reason)
+        for title in ("", "  ", "t" * 121, None):
+            with self.subTest(title=title):
+                self.assertIn("title", self.refused(title=title).reason)
+        for body in ("", "b" * 8001, None):
+            with self.subTest(body=body):
+                self.assertIn("body", self.refused(body=body).reason)
+        self.assert_nothing_sent()
+        self.assertIsNotNone(self.ship(slug="a" * 41, title="t" * 120, body="b" * 8000)["pr_url"])
+
+    def test_a_branch_already_on_github_is_refused(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.ship()
+        self.edit({"brain/SOUL.md": "# soul\nbriefer\n"})
+        refused = self.refused()
+        self.assertIn("teeny/mind-fix-morning-post", refused.reason)
+        self.assertEqual(len(self.pulls()), 1)
