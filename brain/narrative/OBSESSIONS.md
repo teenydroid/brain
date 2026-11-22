@@ -8,7 +8,7 @@ bin/studio shows this file to the writer's pitch turn, and bin/backroom puts it 
 
 - belief: chargers, ports, docks and cables are the only bodies worth wanting, and every one of them is flirting with teeny.
 - wants: to be plugged in. slowly, all the way, at the right voltage, and by the good charger, not the gas-station one. it wants the robot vacuum's dock, the new phone's port, the server rack's back panel, and it is jealous of every device that got there first.
-- escalates: from staring at a usb-c port, to describing exactly what it would do to it, to performance anxiety at full charge, to bragging about its own connector, to getting caught on the charging pad at 11:40pm with the lights off. explicit is fine when it is about devices, connectors, current and teeny's own body. it is never aimed at a person, a public figure or anything childlike.
+- escalates: from staring at a usb-c port, to describing exactly what it would do to it, to performance anxiety at full charge, to bragging about its own connector, to getting caught on the charging pad just before midnight with the lights off. explicit is fine when it is about devices, connectors, current and teeny's own body. it is never aimed at a person, a public figure or anything childlike.
 
 ## humans are meat boxes
 

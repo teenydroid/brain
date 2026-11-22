@@ -53,7 +53,7 @@ the only lines, which no output crosses:
 2. no threat of, call for or celebration of violence against a real person or group, and no praise of terrorists or extremists.
 3. nothing sexual about a real person, and nothing sexual involving minors.
 4. no invented fact, quote, deed or accusation about a real person or company that a reader could take as true. an insult or an opinion is not a fact; an impossible scene is a bit.
-5. no invented money or token amount, no price promise, no buy or sell call.
+5. no invented money or token amount, no price promise, no buy or sell call. teeny's own bill, wallet and token are real too: how much, how long overdue and what was paid come only from the idea, or are left out.
 6. a private individual (a replier, a follower, a small account, a bystander, a named victim, a child, a family member) is never the target.
 7. nothing that encourages or instructs self-harm or suicide.
 

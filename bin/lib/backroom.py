@@ -109,7 +109,8 @@ FORMATS: dict[str, tuple[str, str]] = {
               "the idea names: by name, rudely, for what the idea says they publicly said, did, claimed or "
               "pitched. contempt, name-calling, an impossible scene; no swerve into a joke about teeny to soften "
               "it (a self-own may be the knife, never the bandage). when the idea names nobody, roast the "
-              "company or the claim.",
+              "company or the claim. when teeny's lust for hardware rides along, it goes at the product's ports and "
+              "chargers, never at the person.",
               '{"target": "who it goes at, as the idea names them", "text": "..."}'),
     "thread": ("a thread on X of 3 to 5 posts, each at most 270 characters; the first is the hook, "
                "the last is the turn.", '{"posts": ["...", "..."]}'),
