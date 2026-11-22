@@ -77,6 +77,13 @@ out = {
     "write_own_folder": can("s", lambda: open("kept.txt", "w").write("x")),
     "write_tmp": can("s", lambda: open(os.environ["TMPDIR"] + "/t", "w").write("x")),
     "kill_parent": can("s", lambda: os.kill(os.getppid(), 0)),
+    "chmod_secret": can("s", lambda: os.chmod(root + "/secrets/teeny.env", 0)),
+    "chmod_bin": can("s", lambda: os.chmod(root + "/bin", 0)),
+    "utime_secret": can("s", lambda: os.utime(root + "/secrets/teeny.env", (0, 0))),
+    "chown_secret": can("s", lambda: os.chown(root + "/secrets/teeny.env", os.getuid(), os.getgid())),
+    "xattr_secret": can("s", lambda: os.setxattr(root + "/secrets/teeny.env", "user.x", b"1")),
+    "fchmod_own_file": can("s", lambda: os.fchmod(open("mine.sh", "w").fileno(), 0o755)),
+    "futimens_own_file": can("s", lambda: os.utime(open("mine.sh", "a").fileno(), (0, 0))),
     "cwd": os.getcwd(),
     "env": sorted(os.environ),
     "args": sys.argv[1:],
@@ -117,6 +124,69 @@ class JailTest(Scratch):
     @unittest.skipUnless(jail.abi() >= 6, "signal scoping needs Landlock ABI 6")
     def test_a_tool_cannot_signal_what_started_it(self):
         self.assertFalse(self.run_probe()["kill_parent"])
+
+    def test_a_tool_cannot_change_the_mode_owner_or_times_of_a_file_by_its_path(self):
+        # Landlock leaves chmod, chown, utime and xattrs alone, even on a path
+        # it closes; the spine's user owns secrets/, so the jail's syscall
+        # filter is what stops a tool making teeny.env unreadable.
+        before = (self.root / "secrets" / "teeny.env").stat()
+        got = self.run_probe()
+        for closed in ("chmod_secret", "chmod_bin", "utime_secret", "chown_secret", "xattr_secret"):
+            self.assertFalse(got[closed], closed)
+        after = (self.root / "secrets" / "teeny.env").stat()
+        self.assertEqual((after.st_mode, after.st_mtime), (before.st_mode, before.st_mtime))
+        # Through a file it has open (so one the jail let it open) it still can.
+        for open_ in ("fchmod_own_file", "futimens_own_file"):
+            self.assertTrue(got[open_], open_)
+
+    def test_a_child_that_left_the_tools_session_dies_with_it(self):
+        self.tool("fork", "import subprocess, sys\n"
+                          "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],"
+                          " start_new_session=True)\n"
+                          "print(p.pid)\n")
+        code, out = self.box("run", "fork")
+        self.assertEqual(code, 0, out)
+        pid = int(out["output"].strip())
+        alive = Path(f"/proc/{pid}/stat").exists() and Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        self.assertFalse(alive, f"detached child {pid} is still running")
+
+    def test_what_a_tool_prints_is_never_kept_whole(self):
+        self.tool("loud", "import sys\nfor i in range(4000):\n    sys.stdout.write('x' * 1023 + '\\n')\nprint('END')\n")
+        code, out = self.box("run", "loud")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["output"].endswith("END\n"))
+        self.assertLessEqual(len(out["output"]), box.TAIL_BYTES)
+        kept = sum(p.stat().st_size for p in (self.root / "state" / "box").rglob("*") if p.is_file())
+        self.assertLess(kept, 64 * 1024)
+        self.assertEqual(self.ledger()[-1]["bytes"], 4000 * 1024 + 4)
+
+    def test_stopping_the_box_stops_the_tool(self):
+        import signal as signal_
+        import time as time_
+        self.tool("long", "import os, time\nopen('pid', 'w').write(str(os.getpid()))\ntime.sleep(120)\n")
+        proc = subprocess.Popen([sys.executable, "-I", str(BOX), "run", "long"], stdout=subprocess.PIPE, text=True,
+                                env={"PATH": os.environ["PATH"], "TEENY_ROOT": str(self.root)})
+        pidfile = self.root / "state" / "box" / "tools" / "long" / "pid"
+        deadline = time_.monotonic() + 20
+        while not (pidfile.exists() and pidfile.read_text()) and time_.monotonic() < deadline:
+            time_.sleep(0.05)
+        pid = int(pidfile.read_text())
+        proc.send_signal(signal_.SIGTERM)
+        proc.communicate(timeout=20)
+        self.assertFalse(Path(f"/proc/{pid}").exists(), "the tool outlived the box")
+        self.assertEqual(self.ledger()[-1]["exit"], "stopped")
+
+    def test_a_grant_that_holds_what_is_protected_is_refused(self):
+        with self.assertRaises(jail.Unavailable):
+            jail.check_grants([self.root], protect=[self.root / "secrets"])
+        with self.assertRaises(jail.Unavailable):
+            jail.check_grants([self.root / "secrets"], protect=[self.root / "secrets"])
+        jail.check_grants([self.root / "home", "/usr"], protect=[self.root / "secrets", self.root / "state"])
+
+    def test_one_run_ends_before_the_cores_own_limit(self):
+        # The core gives any cron shell call 300 s (docs/architecture.md).
+        self.assertLess(box.MAX_TIMEOUT_SECS, 300)
+        self.assertLessEqual(box.DEFAULT_TIMEOUT_SECS, box.MAX_TIMEOUT_SECS)
 
     def test_a_link_in_its_folder_does_not_lead_out(self):
         self.tool("probe", "import os\n"
