@@ -299,8 +299,9 @@ def ask(params: dict[str, Any], read_reply: Callable[[Any], T | None], *, budget
     """Asks the core's simple chat PARAMS until READ_REPLY reads a verdict
     out of a reply, and returns (verdict, None). When no ask gives one, it
     returns (None, the last failed call's error), or (None, None) when the
-    last ask came back unreadable. Shared by this judge and the anchor
-    judge (anchor.py, `truth`), which fail closed on anything but a verdict.
+    last ask came back unreadable. Shared by this judge and the others
+    that ask the same core (the truth judge, anchor.py; the skit, remake,
+    khaby, quote and viewer judges).
 
     An unreadable answer is asked again at once (within UNREADABLE_ASKS):
     some models (glm-5.3-flash through Surplus, about one answer in eight)
