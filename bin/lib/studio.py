@@ -69,7 +69,12 @@ In order:
    the shortfall when that cannot be is recorded), each pair once, and is
    shown first in about half its pairs; several pairs a turn. The ranking is
    by win rate (`ranking` says the tie-break). Then one last turn: the
-   winner, or none worth a slot.
+   winner, or none worth a slot. The editor judges taste, never facts
+   (FACTS_LINE): the truth judge reads every draft after it with the whole
+   story, and the editor is shown what that judge is given of each story a
+   draft joins (`joined_story`: headline, summary, quoted posts, cut to
+   STORY_SHOWN_MAX). A none on the winner does not end the slot: it is kept
+   as `final_veto`, and publishing starts from the next draft of the ranking.
 9. Publishing the pick (`publish`): the producer for its format (a post, a
    thread, a post with a picture of Teeny or a meme, or a post with a
    skit's labelled parody video; any other format is no post, recorded),
@@ -86,7 +91,8 @@ In order:
    draft away (a repeat, a link), falls to the next draft of the ranking
    that the editor, asked the slot question again (told nothing has gone
    out yet, never shown the draft that failed), does not veto, at most
-   MAX_FALLBACKS times through the gates; a veto costs none
+   MAX_FALLBACKS times through the gates; a veto costs none, the winner's
+   included, so after a vetoed winner three drafts can still reach the gates
    (`next_fallback` says the order). A shut slot or a guard hold ends it. An
    empty slot is an outcome, never an error, and its reason says what came
    of every attempt (`empty_reason`). A picture is made only after the words
@@ -105,8 +111,9 @@ In order:
 
 `--veto` is the editor alone, for the posts that keep their own jobs (the
 told-to brief, the outward quote; bin/act asks): one candidate, pick or none,
-recorded in studio_runs. It fails closed: an editor that cannot answer is a
-none. With STUDIO=0 it answers pick without a turn. For the outward quote it
+recorded in studio_runs (`vetoed` is its no, the one outcome by that
+name). It fails closed: an editor that cannot answer is a none. It judges
+taste, never facts (VETO_FACTS_LINE): it is not shown what the post rests on. With STUDIO=0 it answers pick without a turn. For the outward quote it
 asks whether the quote is funny or striking and about the post it quotes
 (`VETO_QUESTION`), not the slot rubric's first-hand bar.
 
