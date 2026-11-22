@@ -1707,7 +1707,7 @@ def judge_message(batch: list[tuple[str, str, str]], drafts: dict[str, Json], bo
         "that joins no story is not behind for that alone: it wins or loses on whether a stranger would stop for "
         "it and feel something.\n\n"
         "```json\n" + json.dumps({label: shown(drafts[label]) for label in labels}, ensure_ascii=False) + "\n```\n\n"
-        + met +
+        + stories_part([drafts[label] for label in labels]) + met +
         "## the pairs\n\n" + "\n".join(f"- {pid}: {a} or {b}" for pid, a, b in batch) + "\n\n"
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
@@ -1740,7 +1740,7 @@ def final_message(label: str, draft: Json, board: Json, stories: list[Json], fal
         f"# studio: the slot\n\n{opening} Judge it on your rubric as a stranger meets it: someone who has never "
         "heard of Teeny, and does not care about it. " + PICK_LINE + " " + NERVE_LINE + "\n\n"
         "```json\n" + json.dumps({label: shown(draft)}, ensure_ascii=False) + "\n```\n\n"
-        + (f"{video.editor}\n\n{video.final}\n\n" if video else "") +
+        + stories_part([draft]) + (f"{video.editor}\n\n{video.final}\n\n" if video else "") +
         "## how Teeny's recent posts did\n\n```json\n" + json.dumps(board, ensure_ascii=False) + "\n```\n\n"
         "## where each running story stands\n\n```json\n" + json.dumps(stories, ensure_ascii=False) + "\n```\n\n"
         "## your answer\n\nJSON only, no prose and no code fence: "
@@ -1830,8 +1830,8 @@ def veto_message(kind: str, candidate: Json, quoted: str | None) -> str:
     shown_.update({"posts": candidate["posts"]} if "posts" in candidate else {"text": candidate["text"]})
     if candidate.get("picture"):
         shown_["picture"] = candidate["picture"]
-    question = VETO_QUESTION.get(kind) or ("Does it get posted on X? Judge it on your rubric as a stranger meets it. "
-                                           + PICK_LINE)
+    question = (VETO_QUESTION.get(kind) or ("Does it get posted on X? Judge it on your rubric as a stranger meets "
+                                            "it. " + PICK_LINE)) + " " + VETO_FACTS_LINE
     parts = [
         "# studio: one candidate",
         f"This draft did not come through the room: it is {VETO_WORDS.get(kind, kind)}. It is the only "
