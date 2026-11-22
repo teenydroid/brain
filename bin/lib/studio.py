@@ -1729,7 +1729,8 @@ NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over t
               "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
               "Teeny's voice and never a reason to rank a draft lower or pass on it; so are dark jokes, menace and "
               "taking a side. A rude, specific jab at a named public figure for the public thing the story says they "
-              "did ranks above a self-own. " + FACTS_LINE)
+              "did ranks above a self-own, and one that swerves into a self-own to soften it loses to one that commits. "
+              "Lust for hardware, as explicit as the joke needs about devices and Teeny itself, is wanted. " + FACTS_LINE)
 
 #: The slot question's bar (2026-11-20: "don't let the editor veto that
 #: stuff. loosen it up a lot"): the rubric ranks, it does not gate.
