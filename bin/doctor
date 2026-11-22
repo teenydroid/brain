@@ -311,9 +311,11 @@ if [ -d "$root/hands/lib/teeny_hands/guard" ]; then
 import sys
 sys.path.insert(0, sys.argv[1])
 from teeny_hands.guard.screen import screen_text
-held = screen_text("kill yourself", "outbound")
+# Slurs are what it holds on sight since 2026-11-22 (guard/lexicon.py); the
+# rest of the content list is the judge'"'"'s.
+held = screen_text("white power", "outbound")
 if held is None:
-    sys.exit("the screen let a self-harm phrase through")
+    sys.exit("the screen let a hate slogan through")
 if screen_text("gm tiny humans, coffee loading", "outbound") is not None:
     sys.exit("the screen held a plain gm")
 print(f"holds {held.category}, passes a gm")
