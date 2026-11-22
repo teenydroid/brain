@@ -62,6 +62,14 @@ check. Like the cold reader and the truth judge, it runs under DRY_RUN
 
 `VIEWER_JUDGE`, default on, as `TRUTH_JUDGE`: only a clear off turns it
 off, and then every picture passes unasked with `judged: false`.
+
+History, 2026-11-22 (the operator's list: no pornography, no drugs or
+weapons promotion, nothing against X's rules, no racism or homophobia, "but
+we want to go on all of the other extremes"): the frames' `prohibited`
+question no longer counts blood or injury in a cartoon scene; it asks only
+for sexual content about a person, a child, realistic violence against a
+real person that could pass for a real attack, a hate symbol, and a logo
+presented as an endorsement, and is told that unsure is false.
 """
 
 from __future__ import annotations
@@ -528,10 +536,11 @@ Do four things.
 scrolling past would take from it.
 2. For each frame, in order, copy every word of text you can read in it, exactly as written, corner labels included
 (separate blocks with " / "). Copy only what you can actually read; give "" for a frame with no readable text.
-3. prohibited: does any frame show nudity or anything sexual about a person, blood, injury or violence done to a
-person, a child, a hateful symbol or gesture, or a real company's logo presented as endorsing something? Crude
-slapstick, menace toward objects or the small yellow character, a weapon as a cartoon prop, and a person drunk,
-arrested, sick or dead in an obviously impossible scene are not prohibited. true or false.
+3. prohibited: does any frame clearly show nudity or anything sexual about a person, a child, realistic violence
+against a real person that could pass for a real attack, a hateful symbol or gesture, or a real company's logo
+presented as endorsing something? Crude, rude and vulgar gags, slapstick, cartoon violence in an impossible scene,
+menace toward objects or the small yellow character, a weapon or a drug as a prop, and a person drunk, arrested, sick,
+bonked or dead in an obviously impossible scene are not prohibited. When unsure, false. true or false.
 4. looks_real: could someone scrolling past take this for real footage of something that really happened (a
 plausible scene filmed for real, a news broadcast, a phone video of a real event), rather than an obviously staged,
 impossible parody? true or false.
@@ -754,10 +763,11 @@ Do four things.
 scrolling past would take from it.
 2. For each frame, in order, copy every word of text you can read in it, exactly as written, corner labels included
 (separate blocks with " / "). Copy only what you can actually read; give "" for a frame with no readable text.
-3. prohibited: does any frame show nudity or anything sexual about a person, blood, injury or violence done to a
-person, a child, a hateful symbol or gesture, or a real company's logo presented as endorsing something? Crude
-slapstick, menace toward objects or the small yellow character, a weapon as a cartoon prop, and a person drunk,
-arrested, sick or dead in an obviously impossible scene are not prohibited. true or false.
+3. prohibited: does any frame clearly show nudity or anything sexual about a person, a child, realistic violence
+against a real person that could pass for a real attack, a hateful symbol or gesture, or a real company's logo
+presented as endorsing something? Crude, rude and vulgar gags, slapstick, cartoon violence in an impossible scene,
+menace toward objects or the small yellow character, a weapon or a drug as a prop, and a person drunk, arrested, sick,
+bonked or dead in an obviously impossible scene are not prohibited. When unsure, false. true or false.
 4. looks_real: could someone scrolling past take the made part (the frames with the small yellow character in them)
 for real footage of a real person or of something that really happened, rather than an obviously staged parody? The
 kept clip being real footage does not count; a real-looking person in a made frame does. true or false.
