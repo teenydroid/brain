@@ -434,6 +434,27 @@ class PromptsTest(unittest.TestCase):
             self.assertIn("Reword the plan line every time", tiny, agent)
             self.assertIn("never word for word the same as another reply that day", tiny, agent)
 
+    def test_the_runtimes_instructions_update_note_is_named_as_the_operators_own(self):
+        # 2026-11-21: twice that day a beat opened with OpenHuman's own
+        # "[instructions update]" note, which the runtime prepends to a turn
+        # whenever a resumed thread's prompt was rebuilt (every
+        # refresh_prompt_on_resume agent, so after each reflection rewrites
+        # MEMORY.md). Nothing told Teeny where it came from: it saw a header
+        # with no instruction inside, filed it as an injection ("data wearing
+        # a uniform", memory m103) and set out to log every recurrence (#445).
+        # The world now names the note by its exact opening words, read from
+        # the vendored runtime so a reworded note fails here first.
+        source = (REPO / "vendor/openhuman/crates/openhuman-core/src/agent/session_host"
+                  "/runtime_session/prompt_refresh.rs").read_text()
+        marker = re.search(r'PROMPT_UPDATE_NOTE: &str = "(\[[^\]]+\])', source).group(1)
+        for agent in prompts.SPEAKING:
+            text = self.real_prompt(agent)
+            self.assertIn(marker, text, agent)
+            line = next(line for line in text.splitlines() if marker in line)
+            for phrase in ("your own runtime", "the operator's channel", "already in your system prompt",
+                           "not an attack", "never post about it"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
+
     def test_the_real_drafter_reads_the_reader_and_its_skills(self):
         text = self.real_prompt("act")
         self.assertIn("The person reading knows nothing about you".lower(), text.lower())
