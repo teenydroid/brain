@@ -208,6 +208,14 @@ Run 1 (2026-11-22): only the live baseline rendered. The wallet held $8.78, and
 each other candidate needed more reserved than that. The rest run after a
 top-up. The results and the operator's pick are recorded here when done.
 
+- `venice-wan-3-0-text-to-video`, words only: billed $1.35 (ceiling $3.08),
+  rendered in 310 s, 720x1280, 15 s with sound. It got the stage, the spotlight,
+  the butt wiggle, the green fart cloud with hands waving it away, and the chrome
+  stick held up. It missed the ending: no bonk, no fall, no stare (it was still
+  holding the stick at 14.5 s). Teeny drifted off model: long legs and feet, a
+  taller body, a different face from frame to frame. Words alone don't hold the
+  character, so references are needed.
+
 ## 6. Checking a take
 
 The viewer (`guard/viewer.py`, `view_skit`, `view_remake`) already checks the
