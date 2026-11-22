@@ -97,7 +97,7 @@ check "and reaches nothing" [ ! -e "$root/calls.log" ]
 fresh mind
 set +e; out="$(tell --mind "look at what the claw agents are doing and try one idea" 2>&1)"; code=$?; set -e
 check "--mind exits 0" [ "$code" = 0 ]
-note="$(ls "$root"/state/home/notes/inbox/operator-host-*.md 2>/dev/null | head -n 1)"
+note="$(find "$root/state/home/notes/inbox" -name "operator-host-*.md" 2>/dev/null | head -n 1)"
 check "it leaves one operator note in the mind's inbox" [ -n "$note" ]
 check "the note carries the text" grep -q "look at what the claw agents are doing and try one idea" "$note"
 check "and says it is the operator's" grep -q "^from: operator" "$note"
