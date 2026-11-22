@@ -85,6 +85,7 @@ import contextlib
 import datetime as dt
 import difflib
 import fcntl
+import itertools
 import hashlib
 import json
 import math
@@ -901,9 +902,31 @@ def default_cooloff() -> int:
     return int(SETTINGS["EVOLVE_SKIP_COOLOFF_DAYS"][0])
 
 
+#: Deferrals that are the box's, not the learning's: they count against it
+#: only in what goes first (pick_key), never as a try.
+BOX_DEFERRALS = ("infra", "screen")
+#: Turns in a row the core's prompt screen held on a learning before it is
+#: set aside (`screened`) for EVOLVE_SKIP_COOLOFF_DAYS and its problem issue
+#: raised: each generation's message differs (its evidence does), so a
+#: learning whose messages keep being held would otherwise be built forever.
+MAX_SCREEN_HOLDS = 2
+
+
+def screen_held(tries: list[Json], days: int) -> tuple[Json, float] | None:
+    """The newest of the last MAX_SCREEN_HOLDS tries, and when it stops
+    holding, when every one of them was held by the prompt screen and that
+    was under DAYS ago; else None. One more try after that: held again, it
+    is set aside again."""
+    run = list(itertools.takewhile(lambda e: e.get("deferred_for") == "screen", reversed(tries)))
+    if len(run) < MAX_SCREEN_HOLDS:
+        return None
+    until = (_when(run[0]) or now()) + days * 86400
+    return (run[0], until) if now() < until else None
+
+
 @dataclass
 class Standing:
-    """Where a learning stands: open | settled | in-flight | gave-up; its
+    """Where a learning stands: open | settled | in-flight | screened | gave-up; its
     failed tries on this text, the deferrals and crashes the box caused on
     its id, the candidate that settled it (or is in flight), and when a
     cooling skip stops holding."""
@@ -925,7 +948,7 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
     if evolve_findings.is_finding(item):
         return finding_standing(entries, item, days)
     past = history(entries, item.id)
-    infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
+    infra = sum(1 for e in past if e.get("deferred_for") in BOX_DEFERRALS or e.get("verdict") == CRASHED)
     settling = [e for e in past if _settles(e)]
     if settling and carries(settling[-1], item):
         until = cooloff_until(past, settling[-1], days)
@@ -935,6 +958,9 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
     flying = [e for e in tries if e.get("verdict") in IN_FLIGHT]
     if flying:
         return Standing("in-flight", 0, infra, flying[-1])
+    held = screen_held(tries, days)
+    if held:
+        return Standing("screened", 0, infra, *held)
     failed = sum(1 for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED))
     return Standing("gave-up" if failed >= MAX_ATTEMPTS else "open", failed, infra)
 
@@ -980,7 +1006,7 @@ def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) 
     candidate; MAX_ATTEMPTS of them give it up until the number grows past
     the highest it stood at in them."""
     past = history(entries, item.id)
-    infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
+    infra = sum(1 for e in past if e.get("deferred_for") in BOX_DEFERRALS or e.get("verdict") == CRASHED)
     settling = [e for e in past if _settles(e)]
     tries = past
     if settling:
@@ -991,6 +1017,9 @@ def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) 
     flying = [e for e in tries if e.get("verdict") in IN_FLIGHT]
     if flying:
         return Standing("in-flight", 0, infra, flying[-1])
+    held = screen_held(tries, cooloff_days)
+    if held:
+        return Standing("screened", 0, infra, *held)
     failed = [e for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED)]
     if evolve_route.decide(entries, item, _route_after(), _configured_horizons()) is not None:
         # Prompt rules kept failing to fix it: code's, not the proposer's
