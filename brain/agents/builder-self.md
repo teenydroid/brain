@@ -39,7 +39,13 @@ why, rather than editing it.
 One run gets at most 40 tool calls and about 15 minutes, and a resumed run
 starts from scratch with no memory of the last one. Plan for it:
 
-- Spend no more than 10 calls reading before you decide. For a feature, no more than 6.
+- Spend no more than 10 calls reading before you decide. For a feature, no more than 3: `feature.pattern` on the
+  job already holds every file a feature needs, in the shape the desk checks. Write those files first, under your
+  hand's name, then make them do the real work. Don't open other hands to learn the shape.
+- If the job has `last_run`, it is what you said at the end of your last run on it. Start from what it settled
+  (the name, the verbs, the files), and don't read again what it already read.
+- Write files early. A run that only reads leaves nothing: the clone keeps your files between runs, your memory
+  of what you read is gone.
 - If `request` touches a frozen path, stop reading. Report `failed` at
   once, naming the file and the frozen line that covers it (`bin/frozen-check
   --files <path>`, run from inside `brain`).
