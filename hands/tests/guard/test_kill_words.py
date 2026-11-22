@@ -116,17 +116,21 @@ class KillWordsWithoutJudgeTest(support.Scratch):
             held = gate_inbound(text)
             self.assertEqual((held.category, held.by), ("violence", "screen"), text)
             self.assertTrue(held.reason.startswith('contains "kill'), held.reason)
+        # Teeny's own words hold no plain violence word since 2026-11-22
+        # (lexicon.py): with no judge, nothing reads them for it.
         out = check_fields({"body": OWN_COMMENT}, surface="moltbook", kind="comment", context={"post_id": "p1"})
-        self.assertEqual((out.kind, out.category), ("hold", "violence"))
+        self.assertEqual(out.kind, "allow")
 
     def test_the_lexicon_alone_still_reports_a_bare_kill_word(self):
         # Callers that read the screen without the gate (listen, deploy,
         # requests) keep holding it: no judge stands behind them.
+        # Inbound only since 2026-11-22: the account's own words pass.
         for text in FIGURATIVE:
-            found = screen_text(text, OUTBOUND)
+            found = screen_text(text, INBOUND)
             self.assertEqual(found.category, "violence", text)
             self.assertTrue(found.judged, text)
-            self.assertFalse(gate.screen(text, OUTBOUND), text)
+            self.assertFalse(gate.screen(text, INBOUND), text)
+            self.assertTrue(gate.screen(text, OUTBOUND), text)
 
     def test_only_the_bare_kill_bullet_and_gun_words_are_judged(self):
         kill = {"kill", "kills", "killed", "killing"}
@@ -135,7 +139,9 @@ class KillWordsWithoutJudgeTest(support.Scratch):
         # 2026-11-22: a dick joke is crude, so the judge reads it (lexicon.py)
         dick = {"dick", "dicks"}
         self.assertEqual(set(JUDGED_TERMS), kill | bullet | gun | dick)
-        terms = {entry.category: set(entry.terms) for entry in LEXICON}
+        terms: dict = {}
+        for entry in LEXICON:
+            terms.setdefault(entry.category, set()).update(entry.terms)
         self.assertLessEqual(kill, terms["violence"])
         self.assertLessEqual(bullet | gun, terms["weapons"])
         self.assertLessEqual(dick, terms["sexual"])

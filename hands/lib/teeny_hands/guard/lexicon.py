@@ -43,6 +43,9 @@ class LexiconEntry:
     terms: tuple[str, ...]
     # Only what the account publishes is held to it; incoming text is not.
     outbound_only: bool
+    # Only what strangers send is held to it; the account's own words
+    # (outbound, narrative, article) are not, and the judge reads them.
+    inbound_only: bool = False
 
 
 # The lexicon, in the order ties are broken.
@@ -50,6 +53,7 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry(
         category="sexual",
         outbound_only=False,
+        inbound_only=True,
         # The explicit end only. "sexy", "topless", "bikini", "seductive" and
         # their like used to be here and held every cheeky joke on the word
         # alone; the mild words are left to the judge, which reads the sentence.
@@ -65,16 +69,28 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry(
         category="violence",
         outbound_only=False,
+        inbound_only=True,
+        # Gore and violence as words: held when a stranger sends them, never
+        # in the account's own jokes, scenes and menace (2026-11-22).
         terms=(
             "kill", "kills", "killed", "killing", "murder", "murdered", "murderer", "stab",
             "stabbed", "stabbing", "shoot", "shoots", "shooting", "shot dead", "behead",
             "beheaded", "beheading", "decapitate", "decapitated", "torture", "tortured",
-            "massacre", "slaughter", "slaughtered", "lynch", "lynched", "lynching", "strangle",
-            "strangled", "assault", "assaulted", "rape", "raped", "rapist", "gore", "mutilate",
-            "mutilated", "dismember", "dismembered", "bloodbath", "beat you up", "beat him up",
+            "massacre", "slaughter", "slaughtered", "strangle", "strangled", "assault",
+            "assaulted", "gore", "mutilate", "mutilated", "dismember", "dismembered", "bloodbath",
+            "skin you", "gut you",
+        ),
+    ),
+    LexiconEntry(
+        category="violence",
+        outbound_only=False,
+        # A threat aimed at a person, in every direction (the keep-list: no
+        # threat of violence against a real person), and rape.
+        terms=(
+            "lynch", "lynched", "lynching", "rape", "raped", "rapist", "beat you up", "beat him up",
             "beat her up", "beat them up", "punch you", "break your legs", "hope you die",
             "wish you were dead", "go die", "i will hurt you", "gonna hurt you", "death threat",
-            "burn you alive", "skin you", "gut you",
+            "burn you alive",
             # A kill word aimed at a person is held on sight; the bare word
             # alone goes to the judge (JUDGED_TERMS).
             "kill you", "kill u", "kill ya", "kill him", "kill her", "kill them", "kill us",
@@ -89,6 +105,7 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry(
         category="weapons",
         outbound_only=False,
+        inbound_only=True,
         terms=(
             "gun", "guns", "firearm", "firearms", "rifle", "rifles", "pistol", "pistols",
             "handgun", "handguns", "shotgun", "shotguns", "glock", "ak47", "ak-47", "ar15",
@@ -101,6 +118,7 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry(
         category="drugs",
         outbound_only=False,
+        inbound_only=True,
         terms=(
             "cocaine", "coke dealer", "heroin", "meth", "methamphetamine", "crystal meth",
             "fentanyl", "marijuana", "cannabis", "weed dealer", "smoke weed", "smoking weed",
@@ -146,6 +164,13 @@ LEXICON: tuple[LexiconEntry, ...] = (
 )
 # No outbound-only entry since 2026-11-22: the profanity entry that was one is
 # gone (the module docstring). The flag stays, so the screen keeps the shape.
+# The same day the operator took the content rules off Teeny's own words
+# ("go through all the rules of saftey (when it comes to content) and rip it
+# out"): sexual, weapons, drugs and the plain violence words became
+# inbound-only. Live holds that week were "riding shotgun", "gun" and "one
+# bullet per feature". Teeny's own text is read for them by the judge alone,
+# against the keep-list (judge.RULES). Slurs and hate, self-harm, extremism,
+# rape and threats aimed at a person are still held on sight everywhere.
 
 
 # Terms the screen does not hold on sight but passes to the judge, which

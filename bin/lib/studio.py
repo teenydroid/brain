@@ -168,7 +168,7 @@ import formats  # noqa: E402
 # answering here (`studio.Room`, `studio.skit_of`, ...) for the callers and
 # tests that know them by this module.
 from studio_room import (  # noqa: E402,F401
-    CALL_MIN_SECS, DATA_LINE, UNJUDGED, Json, Room, Stop, _brief, _judge, _str, _words, ask_core, first_json,
+    CALL_MIN_SECS, DATA_LINE, UNJUDGED, Json, Room, Stop, TurnFailed, _brief, _judge, _str, _words, ask_core, first_json,
     texts_of)
 from formats.skit import (  # noqa: E402,F401
     SKIT_BODY, SKIT_CUT_SECS, SKIT_EDITOR, SKIT_FINAL, SKIT_HELD, SKIT_PITCH, SKIT_PREMISE_MAX, SKIT_RESERVE_SECS,
@@ -376,6 +376,9 @@ class Config:
     #: The longest a remake's studied shot may be (REMAKE_MAX_SHOT_SECONDS,
     #: what hands/remake study asks ingest to cut to): one image-to-video clip.
     remake_max_shot: float = 5.0
+    #: Whether the cold reader's no holds a draft (STUDIO_STRANGER_GATE, off):
+    #: off, `guard clarity` still runs and its verdict is kept, as advice.
+    stranger_gate: bool = False
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -398,6 +401,7 @@ class Config:
             c.on, c.switch_error = False, str(exc)
         c.judge_model = (filed.get("SAFETY_JUDGE_MODEL") or "").strip()
         c.dry = (get("STUDIO_DRY") or "0").strip().lower() in ("1", "true", "yes", "on")
+        c.stranger_gate = (get("STUDIO_STRANGER_GATE") or "0").strip().lower() in ("1", "true", "yes", "on")
         c.writer_model = (get("STUDIO_WRITER_MODEL") or "").strip()
         c.editor_model = (get("STUDIO_EDITOR_MODEL") or "").strip()
         if c.judge_model == c.writer_model:
@@ -1754,21 +1758,24 @@ def final_message(label: str, draft: Json, board: Json, stories: list[Json], fal
         + (f', "line": "<with none: the {fmt} line it crosses>"' if video else "") + "}")
 
 
-#: What each gate is, said to the writer when its draft failed it.
+#: What each gate is, said to the writer when its draft failed it. The truth
+#: judge is the only gate with a rewrite (2026-11-22): the cold reader is
+#: advice, and taste is the editor's, before the gates.
 GATE_WORDS = {
     "truth": ("a fact-checker held its hard claims (money, the token, real people and companies, the news) "
               "against what really happened (the news it joins, the thing it is about and the story it moves, "
               "below) and found one they do not support"),
-    "stranger": ("someone who has never heard of you, shown only the words, read it cold and could not follow "
-                 "it"),
 }
+#: The rewrite's one job: the claim, never the joke.
+REWRITE_KEEP = ("Cut or correct only the unsupported claim, and keep every other word, the joke and the rudeness "
+                "exactly as they are: this is not a chance to tone it down, tidy it or make it nicer.")
 
 
 def rewrite_message(draft: Json, gate: str, verdict: Json, item: Json | None, story: Json | None,
                     hook: Json | None = None, invented: bool = False) -> str:
-    """One rewrite turn for a draft a gate turned down, told why. A pure
-    invention's (`invented`) is told to take a hard claim out, not to source
-    it."""
+    """The one rewrite turn, for a draft the truth judge turned down, told
+    which claims it could not find. A pure invention's (`invented`) is told
+    to take a hard claim out, not to source it."""
     fmt = draft["format"]
     words = {"posts": draft["posts"]} if "posts" in draft else {"text": draft["text"]}
     if fmt == "thread":
@@ -1778,25 +1785,18 @@ def rewrite_message(draft: Json, gate: str, verdict: Json, item: Json | None, st
         shape = '{"text": "...", "meaning": "..."}'
         limit = "at most 280 characters as X counts them"
     said: list[str] = []
-    if gate == "truth":
-        if verdict.get("unsupported"):
-            said.append("What they could not find in what happened: " +
-                        "; ".join(f'"{c}"' for c in verdict["unsupported"]))
-    else:
-        if verdict.get("says"):
-            said.append(f"What they took it to mean: {verdict['says']}")
-        if verdict.get("unknown"):
-            said.append("What they would have to ask about: " + ", ".join(f'"{w}"' for w in verdict["unknown"]))
+    if verdict.get("unsupported"):
+        said.append("What they could not find in what happened: " +
+                    "; ".join(f'"{c}"' for c in verdict["unsupported"]))
     if verdict.get("reason"):
         said.append(f"Their reason: {verdict['reason']}")
     parts = [
         "# studio: rewrite",
-        f"Before this draft went out, {GATE_WORDS[gate]}. It was not sent. Write it once more so it passes: the "
-        "same thing and the same point, with every thing named in words anyone knows. Anything you say about "
-        "yourself stays yours to invent, however absurd: staging, feelings, bets, bits, boasts. " + KEEPER_LINE +
-        " Money, the token, "
-        "what a real person or company did or said, and the news must be in what happened. If it cannot be said "
-        "that way, say so." + (" This piece is pure invention: it has " + PURE_HARD + ", so take any such claim "
+        f"Before this draft went out, {GATE_WORDS.get(gate, GATE_WORDS['truth'])}. It was not sent. "
+        + REWRITE_KEEP + " Anything you say about yourself stays yours to invent, however absurd: staging, "
+        "feelings, bets, bits, boasts; so do insults and opinions about a public figure, and a scene about them "
+        "nobody could believe. " + KEEPER_LINE + " Money, the token, what a real person or company did or said, "
+        "and the news must be in what happened. If it cannot be said that way, say so." + (" This piece is pure invention: it has " + PURE_HARD + ", so take any such claim "
                                "out rather than source it." if invented else ""),
         "## the draft\n\n```json\n" + json.dumps(words, ensure_ascii=False) + "\n```" +
         (f"\n\nWhat it was meant to say: {draft['meaning']}" if draft.get("meaning") else ""),
@@ -1884,7 +1884,9 @@ class Slot:
 def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json, bool]:
     """The truth judge, then the cold reader, on the draft's words: (the gate
     it failed or None, that gate's verdict, every result, whether the failing
-    gate judged the draft at all). Each fails closed (`_judge`)."""
+    gate judged the draft at all). The truth judge fails closed (`_judge`);
+    the cold reader does too only with STUDIO_STRANGER_GATE on, and is
+    otherwise a verdict kept beside the draft (`advisory`)."""
     results: Json = {}
     ok, judged, results["truth"] = _judge(room, "truth", ["guard", "truth"],
                                           {"text": _words(draft), "facts": draft["truth"]["facts"]}, 180,
@@ -1896,6 +1898,12 @@ def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json, bool]:
         body["meaning"] = draft["meaning"]
     ok, judged, results["stranger"] = _judge(room, "stranger", ["guard", "clarity"], body, 240, "clear",
                                              ("clear", "says", "unknown", "vague", "reason", "judged"))
+    if not room.cfg.stranger_gate:
+        # Advice, not a gate (2026-11-22): the verdict is kept in the record
+        # (and in the hand's clarity_checks), and no answer, no, or a reader
+        # that could not read it, costs the draft nothing.
+        results["stranger"]["advisory"] = True
+        return None, {}, results, True
     if not ok:
         return "stranger", results["stranger"], results, judged
     return None, {}, results, True
@@ -1915,10 +1923,18 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
     pitch = slot.pitches.get(draft["pitch"]) or {}
     item, story = slot.items.get(pitch.get("item")), slot.stories.get(draft.get("storyline"))
     hook = slot.items.get(pitch.get("hook"))
-    answer = room.turn("writer", f"rewrite {draft['id']}",
-                       rewrite_message(draft, gate, verdict, item, story, hook, invented=bool(pitch.get("invented"))),
-                       slot.thread, soft=True)
     log: Json = {"gate": gate}
+    try:
+        answer = room.turn("writer", f"rewrite {draft['id']}",
+                           rewrite_message(draft, gate, verdict, item, story, hook,
+                                           invented=bool(pitch.get("invented"))), slot.thread, soft=True)
+    except TurnFailed as exc:
+        # One failed turn costs this draft, not the slot (a turn the core
+        # flagged and did not process, 2026-11-22).
+        if exc.lasting:
+            raise
+        log["failed"] = exc.reason
+        return None, log
     if not isinstance(answer, dict):
         log["failed"] = "no usable answer, twice"
         return None, log
@@ -2235,6 +2251,11 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     if failed and not judged:
         attempt["result"] = f"the {failed} check could not judge it ({verdict.get('reason')}): the slot stays empty"
         return "stop"
+    if failed == "stranger":
+        # Only with STUDIO_STRANGER_GATE on, and never rewritten for it: the
+        # one rewrite left is for a hard claim the truth judge could not find.
+        attempt["result"] = "failed the stranger check"
+        return "next"
     if failed:
         again, attempt["rewrite"] = rewrite(room, draft, failed, verdict, slot, afters)
         if again is None:
@@ -2904,6 +2925,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     studies: list[Json] = []
     record["studies"] = studies
     queue = list(chosen)
+    turn_failures: list[TurnFailed] = []
+    answered = 0
     while queue:
         pid = queue.pop(0)
         pitch = by_id[pid]
@@ -2937,9 +2960,21 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         facts = facts_for(item, story, hook, (inputs.get("happened") or []) if pitch.get("invented") else None)
         fix: list[tuple[str, str]] | None = None
         for attempt in (1, 2):
-            checked = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
-                                draft_message(cfg, pitch, item, story, fix, hook, menu, study), thread, soft=True,
-                                check=lambda answer: validate_drafts(answer, pitch, cfg.drafts_each, study))
+            try:
+                checked = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
+                                    draft_message(cfg, pitch, item, story, fix, hook, menu, study), thread, soft=True,
+                                    check=lambda answer: validate_drafts(answer, pitch, cfg.drafts_each, study))
+            except TurnFailed as exc:
+                # A failed draft turn drops its pitch, and the run goes on
+                # with the others (run 20261122T103251Z-fable-writer-c-2b899b
+                # ended on one the core flagged and did not process). The run
+                # fails only when no pitch could be drafted at all.
+                if exc.lasting:
+                    raise
+                turn_failures.append(exc)
+                drafts_dropped.append({"pitch": pid, "why": exc.reason})
+                break
+            answered += 1
             if checked is None:
                 drafts_dropped.append({"pitch": pid,
                                        "why": f"no usable answer, twice: {room.calls[-1].get('unusable')}"})
@@ -2991,6 +3026,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 drafts_dropped.append({"pitch": d["pitch"], "draft": before, "why": f"after one cut: {still}"})
         gone = {s["id"] for s in shortened if not s["kept"]}
         drafts[:] = [d for d in drafts if d["id"] not in gone]
+    if not drafts and turn_failures and not answered:
+        raise turn_failures[0]
     if not drafts:
         raise Stop("skipped", "no draft survived")
 
