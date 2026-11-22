@@ -882,7 +882,7 @@ recorded on a text the current one does not *materially* differ from:
 | `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled; `already` and `not-worth` for a cool-off (below) |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
+| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below; or the core's prompt screen held the turn, `deferred_for: screen`) | open, and not a failed try; `screened` (set aside for a cool-off) after `MAX_SCREEN_HOLDS` screen holds in a row |
 | `crashed` (the generation raised while it was in flight) | open, and not a failed try |
 | `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated` (`EVOLVE_EVALUATOR=none` and a task reaches it), `pr-error` (a rule's refusal, or a hold on the guard's verdict), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
@@ -1028,6 +1028,23 @@ recorded on the candidate as `infra: {stage, detail}` and charges no try:
   usable proposal (not JSON after its retry, a missing field every round)
   is still `no-proposal`, a failed try. A failed research turn already costs
   nothing: the build goes on without research.
+- **screen** (not `infra`): the core's prompt screen held the message
+  (`Prompt flagged for security review`, or `blocked by security policy`).
+  The screen is TinySecurity's, run by openhuman-core
+  (`security/prompt_injection`) on every agent-chat message, and it holds
+  anything over 64 KiB unscanned as `input.oversized`. Gen 24 (2026-11-22)
+  lost three of four candidates that way, at 66-68 KB, as gen 1 had lost
+  all four; the screen never read their content. A held turn is not asked
+  again in the run (the same message is held the same way), and a message
+  over 64 KiB is not sent at all. The candidate is `deferred`
+  (`deferred_for: screen`), with `screen: {stage, round, bytes, limit,
+  oversized, sha, sections, said}`: the message's size, the first 16 hex of
+  its sha256 and its four largest sections by heading, never its text. It
+  charges no try. After `MAX_SCREEN_HOLDS` (2) holds in a row the learning
+  is `screened`, set aside for `EVOLVE_SKIP_COOLOFF_DAYS` and then tried
+  once more, and the `screen-held` problem issue is raised (one issue,
+  commented on at most once a day, "Problems" below): ids, sizes and
+  headings only.
 - **eval**: `bin/eval affected` erroring, a lab that does not boot, the
   baseline, or a run or compare that fails: `deferred` (`deferred_for: infra`).
 - **publish**: the guard holding the pull request only because its judge
@@ -1050,8 +1067,8 @@ runway tier when the wallet is low) open learnings, in this order:
    self-portraits), rarely a behaviour to change, and gens 9-15 skipped
    most of them. One fills a slot only when no rule or promise is open;
 2. fewest failed tries first, so one stuck learning doesn't hold the line;
-3. fewest infrastructure deferrals and crashes on the id (`deferred_for:
-   infra`, `crashed`), which charge no try: one the box keeps failing (a
+3. fewest infrastructure and screen deferrals and crashes on the id
+   (`deferred_for: infra` or `screen`, `crashed`), which charge no try: one the box keeps failing (a
    provider that refuses the prompt for that one learning) drifts to the
    back instead of holding a slot every run, and is never given up on;
 4. the newest text first. The reflection keeps the page before each
@@ -1483,7 +1500,16 @@ research named.
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
 happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
-64 KiB prompt screen. The evidence is written once per generation and reused
+64 KiB prompt screen. Every message is cut to 60 KiB (`fit_request`): the
+largest shown files first (those research named last), and when the message
+is still too big with no file left (gen 24's were 66 KB on what is not a
+file: 13 KB of editable paths, 30 KB of evidence, 6.5 KB of earlier tries),
+then the editable paths research did not name are counted by folder, then
+the evidence's largest parts are dropped (the score stays), then the oldest
+earlier tries, then the web results. Each cut is named in the message
+("left out to fit the message"); a revising round's findings and last change
+are never cut. The build message does not repeat the lessons by kind in its
+evidence: its brief leads with them. The evidence is written once per generation and reused
 when a restart resumes it.
 
 ### 3. Propose
