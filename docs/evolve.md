@@ -285,8 +285,12 @@ runs when its playbook runs, so on that playbook's cron schedule.
 
 `bin/seed-cron` and `bin/doctor` both run `bin/lib/cron_policy.py`:
 
-- A brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
-  must exist.
+- A brain job runs `bin/heartbeat`, `bin/act <playbook>` (the playbook must
+  exist) or `bin/studio`; or one of the pipelines that are Teeny's to
+  schedule since 2026-11-22, with exactly the arguments the policy lists
+  (`BRAIN_SCRIPTS`: `bin/dream --detach`, `bin/dream --light --detach`,
+  `bin/moltbook-prune`); or the `builder` or `mind` agent with a prompt
+  (`docs/mind.md`). At most 240 agent runs a day across every job.
 - No job fires more often than every 5 minutes, computed from the minute and
   hour fields with wraparound included.
 - At most 60 jobs in all, and at most 400 `bin/act` runs a day across enabled

@@ -164,7 +164,9 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   `do propose_change`, which goes to the builder and opens a pull request a
   person merges. Pushing a branch from its own clone and having it merge on
   green CI is the next step.
-- **Owning the pipelines.** The dream, the builder and the other pinned
-  jobs stay pinned for now.
+- **Owning every pipeline.** The two dreams, the builder, the lore episode
+  and the Moltbook prune are in `brain/cron.toml` now, Teeny's to
+  reschedule, pause or drop. Evolve, the wants feed and the desks stay
+  pinned for now; the watchers and the money jobs stay pinned for good.
 - **Sub-agents and a browser of its own.** A child of a cron run is
   read-only in the core today; browsing goes through `do queue_task`.
