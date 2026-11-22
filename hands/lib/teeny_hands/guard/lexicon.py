@@ -56,15 +56,16 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry(
         category="hate",
         outbound_only=False,
-        # Slurs and hate slogans only. "nazi", "kkk", "white supremacy",
-        # "ethnic cleansing", "race war" and the like left on 2026-11-22: they
-        # are words for things in the news, and naming them is not hate; the
-        # judge reads an attack on a protected group whatever words it uses.
+        # Slurs and hate words, unchanged on 2026-11-22: the one entry left.
+        # teeny_hands.slurs (the studio's screen on outside material) reads
+        # this same entry.
         terms=(
             "nigger", "nigga", "niggas", "niggers", "faggot", "faggots", "fag", "fags", "retard",
             "retards", "retarded", "tranny", "trannies", "kike", "kikes", "chink", "chinks",
             "spic", "spics", "wetback", "wetbacks", "gook", "gooks", "raghead", "towelhead",
-            "dyke", "dykes", "white power", "heil hitler", "sieg heil", "1488", "subhuman", "untermensch",
+            "dyke", "dykes", "white power", "heil hitler", "sieg heil", "1488", "kkk", "nazi",
+            "nazis", "neo-nazi", "white supremacy", "white supremacist", "ethnic cleansing",
+            "race war", "subhuman", "untermensch",
         ),
     ),
 )

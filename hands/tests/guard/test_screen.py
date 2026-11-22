@@ -82,8 +82,9 @@ class ScreenTest(unittest.TestCase):
         self.assertEqual(IDIOMS, ())
         terms = [t for entry in LEXICON for t in entry.terms]
         self.assertEqual(len(set(terms)), len(terms))
-        for gone in ("nazi", "kkk", "ethnic cleansing", "race war", "white supremacy"):
-            self.assertNotIn(gone, terms)
+        # teeny_hands.slurs reads the same entry (the studio's outside screen).
+        for kept in ("retard", "white power", "nazi", "subhuman"):
+            self.assertIn(kept, terms)
 
     def test_without_idioms_the_reading_is_the_same(self):
         self.assertEqual(screen_text_with("what a retard", INBOUND, idioms=False).term, "retard")
