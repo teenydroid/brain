@@ -1982,6 +1982,65 @@ def render_evolver_request(request: Json) -> str:
 #: `input.oversized` (openhuman-core security/prompt_injection, MAX_PROMPT_BYTES),
 #: so a bigger proposer message never runs. Headroom for what bin/ask wraps it in.
 MAX_PROPOSER_PROMPT_BYTES = 60 * 1024
+#: The screen's own limit: a message over it is held without being scanned.
+SCREEN_LIMIT_BYTES = 64 * 1024
+#: Evidence that stays when the rest is cut to fit: the score and its date.
+KEPT_EVIDENCE = ("world", "at")
+
+
+def _fold_paths(fitted: Json, keep: set[str]) -> str | None:
+    """The editable paths, those research named (KEEP) by name and the rest
+    counted by folder: gen 24's list alone was 13 KB."""
+    paths = list(fitted.get("editable") or [])
+    folded: dict[str, int] = {}
+    named = []
+    for rel in paths:
+        if rel in keep:
+            named.append(rel)
+        else:
+            folder = rel.rsplit("/", 1)[0] + "/" if "/" in rel else "./"
+            folded[folder] = folded.get(folder, 0) + 1
+    if not folded:
+        return None
+    fitted["editable"] = named + [f"{folder} ({n} path{'s' if n != 1 else ''})" for folder, n in sorted(folded.items())]
+    return "the paths you may change: those not named are counted by folder (any of them is still yours to change)"
+
+
+def _less_evidence(fitted: Json, fits: Any) -> str | None:
+    """The evidence's largest parts dropped until the message fits, the score
+    (KEPT_EVIDENCE) kept."""
+    evidence = dict(fitted.get("evidence") or {})
+    dropped = []
+    for key in sorted((k for k in evidence if k not in KEPT_EVIDENCE),
+                      key=lambda k: -len(json.dumps(evidence[k], ensure_ascii=False))):
+        del evidence[key]
+        dropped.append(key)
+        fitted["evidence"] = evidence
+        if fits(fitted):
+            break
+    return f"evidence: {', '.join(dropped)}" if dropped else None
+
+
+def _fewer_tried(fitted: Json, fits: Any) -> str | None:
+    """The oldest earlier tries dropped until the message fits; the one that
+    settled the learning stays (tried_before puts it first)."""
+    tried = list(fitted.get("tried") or [])
+    dropped = 0
+    while len(tried) > 1 and not fits(fitted):
+        del tried[1 if tried[0].get("settled") else 0]
+        dropped += 1
+        fitted["tried"] = tried
+    return f"the {dropped} oldest of the earlier tries" if dropped else None
+
+
+def _less_web(fitted: Json, fits: Any) -> str | None:
+    web = list(fitted.get("web") or [])
+    dropped = 0
+    while web and not fits(fitted):
+        web.pop()
+        dropped += 1
+        fitted["web"] = web
+    return f"the last {dropped} web search(es)" if dropped else None
 
 
 def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: Any = None) -> Json:
@@ -1990,22 +2049,59 @@ def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: A
     dropped first, and the message names them (they stay editable), the
     files in KEEP (research named them, or an edit to them did not apply)
     last of all: gens 16 and 17 dropped brain/CONTEXT.md, the file their
-    research named, and the proposer quoted it from memory. A request that
+    research named, and the proposer quoted it from memory. When the
+    message is still too big with no file in it (gen 24, 2026-11-22: 66 KB
+    with every file dropped, and three candidates held as
+    `input.oversized`), the rest is cut in turn, each cut named in the
+    message (`cut`): the editable paths counted by folder, the evidence's
+    largest parts, the oldest earlier tries, the web results. The findings
+    and the last change of a revising round are never cut. A request that
     fits comes back as it is."""
     render = render or render_request
-    if len(render(request).encode("utf-8")) <= limit:
+
+    def fits(r: Json) -> bool:
+        return len(render(r).encode("utf-8")) <= limit
+
+    if fits(request):
         return request
-    fitted = dict(request, files=dict(request["files"]), readonly=dict(request.get("readonly") or {}),
-                  omitted=list(request.get("omitted", [])))
+    fitted = dict(request, files=dict(request.get("files") or {}), readonly=dict(request.get("readonly") or {}),
+                  omitted=list(request.get("omitted", [])), cut=list(request.get("cut") or []))
     shown = [("readonly", r) for r in fitted["readonly"]] + [("files", r) for r in fitted["files"]]
     keep = set(request.get("keep") or [])
     for key, rel in sorted(shown, key=lambda kr: (kr[1] in keep, -len(fitted[kr[0]][kr[1]].encode("utf-8")))):
         del fitted[key][rel]
         if key == "files":
             fitted["omitted"].append(rel)
-        if len(render(fitted).encode("utf-8")) <= limit:
+        if fits(fitted):
+            return fitted
+    named = keep | set((request.get("research") or {}).get("document") or [])
+    for step in (lambda f: _fold_paths(f, named), lambda f: _less_evidence(f, fits),
+                 lambda f: _fewer_tried(f, fits), lambda f: _less_web(f, fits)):
+        what = step(fitted)
+        if what:
+            fitted["cut"].append(what)
+        if fits(fitted):
             break
     return fitted
+
+
+def cut_text(request: Json) -> str | None:
+    """What fit_request cut that is not a file, so the proposer knows it is
+    reading less than there is."""
+    if not request.get("cut"):
+        return None
+    return ("## left out to fit the message\n\nThe core screens every message and holds one over "
+            f"{SCREEN_LIMIT_BYTES // 1024} KiB unread, so this one was cut: "
+            + "; ".join(request["cut"]) + ".")
+
+
+def prompt_sections(message: str, n: int = 4) -> list[Json]:
+    """The N largest `## ` sections of MESSAGE by their headings and sizes:
+    what a held turn's record and its issue name, never the text."""
+    parts = re.split(r"\n\n(?=## )", message)
+    rows = [{"section": p.split("\n", 1)[0].lstrip("# ").strip()[:80], "bytes": len(p.encode("utf-8"))}
+            for p in parts]
+    return sorted(rows, key=lambda r: -r["bytes"])[:n]
 
 
 def evidence_text(evidence: Mapping[str, Any]) -> str:
