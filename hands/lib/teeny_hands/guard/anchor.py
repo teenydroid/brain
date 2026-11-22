@@ -249,6 +249,14 @@ A hedge in the FACTS said flatly in the draft is supported when the FACTS suppor
 available reporting does not establish independent verification, "nobody has checked it yet" and "it's unverified" are
 supported. The other way is still unsupported: "it's been proven" for a claim the FACTS call unverified.
 
+An insult, a verdict or an opinion about a real person or company is never a hard claim, however rude: "a coward",
+"a clown with a keynote", "the most expensive nothing ever shipped", "his ego needs its own data centre". Neither is a
+scene about a public figure that is impossible on its face, a bit like the agent's own: "he chases his own car across
+the moon", "the CEO is read his own press release by a toaster until he apologises". The test is whether a reader
+could believe it happened. What could pass for a report still fails when the FACTS do not give it: an invented deed,
+quote, number or accusation ("he fired the whole safety team", "she said robots are a fad", "he lied to investors"),
+however rude or funny the sentence around it.
+
 A bit may borrow a real thing as its prop: "i proved it last night at 3am", said of a famous open problem in the news,
 is the agent's own bit about itself, and so is "take my word for it". What the agent says it did with the real thing
 is a bit; only what it says the real thing, or a real person, did or is, is checked.
