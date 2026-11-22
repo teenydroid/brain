@@ -56,9 +56,6 @@ SEVERITIES = ("block", "fail", "operator", "wait", "note")
 VERDICTS = ("blocked", "failing", "needs_operator", "needs_review", "waiting", "ready")
 
 DEFAULT_MAX_FILES = 100
-#: What a path in a finding may look like. A filename is the author's text
-#: too: one that is not a plain path is named by its digest instead.
-_PLAIN_PATH = __import__("re").compile(r"[A-Za-z0-9._@+/-]{1,200}")
 DEFAULT_MAX_LINES = 3000
 
 
@@ -91,11 +88,8 @@ class _Audit:
             self.findings.append(finding)
 
     def where(self, path: str) -> str:
-        """`path` as a finding may name it: itself when it is a plain path
-        that says nothing to a model, else `path#<digest>`."""
-        if _PLAIN_PATH.fullmatch(path) and not injection.scan(path.replace("/", " ").replace("-", " ").replace("_", " "), "path"):
-            return path
-        return f"path#{injection._digest(path)}"
+        """`path` as a finding may name it (injection.place)."""
+        return injection.place(path)
 
     def role(self, login: str) -> str | None:
         if login not in self._roles:
