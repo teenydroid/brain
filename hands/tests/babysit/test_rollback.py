@@ -146,7 +146,7 @@ class RevertTest(RollbackScratch):
     def test_a_bad_deploy_opens_one_revert_issue_not_one_per_run(self):
         self.bad()
         out = rollback.check()
-        self.assertEqual(out["revert"]["number"], 99)
+        self.assertEqual(out["reverts"][0]["number"], 99)
         for minutes in (25, 45, 65, 85):
             self.at(minutes * 60)
             rollback.check()
@@ -165,11 +165,11 @@ class RevertTest(RollbackScratch):
         self.gh.route("POST", f"/repos/{REPO}/issues", {"message": "boom"}, status=502)
         self.bad()
         out = rollback.check()
-        self.assertIn("error", out["revert"])
+        self.assertIn("error", out["reverts"][0])
         self.assertEqual(len(self.rows("deploy_bad")), 1)
         self.gh.route("POST", f"/repos/{REPO}/issues", {"number": 99, "html_url": "https://github.com/i/99"})
         self.at(25 * 60)
-        self.assertEqual(rollback.check()["revert"]["number"], 99)
+        self.assertEqual(rollback.check()["reverts"][0]["number"], 99)
         self.at(45 * 60)
         rollback.check()
         self.assertEqual(len(self.rows("deploy_revert")), 1)

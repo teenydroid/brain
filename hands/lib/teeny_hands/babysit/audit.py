@@ -187,6 +187,9 @@ class _Audit:
         if not files:
             self.add("empty_diff", "wait", "diff")
         frozen = policy.frozen_checker(self._frozen_list()) if policy.is_brain(self.repo) else None
+        # A self-merge candidate touching what a bad deploy changed waits for
+        # the operator for a day (rollback.py), on either gate.
+        self.rolled_back = rollback.blocked_places() if self.evolve else set()
         for f in files:
             raw = str(f.get("filename") or "")
             path = self.where(raw)
