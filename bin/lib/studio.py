@@ -1097,13 +1097,18 @@ def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, 
                            None, soft=True)
         verdict = _str(answer.get("verdict"), 20).lower() if isinstance(answer, dict) else ""
         reason = _str(answer.get("reason"), 400) if isinstance(answer, dict) else ""
-        if verdict == "pick":
+        line = _str(answer.get("line"), 300) if isinstance(answer, dict) else ""
+        if verdict == "pick" or (verdict == "none" and not line):
+            # A none that names no line of the list is taste, which is no
+            # veto (2026-11-22): it is a pick, with the editor's words kept.
+            if verdict != "pick":
+                reason = f"a none that names no line of the list is a pick: {reason or 'no reason given'}"
             out = {"verdict": "pick", "reason": reason}
             record.update(outcome="picked", reason=reason, pick=candidate)
         else:
             why = reason or ("the editor's answer was not usable, twice" if answer is None else "the editor picked none")
-            if isinstance(answer, dict) and _str(answer.get("line"), 300):
-                why = f"{why} (breaks: {_str(answer['line'], 300)})"
+            if line:
+                why = f"{why} (breaks: {line})"
             out = {"verdict": "none", "reason": why}
             record.update(outcome="vetoed", reason=why, pick=None)
     except Stop as stop:

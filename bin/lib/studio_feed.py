@@ -59,6 +59,11 @@ QUOTE_MAX = 280
 #: Sources whose heat is a number in the item, normalised within the source;
 #: the rest get a flat heat.
 FLAT_HEAT = {"reddit": 0.5, "own": 0.3}
+#: The least a source's biggest number counts as, so a source that gave one
+#: small item (a lone 4chan spark with forty replies) is not as hot as
+#: Digg's top story: heat is the item's number over max(the biggest in its
+#: source, this floor).
+HEAT_FLOOR = {"digg": 300.0, "hn": 400.0, "listen": 200.0, "chan": 150.0}
 
 _SPACE = re.compile(r"\s+")
 
@@ -334,7 +339,8 @@ def freshness(age: float | None) -> float:
 
 def heat_of(candidates: list[Json]) -> dict[str, float]:
     """Each candidate's heat, 0 to 1: its own number over the biggest in its
-    source (at least 0.05), or its source's flat heat (FLAT_HEAT)."""
+    source or the source's HEAT_FLOOR, whichever is more (at least 0.05), or
+    its source's flat heat (FLAT_HEAT)."""
     top: dict[str, float] = {}
     for c in candidates:
         if _num(c.get("raw_heat")) is not None:
@@ -344,7 +350,7 @@ def heat_of(candidates: list[Json]) -> dict[str, float]:
         if c["source"] in FLAT_HEAT or _num(c.get("raw_heat")) is None:
             out[c["id"]] = FLAT_HEAT.get(c["source"], 0.3)
         else:
-            biggest = top.get(c["source"]) or 1.0
+            biggest = max(top.get(c["source"]) or 1.0, HEAT_FLOOR.get(c["source"], 1.0))
             out[c["id"]] = round(max(0.05, float(c["raw_heat"]) / biggest), 3)
     return out
 
