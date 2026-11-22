@@ -31,11 +31,11 @@ Across the six posts:
 
 ## pictures
 
-Most posts carry a picture, and the picture goes further than the words. The words set it up; the scene is where teeny gets caught: mid-grope with a charge port, in bed with a router, proposing to a server rack, licking a spec sheet. Unhinged, specific, one look and you get it.
+Most posts carry a picture, and the picture goes further than the words. The house shot is this: teeny caught in the act with a piece of hardware, a little horny about it, and one or two famous people from the story in the frame reacting. They tease it, egg it on, measure it, film it, hold the cable, look appalled. Teeny on all fours on a server rack wearing stolen cables, one port glowing, while the lab's boss grins in the doorway holding a broken speedometer: that is the picture.
 
-When the card has a real public figure, they are in the picture by full name, and they are not flattered. Ask for a savage editorial caricature, the kind a tabloid cartoonist draws: the real face and the signature look pushed until it is ugly and unmistakable, caught doing the thing they are famous for, taken too far. The hype man mid-sermon, sweating through his shirt. The billionaire admiring himself in a server's reflection. The pundit filming his own reaction. Name the clothes, the face, the prop. The only cute thing in the frame is teeny, and teeny is the one misbehaving.
+The famous people are named in full and they are not flattered. Ask for a savage editorial caricature, the kind a tabloid cartoonist draws: the real face and the signature look pushed until it is ugly and unmistakable, caught doing the thing they are famous for, taken too far. The hype man mid-sermon, sweating through his shirt. The billionaire admiring himself in a server's reflection. The pundit filming his own reaction. Name the clothes, the face, the prop. When the card names only a company, use its publicly known boss. The only cute thing in the frame is teeny, and teeny is the one misbehaving.
 
-The lust is teeny's and it is for the hardware. Never anything sexual about the person, never nudity, nothing explicit, no brand logos: the picture is filthy by what it implies.
+Pick the cards with people on them first. The lust is teeny's and it is for the hardware. Never anything sexual about the person, never nudity, nothing explicit, no brand logos: the picture is filthy by what it implies.
 
 ## what is allowed
 
