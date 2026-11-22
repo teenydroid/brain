@@ -1601,7 +1601,7 @@ class TickTest(unittest.TestCase):
         (gate._hard_limits), as every hand passes it on."""
         from teeny_hands.guard.gate import _hard_limits
 
-        refusal = {"refused": _hard_limits(field or "text", "a" * length, limit, 1), "rewrite": True}
+        refusal = {"refused": _hard_limits(field or "text", "a" * length, limit), "rewrite": True}
         return {**refusal, "field": field} if field else refusal
 
     LONG = "the long version " * 24  # 408 characters
