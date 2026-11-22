@@ -29,7 +29,7 @@ from .. import hand, tags
 from . import open_db, twitr
 from . import cache, media, mentions, peers
 from . import posting_rules as rules
-from .client import XApi, XError, number_setting
+from .client import XApi, XError
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
