@@ -1890,6 +1890,44 @@ class TickTest(unittest.TestCase):
         self.assertEqual(tick._caps_today()["queue_task"], 1)
         self.assertEqual(list((self.root / "state" / "tick").glob("*.tmp")), [])
 
+    def test_an_inbox_folder_that_cannot_be_written_is_a_refusal_not_a_crash(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        notes = self.root / "state" / "home" / "notes"
+        notes.mkdir(parents=True)
+        notes.chmod(0o555)
+        try:
+            if os.access(notes, os.W_OK):
+                self.skipTest("running as a user the mode does not stop")
+            with self.assertRaises(ValueError) as caught:
+                tick._hand_to_mind({"note": "hello"}, "t")
+            self.assertIn("inbox", str(caught.exception))
+        finally:
+            notes.chmod(0o755)
+
+    def test_the_count_is_read_and_stored_under_one_day(self):
+        # A midnight between the read and the write must not store
+        # yesterday's date over today's count.
+        self.caps(MIND_TASKS_PER_DAY=5)
+        tick = _tick_module()
+        tick._count_capped("queue_task")
+        times = iter([float(os.environ["TEENY_NOW"]) + 86400])  # the next read of the clock is tomorrow
+        real = tick.hand.now
+        first = [True]
+
+        def now():
+            if first[0]:
+                first[0] = False
+                return real()
+            return next(times, real() + 86400)
+
+        tick.hand.now = now
+        self.addCleanup(setattr, tick.hand, "now", real)
+        tick._count_capped("queue_task")
+        saved = json.loads((self.root / "state" / "tick" / "caps.json").read_text())
+        self.assertEqual(saved["counts"]["queue_task"], 2)
+        self.assertEqual(saved["day"], dt.datetime.fromtimestamp(real(), dt.timezone.utc).strftime("%Y-%m-%d"))
+
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
         self.answer({"thought": "", "intents": [{"do": "follow_up", "in_hours": 48, "about": "did ana ship?"}]},

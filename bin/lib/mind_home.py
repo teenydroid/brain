@@ -73,9 +73,21 @@ def _folder(parts: tuple[str, ...]) -> int:
     return fd
 
 
+def _open(parts: tuple[str, ...]) -> int:
+    """_folder, with any failure on the way (a folder that cannot be made or
+    opened) as a HomeError, like every other failure here."""
+    try:
+        return _folder(parts)
+    except HomeError:
+        raise
+    except OSError as exc:
+        raise HomeError(f"the mind's home could not be opened at {'/'.join((HOME, *parts))} "
+                        f"({exc.strerror or exc})") from None
+
+
 def ensure(*parts: str) -> Path:
     """state/home/<parts...> as real folders."""
-    os.close(_folder(parts))
+    os.close(_open(parts))
     return home().joinpath(*parts)
 
 
@@ -83,7 +95,7 @@ def write(parts: tuple[str, ...], name: str, text: str, mode: int = 0o644) -> Pa
     """Writes TEXT whole to state/home/<parts...>/NAME; never through a link."""
     if name in ("", ".", "..") or "/" in name:
         raise HomeError(f"not a file name: {name!r}")
-    folder = _folder(parts)
+    folder = _open(parts)
     tmp = f".{name}.{secrets.token_hex(8)}.tmp"
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=folder)

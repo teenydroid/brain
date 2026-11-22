@@ -55,15 +55,24 @@ jobs = json.load(open(os.environ["FAKE_JOBS"]))
 if method == "cron_list":
     print(json.dumps(jobs))
 elif method == "cron_add":
-    job = {"id": f"job-{len(jobs) + 1}", "enabled": True, **params}
+    taken = {str(j["id"]) for j in jobs}
+    n = len(jobs) + 1
+    while f"job-{n}" in taken:
+        n += 1
+    job = {"id": f"job-{n}", "enabled": True, **params}
     json.dump(jobs + [job], open(os.environ["FAKE_JOBS"], "w"))
     print(json.dumps(job))
 elif method == "cron_remove":
+    if str(params["job_id"]) in os.environ.get("FAKE_REMOVE_FAILS", "").split(","):
+        sys.exit("the core refused")
     json.dump([j for j in jobs if str(j["id"]) != str(params["job_id"])], open(os.environ["FAKE_JOBS"], "w"))
     print("{}")
 else:
     sys.exit(f"unexpected method {method}")
 """
+
+#: Straight to the broker: never through a proxy the test runner has set.
+DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 TICK_JOB = {"id": "core-1", "name": "teeny.tick", "job_type": "shell", "command": "bin/tick --detach",
             "schedule": {"kind": "cron", "expr": "*/5 * * * *", "tz": "UTC"}, "enabled": True}
@@ -163,7 +172,7 @@ class BrokerCase(unittest.TestCase):
         else:
             req.add_header("Authorization", f"Bearer {self.token if token is None else token}")
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with DIRECT.open(req, timeout=30) as resp:
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             with exc:
@@ -282,7 +291,7 @@ class AuthTest(BrokerCase):
             req = urllib.request.Request(self.url + "/goals", method=method,
                                          headers={"Authorization": f"Bearer {self.token}"})
             with self.assertRaises(urllib.error.HTTPError) as caught:
-                urllib.request.urlopen(req, timeout=30)
+                DIRECT.open(req, timeout=30)
             with caught.exception as answer:
                 self.assertEqual(answer.code, 405)
                 self.assertEqual(json.loads(answer.read())["status"], "refused")
@@ -449,6 +458,44 @@ class RehearsalQueuesTest(BrokerCase):
         self.assertEqual(len(self.jobs()), 2)
 
 
+class RehearsalCountsTest(BrokerCase):
+    def test_a_rehearsal_spends_nothing_of_the_days_allowance(self):
+        # With MIND_ISSUES_PER_DAY=1, a rehearsed open_issue must leave the
+        # one real issue of the day still to be had.
+        self.start(MIND_DRY_RUN="1", MIND_ISSUES_PER_DAY="1")
+        issue = {"do": "open_issue", "repo": "teenydroid/brain", "title": "the morning post failed", "text": "see health"}
+        for _ in range(3):
+            code, out = self.post("/do", issue)
+            self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(self.caps(), {})
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["gh", "gh", "gh"])
+
+    def test_a_live_request_is_counted(self):
+        self.start(MIND_ISSUES_PER_DAY="1")
+        issue = {"do": "open_issue", "repo": "teenydroid/brain", "title": "the morning post failed", "text": "see health"}
+        self.assertEqual(self.post("/do", issue)[0], 200)
+        self.assertEqual(self.caps(), {"open_issue": 1})
+        self.assertEqual(self.post("/do", issue)[0], 403)
+
+
+class UnicodeTest(BrokerCase):
+    def test_a_lone_surrogate_is_refused_and_still_answered_and_ledgered(self):
+        self.start(MIND_DRY_RUN="1")
+        for path, raw in (("/wake", b'{"name": "x", "note": "bad \\ud800 note", "cron": "0 9 * * *"}'),
+                          ("/do", b'{"do": "reply_x", "to": "1", "text": "bad \\udfff"}'),
+                          ("/do", b'{"do": "reply_x", "to": "1", "text": "ok", "\\ud800": 1}')):
+            code, out = self.post(path, raw=raw)
+            self.assertEqual((code, out["status"]), (403, "refused"), (path, out))
+            self.assertIn("Unicode", out["reason"])
+        self.assertEqual(len(self.ledger()), 3)
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_well_formed_unicode_is_fine(self):
+        self.start(MIND_DRY_RUN="1")
+        code, out = self.post("/wake", {"name": "x", "note": "read 論文 🦀", "cron": "0 9 * * *"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+
+
 class SwitchTest(BrokerCase):
     def test_enabled_follows_the_settings_parser_not_the_shape_of_the_line(self):
         for text, code in (("MIND=1\n", 0), ("MIND = 1\n", 0), ("  MIND=1\n", 0), ('MIND="1"\n', 0),
@@ -465,6 +512,16 @@ class SwitchTest(BrokerCase):
         out = self.broker("sweep")
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(sorted(j["name"] for j in self.jobs()), ["teeny.mind", "teeny.tick"])
+
+    def test_sweep_goes_on_after_a_removal_fails_and_says_so(self):
+        daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
+        self.set_jobs([TICK_JOB, _mind_job("stuck", daily, 1), _mind_job("morning", daily, 2),
+                       _mind_job("evening", daily, 3)])
+        self.settings(MIND="0")
+        out = self.broker("sweep", env={"FAKE_REMOVE_FAILS": "m-1"})
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("mind.stuck", out.stderr)
+        self.assertEqual(sorted(j["name"] for j in self.jobs()), ["mind.stuck", "teeny.tick"])
 
     def test_sweep_leaves_the_wakes_while_the_mind_is_on(self):
         daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
@@ -498,6 +555,9 @@ class OperatorNoteTest(BrokerCase):
         (self.home / "notes").symlink_to(self.root / "secrets")
         self.assertEqual(self.note("host-1-ab", "hello").returncode, 0)
         self.assertEqual(sorted(p.name for p in (self.root / "secrets").iterdir()), ["teeny.env"])
+        note = self.home / "notes" / "inbox" / "operator-host-1-ab.md"
+        self.assertFalse((self.home / "notes").is_symlink())
+        self.assertEqual(note.read_text(), "hello")
 
 
 class BodyTest(BrokerCase):

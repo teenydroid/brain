@@ -97,15 +97,21 @@ check "and reaches nothing" [ ! -e "$root/calls.log" ]
 fresh mind
 set +e; out="$(tell --mind "look at what the claw agents are doing and try one idea" 2>&1)"; code=$?; set -e
 check "--mind exits 0" [ "$code" = 0 ]
-note="$(find "$root/state/home/notes/inbox" -name "operator-host-*.md" 2>/dev/null | head -n 1)"
-check "it leaves one operator note in the mind's inbox" [ -n "$note" ]
+notes="$(find "$root/state/home/notes/inbox" -name "operator-host-*.md" 2>/dev/null)"
+check "it leaves exactly one operator note in the mind's inbox" [ "$(grep -c . <<<"$notes")" = 1 ]
+note="$(head -n 1 <<<"$notes")"
 check "the note carries the text" grep -q "look at what the claw agents are doing and try one idea" "$note"
 check "and says it is the operator's" grep -q "^from: operator" "$note"
-check "no stimulus is added and no beat started" sh -c "! grep -q 'stimuli add\|bin/tick' '$root/calls.log'"
+set +e; grep -q 'stimuli add\|bin/tick' "$root/calls.log"; found=$?; set -e
+check "no stimulus is added and no beat started (the call log was read)" [ "$found" = 1 ]
 check "it is counted in said.jsonl, by hash and never by text" python3 -c '
 import json, sys
 rows = [json.loads(l) for l in open(sys.argv[1])]
-assert len(rows) == 1 and rows[0]["to"] == "mind" and rows[0]["chars"] == 55 and "text" not in rows[0], rows
+text = "look at what the claw agents are doing and try one idea"
+assert len(rows) == 1 and rows[0]["to"] == "mind" and rows[0]["chars"] == len(text) == 55, rows
+import hashlib
+assert rows[0]["sha256"] == hashlib.sha256(text.encode()).hexdigest(), rows
+assert text not in open(sys.argv[1]).read() and "claw agents" not in json.dumps(rows), rows
 ' "$root/state/host/said.jsonl"
 check "it says where the note went" grep -q "left for the mind" <<<"$out"
 
