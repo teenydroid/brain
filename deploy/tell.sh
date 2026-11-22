@@ -22,8 +22,10 @@
 # file, operator-<ref>.md, in state/home/notes/inbox/, which that mind reads
 # at its next wake as the one voice it takes instructions from. No beat is
 # started and nothing is waited for: it works on its own schedule and says
-# what it did in its journal. This script is the only writer of operator-*
-# notes; the tick's own hand-over is named tick-*.
+# what it did in its journal. The note is written inside the spine by
+# `bin/broker operator-note`, the only writer of operator-* notes (the tick's
+# own hand-over is named tick-*), and never through a link the mind left in
+# its inbox.
 #
 # Every message is counted in state/host/said.jsonl (time, ref, length and a
 # hash, never the text): DIRECTIVE.md's test says no person starts a turn,
@@ -82,7 +84,7 @@ print(json.dumps(row))' >>"$STATE/host/said.jsonl"
 
 if [ "$to_mind" = 1 ]; then
   printf 'from: operator\nat: %s\n\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$text" |
-    spine tee "state/home/notes/inbox/operator-$ref.md" >/dev/null ||
+    spine bin/broker operator-note "$ref" >/dev/null ||
     die "could not leave the note (is the spine up, and MIND=1 so state/home exists?)"
   said mind
   printf 'left for the mind (%s): it reads its inbox at its next wake\n' "$ref"

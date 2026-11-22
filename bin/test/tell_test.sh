@@ -32,10 +32,10 @@ case "$*" in
       none) : ;;
     esac >>"$FAKE_ROOT/state/tick/runs.jsonl"
     ;;
-  *"tee state/home/notes/inbox/operator-"*)
+  *"bin/broker operator-note host-"*)
     mkdir -p "$FAKE_ROOT/state/home/notes/inbox"
     all="$*"
-    cat >"$FAKE_ROOT/state/home/notes/inbox/${all##*/}" ;;
+    cat >"$FAKE_ROOT/state/home/notes/inbox/operator-${all##* }.md" ;;
   *) echo "unexpected docker call: $*" >&2; exit 1 ;;
 esac
 FAKE

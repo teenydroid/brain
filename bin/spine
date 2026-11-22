@@ -295,19 +295,26 @@ fi
 
 # The broker (bin/broker, docs/mind.md): how the agentic mind acts on the
 # world from inside its jail. It runs here, outside any jail, beside the
-# core, and only while the operator has MIND=1 in secrets/teeny.env (the
-# broker checks; the same switch enables the pinned `mind` job). It mints a
+# core, and only while the operator has MIND=1 in secrets/teeny.env, read
+# as every hand reads a setting (`bin/broker enabled`; the same switch
+# enables every job that runs the `mind` agent). It mints a
 # fresh token into state/home/ at every start. Never on a lab spine: a lab
 # has no hands to call. A broker that will not start is logged, never a
 # reason to refuse the boot: the mind's wakes then find nothing to act
 # through and say so in its journal.
 broker=""
-if [ "$lab" != 1 ] && grep -Eqs '^(export[[:space:]]+)?MIND=["'"'"']?1["'"'"']?[[:space:]]*$' "$TEENY_SECRETS/teeny.env"; then
+if [ "$lab" = 1 ]; then
+  log "broker: off (a lab spine)"
+elif "$TEENY_ROOT/bin/broker" enabled; then
   "$TEENY_ROOT/bin/broker" serve &
   broker=$!
   trap 'kill -TERM "$core" 2>/dev/null || true; kill -TERM "$broker" 2>/dev/null || true' TERM INT
   log "broker: started for the agentic mind (pid $broker)"
 else
+  # Off means off: the switch already disables the pinned `mind` job and
+  # every `agent = "mind"` job of the brain's (bin/lib/cron_policy.py); the
+  # wakes the mind set for itself live only in the core, so they go here.
+  "$TEENY_ROOT/bin/broker" sweep || log "broker: could not remove the mind's own wakes"
   log "broker: off (MIND is not 1 in secrets/teeny.env)"
 fi
 log "ready"

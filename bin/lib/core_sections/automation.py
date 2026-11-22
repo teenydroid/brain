@@ -203,7 +203,7 @@ def tables(root: Path) -> dict[str, str]:
     # state/home is the agentic mind's (brain/agents/mind.toml): the core
     # refuses a scheduled_workspace that does not exist yet.
     home = root / "state" / "home"
-    for folder in (workbench, downloads, pictures, root / "state" / "media", profile, home, home / "notes" / "inbox"):
+    for folder in (workbench, downloads, pictures, root / "state" / "media", profile, home):
         folder.mkdir(parents=True, exist_ok=True)
     # The profile holds cookies, which are sign-ins: the owner's alone.
     profile.chmod(0o700)
