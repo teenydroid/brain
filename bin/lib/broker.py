@@ -66,6 +66,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.build import mindclone  # noqa: E402
 
 import cron_policy  # noqa: E402
 import mind_home  # noqa: E402
@@ -480,8 +481,6 @@ def pr(body: Json, entry: Json) -> Json:
         raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
     if _prs_today()["count"] >= limit:
         raise Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
-    from teeny_hands.build import mindclone
-
     out = _clone_call(lambda: mindclone.ship(body["branch"], body["title"], body["body"]))
     if not out.get("dry_run"):
         _count_pr()
@@ -492,8 +491,6 @@ def repo(body: Json, entry: Json) -> Json:
     """A fresh checkout of origin/main at state/home/repo/, unless the tree
     holds edits (delete it for a fresh one): its path and the upstream head."""
     entry["verb"] = "repo"
-    from teeny_hands.build import mindclone
-
     return {"status": "ok", **_clone_call(mindclone.prepare)}
 
 
