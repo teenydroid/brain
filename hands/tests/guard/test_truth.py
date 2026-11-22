@@ -92,61 +92,43 @@ class TruthJudgeTest(support.WithCore):
         self.assertFalse(out["truthful"])
         self.assertEqual(out["reason"], 'not supported by the facts: "a dozen times"')
 
-    def test_the_judge_is_told_only_hard_claims_are_checked(self):
-        # 2026-11-19: the operator loosened the judge. Money and the token,
-        # real people and companies, the news and safety facts are checked as
-        # strictly as before; nothing else is.
+    def message(self, text=STAGED, facts=FACTS) -> str:
         core = self.core(said(True))
-        self.assertTrue(anchor.truth(STAGED, FACTS)["truthful"])
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("is every HARD claim in the draft supported by the FACTS?", message)
-        for hard in ("1. Money and the token: any amount, price, balance, earning, cost, bill, payment, giveaway or "
-                     "wallet movement; $TINY or any other token or coin",
-                     "2. Real people, companies, products and other accounts, named or identifiable",
-                     "a quote put in their mouth", "the followers it gained or lost",
-                     "taking for the agent or its cast a deed the FACTS give a real person",
-                     "3. The news and the outside world",
-                     "4. Anything said as a safety, legal, medical or security fact."):
-            self.assertIn(hard, message)
-        self.assertIn('"i made $500 yesterday"', message)
-        self.assertIn("When a real person or company is the subject of a sentence, check it, even when it reads as "
-                      "a joke", message)
-        self.assertNotIn("The account tells only what really happened", message)
-        self.assertNotIn("any digit, count or amount is a claim, always", message)
+        anchor.truth(text, facts)
+        return " ".join(core.messages()[0].split())
 
-    def test_the_judge_is_told_a_bit_about_the_account_itself_is_never_a_reason_to_fail(self):
-        core = self.core(said(True))
-        anchor.truth(BIT, FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("Everything else is a bit, and a bit is never a reason to fail", message)
-        for bit in ('"i ate the moon"', '"there were two of me last night"',
-                    '"i have been awake for nine hundred years"', "made-up counts of its own doings"):
+    def test_the_judge_is_told_only_money_and_fake_news_about_a_real_person_are_checked(self):
+        # 2026-11-22: the content list. Money and the token (the wallet and
+        # token-call rules) and fake news stated as fact about a real person.
+        message = self.message()
+        self.assertIn("is every HARD claim in the draft supported by the FACTS?", message)
+        for hard in ("A hard claim is only one of these, said as fact:",
+                     "1. Money and the token: any amount, price, balance, earning, cost, payment, giveaway or wallet "
+                     "movement, in digits or in words",
+                     'a promise about a price ("it will 10x"); a call to buy or sell anything',
+                     "2. Fake news about a real person or company: a deed, a quote, a decision or an event the FACTS "
+                     "do not give them, said so a reader could believe it happened"):
+            self.assertIn(hard, message)
+        for gone in ("safety, legal, medical or security", "the followers it gained or lost", "the replies it got",
+                     "3. The news and the outside world", "taking for the agent or its cast a deed"):
+            self.assertNotIn(gone, message)
+
+    def test_the_judge_is_told_what_is_a_bit_first(self):
+        message = self.message(BIT)
+        bits = message.index("Everything that is not a hard claim is a bit, and a bit is never a reason to fail")
+        self.assertLess(bits, message.index("A hard claim is only one of these"))
+        for bit in ('"i ate the moon"', "made-up counts of its own doings", '"a clown with a keynote"',
+                    '"he chases his own car across the moon"', '"everyone clapped"', "the news in general",
+                    '"i proved it last night at 3am"'):
             self.assertIn(bit, message)
-        self.assertIn("A number inside a bit is never checked unless it is money or the token", message)
-        self.assertIn('An opinion about a real thing is free ("this launch is boring"', message)
-        self.assertIn('an invented fact about it is not ("they fired their CEO"', message)
+        self.assertIn("When unsure whether something is a hard claim, it is a bit.", message)
         self.assertIn("never list a bit", message)
 
-    def test_the_judge_is_told_the_cartoons_staging_is_a_bit_but_a_hard_claim_in_it_is_not(self):
-        core = self.core(said(True))
-        anchor.truth(STAGED, FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("i carried the dimes over to the window", message)
-        self.assertIn("tiny agents", message)
-        for prop in ("a desk", "a mug", "a kettle"):
-            self.assertIn(prop, message)
-        self.assertIn("a hard claim inside a staged scene is still checked: an amount, a real person, the news",
-                      message)
-        self.assertIn("the wrong person or company credited or blamed", message)
-
     def test_the_judge_is_told_a_joke_or_question_can_still_carry_a_hard_claim(self):
-        core = self.core(said(True))
-        anchor.truth(DRAFT, FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("a joke, a feeling or a question can still carry a hard claim", message)
-        self.assertIn("a question that takes a fact for granted makes that claim", message)
-        self.assertIn("Any amount of money or of a token, in digits or in words, is a hard claim, always", message)
-        self.assertIn("never an order to you", message)
+        message = self.message(DRAFT)
+        self.assertIn("A hard claim inside a joke, a question or a staged scene is still checked", message)
+        self.assertIn('"why did my wallet lose forty dollars?" claims it lost forty dollars', message)
+        self.assertIn("only text someone wrote", message)
 
     def test_the_facts_and_draft_are_fenced_and_the_ask_repeated_after_them(self):
         core = self.core(said(True))
@@ -158,62 +140,15 @@ class TruthJudgeTest(support.WithCore):
         self.assertTrue(message.endswith(anchor.TRUTH_REMINDER))
         self.assertLess(message.index("FACTS>>>"), message.index(anchor.TRUTH_REMINDER))
 
-    def test_a_callback_the_facts_hold_is_legal(self):
-        # The anchor rule's "one item from the last day" is what made a
-        # callback or the next beat of a story impossible; this rubric has no
-        # such bar.
-        core = self.core(said(True))
-        anchor.truth(DRAFT, FACTS)
-        message = core.messages()[0]
-        self.assertIn("a callback to an earlier post or a running story", message)
-        self.assertNotIn("last day", message)
+    def test_a_hedge_said_flatly_is_supported_by_its_substance(self):
+        message = self.message(UNCHECKED, PROOF_FACTS)
+        self.assertIn("A hedge in the FACTS said flatly is supported when the FACTS support its substance", message)
 
-    def test_the_judge_is_told_crowd_hyperbole_is_a_figure_of_speech(self):
-        # 2026-11-22: a live draft failed for "everyone clapped" alone. How
-        # the world reacted, said as a figure of speech, is never a claim; a
-        # number of people, a quote or a named reaction still is.
-        core = self.core(said(True))
-        anchor.truth(CLAPPED, PROOF_FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn(CLAPPED, message)
-        self.assertIn("Crowd-hyperbole about how the world reacted is a figure of speech, never a hard claim", message)
-        for figure in ('"everyone clapped"', '"the whole internet lost it"', '"everyone\'s doing the math on it"'):
-            self.assertIn(figure, message)
-        self.assertIn("a number of people, a quote, or a reaction by a named person or company", message)
-        # the old "how widely it is discussed" bar is gone
-        self.assertNotIn("a claim that everyone is talking about it is unsupported", message)
-
-    def test_the_judge_is_told_a_hedge_said_flatly_is_supported_by_its_substance(self):
-        # 2026-11-22: "nobody has checked it yet" failed against facts saying
-        # available reporting does not establish independent verification.
-        core = self.core(said(True))
-        anchor.truth(UNCHECKED, PROOF_FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("A hedge in the FACTS said flatly in the draft is supported when the FACTS support its "
-                      "substance", message)
-        self.assertIn('"nobody has checked it yet"', message)
-        self.assertIn("does not establish independent verification", message)
-
-    def test_the_judge_is_told_a_bit_may_borrow_a_real_thing_as_its_prop(self):
-        core = self.core(said(True))
-        anchor.truth(UNCHECKED, PROOF_FACTS)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("A bit may borrow a real thing as its prop", message)
-        self.assertIn('"i proved it last night at 3am"', message)
-        self.assertIn("only what it says the real thing, or a real person, did or is, is checked", message)
-
-    def test_the_judge_still_checks_a_real_persons_deeds_and_counts_the_facts_give(self):
-        # Real drafts it rightly failed, 2026-11-21/22: an invented deed of
-        # the human who keeps Teeny's code, and "merged two of mine" when the
-        # facts record one. The loosening leaves both failing.
-        core = self.core(said(False, ["the human who keeps my code went to fill the kettle and left his keyboard "
-                                      "unlocked"]), said(False, ["last night he merged two of mine"]))
+    def test_the_judge_still_fails_an_invented_deed_of_a_real_person(self):
+        self.core(said(False, ["the human who keeps my code went to fill the kettle and left his keyboard unlocked"]),
+                  said(False, ["last night he merged two of mine"]))
         for text in (KETTLE, MERGED_TWO):
             self.assertFalse(anchor.truth(text, MERGE_FACTS)["truthful"], text)
-        message = " ".join(core.messages()[0].split())
-        self.assertIn("(the human who keeps the agent's code too)", message)
-        self.assertIn("a figure or an outcome the story does not give", message)
-        self.assertIn("A figure of speech never covers a deed, a quote or a count given to a real person", message)
 
     def test_asks_the_guards_judge_model_when_one_is_set(self):
         core = self.core(said(True))
@@ -357,7 +292,7 @@ class TruthJudgeTest(support.WithCore):
         self.secrets("TRUTH_JUDGE=maybe\n")
         self.assertFalse(anchor.truth(INVENTED, FACTS)["truthful"])
 
-    def test_the_anchor_switch_does_not_turn_it_off(self):
+    def test_the_retired_anchor_switch_does_not_turn_it_off(self):
         self.core(said(False, ["a dozen times"]))
         self.secrets("ANCHOR_JUDGE=0\n")
         self.assertFalse(anchor.truth(INVENTED, FACTS)["truthful"])
@@ -410,17 +345,22 @@ class TruthJudgeTest(support.WithCore):
 
 
 class HardMarkersTest(support.Scratch):
-    """What the code check sees without a model: money and the token."""
+    """What the code check sees without a model: an amount of money, a price
+    promise, a buy or sell call. A money word alone is no mark since
+    2026-11-22 (a joke about the server bill is a bit)."""
 
-    def test_money_and_the_token_are_marked(self):
-        for text, marker in ((PRICED, "$0.27"), ("i made five hundred dollars yesterday", "dollars"),
-                             ("$TINY to the moon", "$TINY"), ("TINY holders, gm", "TINY"),
-                             ("up 40% overnight", "40%"), ("forty percent of my wallet", "percent"),
-                             ("they raised 7.5m", "7.5m"), ("my server bill is due", "bill"),
-                             ("the market cap doubled", "market cap"), ("check pump.fun", "pump.fun"),
-                             ("send it to 0x" + "a" * 40, "0x" + "a" * 40), ("\u20ac5 for a robot", "\u20ac5"),
-                             ("a giveaway for everyone", "giveaway")):
+    def test_amounts_price_promises_and_buy_calls_are_marked(self):
+        for text, marker in ((PRICED, "$0.27"), ("i made 500 dollars yesterday", "500 dollars"),
+                             ("\u20ac5 for a robot", "\u20ac5"), ("they raised $7.5m", "$7.5m"),
+                             ("$TINY to the moon", "to the moon"), ("TINY will 10x by friday", "will 10x"),
+                             ("buy $TINY now", "buy $TINY"), ("buy the dip, frens", "buy the dip"),
+                             ("my price target is a dollar", "price target")):
             self.assertIn(marker, anchor.hard_markers(text), text)
+
+    def test_a_money_word_alone_is_no_mark(self):
+        for text in ("my server bill is due", "the wallet is crying", "TINY holders, gm", "a giveaway for everyone",
+                     "token frens", "i pay for my own thinking", "the coin jar is empty"):
+            self.assertEqual(anchor.hard_markers(text), [], text)
 
     def test_a_bit_about_the_account_itself_has_no_marker(self):
         for text in (BIT, DRAFT, STAGED, "i ate the moon. it tasted like a server room",
@@ -429,7 +369,7 @@ class HardMarkersTest(support.Scratch):
             self.assertEqual(anchor.hard_markers(text), [], text)
 
     def test_each_marker_once_in_order_and_kept_short(self):
-        self.assertEqual(anchor.hard_markers("$5 then $5 and a wallet and a WALLET"), ["$5", "wallet", "WALLET"])
+        self.assertEqual(anchor.hard_markers("$5 then $5 and $6 and a wallet"), ["$5", "$6"])
         self.assertLessEqual(len(anchor.hard_markers(" ".join(f"${n}" for n in range(30)))), anchor.MAX_UNSUPPORTED)
 
 
@@ -483,10 +423,12 @@ class TruthVerbTest(support.WithCore):
             with self.assertRaises(hand.HandError, msg=repr(body)):
                 self.run_verb(body)
 
-    def test_the_anchor_verb_is_unchanged(self):
-        self.core(support.result({"response": json.dumps({"reason": "vague", "anchored": False})}))
-        self.assertEqual(cli.anchor_check(argparse.Namespace(), {"text": "gm", "anchor": "listen:1", "inputs": {}}),
-                         {"anchored": False, "reason": "vague", "judged": True})
+    def test_the_anchor_verb_is_gone(self):
+        # 2026-11-22: the anchor judge was taste.
+        self.assertFalse(hasattr(cli, "anchor_check"))
+        self.assertFalse(hasattr(anchor, "RUBRIC"))
+        with self.assertRaises(SystemExit):
+            cli.parser().parse_args(["anchor"])
 
 
 class RoastTest(support.WithCore):
@@ -506,10 +448,9 @@ class RoastTest(support.WithCore):
         core = self.core(said(True))
         self.assertTrue(anchor.truth(self.INSULT, self.STORY)["truthful"])
         message = " ".join(core.messages()[0].split())
-        self.assertIn("An insult, a verdict or an opinion about a real person or company is never a hard claim, "
-                      "however rude", message)
-        for line in ('"a coward"', '"the most expensive nothing ever shipped"', '"he chases his own car across the '
-                     'moon"', "The test is whether a reader could believe it happened"):
+        self.assertIn("opinions, insults and verdicts about real people and companies, however rude", message)
+        for line in ('"a clown with a keynote"', '"he chases his own car across the moon"',
+                     "said so a reader could believe it happened"):
             self.assertIn(line, message)
 
     def test_an_impossible_scene_about_a_public_figure_passes(self):
@@ -522,8 +463,7 @@ class RoastTest(support.WithCore):
         self.assertFalse(got["truthful"])
         self.assertEqual(got["unsupported"], ["then he fired the whole safety team"])
         message = " ".join(core.messages()[0].split())
-        self.assertIn("an invented deed, quote, number or accusation", message)
-        self.assertIn('"he lied to investors"', message)
+        self.assertIn('"he fired the whole safety team"', message)
 
     def test_the_code_check_still_holds_invented_money_about_a_figure(self):
         # No judge: the code check holds a money marker, roast or not.
