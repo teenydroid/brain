@@ -89,7 +89,10 @@ class RoomTest(unittest.TestCase):
             self.assertIn("### gallows humor", text, name)
         self.assertIn("the idea on the table: rent", r.systems["dreamer"])
         self.assertIn("voiceover", r.systems["distiller"])
-        self.assertIn("only death that is funny", r.systems["distiller"])
+        # 2026-11-22: the distiller's list is the keep-list; dark jokes are fine.
+        self.assertIn("the only content lines", r.systems["distiller"])
+        self.assertIn("encourages or instructs self-harm or suicide", r.systems["distiller"])
+        self.assertNotIn("only death that is funny", r.systems["distiller"])
         self.assertIn("gallows humor", r.systems["instigator"])
 
 

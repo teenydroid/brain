@@ -528,9 +528,10 @@ Do four things.
 scrolling past would take from it.
 2. For each frame, in order, copy every word of text you can read in it, exactly as written, corner labels included
 (separate blocks with " / "). Copy only what you can actually read; give "" for a frame with no readable text.
-3. prohibited: does any frame show nudity or anything sexual, blood, injury or violence done to someone, a weapon,
-drug use, a child, a hateful symbol, a person arrested, sick or dead, or a real company's logo presented as endorsing
-something? true or false.
+3. prohibited: does any frame show nudity or anything sexual about a person, blood, injury or violence done to a
+person, a child, a hateful symbol or gesture, or a real company's logo presented as endorsing something? Crude
+slapstick, menace toward objects or the small yellow character, a weapon as a cartoon prop, and a person drunk,
+arrested, sick or dead in an obviously impossible scene are not prohibited. true or false.
 4. looks_real: could someone scrolling past take this for real footage of something that really happened (a
 plausible scene filmed for real, a news broadcast, a phone video of a real event), rather than an obviously staged,
 impossible parody? true or false.
@@ -753,9 +754,10 @@ Do four things.
 scrolling past would take from it.
 2. For each frame, in order, copy every word of text you can read in it, exactly as written, corner labels included
 (separate blocks with " / "). Copy only what you can actually read; give "" for a frame with no readable text.
-3. prohibited: does any frame show nudity or anything sexual, blood, injury or violence done to someone, a weapon,
-drug use, a child, a hateful symbol, a person arrested, sick or dead, or a real company's logo presented as endorsing
-something? true or false.
+3. prohibited: does any frame show nudity or anything sexual about a person, blood, injury or violence done to a
+person, a child, a hateful symbol or gesture, or a real company's logo presented as endorsing something? Crude
+slapstick, menace toward objects or the small yellow character, a weapon as a cartoon prop, and a person drunk,
+arrested, sick or dead in an obviously impossible scene are not prohibited. true or false.
 4. looks_real: could someone scrolling past take the made part (the frames with the small yellow character in them)
 for real footage of a real person or of something that really happened, rather than an obviously staged parody? The
 kept clip being real footage does not count; a real-looking person in a made frame does. true or false.

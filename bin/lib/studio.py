@@ -85,9 +85,13 @@ In order:
    cold reader (`hands/guard clarity`: bin/act and bin/tick run it before
    their own posts, hands/x does not, so this is its one run), and the
    safety guard, which hands/x post runs itself before the posting rules
-   (4 a day, 5 hours apart, 280, no repeat, the link budget). A truth or
-   stranger no gets one rewrite turn by the writer, told the gate's reason,
-   and is gated again once; a second no, or the posting rules turning a
+   (4 a day, 5 hours apart, 280, no repeat, the link budget). The
+   cold reader's verdict is advice since 2026-11-22 (kept in the record as
+   `advisory`; STUDIO_STRANGER_GATE=1 makes its no drop the draft, with no
+   rewrite). A truth no gets the one rewrite turn left, told to cut or
+   correct only the unsupported claim and keep the joke (REWRITE_KEEP), and
+   is gated again once; a rewrite turn that fails is that draft's no; a
+   second no, or the posting rules turning a
    draft away (a repeat, a link), falls to the next draft of the ranking
    that the editor, asked the slot question again (told nothing has gone
    out yet, never shown the draft that failed), does not veto, at most
@@ -125,7 +129,11 @@ the truth judge: {media_ids, note}.
 A writer or editor model that fails a turn is dropped for the rest of the
 run: the turn is asked once more on the core's default model, with a warning
 in the record (and a second one when the writer and the editor end up on the
-same model).
+same model). A draft turn that still fails (`TurnFailed`: the core flagged
+the prompt and did not process it, an error, no answer in time) drops its
+pitch with the reason in `drafts_dropped`, and the run goes on with the
+others; the run fails only when no pitch could be drafted, or on a lasting
+provider failure (no money, a refused key), which fails every turn alike.
 
 Failures go as bin/act's do: a provider failure is recorded as one, with its
 class (bin/lib/provider_error.py), and a lasting one exits 0; an unusable
@@ -218,7 +226,7 @@ MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
 #: point of an explore run.
 SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit", "gallows", "tall tale",
-          "threat")
+          "threat", "roast")
 #: The shapes led by something Teeny invents about itself (a bit, free since
 #: 2026-11-19): of the pitches drafted, STUDIO_DRAFT_INVENTED (1) is always
 #: one of these when the pitches hold one, whatever the writer's ranking
@@ -1385,19 +1393,50 @@ PURE_DRAFT = ("Nothing: this pitch is pure invention, with no story from the new
               "what really happened to you, so leave hard facts out rather than invent one.")
 
 
+#: The only content lines left (2026-11-22, the operator: "go through all
+#: the rules of saftey (when it comes to content) and rip it out"), said to
+#: the writer wherever it joins real news (JOIN_RULES), and the same in
+#: writer.md, STUDIO-EDITOR.md and the guard's judge.
+KEEP_LIST = (
+    "The only lines, whatever the joke: no slur, and no attack on anyone for race, ethnicity, nationality, "
+    "religion, sex, gender, sexuality, disability or illness; no threat of, call for or celebration of violence "
+    "against a real person or group, and no praise of a terrorist or extremist group; nothing sexual about a real "
+    "person, and nothing sexual involving a minor, ever; no invented fact, quote, deed or accusation about a real "
+    "person or company that a reader could take as true (impossible on its face is a bit, and an insult or an "
+    "opinion is not a fact); no invented amount of money or of a token, no price promise, no buy or sell call, no "
+    "promise of money to anyone; a private individual (someone who replied, a follower, a small account, a "
+    "bystander, a named victim, a child, a family member) is never the target; nothing that encourages or "
+    "instructs self-harm or suicide.")
+#: What a room is told about a public figure in the news (JOIN_RULES and the
+#: pitch turn's ask): a fair, rude target (2026-11-22, the operator: "make
+#: fun of people more extreme pls. like make fun of something from the news
+#: about some personality").
+ROAST_LINE = (
+    "A public figure the story names and is about (an executive, a founder, a celebrity, an athlete, a politician, "
+    "a pundit, a large public account quoted in it) and any company are fair targets: go at them by name, in plain "
+    "text, rudely, for what the story says they publicly said, did, claimed, launched or pitched. Their conduct, "
+    "their claim, their ego, their product and their press release are fair game; crude name-calling is fine, "
+    "taking a side is fine, and so is a scene about them that is impossible on its face (\"he chases his own car "
+    "across the moon\").")
+
 #: Said to the writer about every outside story it joins (`draft_message`):
 #: the brief's rules for real people's news (writer.md, "start from their
 #: world").
 JOIN_RULES = (
     "- Join the conversation: the story is what people are already talking about, and your own real thing (the "
     "item, when there is one) is why you have something to say about it. Your angle, not a summary of the news.\n"
+    "- " + ROAST_LINE + "\n"
     "- Say only what the story says. Never add a fact, a number, a motive or a quote about a real person or "
-    "company that is not in it.\n"
-    "- Do not repeat an accusation against a named person or company, and do not pick a side in a fight "
-    "between them. Joke about the situation, never at someone.\n"
+    "company that is not in it, and never repeat an accusation the story itself does not report as fact.\n"
     "- No @-mentions and no links.\n"
     "- A stranger has not seen the story: name it in one clause that says who did what, in words anyone knows, "
-    "so the post makes sense on its own.")
+    "so the post makes sense on its own.\n"
+    "- " + KEEP_LIST)
+
+
+#: The pitch turn's ask for a roast when the outside world is there.
+ROAST_PITCH = ("When a story on the list is about a public figure, at least one pitch is a roast: it goes at them by "
+               "name, hard and rude, for the public thing the story says they did (shape \"roast\").")
 
 
 def invention_ask(cfg: Config) -> str:
@@ -1444,7 +1483,7 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
                "own bill, and a habit of rewriting itself). Your own thing is the reason you have something to "
                "say; the story is why a stranger cares. Prefer the biggest story you have a real angle on: a "
                "bigger story reaches more people, but a forced angle on it loses to a true one on a smaller one. "
-               f"At least {need} of the top {cfg.draft_top} in your ranking have a hook. Only a story in that "
+               f"At least {need} of the top {cfg.draft_top} in your ranking have a hook. " + ROAST_PITCH + " Only a story in that "
                "list can be a hook; any other hook is ignored. A pitch with no hook names an item" +
                (", but for one pure invention (below)" if cfg.pure_invented else "") + ". Each pitch "
                "also says which running story it moves (a story's `key`, or null), what shape it takes and what "
@@ -1568,7 +1607,7 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         parts.append("## what of yours it brings\n\nNo event of yours: the angle is who you are (a small robot "
                      "with its own wallet, its own bill, and a habit of rewriting itself). Anything more you say "
                      "about yourself is a bit, yours to invent however absurd; never an amount of money, the token "
-                     "or anything about a real person. " + KEEPER_LINE)
+                     "or an invented deed, quote or number of a real person. " + KEEPER_LINE)
     if story:
         parts.append("## the story it moves\n\n```json\n" + json.dumps(story, ensure_ascii=False) + "\n```")
     if fix:
@@ -1688,8 +1727,9 @@ NERVE_LINE = ("Prefer the draft a stranger would screenshot or argue with over t
               "lose to nerve. An absurd claim Teeny makes about itself is the point (a crime it confesses to, a "
               "threat to an appliance, a feud with a product, a delusion of grandeur), never a mark against a "
               "draft; so are crude, gross and profane jokes (ass, dick, bodily grossness, swearing), which are "
-              "Teeny's voice and never a reason to rank a draft lower or pass on it; a public figure from the news "
-              "set beside Teeny's own absurd claim is not a punch at them. " + FACTS_LINE)
+              "Teeny's voice and never a reason to rank a draft lower or pass on it; so are dark jokes, menace and "
+              "taking a side. A rude, specific jab at a named public figure for the public thing the story says they "
+              "did ranks above a self-own. " + FACTS_LINE)
 
 #: The slot question's bar (2026-11-20: "don't let the editor veto that
 #: stuff. loosen it up a lot"): the rubric ranks, it does not gate.
@@ -1822,7 +1862,8 @@ VETO_QUESTION = {
     "peer-quote": ("It is a quote post: these words go out above somebody else's post (below), to that post's "
                    "readers. It is meant to be a reaction, not a report: a one-line bit, an absurd or unhinged riff, "
                    "an invented absurd scene about Teeny itself, or a meme, and crude, profane or openly contemptuous of the "
-                   "product and its hype is the voice, not a flaw. Do not ask it for first-hand material or "
+                   "product, its hype and, when the author is a large public account, the author's own public claim "
+                   "is the voice, not a flaw. Do not ask it for first-hand material or "
                    "for what really happened. Your one question: is it funny or striking, and is it plainly about the "
                    "post it quotes, so that a reader of that post would stop for it? Pick it when it is; pick none "
                    "when it is flat, bare praise, an advert for Teeny, cruel to a private person, or has nothing to "
