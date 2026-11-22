@@ -2750,6 +2750,9 @@ def render_research_request(request: Json) -> str:
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
     if request.get("omitted"):
         parts.append("## files left out to fit the message\n\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
+    cut = cut_text(request)
+    if cut:
+        parts.append(cut)
     parts.append(RESEARCH_ANSWER)
     return "\n\n".join(parts)
 
