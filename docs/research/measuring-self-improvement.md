@@ -43,7 +43,7 @@ this page, not taken from a source.
 
 | System | What was measured | Held out? | Repeats | Later criticism |
 |---|---|---|---|---|
-| DGM | SWE-bench Verified in stages (10, then 50 or 60, then 200 tasks); Polyglot 10 then 50 | Partly. Cross-benchmark transfer is called "truly held-out" | Not reported. The 40% gate was set "based on the noise observed in preliminary runs" | About two weeks and "significant API costs" per run, so one run ([arXiv:2505.22954](https://arxiv.org/html/2505.22954)) |
+| DGM | SWE-bench Verified in stages (10, then 50 or 60, then 200 tasks); Polyglot 10 then 50 | Partly. Cross-benchmark transfer is called "truly held-out" | Not reported. The 40% gate was set "based on the noise observed in preliminary runs" | About two weeks and "significant API costs" per run; no error bars ([arXiv:2505.22954](https://arxiv.org/html/2505.22954)) |
 | HGM | SWE-Verified-60, Polyglot, then SWE-Lite (300 tasks, 93 overlapping Verified) | Partly; transfer from GPT-5-mini to GPT-5 | Apparently one run per method; no intervals | Its own finding: a node's score predicts its descendants poorly ([arXiv:2510.21614](https://arxiv.org/html/2510.21614)) |
 | SICA | Fixed 50-task SWE-bench Verified subset, 50 LiveCodeBench | No split described | One run, 15 iterations, about $7,000 | Peak (53%, iteration 14) above final (51%) ([arXiv:2504.15228](https://arxiv.org/html/2504.15228)) |
 | ADAS | ARC: 20 validation, 60 test; other domains held out | Yes | Five evaluations, median with 95% bootstrap CI | On MMLU the transferred agents did not beat chain-of-thought ([arXiv:2408.08435](https://arxiv.org/html/2408.08435)) |
@@ -62,12 +62,11 @@ this page, not taken from a source.
   the DGM and SICA selection rules. HGM's clade estimate reached 0.78 on
   SWE-Verified-60 ([arXiv:2510.21614](https://arxiv.org/html/2510.21614)).
   A generation's own eval is a weak guide to whether it is a good parent.
-- **SICA's numbers are from 50 tasks.** At 50% accuracy the standard error
-  on 50 tasks is about 7 points *(computed)*, so most iteration-to-iteration
-  moves in its table sit inside the noise.
+- **SICA's 50 tasks** give a standard error of about 7 points at 50%
+  *(computed)*; most of its iteration-to-iteration moves sit in the noise.
 - **Hyperagents** says meta-level gains "transfer across domains and
-  accumulate across runs"; abstract only, the HTML returned 404
-  ([arXiv:2603.19461](https://arxiv.org/abs/2603.19461)).
+  accumulate across runs" (abstract only; the HTML returned 404,
+  [arXiv:2603.19461](https://arxiv.org/abs/2603.19461)).
 
 ### The 2026 audit: five claims, five designs
 
@@ -125,9 +124,8 @@ What went wrong with them:
   minutes, so "a time-horizon jump from 3 min to 30 min is much easier than
   one from 30 min to 5 hours"
   ([Nguyen and Fithian, arXiv:2610.12466](https://arxiv.org/abs/2610.12466)).
-- **METR's suite ran out of ceiling.** Coverage reports METR put Claude
-  Mythos Preview at "at least 16 hours" (95% CI 8.5 to 55 hours). I reached
-  only METR's chart page, which lists the model and the 16-hour caveat
+- **METR's suite ran out of ceiling.** Coverage puts Claude Mythos Preview
+  at "at least 16 hours" (95% CI 8.5 to 55 hours) by METR's estimate
   ([coverage](https://officechai.com/ai/claude-mythos-shows-50-time-horizon-of-16-hours-on-metr-benchmark/)).
   METR's Thomas Kwa wrote that many new metrics "wouldn't be measured in
   human hours" ([LessWrong comments](https://www.lesswrong.com/posts/3SywPAjGQWCtQFafb/you-re-gonna-need-a-bigger-boat-benchmark-metr)).
@@ -140,9 +138,8 @@ What went wrong with them:
   problem details verbatim
   ([OpenAI, 2026-02-23](https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/)).
   Epoch rated it "Flawed" on 2026-09-03
-  ([Epoch](https://epoch.ai/benchmarks/swe-bench-verified/review)). Fresh-task
-  pipelines collect new problems by date to stay ahead of training data
-  ([SWE-rebench](https://arxiv.org/abs/2505.20411);
+  ([Epoch](https://epoch.ai/benchmarks/swe-bench-verified/review)). The fix
+  is fresh tasks by date ([SWE-rebench](https://arxiv.org/abs/2505.20411),
   [LiveCodeBench](https://arxiv.org/abs/2403.07974)).
 - **The grader is often the weak part.** A checklist study found task and
   reward flaws that misstate performance by up to 100% relative; TAU-bench
@@ -160,8 +157,7 @@ graders.
 
 ## 3. Evaluating the evaluator
 
-The judge decides which generation wins, so the judge's error is the loop's
-error.
+The judge decides which generation wins; its error is the loop's error.
 
 - **Classic biases.** GPT-4 as judge agreed with people over 80% of the
   time, about as often as people agree with each other, and showed position,
@@ -191,8 +187,8 @@ error.
   liked, pairwise preferences flipped in about 35% of cases and absolute
   scores in about 9% ([Tripathi et al., arXiv:2504.14716](https://arxiv.org/abs/2504.14716)).
 - **Criteria drift.** People change their criteria as they grade
-  ([Shankar et al., arXiv:2404.12272](https://arxiv.org/abs/2404.12272)). A
-  golden set labelled once, early, encodes early taste.
+  ([arXiv:2404.12272](https://arxiv.org/abs/2404.12272)), so relabel the
+  golden set now and then.
 
 ### When the judge model changes
 
@@ -282,9 +278,8 @@ a fixed task with a fixed grader), **behaviour** (what it chooses to do; a
 tone or length change can move a judge with no capability change) and
 **outcome** (reach, followers, money, which depend on everything else too).
 
-A follower jump the week after a merge may be the merge, a news cycle, an
-algorithm change, or regression to the mean after a bad week. Designs that
-separate them:
+A follower jump after a merge may be the merge, a news cycle, an algorithm
+change or regression to the mean. Designs that separate them:
 
 - **Frozen regression suite.** Past situations saved with their context;
   old and new versions act on the same recording, so the world cannot favour
@@ -389,9 +384,8 @@ the assumed variances with measured ones after the first month.
 
 - **What.** Every failure tagged by type. Per generation: recurrences of a
   type after a lesson about it was recorded, and the mix of types.
-- **Minimum.** Counts are small: pool by month and use exact Poisson
-  intervals. A type needs about ten past occurrences before its recurrence
-  rate says anything. *(Rule of thumb, not a source.)*
+- **Minimum.** Pool by month, use exact Poisson intervals, and wait for
+  about ten past occurrences of a type. *(Rule of thumb, not a source.)*
 
 ### Rules for the whole board
 
