@@ -80,6 +80,10 @@ KINDS = {
                  "budget or the studio skipped is left out)",
     "judged": "only when nothing above can count it: a judge reads samples of what you sent on `surface` "
               "(narrowed like outbound) before and after, against your expected move",
+    "reach": "a share of your own x items (evolve_reach): `measure` new (posts that drew a new account), nobody "
+             "(posts that drew no reply, like, repost or quote) or answered (replies the account answered back), "
+             "`source` a format (take, proof, studio, ...) or reply-own-thread / reply-their-thread; scored as a "
+             "share, so posting more or less does not move it",
 }
 FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "act_failed": {"playbook": True, "contains": False},
@@ -90,6 +94,7 @@ FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "actions": {"surface": True, "verb": True},
     "hand_used": {"hand": True},
     "judged": {"surface": True, "kind_of": False, "contains": False},
+    "reach": {"surface": True, "measure": True, "source": False},
 }
 DIRECTIONS = ("fall", "rise", "zero")
 #: Plain words for a direction, read as the direction they name.
@@ -199,7 +204,7 @@ def _direction(value: Any) -> str | None:
 
 
 #: Fields whose values are names the code matches exactly in lower case.
-_LOWER = ("surface", "kind_of", "verb", "hold_direction", "category")
+_LOWER = ("surface", "kind_of", "verb", "hold_direction", "category", "measure", "source")
 
 
 def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
@@ -291,6 +296,10 @@ def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
             raise BadCheck(f"the check's surface is one of {', '.join(ACTIONS)}, not {out['surface'][:40]!r}")
         if out["verb"] not in ACTIONS[out["surface"]]:
             raise BadCheck(f"on {out['surface']} the check's verb is one of {', '.join(ACTIONS[out['surface']])}")
+    if kind == "reach":
+        import evolve_reach
+
+        evolve_reach.validate(out)
     return out
 
 
@@ -311,6 +320,7 @@ def describe(check: Any) -> str:
         "actions": lambda c: f"{c.get('surface')} {c.get('verb')}",
         "hand_used": lambda c: f"runs of playbooks that call hands/{c.get('hand')}",
         "judged": lambda c: f"what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of") else ""),
+        "reach": lambda c: __import__("evolve_reach").describe(c),
     }[kind](check)
     literals = check.get("contains")
     if literals:
@@ -562,6 +572,10 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
                              and r.get("status") == "refused" and _refusal_rule(r.get("result")) == check["rule"]
                              and (not check.get("verb") or r.get("do") == check["verb"]))
         return n
+    if kind == "reach":
+        import evolve_reach
+
+        return evolve_reach.count(check, src, since, until)
     if kind == "hand_used":
         tree = src.tree or Path(__file__).resolve().parents[2]
         # A use is a run that finished ok (a failed one, or a skipped one, never
@@ -758,6 +772,13 @@ def score(entry: Mapping[str, Any], days: int, entries: Mapping[str, Json], src:
             return {**out, "verdict": "no-data", "why": "the judge did not answer"} if late else None
         out.update(verdict=answer[0], why=answer[1], judged=True)
         return out
+    if check.get("kind") == "reach":
+        import evolve_reach  # a share, not a count: Fisher's exact test, not the Poisson one below
+
+        got = evolve_reach.score(check, src, t0, span, min_events, p)
+        if got is None:
+            return {**out, "verdict": "no-data", "why": "the ledger could not be read"} if late else None
+        return {**out, **got}
     before_n, after_n = count(check, src, t0 - span, t0), count(check, src, t0, t0 + span)
     if before_n is None or after_n is None:
         return {**out, "verdict": "no-data", "why": "the ledger could not be read"} if late else None
