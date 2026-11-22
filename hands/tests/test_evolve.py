@@ -1713,6 +1713,26 @@ class CrashedGenerations(EvolveCase):
                 self.run_gen(1, publisher=pub)
         self.assertEqual(len(pub.issues), 2)
 
+    def test_a_failed_update_is_tried_again_the_same_day(self):
+        """Only an issue opened or a comment that went through counts as told
+        for the day: a comment GitHub refused is tried at the next run."""
+        cfg = evolve.load_config()
+        problem = evolve.Problem("crash", "crash", "bin/evolve: a generation crashed", "the body")
+        pub = FakePublisher()
+        os.environ["EVOLVE_NOW"] = str(T0 - DAY)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["issue"], 101)
+        os.environ["EVOLVE_NOW"] = str(T0)
+
+        def refused(*a, **k):
+            raise RuntimeError("GitHub answered 502")
+
+        with unittest.mock.patch.object(pub, "comment_issue", side_effect=refused):
+            self.assertIn("issue_error", evolve.raise_problem(cfg, problem, pub))
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "commented")
+        self.assertEqual(len(pub.comments), 1)
+        self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "already told today")
+        self.assertEqual(len(pub.comments), 1)
+
     def test_status_shows_the_last_crash(self):
         self.assertIsNone(evolve.status()["last_crash"])
         with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
