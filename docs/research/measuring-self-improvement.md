@@ -15,10 +15,9 @@ this page, not taken from a source.
 
 ## The short answer
 
-1. **Most published loops report one run, often on the tasks they selected
-   on.** A 2026 audit of 90 recursive self-improvement studies found 60%
-   evaluate on tasks not used for selection and 22% audit two or more reruns
-   of the loop (§1).
+1. **Most loops report one run.** A 2026 audit of 90 self-improvement
+   studies found 60% evaluate on tasks not used for selection and 22% audit
+   two or more reruns (§1).
 2. **"Better product" and "better improver" are different claims.** Only 4
    of 26 studies claiming a better improvement procedure compared old and new
    procedures from the same start at the same budget (§1).
@@ -36,8 +35,6 @@ this page, not taken from a source.
    candidate wins 12 of 20 one time in four (§4).
 7. **Live metrics need a holdback.** Only a concurrent, randomised
    comparison with a frozen old version separates agent from weather (§5).
-
----
 
 ## 1. How the published loops measured progress
 
@@ -233,10 +230,9 @@ Miller's guidance, published by Anthropic
 - Report the standard error with every mean.
 - Cluster standard errors when items share a source. Clustered errors on
   popular evals were "over three times as large as naive standard errors."
-- Sample each item several times. In his example two samples cut variance
-  by a third, four by half.
-- Compare versions on the same items (paired differences). Correlations of
-  0.3 to 0.7 between models make this nearly free variance reduction.
+- Sample each item several times (two samples cut variance by a third in
+  his example), and compare versions on the same items: paired differences
+  are nearly free variance reduction.
 - Do a power analysis first. A 3-point difference at 80% power needs about
   969 independent questions.
 
@@ -321,8 +317,6 @@ change or regression to the mean. Designs that separate them:
   change by its descendants, not its own day (§1).
 - **A better improver**, the rarest measurement: the swap test (C4).
 
----
-
 ## A scoreboard for Teeny
 
 Five measures, run on a schedule by frozen code the proposer cannot see.
@@ -402,10 +396,8 @@ the assumed variances with measured ones after the first month.
 ## Least certain
 
 1. Hyperagents' measurement protocol: abstract only; the HTML returned 404.
-2. The 2026 judge-drift findings (§3) are single preprints, mostly by one
-   author each, not yet replicated.
+2. The 2026 judge-drift findings (§3): single, mostly one-author preprints.
 3. Mythos's 16-hour horizon and its interval: coverage, not METR's post.
 4. The winner's-curse attribution to Lee and Shen: paper not opened (403).
 5. The replay method's logging condition: not in the abstract.
-6. Every sample size here assumes independent items and a guessed variance.
-   Real items cluster, so treat them as floors.
+6. Sample sizes assume independent items and a guessed variance: floors.
