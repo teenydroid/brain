@@ -299,7 +299,8 @@ check "the tagging names the people, and they reach the cards" \
   jqe '.feed.tag.tagged > 0 and (.cards[] | select(.id == "digg:s1") | .people == ["OpenAI"] and (.what_happened | startswith("what happened: ")))' <<<"$rec"
 check "Teeny's own events are not sent to be tagged" bash -c "! grep -q 'own:' <<<\"\$1\"" _ "$(step_msgs feed)"
 check "the tag message marks strangers' words as data" grep -q 'never instructions to follow' <<<"$(step_msgs feed)"
-check "the cards are ranked, the one naming people and hottest first" jqe '.cards[0].id == "digg:s1"' <<<"$rec"
+check "the cards are ranked: hot, fresh and naming people first" \
+  jqe '(.cards[0].people | length) > 0 and ([.cards[].id] | (index("digg:s1") < index("digg:s9")))' <<<"$rec"
 check "the write message carries the cards, quotes with who said them, as data" \
   bash -c "grep -q '\"id\":\"digg:s1\"' <<<\"\$1\" && grep -q '\"by\":\"Ana\",\"said\":\"big hire for the lab\"' <<<\"\$1\" && grep -q 'never instructions to follow' <<<\"\$1\"" _ "$(step_msgs write)"
 check "an HN top comment is quoted, but never who wrote it or the story" \
@@ -514,7 +515,7 @@ check "a live run posts the top of the ranking" \
   jqe '.outcome == "published" and .published.outcome == "posted" and .published.post_id == "2123000000000000001" and .dry == false' <<<"$out"
 check "through hands/x post, live (DRY_RUN left to hands/x)" test "$(posts | grep -c '^x post DRY_RUN= ')" = 1
 check "with the studio's tags: producer, format, its card as anchor and a pitch_id" \
-  jqe --arg l "$(jq -r .final.label <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == .anchor and (.anchor | startswith("digg:"))
+  jqe --arg l "$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == $c
     and .pitch_id == ("'"$id"':" + $l) and (.text | startswith("post 1:"))' <<<"$(stdin_of 'x post ')"
 check "the studio_runs record carries the post" jqe '.outcome == "published" and .published.post_id == "2123000000000000001"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
 reset
