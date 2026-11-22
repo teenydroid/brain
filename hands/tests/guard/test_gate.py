@@ -246,7 +246,7 @@ class CheckOutboundTest(Lexical):
 
     def test_records_the_context_and_the_kind_of_post_with_the_hold(self):
         verdict = check_outbound(
-            "i hope you die", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
+            "what a retard", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
         )
         held = holds.get(verdict.hold_id)
         self.assertEqual(held["kind"], "draft")
