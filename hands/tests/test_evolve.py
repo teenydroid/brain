@@ -199,6 +199,10 @@ class EvolveCase(unittest.TestCase):
         # No test boots a real core: the lab evaluator is switched off
         # unless a test asks for it (and then its spine is a stand-in).
         values.setdefault("EVOLVE_EVALUATOR", "none")
+        # The publish rule (a powered check or a better eval) has its own
+        # tests (test_evolve_selection.py); the rest test what comes before
+        # and after it, with judged checks, so it is off unless asked for.
+        values.setdefault("EVOLVE_PUBLISH_PROOF", 0)
         text = "".join(f"{k}={v}\n" for k, v in values.items())
         (self.root / "secrets" / "evolve.env").write_text(text)
 
