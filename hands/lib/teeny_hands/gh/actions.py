@@ -398,7 +398,9 @@ def _own_repo(value: Any, what: str) -> tuple[str, str, str]:
 
 def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
     """`judge=False` is for an operator script's own fixed text (the health
-    alarm, bin/lib/health.py), never for anything the command line passes."""
+    alarm, bin/lib/health.py), never for anything the command line passes.
+    `labels` (optional, up to 5) are added after it opens; one the repository
+    refuses never fails the call (`labelled` says what stuck)."""
     body = _body(body, ("repo", "title", "body"), ("labels",))
     owner, name, repo = _own_repo(body["repo"], "opens issues")
     labels = body.get("labels")
@@ -410,10 +412,18 @@ def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) ->
         return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"],
                 **({"labels": labels} if labels else {})}
     gh = gh or GitHubApi.from_settings()
-    opened = (gh.open_issue(owner, name, fields["title"], fields["body"], labels) if labels else
-              gh.open_issue(owner, name, fields["title"], fields["body"]))
+    opened = gh.open_issue(owner, name, fields["title"], fields["body"])
     _record("open-issue", repo, False, opened.get("number"), url=opened.get("html_url"))
-    return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
+    out = {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
+    if labels and opened.get("number"):
+        # Asked for, never required (as hands/ladder labels its proposals): a
+        # label the repository does not have leaves the issue open, unlabelled.
+        try:
+            gh.call("POST", f"/repos/{owner}/{name}/issues/{int(opened['number'])}/labels", body={"labels": labels})
+            out["labelled"] = list(labels)
+        except Exception:  # noqa: BLE001 - the issue is open either way
+            out["labelled"] = []
+    return out
 
 
 def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:

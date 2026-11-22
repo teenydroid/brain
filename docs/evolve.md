@@ -1247,8 +1247,8 @@ playbook calls (`bin/act` when it calls none), the guard for a hold.
 - **Any of it frozen** (`evals/frozen.txt`): the builder could not ship it
   either, so `bin/evolve run` opens one public issue on `EVOLVE_ISSUE_REPO`
   through the guard's judge (`HandsPublisher.open_issue`), asking for the
-  `help wanted` label (an issue the repository will not label opens without
-  it), once per family (`state/evolve/routed.jsonl`; an error is retried at
+  `help wanted` label (`hands/gh` adds it once the issue is open; a label the
+  repository refuses leaves the issue unlabelled, never unfiled), once per family (`state/evolve/routed.jsonl`; an error is retried at
   the next run). Under `DRY_RUN` it says what it would open and records
   nothing.
 

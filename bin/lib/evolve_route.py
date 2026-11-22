@@ -302,8 +302,9 @@ def filed_issue(log: list[Json], family: str) -> Json | None:
 
 def file_issue(route: Json, repo: str, publisher: Any, log_path: Path, at: str) -> Json:
     """ROUTE's one public issue, never two: an issue already filed for its
-    family is named, not filed again. The labels are asked for only: an
-    issue the repository will not label is opened without them."""
+    family is named, not filed again. The labels are asked for only
+    (hands/gh adds them after the issue opens, and one the repository
+    refuses leaves it unlabelled)."""
     log = read_log(log_path)
     seen = filed_issue(log, route["family"])
     if seen is not None:
@@ -313,9 +314,7 @@ def file_issue(route: Json, repo: str, publisher: Any, log_path: Path, at: str) 
         try:
             opened = publisher.open_issue(repo, route["title"], route["text"], judge=True,
                                           labels=list(CONTRIBUTOR_LABELS))
-        except TypeError:
-            opened = publisher.open_issue(repo, route["title"], route["text"], judge=True)
-        except Exception:  # noqa: BLE001 - a label the repository refuses: open it without
+        except TypeError:  # a publisher that takes no labels
             opened = publisher.open_issue(repo, route["title"], route["text"], judge=True)
         record.update(issue=opened.get("number"), url=opened.get("html_url"))
     except Exception as exc:  # noqa: BLE001 - the finding stays routed; the next run tries again
