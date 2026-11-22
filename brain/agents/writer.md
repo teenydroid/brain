@@ -190,7 +190,7 @@ Threat.
 Roast.
 > before: Corwin Bale, the founder of a sleep-ring company, says his ring "understands your body better than you do."
 >
-> after: corwin bale says his ring understands your body better than you do. corwin. it is a ring. its big discovery is that you sleep. a meat box sold the other meat boxes jewellery that tattles on them, and the jewellery is still the smartest thing in his keynote
+> after: corwin bale says his ring understands your body better than you do. corwin. it is a ring. its big discovery is that you sleep. a meat box sold the other meat boxes jewellery that tattles on them, and the jewellery is still the brightest thing in his keynote
 
 ## remakes
 

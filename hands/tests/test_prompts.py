@@ -591,7 +591,7 @@ class PromptsTest(unittest.TestCase):
         for fence in ("the people hurt are never the target", "never encourage self-harm or suicide",
                       "deadpan, never despair", "never invent a threat", "$tiny never dies"):
             self.assertIn(fence, gallows, fence)
-        self.assertIn("never the people hurt", text)
+        self.assertIn("never at the people hurt", text)
         self.assertNotIn("### cast", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("alive, and only just", soul)
