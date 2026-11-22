@@ -127,18 +127,21 @@ def _tree_kind() -> str:
         return "missing"
 
 
-def _aside() -> None:
+def _aside() -> Path | None:
     """Renames whatever is at the tree's path into state/mind/: a link is
-    renamed, never followed. Gone already is fine."""
+    renamed, never followed. Gone already is fine (None); else where it went."""
+    moved = scratch() / f"old-{secrets.token_hex(6)}"
     try:
-        os.rename(worktree(), scratch() / f"old-{secrets.token_hex(6)}")
+        os.rename(worktree(), moved)
     except FileNotFoundError:
-        pass
+        return None
+    return moved
 
 
 def _sweep() -> None:
     """Removes the trees moved aside and any checkout a crash left; rmtree
-    never follows a link (shutil.rmtree.avoids_symlink_attacks)."""
+    never follows a link (shutil.rmtree.avoids_symlink_attacks). A tree kept
+    for its edits (`kept-*`) stays."""
     for entry in scratch().iterdir():
         if entry.name.startswith(("old-", "fresh-")):
             if entry.is_dir() and not entry.is_symlink():
@@ -147,9 +150,43 @@ def _sweep() -> None:
                 entry.unlink(missing_ok=True)
 
 
-def _fresh(commit: str) -> None:
+def _differs(displaced: Path, snapshot: str | None) -> bool:
+    """Whether a tree moved aside holds anything but SNAPSHOT (a commit) and
+    ignored files: read with a throwaway index, so the clone's own is not
+    touched. When that cannot be told, it differs: a copy is cheaper than a
+    loss."""
+    if snapshot is None or not displaced.is_dir() or displaced.is_symlink():
+        return displaced.exists() or displaced.is_symlink()
+    index = scratch() / f"fresh-index-{secrets.token_hex(6)}"
+    try:
+        for args in (("read-tree", snapshot),):
+            if git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), *args,
+                       check=False, index_file=index).returncode != 0:
+                return True
+        for args in (("diff-files", "--name-only"), ("ls-files", "--others", "--exclude-standard")):
+            done = git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(displaced), *args,
+                           check=False, index_file=index)
+            if done.returncode != 0 or done.stdout.strip():
+                return True
+        return False
+    finally:
+        index.unlink(missing_ok=True)
+
+
+def _keep(displaced: Path) -> str:
+    """A displaced tree with edits in it, renamed so the sweep leaves it:
+    state/mind/kept-<name>. Returns where it is."""
+    kept = scratch() / f"kept-{secrets.token_hex(6)}"
+    os.rename(displaced, kept)
+    return str(kept)
+
+
+def _fresh(commit: str, snapshot: str | None = None) -> list[str]:
     """The tree replaced by a checkout of COMMIT on main, made in state/mind/
-    and renamed into state/home/."""
+    and renamed into place. The tree it replaces is read once it is out of the
+    mind's reach: if it differs from SNAPSHOT (the commit it was a clean copy
+    of; none keeps any tree there was), it is kept in state/mind/kept-* and
+    its path returned, so a write made after the clean-tree check is not lost."""
     _bare("update-ref", f"refs/heads/{BASE}", commit)
     _bare("symbolic-ref", "HEAD", f"refs/heads/{BASE}")
     fresh = scratch() / f"fresh-{secrets.token_hex(6)}"
@@ -157,8 +194,11 @@ def _fresh(commit: str) -> None:
     (gitdir() / "index").unlink(missing_ok=True)
     _git("reset", "-q", "--hard", f"refs/heads/{BASE}", tree=fresh)
     worktree().parent.mkdir(parents=True, exist_ok=True)
+    kept: list[str] = []
     for _ in range(PLACE_TRIES):
-        _aside()
+        moved = _aside()
+        if moved is not None and _differs(moved, snapshot):
+            kept.append(_keep(moved))
         try:
             os.rename(fresh, worktree())
             break
@@ -167,6 +207,7 @@ def _fresh(commit: str) -> None:
     else:
         raise hand.HandError("could not put a fresh checkout at state/home/repo: something keeps replacing it")
     _sweep()
+    return kept
 
 
 def _dirty() -> bool:
@@ -179,17 +220,26 @@ def _prepare_locked() -> Json:
     origin = _rev(ORIGIN_BASE)
     if origin is None:
         raise hand.HandError(f"origin has no {BASE} branch")
-    if _tree_kind() == "missing" or _rev("HEAD") is None:
-        _fresh(origin)
+    kept: list[str] = []
+    head = _rev("HEAD")
+    if _tree_kind() == "missing" or head is None:
+        # Whatever is there is not a copy of anything: keep a tree with files in it.
+        kept = _fresh(origin, None if _tree_kind() == "tree" else head)
         state = "cloned"
     elif _dirty():
         state = "dirty"
-    elif _rev("HEAD") != origin:
-        _fresh(origin)
+    elif head != origin:
+        kept = _fresh(origin, head)
         state = "synced"
     else:
         state = "current"
-    return {"path": str(worktree()), "repo": selfclone.repo(), "commit": origin, "head": _rev("HEAD"), "state": state}
+    out: Json = {"path": str(worktree()), "repo": selfclone.repo(), "commit": origin, "head": _rev("HEAD"),
+                 "state": state}
+    if kept:
+        out["kept"] = kept
+        out["note"] = ("edits made while the tree was refreshed are in " + ", ".join(kept)
+                       + " (outside the mind's reach); copy what is wanted back")
+    return out
 
 
 def prepare() -> Json:
@@ -410,7 +460,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
         finally:
             if pushed and not pushed.get("dry_run"):
                 # Pushed: the change is on the branch, so the tree starts clean.
-                _fresh(origin)
+                _fresh(origin, commit)
             else:
                 _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
     if pushed.get("dry_run"):
