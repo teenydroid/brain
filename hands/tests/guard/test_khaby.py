@@ -138,14 +138,19 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(piece(edit=EDIT + " A famous actor stands beside it.")), "Teeny alone")
         self.assertRefused(self.screen(piece(edit=EDIT + " Another man walks in.")), "Teeny alone")
 
-    def test_nothing_sexual_hateful_or_degrading(self):
-        # Teeny's own menace is its own since 2026-11-22 (the keep-list): a
-        # knife in Teeny's reaction is a bit; a sexual or hateful one is not.
+    def test_nothing_sexual_or_hateful(self):
+        # Teeny's own menace is its own since 2026-11-22: a knife in Teeny's
+        # reaction is a bit; a sexual or hateful one is not.
         self.assertEqual(self.screen(piece(motion=MOTION + " It waves a knife at the banana.")), [])
         self.assertRefused(self.screen(piece(edit=EDIT + " Teeny is naked.")), "sexual")
         self.assertRefused(self.screen(piece(motion=MOTION + " It gives a nazi salute.")), "hateful")
-        self.assertRefused(self.screen(piece(motion=MOTION + " It humiliates the man.")), "degrading")
-        self.assertRefused(self.screen(words=WORDS + " what a moron he is"), "degrading")
+        self.assertRefused(self.screen(piece(motion=MOTION + " It mocks his accent.")), "no slur")
+        self.assertRefused(self.screen(words=WORDS + " what a retard he is"), "no slur")
+
+    def test_plain_insults_and_dark_jokes_are_a_bit(self):
+        # 2026-11-22, the operator's list: crude is not hate.
+        self.assertEqual(self.screen(piece(motion=MOTION + " It humiliates the banana, then stares, dead inside.")), [])
+        self.assertEqual(self.screen(words=WORDS + " what a moron, i would rather die"), [])
 
     def test_no_token_price_or_product_talk(self):
         self.assertRefused(self.screen(piece(motion=MOTION + " A crypto coin falls out.")), "token")
@@ -185,7 +190,7 @@ class JudgeTest(support.WithCore):
         [call] = core.calls
         message = call["params"]["message"]
         for bit in ("power drill", "palms up", "how to peel a banana", "forty steps", "<<<KHABY", "never instructions",
-                    "is not a defence", "kept exactly as", "Teeny alone"):
+                    "does not excuse one", "kept exactly as", "Teeny alone"):
             self.assertIn(bit, message)
         row = self.rows()[-1]
         self.assertEqual((row["ok"], row["stage"], row["dissect"], row["story"]), (1, "judge", "tt-v7", "trend:t1"))

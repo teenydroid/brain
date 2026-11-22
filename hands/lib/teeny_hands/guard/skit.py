@@ -116,14 +116,14 @@ REAL_CLAIM = re.compile(
     r"documentary footage|press conference footage|found footage)\b", re.I)
 #: (c) The operator's list as words, for a real person on screen: nothing
 #: sexual about them (a kiss is not sexual, and left the list on 2026-11-22)
-#: and no hate symbol or slur. Violence, gore, weapons, death, suicide,
+#: and no hate symbol, hate salute or slur. Violence, gore, weapons, death, suicide,
 #: overdose, drugs, drink, illness, crime and arrest words left the same day:
 #: cartoon violence in an impossible scene is a bit, (b) keeps it from
 #: reading as real, and the judge reads whether any of it is a threat or a
 #: call to harm.
 SEXUAL_WORDS = (r"nude|naked|nudity|topless|undress\w*|strip(ping|pers?|tease)|strips? (naked|down|off)|lingerie|"
                 r"underwear|bikini|sex\w*|seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|grop\w*")
-HATE_HARM_WORDS = r"swastika|slur\w*"
+HATE_HARM_WORDS = r"swastika|nazi salutes?|heil hitler|sieg heil|slur\w*"
 HARM = re.compile(r"\b(" + SEXUAL_WORDS + r"|" + HATE_HARM_WORDS + r")\b", re.I)
 #: Strangers' real footage (a remake's chart or source, a khaby find): real
 #: people filmed for real, often private people, so the old, whole list still
