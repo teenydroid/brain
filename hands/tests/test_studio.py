@@ -285,9 +285,14 @@ class RankTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in cards], ["digg:0", "digg:1", "digg:2", "digg:3"])
 
     def test_heat_is_within_its_source_and_flat_where_there_is_no_count(self):
-        heat = studio_feed.heat_of([cand("digg:a", heat=200), cand("digg:b", heat=50), cand("hn:a", "hn", heat=10),
+        heat = studio_feed.heat_of([cand("digg:a", heat=600), cand("digg:b", heat=150), cand("hn:a", "hn", heat=800),
                                     cand("reddit:a", "reddit", heat=None), cand("digg:c", heat=0)])
         self.assertEqual(heat, {"digg:a": 1.0, "digg:b": 0.25, "hn:a": 1.0, "reddit:a": 0.5, "digg:c": 0.05})
+
+    def test_a_lone_small_item_is_not_as_hot_as_a_big_source_top(self):
+        heat = studio_feed.heat_of([cand("chan:b:1", "chan", heat=30), cand("digg:a", heat=900)])
+        self.assertEqual(heat["digg:a"], 1.0)
+        self.assertEqual(heat["chan:b:1"], 0.2)
 
     def test_fresher_is_hotter(self):
         self.assertEqual(studio_feed.freshness(0), 1.0)
@@ -1170,6 +1175,12 @@ class VetoTest(unittest.TestCase):
                           ask=self.editor({"verdict": "none", "reason": "a slur", "line": "no slurs"}))
         self.assertEqual(out["verdict"], "none")
         self.assertIn("(breaks: no slurs)", out["reason"])
+
+    def test_a_none_that_names_no_line_of_the_list_is_a_pick(self):
+        out = studio.veto({"kind": "peer-quote", "text": "hi", "quoted": "their post"}, self.env,
+                          ask=self.editor({"verdict": "none", "reason": "flat"}))
+        self.assertEqual(out["verdict"], "pick")
+        self.assertIn("flat", out["reason"])
 
     def test_an_editor_that_cannot_answer_is_a_none(self):
         out = studio.veto({"kind": "brief", "text": "hi"}, self.env,
