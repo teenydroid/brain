@@ -2880,6 +2880,32 @@ def _cron_failure_runs(since: float) -> list[Json] | None:
                    for ms, job, out in rows if isinstance(ms, (int, float))), key=lambda r: r["at"])
 
 
+def _cron_runs(names: tuple[str, ...], since: float, until: float) -> list[float] | None:
+    """When each finished run, ok or not, of the cron job known by any of
+    NAMES (its command, or its name) ended in [SINCE, UNTIL), from
+    storage.db read-only: a falling check's source (evolve_outcomes.silenced)."""
+    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            jobs = {str(i) for i, c, n in conn.execute(
+                "select id, json_extract(body, '$.command'), json_extract(body, '$.name') from docs "
+                "where coll = 'cron.jobs' and json_valid(body)")
+                if (str(c or "").strip() or str(n or "")) in names or str(n or "") in names}
+            rows = conn.execute(
+                "select json_extract(body, '$.finished_ms'), json_extract(body, '$.job_id') from docs "
+                "where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}' "
+                "and json_extract(body, '$.finished_ms') >= ? and json_extract(body, '$.finished_ms') < ?",
+                (int(since * 1000), int(until * 1000))).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return sorted(float(ms) / 1000 for ms, job in rows if isinstance(ms, (int, float)) and str(job) in jobs)
+
+
 #: An error the merged change cannot have caused: the core down (a restart),
 #: the model provider refusing or dropping (payment, rate, 5xx, a dropped
 #: stream, a timeout). Read from a failed cron run's output.
@@ -6603,7 +6629,7 @@ def outcome_sources(cfg: Config) -> evolve_outcomes.Sources:
 
     return evolve_outcomes.Sources(hands_db=state_dir() / "hands.db", act_dir=state_dir() / "act",
                                    tick_runs=state_dir() / "tick" / "runs.jsonl", cron_failures=cron,
-                                   infra=INFRA_ERROR)
+                                   infra=INFRA_ERROR, cron_runs=_cron_runs)
 
 
 def score_outcomes(cfg: Config, entries: Mapping[str, Json], ask: probes_lib.Ask | None = None) -> list[Json]:
