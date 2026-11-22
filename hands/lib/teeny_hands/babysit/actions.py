@@ -92,7 +92,10 @@ def report(result: Mapping[str, Any]) -> str:
     lines = [f"**babysitter** · {_HEADLINES.get(str(result['verdict']), str(result['verdict']))}", ""]
     sha = str(result.get("head_sha") or "")[:12]
     lines.append(f"head `{sha}` · author tier `{result.get('tier')}`")
-    if result.get("self_merge"):
+    if result.get("self_merge") and result.get("gate") == "checks":
+        lines.append("no person approved this head: Teeny's own pull request, every required check is green "
+                     "at this head and nothing else is flagged (`BABYSIT_SELF_MERGE_ALL`)")
+    elif result.get("self_merge"):
         lines.append(f"no person approved this head: Teeny's evolve pull request, `{policy.EVAL_CONTEXT}` passed "
                      "at this head and nothing else is flagged (`BABYSIT_SELF_MERGE`, the `self-merge` rung, L5)")
     if result.get("approved_by"):
