@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-IMAGE_MODELS = "muse-image-edit,firered-image-edit,nano-banana-2-lite-edit"
+IMAGE_MODELS = "gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
 #: Every image starts from Teeny's character sheet, so Teeny stays on model:
 #: the images are edits of it, never free text-to-image.
@@ -74,7 +74,8 @@ REFERENCE = "brain/assets/teeny-reference.png"
 CHARACTER = (
     "The yellow character from the reference sheet is Teeny. Keep Teeny exactly as in the reference: the same "
     "yellow rounded body, the ball on top, the small arms, black eyes and pink cheeks, soft 3D render. "
-    "One Teeny, no text, no labels, no character sheet."
+    "One Teeny, no text, no labels, no character sheet. Only Teeny is soft and cute: everyone and everything "
+    "else is drawn as the scene says."
 )
 MAX_PROMPT = 1500
 #: X's longest alt text, in characters.

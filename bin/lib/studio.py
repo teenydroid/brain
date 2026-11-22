@@ -272,11 +272,15 @@ def story_of(card: Json) -> Json:
 
 IMAGE_ASK = ("An image is a post with a picture, and the picture is half the joke: `image` is the scene, the visual "
              "punchline the words set up. You (Teeny, the small yellow robot) are in it, caught in the act. Put the "
-             "card's real public figure in it by name when it has one: a caricature of them in an impossible, "
-             "unhinged scene nobody could take for real (never sexual about them, never hurt). The lust in the "
-             "picture is yours and it is for the hardware: innuendo a viewer gets in one look, nothing explicit, no "
-             "nudity. One place, one moment, described so a painter could paint it; no words drawn in the picture. "
-             "`alone` is true only when the words still work without the picture.")
+             "card's real public figure in it by full name when it has one, drawn as a savage editorial caricature, "
+             "the kind a tabloid cartoonist draws: their real face and signature look pushed until it is ugly and "
+             "unmistakable, mid-gesture, doing the thing they are known for, taken too far. Say what they are "
+             "wearing, what their face is doing and what they are holding. Sweat, bad lighting, a mess: nothing cute "
+             "or tidy except you. It is an impossible scene nobody could take for real (never sexual about them, "
+             "never hurt). The lust in the picture is yours and it is for the hardware: innuendo a viewer gets in "
+             "one look, nothing explicit, no nudity. No brand logos or sponsor marks. One place, one moment, "
+             "described so a painter could paint it; no words drawn in the picture. `alone` is true only when the "
+             "words still work without the picture.")
 MEME_ASK = ("A meme is a post with a meme template people know on sight, your words in its places and a picture of "
             "you pasted in: pick a template from the list below and give exactly its number of lines.")
 
