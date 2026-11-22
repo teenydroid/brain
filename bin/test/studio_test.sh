@@ -596,6 +596,25 @@ out="$(FAKE_FORMATS=image,post FAKE_SCENE_HELD=1 live)"
 check "a scene the guard holds is no picture: nothing bought, the next post goes out" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.failed == \"the guard held its scene\"' <<<\"\$1\" >/dev/null && ! grep -q '^image generate' '$FAKE_HANDS'" _ "$(last_record)"
 
+# --- the guard on the words, before hands/x (the 23:00 UTC slot of 2026-11-22
+# posted a chan card's words with no gate of the studio's own: no `gates`)
+reset
+out="$(FAKE_FORMATS=post,post FAKE_WORDS_HELD='post 1:' live)"
+rec="$(last_record)"
+check "words the guard holds never reach hands/x: the next post goes out" \
+  bash -c "jq -e '.outcome == \"published\" and .final.label != .publish.attempts[0].label' <<<\"\$1\" >/dev/null &&
+    ! grep -q '^x post .*post 1:' '$FAKE_HANDS' && [ \"\$(posts | grep -c '^x post ')\" = 1 ]" _ "$rec"
+check "and each attempt keeps what the guard said on its words, surface x" \
+  jqe '.publish.attempts[0].gates == [{"gate": "guard", "ok": false, "code": 2, "refused": "held", "category": "sexual", "hold_id": 11}]
+    and .publish.attempts[1].gates == [{"gate": "guard", "ok": true, "code": 0}]' <<<"$rec"
+check "the guard reads the words before hands/x is called" \
+  bash -c "grep -nE '^(guard check .*\"surface\":\"x\"|x post )' '$FAKE_HANDS' | head -1 | grep -q 'guard check'"
+reset
+out="$(FAKE_FORMATS=post,post FAKE_WORDS_FAILED=1 live)"
+check "a judge that cannot judge sends nothing: the slot ends empty, and says so" \
+  bash -c "jq -e '.outcome != \"published\" and (.publish.attempts | length) == 2 and all(.publish.attempts[]; .gates[0].judge_failed == true)' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(posts)\" ]" _ "$(last_record)"
+
 # --- a meme: a known template, the writer's lines, Teeny pasted in
 reset
 out="$(FAKE_FORMATS=meme,post STUDIO_FORMATS=post,meme live)"
