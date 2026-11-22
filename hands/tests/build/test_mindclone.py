@@ -135,6 +135,23 @@ class PrepareTest(MindScratch):
         mindclone.prepare()
         self.assertTrue((kept / "brain" / "late.md").is_file())
 
+    def test_a_tree_that_could_not_be_inspected_is_kept(self):
+        import subprocess as sp
+
+        mindclone.prepare()
+        self.upstream({"brain/NEW.md": "new\n"}, "new")
+        real = mindclone.git.run
+
+        def timing_out(cwd, *args, **kw):
+            if "read-tree" in args:
+                raise sp.TimeoutExpired("git", 1)
+            return real(cwd, *args, **kw)
+
+        with mock.patch.object(mindclone.git, "run", timing_out):
+            out = mindclone.prepare()
+        (kept,) = out["kept"]
+        self.assertTrue((Path(kept) / "brain" / "SOUL.md").is_file())
+
     def test_an_unchanged_tree_is_replaced_and_leaves_nothing_behind(self):
         mindclone.prepare()
         self.upstream({"brain/NEW.md": "new\n"}, "new")
@@ -202,6 +219,24 @@ class ShipTest(MindScratch):
         self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nsmall and kind\n")
         self.assertFalse((self.tree / "notes").exists())
         self.assertEqual(mindclone.prepare()["state"], "current")
+
+    def test_an_edit_made_after_the_commit_is_reported_in_the_shipping_result(self):
+        from teeny_hands.gh import actions
+
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        real = actions.open_pr
+
+        def edit_then_open(*args, **kw):
+            self.edit({"brain/after.md": "written after the commit\n"})
+            return real(*args, **kw)
+
+        with mock.patch.object(actions, "open_pr", edit_then_open):
+            out = self.ship()
+        (kept,) = out["kept"]
+        self.assertEqual((Path(kept) / "brain" / "after.md").read_text(), "written after the commit\n")
+        self.assertIn(kept, out["note"])
+        self.assertFalse((self.tree / "brain" / "after.md").exists())
 
     def test_nothing_changed_is_refused(self):
         mindclone.prepare()

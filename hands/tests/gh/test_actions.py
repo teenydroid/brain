@@ -482,6 +482,14 @@ class IssueTest(Scratch):
         self.assertEqual(errors, [])
         self.assertEqual(len(self.gh.requests("POST", "/repos/a/b/issues")), 1)
 
+    def test_an_incomplete_search_does_not_prove_there_is_no_open_issue(self):
+        self.external_issue(open_issues=None)
+        self.gh.route("GET", "/search/issues", {"total_count": 0, "incomplete_results": True, "items": []})
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "open_issue")
+        self.assertEqual(self.gh.requests("POST", "/repos/a/b/issues"), [])
+
     def test_a_second_open_issue_in_one_project_waits(self):
         self.external_issue(open_issues=None)
         self.gh.route("GET", "/search/issues", {"total_count": 1, "items": []},
