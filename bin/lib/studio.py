@@ -690,11 +690,16 @@ def _ref(value: Any) -> str:
 def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: tuple[str, ...],
                      limit: int, item_stories: dict[str, Any] | None = None,
                      outside: set[str] | None = None, charts: set[str] | None = None,
-                     sources: dict[str, set[str]] | None = None) -> tuple[list[Json], list[Json], list[str]]:
+                     sources: dict[str, set[str]] | None = None,
+                     pure_invented: int = 1) -> tuple[list[Json], list[Json], list[str]]:
     """(kept, dropped with why, the writer's ranking of the kept ids). A
     pitch's `hook` is the trending story it joins (an id in `outside`, which
     holds only what is trending), its `item` the real thing of Teeny's it
-    brings (any id in `known`); it needs at least one of the two. An `item`
+    brings (any id in `known`); it needs at least one of the two, unless it
+    is pure invention (`pure_invention`: it says `invented: true`, or its
+    shape is invention-led, with neither), which is kept with `invented:
+    true`, at most PURE_INVENTED of them (STUDIO_PURE_INVENTED, 1), the
+    writer's best-ranked; the rest are dropped with why. An `item`
     naming a trending story, with no hook, is taken as the hook. A hook that
     names anything else is no hook: the pitch is kept unhooked when it has
     an item (`unhooked` says why), dropped when it has none. A pitch's storyline is the one it names when
@@ -730,9 +735,10 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             demoted, hook = f"its hook {hook!r} is not a trending story", ""
         fmt = _str(raw.get("format"), 20).lower()
         why = ""
+        pure = not item and not hook and pure_invented > 0 and pure_invention(raw)
         if pid in seen:
             why = f"the id {pid} is used twice"
-        elif not item and not hook:
+        elif not item and not hook and not pure:
             why = f"{demoted}, and it names no item" if demoted else "it names no item and no hook"
         elif item and item not in known:
             why = f"its item {item!r} is not in the inputs"
@@ -763,11 +769,34 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
                      "why_now": _str(raw.get("why_now"))})
         if demoted:
             kept[-1]["unhooked"] = demoted
+        if pure:
+            kept[-1]["invented"] = True
     ids = [p["id"] for p in kept]
     ranking = [r for r in dict.fromkeys(str(x) for x in answer.get("ranking") or [] if isinstance(x, (str, int)))
                if r in ids]
     ranking += [i for i in ids if i not in ranking]
+    # Pure invention, at most PURE_INVENTED a slot: the writer's best-ranked.
+    invented = [i for i in ranking if any(p["id"] == i and p.get("invented") for p in kept)]
+    extra = set(invented[pure_invented:])
+    if extra:
+        best = ", ".join(invented[:pure_invented])
+        for raw, p in [(r, p) for r, p in zip(answer["pitches"], [None] * len(answer["pitches"]))]:
+            pass
+        for p in [p for p in kept if p["id"] in extra]:
+            dropped.append({"pitch": next((r for r in answer["pitches"] if isinstance(r, dict) and
+                                           (_str(r.get("id"), 40) or "") == p["id"]), p),
+                            "why": f"only {pure_invented} pitch{'es' if pure_invented != 1 else ''} a slot may be "
+                                   f"pure invention, with no hook and no item, and the writer ranked {best} above it"})
+        kept = [p for p in kept if p["id"] not in extra]
+        ranking = [r for r in ranking if r not in extra]
     return kept, dropped, ranking
+
+
+def pure_invention(raw: Json) -> bool:
+    """Whether a pitch with no hook and no item is pure invention: it says
+    `invented: true`, or its shape is invention-led (`invention_led`), as the
+    live tall tale of 2026-11-22 was before the field existed."""
+    return raw.get("invented") is True or invention_led(raw.get("shape"))
 
 
 def hooks_wanted(top: int) -> int:
