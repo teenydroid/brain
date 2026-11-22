@@ -101,7 +101,8 @@ done
 check "and the detached run found the loop off" grep -q 'EVOLVE=0' "$root/state/evolve/evolve.log"
 
 # --- a dry-run generation -----------------------------------------------------------------
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\n' >"$root/secrets/evolve.env"
+# The publish rule has a section of its own below: these runs switch it off.
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\nEVOLVE_PUBLISH_PROOF=0\n' >"$root/secrets/evolve.env"
 propose 1 "Open with what shipped, never with the weather."
 propose 2 "Name the person who shipped it, and check it went out."
 out="$("$evolve" run --candidates 2 --proposals "$root/props" 2>"$scratch/err")"
@@ -151,7 +152,7 @@ check "status lists the open learnings" test "$(jq -r '[.learnings.open[].id] | 
 check "and each candidate's state" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
 check "and the open evolve pull requests" test "$(jq -r '.open_prs | length' <<<"$out")" = 0
 # Both generations so far were runs by hand: they spend none of the schedule's.
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=2\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=2\nEVOLVE_EVALUATOR=none\nEVOLVE_PUBLISH_PROOF=0\n' >"$root/secrets/evolve.env"
 propose 1 "A wave, then a drip."
 out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
 check "a third run by hand today skips on its own cap" test "$(jq -r .skipped <<<"$out")" = "skipped this run: manual-generations"
@@ -165,6 +166,108 @@ check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 check "there is no latch to resume" bash -c "! '$evolve' resume >/dev/null 2>&1"
 check "and status names no halt" test "$("$evolve" status 2>/dev/null | jq 'has("halt")')" = false
 check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n' >'$root/secrets/evolve.env'; ! '$evolve' run 2>/dev/null"
+
+# --- the publish rule: no detectable difference is not a pass ---------------------------------
+# A fresh root with the same stand-in hands, and the rule at its defaults.
+# Every change here edits a playbook no eval task reaches (unmeasurable), so
+# only a powered check publishes it: one whose stream held at least 4 events
+# in the 2 days before the run.
+proof="$scratch/proof"
+mkdir -p "$proof/secrets" "$proof/state" "$proof/props" "$proof/brain"
+cp -r "$root/hands" "$proof/hands"
+root="$proof"
+export TEENY_ROOT="$root" TEENY_HANDS="$root/hands"
+rule_env() { # ROUNDS
+  printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\nEVOLVE_FINDING_SLOTS=0\nEVOLVE_REVISE_ROUNDS=%s\n' "$1" >"$root/secrets/evolve.env"
+}
+learning() { # ID: a page with that one learning
+  printf '# MEMORY.md\n\n## what i have decided\n\n- [%s] before retrying anything, check whether it already went through (%s).\n' "$1" "$1" >"$root/brain/MEMORY.md"
+}
+failed_runs() { # PLAYBOOK N: N failed bin/act runs of PLAYBOOK, an hour apart, in the last day
+  python3 - "$root/state/act/$1/runs.jsonl" "$2" <<'PY'
+import json, os, sys, time
+path, n = sys.argv[1], int(sys.argv[2])
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "a") as fh:
+    for k in range(n):
+        at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - (k + 1) * 3600))
+        fh.write(json.dumps({"at": at, "ok": False, "error": "the hand said no", "actions": []}) + "\n")
+PY
+}
+counted='{"kind": "act_failed", "playbook": "moltbook-follow", "direction": "fall"}'
+with_check() { # FILE CHECK
+  jq --argjson c "$2" '.check = $c' "$1" >"$1.tmp" && mv "$1.tmp" "$1"
+}
+last_gen() { find "$root/state/evolve" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' -printf '%f\n' | sort -n | tail -1; }
+
+rule_env 1
+learning m70
+propose 1 "Check whether it already went through (1)."
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "a change no eval task reaches, with only a judged check, is unproven" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = unproven
+check "and says why: nothing measured it and a judged check proves nothing" grep -q 'no eval task reaches.*judged check' <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
+check "and would open nothing" test ! -e "$root/state/evolve/$(last_gen)/cand-1.pr.json"
+check "and the archive keeps the verdict and the reason" test "$(grep -c '"verdict": "unproven"' "$root/state/evolve/archive.jsonl")" -ge 1
+
+learning m71
+failed_runs moltbook-follow 2
+propose 1 "Check whether it already went through (2)."
+with_check "$root/props/cand-1.json" "$counted"
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "a counted check that history says will be no-data is refused" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = unproven
+check "with how many events history holds and what the verdict needs" grep -q 'counted 2 event(s) in the last 2 day(s); its 2-day verdict needs at least 4, so history says it would come out no-data' <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
+
+learning m72
+failed_runs moltbook-follow 4
+propose 1 "Check whether it already went through (3)."
+with_check "$root/props/cand-1.json" "$counted"
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "the same check with enough history is powered, and would open" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
+check "and its pull request says why it was published" grep -q 'Published because.*counted 6 event(s)' <<<"$(jq -r .body "$root/state/evolve/$(last_gen)/cand-1.pr.json")"
+
+learning m73
+propose 1 "Check whether it already went through (4)."
+jq '.edits += [{"path": "brain/cron.toml", "old": "command = \"bin/act moltbook-follow\"", "new": "command = \"bin/act moltbook-follow\"\nenabled = false"}]' \
+  "$root/props/cand-1.json" >"$root/props/cand-1.json.tmp" && mv "$root/props/cand-1.json.tmp" "$root/props/cand-1.json"
+with_check "$root/props/cand-1.json" "$counted"
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "a falling check cannot be met by turning its own job off" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = unproven
+check "and the reason names the cut" grep -q 'runs less (moltbook-follow turned off)' <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
+
+rule_env 2
+learning m74
+propose 1 "Check whether it already went through (5)."
+cp "$root/props/cand-1.json" "$root/props/cand-1.round-2.json"
+with_check "$root/props/cand-1.round-2.json" "$counted"
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "with a round left, an unproven change goes back to the proposer and comes back powered" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
+check "the reason was its finding in the next round" grep -q 'unproven' <<<"$(jq -r '.rounds[0].eval.findings[0].problem' "$root/state/evolve/$(last_gen)/cand-1.rounds.json")"
+rm -f "$root/props/cand-1.round-2.json"
+
+# --- lessons: an exhausted kind of change is rejected ------------------------------------------
+# Three merged rules written into SOUL.md, each judged, none worked.
+for k in 1 2 3; do
+  verdict=$([ "$k" = 2 ] && echo hurt || echo no-effect)
+  printf '{"id": "g9%sc1", "gen": 9%s, "cand": 1, "verdict": "opened", "title": "SOUL hard rule %s", "merged_at": "2026-11-0%sT00:00:00Z", "kinds": ["prompt-rule/learning"], "learning": {"id": "m9%s", "section": "what i have decided", "text": "t"}, "check": {"kind": "judged", "surface": "x"}, "outcome_2d": {"days": 2, "verdict": "%s"}}\n' \
+    "$k" "$k" "$k" "$k" "$k" "$verdict" >>"$root/state/evolve/archive.jsonl"
+done
+rule_env 1
+learning m75
+python3 - "$src" "$root/props/cand-1.json" "$counted" <<'PY'
+import json, subprocess, sys
+text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/SOUL.md"], check=True, capture_output=True,
+                      text=True).stdout
+last = text.rstrip().splitlines()[-1]
+json.dump({"title": "SOUL hard rule: check first", "component": "attention", "expected_move": "fewer failed follows",
+           "check": json.loads(sys.argv[3]), "hypothesis": "A rule every turn reads.",
+           "edits": [{"path": "brain/SOUL.md", "old": last, "new": f"{last}\n- check before retrying anything."}]},
+          open(sys.argv[2], "w"))
+PY
+out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
+check "the evidence leads with the lessons, by kind" test "$(jq -r '.lessons.kinds[0].kind' "$root/state/evolve/$(last_gen)/evidence.json")" = prompt-rule/learning
+check "the fourth rule of an exhausted kind is rejected" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = parked
+check "naming the lesson" grep -qF "lesson \`prompt-rule/learning\` is exhausted" <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
+check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 
 # --- the pinned jobs -------------------------------------------------------------------------------
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"

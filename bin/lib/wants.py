@@ -18,11 +18,17 @@ the item quoted. Nothing here asks a model.
 
 What is a want: an item of "what i am in the middle of" or "promises and open
 threads" that says its author will build a thing (wants_rules.is_build_intent,
-shared with bin/evolve, which no longer picks them). Only that page is read:
-the other places a want could come from (failed builds, frozen files, a
-stranger's request, browser notes) are not things a new hand fixes, or are
-strangers' words (docs/evolve.md says why). The want's text reaches the brief
-only through evolve_findings.scrub: no link, email, handle or id.
+shared with bin/evolve, which no longer picks them), kind `memory`; or a fix
+finding bin/evolve routed to code because prompt rules kept failing to fix it
+and whose fix needs no frozen path (evolve_route), kind `finding`, id
+`w:f:<family>`, one per family. Nothing else is read: the other places a want
+could come from (failed builds, frozen files, a stranger's request, browser
+notes) are not things a new hand fixes, or are strangers' words (docs/evolve.md
+says why). The want's text reaches the brief only through
+evolve_findings.scrub: no link, email, handle or id. A finding want's brief is
+evolve_route's: the counts, the tries, the files, the check; and seven days
+after it merges it is scored on that check (the count should fall), not on a
+hand's uses.
 
 Where a want stands comes from the ledgers, never from the page:
 
@@ -60,6 +66,7 @@ from typing import Any
 import evolve  # noqa: E402  (puts hands/lib on the path)
 import evolve_findings  # noqa: E402
 import evolve_outcomes as eo  # noqa: E402
+import evolve_route  # noqa: E402
 import wants_rules  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 
@@ -164,10 +171,42 @@ class Want:
     text: str
     hash: str
     order: int
+    #: A finding want's: its brief (evolve_route) and the check it is scored on.
+    body: str = ""
+    check: Json | None = None
 
 
 def read_wants() -> list[Want]:
-    """The build-intent items of the live memory page, in page order."""
+    """The build-intent items of the live memory page, in page order, then
+    the findings routed to the builder."""
+    out = _memory_wants()
+    return out + finding_wants(len(out))
+
+
+def finding_wants(start: int = 0) -> list[Want]:
+    """The routed findings whose fix needs no frozen path (evolve_route),
+    one per family. Its text names the family and the code, not the numbers,
+    which move every hour: the same want stays the same filing."""
+    try:
+        cfg = evolve.load_config()
+    except evolve.EvolveError:
+        return []
+    findings = evolve.read_findings(cfg)
+    if not findings:
+        return []
+    out: list[Want] = []
+    for route in evolve.finding_routes(evolve.archive(), findings, cfg):
+        if route["to"] != evolve_route.BUILDER:
+            continue
+        text = (f"finding {route['family']}: prompt rules did not fix it; a code change in "
+                + ", ".join(route["paths"]))
+        out.append(Want(id=route["want"], kind="finding", subject=route["family"], section="finding",
+                        text=evolve_findings.scrub(text, MAX_TEXT), hash=evolve.learning_hash(text),
+                        order=start + len(out), body=route["text"], check=route["check"]))
+    return out
+
+
+def _memory_wants() -> list[Want]:
     try:
         page = (evolve.brain_dir() / "MEMORY.md").read_text(encoding="utf-8")
     except OSError:
@@ -184,7 +223,9 @@ def read_wants() -> list[Want]:
 
 def brief(want: Want) -> str:
     """What the builder is asked to build: fixed words, with the want's
-    scrubbed text quoted."""
+    scrubbed text quoted; for a finding, evolve_route's brief."""
+    if want.kind == "finding":
+        return want.body[:BRIEF_CHARS]
     return BRIEF.format(id=want.id, subject=want.subject, text=want.text)[:BRIEF_CHARS]
 
 
@@ -374,7 +415,8 @@ def file_one(cfg: Settings) -> Json:
         return {"ok": False, "error": "hands/build self: " + evolve_findings.scrub(
             made.get("error") or made.get("refused") or "it answered without a request id", 200)}
     _append("filed.jsonl", {"want": want.id, "hash": want.hash, "text": want.text, "at": evolve.now(),
-                            "request_id": made["id"]})
+                            "request_id": made["id"], **({"kind": "finding", "check": want.check}
+                                                         if want.kind == "finding" else {})})
     return {"ok": True, "filed": want.id, "request_id": made["id"]}
 
 
@@ -389,6 +431,13 @@ def _hands_of(rubric: Any) -> list[str]:
 
 
 def _outcome_text(record: Json, min_uses: int) -> str:
+    if record.get("kind") == "finding":
+        if record["verdict"] == "no-data":
+            return (f"The fix built from your routed finding {record['want']} could not be scored: "
+                    f"{record.get('why') or 'too few events'}.")
+        return (f"The fix built from your routed finding {record['want']} merged {record['days']} days ago. "
+                f"{record['check']}: {record['before']} in the {record['days']} days before, {record['after']} "
+                f"after: {record['verdict']}.")
     names = ", ".join(record["hands"]) or "its hand"
     if record["verdict"] == "no-data":
         return f"The feature built from your want {record['want']} ({names}) could not be scored: {record['why']}."
@@ -422,7 +471,10 @@ def watch(cfg: Settings) -> Json:
                             "pr_url": state["pr_url"], "merged_at": evolve.iso(pr["merged_at"]),
                             "hands": _hands_of(state["rubric"]), "days": cfg.used_days, "uses": None,
                             "verdict": "no-data", "at": now}
-            if not record["hands"]:
+            if filing.get("kind") == "finding" and isinstance(filing.get("check"), dict):
+                if not _score_fix(record, filing["check"], pr["merged_at"], now):
+                    continue  # not readable yet: try again tomorrow
+            elif not record["hands"]:
                 record["why"] = "no rubric on the job"
             else:
                 src = src or evolve.outcome_sources(evolve.load_config())
@@ -437,12 +489,31 @@ def watch(cfg: Settings) -> Json:
                     record["verdict"] = "used" if record["uses"] >= cfg.min_uses else "unused"
             stimuli.add("self", "outcome", f"want:{record['want']}:{record['request_id']}",
                         _outcome_text(record, cfg.min_uses),
-                        payload={k: record[k] for k in ("want", "hands", "uses", "verdict")}, at=now)
+                        payload={k: record.get(k) for k in ("want", "hands", "uses", "verdict")}, at=now)
             _append("outcomes.jsonl", record)
             out.append(record)
     finally:
         db.close()
     return {"ok": True, "scored": out}
+
+
+def _score_fix(record: Json, check: Json, merged_at: float, now: float) -> bool:
+    """A finding want's fix, on its finding's own check: the count over the
+    days after the merge against as many before (evolve_outcomes.verdict).
+    False when the count cannot be read yet."""
+    span = record["days"] * DAY
+    ecfg = evolve.load_config()
+    src = evolve.outcome_sources(ecfg)
+    before, after = eo.count(check, src, merged_at - span, merged_at), eo.count(check, src, merged_at, merged_at + span)
+    if before is None or after is None:
+        if now < merged_at + span + eo.GRACE_DAYS * DAY:
+            return False
+        record["why"] = "the count could not be read"
+        return True
+    got, _ = eo.verdict(check.get("direction", "fall"), before, after, ecfg["EVOLVE_OUTCOME_MIN_EVENTS"],
+                        ecfg["EVOLVE_OUTCOME_P"])
+    record.update(kind="finding", check=eo.describe(check), before=before, after=after, verdict=got)
+    return True
 
 
 def run(cfg: Settings) -> Json:

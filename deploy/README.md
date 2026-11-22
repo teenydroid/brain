@@ -41,6 +41,25 @@ the checkout, mounted at /srv/teeny in spine and xhook
   └── secrets/            spine.env, teeny.env, cortex.env, core.token, openhuman.key
 ```
 
+## What is in this folder
+
+| Path | What it is |
+|---|---|
+| `compose.yaml` | The services above, over the checkout mounted at `/srv/teeny`. |
+| `spine.env.example`, `teeny.env.example`, `cortex.env.example`, `ingest.env.example`, `keychain.env.example` | Templates for the env files under `secrets/`: the model and memory store (spine), the hands' keys and `DRY_RUN` (teeny), CortexDB's keys, the ingest service's optional proxy, and the keychain's sealing key. Copy, fill, mode 600. |
+| `browser-allow.txt`, `browser-deny.txt`, `browser-proxy-domains.txt` | Operator-owned lists for the browser: the hosts the raw `http_request` tool may reach, the hosts the browser may never open, and the hosts reached through the residential proxy. Teeny cannot edit them (`evals/frozen.txt`). |
+| `reddit-subreddits.txt` | The subreddits `hands/reddit` may write in, reviewed by the operator. |
+| `reel.Dockerfile`, `reel.config.toml`, `reel/` | The `reel` service: MoneyPrinterTurbo's config and Teeny's front (`serve.py` routes, `policy.py` rules, `skitcut.py` the skit cutter). |
+| `memegen/` | The `memegen` front (`front.py`, `art.py`). The service itself builds from `vendor/memegen`. |
+| `ingest.Dockerfile`, `ingest/` | The `ingest` service: `serve.py`, `policy.py` (the URL allowlist) and `shots.py` (the cuts). |
+| `nginx/` | The host's vhosts: `teeny.enamakel.com.conf` (webhook and landing page) and `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`). |
+| `web-vhost.sh` | Installs the landing-page vhost and its certificate, once. |
+| `tell.sh` | Tells Teeny something from the host and has it act now. |
+
+The spine's own image is the `Dockerfile` at the repository root, and the
+landing page's is `web/Dockerfile`. The whole folder is frozen to Teeny's own
+pull requests (`evals/frozen.txt`).
+
 ## First time on the box
 
 From the checkout:

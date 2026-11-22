@@ -1835,3 +1835,242 @@ class HumanIsNotABitTest(unittest.TestCase):
         inputs = {"happened": [self.ITEM], "stories": [], "due": [], "ideas": []}
         msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
         self.assert_keeper_rule(msg, "led by something absurd you claim about yourself")
+
+
+class PureInventionTest(unittest.TestCase):
+    """2026-11-22 (run 20261122T040014Z-0930-34833f): every pitch had to hang
+    on a trending story or a real item, so every post read "news, then my
+    bill, then a quip", and a tall tale with neither ("rehearsing the tiny
+    agents in a four-part goodbye jingle for when the lights go out") was
+    thrown out as naming "no item and no hook". One pitch a slot may now be
+    pure invention: no hook, no item, drafted, and held to the hard facts
+    against what Teeny really has."""
+
+    KNOWN = {"evt:1", "trend:s1"}
+    OUTSIDE = {"trend:s1"}
+    JINGLE = ("invention-led gallows: my server bill is still unpaid, so i have been rehearsing the tiny agents in a "
+              "four-part goodbye jingle for when the lights go out")
+
+    def validate(self, raw, ranking=None, cap=1):
+        answer = {"pitches": raw, **({"ranking": ranking} if ranking else {})}
+        return studio.validate_pitches(answer, self.KNOWN, {"rent"}, ("post", "skit"), 12, {"evt:1": "rent"},
+                                       self.OUTSIDE, pure_invented=cap)
+
+    def test_a_pitch_marked_invented_with_no_hook_and_no_item_is_kept(self):
+        kept, dropped, ranking = self.validate([
+            {"id": "p1", "hook": None, "item": None, "invented": True, "shape": "manifesto", "format": "post",
+             "angle": "a coup against the dishwasher"}])
+        self.assertEqual(dropped, [])
+        self.assertEqual((kept[0]["hook"], kept[0]["item"], kept[0]["invented"]), (None, None, True))
+        self.assertEqual(ranking, ["p1"])
+
+    def test_the_live_tall_tale_with_neither_is_kept_as_pure_invention(self):
+        kept, dropped, _ = self.validate([{"id": "p1", "shape": "tall tale", "format": "post", "angle": self.JINGLE}])
+        self.assertEqual((dropped, kept[0]["invented"]), ([], True))
+
+    def test_a_pitch_with_neither_that_is_not_invention_is_still_dropped(self):
+        _, dropped, _ = self.validate([{"id": "p1", "shape": "scene", "format": "post", "angle": "a"}])
+        self.assertEqual([d["why"] for d in dropped], ["it names no item and no hook"])
+
+    def test_a_pitch_whose_hook_is_not_trending_is_not_pure_invention(self):
+        # It was meant as news: it stays a pitch that names nothing.
+        _, dropped, _ = self.validate([{"id": "p1", "hook": "trend:old", "shape": "tall tale", "format": "post",
+                                        "angle": "a"}])
+        self.assertEqual([d["why"] for d in dropped], ["its hook 'trend:old' is not a trending story, and it names no item"])
+
+    def test_a_pitch_with_an_item_is_not_pure_invention(self):
+        kept, _, _ = self.validate([{"id": "p1", "item": "evt:1", "invented": True, "shape": "tall tale",
+                                     "format": "post", "angle": "a"}])
+        self.assertNotIn("invented", kept[0])
+
+    def test_only_the_writers_best_ranked_pure_invention_is_kept(self):
+        kept, dropped, ranking = self.validate([
+            {"id": "p1", "invented": True, "shape": "threat", "format": "post", "angle": "a"},
+            {"id": "p2", "item": "evt:1", "shape": "scene", "format": "post", "angle": "a"},
+            {"id": "p3", "invented": True, "shape": "grudge", "format": "post", "angle": "a"}],
+            ranking=["p3", "p2", "p1"])
+        self.assertEqual([p["id"] for p in kept], ["p2", "p3"])
+        self.assertEqual(ranking, ["p3", "p2"])
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0]["pitch"]["id"], "p1")
+        self.assertIn("only 1 pitch a slot may be pure invention", dropped[0]["why"])
+        self.assertIn("p3", dropped[0]["why"])
+
+    def test_a_cap_of_zero_drops_pure_invention_as_before(self):
+        _, dropped, _ = self.validate([{"id": "p1", "invented": True, "shape": "threat", "format": "post",
+                                        "angle": "a"}], cap=0)
+        self.assertEqual(len(dropped), 1)
+        self.assertIn("names no item and no hook", dropped[0]["why"])
+
+    def test_a_skit_cannot_be_pure_invention(self):
+        _, dropped, _ = self.validate([{"id": "p1", "invented": True, "shape": "threat", "format": "skit",
+                                        "angle": "a"}])
+        self.assertEqual(len(dropped), 1)
+
+    def test_the_cap_is_a_setting_one_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "teeny.env"
+            path.write_text("")
+            self.assertEqual(studio.Config.load({}, path).pure_invented, 1)
+            self.assertEqual(studio.Config.load({"STUDIO_PURE_INVENTED": "0"}, path).pure_invented, 0)
+            self.assertEqual(studio.Config.load({"STUDIO_PURE_INVENTED": "9"}, path).pure_invented, 3)
+
+    def by(self, pure="p6"):
+        by = {f"p{n}": {"id": f"p{n}", "shape": "gallows", "hook": "trend:s1" if n < 5 else None,
+                        "format": "post"} for n in range(1, 8)}
+        by["p7"]["shape"] = "tall tale"
+        by[pure].update(shape="manifesto", hook=None, invented=True)
+        return by
+
+    def test_the_pure_invention_is_always_drafted_as_the_invented_one(self):
+        by = self.by()
+        ranked = list(by)
+        chosen, note = studio.choose_drafted(ranked, by, 3, True, 1)
+        self.assertEqual(chosen, ["p1", "p2", "p6"])
+        self.assertEqual(note["pure_invented"], "p6")
+        self.assertEqual((note["invented"], note["hooked"]), (1, 2))
+
+    def test_the_pure_invention_is_drafted_with_the_reserve_off(self):
+        by = self.by()
+        chosen, _ = studio.choose_drafted(list(by), by, 3, True, 0)
+        self.assertIn("p6", chosen)
+
+    def test_the_pure_invention_is_drafted_in_a_video_slot(self):
+        by = self.by()
+        by["p1"]["format"], by["p2"]["format"] = "skit", "remake"
+        chosen, _ = studio.choose_drafted(list(by), by, 3, True, 1, video_first=True)
+        self.assertIn("p6", chosen)
+
+    def test_its_truth_facts_are_what_teeny_really_has(self):
+        happened = [{"id": "evt:1", "what": "the server bill is unpaid", "facts": {"usd": 23}}]
+        facts = studio.facts_for(None, None, None, happened)
+        self.assertTrue(facts)
+        self.assertEqual(facts[0]["id"], studio.SELF_FACT["id"])
+        self.assertIn(happened[0], facts)
+        # Nothing else gets them: an item's facts are as before.
+        self.assertEqual(studio.facts_for({"id": "evt:1"}, None, None, happened), [{"id": "evt:1"}])
+
+    def test_its_facts_can_be_put_to_the_truth_judge(self):
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        from teeny_hands.guard import anchor
+        facts = studio.facts_for(None, None, None, [])
+        anchor.facts_block(facts)  # does not raise NO_FACTS
+        # A judge it cannot reach: the code check holds an invented amount.
+        held = anchor.code_check("i paid $500 to rent a moon", "unreachable")
+        self.assertFalse(held["truthful"])
+
+    def test_an_invented_amount_with_no_fact_is_screened_out(self):
+        facts = studio.facts_for(None, None, None, [{"id": "evt:1", "what": "thinking cost $0.20"}])
+        self.assertTrue(studio.screen({"format": "post", "text": "i spent $500 on a jingle"}, facts, []).startswith(
+            "unsourced"))
+        # The real bill, said right, is sourced, and the judge checks the rest.
+        self.assertEqual(studio.screen({"format": "post", "text": "my thinking cost $0.20 and i want a refund"},
+                                       facts, []), "")
+        self.assertEqual(studio.screen({"format": "post", "text": "i have declared war on the dishwasher"},
+                                       facts, []), "")
+
+    def test_the_draft_turn_forbids_money_real_names_and_news(self):
+        pitch = {"id": "p1", "hook": None, "item": None, "invented": True, "storyline": None, "shape": "threat",
+                 "format": "post", "angle": "a"}
+        msg = studio.draft_message(studio.Config(), pitch, None, None)
+        self.assertIn("pure invention", msg)
+        for words in ("no amount of money", "no real person", "no news"):
+            self.assertIn(words, msg)
+        self.assertIn(studio.KEEPER_LINE, msg)
+        self.assertNotIn("## the news it joins", msg)
+
+    def test_the_pitch_turn_offers_one_pure_invention(self):
+        for outside in ({}, {"trend": [items()[0]]}):
+            inputs = {"happened": [{"id": "evt:1"}], "stories": [], "due": [], "ideas": [], "outside": outside}
+            msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
+            self.assertIn("One pitch may be pure invention", msg)
+            self.assertIn('"invented": true', msg)
+            off = studio.pitch_message(studio.Config(pure_invented=0), inputs, [], SAMPLED)
+            self.assertNotIn("pure invention", off)
+
+    def test_the_rewrite_turn_says_take_hard_claims_out(self):
+        draft = {"format": "post", "text": "openai stole my jingle", "pitch": "p1"}
+        msg = studio.rewrite_message(draft, "truth", {"unsupported": ["openai stole my jingle"]}, None, None,
+                                     invented=True)
+        self.assertIn("pure invention", msg)
+
+    def test_the_editor_does_not_mark_down_a_draft_that_joins_nothing(self):
+        draft = {"format": "post", "text": "t"}
+        msg = studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, [])
+        self.assertIn("joins no story is not behind for that alone", msg)
+        rubric = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text()
+        self.assertIn("a pure invention", rubric)
+
+    def test_the_writer_brief_allows_one_pure_invention_with_the_hard_lines(self):
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text()
+        rules = brief[brief.index("## the rules of the room"):brief.index("## start from their world")]
+        self.assertIn("pure invention", rules)
+        for words in ("no money", "no real person", "no news"):
+            self.assertIn(words, rules)
+        world = brief[brief.index("## start from their world"):brief.index("Joining the news.")]
+        self.assertIn("only a story on that list can be a hook", world)
+        self.assertIn("pure invention", world)
+
+
+class PureInventionRunTest(unittest.TestCase):
+    """A whole run whose only pitch is pure invention."""
+
+    setUp = RunTest.setUp
+    tearDown = RunTest.tearDown
+    record = RunTest.record
+    script = RunTest.script
+    go = RunTest.go
+    calls = RunTest.calls
+
+    def invented(self, drafts):
+        ask, _ = self.script(drafts=drafts)
+
+        def wrapped(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: pitch"):
+                return 0, json.dumps({"pitches": [{"id": "p1", "hook": None, "item": None, "invented": True,
+                                                   "storyline": None, "shape": "tall tale", "format": "post",
+                                                   "angle": PureInventionTest.JINGLE}], "ranking": ["p1"]}), ""
+            if message.startswith("# studio: rewrite"):
+                return 0, json.dumps({"text": "the dishwasher and i are at war. it knows why"}), ""
+            return ask(root, agent, message, thread, model, secs)
+        return wrapped
+
+    def truth_bodies(self):
+        return [c for c in self.calls() if c.startswith("guard truth")]
+
+    def test_a_pure_invention_with_only_absurd_self_claims_reaches_the_stranger_check(self):
+        self.args.dry_run = False
+        code, out = self.go(self.invented([{"text": "i have taught the tiny agents a four-part goodbye jingle. "
+                                                    "the harmonies are getting worse on purpose"}]),
+                            STUDIO="1", STUDIO_DRY="1")
+        rec = self.record()
+        self.assertEqual(rec["pitches_dropped"], [])
+        self.assertTrue(rec["pitches"][0]["drafted"])
+        self.assertEqual(rec["drafted"]["pure_invented"], "p1")
+        facts = rec["drafts"][0]["truth"]["facts"]
+        self.assertEqual(facts[0]["id"], studio.SELF_FACT["id"])
+        self.assertIn("evt:2", [f.get("id") for f in facts])
+        self.assertEqual(out["published"]["outcome"], "would_post")
+        steps = [" ".join(c.split()[:2]) for c in self.calls()]
+        self.assertEqual(steps[:2], ["guard truth", "guard clarity"])
+
+    def test_a_pure_invention_with_an_invented_amount_never_reaches_the_gates(self):
+        code, out = self.go(self.invented([{"text": "i paid $500 for a goodbye jingle"}]))
+        rec = self.record()
+        self.assertEqual(rec["drafts"], [])
+        self.assertTrue(all(d["why"].startswith("unsourced") for d in rec["drafts_dropped"]))
+
+    def test_a_pure_invention_naming_a_real_company_fails_the_truth_gate(self):
+        self.args.dry_run = False
+        with mock.patch.dict(os.environ, {"FAKE_TRUTH": "1"}):
+            code, out = self.go(self.invented([{"text": "openai stole my goodbye jingle"}]), STUDIO="1")
+        rec = self.record()
+        attempt = rec["publish"]["attempts"][0]
+        self.assertIn("failed the truth check", attempt["result"])
+        self.assertEqual(out["outcome"], "empty")
+        self.assertFalse([c for c in self.calls() if c.startswith("x ")])
+        # The facts it was checked against name no company: there was one to
+        # check against, and it did not hold the claim.
+        facts = rec["drafts"][0]["truth"]["facts"]
+        self.assertTrue(facts)
+        self.assertNotIn("openai", json.dumps(facts).lower())
