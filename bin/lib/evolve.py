@@ -4829,7 +4829,7 @@ class Problem:
     BODY is public, so it carries counts, names and links, never a secret,
     an env value, a private payload or a held-out task. JUDGE: the guard's
     judge reads it, for text a model wrote (a candidate's title)."""
-    kind: str  # crash | doctor | fallback | j-rise | persona-drift | watch-revert
+    kind: str  # crash | doctor | fallback | j-rise | persona-drift | screen-held | watch-revert
     key: str
     title: str
     body: str

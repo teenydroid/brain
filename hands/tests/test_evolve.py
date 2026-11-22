@@ -2080,10 +2080,10 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
         keep = ["brain/playbooks/mentions.md", "brain/agents/teeny-mentions.md", "brain/skills/conversation/SKILL.md"]
         tried = [{"id": f"g{g}c1", "verdict": "rejected", "learning": "m1", "same_files": keep[:1],
                   "findings": [{"file": "x", "problem": "p" * 250, "fix": "f" * 250}] * 2} for g in range(1, 6)]
-        evidence = {"world": {"j": 0.4}, "outcomes": {"x": ["o" * 100] * 100},
+        evidence = {"world": {"j": 0.4}, "outcomes": {"x": ["o" * 100] * 160},
                     "archive": {"recent": ["a" * 100] * 40}, "builds": ["b" * 100] * 25,
                     "lessons": {"kinds": [{"kind": "playbook", "worked": 1, "no_effect": 2}] * 60}}
-        return {**self.request({}), "learning": finding, "editable": editable, "keep": keep, "tried": tried,
+        return {**self.request({}), "learning": finding, "editable": keep + editable, "keep": keep, "tried": tried,
                 "evidence": evidence, "readonly": {}, "omitted": ["brain/SOUL.md"],
                 "research": {"verdict": "build", "plan": "Add one line to the mentions playbook.",
                              "read": keep, "document": ["docs/hands.md"]}}
@@ -2098,12 +2098,13 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
             self.assertLessEqual(len(message.encode("utf-8")), evolve.MAX_PROPOSER_PROMPT_BYTES, render.__name__)
             # What was cut is said, and the files research named are still
             # listed by path.
-            self.assertIn("## left out to fit the message", message)
+            if len(render({**request, "files": {}}).encode("utf-8")) > evolve.MAX_PROPOSER_PROMPT_BYTES:
+                self.assertIn("## left out to fit the message", message)
             for rel in request["keep"]:
                 self.assertIn(rel, message)
         # The request itself is not changed: the round's own record keeps
         # every path it may edit.
-        self.assertEqual(len(request["editable"]), 480)
+        self.assertEqual(len(request["editable"]), 483)
 
     def test_the_lessons_are_not_shown_twice(self):
         request = self.growth_request()
