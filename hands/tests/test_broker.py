@@ -384,7 +384,7 @@ class DoTest(BrokerCase):
 
 
 class BodyTest(BrokerCase):
-    def test_a_body_over_64_kib_is_refused_unread(self):
+    def test_a_body_over_64_kib_is_refused_without_running_anything(self):
         self.start()
         big = json.dumps({"do": "reply_x", "to": "1", "text": "a" * (64 * 1024)}).encode()
         code, out = self.post("/do", raw=big)
