@@ -17,8 +17,8 @@ from teeny_hands.guard.style import (
 )
 
 
-def style(draft):
-    return apply_house_style(draft)
+def style(draft, **kwargs):
+    return apply_house_style(draft, **kwargs)
 
 
 def replying(draft, to):
