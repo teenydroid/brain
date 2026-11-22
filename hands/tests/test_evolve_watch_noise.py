@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin" / "lib"))
 
-from test_evolve import EvolveCase  # noqa: E402
+from test_evolve import EvolveCase, FakePublisher  # noqa: E402
 from test_evolve_lab import WATCH_GUARD  # noqa: E402
 
 import evolve  # noqa: E402
@@ -286,7 +286,7 @@ class Attribution(CronCase):
         body = issue["body"]
         self.assertIn("g9c4", body)
         self.assertIn("pull/288", body)
-        for number in ("20 in ", "40.", "2.0/day", "p "):
+        for number in ("20 in 22.2 h", "21.6", "2.0/day", "p "):
             self.assertIn(number, body)
         self.assertIn("bin/act moltbook-curate", body)
         self.assertIn("left out", body)
