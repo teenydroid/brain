@@ -303,6 +303,12 @@ def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
     return out
 
 
+def _describe_reach(check: Mapping[str, Any]) -> str:
+    import evolve_reach
+
+    return evolve_reach.describe(check)
+
+
 def describe(check: Any) -> str:
     """One line: the check as a person reads it."""
     if not isinstance(check, Mapping) or check.get("kind") not in KINDS:
@@ -320,7 +326,7 @@ def describe(check: Any) -> str:
         "actions": lambda c: f"{c.get('surface')} {c.get('verb')}",
         "hand_used": lambda c: f"runs of playbooks that call hands/{c.get('hand')}",
         "judged": lambda c: f"what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of") else ""),
-        "reach": lambda c: __import__("evolve_reach").describe(c),
+        "reach": _describe_reach,
     }[kind](check)
     literals = check.get("contains")
     if literals:
