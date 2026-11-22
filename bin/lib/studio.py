@@ -85,9 +85,13 @@ In order:
    cold reader (`hands/guard clarity`: bin/act and bin/tick run it before
    their own posts, hands/x does not, so this is its one run), and the
    safety guard, which hands/x post runs itself before the posting rules
-   (4 a day, 5 hours apart, 280, no repeat, the link budget). A truth or
-   stranger no gets one rewrite turn by the writer, told the gate's reason,
-   and is gated again once; a second no, or the posting rules turning a
+   (4 a day, 5 hours apart, 280, no repeat, the link budget). The
+   cold reader's verdict is advice since 2026-11-22 (kept in the record as
+   `advisory`; STUDIO_STRANGER_GATE=1 makes its no drop the draft, with no
+   rewrite). A truth no gets the one rewrite turn left, told to cut or
+   correct only the unsupported claim and keep the joke (REWRITE_KEEP), and
+   is gated again once; a rewrite turn that fails is that draft's no; a
+   second no, or the posting rules turning a
    draft away (a repeat, a link), falls to the next draft of the ranking
    that the editor, asked the slot question again (told nothing has gone
    out yet, never shown the draft that failed), does not veto, at most
@@ -125,7 +129,11 @@ the truth judge: {media_ids, note}.
 A writer or editor model that fails a turn is dropped for the rest of the
 run: the turn is asked once more on the core's default model, with a warning
 in the record (and a second one when the writer and the editor end up on the
-same model).
+same model). A draft turn that still fails (`TurnFailed`: the core flagged
+the prompt and did not process it, an error, no answer in time) drops its
+pitch with the reason in `drafts_dropped`, and the run goes on with the
+others; the run fails only when no pitch could be drafted, or on a lasting
+provider failure (no money, a refused key), which fails every turn alike.
 
 Failures go as bin/act's do: a provider failure is recorded as one, with its
 class (bin/lib/provider_error.py), and a lasting one exits 0; an unusable
