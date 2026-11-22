@@ -198,7 +198,7 @@ class ScreenTest(support.Scratch):
         # docs/video.md §4: only the named speak, the end is held, no lettering.
         script = skit.script(skit.shape(self.HELD)[0], [5, 4])
         self.assertTrue(script.endswith(skit.LOCKS), script)
-        for bit in ("nobody else's lips form words", "held still image", "No text, letters, signs or logos"):
+        for bit in ("nobody else's lips form words", "held still image", "No writing of any kind"):
             self.assertIn(bit, skit.LOCKS)
 
     def test_the_locks_come_before_a_style_line(self):
