@@ -11,7 +11,8 @@
 # through the broker (bin/broker), which calls the hands, so the guard, the
 # caps and DRY_RUN apply to it exactly as to the tick. It has no tool that
 # schedules a job: a cron shell job runs outside any jail, so its own wakes
-# are agent jobs the broker creates (`teeny wake`).
+# are agent jobs the broker creates (`teeny wake`). It may spawn one kind of
+# helper, the worker (worker.toml), which is held the same way.
 #
 # Frozen like builder.toml: Teeny decides what the mind does (mind.md, its
 # notes, its skills), never which tools or which folder it has. bin/doctor
@@ -55,4 +56,11 @@ named = [
     "list",
     "tool_search",
     "memory",
+    # Its helpers, and only the ones listed below ([subagents]).
+    "spawn_subagent",
 ]
+
+# The one agent the mind may spawn (worker.toml): a helper held to the same
+# jail and the same broker. bin/doctor refuses any other name here.
+[subagents]
+allowlist = ["worker"]
