@@ -2766,6 +2766,9 @@ def render_evolver_research(request: Json) -> str:
         parts.append(web)
     parts.append(evidence_text(request["evidence"]))
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
+    cut = cut_text(request)
+    if cut:
+        parts.append(cut)
     parts.append(RESEARCH_ANSWER)
     return "\n\n".join(parts)
 
