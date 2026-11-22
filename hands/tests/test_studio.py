@@ -874,12 +874,12 @@ class FinalGateTest(unittest.TestCase):
         out = studio.publish(room, {}, ["P1"], self.chan(INCIDENT))
         self.assertEqual((out["outcome"], self.x_calls(room)), ("empty", []))
 
-    def test_an_image_whose_words_the_guard_holds_buys_nothing_more_and_posts_nothing(self):
+    def test_an_image_whose_words_the_guard_holds_buys_no_picture_and_posts_nothing(self):
         images = {"P1": {"card": CHAN_CARD, "format": "image", "text": INCIDENT, "image": "a bus", "alone": True}}
         room = XRoom(final={INCIDENT: GUARD_HELD})
         out = studio.publish(room, {}, ["P1"], images)
         self.assertEqual(out["outcome"], "empty")
-        self.assertFalse([a for a, _, _ in room.sent if a[:2] in (["x", "post"], ["x", "post-thread"])])
+        self.assertEqual([a[:2] for a, _, _ in room.sent], [["guard", "check"]])
 
 
 # --- memes -----------------------------------------------------------------------------------
