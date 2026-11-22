@@ -219,8 +219,167 @@ def goals(body: Json, entry: Json) -> Json:
     return _hand_answer(*tick._run_hand("goals", ["list"], None), entry)
 
 
+# --- wakes: the mind's own cron jobs --------------------------------------------------
+#
+# A wake is a core cron job that starts the `mind` agent on a note, at one
+# moment or on a schedule. It is always an agent job for `mind` in an isolated
+# session delivering nothing: nothing in the request decides the job's type,
+# agent or command, so no wake can ever run a shell. Its name is always
+# `mind.<slug>`, which keeps it apart from bin/seed-cron's `teeny.*` jobs, and
+# only a `mind.*` job is ever listed or removed here.
+
+WAKE_PREFIX = "mind."
+WAKE_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+WAKE_AGENT = "mind"
+MAX_NOTE_CHARS = 2000
+MAX_WAKES = 40
+MAX_AHEAD = dt.timedelta(days=90)
+DEFAULT_WAKES_PER_DAY = 48
+#: The most MIND_WAKES_PER_DAY may be set to: a wake every MIN_GAP_MINUTES.
+MAX_WAKES_PER_DAY = 24 * 60 // cron_policy.MIN_GAP_MINUTES
+#: Seconds a core RPC may take.
+OH_TIMEOUT_SECS = 120
+
+
+def _oh(method: str, params: Json) -> Any:
+    """One core RPC through bin/oh (TEENY_OH in the tests), its result."""
+    exe = os.environ.get("TEENY_OH") or str(hand.root() / "bin" / "oh")
+    proc = subprocess.run([exe, method, json.dumps(params)], capture_output=True, text=True, cwd=hand.root(),
+                          timeout=OH_TIMEOUT_SECS)
+    if proc.returncode != 0:
+        raise RuntimeError(f"the core's {method} failed: {proc.stderr.strip()[-300:] or f'exit {proc.returncode}'}")
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def _wakes() -> list[Json]:
+    jobs = _oh("cron_list", {})
+    if not isinstance(jobs, list):
+        raise RuntimeError("the core's cron_list did not answer a list")
+    return [j for j in jobs if isinstance(j, dict) and isinstance(j.get("name"), str)
+            and j["name"].startswith(WAKE_PREFIX)]
+
+
+def _slug(value: Any) -> str:
+    if not isinstance(value, str) or not WAKE_SLUG.fullmatch(value):
+        raise Refused("name is 1 to 32 lowercase letters, digits and dashes, starting with a letter or digit")
+    return value
+
+
+def _at(value: Any) -> str:
+    """A one-off wake's moment, RFC3339 in UTC, between now and MAX_AHEAD."""
+    try:
+        when = dt.datetime.fromisoformat(value.strip()) if isinstance(value, str) else None
+    except ValueError:
+        when = None
+    if when is None or when.tzinfo is None or when.utcoffset() != dt.timedelta(0):
+        raise Refused("at is an RFC3339 time in UTC, like 2026-11-22T09:30:00Z")
+    now = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc)
+    if when <= now:
+        raise Refused(f"at is in the past (it is {now:%Y-%m-%dT%H:%M:%SZ} now)")
+    if when > now + MAX_AHEAD:
+        raise Refused(f"at is more than {MAX_AHEAD.days} days away")
+    return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _runs_per_day(expr: str) -> int:
+    """How often a five-field cron expression may fire in a day, after the
+    cron rules (bin/lib/cron_policy.py): numeric fields, no gap under
+    MIN_GAP_MINUTES. Refused when it breaks one."""
+    fields = expr.split()
+    if len(fields) != 5:
+        raise Refused(f"cron is a five-field expression (minute hour day month weekday), got {expr!r}")
+    try:
+        minutes = cron_policy.fire_minutes(expr, "cron")
+        for spec, low, high in ((fields[2], 1, 31), (fields[3], 1, 12), (fields[4], 0, 7)):
+            cron_policy._field(spec, low, high, "cron")
+    except cron_policy.PolicyError as exc:
+        raise Refused(str(exc)) from None
+    if cron_policy.min_gap(minutes) < cron_policy.MIN_GAP_MINUTES:
+        raise Refused(f"cron {expr!r} fires more often than every {cron_policy.MIN_GAP_MINUTES} minutes")
+    return len(minutes)
+
+
+def _recurring_runs(jobs: list[Json]) -> int:
+    """Runs a day of the enabled recurring wakes; one whose expression cannot
+    be read counts as the most any may run."""
+    runs = 0
+    for job in jobs:
+        schedule = job.get("schedule") if isinstance(job.get("schedule"), dict) else {}
+        if schedule.get("kind") != "cron" or job.get("enabled") is False:
+            continue
+        try:
+            runs += _runs_per_day(str(schedule.get("expr") or ""))
+        except Refused:
+            runs += MAX_WAKES_PER_DAY
+    return runs
+
+
+def wake(body: Json, entry: Json) -> Json:
+    """A new wake, after every rule; under DRY_RUN only what it would be."""
+    if isinstance(body.get("name"), str):
+        entry["verb"] = body["name"][:LEDGER_CLIP]
+    slug = _slug(body.get("name"))
+    note = body.get("note")
+    note = note.strip() if isinstance(note, str) else ""
+    if not 1 <= len(note) <= MAX_NOTE_CHARS:
+        raise Refused(f"note is what to do when you wake, 1 to {MAX_NOTE_CHARS} characters")
+    if ("at" in body) == ("cron" in body):
+        raise Refused("a wake has either at (once) or cron (a schedule), not both or neither")
+    if "at" in body:
+        schedule: Json = {"kind": "at", "at": _at(body["at"])}
+        runs = 1
+    else:
+        expr = " ".join(body["cron"].split()) if isinstance(body["cron"], str) else ""
+        runs = _runs_per_day(expr)
+        schedule = {"kind": "cron", "expr": expr, "tz": "UTC"}
+    jobs = _wakes()
+    name = WAKE_PREFIX + slug
+    if any(j["name"] == name for j in jobs):
+        raise Refused(f"a wake named {slug} is already set: drop it first")
+    if len(jobs) >= MAX_WAKES:
+        raise Refused(f"{len(jobs)} wakes are set; the most is {MAX_WAKES}: drop one first")
+    limit = hand.number("MIND_WAKES_PER_DAY", DEFAULT_WAKES_PER_DAY, 0, MAX_WAKES_PER_DAY)
+    recurring = _recurring_runs(jobs)
+    if recurring + runs > limit:
+        raise Refused(f"your recurring wakes run up to {recurring} times a day and this adds {runs}; the most is "
+                      f"{limit} (MIND_WAKES_PER_DAY)")
+    job: Json = {"name": name, "job_type": "agent", "agent_id": WAKE_AGENT, "prompt": note,
+                 "session_target": "isolated", "delivery": {"mode": "none"}, "schedule": schedule}
+    if schedule["kind"] == "at":
+        job["delete_after_run"] = True
+    if hand.dry_run():
+        return {"status": "ok", "dry_run": True, "wake": slug, "job": job}
+    return {"status": "ok", "wake": slug, "job": _oh("cron_add", job)}
+
+
+def _listed(job: Json) -> Json:
+    return {"name": job["name"][len(WAKE_PREFIX):], "job": job["name"], "schedule": job.get("schedule"),
+            "prompt": job.get("prompt"), "enabled": job.get("enabled") is not False}
+
+
+def wakes(body: Json, entry: Json) -> Json:
+    entry["verb"] = "wakes"
+    return {"status": "ok", "wakes": [_listed(j) for j in _wakes()]}
+
+
+def drop_wake(body: Json, entry: Json) -> Json:
+    """Removes the wake `mind.<name>`; nothing else can be named."""
+    if isinstance(body.get("name"), str):
+        entry["verb"] = body["name"][:LEDGER_CLIP]
+    slug = _slug(body.get("name"))
+    found = [j for j in _wakes() if j["name"] == WAKE_PREFIX + slug and isinstance(j.get("id"), str)]
+    if not found:
+        raise Refused(f"no wake named {slug}")
+    for job in found:
+        _oh("cron_remove", {"job_id": job["id"]})
+    return {"status": "ok", "dropped": slug}
+
+
 PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/do": do,
+    "/wake": wake,
+    "/wakes": wakes,
+    "/drop-wake": drop_wake,
     "/goals": goals,
 }
 
