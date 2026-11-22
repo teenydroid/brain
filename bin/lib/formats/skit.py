@@ -226,7 +226,9 @@ def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> 
         log["why"] = "no time left for the writer to cut it"
         note["failed"] = failed
         return None
-    answer = room.turn("writer", f"shorten skit {draft['id']}", skit_shorten_message(skit, why),
+    # A post is known by its label (P1...) in the studio's three steps; it has no `id`.
+    which = draft.get("label") or draft.get("card") or "?"
+    answer = room.turn("writer", f"shorten skit {which}", skit_shorten_message(skit, why),
                        room.writer_thread, soft=True)
     cut = answer.get("skit") if isinstance(answer, dict) else None
     if not isinstance(cut, dict):
