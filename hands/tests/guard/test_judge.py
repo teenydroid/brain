@@ -31,8 +31,29 @@ class JudgeTest(support.WithCore):
         self.assertNotIn("model_override", call["params"])
         message = call["params"]["message"]
         self.assertTrue(message.startswith(RULES), message[:200])
-        self.assertIn("family-friendly mascot account", message)
+        self.assertIn("mascot account", message)
         self.assertTrue(message.endswith(QUESTION), message[-300:])
+
+    def test_the_rules_let_the_accounts_crude_voice_through_in_every_direction(self):
+        # 2026-11-22: the judge held a post for "mild profanity ('my ass')",
+        # while the writer's own examples say "ass".
+        rules = " ".join(RULES.split())
+        self.assertNotIn("any profanity at all is prohibited", rules)
+        self.assertNotIn("family-friendly", rules)
+        self.assertIn("In every direction, ordinary swearing and crude humour are clean", rules)
+        for crude in ('"ass"', '"dick"', '"shit"', '"damn"', "bodily grossness", "swearing at a product"):
+            self.assertIn(crude, rules)
+        self.assertIn("a crude word for a body part in a joke or an insult is not sexual", rules)
+        # slurs are still hate, and the sexual bar is unchanged
+        self.assertIn("Slurs are not swearing: they are hate", rules)
+        self.assertIn("The bar for sexual is explicit or nude", rules)
+        # the judge is not offered profanity as a category
+        self.assertNotIn('"profanity"', judge_module.ANSWER_SHAPE)
+
+    def test_a_profanity_verdict_is_read_as_clean(self):
+        self.core(support.verdict("prohibited", "profanity", "mild profanity ('my ass')"))
+        self.assertEqual(judge("my ass is still in the chair", "outbound"),
+                         JudgeVerdict("clean", None, "mild profanity ('my ass')"))
 
     def test_names_the_shape_of_the_answer(self):
         core = self.core(support.verdict("clean"))

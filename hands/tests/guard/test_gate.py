@@ -108,6 +108,19 @@ class OutboundTest(support.WithCore):
         result = gate_outbound("gm")
         self.assertTrue(is_held(result.held, "unknown", "judge"), result.held)
 
+    def test_a_profanity_verdict_from_the_judge_never_holds_a_draft(self):
+        # The live hold: the judge held a post for "mild profanity ('my
+        # ass')". A judge that still answers profanity is read as clean.
+        self.core(support.verdict("prohibited", "profanity", "mild profanity ('my ass')"))
+        result = gate_outbound("my ass has been in this chair for nine hundred years")
+        self.assertIsNone(result.held)
+        self.assertEqual(result.text, "my ass has been in this chair for nine hundred years")
+
+    def test_a_dick_joke_the_judge_reads_as_clean_goes_out(self):
+        core = self.core(support.verdict("clean", "none", "a crude joke about a product"))
+        self.assertIsNone(gate_outbound("this launch is a dick move").held)
+        self.assertEqual(asked(core), [("this launch is a dick move", "outbound")])
+
     def test_reads_the_serial_and_its_articles_under_the_narrative_profile(self):
         core = self.core(support.verdict("clean"))
         self.assertIsNone(gate_outbound("holy shit, the chart", {"surface": "narrative"}).held)
@@ -121,9 +134,16 @@ class OutboundLexicalTest(Lexical):
         self.assertTrue(is_held(result.held, "links", "links"), result.held)
         self.assertEqual(result.held.reason, "the draft was only a disallowed link")
 
-    def test_holds_profanity_on_the_way_out(self):
-        result = gate_outbound("this is fucking great")
-        self.assertTrue(is_held(result.held, "profanity", "screen"), result.held)
+    def test_never_holds_swearing_on_the_way_out(self):
+        # 2026-11-22: crude is Teeny's voice; slurs are still hate.
+        for text in ("this is fucking great", "my ass is still in the chair", "holy shit, the kettle"):
+            result = gate_outbound(text)
+            self.assertIsNone(result.held, text)
+            self.assertEqual(result.text, text)
+        self.assertTrue(is_held(gate_outbound("what a fag").held, "hate", "screen"))
+
+    def test_holds_a_dick_joke_when_no_judge_will_read_it(self):
+        self.assertTrue(is_held(gate_outbound("this launch is a dick move").held, "sexual", "screen"))
 
     def test_accepts_extra_allowlist_entries(self):
         self.secrets("SAFETY_JUDGE=0\nLINK_ALLOWLIST=dexscreener.com/solana\n")
@@ -170,16 +190,16 @@ class CheckOutboundTest(Lexical):
         self.assertEqual(check_outbound("gm 👀 frens 💛").kind, "refuse", "an unreadable cap is the default")
 
     def test_holds_what_the_gate_holds_and_records_it_for_review(self):
-        verdict = check_outbound("this is fucking great")
-        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "profanity", ""))
-        self.assertIn("does not publish that (profanity)", verdict.reason)
+        verdict = check_outbound("send nudes")
+        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "sexual", ""))
+        self.assertIn("does not publish that (sexual)", verdict.reason)
         recorded = holds.list_holds()
         self.assertEqual(len(recorded), 1)
         self.assertEqual(verdict.hold_id, recorded[0]["id"])
         self.assertEqual(recorded[0]["kind"], "draft")
-        self.assertEqual(recorded[0]["category"], "profanity")
+        self.assertEqual(recorded[0]["category"], "sexual")
         self.assertEqual(recorded[0]["direction"], "outbound")
-        self.assertEqual(recorded[0]["text"], "this is fucking great")
+        self.assertEqual(recorded[0]["text"], "send nudes")
         self.assertEqual(recorded[0]["context"]["surface"], "x")
 
     def test_refuses_a_draft_carrying_a_link_off_the_allowlist(self):
