@@ -178,12 +178,49 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
     return answer
 
 
+def _read_cold(intent: Json) -> None:
+    """An own post on X, read cold before it is sent, as a beat reads it
+    (tick._clear_to_a_stranger): ValueError when a stranger could not follow
+    it. No rewrite is asked here: the agent rewrites and sends it again."""
+    why = tick._unclear(tick._cold_read(tick._text(intent), intent.get("meaning")))
+    if why:
+        raise ValueError(f"not clear to a stranger: {why}. It was not sent: say it in everyday words, with no count "
+                         "or name from your own workings, and send it again, or let it go")
+
+
+def do(body: Json, entry: Json) -> Json:
+    """One intent, the way a beat carries it out (tick.carry_out): the route
+    (its fields, and its daily cap where one applies), an own post read cold,
+    the cap counted once the call reaches the hand, then the hand, once."""
+    entry["intent"] = _clipped(body)
+    verb = body.get("do")
+    entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
+    if verb in tick.OWN:
+        raise Refused(f"{verb!r} is not a broker verb: it is the beat's own")
+    if not isinstance(verb, str) or verb not in tick.ROUTES:
+        raise Refused(f"no such verb {_clipped(verb)!r}; the broker verbs are {', '.join(sorted(tick.ROUTES))}")
+    try:
+        name, argv, hand_body = tick.ROUTES[verb](body)
+        if verb == "post_x" and name == "x":
+            _read_cold(body)
+    except ValueError as exc:
+        raise Refused(str(exc)) from None
+    # A deadline already past: a hand's "not yet" (pacing) comes straight back
+    # as its refusal, with its wait, rather than holding the broker.
+    code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
+    answer = _hand_answer(code, out, entry)
+    if held:
+        answer["held"] = {k: held[k] for k in ("rule", "wait_seconds") if k in held}
+    return answer
+
+
 def goals(body: Json, entry: Json) -> Json:
     entry["verb"] = "goals"
     return _hand_answer(*tick._run_hand("goals", ["list"], None), entry)
 
 
 PATHS: dict[str, Callable[[Json, Json], Json]] = {
+    "/do": do,
     "/goals": goals,
 }
 
