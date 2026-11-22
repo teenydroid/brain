@@ -270,6 +270,10 @@ def story_of(card: Json) -> Json:
     return out
 
 
+#: The longest scene kept. Under hands/image's own cap on a prompt (MAX_PROMPT,
+#: 1500), so a scene the studio keeps is never one the hand refuses for length.
+SCENE_MAX = 1400
+
 IMAGE_ASK = ("An image is a post with a picture, and the picture is half the joke: `image` is the scene, the visual "
              "punchline the words set up. The house shot: you (Teeny, the small yellow robot) caught in the act with "
              "a piece of hardware, slightly horny about it, and one or two real public figures from the card in the "
@@ -281,7 +285,8 @@ IMAGE_ASK = ("An image is a post with a picture, and the picture is half the jok
              "lighting, a mess: nothing cute or tidy except you. It is an impossible scene nobody could take for "
              "real (never sexual about them, never hurt). The lust in the picture is yours and it is for the "
              "hardware: innuendo a viewer gets in one look, nothing explicit, no nudity. No brand logos or sponsor "
-             "marks. One place, one moment, described so a painter could paint it; no words drawn in the picture. "
+             "marks. One place, one moment, described so a painter could paint it, in at most 1,200 characters; no words drawn in "
+             "the picture. "
              "`alone` is true only when the words still work without the picture.")
 MEME_ASK = ("A meme is a post with a meme template people know on sight, your words in its places and a picture of "
             "you pasted in: pick a template from the list below and give exactly its number of lines.")
@@ -387,7 +392,7 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
         else:
             why = why or "it has no text"
         if fmt == "image":
-            post["image"] = _str(raw.get("image"), 600)
+            post["image"] = _str(raw.get("image"), SCENE_MAX)
             post["alone"] = raw.get("alone") is True
             why = why or ("" if post["image"] else "an image needs its scene")
         if fmt == "meme":

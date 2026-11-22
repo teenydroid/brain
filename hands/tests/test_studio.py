@@ -588,7 +588,8 @@ class ValidatePostsTest(unittest.TestCase):
         kept, dropped = self.validate([{"card": "hn:101", "format": "image", "text": "w", "image": scene}])
         self.assertEqual(dropped, [])
         self.assertEqual(kept[0]["image"], scene.strip())
-        self.assertLessEqual(studio.SCENE_MAX, studio.media_prompt_max())
+        from teeny_hands.media import assets
+        self.assertLess(studio.SCENE_MAX, assets.MAX_PROMPT)
 
     def test_a_meme_keeps_its_template_lines_and_picture(self):
         kept, dropped = self.validate([{"card": "hn:101", "format": "meme", "text": "t", "meme": MEME}])
