@@ -23,6 +23,12 @@ At start the broker writes, into state/home/: the token, `.broker-url`
 `serve` runs only with MIND=1 in secrets/teeny.env; `install` only writes
 those files and exits (and rotates the token a running broker holds).
 
+The mind rehearses on a switch of its own. Unless secrets/teeny.env says
+MIND_DRY_RUN=0, `serve` forces DRY_RUN on for itself and so for every hand it
+runs: the mind's wakes, its notes and what it would have done (the ledger)
+are real, and nothing it asks for leaves the box, while the rest of Teeny
+goes on as it is. The box's own DRY_RUN holds it either way.
+
 Every request is POST with a JSON object body of at most MAX_BODY bytes:
 
 - /do         one intent, `{"do": <a tick.ROUTES verb>, ...}`, carried out
@@ -317,6 +323,29 @@ def _recurring_runs(jobs: list[Json]) -> int:
     return runs
 
 
+def _one_offs_path() -> Path:
+    return hand.state_dir() / "broker" / "one-offs.json"
+
+
+def _one_offs_today() -> int:
+    """One-off wakes set today (UTC). A one-off deletes itself once it has
+    run, so the core's job list cannot say how many ran: counted here, or a
+    run could schedule the next one for ever."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_one_offs_path().read_text())
+    except (OSError, ValueError):
+        return 0
+    return saved["count"] if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("count"), int) else 0
+
+
+def _count_one_off() -> None:
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    path = _one_offs_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write(path, json.dumps({"day": day, "count": _one_offs_today() + 1}) + "\n", 0o600)
+
+
 def wake(body: Json, entry: Json) -> Json:
     """A new wake, after every rule; under DRY_RUN only what it would be."""
     if isinstance(body.get("name"), str):
@@ -343,16 +372,20 @@ def wake(body: Json, entry: Json) -> Json:
         raise Refused(f"{len(jobs)} wakes are set; the most is {MAX_WAKES}: drop one first")
     limit = hand.number("MIND_WAKES_PER_DAY", DEFAULT_WAKES_PER_DAY, 0, MAX_WAKES_PER_DAY)
     recurring = _recurring_runs(jobs)
-    if recurring + runs > limit:
-        raise Refused(f"your recurring wakes run up to {recurring} times a day and this adds {runs}; the most is "
-                      f"{limit} (MIND_WAKES_PER_DAY)")
+    once = _one_offs_today()
+    if recurring + once + runs > limit:
+        raise Refused(f"your recurring wakes run up to {recurring} times a day, you set {once} one-off wake(s) today, "
+                      f"and this adds {runs}; the most is {limit} (MIND_WAKES_PER_DAY)")
     job: Json = {"name": name, "job_type": "agent", "agent_id": WAKE_AGENT, "prompt": note,
                  "session_target": "isolated", "delivery": {"mode": "none"}, "schedule": schedule}
     if schedule["kind"] == "at":
         job["delete_after_run"] = True
     if hand.dry_run():
         return {"status": "ok", "dry_run": True, "wake": slug, "job": job}
-    return {"status": "ok", "wake": slug, "job": _oh("cron_add", job)}
+    added = _oh("cron_add", job)
+    if schedule["kind"] == "at":
+        _count_one_off()
+    return {"status": "ok", "wake": slug, "job": added}
 
 
 def _listed(job: Json) -> Json:
@@ -491,6 +524,12 @@ def serve() -> int:
     if hand.setting("MIND") != "1":
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
         return 1
+    if hand.setting("MIND_DRY_RUN") != "0":
+        # The environment can only force a rehearsal on (hand.dry_run), and
+        # every hand the broker runs inherits it.
+        os.environ["DRY_RUN"] = "1"
+        print("[broker] rehearsing: nothing the mind asks for leaves the box (MIND_DRY_RUN=0 in secrets/teeny.env "
+              "makes it real)", file=sys.stderr)
     token = secrets.token_urlsafe(32)
     server = bind(port(), token)
     try:

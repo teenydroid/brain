@@ -415,8 +415,10 @@ class RehearsalTest(BrokerCase):
 
     def test_the_boxs_own_dry_run_still_holds_a_live_mind(self):
         self.start(MIND_DRY_RUN="0", DRY_RUN="1")
-        _, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
-        self.assertIs(out["result"]["dry_run"], True)
+        self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        # The stand-in hand reads only the environment; a real one reads
+        # secrets/teeny.env, as the ledger's own answer does.
+        self.assertIs(self.ledger()[-1]["dry_run"], True)
 
 
 class BodyTest(BrokerCase):
