@@ -38,10 +38,10 @@ from the seed when there is none (a fresh checkout, the first boot) and
 never touches either once the live page exists.
 
 There is no LORE.md any more (2026-11-21: the operator cut it; who Teeny is
-lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow. The studio writer also reads
-narrative/VOICE.md, shared with the terminal episodes and the backroom, and
-narrative/CANON.md, Teeny's own best lines (`canon`); its pitch turn shows
-narrative/OBSESSIONS.md (`obsessions`), and the backroom reads both.
+lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow.
+narrative/VOICE.md is shared with the terminal episodes and the backroom;
+narrative/CANON.md, Teeny's own best lines (`canon`), and
+narrative/OBSESSIONS.md (`obsessions`) are the backroom's.
 
 Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
@@ -64,21 +64,15 @@ the playbooks name those skills, and a drafting turn has no tool to open
 them with, so until they were copied here it only ever saw their names.
 
 The studio's two agents (STUDIO: `writer` and `editor`, run by bin/studio)
-are built differently, on purpose. The writer's prompt is its instructions,
-then READER.md, then a craft block (STUDIO_CRAFT: the hook, stakes, story
-shape and serials from skills/hooks, the shapes that get replies and what not
-to do from skills/conversation, and the anatomy, the dial, gallows humor and the
-examples of skills/humor). SOUL.md
-reaches it from the core (writer.toml: omit_identity = false). The editor's is
-its instructions, READER.md, narrative/STUDIO-EDITOR.md (the rubric and the
-taste); it is not Teeny (editor.toml:
-omit_identity = true). Neither carries "# your world": MEMORY.md, DRIVE.md,
-CHARTER.md and CONTEXT.md stay out. Those are rules about what may be said and
-done, and the gates after the studio (the truth, stranger and safety checks)
-enforce them on the one piece that is picked; in the writer's prompt they
-crowded out the craft and made every draft sound like a policy. Every fact a
-studio draft uses comes from the run's own message (what happened, which
-hands/story lays out), never from a page of notes.
+are built differently, on purpose, and short. The writer's prompt is its
+instructions alone (brain/agents/writer.md: the persona, the voice, the
+content list), and the core adds no SOUL.md to it (writer.toml: omit_identity
+= true). The editor's is its instructions and narrative/STUDIO-EDITOR.md (the
+pick instruction and the same content list); it is not Teeny either. Neither
+carries READER.md, VOICE.md, CANON.md, a craft block or "# your world": in
+the writer's prompt they crowded out the voice and made every post sound like
+a policy (2026-11-22: an 82,000-character system prompt). Every fact a post
+uses comes from the run's own cards, never from a page of notes.
 
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
@@ -114,19 +108,6 @@ CRAFT = (
 #: picks. Their prompts are built from their own sources (see the module
 #: docstring), never from world().
 STUDIO = ("writer", "editor")
-#: The writer's craft: (skill, ((section title, cut before this line or None), ...)).
-#: Conversation's "shapes that get replies" stops before its notes on media
-#: and replies, which are for other turns.
-STUDIO_CRAFT = (
-    ("hooks", (("the hook is the first seven words", None), ("stakes, and how they escalate", None),
-               ("story shape", None), ("serials and cliffhangers", None))),
-    ("conversation", (("shapes that get replies", "For **media**"), ("what not to do", None))),
-    ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("gallows humor", None),
-               ("examples", None))),
-)
-#: Mind-only machinery the skills name in passing, which the writer has no
-#: way to use: taken out of its copy.
-STUDIO_CRAFT_DROP = (" (set a `follow_up`)",)
 #: The editor's rubric and taste.
 STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
@@ -378,37 +359,13 @@ def craft(brain: Path) -> str:
     if not parts:
         return ""
     return ("# how a post of your own is built (skills/hooks, skills/conversation)\n\n"
-            "The parts of your skills a post is written from. Where one of them and READER.md pull apart, "
-            "READER.md wins: a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
-
-
-def studio_craft(brain: Path) -> str:
-    """The writer's craft block (STUDIO_CRAFT), in order. "" when the brain
-    has none of it."""
-    parts: list[str] = []
-    for skill, wanted in STUDIO_CRAFT:
-        _, found = sections(_read(brain / "skills" / skill / "SKILL.md"))
-        by_title = {_NUMBERED.sub("", title): body for title, body in found.items()}
-        for title, stop in wanted:
-            body = by_title.get(title, "")
-            if stop and stop in body:
-                body = body[:body.index(stop)].rstrip()
-            for drop in STUDIO_CRAFT_DROP:
-                body = body.replace(drop, "")
-            if body:
-                parts.append(f"## {skill}: {title}\n\n{body}")
-    if not parts:
-        return ""
-    return ("# how a piece is built (skills/hooks, skills/conversation, skills/humor)\n\n"
-            "The craft you write from. Where any of it and READER.md pull apart, READER.md wins: "
-            "a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
+            "The parts of your skills a post is written from.\n\n" + "\n\n".join(parts))
 
 
 #: Teeny's standing obsessions and its own best lines (2026-11-22, after
 #: Truth Terminal: a few fixations it returns to, and a corpus of its own
-#: strangest output to imitate). The writer reads CANON in its prompt and
-#: the obsessions in its pitch turn (bin/lib/studio.py); the backroom reads
-#: both as its `{lore}`.
+#: strangest output to imitate). The backroom reads both as its `{lore}`;
+#: the studio no longer does.
 OBSESSIONS = Path("narrative") / "OBSESSIONS.md"
 CANON = Path("narrative") / "CANON.md"
 
@@ -453,14 +410,12 @@ def studio_editor(brain: Path) -> str:
 
 
 def render_studio(brain: Path, agent: str, instructions: str) -> str:
-    """A studio agent's prompt. Deliberately no world(): see the module
-    docstring. The gates after the studio hold a piece to CONTEXT.md,
-    DRIVE.md and CHARTER.md; the writer writes."""
-    parts = [instructions, reader(brain)]
-    if agent == "writer":
-        parts += [_read(brain / "narrative" / "VOICE.md"), canon(brain), studio_craft(brain)]
-    else:
-        parts += [studio_editor(brain)]
+    """A studio agent's prompt: the writer's instructions alone, the
+    editor's with narrative/STUDIO-EDITOR.md. Deliberately nothing else: see
+    the module docstring."""
+    parts = [instructions]
+    if agent == "editor":
+        parts.append(studio_editor(brain))
     return "\n\n".join(part for part in parts if part) + "\n"
 
 

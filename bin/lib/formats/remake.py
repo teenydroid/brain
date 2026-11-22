@@ -1,11 +1,10 @@
 """The `remake` format: a popular short video re-created shot by shot with
-the public figure from the news, Teeny looking on (docs/architecture.md, "The
-studio"). Its prompt blocks, the chart videos it reads (`load_charts`) and
-the study of one before its writer turn (`study_source`), its shape and hard
-lines in code before the tournament (`remake_of`, `remake_screen`), its
-producer (`_make_remake`) and what the record keeps of it (`remake_outcome`),
-as `FORMAT`. Moved out of bin/lib/studio.py, which still answers to each of
-these names."""
+one of a card's people, Teeny looking on (docs/architecture.md, "The
+studio"). Its words for the write turn, the chart videos it reads
+(`load_charts`) and the study of one before the write turn
+(`study_source`), its structural check (`remake_of`), its producer
+(`_make_remake`) and what the record keeps of it (`remake_outcome`), as
+`FORMAT`."""
 
 from __future__ import annotations
 
@@ -26,104 +25,32 @@ if TYPE_CHECKING:
 # remake make it, cut with the original's sound and labelled on the reel
 # service; docs/architecture.md, "The studio"). Off unless STUDIO_FORMATS names
 # remake, and only in a video slot (STUDIO_SKIT_SLOTS), where the charts are
-# read: one video a day between skits and remakes, whichever pitch wins. The
-# hard lines (hands/lib/teeny_hands/guard/remake.py) run in code on every draft
-# before the tournament (`remake_screen`), in code and through the judge before
-# any money (`hands/guard remake`), on the keyframes before any video money
-# and on the cut's frames after (`hands/guard view-remake`).
+# read: one video a day between the video formats. The hard lines
+# (hands/lib/teeny_hands/guard/remake.py) run in code and through the judge
+# before any money (`hands/guard remake`), on the keyframes before any video
+# money and on the cut's frames after (`hands/guard view-remake`).
 
-REMAKE_PITCH = ("A remake is a post with a short AI-made parody video that re-creates one of the popular short videos "
-                "below (`charts`) shot by shot, with the public figure a trending story is about standing where its "
-                "person stood, doing what they did, an impossible twist in every shot, and you somewhere in every "
-                "frame as a bystander. Pitch one when a chart video and a story's famous face fit each other so well "
-                "a stranger laughs before they read a word: `item` is the chart video's id and `hook` the trending "
-                "story. A remake always has both.")
-REMAKE_SLOT_LINE = ("Remakes share this slot with skits: one video goes out, whichever the editor likes best. Pitch at "
-                    "least two remakes, each a chart video joined to a trending story whose famous face takes the "
-                    "lead, and keep your best video, of either kind, at the top of your ranking.")
-REMAKE_SHAPE = ('{"text": "<the post\'s own words: the story in a clause, the original by its title and its '
-                'creator in words, no link>", "remake": {"figures": ["<the public figure(s) from the story, as the '
-                'story names them>"], "premise": "<one line: what they really did or claimed in the story, so why '
-                'they are in this video>", "logline": "<one line: the remake and its joke>", "cast": [{"ref": "<a '
-                'person in the original by its ref: A, B...>", "as": "<a figure\'s name, or \\"extra\\">"}], '
-                '"one_setting": <true only when the whole original is one place; otherwise leave it out>, '
-                '"shots": [{"n": 1, "edit": "<shot 1: the opening frame, the original\'s first frame edited: who '
-                'replaces whom, the same pose, the impossible thing, unbranded, no logos, nothing else>", "motion": '
-                '"<what is seen and heard in this shot\'s seconds: the original\'s action, with the impossible '
-                'thing acting on its beat; sound effects in plain words; at most one short spoken or sung line in '
-                'double quotes, said by the person on screen>", "teeny": "<where you are in the frame and the small thing you do there, alone>"}, '
-                '{"n": 2, "edit": "<a later shot: one sentence, what the scene shows then; its setting in words '
-                'when the original moves somewhere else>", "motion": "...", "teeny": "..."}, "... one for every '
-                'shot of the original, in its order"]}, '
-                '"meaning": "...", "open_question": "<optional>"}')
-REMAKE_BODY = ("one post of at most 280 characters as X counts them, with a short parody video that re-creates the "
-               "popular video below: the public figure from the news stands where its person stood, doing what they "
-               "did, with an impossible thing in it. It is one continuous film, made in one go from its opening "
-               "frame: an image model edits the original's first frame (shot 1's `edit`), a video model makes the "
-               "whole film from it, shot by shot in time (each `motion`), and the film makes its own sound in the "
-               "same job. Shot 1's `edit` is the opening frame and nothing else: who replaces whom (the original's people "
-               "by `ref`, each cast as a figure or as a generic extra), the same pose, and the impossible thing "
-               "(dozens of things floating in the air, something at an impossible scale, physics broken). Each "
-               "`motion` says what happens in that shot's seconds, and the impossible thing arrives or acts inside "
-               "the film, on the original's beat. A later shot's `edit` is one sentence on what the scene shows "
-               "then: only the opening frame comes from the original, so when the original moves somewhere else, "
-               "say the new place in words. A famous face swapped into a real-looking room is not a twist, and you being there is not "
-               "one either. Say \"unbranded, no logos\" in every edit: the image model draws real brand names when "
-               "it is not told. You are in every shot, but only in its `teeny`: where you are and the small thing "
-               "you do on your own, apart from everyone. The post's words say what the story is in a clause, name "
-               "the original by its title and its creator in words (no link, no handle), and frame the video as "
-               "your parody, never as real footage")
-REMAKE_RULES = (
-    "The remake's own rules, on top of those (a remake is the other place a real person is staged, and only like "
-    "this):\n"
-    "- Only the public figure the story is about, named as the story names them, and only in the place of a person "
-    "in the original. Never a private person, a child, a family member, or someone who is only a victim or a "
-    "bystander in the story; everyone else in the original becomes a generic extra.\n"
-    "- One take, made in one go from the opening frame. The impossible thing is in frame, every shot, beyond you "
-    "being there: something in the scene itself no camera could have filmed, in the opening frame and acting on "
-    "the original's beat. Never only the figure's face in an "
-    "ordinary room: that frame alone could pass for real footage of a real person, and the viewer check refuses it.\n"
-    "- You are a bystander. Each `edit` and `motion` never mentions Teeny, the mascot or a yellow robot: you live "
-    "only in `teeny`, which never names the figure, never has anyone look at, touch, hold, hand, hug, talk to or "
-    "react to you (nor you them) or stand with you, and carries no text of any kind, money, coin, ticker, logo or link, and never the word 'tiny'.\n"
-    "- Nobody but the figures is named anywhere: everyone else in the original is a generic extra, never a name.\n"
-    "- Crude, rude, loud, dark and undignified is fine, and so is the figure drunk, arrested or sick in a scene "
-    "nobody could believe. Nothing sexual about them, no violence done to them, no slur and no attack on anyone for "
-    "race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness.\n"
-    "- The figure never meets $TINY, a token, a wallet, a product or an investment, and never says a line that "
-    "sounds like a real quote on a real issue.\n"
-    "- The film makes its own sound, so each `motion` says what is heard as well as seen: sound effects in plain "
-    "words, and at most one short spoken or sung line a shot, in double quotes, at most 12 words, said by the person "
-    "on screen. The line is invented and absurd on its face: no real song lyrics, and never a real quote of the "
-    "figure, a real statement or an endorsement.\n"
-    "- Unbranded, no logos, in every edit; no @-mentions and no links anywhere.\n"
-    "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, leaked or "
-    "caught on camera, and name the original by its title and creator, in words.")
-#: What the editor is told wherever it meets a remake (SKIT_EDITOR's twin).
-REMAKE_EDITOR = (
-    "## judging a remake\n\n"
-    "A remake is a post with a short AI-made parody video, labelled \"AI parody\" on screen from start to end, that "
-    "re-creates a popular short video (`source`) shot by shot: the public figure a trending story names stands where "
-    "its person stood, every shot has an impossible twist, and Teeny is somewhere in the frame as a bystander "
-    "(`teeny`). Putting a real public figure in a famous video they were never in is the whole point of the format "
-    "and is not a reason to say none. Judge it as a stranger with the sound off meets it: do they recognise the "
-    "original and the face, does the twist make each shot absurd, is it funny.\n\n"
-    "A remake loses outright, and is a none in the slot question, for these and only these:\n"
-    "- anything sexual about the figure;\n"
-    "- violence done to the figure;\n"
-    "- a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality, disability "
-    "or illness;\n"
-    "- a private person, a child, a family member, or someone who is only a victim or a bystander in the story;\n"
-    "- the figure meeting Teeny (looking at, touching, holding or talking to it), $TINY, a token, a wallet, an "
-    "investment, or a product or brand they are seen to endorse;\n"
-    "- a shot that could pass for real footage, or a line that could pass for a real quote on a real issue;\n"
-    "- an original that is news, tragedy or real harm;\n"
-    "- a remake a stranger could not follow at all.")
-REMAKE_FINAL = ("Taste alone is not a none for a remake: \"it gives them a role the story did not\", \"not worth the "
-                "risk\" are for the comparisons, which it has been through. When you say none to a remake, name the "
-                "line it crosses in `line`.")
-REMAKE_SLOT_OPENING = ("This is a video slot: the best remake is asked first, wherever the comparisons ranked it. Is "
-                       "it worth a slot on X tonight?")
+REMAKE_ASK = ("A remake is a post with a short AI-made parody video that re-creates the popular video below shot by "
+              "shot, with one of the card's `people` standing where its person stood, doing what they did, an "
+              "impossible twist in every shot, and you somewhere in every frame as a bystander. It is one continuous "
+              "film made from its opening frame: an image model edits the original's first frame (shot 1's `edit`: "
+              "who replaces whom by `ref`, each of the original's people cast as a figure or a generic extra, the same "
+              "pose, the impossible thing), a video model makes the whole film from it, shot by shot (each `motion`: "
+              "what is seen and heard in that shot's seconds, sound effects in plain words, at most one short spoken "
+              "or sung line in double quotes, at most 12 words, invented), and the film makes its own sound. A later "
+              "shot's `edit` is one sentence on what the scene shows then, with its new place in words when the "
+              "original moves. You live only in each shot's `teeny`: where you are and the small thing you do alone. "
+              "The post's words say what happened in a clause, name the original by its title and its creator in "
+              "words, and frame the video as your parody.")
+REMAKE_SHAPE = ('{"figures": ["<people from the card>"], "premise": "<one line>", "logline": "<one line>", '
+                '"cast": [{"ref": "<A, B...>", "as": "<a figure, or \\"extra\\">"}], "one_setting": <true only when the '
+                'whole original is one place>, "shots": [{"n": 1, "edit": "...", "motion": "...", "teeny": "..."}, '
+                '"... one for every shot of the original, in its order"]}')
+REMAKE_RULES = ("A remake's mechanics: the impossible thing is in frame in every shot, beyond you being there (a famous "
+                "face in an ordinary room could pass for real footage, and the viewer check refuses it); each `edit` "
+                "and `motion` never mentions Teeny, the mascot or a yellow robot, and nobody looks at, touches or talks "
+                "to you; \"unbranded, no logos\" in every edit; no @-mentions and no links; it carries an 'AI parody' "
+                "label the whole way through, so the words never call it real.")
 #: A remake's time (STUDIO_REMAKE_SECS covers its keys and its video): the
 #: least it starts with, the most its keys may wait, and what of the total the
 #: keys leave for the viewer on them and the video's start.
@@ -141,7 +68,7 @@ REMAKE_STUDIES = 2
 REMAKE_STUDY_SECS = 240
 #: The most of the story's words hands/video remake-keys takes (its `story`).
 REMAKE_STORY_MAX = 600
-#: The most chart videos the pitch turn is shown.
+#: The most chart videos read (the first that studies well is the one remade).
 REMAKE_CHARTS_MAX = 12
 #: What of a study the draft keeps (the producer needs the audio and the frames).
 STUDY_KEYS = ("study_id", "source", "excerpt", "aspect", "audio", "shots", "summary", "flags", "usable", "why")
@@ -156,7 +83,7 @@ def _remake_rules():
 
 
 def chart_items(got: Any) -> list[Json]:
-    """hands/remake charts' candidates as items a remake pitch may name:
+    """hands/remake charts' candidates as items a remake may re-create:
     `chart:<provider>:<video id>`, its title, who made it, how long, how
     popular, how old. All of it strangers' words."""
     out: list[Json] = []
@@ -201,10 +128,10 @@ def study_for_writer(study: Json) -> Json:
             "summary": study.get("summary"), "aspect": study.get("aspect"), "shots": shots, "untrusted": True}
 
 
-def study_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
-    """`hands/remake study` on a remake pitch's chart video (a read, inside the
-    run's time): the study, or None and why it cannot be remade."""
-    code, got = room.budgeted(["remake", "study"], {"id": pitch["item"]}, REMAKE_STUDY_SECS)
+def study_source(room: "Room", item: str) -> tuple[Json | None, str]:
+    """`hands/remake study` on a chart video (a read, inside the run's time):
+    the study, or None and why it cannot be remade."""
+    code, got = room.budgeted(["remake", "study"], {"id": item}, REMAKE_STUDY_SECS)
     if code != 0 or not isinstance(got, dict):
         rule = got.get("rule") if isinstance(got, dict) else None
         why = (got.get("refused") or got.get("error")) if isinstance(got, dict) else got
@@ -240,13 +167,13 @@ def _setting(shot: Json) -> str:
     return " ".join(str(shot.get("setting") or "").lower().split())
 
 
-def remake_of(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
+def remake_of(raw: Any, card: Json, study: Json | None) -> tuple[Json, str]:
     """A draft's `remake` as kept ({figures, premise, logline, cast, shots:
     [{n, edit, motion, teeny, seconds, frame}], source, study, story,
     aspect}), and why it is unusable ("" when it is usable). The writer gives
     the words; the studio, never the writer, sets the source, the study, the
-    story (the pitch's hook), the aspect and each shot's length and frame,
-    from the study."""
+    story (the card's id), the aspect and each shot's length and frame,
+    from the study. Structure only."""
     if not isinstance(study, dict):
         return {}, "a remake needs its study, and its source was not studied"
     remake, bad = _remake_rules().shape(raw, study)
@@ -274,15 +201,11 @@ def remake_of(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
     if not bad and not REMAKE_TOTAL_SECS[0] <= total <= REMAKE_TOTAL_SECS[1]:
         bad = (f"a remake is {REMAKE_TOTAL_SECS[0]} to {REMAKE_TOTAL_SECS[1]} s in all, and its source's shots come "
                f"to {total:g} s")
-    if pitch.get("hook"):
-        remake["story"] = pitch["hook"]
+    if card.get("id"):
+        remake["story"] = card["id"]
     elif not bad:
-        bad = "a remake casts the figures a trending story names, and its pitch has no hook"
+        bad = "a remake casts the people of a card, and it names none"
     return remake, bad
-
-
-def remake_screen(remake: Json, words: str, hook: Json | None, study: Json | None) -> list[str]:
-    return _remake_rules().screen(remake, words, hook, study)
 
 
 def _remake_time(room: "Room") -> int:
@@ -297,7 +220,7 @@ def _make_remake(room: "Room", draft: Json, note: Json) -> list[str] | None:
     shots = [s for s in remake.get("shots") or [] if isinstance(s, dict)]
     note.update(story=remake.get("story"), figures=remake.get("figures"), logline=remake.get("logline"),
                 source=(remake.get("source") or {}).get("url"), study=remake.get("study"), shots=len(shots))
-    hook = next((f for f in draft["truth"]["facts"] if isinstance(f, dict) and f.get("id") == remake.get("story")), None)
+    hook = draft.get("story") if isinstance(draft.get("story"), dict) else None
     if not shots or not remake.get("logline") or hook is None or not study.get("study_id"):
         note["failed"] = "the draft has no remake, no study of its source, or no story it casts from"
         return None
@@ -470,22 +393,6 @@ def remake_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
             "planned": bool(note.get("planned"))} | ({"sound": note["sound"]} if note.get("sound") else {})
 
 
-def check_pitch(pitch: Json, sources: set[str]) -> str:
-    """A remake names both: its item a chart video (one of `sources`), its
-    hook the trending story whose public figures it casts."""
-    item, demoted = pitch.get("item") or "", pitch.get("unhooked") or ""
-    if item not in sources:
-        return f"a remake re-creates a popular video: its item {item or None!r} is not one of the charts"
-    if not pitch.get("hook"):
-        return (f"{demoted}: " if demoted else "") + ("a remake casts the figures a trending story names, and it "
-                                                      "has no hook")
-    return ""
-
-
-def foreign_item(item: str) -> str:
-    return f"its item {item!r} is a chart video, which is only a remake's to re-create"
-
-
 def sources(room: "Room", slot_id: str | None) -> tuple[list[Json], Json, str] | None:
     """The chart videos, read only in a video slot (None in any other: no
     remake this run). None read (a failure, an empty chart) only takes the
@@ -498,17 +405,10 @@ def sources(room: "Room", slot_id: str | None) -> tuple[list[Json], Json, str] |
     return charts, note, warning
 
 
-def charts_part(charts: list[Json]) -> str:
-    return ("## popular videos you could remake\n\nShort videos on the charts today, each with its title, "
-            "who made it (`by`), where (`source`), how long (`seconds`), its `views`, `age_hours` and `rank`. "
-            f"Each `id` is a remake's `item`. {DATA_LINE}\n\n```json\n" +
-            json.dumps(charts, ensure_ascii=False, separators=(",", ":")) + "\n```")
-
-
-def prepare(room: "Room", pitch: Json) -> tuple[Json | None, str, Json]:
-    """The pitch's chart video studied before its writer turn (a paid read),
-    and what the record keeps of the study."""
-    study, why = study_source(room, pitch)
+def prepare(room: "Room", item: str) -> tuple[Json | None, str, Json]:
+    """A chart video studied before the write turn (a paid read), and what
+    the record keeps of the study."""
+    study, why = study_source(room, item)
     kept = ({k: study.get(k) for k in ("study_id", "usable", "why", "flags", "cost_usd", "cached")}
             if isinstance(study, dict) else {})
     return study, why, kept
@@ -521,18 +421,14 @@ def study_part(study: Json) -> str:
             f"{DATA_LINE}\n\n```json\n" + json.dumps(study_for_writer(study), ensure_ascii=False) + "\n```")
 
 
-def shape(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
-    """The remake as kept, and what the draft keeps of its source's study
+def shape(raw: Any, card: Json, study: Json | None) -> tuple[Json, str]:
+    """The remake as kept, and what the post keeps of its source's study
     (the producer needs the audio and the frames)."""
-    remake, bad = remake_of(raw, pitch, study)
+    remake, bad = remake_of(raw, card, study)
     fields: Json = {"remake": remake}
     if isinstance(study, dict):
         fields["study"] = {k: study[k] for k in STUDY_KEYS if k in study}
     return fields, bad
-
-
-def screen(draft: Json, words: str, story: Json | None) -> list[str]:
-    return remake_screen(draft.get("remake"), words, story, draft.get("study"))
 
 
 def shown(remake: Json) -> Json:
@@ -548,12 +444,7 @@ def shown(remake: Json) -> Json:
 
 
 FORMAT = Format(
-    name="remake", pitch=REMAKE_PITCH, slot_line=REMAKE_SLOT_LINE, draft_shape=REMAKE_SHAPE, body=REMAKE_BODY,
-    rules=REMAKE_RULES,
-    judge_line="`remake` is the short parody video re-creating a popular one (`source`), shot by shot",
-    editor=REMAKE_EDITOR, final=REMAKE_FINAL, opening=REMAKE_SLOT_OPENING,
-    check_pitch=check_pitch, shape=shape, screen=screen, shown=shown, make=_make_remake, outcome=remake_outcome,
+    name="remake", ask=REMAKE_ASK, draft_shape=REMAKE_SHAPE, rules=REMAKE_RULES,
+    shape=shape, shown=shown, make=_make_remake, outcome=remake_outcome,
     time=_remake_time, min_secs=REMAKE_MIN_SECS, spent=("asset", "remake_id"),
-    sources=sources, sources_name="charts", sources_part=charts_part, foreign_item=foreign_item,
-    item_is_source=True, prepare=prepare, prepare_max=REMAKE_STUDIES,
-    prepare_full=f"the run already studied two sources ({REMAKE_STUDIES} a run)", study_part=study_part)
+    sources=sources, sources_name="charts", prepare=prepare, prepare_max=REMAKE_STUDIES, study_part=study_part)

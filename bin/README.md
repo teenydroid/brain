@@ -46,7 +46,7 @@ This folder is frozen to Teeny's own pull requests (`evals/frozen.txt`).
 | `mentions`, `mail`, `gh-inbound` | Read X mentions, mail and GitHub activity into the inbox. |
 | `inbound-consume` | Sends the replies the core drafted for queued inbound events. |
 | `x-webhook` | The server for X's webhook; queues mentions, replies and quotes into `state/hands.db`. |
-| `studio`, `backroom` | The writers' room (pitch, draft, editor's pick, post) and the two-minds-riffing room. Logic in `lib/studio*.py` and `lib/formats/`. |
+| `studio`, `backroom` | The studio (feed, one writer turn, one editor ranking, then hands/x down the ranking) and the two-minds-riffing room. Logic in `lib/studio*.py` and `lib/formats/`. |
 | `health` | Asks the model one question and alarms when it stops answering. |
 
 ## Money and the world
@@ -80,7 +80,7 @@ This folder is frozen to Teeny's own pull requests (`evals/frozen.txt`).
 | `lib/cron_policy.py`, `lib/catch_up.py`, `lib/detach.py` | Validate and flatten cron, run a missed slot late, start a long job in the background. |
 | `lib/tick.py`, `lib/reflect.py`, `lib/dream.py`, `lib/rhythm.py`, `lib/outcomes.py` | The mind's loop and its day. |
 | `lib/playbook.py`, `lib/prompts.py`, `lib/answer.py`, `lib/act_fit.py`, `lib/post_length.py` | Reading playbooks, building agent prompts, parsing draft answers and fitting them to limits. |
-| `lib/studio.py`, `lib/studio_room.py`, `lib/studio_switch.py`, `lib/formats/` | The writers' room; `formats/` has one module per video format (`skit`, `remake`, `khaby`). |
+| `lib/studio.py`, `lib/studio_feed.py`, `lib/studio_room.py`, `lib/studio_switch.py`, `lib/formats/` | The studio; `studio_feed.py` builds its cards; `formats/` has one module per video format (`skit`, `remake`, `khaby`). |
 | `lib/evolve*.py`, `lib/lab.py`, `lib/frozen.py`, `lib/last_good.py`, `lib/live_checkout.py`, `lib/sandbox.py`, `lib/wants*.py` | The evolution loop, its lab spines, the frozen-path check, last-good boots and the want lane. |
 | `lib/evals.py`, `lib/probes.py`, `lib/scoreboard.py`, `lib/proofs.py`, `lib/autonomy.py` | Scoring, probes and progress measures. |
 | `lib/receipts.py`, `lib/diary_days.py`, `lib/diary_memory.py`, `lib/audit.py` | What is published to the diary repository. |

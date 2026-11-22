@@ -2,10 +2,10 @@
 (docs/architecture.md, "The studio", "Formats").
 
 A `Format` is everything bin/lib/studio.py needs to know about a kind of
-video: what the writer and the editor are told about it (its prompt blocks),
-the checks its pitches and drafts face, the producer that makes it after its
-words passed, what the record keeps of it and how much of the run's time it
-needs. The studio holds no `if fmt == ...` of its own: it walks `REGISTRY`,
+video: what the write turn of a video slot is told about it (its mechanics),
+the structural check its piece faces, the producer that makes it after the
+editor ranked it, what the record keeps of it and how much of the run's time
+it needs. The studio holds no `if fmt == ...` of its own: it walks `REGISTRY`,
 in order, wherever a video format is concerned, and `VIDEO_FORMATS` is
 `tuple(REGISTRY)`.
 
@@ -23,49 +23,31 @@ Json = dict[str, Any]
 
 @dataclass(frozen=True)
 class Format:
-    """One video format. The prompt blocks are said word for word where the
-    studio says them; the hooks are called with the run's `Room` (from
+    """One video format. Its words are said in the write turn of a video
+    slot, after the cards; the hooks are called with the run's `Room` (from
     bin/lib/studio_room.py) where they need one."""
 
-    #: The format's name: what a pitch's `format` says, and the draft's key
-    #: its piece is kept under (`draft[name]`).
+    #: The format's name: a post's `format`, and the key its piece is kept
+    #: under (`post[name]`).
     name: str
-    #: The pitch turn's paragraph on it, when it is offered, and the line
-    #: added in a video slot (STUDIO_SKIT_SLOTS).
-    pitch: str
-    slot_line: str
-    #: The draft turn: one draft's JSON (`{"drafts": [<draft_shape>, ...]}`),
-    #: what one draft is, and its own rules after JOIN_RULES on a draft that
-    #: joins a story.
+    #: The write turn's paragraph on it: what the piece is and how it is
+    #: written (the mechanics; the content rules are writer.md's list).
+    ask: str
+    #: The JSON of its piece, under its name in one post of the answer.
     draft_shape: str
-    body: str
+    #: Its mechanics a piece must meet to be made, said after `ask`.
     rules: str
-    #: The compare turn's clause on what its key in a shown draft is.
-    judge_line: str
-    #: What the editor is told wherever it meets one (the comparisons and the
-    #: slot question), what the slot question adds, and the slot question's
-    #: opening when a video slot asks it first.
-    editor: str
-    final: str
-    opening: str
-    #: Why a kept pitch in this format is dropped ("" when it is not):
-    #: (pitch, sources) with pitch {item, hook, unhooked} as validate_pitches
-    #: read them ("" for none) and sources the ids of what this format read
-    #: (`sources`; an empty set for a format that reads none).
-    check_pitch: Callable[[Json, set[str]], str]
-    #: A draft's piece as kept: (raw, pitch, study) -> (the fields it adds to
-    #: the draft, {name: piece, ...}, and why it is unusable, "" when it is not).
+    #: A post's piece as kept: (raw, the card it joins, study) -> (the fields
+    #: it adds to the post, {name: piece, ...}, and why it cannot be made, ""
+    #: when it can). Structure only: shots, lengths, required fields.
     shape: Callable[[Any, Json, Json | None], tuple[Json, str]]
-    #: The piece's hard lines in code before the tournament: (draft, its
-    #: words, the story it joins or None) -> what it crosses.
-    screen: Callable[[Json, str, Json | None], list[str]]
-    #: What the editor is shown of the piece (`draft[name]`).
+    #: What the editor is shown of the piece (`post[name]`).
     shown: Callable[[Json], Json]
-    #: The producer, after the words passed: (room, draft, note) -> the media
-    #: ids to post with ([] when only planned), or None when it could not be
-    #: made (`note.failed` says why). `note` is the attempt's record.
+    #: The producer, after the editor ranked it: (room, post, note) -> the
+    #: media ids to post with ([] when only planned), or None when it could
+    #: not be made (`note.failed` says why). `note` is the attempt's record.
     make: Callable[[Any, Json, Json], list[str] | None]
-    #: What the record keeps of one that went out: (draft, note, post_id).
+    #: What the record keeps of one that went out: (post, note, post_id).
     outcome: Callable[[Json, Json, str | None], Json]
     #: The seconds it may take from now (room -> seconds), and the least that
     #: must be: under it, no video of this format is started (`video_time`).
@@ -82,29 +64,13 @@ class Format:
     #: keyword they are passed by (`charts=`).
     sources: Callable[[Any, str | None], tuple[list[Json], Json, str] | None] | None = None
     sources_name: str = ""
-    #: The pitch turn's section listing them, and why another format's pitch
-    #: may not name one as its item.
-    sources_part: Callable[[list[Json]], str] | None = None
-    foreign_item: Callable[[str], str] | None = None
-    #: Whether a pitch's item is one of its sources, told to the writer as the
-    #: `prepare` study rather than as Teeny's own item.
-    item_is_source: bool = False
-    #: Read before the pitch's writer turn (a remake's study of its source):
-    #: (room, pitch) -> (the study or None, why it cannot be made or "", what
-    #: the record keeps of it). At most `prepare_max` a run, past which a
-    #: pitch is dropped with `prepare_full`; one refused hands its place to
-    #: the next pitch of this format in the writer's ranking.
-    prepare: Callable[[Any, Json], tuple[Json | None, str, Json]] | None = None
+    #: Read before the write turn (a remake's study of one of its sources):
+    #: (room, source id) -> (the study or None, why it cannot be made or "",
+    #: what the record keeps of it). At most `prepare_max` tries a run.
+    prepare: Callable[[Any, str], tuple[Json | None, str, Json]] | None = None
     prepare_max: int = 0
-    prepare_full: str = ""
-    #: The draft turn's section on the study, when there is one.
+    #: The write turn's section on the study, when there is one.
     study_part: Callable[[Json], str] | None = None
-    #: Whether the studio names it where it lists the video formats (the
-    #: compare turn's `judge_line`s, a video slot's note on none pitched)
-    #: when none of it is at hand. A format added after the first two is
-    #: named only where one of it is, so the prompts of a run that does not
-    #: offer it stay as they were.
-    always_named: bool = True
 
 
 def named(**given: Any) -> dict[str, Any]:

@@ -15,6 +15,10 @@ class TopTest(Scratch):
         super().setUp()
         self.board("ai", row(1, "ai", 500, "an agent startup raised money"), row(2, "ai", 90), row(3, "ai", 300))
         self.board("tech", row(4, "tech", 400, "a chip maker doubled revenue"), row(3, "tech", 310))
+        # The rest of digg.TOPICS (widened 2026-11-22) list nothing here.
+        for topic in digg.TOPICS:
+            if topic not in ("ai", "tech"):
+                self.board(topic)
         for n in (1, 2, 3, 4):
             self.sources(n, post("Ana", f"first post on {n}", n=10 * n), post("Page", "a web page", kind="webpage"),
                          post("Bo", f"second post on {n}", n=10 * n + 1), post("Cy", f"third post on {n}", n=10 * n + 2))
@@ -108,14 +112,33 @@ class TopTest(Scratch):
             self.assertEqual((call["home"], call["cwd"], call["leak"]), (home, home, None))
             self.assertTrue(call["xdg"].startswith(home))
 
-    def test_a_title_or_post_the_screen_holds_is_dropped_and_counted(self):
-        self.board("ai", row(1, "ai", 500, "agents are for retards"), row(2, "ai", 90))
+    def test_a_title_or_post_carrying_a_slur_is_dropped_and_counted(self):
+        self.board("ai", row(1, "ai", 500, "founder calls his rivals retards on stage"), row(2, "ai", 90))
         self.board("tech", row(4, "tech", 400))
-        self.sources(4, post("Ana", "what a retard"), post("Bo", "a fine post"))
+        self.sources(4, post("Ana", "what a bunch of subhuman idiots"), post("Bo", "a fine post"))
         got = top.top("k", 10, 1, 3)
         self.assertEqual([s["id"] for s in got["stories"]], ["s4", "s2"])
         self.assertEqual([p["text"] for p in got["stories"][0]["posts"]], ["a fine post"])
         self.assertEqual(got["dropped_by_screen"], 2)
+
+    def test_a_profane_violent_or_sexual_story_now_reaches_the_studio(self):
+        # 2026-11-22: the whole lexicon used to screen the news, and the
+        # studio's material came through thin. Only a slur drops a story now.
+        self.board("ai", row(1, "ai", 500, "porn site sues the AI company that scraped it"),
+                   row(2, "ai", 90, "the fucking robot vacuum war is here"))
+        self.board("tech", row(4, "tech", 400, "how a gun maker's app leaked every buyer"))
+        self.sources(1, post("Ana", "this is the most sexual press release i have ever read"),
+                     post("Bo", "kill the whole product line"))
+        got = top.top("k", 10, 1, 3)
+        self.assertEqual([s["id"] for s in got["stories"]], ["s1", "s4", "s2"])
+        self.assertEqual(len(got["stories"][0]["posts"]), 2)
+        self.assertEqual(got["dropped_by_screen"], 0)
+
+    def test_an_x_post_keeps_its_counts_for_the_studios_heat(self):
+        got = top.post_row({**post("Ana", "big news", n=3), "likes": 120, "retweets": 30, "viewCount": 9000,
+                            "reposts": True})
+        self.assertEqual((got["likes"], got["reposts"], got["views"]), (120, 30, 9000))
+        self.assertNotIn("likes", top.post_row(post("Bo", "no counts")))
 
 
 class StoryTest(Scratch):

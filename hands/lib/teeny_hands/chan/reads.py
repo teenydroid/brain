@@ -6,10 +6,11 @@ greentext, `<a class="quotelink">` for a reply's `>>123`, `<wbr>` inside long
 words); each reaches a reader as plain text (`plain`), with the reply links,
 the addresses and anything key-like taken out.
 
-Every post is screened by the guard's lexicon at its strictest reading
-(outbound: what Teeny would itself say) before it leaves this hand, and a
-post with any match, even one the guard would ask its judge about, is
-dropped and only counted. Nobody's name, tripcode, poster id, country or
+A thread's premise (`catalog`, the studio's sparks) is dropped only for a
+slur (teeny_hands.slurs); every reply a `thread` read gives is screened by the
+guard's lexicon at its strictest reading (outbound: what Teeny would itself
+say), and a post with any match, even one the guard would ask its judge
+about, is dropped and only counted. Nobody's name, tripcode, poster id, country or
 picture is ever read out: on 4chan they are anonymous, and they stay so.
 """
 
@@ -107,6 +108,17 @@ def clean(text: str) -> bool:
     return screen_text(text, OUTBOUND) is None
 
 
+def hateful(text: str) -> bool:
+    """True when TEXT carries a slur (teeny_hands.slurs): the one screen a
+    thread's premise faces (2026-11-22: the studio's sparks were pre-filtered
+    thin by the whole lexicon). The rest of the lexicon is the guard's, on
+    Teeny's own words, and a thread's replies (`thread`) are still read
+    through `clean`."""
+    from ..slurs import hateful as _hateful
+
+    return _hateful(text)
+
+
 def _get(api: RestApi | None, path: str) -> Any:
     client.pace()
     return (api or client.api()).call("GET", path, auth=False)
@@ -168,7 +180,7 @@ def _shape(board: str, thread: Mapping[str, Any], dropped: Dropped) -> Json | No
     if len(text) < PREMISE_MIN:
         dropped.empty += 1
         return None
-    if not clean(text):
+    if hateful(text):
         dropped.screened += 1
         return None
     out: Json = {"id": f"chan:{board}:{thread['no']}", "board": board, "no": thread["no"], "premise": text,
