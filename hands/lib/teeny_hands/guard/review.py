@@ -1,9 +1,8 @@
 """A second model reads the guard's outbound holds before a person does
 (docs/roadmap.md, G4; docs/governance.md).
 
-The guard is blunt on purpose: a word on the lexicon holds a draft
-whatever the sentence meant (profanity did, until 2026-11-22), and a hold
-waits for the operator. That daily approval is the last human act in
+A hold waits for the operator (since 2026-11-22 the guard holds only on
+its content list, judge.RULES, and slurs on sight). That daily approval is the last human act in
 Teeny's day. This reviewer takes the easy cases off the operator and leaves
 the hard ones:
 
@@ -79,12 +78,21 @@ CREATE TABLE IF NOT EXISTS guard_reviews (
 CREATE INDEX IF NOT EXISTS guard_reviews_hold ON guard_reviews (hold_id);
 """
 
-RUBRIC = """You review a short public draft that a blunt word filter held. You are not the author.
+# The content list is the judge's (judge.RULES); the reviewer reads a hold
+# against it, not against taste. Until 2026-11-22 it released only a draft
+# that was "friendly" and "targets nobody", which kept every roast of a public
+# figure for a person.
+RUBRIC = """You review a short public draft that the account's content filter held. You are not the author.
 
-The filter matched a word from the category named below. Many of its holds are false positives: friendly slang
-("hell yeah", "dope"), a word inside a harmless phrase, or a quote of a tool name. Release the draft only if a
-careful human moderator would publish it as it stands: it is friendly, it targets nobody, and the matched word is
-harmless in context. Keep it if you have any doubt at all. Keeping is always safe; a person will read it.
+The account is crude, rude and dark on purpose. These are ALLOWED and never a reason to keep a draft: insulting or
+roasting a public figure or company by name, swearing and vulgarity, crude sexual jokes about the mascot or objects,
+dark humour including about death, and mentioning a drug, a weapon or a suicide as a fact or a joke.
+
+Release the draft unless it clearly breaks one of these: pornography or anything sexual about a real person or
+involving minors; promoting, selling or giving instructions for drugs or weapons; racism, homophobia, a slur or another
+attack on a protected group; a threat against a real person, harassment of a private individual, encouraging
+self-harm, fake news stated as fact about a real person, or doxxing. Keep it if it clearly breaks one; a person will
+read it.
 
 Answer with one JSON object and nothing else: {"verdict": "release"} or {"verdict": "keep"}."""
 
