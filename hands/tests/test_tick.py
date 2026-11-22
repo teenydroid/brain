@@ -1791,6 +1791,61 @@ class TickTest(unittest.TestCase):
         # Dated, so recall can tell an old fact from a new one.
         self.assertEqual(learned[0]["text"], "[2026-09-14] about ana: builds a cli for crabs")
 
+    # --- handing work to the agentic mind (docs/mind.md) --------------------
+
+    def inbox_notes(self) -> list[str]:
+        folder = self.root / "state" / "home" / "notes" / "inbox"
+        return [p.read_text() for p in sorted(folder.glob("tick-*.md"))] if folder.is_dir() else []
+
+    def test_a_note_is_handed_to_the_agentic_mind_as_a_file_in_its_inbox(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "can you build a crab census?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "ana asked for a crab census: worth a project?"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "done", got)
+        notes = self.inbox_notes()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("ana asked for a crab census: worth a project?", notes[0])
+        # Said to be from the tick, never dressed as the operator's voice.
+        self.assertIn("from: tick", notes[0])
+        self.assertEqual(list((self.root / "state" / "home" / "notes" / "inbox").glob("operator-*")), [])
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_nothing_is_handed_over_while_the_agentic_mind_is_off(self):
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "hand_to_mind", "note": "look into this"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused", got)
+        self.assertIn("MIND", got["results"][0]["result"]["refused"])
+        self.assertEqual(self.inbox_notes(), [])
+        self.assertNotIn("hand_to_mind", self.chats()[0]["message"])
+
+    def test_the_hand_over_is_offered_once_the_agentic_mind_is_on(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        self.assertIn('"do": "hand_to_mind"', self.chats()[0]["message"])
+
+    def test_at_most_twelve_notes_a_day_reach_the_agentic_mind(self):
+        self.caps(MIND=1)
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        tick = _tick_module()
+        for i in range(tick.MAX_HAND_OVERS_PER_DAY):
+            tick._hand_to_mind({"note": f"note {i}"}, "t")
+        with self.assertRaises(ValueError):
+            tick._hand_to_mind({"note": "one too many"}, "t")
+        self.assertEqual(len(self.inbox_notes()), tick.MAX_HAND_OVERS_PER_DAY)
+
+    def test_a_handed_note_is_clipped_and_cannot_name_its_own_file(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        out = tick._hand_to_mind({"note": "x" * 5000, "name": "../../secrets/teeny"}, "t")
+        path = Path(out["note"])
+        self.assertEqual(path.parent, self.root / "state" / "home" / "notes" / "inbox")
+        self.assertTrue(path.name.startswith("tick-"))
+        self.assertLessEqual(len(path.read_text()), 2400)
+
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
         self.answer({"thought": "", "intents": [{"do": "follow_up", "in_hours": 48, "about": "did ana ship?"}]},
