@@ -1673,19 +1673,20 @@ class CrashedGenerations(EvolveCase):
         order = [x.id for x in evolve.open_learnings(self.entries()) if x.section != "what i am in the middle of"]
         self.assertEqual([stood[i].infra for i in order], sorted(stood[i].infra for i in order))
 
-    def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
+    def test_a_crash_files_one_public_issue_updates_it_and_never_latches(self):
         pub = FakePublisher()
         for _ in range(2):
             with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
                 with self.assertRaises(AttributeError):
                     self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 1)  # one a day, not one a run
+        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
+        self.assertEqual(pub.comments, [])  # and at most one update a day
         self.assertIn("crash", pub.issues[0]["title"])
         self.assertIn("'list' object has no attribute 'items'", pub.issues[0]["body"])
         self.assertIn("observe", pub.issues[0]["body"])  # where it raised
-        self.assertFalse(evolve.halt_path().exists())  # the next run still tries
-        crashes = [r for r in evolve.read_jsonl(evolve.halts_log()) if r.get("kind") == "crash"]
-        self.assertEqual(len(crashes), 1)
+        self.assertIn("help", pub.issues[0]["body"].lower())
+        self.assertEqual(pub.labels[0], {"repo": "teenydroid/brain", "number": 101, "labels": ["help wanted"]})
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())  # the next run still tries
         self.propose(1, [self.playbook_edit("Check first.")])
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(out["candidates"][0]["verdict"], "opened")
@@ -1693,7 +1694,17 @@ class CrashedGenerations(EvolveCase):
         with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
             with self.assertRaises(AttributeError):
                 self.run_gen(1, publisher=pub)
-        self.assertEqual(len(pub.issues), 2)  # a new day, a new issue
+        self.assertEqual(len(pub.issues), 1)  # the open issue is updated, not doubled
+        (note,) = pub.comments
+        self.assertEqual(note["number"], 101)
+        self.assertIn("'list' object has no attribute 'items'", note["body"])
+        # Once a person closes it, the next crash is a new problem.
+        pub.closed.add(101)
+        os.environ["EVOLVE_NOW"] = str(T0 + 2 * DAY)
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+            with self.assertRaises(AttributeError):
+                self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 2)
 
     def test_status_shows_the_last_crash(self):
         self.assertIsNone(evolve.status()["last_crash"])
