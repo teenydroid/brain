@@ -6273,7 +6273,10 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     findings = read_findings(cfg)
     # A fix finding prompt rules kept failing to fix goes to code: its public
     # issue is filed here, once; a builder's want, by bin/wants.
-    route_findings(cfg, entries, findings, publisher)
+    try:
+        route_findings(cfg, entries, findings, publisher)
+    except Exception as exc:  # noqa: BLE001 - the generation goes ahead; the next run files it
+        say(f"routing findings failed ({type(exc).__name__}: {str(exc)[:200]})")
     # Routing stops new picks only: a candidate that passed before its
     # learning was routed still ships.
     queue = waiting(entries, [*learnings, *routed, *findings])
