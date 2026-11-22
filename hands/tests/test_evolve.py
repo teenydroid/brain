@@ -87,6 +87,9 @@ class Refusing(FakePublisher):
     def open_issue(self, *a, **k):
         raise AssertionError("opened an issue under DRY_RUN")
 
+    def comment_issue(self, *a, **k):
+        raise AssertionError("commented on an issue under DRY_RUN")
+
 
 class Verdicts:
     """An evaluator that answers each candidate's verdict by its index
