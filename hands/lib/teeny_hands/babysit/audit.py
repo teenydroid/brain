@@ -332,8 +332,24 @@ class _Audit:
             self.add("check_pending", "wait", f"check:{name}")
         if not runs and not status["statuses"]:
             self.add("no_checks", "wait", "checks", "nothing has checked this head yet")
-        if self.evolve:
+        if self.gate == "eval":
             self._eval(status["statuses"])
+        elif self.gate == "checks":
+            self._required(runs)
+
+    def _required(self, runs: list[Json]) -> None:
+        """Every one of policy.REQUIRED_CHECKS on the head, and green. One
+        missing waits (it may not have started); one still running is
+        already a wait (above); one that finished other than `success`
+        (skipped, neutral, cancelled, red) fails: a check that did not run
+        did not pass."""
+        for name in policy.REQUIRED_CHECKS:
+            found = [r for r in runs if r.get("name") == name]
+            if not found:
+                self.add("required_check_missing", "wait", f"check:{name}")
+            elif all(r.get("status") == "completed" for r in found) and any(
+                    r.get("conclusion") != "success" for r in found):
+                self.add("required_check_not_green", "fail", f"check:{name}")
 
     def _eval(self, statuses: list[Json]) -> None:
         """teeny/eval on the head of a self-merge candidate. Its pending and
@@ -402,9 +418,10 @@ class _Audit:
                 verdict = "needs_review"
             elif "wait" in severities:
                 verdict = "waiting"
-            elif not approved and self.eval_state != "success":
-                # A self-merge candidate merges unapproved only on a passed
-                # teeny/eval, whatever else its status says.
+            elif not approved and self.gate == "eval" and self.eval_state != "success":
+                # An evolve candidate merges unapproved only on a passed
+                # teeny/eval, whatever else its status says. A self-change
+                # candidate got here on its required checks (`_required`).
                 verdict = "needs_review"
             else:
                 verdict = "ready"
