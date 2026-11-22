@@ -1786,6 +1786,8 @@ class EvolverProposer:
 
     def _propose(self, request: Json, tree: Path, folder: Path, port: int, message: str | None = None,
                  edit: bool = True) -> Any:
+        message = message or render_evolver_request(fit_request(request, render=render_evolver_request))
+        screen_check(message)
         try:
             lab = lab_lib.start(f"evolver-{request['cand']}", tree, folder, port, secrets_dir(),
                                 self.cfg["EVOLVE_LAB_BOOT_SECS"], edit=edit)
