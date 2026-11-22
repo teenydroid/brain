@@ -236,6 +236,22 @@ top-up. The results and the operator's pick are recorded here when done.
   taller body, a different face from frame to frame. Words alone don't hold the
   character, so references are needed.
 
+Run 2 (2026-11-22, Claudia's stack, Teeny's cropped front pose as the
+reference; frames read at 0, 3, 6, 9 and 12 s). All were 720x1280, 15 s, 24 fps,
+with sound:
+
+| Model | Billed | Ceiling | Render | On model | Fart | Stick | Ending (bonk, fall, stare) |
+|---|---|---|---|---|---|---|---|
+| `venice-seedance-2-5-image-to-video-basic`, from a `gpt-image-2-edit` keyframe ($0.36) | $3.03 | $7.80 | 248 s | yes | yes, a green cloud | yes | yes: ends sitting, deadpan at the lens |
+| `venice-seedance-2-5-reference-to-video-basic` | $2.99 | $7.80 | 218 s | yes, the closest likeness | not in the sampled frames | yes, with a real USB plug | yes: falls on its butt |
+| `venice-kling-v4-reference-to-video` | $2.21 | $10.30 | 192 s | mostly | yes, a green puff | yes | partly: ends on a sad close-up |
+| `seedance-2-0-mini-reference-to-video` | $1.06 | $2.26 | 229 s | yes | yes | yes | yes: falls, stick dropped |
+
+Seedance 2.5 billed below its catalogue rate ($0.20/s against $0.289/s), but
+reserves 2.6x the bill while it runs. It once returned `provider_unavailable`
+(retryable, not billed), and an identical body is deduplicated to that same
+failed job id, so a retry must change the body. Sound was not checked by ear.
+
 ## 6. Checking a take
 
 The viewer (`guard/viewer.py`, `view_skit`, `view_remake`) already checks the
