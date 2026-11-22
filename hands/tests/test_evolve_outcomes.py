@@ -699,6 +699,9 @@ class Wired(EvolveCase):
         for h in range(6):
             ledger.act("moltbook-follow", T0 - 20 * DAY + h * HOUR, ok=False, error="boom")
             ledger.act("moltbook-follow", T0 - 1 * DAY - h * HOUR, ok=False, error="boom")
+            # The playbook still runs after g2c1's merge, and works: a fall
+            # with no runs behind it would be a silenced source, not a fix.
+            ledger.act("moltbook-follow", T0 - 18 * DAY + h * HOUR, ok=True)
         self.merged("g2c1", T0 - 19 * DAY, self.CHECK)  # older: due at both horizons
         self.merged("g9c4", T0 - 18 * DAY)  # no check
         self.merged("g3c1", T0, self.CHECK)  # the newest, not due yet
