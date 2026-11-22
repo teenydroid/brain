@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from unittest import mock
 from pathlib import Path
 
 from gh.support import Scratch, git
@@ -110,6 +111,36 @@ class PrepareTest(MindScratch):
         self.assertEqual((out["state"], out["commit"]), ("dirty", new))
         self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "mine\n")
         self.assertFalse((self.tree / "brain" / "NEW.md").exists())
+
+    def test_an_edit_made_while_the_tree_is_replaced_is_kept_not_deleted(self):
+        mindclone.prepare()
+        new = self.upstream({"brain/NEW.md": "new\n"}, "new")
+        real = mindclone._aside
+
+        def late_edit():
+            # the mind writes after the clean check, just before the tree moves aside
+            self.edit({"brain/SOUL.md": "written late\n", "brain/late.md": "also late\n"})
+            return real()
+
+        with mock.patch.object(mindclone, "_aside", late_edit):
+            out = mindclone.prepare()
+        self.assertEqual((out["state"], out["head"]), ("synced", new))
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nsmall and kind\n")
+        (kept,) = [Path(k) for k in out["kept"]]
+        self.assertTrue(kept.is_dir())
+        self.assertEqual((kept / "brain" / "SOUL.md").read_text(), "written late\n")
+        self.assertEqual((kept / "brain" / "late.md").read_text(), "also late\n")
+        # and a later refresh does not sweep it away
+        self.upstream({"brain/NEWER.md": "newer\n"}, "newer")
+        mindclone.prepare()
+        self.assertTrue((kept / "brain" / "late.md").is_file())
+
+    def test_an_unchanged_tree_is_replaced_and_leaves_nothing_behind(self):
+        mindclone.prepare()
+        self.upstream({"brain/NEW.md": "new\n"}, "new")
+        out = mindclone.prepare()
+        self.assertEqual(out.get("kept", []), [])
+        self.assertEqual([p.name for p in mindclone.scratch().iterdir() if p.name.startswith(("old-", "kept-"))], [])
 
     def test_a_deleted_tree_is_checked_out_afresh(self):
         mindclone.prepare()
