@@ -2394,8 +2394,9 @@ What used to halt is one of two things now:
 A problem files a public issue on `EVOLVE_ISSUE_REPO` through
 `hands/gh open-issue` (the guard on its title and body; its judge too when
 the body quotes a model's words, like a candidate's title), labelled
-`help wanted` so contributors find it (a label the repository lacks is left
-off; the issue opens either way). It is deduplicated by its key: while that
+`help wanted` so contributors find it, the label a routed finding's issue
+asks for too (`evolve_route.CONTRIBUTOR_LABELS`; `hands/gh` adds it after the
+issue opens, and one the repository refuses leaves it unlabelled). It is deduplicated by its key: while that
 issue is open, a repeat comments on it at most once a day with the new
 numbers instead of opening another; once a person closes it, the next one
 opens a new issue. The issue says what happened, the candidate and its pull
