@@ -1896,12 +1896,14 @@ class TickTest(unittest.TestCase):
         notes = self.root / "state" / "home" / "notes"
         notes.mkdir(parents=True)
         notes.chmod(0o555)
-        self.addCleanup(notes.chmod, 0o755)
-        if os.access(notes, os.W_OK):
-            self.skipTest("running as a user the mode does not stop")
-        with self.assertRaises(ValueError) as caught:
-            tick._hand_to_mind({"note": "hello"}, "t")
-        self.assertIn("inbox", str(caught.exception))
+        try:
+            if os.access(notes, os.W_OK):
+                self.skipTest("running as a user the mode does not stop")
+            with self.assertRaises(ValueError) as caught:
+                tick._hand_to_mind({"note": "hello"}, "t")
+            self.assertIn("inbox", str(caught.exception))
+        finally:
+            notes.chmod(0o755)
 
     def test_the_count_is_read_and_stored_under_one_day(self):
         # A midnight between the read and the write must not store
