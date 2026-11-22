@@ -2269,7 +2269,7 @@ class PureInventionTest(unittest.TestCase):
         self.assertIn("pure invention", rules)
         for words in ("no money", "no real person", "no news"):
             self.assertIn(words, rules)
-        world = brief[brief.index("## start from their world"):brief.index("Joining the news.")]
+        world = brief[brief.index("## start from their world"):brief.index("Joining the news, at the man himself.")]
         self.assertIn("only a story on that list can be a hook", world)
         self.assertIn("pure invention", world)
 
@@ -2351,7 +2351,10 @@ class RoastPublicFiguresTest(unittest.TestCase):
                   "outside": {"trend": [hook]}}
         msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
         self.assertIn(studio.ROAST_PITCH, msg)
-        self.assertIn("at least one pitch is a roast", msg)
+        # 2026-11-22, after Truth Terminal, which talked at famous people by name.
+        self.assertIn("at least two pitches are roasts", msg)
+        self.assertEqual(studio.ROAST_PITCHES, 2)
+        self.assertIn("no swerve into a self-own", msg)
         self.assertIn("roast", studio.SHAPES)
         quiet = studio.pitch_message(studio.Config(), {k: v for k, v in inputs.items() if k != "outside"}, [],
                                      SAMPLED)
