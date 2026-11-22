@@ -250,6 +250,7 @@ def script(skit: dict[str, Any], seconds: list[int] | None = None, style: str = 
     for number, (shot, length) in enumerate(zip(shots, secs), 1):
         parts.append(f"Shot {number} ({at}-{at + length}s): {shot['prompt']}")
         at += length
+    parts.append(LOCKS)
     if style:
         parts.append(style)
     return " ".join(parts)
