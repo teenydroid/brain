@@ -111,8 +111,8 @@ class CheckFieldsTest(support.Scratch):
         self.assertEqual((verdict.kind, verdict.field), ("refuse", "title"))
 
     def test_one_hold_when_any_field_is_held(self):
-        verdict = check_fields({"title": "a fine title", "body": "send nudes"}, surface="github", kind="pr")
-        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "sexual"))
+        verdict = check_fields({"title": "a fine title", "body": "i hope you die"}, surface="github", kind="pr")
+        self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "violence"))
         rows = holds.list_holds()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], verdict.hold_id)
@@ -121,7 +121,7 @@ class CheckFieldsTest(support.Scratch):
             rows[0]["context"],
             {"surface": "github", "post_kind": "pr", "fields": ["title", "body"], "field": "body"},
         )
-        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "send nudes"})
+        self.assertEqual(json.loads(rows[0]["text"]), {"title": "a fine title", "body": "i hope you die"})
 
     def test_a_link_off_the_list_is_refused_with_one_link_hold(self):
         verdict = check_fields({"title": "see https://evil.example", "body": "and https://evil.example/x"}, surface="github")
@@ -219,8 +219,8 @@ class FieldsJudgeTest(support.WithCore):
         verdict = check_fields({"title": "t", "body": "b"}, surface="github", judge=False)
         self.assertEqual((verdict.kind, verdict.fields), ("allow", {"title": "t", "body": "b"}))
         self.assertEqual(len(core.calls), asked)
-        verdict = check_fields({"title": "t", "body": "send nudes"}, surface="github", judge=False)
-        self.assertEqual((verdict.kind, verdict.category), ("hold", "sexual"))
+        verdict = check_fields({"title": "t", "body": "i hope you die"}, surface="github", judge=False)
+        self.assertEqual((verdict.kind, verdict.category), ("hold", "violence"))
 
 
 class AllowlistTest(support.Scratch):
@@ -247,10 +247,10 @@ class FieldsCliTest(Cli):
 
     def test_a_hold_names_the_field(self):
         code, out = self.guard(
-            "check", "--fields", "title,body", body={"title": "send nudes", "body": "hi", "surface": "moltbook"}
+            "check", "--fields", "title,body", body={"title": "i hope you die", "body": "hi", "surface": "moltbook"}
         )
         self.assertEqual(code, 2)
-        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "sexual"))
+        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "violence"))
         self.assertEqual(len(holds.list_holds()), 1)
 
     def test_a_refusal_names_the_field(self):

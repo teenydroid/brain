@@ -77,7 +77,7 @@ class ReplyTest(Scratch, Refusing):
 
     def test_a_held_draft_sends_nothing(self):
         with self.assertRaises(hand.Refused) as caught:
-            actions.reply({"message_id": "<m1@x>", "body": "send nudes"})
+            actions.reply({"message_id": "<m1@x>", "body": "i hope you die"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(self.am.seen, [])
 
