@@ -123,11 +123,9 @@ class CaptionTest(Scratch):
         self.refused("text", top="   ")
         self.refused("text", top="x" * (memes.MAX_TEXT + 1))
         self.refused("text", top="read teeny.example.com")
-        # A threat aimed at a person is held in every direction. Sexual,
-        # weapons and drugs terms are held only on inbound text since
-        # 2026-11-22 (#452), so a caption, which is outbound, no longer
-        # refuses "send nudes"; the judge reads it instead.
-        self.refused("text", top="beat you up")
+        # Only a slur is held on sight since 2026-11-22 (guard/lexicon.py):
+        # a threat, "send nudes" or "beat you up" is the judge's to read.
+        self.refused("text", top="what a retard")
         self.refused("text", top="bell\x07here")
         self.refused("text", top=5)
 
