@@ -1856,8 +1856,10 @@ change drafts the baseline afresh. The compare runs with nonregression's own
 candidates of a generation:
 
 1. `affected` for each (kept in `eval/cand-<i>/affected.json`). A change no
-   task reaches is `unmeasurable` at once, and no lab boots for it. Its pull
-   request says so: live outcomes and evolve-watch are its test.
+   task reaches is `unmeasurable` at once, and no lab boots for it. It is published only
+   with a powered check (section 6, the publish rule): live outcomes and
+   evolve-watch are its test, so its check must be one history says can be
+   scored.
 2. For the rest, one lab spine over main (`EVOLVE_LAB_PORT`) drafts the
    baseline, only for the tasks no earlier run drafted at this base commit,
    sample count and model: `state/evolve/baseline/<base>/s<samples>-<model>/`
@@ -1967,8 +1969,113 @@ jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path,
 
 ### 6. Publish: one pull request per candidate
 
-Every candidate whose gate passed and whose eval is `pass` or
-`unmeasurable` opens its own ready pull request, oldest waiting ones first:
+Every candidate whose gate passed, whose eval is `pass` or `unmeasurable`,
+and that the publish rule below finds proven opens its own ready pull
+request, oldest waiting ones first.
+
+#### The publish rule: not worse is not enough (since 2026-11-22)
+
+The audit of 2026-11-22 (22 generations, 19 pull requests, all merged): 11
+of the 12 a pairwise eval measured scored "no detectable difference" (gen
+21's c1: "won 44 of 96 decided pair(s): no detectable difference (chance of
+this few wins 23.8%, of this many 82.1%)"), and no eval task reached the
+other 7. "Not measurably worse" put no pressure on anything. Their 2-day
+outcomes: worked 2, no-effect 3, hurt 1, no-data 5, no check 8.
+
+So a candidate is published only when one of these holds
+(`bin/lib/evolve_selection.py`, `unproven`):
+
+1. the eval finds it **better** than main: `pass` with the compare's
+   `signal` `better` (its sign test, `evals.signal`); or
+2. its check is **powered** (`power`, recorded on the entry as
+   `check_power`): the check is counted (never `judged`, which is a model
+   reading samples) and its stream held at least `need` events over the
+   first outcome horizon (`EVOLVE_OUTCOME_DAYS`, 2) before the proposal,
+   counted on the box's own ledgers by `evolve_outcomes.count`, exactly as
+   the outcome will be. `need` is the largest of `EVOLVE_POWER_MIN_EVENTS`
+   (4), `EVOLVE_OUTCOME_MIN_EVENTS` (4) and the fewest events whose whole
+   fall passes the outcome test at `EVOLVE_OUTCOME_P` (`ceil(log2(1/p))`, 4
+   at 0.1). Fewer and history says the verdict would be `no-data`, and the
+   reason says so: "act_failed: failed bin/act self-improve runs, should
+   fall counted 3 event(s) in the last 2 day(s); its 2-day verdict needs at
+   least 4, so history says it would come out no-data".
+
+"No eval task reaches this change" (`unmeasurable`) follows the same rule:
+only with a powered check. A third way, a fix for a hard failure the gate can
+verify directly, was considered and not built: no deterministic check of
+that kind exists in the gate today (the hand tests check a hand's tests, not
+that a failing playbook now runs), and a loose one would be the hole the
+rule closes. A finding's own check (1b) is the count it was drawn from, so a
+finding is usually powered by construction.
+
+Otherwise the candidate is **`unproven`**: recorded in the archive with the
+reason, never published, and a failed try on its learning (not settled, so
+the learning is tried again, up to `MAX_ATTEMPTS`, seeing the reason in
+"what was tried before"). While it has a round left and has not been
+measured twice, it goes back to the proposer in the same generation, as a
+regression does (`send_back`): the reason becomes the next round's eval
+finding, with the fix "attach a check the code counts whose stream had at
+least N events in the last 2 days, or make a change the eval can tell apart
+from main". Detectably worse stays `regressed`. A candidate waiting from
+before the rule is held to it at publish time too; with no `check_power` on
+record it is unproven unless its eval said better.
+
+**Gaming.** A falling or zero check could be met by running less, which the
+brief already throws out ("doing less of yourself"). Two guards close it:
+at proposal time, a falling or zero check on a change that also removes,
+turns off or thins a job of `brain/cron.toml`, or deletes a playbook, is not
+powered whatever its history (`source_cuts`); and when the outcome is scored,
+a `worked` whose source ran less after the merge (the playbook's unskipped
+`bin/act` runs, the beats, the cron job's runs, or Teeny's own sends for
+`guard_holds` and a narrowed `outbound`; `evolve_outcomes.silenced`), past
+chance at `EVOLVE_OUTCOME_P` or to nothing, is recorded `no-effect` with the
+source's counts, never `worked`. A `judged` check never powers anything.
+What the guards do not see: a change that keeps its job running but makes it
+do nothing; the reviewer and the eval stay the line there.
+
+`EVOLVE_PUBLISH_PROOF=0` (the operator's, in `secrets/evolve.env`) switches
+the rule off; nothing Teeny can edit reaches it.
+
+#### Lessons: each kind of change, and the exhausted ones
+
+`evidence.lessons` was `{"lessons": []}` in every generation the audit read
+(the lab's lessons; it keeps them), while `merged_changes.tally` counted
+outcomes no code acted on. Now `observe` adds `kinds`: one lesson per kind
+of merged change (`evolve_selection.lessons`), and the proposer's brief
+opens with them ("## lessons from your merged changes, by kind").
+
+A **kind** is `<shape>/<source>`, from the files the patch touches and
+where the candidate came from, never from its title, component or anything
+the proposer wrote: `prompt-rule` (`brain/SOUL.md`, `CONTEXT.md`,
+`DRIVE.md`, `CHARTER.md`, `READER.md`, as a bullet or as prose),
+`playbook`, `skill`, `agent` (`brain/agents/`), `schedule`
+(`brain/cron.toml`), `brain-other`, `hand` (`hands/`), `code`, and `docs`
+(only alone: docs go with a change); the source is `learning` or `finding`.
+A change is every kind it touches, so a prompt rule padded with a line in a
+playbook is still a prompt rule. Each archive entry records its `kinds`; an
+entry from before is read from its patch.
+
+Each lesson gives the kind, how many merged, the worked, no-effect, hurt,
+no-data, pending and no-check counts, up to two examples (title and
+outcome, the newest that worked first) and what it says:
+
+| says | when | what happens |
+|---|---|---|
+| `exhausted` | at least `EVOLVE_LESSON_MIN_JUDGED` (3) judged outcomes (worked, no-effect, hurt) and none worked | a candidate of that kind is sent back, before its gate and review, with the lesson named as its finding; on the last round it is `parked` with the lesson as its reason |
+| `build-on` | one or more worked | named as one to build on |
+| `cannot-be-measured` | no worked, and at least that many no-data | "attach a check with more events, or change kind" |
+| `too-few` | the rest | |
+
+On the live archive of 2026-11-22 no kind is exhausted yet: `prompt-rule/learning`
+has 5 merged (1 no-effect, 1 hurt, 1 no-data, 2 no check: 2 judged), and
+`prompt-rule/finding` and `playbook/finding` each have one that worked.
+
+**Replayed on the 19 pull requests** (`check_power` counted on the live
+ledgers at each proposal's own time, lessons from what had merged and been
+scored by then): 4 would have opened. g20c3 (better on the eval, worked),
+g18c3 (unmeasurable, 33 events before, worked), g17c4 (6 before, no-effect)
+and g16c3 (15 before, hurt). The 5 that came out no-data were all refused
+by history, and both that worked were kept.
 
 0. Its title and body are screened first as the babysitter will screen them
    (`screened_pr_text`: the guard's lexical screen, inbound, the reading of
@@ -2080,8 +2187,9 @@ each stage, a merge or credit is one more line. `main` is the seed. Each
 candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
 `learning` (`{id, hash, section, text}`), `title`, `component`,
 `expected_move`, `diff_hash`, `diff_stats`, `patch` and `hypothesis` (beside
-it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
-summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
+it in `state/evolve/<gen>/`), `kinds` and `check_power` (section 6),
+`gate`, `skip`, `eval` (the targeted eval's summary) with `report`,
+`verdict` (`unproven` with its `reason` when the publish rule held it), then `branch`, `head_sha`, `pr_url`,
 `pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
 `delta_j` and `credit`. A candidate proposed since 2026-11-17 also records its
 `check`, and once merged one `outcome_<n>d` per horizon ("Outcomes"). Each
@@ -2146,6 +2254,9 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
 | `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
 | `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
+| `EVOLVE_PUBLISH_PROOF` | `1` | the publish rule (section 6): a candidate opens only when the eval finds it better or its check is powered; `0` switches it off |
+| `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than `ceil(log2(1/EVOLVE_OUTCOME_P))` |
+| `EVOLVE_LESSON_MIN_JUDGED` | `3` | judged outcomes with none worked that make a kind of change exhausted, 0 to 50; `0` shows the lessons and enforces none |
 
 Three more halts don't latch and open one issue a day: a doctor report
 (`state/doctor.json`) that isn't green, a last-good boot
@@ -2303,15 +2414,18 @@ data, and takes `worked`, `no-effect` or `hurt`; nothing sent on one side is
 not answer, is tried again each hour for two days, then recorded `no-data`.
 Each outcome keeps the before and after counts, the windows, the p, and
 `overlaps`: the other merges inside the windows, which may have moved the
-count too.
+count too. A `worked` on a falling or zero check whose source ran less after
+the merge (`silenced`, section 6) is recorded `no-effect`, with the
+source's runs before and after as `source`.
 
 **What reads it.** `bin/evolve status` shows each merged candidate's check
 and `outcome` (its latest horizon's verdict, `pending` before the first,
 `no-check` without one) and a tally under `outcomes`. `observe` hands the
 next proposer the newest eight merged changes (what each tried and expected,
 and what was counted) as `merged_changes`, at most 4 KiB, under "## what came
-of your merged changes", so a kind of change that keeps scoring `no-effect`
-stops being proposed and one that worked can be built on. The dream
+of your merged changes", and every merged change by kind as
+`lessons.kinds`, which leads the brief and which the gate enforces (section
+6, "Lessons"): a kind with three judged outcomes and none worked is rejected. The dream
 (`bin/lib/dream.py`) lists each outcome scored since it last dreamed, so the
 reflection can write what it learned from it; no code writes
 `brain/MEMORY.md`.
