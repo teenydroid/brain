@@ -142,6 +142,41 @@ class VerdictTest(AllScratch):
         self.assertEqual(result["verdict"], "blocked")
         self.assertFalse(result["self_merge"])
 
+    def test_code_that_runs_outside_the_jail_still_needs_the_operator(self):
+        # Green CI is the only bar on this gate, and a hand (or the site, or
+        # anything else outside brain/, docs/ and home/) runs outside any
+        # jail with secrets/ in reach. Teeny may write it; a person merges it.
+        self.on()
+        for path in ("hands/chan", "hands/lib/teeny_hands/chan/reads.py", "hands/lib/teeny_hands/newhand/__init__.py",
+                     "hands/tests/test_newhand.py", "web/src/app/page.tsx", "README.md", "state/x"):
+            self.self_pr(files=[{"filename": path, "status": "modified", "additions": 1, "deletions": 0,
+                                 "patch": patch("x = 1")}])
+            result = audit.audit(REPO, 7)
+            self.assertEqual((result["verdict"], self.rules(result).get("outside_the_jail")),
+                             ("needs_operator", "operator"), path)
+            self.assertFalse(result["self_merge"], path)
+
+    def test_the_brain_its_docs_and_its_home_merge_on_green_checks(self):
+        self.on()
+        for path in ("brain/SOUL.md", "brain/playbooks/morning.md", "brain/cron.toml", "brain/agents/mind.md",
+                     "docs/mind.md", "home/skills/papers.py"):
+            self.self_pr(files=[{"filename": path, "status": "modified", "additions": 1, "deletions": 0,
+                                 "patch": patch("a calmer line")}])
+            result = audit.audit(REPO, 7)
+            self.assertEqual(result["verdict"], "ready", (path, result["findings"]))
+            self.assertTrue(result["self_merge"], path)
+
+    def test_an_evolve_pull_request_on_teeny_eval_is_not_held_to_the_new_rule(self):
+        # The older gate (teeny/eval, BABYSIT_SELF_MERGE_ALL off) is as it was.
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.pull_request(author="teenydroid", branch="teeny/gen-24-c1", reviews=[],
+                          statuses=[{"context": "teeny/eval", "state": "success", "creator": "teenydroid"}],
+                          checks=green(),
+                          files=[{"filename": "hands/chan", "status": "modified", "additions": 1, "deletions": 0,
+                                  "patch": patch("x = 1")}])
+        result = audit.audit(REPO, 7)
+        self.assertNotIn("outside_the_jail", self.rules(result))
+
     def test_a_sensitive_path_still_needs_the_operator(self):
         self.on()
         self.self_pr(files=[{"filename": "web/package.json", "status": "modified", "additions": 1, "deletions": 0,

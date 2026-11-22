@@ -246,6 +246,8 @@ class _Audit:
             self.add("removes_test", "operator", path)
         if path in self.rolled_back:
             self.add("recently_rolled_back", "operator", path)
+        if self.gate == "checks" and policy.outside_the_jail(raw):
+            self.add("outside_the_jail", "operator", path, "runs outside the mind's jail: a person merges it")
         if frozen is not None:
             pattern = frozen(raw)
             if pattern is not None:

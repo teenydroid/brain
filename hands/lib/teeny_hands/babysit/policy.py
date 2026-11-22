@@ -148,6 +148,19 @@ REQUIRED_CHECKS = (
 )
 
 
+#: What a self-change may touch and still merge on green checks alone: the
+#: brain (prompts, playbooks, the schedule; its jobs and data jobs run under
+#: the cron rules and the jail), the docs, and home/ (code that runs only
+#: inside the mind's jail). Everything else in the repository can run outside
+#: any jail, as the spine's user, with secrets/ in reach: a hand, a hand's
+#: tests, the site. Teeny may write it; a person merges it (docs/mind.md).
+JAILED_PATHS = ("brain/**", "docs/**", "home/**")
+
+
+def outside_the_jail(path: str) -> bool:
+    return not any(_match(path, pattern) for pattern in JAILED_PATHS)
+
+
 def self_merge_all_on() -> bool:
     """BABYSIT_SELF_MERGE_ALL, which counts only with BABYSIT_SELF_MERGE."""
     return self_merge_on() and hand.flag("BABYSIT_SELF_MERGE_ALL", False)
