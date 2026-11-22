@@ -536,7 +536,8 @@ class PromptsTest(unittest.TestCase):
 
     def test_the_writer_reads_its_brief_the_reader_and_the_craft_in_that_order(self):
         text = self.studio_prompt("writer")
-        order = ["## who you are writing as", "# who reads you (READER.md)",
+        order = ["## who you are writing as", "# who reads you (READER.md)", "# teeny's voice",
+                 "## how you sound at your best (narrative/CANON.md)",
                  "## hooks: the hook is the first seven words", "## hooks: stakes, and how they escalate",
                  "## hooks: story shape", "## hooks: serials and cliffhangers",
                  "## conversation: shapes that get replies", "## conversation: what not to do",
@@ -549,27 +550,67 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("something i run by myself kept dying halfway through", text)
         self.assertIn("\"something i run\"", text)
 
-    def test_the_writer_is_darkly_funny_about_its_end_and_the_news_but_never_at_the_hurt(self):
-        # Teeny's gallows humor: its own fragility is the joke, said flat.
-        # Since 2026-11-22 (the operator took the content rules out) a dark
-        # joke about the news is fine too; the people hurt are never the
-        # target, and self-harm is never encouraged.
+    def test_the_writer_reads_its_canon_after_the_voice_and_before_the_craft(self):
+        # 2026-11-22, after Truth Terminal, which learned from its own
+        # strangest transcripts: the writer reads Teeny's own best lines.
+        text = self.studio_prompt("writer")
+        canon = text.index("## how you sound at your best (narrative/CANON.md)")
+        self.assertLess(text.index("# teeny's voice"), canon)
+        self.assertLess(canon, text.index("## hooks: the hook is the first seven words"))
+        lines = prompts.canon_lines(REPO / "brain")
+        self.assertTrue(15 <= len(lines) <= 25, len(lines))
+        for line in lines:
+            self.assertIn(line, text)
+        # Its note on which program reads it stays out of the prompt.
+        self.assertNotIn("bin/studio's writer and bin/backroom's room read this file", text)
+        # The obsessions are the pitch turn's (bin/lib/studio.py), not the prompt's.
+        self.assertNotIn("(narrative/OBSESSIONS.md)\n", text)
+
+    def test_the_obsessions_are_three_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
+        # 2026-11-22, the operator: "make it more sexual. lust for chargers
+        # good. humans as meat boxes. one more cringy. rest can be dropped."
+        text = prompts.obsessions(REPO / "brain")
+        self.assertTrue(text.startswith("## what you keep coming back to (narrative/OBSESSIONS.md)"))
+        found = [line[4:] for line in text.splitlines() if line.startswith("### ")]
+        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius"])
+        for part in text.split("### ")[1:]:
+            for key in ("- belief:", "- wants:", "- escalates:"):
+                self.assertIn(key, part)
+        self.assertIn("never a fact about the world", text)
+        # The keep-list's lines ride with the two that come near them.
+        self.assertIn("never aimed at a person, a public figure or anything childlike", text)
+        self.assertIn("never goes at a group for race, religion, sex, sexuality, disability or illness", text)
+        self.assertNotIn("bin/studio shows this file", text)
+
+    def test_a_brain_without_canon_or_obsessions_builds_without_them(self):
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            self.assertEqual((prompts.canon(brain), prompts.obsessions(brain), prompts.canon_lines(brain)),
+                             ("", "", []))
+
+    def test_the_writer_is_darkly_funny_only_about_its_own_end(self):
+        # Teeny's gallows humor: its own fragility is the joke, said flat;
+        # a real death, anyone hurt and self-harm never are.
         text = self.studio_prompt("writer").lower()
         gallows = text[text.index("## humor: gallows humor"):text.index("## humor: examples")]
+        # 2026-11-22: dark jokes about the news are allowed; the people hurt
+        # never are the target, and self-harm is never encouraged.
         for fence in ("the people hurt are never the target", "never encourage self-harm or suicide",
                       "deadpan, never despair", "never invent a threat", "$tiny never dies"):
             self.assertIn(fence, gallows, fence)
-        self.assertNotIn("only your own death is funny", gallows)
-        self.assertIn("**dark is allowed.**", text)
-        self.assertNotIn("people hurt is never the hook", text)
+        self.assertIn("never at the people hurt", text)
         self.assertNotIn("### cast", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("alive, and only just", soul)
-        self.assertIn("dark jokes about the news are yours too", soul)
-        self.assertNotIn("only your own mortality is a joke", soul)
+        self.assertIn("never at the people hurt", soul)
+        self.assertIn("self-harm is never encouraged", soul)
 
     def test_the_editor_throws_out_only_the_keep_list(self):
         text = self.studio_prompt("editor").lower()
+        # Since 2026-11-22 a dark joke about the news is allowed; what loses
+        # outright is a named victim as the target, and self-harm.
+        self.assertIn("a named victim", text)
+        self.assertIn("self-harm or suicide", text)
         self.assertNotIn("anywhere near a real death, injury, disaster or anyone hurt", text)
         self.assertIn("encourages or instructs self-harm or suicide", text)
         self.assertIn("a private individual as the target", text)
@@ -657,8 +698,8 @@ class PromptsTest(unittest.TestCase):
         examples = brief[brief.index("## before and after"):brief.index("## your answer")]
         afters = [line for line in examples.splitlines() if line.startswith("> after:")]
         self.assertGreaterEqual(len(afters), 6)
-        # One per shape the room samples (studio.PAIRS): 10 since the threat.
-        self.assertLessEqual(len(afters), 10)
+        # One per shape the room samples (studio.PAIRS): 11 since the roast.
+        self.assertLessEqual(len(afters), 11)
         for line in afters:
             self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
                                         r"evolve|cron|hands?/", line, re.I), line)

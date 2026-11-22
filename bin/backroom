@@ -2,7 +2,7 @@
 # The backroom: two of Teeny's minds riff on an idea with nobody watching,
 # and a third finishes the best of it. Ideas in, output out.
 #
-#   bin/backroom [--format video|clip|post|thread|meme] [--turns N] [--out DIR] IDEA...
+#   bin/backroom [--format video|clip|post|roast|thread|meme] [--turns N] [--out DIR] [--raw] IDEA...
 #   echo IDEA | bin/backroom
 #
 # The logic, the models and where rooms are kept: bin/lib/backroom.py. The

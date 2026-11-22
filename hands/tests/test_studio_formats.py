@@ -84,7 +84,8 @@ def build() -> dict:
             ("remake-only-charts", studio.Config(formats=("post", "remake")), {"charts": [remake_t.CHART]}),
             ("skit-video-slot", studio.Config(formats=("post", "skit")), {"skit_slot": True}),
             ("explore-cut", every, {"sampled": EXPLORE, "cut": ["happened", "trend"]}),
-            ("invented-two", studio.Config(formats=ALL, draft_invented=2, pitches=2), {})):
+            ("invented-two", studio.Config(formats=ALL, draft_invented=2, pitches=2), {}),
+            ("obsessions", studio.Config(), {"obsessions": "## what you keep coming back to\n\n### lust for hardware"})):
         inputs = kw.pop("inputs", INPUTS)
         sampled = kw.pop("sampled", SAMPLED)
         cut = kw.pop("cut", [])
