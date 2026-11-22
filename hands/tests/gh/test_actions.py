@@ -422,9 +422,11 @@ class IssueTest(Scratch):
 
     # --- issues on other people's projects (docs/mind.md, "Reach") -----------------------------
 
-    def external_issue(self, **settings) -> None:
+    def external_issue(self, open_issues: int | None = 0, **settings) -> None:
         self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="2", **settings)
         self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
+        if open_issues is not None:
+            self.gh.route("GET", "/search/issues", {"total_count": open_issues, "items": []})
 
     def test_an_issue_elsewhere_is_off_until_the_operator_sets_a_cap(self):
         self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
@@ -455,7 +457,7 @@ class IssueTest(Scratch):
         self.assertEqual(self.gh.requests("POST", "/repos/e/f/issues"), [])
 
     def test_a_second_open_issue_in_one_project_waits(self):
-        self.external_issue()
+        self.external_issue(open_issues=None)
         self.gh.route("GET", "/search/issues", {"total_count": 1, "items": []},
                       when=lambda seen: seen.query.get("q", "").startswith("repo:a/b ") and "type:issue" in seen.query["q"])
         with self.assertRaises(hand.Refused) as caught:
