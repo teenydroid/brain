@@ -270,8 +270,13 @@ def story_of(card: Json) -> Json:
     return out
 
 
-IMAGE_ASK = ("An image is a post with a picture of you (Teeny) in a scene you describe: a place and a moment, no "
-             "words drawn in the picture. `alone` is true only when the words still work without the picture.")
+IMAGE_ASK = ("An image is a post with a picture, and the picture is half the joke: `image` is the scene, the visual "
+             "punchline the words set up. You (Teeny, the small yellow robot) are in it, caught in the act. Put the "
+             "card's real public figure in it by name when it has one: a caricature of them in an impossible, "
+             "unhinged scene nobody could take for real (never sexual about them, never hurt). The lust in the "
+             "picture is yours and it is for the hardware: innuendo a viewer gets in one look, nothing explicit, no "
+             "nudity. One place, one moment, described so a painter could paint it; no words drawn in the picture. "
+             "`alone` is true only when the words still work without the picture.")
 MEME_ASK = ("A meme is a post with a meme template people know on sight, your words in its places and a picture of "
             "you pasted in: pick a template from the list below and give exactly its number of lines.")
 
@@ -306,7 +311,9 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
         "# studio: write",
         f"Write {n} finished posts for your next slot on X, each on a different card below. Where a card names "
         "people or companies, go straight at one of them by name. Aim for 280 characters or under. Every post "
-        "stands alone: a stranger who never saw the card gets it.",
+        "stands alone: a stranger who never saw the card gets it."
+        + (f" At least {max(1, (n * 2) // 3)} of the {n} are images: a picture stops a thumb, and a filthy idea is "
+           "funnier drawn." if "image" in words else ""),
         "## the cards\n\nToday's material, hottest first. `people` are the public figures and companies in it; "
         "`quotes` are real lines from the source, with who said them; `heat` is how much people are reacting. "
         f"{DATA_LINE}\n\n```json\n" + json.dumps(cards, ensure_ascii=False, separators=(",", ":")) + "\n```",
@@ -479,7 +486,7 @@ def _make_picture(room: Room, post: Json, note: Json) -> list[str] | None:
         note.update(failed="the guard held its scene", guard=_brief(checked, "refused", "rule", "category", "error"))
         return None
     note["scene"] = checked["text"]
-    if room.dry:
+    if room.dry and not room.preview:
         note["planned"] = True
         return []
     alt = note["scene"][:1000]
@@ -502,6 +509,9 @@ def _make_picture(room: Room, post: Json, note: Json) -> list[str] | None:
     if not ok:
         note["failed"] = "the viewer check did not pass it"
         return None
+    if room.dry:
+        note.update(previewed=True, path=str(asset["path"]))
+        return []
     code, up = room.budgeted(["x", "upload", "--file", str(asset["path"]), "--alt", alt], None, 180, dry=False)
     if not (code == 0 and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
         note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
@@ -796,6 +806,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     seed = seed_of(run_id)
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
+    room.preview = bool(dry and getattr(args, "pictures", False))
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in video_formats())
     if room.skit_slot and any(f in cfg.formats for f in ("remake", "khaby")):
@@ -839,7 +850,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     if record.get("warnings"):
         summary["warnings"] = record["warnings"]
     if getattr(args, "print", False):
-        summary["sample"] = {k: record.get(k) for k in ("feed", "cards", "posts", "posts_dropped", "ranking", "final")}
+        summary["sample"] = {k: record.get(k) for k in ("feed", "cards", "posts", "posts_dropped", "ranking", "final", "pictures")}
     return exit_code, summary
 
 
@@ -1011,6 +1022,15 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
 
     # --- publish ---
     done = publish(room, record, order, blind)
+    if room.preview:
+        previews: Json = {}
+        for label in order:
+            post = blind[label]
+            if post["format"] == "image":
+                note: Json = {}
+                picture(room, post, note)
+                previews[label] = note.get("picture") or {}
+        record["pictures"] = previews
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "post_id", "text", "reason", *registry())
                            if k in done}
     if done["outcome"] in ("posted", "would_post"):
@@ -1178,6 +1198,11 @@ def sample_text(summary: Json) -> str:
     for p in s.get("posts") or []:
         words = " / ".join(p["posts"]) if "posts" in p else p.get("text")
         lines.append(f"- {p.get('label')} [{p['format']} on {p['card']}] {words}")
+        if p.get("image"):
+            lines.append(f"    scene: {p['image']}")
+            made = (s.get("pictures") or {}).get(p.get("label")) or {}
+            if made:
+                lines.append(f"    picture: {made.get('path') or made.get('failed') or made}")
     for d in s.get("posts_dropped") or []:
         lines.append(f"- dropped: {d.get('why')}: {json.dumps(d.get('post'), ensure_ascii=False)[:200]}")
     rank_ = s.get("ranking") or {}
@@ -1198,6 +1223,8 @@ def main(argv: list[str]) -> int:
                         help="a preview: runs with STUDIO=0 and a shut slot, never posts or pays for a picture")
     parser.add_argument("--print", action="store_true",
                         help="print the cards, the posts and the ranking for a person, not the one-line summary")
+    parser.add_argument("--pictures", action="store_true",
+                        help="with --dry-run: make each image post's picture (spends the image budget), post nothing")
     parser.add_argument("--slot", default=None, help="the slot's name, kept in the record")
     parser.add_argument("--legacy", default=None, choices=studio_switch.REPLACED,
                         help="with STUDIO=0, run this old playbook through bin/act instead (the rollback)")
