@@ -276,6 +276,18 @@ class AuthTest(BrokerCase):
         self.proc = None
         self.assertNotIn(self.token[:-1], out + err)
 
+    def test_only_post_is_answered(self):
+        self.start()
+        for method in ("GET", "PUT", "DELETE"):
+            req = urllib.request.Request(self.url + "/goals", method=method,
+                                         headers={"Authorization": f"Bearer {self.token}"})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(req, timeout=30)
+            self.assertEqual(caught.exception.code, 405)
+            self.assertEqual(json.loads(caught.exception.read())["status"], "refused")
+        self.assertEqual(self.hand_calls(), [])
+        self.assertEqual(len(self.ledger()), 3)
+
     def test_an_unknown_path_is_404(self):
         self.start()
         code, out = self.post("/shell", {"cmd": "id"})
