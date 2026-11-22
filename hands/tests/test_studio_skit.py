@@ -97,7 +97,7 @@ class FormatTest(unittest.TestCase):
     def test_the_hard_lines_read_the_look_setting_and_score(self):
         for field, value in (("look", {"Elon Musk": "a silver tuxedo with a $TINY pin"}),
                              ("setting", "a lunar showroom, shaky leaked footage"),
-                             ("score", "a funeral march under the whole film")):
+                             ("score", "a march under the whole film that ends in a gunshot")):
             with self.subTest(field=field):
                 draft = skit_draft()
                 draft["skit"][field] = value
@@ -623,7 +623,7 @@ class OneTakeBudgetTest(unittest.TestCase):
 
     def test_a_cut_that_crosses_a_hard_line_is_not_kept(self):
         cut = [dict(s) for s in SHORT_SHOTS]
-        cut[2]["prompt"] = "Crane up: Musk is handcuffed by police on the moon in his tuxedo, sirens blaring."
+        cut[2]["prompt"] = "Crane up: Musk is stabbed by police on the moon in his tuxedo, sirens blaring."
         room = self.room([{"skit": {"shots": cut}}])
         result, attempt, calls = self.go(room, long_skit_draft())
         self.assertEqual(result, "next")
