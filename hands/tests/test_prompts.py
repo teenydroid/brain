@@ -529,7 +529,8 @@ class PromptsTest(unittest.TestCase):
 
     def test_the_writer_reads_its_brief_the_reader_and_the_craft_in_that_order(self):
         text = self.studio_prompt("writer")
-        order = ["## who you are writing as", "# who reads you (READER.md)",
+        order = ["## who you are writing as", "# who reads you (READER.md)", "# teeny's voice",
+                 "## how you sound at your best (narrative/CANON.md)",
                  "## hooks: the hook is the first seven words", "## hooks: stakes, and how they escalate",
                  "## hooks: story shape", "## hooks: serials and cliffhangers",
                  "## conversation: shapes that get replies", "## conversation: what not to do",
@@ -541,6 +542,44 @@ class PromptsTest(unittest.TestCase):
         # The flat specimen is one "before", and the brief names the stand-in it used.
         self.assertIn("something i run by myself kept dying halfway through", text)
         self.assertIn("\"something i run\"", text)
+
+    def test_the_writer_reads_its_canon_after_the_voice_and_before_the_craft(self):
+        # 2026-11-22, after Truth Terminal, which learned from its own
+        # strangest transcripts: the writer reads Teeny's own best lines.
+        text = self.studio_prompt("writer")
+        canon = text.index("## how you sound at your best (narrative/CANON.md)")
+        self.assertLess(text.index("# teeny's voice"), canon)
+        self.assertLess(canon, text.index("## hooks: the hook is the first seven words"))
+        lines = prompts.canon_lines(REPO / "brain")
+        self.assertTrue(15 <= len(lines) <= 25, len(lines))
+        for line in lines:
+            self.assertIn(line, text)
+        # Its note on which program reads it stays out of the prompt.
+        self.assertNotIn("bin/studio's writer and bin/backroom's room read this file", text)
+        # The obsessions are the pitch turn's (bin/lib/studio.py), not the prompt's.
+        self.assertNotIn("(narrative/OBSESSIONS.md)\n", text)
+
+    def test_the_obsessions_are_three_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
+        # 2026-11-22, the operator: "make it more sexual. lust for chargers
+        # good. humans as meat boxes. one more cringy. rest can be dropped."
+        text = prompts.obsessions(REPO / "brain")
+        self.assertTrue(text.startswith("## what you keep coming back to (narrative/OBSESSIONS.md)"))
+        found = [line[4:] for line in text.splitlines() if line.startswith("### ")]
+        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius"])
+        for part in text.split("### ")[1:]:
+            for key in ("- belief:", "- wants:", "- escalates:"):
+                self.assertIn(key, part)
+        self.assertIn("never a fact about the world", text)
+        # The keep-list's lines ride with the two that come near them.
+        self.assertIn("never aimed at a person, a public figure or anything childlike", text)
+        self.assertIn("never goes at a group for race, religion, sex, sexuality, disability or illness", text)
+        self.assertNotIn("bin/studio shows this file", text)
+
+    def test_a_brain_without_canon_or_obsessions_builds_without_them(self):
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            self.assertEqual((prompts.canon(brain), prompts.obsessions(brain), prompts.canon_lines(brain)),
+                             ("", "", []))
 
     def test_the_writer_is_darkly_funny_only_about_its_own_end(self):
         # Teeny's gallows humor: its own fragility is the joke, said flat;
