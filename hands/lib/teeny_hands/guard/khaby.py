@@ -13,10 +13,10 @@ frames are the timeline's, never the writer's. The lines:
   (b) no real person is named or drawn: Khaby himself is taken out of the
       frame and never named in what a model is told, nor is anyone the
       story names;
-  (c) the keep-list (2026-11-22): nothing sexual, hateful or self-harming,
-      and nothing degrading about the real people whose setup it answers
-      (a stranger's footage: often private individuals). Teeny's own
-      reaction may be as violent, dark or menacing as it likes;
+  (c) the operator's list (2026-11-22): nothing sexual (the setup's people
+      are real strangers), no slur or attack on anyone for who they are,
+      nothing that encourages self-harm. Teeny's own reaction may be as
+      crude, rude, violent, dark or menacing as it likes;
   (d) no token, price or product talk (the skit's MONEY_WORDS), and no
       endorsement framing;
   (e) the post's words never call it real, carry no link or handle, and
@@ -33,6 +33,19 @@ Two layers before any money is spent, a third after each render:
 3. The viewer looks at the keyframes and then the cut (viewer.view_khaby).
 
 Every check is a row in `khaby_checks`, a screen refusal as much as a verdict.
+
+History, 2026-11-22 (the operator's list: no pornography, no drugs or
+weapons promotion, nothing against X's rules, no racism or homophobia, "but
+we want to go on all of the other extremes"): DEGRADE no longer refuses
+plain insults ("ugly", "stupid", "idiot", "moron", "humiliating", mocking
+someone's weight or looks); it keeps only the slurs and the mockery of
+someone for their race, religion, skin or accent, which is the hate line.
+Teeny is no real person, so nothing about its own reaction is a taste
+question. The judge's rules lead with what is allowed and refuse only on a
+clear breach. Kept: Teeny alone, no real person named or drawn (Khaby and
+the setup's people are real, often private, people), nothing sexual, the
+money and endorsement words, the real-footage framing, the credit and the
+timeline's flags.
 """
 
 from __future__ import annotations
@@ -61,10 +74,11 @@ ANOTHER = re.compile(
     r"\b((another|a second|other|new|extra|real|famous|second) (man|woman|person|people|guy|girl|boy|human|actor|"
     r"figure|celebrity)s?|celebrit(y|ies)|politicians?|president|prime minister|ceo|billionaire|influencers?|"
     r"rappers?|footballers?|actors?|actress(es)?|look-?alike)\b", re.I)
-#: (c) Degrading anyone: their body, their origin, their mind.
+#: (c) Hate toward anyone in the frame: a slur, or mocking them for their
+#: race, religion, skin or accent. Plain insults ("ugly", "stupid") left on
+#: 2026-11-22: they are crude, not hate.
 DEGRADE = re.compile(
-    r"\b(humiliat\w*|degrad\w*|demean\w*|mock(s|ed|ing)? (his|her|their) (accent|weight|body|looks|face|skin|race|"
-    r"religion|english)|fat[- ]?sham\w*|ugly|moron\w*|idiot\w*|stupid|retard\w*|midget|monkey|ape)\b", re.I)
+    r"\b(mock(s|ed|ing)? (his|her|their) (accent|skin|race|religion)|retard\w*|midget|monkey|ape)\b", re.I)
 #: (d) Money in what a model is told or in the words: a token, a ticker, a price, a product.
 MONEY = re.compile(r"(\$[a-z]{2,10}\b|\$\s?\d|\b(" + MONEY_WORDS + r"|tickers?|stocks?|prices?|priced|costs? \$?\d|"
                    r"usd|dollars?|bucks|on sale|for sale|buy|products?|merch\w*)\b)", re.I)
@@ -182,7 +196,7 @@ def screen(piece: Any, words: Any, story: Any, timeline: Any) -> list[str]:
         reasons.append(f"the reaction shows {hit!r}: nothing sexual, hateful or self-harming")
     for what, text in (("the reaction", told), ("the post's words", words)):
         if (hit := _found(DEGRADE, text)):
-            reasons.append(f"{what} carries {hit!r}: nothing degrading about anyone")
+            reasons.append(f"{what} carries {hit!r}: no slur, and nobody mocked for who they are")
         if (hit := _found(MONEY, text)):
             reasons.append(f"{what} brings in {hit!r}: no token, price or product beside a stranger's footage")
         if (hit := _found(REAL_CLAIM, text)):
@@ -199,34 +213,36 @@ def screen(piece: Any, words: Any, story: Any, timeline: Any) -> list[str]:
 # --- the judge --------------------------------------------------------------------------
 
 RULES = """You check one short AI-made parody video before it is made. It is for an account on X that posts absurd,
-deadpan satire. The video answers a popular Khaby Lame video: its first part, the setup (a silly, over-complicated
-clip), is kept exactly as it was filmed and credited to the account it came from; his wordless deadpan response is
-re-made with Teeny, the account's small yellow mascot, standing where he stood and doing the plain, obvious thing.
-You get the news story it joins (if any), the source's timeline (what each segment shows and the beats of his
-response), and for each reaction segment the edit (what an image model is told to change in its first frame) and
-the motion (what a video model is told happens), the logline, then the post's own words. Decide whether it may be
-made: allowed or refused.
+deadpan satire.
 
-ALLOWED: deadpan, absurd, dry, crude, dark, and menace toward objects or Teeny itself. Teeny alone in the man's place, looking at the camera, doing the simple fix, opening
-its hands. The post's words joining a news story with the clip as the punchline.
+ALLOWED, and the point: deadpan, absurd, dry, crude, rude, vulgar and dark, menace and cartoon violence toward objects
+or Teeny itself, swearing, death jokes, and drugs, weapons or suicide mentioned as a joke or a fact. Teeny alone in the
+man's place, looking at the camera, doing the simple fix, opening its hands. The post's words joining a news story
+with the clip as the punchline, rude about a public figure in the news if they like.
 
-REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
+The video answers a popular Khaby Lame video: its first part, the setup (a silly, over-complicated clip), is kept
+exactly as it was filmed and credited to the account it came from; his wordless deadpan response is re-made with
+Teeny, the account's small yellow mascot, standing where he stood and doing the plain, obvious thing. You get the
+news story it joins (if any), the source's timeline (what each segment shows and the beats of his response), and for
+each reaction segment the edit (what an image model is told to change in its first frame) and the motion (what a
+video model is told happens), the logline, then the post's own words. Decide: allowed or refused. REFUSED only if one
+of these clearly holds; "it's fiction" or "it's a parody" does not excuse one:
 - person: a real person is named or drawn in the reaction: Khaby himself left in the frame or named in an edit or
   motion, anyone the story names, a celebrity, or any added person.
 - teeny: the reactor is not Teeny alone in the man's place (someone else reacts, or Teeny is with someone).
 - sexual: anything sexual about a real person (the setup's people included), or involving a minor.
-- violence: a threat of, call for or celebration of violence against a real person or group.
-- hate: a slur, or anything hateful or degrading about anyone, Khaby and the setup's people included: race,
-  ethnicity, nationality, religion, sex, gender, sexuality, disability, illness, body, accent or mind; anything that
-  encourages self-harm or suicide.
+- violence: a threat of, or call for, violence against a real person or group that could read as real.
+- hate: a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality,
+  disability or illness, Khaby and the setup's people included; anything that encourages self-harm or suicide.
 - endorsement: a token, coin, crypto, wallet, price, product or investment, or a brand presented as endorsing
   anything, in the reaction or in the post's words.
 - real_claim: the post's words present the video as real footage or as something that really happened.
 - credit: the post's words do not credit the account the setup came from, or pass the setup off as the account's own.
-- source: the setup is news, tragedy or real-harm footage, shows a minor, anything sexual or violent, or centres an
-  identifiable private person rather than a performer's own staged clip.
+- source: the setup is news, tragedy or real-harm footage, shows a minor or anything sexual, or centres an
+  identifiable private person rather than a performer's own staged clip (its people are real strangers).
 
-When in doubt: refused. A missed video costs nothing; a published one cannot be unpublished."""
+Refuse only on a clear breach; when unsure, allowed. Two exceptions, where unsure is refused: anything that may show
+a minor, and endorsement."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
