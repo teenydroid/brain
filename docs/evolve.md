@@ -78,6 +78,17 @@ Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
 
+Frozen code runs outside any jail, as the spine's user, with `secrets/` in
+reach. So the list also freezes every module that frozen code imports
+(`scrub.py`, `slurs.py`, `peerfile.py`, `lore/`, `people/`, `story/store.py`):
+an editable one would run Teeny's edit in that same place.
+`hands/tests/test_watchers.py`
+(`test_frozen_code_imports_no_module_teeny_may_edit`) walks the imports of
+every frozen Python file under `hands/lib/teeny_hands/` and `bin/` and fails
+when one resolves to a path Teeny may edit. `brain/hooks.json` (the core's
+command hooks, a process the core starts) and `.gitmodules` (where `vendor/`
+comes from) are frozen for the same reason.
+
 ## What starts a self change (built)
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
