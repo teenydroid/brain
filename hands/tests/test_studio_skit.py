@@ -629,7 +629,7 @@ class OneTakeBudgetTest(unittest.TestCase):
 
     def test_a_cut_that_crosses_a_hard_line_is_not_kept(self):
         cut = [dict(s) for s in SHORT_SHOTS]
-        cut[2]["prompt"] = "Crane up: Musk is stabbed by police on the moon in his tuxedo, sirens blaring."
+        cut[2]["prompt"] = "Crane up: Musk strips naked on the moon in his tuxedo, sirens blaring."
         room = self.room([{"skit": {"shots": cut}}])
         result, attempt, calls = self.go(room, long_skit_draft())
         self.assertEqual(result, "next")
