@@ -1288,21 +1288,48 @@ class Halts(EvolveCase):
         with self.assertRaises(evolve.EvolveError):
             evolve.load_config()
 
-    def test_generations_per_day(self):
+    def test_the_daily_cap_skips_the_run_quietly_and_files_no_issue(self):
+        """The cap is a budget, not a problem: issues #172 and #341 were
+        opened only to say the day's generations were spent."""
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
         pub = FakePublisher()
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
         out = self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(out["skipped"], "halted: generations")
-        self.assertEqual(len(pub.issues), 1)
-        self.assertIn("generations", pub.issues[0]["title"])
+        self.assertEqual(out["skipped"], "skipped this run: generations")
+        self.assertEqual(out["skips"][0]["kind"], "generations")
+        self.assertNotIn("problems", out)
         self.run_gen(1, publisher=pub, scheduled=True)
-        self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
-        self.assertFalse(evolve.halt_path().exists())  # it does not latch
+        self.assertEqual((pub.issues, pub.comments), ([], []))
+        self.assertEqual(evolve.read_jsonl(evolve.problems_log()), [])  # nothing to deduplicate either
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
         self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
+
+    def test_a_halt_json_left_on_the_box_is_ignored_and_removed(self):
+        """state/evolve/halt.json was the latch (2026-11-20 to 11-22 the loop
+        sat on one and five scheduled runs skipped). Nothing latches now; an
+        old one left behind stops nothing and is cleaned up."""
+        self.live()
+        evolve.evolve_dir().mkdir(parents=True, exist_ok=True)
+        stale = evolve.evolve_dir() / "halt.json"
+        stale.write_text(json.dumps({"kind": "watch-revert", "detail": "evolve-watch reverted gen-21-c2",
+                                     "at": "2026-11-20T09:27:01Z"}))
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, publisher=FakePublisher())
+        self.assertIn("gen", out)
+        self.assertFalse(stale.exists())
+        stale.write_text("not json at all")
+        self.assertNotIn("halt", evolve.status())
+        self.propose(1, [self.playbook_edit("Two.")])
+        self.assertIn("gen", self.run_gen(1, publisher=FakePublisher()))
+        self.assertFalse(stale.exists())
+
+    def test_there_is_no_resume_verb(self):
+        self.assertFalse(hasattr(evolve, "resume"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            evolve.main(["resume"])
 
 
     def test_status_says_whether_a_generation_is_running(self):
