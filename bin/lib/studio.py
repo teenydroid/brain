@@ -40,14 +40,19 @@ In order:
    of Teeny's, with a storyline, a shape and a format, plus the writer's own
    ranking. A pitch whose hook or item is not in the inputs, that names
    neither, or whose format is not in STUDIO_FORMATS, is dropped with its
-   reason.
+   reason; but one pitch a slot (STUDIO_PURE_INVENTED, 1, the writer's
+   best-ranked) may name neither when it is pure invention (`invented`, or
+   an invention-led shape): it is always drafted, has no money, real names
+   or news in it, and its truth facts are what Teeny really has (SELF_FACT
+   and the desk's items, `facts_for`), so the truth gate still reads it.
 7. The draft turns (`writer`): STUDIO_DRAFTS_EACH drafts for each of the
    STUDIO_DRAFT_TOP best pitches (`choose_drafted`: STUDIO_DRAFT_INVENTED of
    them invention-led, a tall tale, grudge, lore bit or threat, whatever the
    writer's ranking, when the pitches hold one; two of three hooked when
    there is an outside world; filled from the ranking when either is short),
    one turn a pitch; a hooked one is given the story whole and the rules for
-   real news (`JOIN_RULES`), and the story goes into its truth facts. Every text is held to
+   real news (`JOIN_RULES`), and the story goes into its truth facts; a pure
+   invention is drafted first among the invention-led ones. Every text is held to
    X's 280 (bin/lib/post_length.py, the guard's own count): the ones over it
    get one shorten turn together, and one still over is dropped. Before
    the tournament every draft is screened (`screen`): one with an amount of
