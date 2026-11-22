@@ -240,19 +240,20 @@ class StartUpTest(BrokerCase):
         code, out = self.post("/goals")
         self.assertEqual((code, out["status"]), (200, "ok"))
 
-    def test_the_server_is_bound_to_127_0_0_1_only(self):
-        os.environ["TEENY_ROOT"] = str(self.root)
-        try:
-            sys.path.insert(0, str(REPO / "bin" / "lib"))
-            import broker
-
-            server = broker.bind(0, "t" * 43)
-            try:
-                self.assertEqual(server.server_address[0], "127.0.0.1")
-            finally:
-                server.server_close()
-        finally:
-            os.environ.pop("TEENY_ROOT", None)
+    @unittest.skipUnless(Path("/proc/net/tcp").exists(), "reads the kernel's socket table")
+    def test_the_daemon_listens_on_127_0_0_1_only(self):
+        self.start()
+        port = int(self.url.rsplit(":", 1)[1])
+        listening = []
+        for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+            if not Path(table).exists():
+                continue
+            for row in Path(table).read_text().splitlines()[1:]:
+                local, state = row.split()[1], row.split()[3]
+                addr, hex_port = local.rsplit(":", 1)
+                if state == "0A" and int(hex_port, 16) == port:  # LISTEN
+                    listening.append(addr)
+        self.assertEqual(listening, ["0100007F"])  # 127.0.0.1, little-endian
 
 
 class AuthTest(BrokerCase):
