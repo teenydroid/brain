@@ -38,6 +38,14 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
 - /wakes      the mind's wakes
 - /drop-wake  `{"name"}`: removes one of them, never any other job
 - /goals      hands/goals list
+- /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
+              at state/home/repo/ (its git directory outside the jail), left
+              alone while it holds edits; answers its path and the head
+- /pr         `{"branch", "title", "body"}`: the tree as a pull request from
+              teeny/mind-<branch> (mindclone.ship: the guard, the frozen
+              paths, the secret scan, the size), at most MIND_PRS_PER_DAY
+              (default 0, off) a UTC day, counted in
+              state/broker/prs-opened.json when one is opened
 
 The answer is `{"status": "ok" | "refused" | "error", ...}` with HTTP 200,
 403 or 500 (401 unauthorised, 404 no such path, 405 not POST), and each
@@ -643,6 +651,18 @@ def operator_note(ref: str) -> int:
 
 
 
+def _prepare_clone(server: ThreadingHTTPServer) -> None:
+    """The mind's clone made ready at start, under the request lock, beside
+    the requests rather than before them: a fetch may take a while, and one
+    that fails is said and left for the next /repo or /pr."""
+    try:
+        with server.lock:
+            state = mindclone.prepare()["state"]
+        print(f"[broker] the mind's clone is ready ({state})", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a clone that cannot be made never stops the broker
+        print(f"[broker] the mind's clone could not be prepared: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
+
+
 def serve() -> int:
     if not mind_on():
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
@@ -658,6 +678,8 @@ def serve() -> int:
     try:
         install(server.server_address[1], token)
         print(f"[broker] serving the mind on http://{HOST}:{server.server_address[1]}", file=sys.stderr)
+        if hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY) > 0:
+            threading.Thread(target=_prepare_clone, args=(server,), daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
