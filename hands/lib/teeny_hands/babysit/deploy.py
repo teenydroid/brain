@@ -50,6 +50,14 @@ PENDING = "deploy-pending.json"
 #: The runs a restart must never cut off: a generation (bin/evolve run),
 #: evolve-watch, and the targeted eval of an evolve PR.
 BUSY_LOCKS = ("evolve", "evolve-watch", "eval")
+#: With BABYSIT_SELF_MERGE_ALL, also the beat of Teeny's mind (bin/tick
+#: --detach holds state/locks/tick.lock through bin/lib/detach.py): a
+#: restart mid-beat would cut off a model turn and the hands it runs.
+ALL_BUSY_LOCKS = ("tick",)
+#: bin/spine's record of a last-good boot (bin/lib/last_good.py fallback),
+#: there until the operator clears it.
+FALLBACK = "spine-fallback.json"
+DEFAULT_MIN_GAP_MINUTES = 60
 SEED_TIMEOUT = 120
 
 #: Read once, at boot, by bin/spine or the core it starts: a change restarts.
