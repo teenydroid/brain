@@ -851,7 +851,9 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
             if p in chosen:
                 continue
             drop = next((x for x in reversed(chosen) if x not in need_ and x not in pure), None)
-            if drop is None and len(chosen) < top:
+            if drop is None and len(chosen) >= top:
+                # Only the pure invention is left to give way: it does only
+                # when the slot is full of what it must draft.
                 drop = next((x for x in reversed(chosen) if x not in need_), None)
             if drop is None and len(chosen) >= top and chosen:
                 drop = next((x for x in reversed(chosen) if x not in need_[:need_.index(p)]), None)
