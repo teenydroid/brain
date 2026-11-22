@@ -64,6 +64,9 @@ brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
 brain/agents/builder.toml
 brain/agents/operator.toml
+# The agentic mind's tools and jail (docs/mind.md): a self-edited sandbox or
+# tool list is a way out of state/home/. Its prompt (mind.md) stays Teeny's.
+brain/agents/mind.toml
 # The agent bin/evolve's lab spine proposes with: file tools in a worktree.
 brain/agents/evolver.toml
 # The studio's writer and editor (bin/studio): tool-less, and the editor
