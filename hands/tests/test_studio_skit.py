@@ -235,7 +235,8 @@ class EditorSkitTest(unittest.TestCase):
     Wherever the editor meets a skit it is told what one is and the only
     lines a skit may not cross."""
 
-    LINES = ("sexual", "violence done to", "hate", "crime, drugs, illness or death", "a private person, a child",
+    # 2026-11-22: crime, drugs, illness and death came off the list (the keep-list).
+    LINES = ("sexual", "violence done to", "a slur", "a private person, a child",
              "victim or a bystander", "$TINY", "seen to endorse", "real footage or a real quote", "could not follow")
 
     def test_the_slot_question_on_a_skit_says_what_a_skit_is_and_its_only_lines(self):
@@ -246,6 +247,7 @@ class EditorSkitTest(unittest.TestCase):
                     "only these", "Taste alone", *self.LINES):
             self.assertIn(bit, message)
         self.assertIn('"line"', message)
+        self.assertNotIn("crime, drugs, illness or death", studio.SKIT_EDITOR)
         fallback = studio.final_message("D2", skit_draft(), {}, [], fallback=True)
         self.assertIn(studio.SKIT_EDITOR, fallback)
 
