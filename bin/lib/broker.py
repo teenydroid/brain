@@ -61,6 +61,7 @@ sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
 
+import cron_policy  # noqa: E402
 import tick  # noqa: E402
 
 Json = dict[str, Any]
