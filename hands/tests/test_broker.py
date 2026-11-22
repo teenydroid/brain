@@ -452,9 +452,7 @@ class WakeTest(BrokerCase):
             self.assertIn(why, out["reason"], body)
         code, out = self.post("/wake", {"name": "edge", "note": "n", "at": "2026-12-13T07:00:00Z"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
-        self.assertEqual(len(self.oh_calls("cron_add")), 1)
-        self.oh_calls_before = None
-        self.assertEqual(self.oh_calls("cron_add"), [])
+        self.assertEqual(len(self.oh_calls("cron_add")), 1, "only the wake exactly 90 days out")
 
     def test_a_wake_by_a_name_already_taken_is_refused(self):
         self.set_jobs([TICK_JOB, _mind_job("dup", {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}, 1)])
