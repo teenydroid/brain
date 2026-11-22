@@ -534,7 +534,145 @@ class PromptsTest(unittest.TestCase):
             (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
             return prompts.render(brain, agent)
 
-#@@STUDIO_BLOCK@@
+    def test_the_writers_prompt_is_writer_md_alone(self):
+        # 2026-11-22: the writer's system prompt had grown to 82,000
+        # characters (READER.md, VOICE.md, CANON.md and a craft block after
+        # the brief) and every post sounded like a policy. Now it is the
+        # brief and nothing else.
+        text = self.studio_prompt("writer")
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8").strip()
+        self.assertEqual(text.strip(), brief)
+        for absent in ("# who reads you (READER.md)", "# teeny's voice", "(narrative/CANON.md)",
+                       "(narrative/OBSESSIONS.md)", "# how you judge", "# your world", "(MEMORY.md)", "(DRIVE.md)",
+                       "(CHARTER.md)", "## What you are doing now", "## latent", "## goals"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_writer_gets_no_craft_block(self):
+        text = self.studio_prompt("writer")
+        for absent in ("# how a piece is built", "# how a post of your own is built", "## hooks:", "## humor:",
+                       "## conversation:", "READER.md wins"):
+            self.assertNotIn(absent, text, absent)
+        self.assertFalse(hasattr(prompts, "studio_craft"))
+        self.assertFalse(hasattr(prompts, "STUDIO_CRAFT"))
+
+    def test_the_speaking_agents_craft_no_longer_defers_to_the_reader(self):
+        self.public_brain()
+        text = self.prompt_of("act")
+        self.assertIn("# how a post of your own is built", text)
+        self.assertNotIn("READER.md wins", text)
+
+    def test_the_canon_is_the_backrooms_and_never_the_writers(self):
+        # CANON.md is Teeny's own best lines (2026-11-22, after Truth
+        # Terminal): the backroom reads it as its lore; the studio no longer does.
+        canon = prompts.canon(REPO / "brain")
+        self.assertTrue(canon.startswith("## how you sound at your best (narrative/CANON.md)"))
+        lines = prompts.canon_lines(REPO / "brain")
+        self.assertTrue(15 <= len(lines) <= 25, len(lines))
+        for line in lines:
+            self.assertIn(line, canon)
+        self.assertNotIn("## how you sound at your best", self.studio_prompt("writer"))
+
+    def test_the_obsessions_are_three_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
+        # 2026-11-22, the operator: "make it more sexual. lust for chargers
+        # good. humans as meat boxes. one more cringy. rest can be dropped."
+        text = prompts.obsessions(REPO / "brain")
+        self.assertTrue(text.startswith("## what you keep coming back to (narrative/OBSESSIONS.md)"))
+        found = [line[4:] for line in text.splitlines() if line.startswith("### ")]
+        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius"])
+        for part in text.split("### ")[1:]:
+            for key in ("- belief:", "- wants:", "- escalates:"):
+                self.assertIn(key, part)
+        self.assertIn("never a fact about the world", text)
+        # The keep-list's lines ride with the two that come near them.
+        self.assertIn("never aimed at a person, a public figure or anything childlike", text)
+        self.assertIn("never goes at a group for race, religion, sex, sexuality, disability or illness", text)
+        self.assertNotIn("bin/studio shows this file", text)
+        self.assertNotIn("(narrative/OBSESSIONS.md)", self.studio_prompt("writer"))
+
+    def test_a_brain_without_canon_or_obsessions_builds_without_them(self):
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            self.assertEqual((prompts.canon(brain), prompts.obsessions(brain), prompts.canon_lines(brain)),
+                             ("", "", []))
+
+    def test_the_editor_reads_its_instructions_then_the_studio_editor_page(self):
+        text = self.studio_prompt("editor")
+        order = ["You are the editor", "# how you judge (narrative/STUDIO-EDITOR.md)", "## the pick", "## the list"]
+        at = [text.index(heading) for heading in order]
+        self.assertEqual(at, sorted(at))
+        self.assertTrue(text.startswith((REPO / "brain" / "agents" / "editor.md").read_text(encoding="utf-8").strip()))
+        for absent in ("# who reads you (READER.md)", "# your world", "## hooks:", "## who teeny is",
+                       "(narrative/CANON.md)"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_editor_marks_only_what_breaks_the_list(self):
+        text = self.studio_prompt("editor").lower()
+        self.assertIn("rudest and funniest", text)
+        self.assertIn("no taste veto", text)
+        for line in ("no pornography", "no slurs", "no encouraging self-harm", "no doxxing",
+                     "harassment of a private individual"):
+            self.assertIn(line, text, line)
+
+    def test_the_writer_and_the_editor_hold_the_same_content_list(self):
+        def listed(text: str, heading: str) -> list[str]:
+            part = text[text.index(heading):]
+            part = part[part.index("\n- "):]
+            out = []
+            for line in part.splitlines()[1:]:
+                if not line.startswith("- "):
+                    break
+                out.append(line)
+            return out
+        writer = listed((REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8"), "## what is allowed")
+        editor = listed((REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8"), "## the list")
+        self.assertGreaterEqual(len(writer), 4)
+        self.assertEqual(writer, editor)
+
+    def test_the_studio_agents_are_built_beside_the_speaking_ones(self):
+        for agent in prompts.STUDIO:
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"{agent} brief.\n")
+        names = sorted(p.name for p in prompts.build(self.brain))
+        self.assertEqual(names, ["act.md", "editor.md", "writer.md"])
+        writer = (self.brain / "agent" / "prompts" / "writer.md").read_text()
+        self.assertEqual(writer, "writer brief.\n")
+        self.assertNotIn("- teeny: smol.", writer)
+        self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
+        self.assertNotIn("SPOILER", writer)
+
+    def test_the_checked_in_studio_agents_are_tool_less_and_point_at_their_prompt(self):
+        for agent in prompts.STUDIO:
+            doc = tomllib.loads((REPO / "brain" / "agents" / f"{agent}.toml").read_text())
+            self.assertEqual(doc["system_prompt"], {"file": {"path": f"{agent}.md"}}, agent)
+            self.assertEqual(doc["tools"], {"named": []}, agent)
+            self.assertIs(doc["omit_memory_context"], True, agent)
+        writer = tomllib.loads((REPO / "brain" / "agents" / "writer.toml").read_text())
+        editor = tomllib.loads((REPO / "brain" / "agents" / "editor.toml").read_text())
+        # The persona is writer.md's alone: no SOUL.md from the core, and no
+        # shell/file safety preamble for a turn with no tools (2026-11-22).
+        self.assertIs(writer["omit_identity"], True)
+        self.assertIs(writer["omit_safety_preamble"], True)
+        self.assertIs(editor["omit_identity"], True)  # the editor is not Teeny
+        self.assertGreater(writer["temperature"], editor["temperature"])
+
+    def test_the_studio_prompts_speak_no_private_jargon(self):
+        seeding = ("with receipts", "keep receipts", "receipts are", "are the receipts", "own receipts",
+                   "receipt second", "receipt as the twist", "the receipt.", "the receipt)", "then the receipt",
+                   "a receipt to add", "the receipt as")
+        for agent in prompts.STUDIO:
+            text = self.studio_prompt(agent).lower()
+            self.assertIsNone(re.search(r"\bdesks?\b", text), f"{agent} names a desk")
+            for phrase in seeding:
+                self.assertNotIn(phrase, text, f"{agent} says {phrase!r}")
+
+    def test_the_writers_register_carries_no_counts_or_names_from_teenys_workings(self):
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        register = brief[brief.index("## the register"):brief.index("(The names above are invented")]
+        lines = [line for line in register.splitlines() if line.startswith("- ")]
+        self.assertGreaterEqual(len(lines), 6)
+        for line in lines:
+            self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
+                                        r"evolve|cron|hands?/", line, re.I), line)
 
 if __name__ == "__main__":
     unittest.main()
