@@ -771,7 +771,7 @@ class DiaryDaysTest(ReceiptsCase):
 
     def test_a_page_the_guard_holds_is_withheld_and_never_retried(self):
         bare = self.remote()
-        self.page("2026-09-14", "# Monday\n\ni hope you die.\n")
+        self.page("2026-09-14", "# Monday\n\nwhat a retard.\n")
         self.on(bare)
         code, out = self.run_receipts()
         self.assertEqual(out["days"]["published"], [])
@@ -893,7 +893,7 @@ class MemorySnapshotsTest(ReceiptsCase):
 
     def test_a_snapshot_the_guard_holds_is_withheld_and_never_retried(self):
         bare = self.remote()
-        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] i hope you die.\n")
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] what a retard.\n")
         self.on(bare)
         code, out = self.run_receipts()
         self.assertEqual(out["memory"]["published"], [])
