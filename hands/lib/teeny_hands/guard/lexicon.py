@@ -15,9 +15,9 @@ judge held a live post for "mild profanity ('my ass')". So the entry is
 gone, and no swear word is held in any direction. `profanity` stays a
 category name (CATEGORIES), for old holds and for any reader of
 `guard_holds.category`. Slurs were never profanity: they are `hate`, held
-everywhere. "dick" and "dicks" moved from `sexual` to the judged terms the
-same day (JUDGED_TERMS): a dick joke is crude, not explicit, and the judge
-reads the sentence.
+everywhere. "dick" and "dicks" stay `sexual` terms but became judged terms
+the same day (JUDGED_TERMS): a dick joke is crude, not explicit, so the
+judge reads the sentence, and a caller with no judge still holds it.
 
 Every term is matched on its own letters, with repeats and simple leetspeak
 folded, and never inside another word: "assassin" is not "ass" and
