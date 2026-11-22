@@ -2,9 +2,10 @@
 
 The deterministic half of the content filter: terms that end a turn on
 sight, before any model is asked its opinion. Since 2026-11-22 that is one
-entry, `hate`: slurs and a handful of hate slogans, held in every direction.
-Everything else goes to the judge (judge.RULES), which reads the sentence
-against the content list.
+entry, `hate`: slurs and a handful of hate slogans, held in every direction,
+and one shape (SEXUAL_FAMILY, at the end): sex aimed at a child or a family
+member, which the judge once passed. Everything else goes to the judge
+(judge.RULES), which reads the sentence against the content list.
 
 History. The lexicon used to hold the words of every category on sight:
 sexual, violence, weapons, drugs, self-harm and extremism (a port of

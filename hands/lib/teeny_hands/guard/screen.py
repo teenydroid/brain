@@ -15,7 +15,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON
+from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON, SEXUAL_FAMILY, SEXUAL_FAMILY_TERM
 
 # Which reading of the lexicon applies, the hold log's direction.
 #
@@ -106,6 +106,10 @@ _COMPILED = [
     for entry in LEXICON
 ]
 
+#: Sex aimed at a child or a family member (lexicon.SEXUAL_FAMILY): held on
+#: sight in every direction, after the slurs.
+_SHAPES = [(category, re.compile(pattern, re.IGNORECASE)) for category, pattern in SEXUAL_FAMILY]
+
 
 def normalise_for_screen(text: str, idioms: bool) -> tuple[str, str]:
     """The text as the screen reads it: folded, unspaced, idioms removed.
@@ -153,4 +157,8 @@ def screen_text_with(text: str, direction: str, idioms: bool = True) -> ScreenMa
                     judged = ScreenMatch(category, term, judged=True)
                 else:
                     best = ScreenMatch(category, term)
+    if best is None:
+        for category, shape in _SHAPES:
+            if shape.search(plain) or shape.search(leet):
+                return ScreenMatch(category, SEXUAL_FAMILY_TERM)
     return best or judged
