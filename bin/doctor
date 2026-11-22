@@ -18,7 +18,8 @@
 # guard hold, no post.
 #
 # Prints one line per check on stderr and a JSON report on stdout, and writes
-# the report to state/doctor.json (of the root it checked). The one other
+# the report to state/doctor.json (of the root it checked; a red one is also
+# appended to state/doctor-failures.jsonl). The one other
 # thing it writes is the model behind each role, under secrets/autonomy/
 # (bin/lib/autonomy.py; docs/roadmap.md, G8). Exits 0 when
 # every check passed, 1 when any failed.
@@ -797,5 +798,13 @@ out="$(printf '%s' "$report" | jq -c --arg commit "$commit" --arg at "$(date -u 
   '{ok: ($failed == 0), at: $at, commit: $commit, live: ($live == 1), failed: $failed, checks: .}')"
 mkdir -p "$state"
 printf '%s\n' "$out" >"$state/doctor.json.tmp" && mv "$state/doctor.json.tmp" "$state/doctor.json"
+# doctor.json is overwritten by the next run, so a red one is also kept (names only, the
+# latest 50) for hands/babysit's rollback sweep, which reads it up to 20 minutes later.
+if [ "$failed" != 0 ]; then
+  printf '%s\n' "$out" | jq -c '{at, commit, checks: [.checks[] | select(.status == "fail") | {check, status}]}' \
+    >>"$state/doctor-failures.jsonl"
+  tail -n 50 "$state/doctor-failures.jsonl" >"$state/doctor-failures.jsonl.tmp" \
+    && mv "$state/doctor-failures.jsonl.tmp" "$state/doctor-failures.jsonl"
+fi
 printf '%s\n' "$out"
 [ "$failed" = 0 ]

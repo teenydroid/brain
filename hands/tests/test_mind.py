@@ -165,10 +165,10 @@ class MindCronTest(unittest.TestCase):
         with open(REPO / "evals" / "cron.pinned.toml", "rb") as fh:
             pinned = tomllib.load(fh)["jobs"]
         for name in ("dream", "dream-midday", "builder", "episode", "moltbook-prune"):
-            self.assertIn(name, brain)
             self.assertNotIn(name, pinned)
-        self.assertEqual(brain["builder"]["agent"], "builder")
-        self.assertIs(brain["episode"]["enabled"], False)
+        # Teeny may reschedule, pause or drop these; check what is there.
+        if "builder" in brain:
+            self.assertEqual(brain["builder"]["agent"], "builder")
         # What watches Teeny, and what moves money, stays pinned.
         for name in ("tick", "mind", "babysit", "health", "audit", "guard-review", "evolve-watch", "goals-check",
                      "pay-bills", "surplus-sweep"):

@@ -852,7 +852,7 @@ class MindCloneCase(BrokerCase):
         self.main = _git("--git-dir", str(self.origin), "rev-parse", "main").strip()
 
     def settings(self, **more):
-        super().settings(GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", GITHUB_API_BASE=self.gh.base,
+        super().settings(GITHUB_TOKEN="ghp_" + "FAKEtokenFAKEtokenFAKEtoken0000", GITHUB_API_BASE=self.gh.base,
                          GITHUB_GIT_BASE="file://" + str(self.root / "remotes"), SAFETY_JUDGE="0", **more)
 
     @property

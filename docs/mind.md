@@ -251,11 +251,16 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
    `broker: started for the agentic mind`. Give it a first direction with
    `deploy/tell.sh --mind "..."`, or leave it to pick its own.
 2. `MIND_DRY_RUN=0`: what it asks for is sent. Read a day or two of
-   `state/broker/ledger.jsonl` first. What it may reach is the tick's caps
+   `state/broker/ledger.jsonl` first. The broker holds `DRY_RUN=1` in its
+   process environment while `MIND_DRY_RUN=1`, so editing `secrets/teeny.env`
+   alone changes nothing: check that no evolve generation is running, then
+   recreate the spine (and so the broker) again. What it may reach is the tick's caps
    in the same file (`MIND_TASKS_PER_DAY`, `MIND_SEARCHES_PER_DAY`, ...).
 3. `MIND_PRS_PER_DAY=3` (say): it may open pull requests from its clone.
    They wait for a person until the next step.
-4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`): its pull
+4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`, and
+   `BABYSIT_MERGE=1`, which the merge action checks before it audits
+   anything; at its default of 0 nothing merges): its pull
    requests, the builder's and evolve's merge on green checks and deploy.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
