@@ -2459,9 +2459,14 @@ gen-0).
   from the scheduled playbook runs that call a hand (`hand_used`). A hand
   that only a cron `command` or a beat runs reads 0, and the rubric does not
   accept such a caller.
-- **Wants from anywhere but the memory page.** Failed builds, frozen-path
-  failures, strangers' requests, browser tasks and beats were looked at on
-  2026-11-19 and dropped (the table in "1c. Wants").
+- **Wants from anywhere but the memory page and routed findings.** Failed
+  builds, frozen-path failures, strangers' requests, browser tasks and beats
+  were looked at on 2026-11-19 and dropped (the table in "1c. Wants"); a fix
+  finding prompt rules kept failing to fix became a source on 2026-11-22.
+- **Growth findings off X.** Moltbook posts and comments carry a `format` but
+  every Moltbook account is `agent` by hands/world's rule, so "a new account"
+  says little there yet; growth findings read X only. Routing never applies
+  to them: what Teeny writes is the proposer's.
 - **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
   no existing hand was thawed. A want whose only remedy is a frozen file
   fails at ship, and the feed gives it up at once. The builder's iteration
