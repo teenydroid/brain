@@ -231,6 +231,119 @@ def _changed(base: str, head: str) -> list[str]:
     return sorted(p for p in raw.split("\0") if p)
 
 
+def _no_git_inside() -> None:
+    """Refuses a tree with a `.git` anywhere in it (any case): a git
+    directory, a `gitdir:` pointer or a nested repository the mind made.
+    Git is never pointed at one (every run names the clone's own), and a
+    nested one would be committed as a link to another repository."""
+    for folder, dirs, names in os.walk(worktree()):  # never follows a link
+        for name in (*dirs, *names):
+            if name.lower() == ".git":
+                rel = (Path(folder) / name).relative_to(worktree())
+                raise hand.Refused(f"{rel} is in your tree: your clone's git lives outside your home, so delete it",
+                                   rule="git_in_tree", path=str(rel))
+
+
+def _entries(base: str, head: str) -> list[tuple[str, str, str]]:
+    """(new mode, new blob, path) for every path HEAD changes against BASE,
+    from `git diff --raw -z`; a deleted path has mode 000000."""
+    raw = _bare("diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, head).stdout.decode("utf-8", "replace")
+    parts = raw.split("\0")
+    out = []
+    for meta, path in zip(parts[0::2], parts[1::2]):
+        fields = meta.lstrip(":").split()
+        if len(fields) >= 4:
+            out.append((fields[1], fields[3], path))
+    return out
+
+
+def _within_limits(head: str, files: list[str]) -> None:
+    if len(files) > MAX_FILES:
+        raise hand.Refused(f"the change touches {len(files)} files; the most is {MAX_FILES}", rule="too_big")
+    lines = 0
+    for row in _bare("diff", "--numstat", "--no-renames", "HEAD", head).stdout.decode("utf-8", "replace").splitlines():
+        added, deleted = row.split("\t")[:2]
+        lines += sum(int(n) for n in (added, deleted) if n.isdigit())
+    if lines > MAX_LINES:
+        raise hand.Refused(f"the change is {lines} lines; the most is {MAX_LINES}", rule="too_big")
+
+
+def _read_in_tree(rel: str) -> bytes:
+    """The bytes of REL as the tree holds it, every step opened without
+    following a link, so nothing outside the tree can be read through it."""
+    parts = rel.split("/")
+    fd = os.open(worktree(), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name in parts[:-1]:
+            nxt = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        leaf = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    finally:
+        os.close(fd)
+    with os.fdopen(leaf, "rb") as fh:
+        found = os.fstat(fh.fileno())
+        if not stat.S_ISREG(found.st_mode):
+            raise OSError(f"{rel} is not a file")
+        if found.st_size > gitpush.MAX_SCAN_BYTES:
+            raise hand.Refused(f"{rel} is over {gitpush.MAX_SCAN_BYTES // (1024 * 1024)} MB", rule="too_big", path=rel)
+        return fh.read(gitpush.MAX_SCAN_BYTES + 1)
+
+
+def _blob_id(data: bytes, like: str) -> str:
+    algo = hashlib.sha1 if len(like) == 40 else hashlib.sha256
+    return algo(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _only_plain_files(head: str) -> None:
+    """Every path the commit adds or changes is a plain file whose blob is
+    the bytes the tree holds, read here without following a link. Refuses a
+    link (wherever it points: `brain/x -> ../secrets/teeny.env` stays in the
+    tree and still reads the secret once merged), a nested repository, and a
+    file git read differently from what is there (swapped for a link while
+    git read it, or converted by an attribute)."""
+    for mode, blob, path in _entries("HEAD", head):
+        if mode == "000000":
+            continue
+        if mode == "120000":
+            raise hand.Refused(f"{path} is a link: a change from your clone carries plain files only", rule="link",
+                               path=path)
+        if mode not in ("100644", "100755"):
+            raise hand.Refused(f"{path} is not a plain file (mode {mode})", rule="not_a_file", path=path)
+        try:
+            data = _read_in_tree(path)
+        except OSError:
+            data = None
+        if data is None or _blob_id(data, blob) != blob:
+            raise hand.Refused(f"{path} is not what git read from your tree (a link, or changed while it was read)",
+                               rule="changed", path=path)
+
+
+def _frozen_hits(branch: str) -> list[str]:
+    """`path (pattern)` for every frozen path BRANCH touches against
+    origin/main, the list read as of origin/main (selfclone's check)."""
+    frozen = selfclone._frozen()
+    try:
+        hits = frozen.check(gitdir(), ORIGIN_BASE, f"refs/heads/{branch}")
+    except frozen.FrozenError as exc:
+        raise hand.Refused(f"the frozen-path check could not run: {exc}", rule="frozen_check") from None
+    return sorted({f"{hit.path} ({hit.pattern})" for hit in hits})
+
+
+def _guarded(fields: Json, branch: str) -> Json:
+    """The guard's say on the title and body (surface github), as a self
+    job's ship asks it; a hold or a refusal names the field and why."""
+    from ..gh import actions
+
+    try:
+        return actions.guarded(fields, "pr", {"repo": selfclone.repo(), "head": branch})
+    except hand.Refused as exc:
+        field = exc.detail.get("field") or "title or body"
+        why = exc.detail.get("category") if exc.reason == "held" else exc.reason
+        verb = "held" if exc.reason == "held" else "refused"
+        raise hand.Refused(f"the guard {verb} the {field}: {why}", **exc.detail) from None
+
+
 def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
     """The mind's tree as a pull request from teeny/mind-<slug> into main,
     after every rule; under DRY_RUN every rule runs and nothing is sent."""
