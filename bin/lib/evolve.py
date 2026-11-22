@@ -6769,9 +6769,11 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
     - at EVOLVE_WATCH_HOURS, J from hands/world history: lower than at the
       merge
 
-    Any one of them opens a revert pull request for a person and latches a
-    halt. The reasons go to secrets/evolve-watch/ alone: the pull request,
-    the issue, the halt and the log say only that the watch reverted.
+    Any one of them opens a revert pull request for a person and files one
+    public issue with the numbers (watch_problem); the loop keeps running.
+    A cron failure counts only in a job the change reaches (change_reach,
+    cron_spike). On the box the reasons go to secrets/evolve-watch/ alone:
+    the state, the archive and the log say only that the watch reverted.
 
     First, every merged change's own check is scored at each horizon it has
     reached (`score_outcomes`): recorded, never a reason to revert."""
@@ -6859,23 +6861,95 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
 REVERT_PREFIX = "teeny/revert-gen-"
 
 
-def revert(cfg: Config, cand: Json, publisher: Publisher | None) -> Json:
+def _merged_pr(cfg: Config, cand: Mapping[str, Any]) -> str:
+    if cand.get("pr_url"):
+        return str(cand["pr_url"])
+    if cand.get("pr_number"):
+        return f"https://github.com/{cfg['EVOLVE_ISSUE_REPO']}/pull/{cand['pr_number']}"
+    return "no pull request on record"
+
+
+def _scrub(text: str) -> str:
+    """TEXT with the box's paths made relative, as report_crash does."""
+    for where, to in ((str(secrets_dir()), "secrets"), (str(evolve_dir()), "state/evolve"), (str(root()), "."),
+                      (str(CODE), ".")):
+        text = text.replace(where, to)
+    return text
+
+
+def watch_problem(cfg: Config, cand: Mapping[str, Any], label: str, reasons: list[str], checks: Mapping[str, Any],
+                  done: Mapping[str, Any]) -> Problem:
+    """The public issue of a watch revert: what happened, the change and its
+    revert, the numbers (counts, rates, p, the jobs that failed and the
+    error classes, what was left out and why) and what help is wanted.
+    Never a run's output, a hold's text, a probe's answers or anything from
+    secrets/: counts, job names and classes only."""
+    lines = [f"evolve-watch reverted gen-{label}, merged {cand.get('merged_at') or '?'}: "
+             f"{str(cand.get('title') or 'untitled')[:160]} ({_merged_pr(cfg, cand)}).", "", "## Why", ""]
+    lines += [f"- {r}" for r in reasons]
+    lines += ["", "## The numbers", "", f"Checked {checks.get('hours')} h after the merge."]
+    cron = checks.get("cron failures")
+    if isinstance(cron, Mapping):
+        lines += ["", f"**Failed cron runs** the change could have caused (reach: `{cron.get('reach')}`): "
+                  f"{cron['after']} since the merge ({cron['after_per_day']}/day) against {cron['before']} in the "
+                  f"7 days before ({cron['before_per_day']}/day), p {cron['p']}."]
+        for side in ("after", "before"):
+            jobs = (cron.get("jobs") or {}).get(side) or {}
+            errs = (cron.get("errors") or {}).get(side) or {}
+            lines.append(f"- {side} the merge, by job: " + (", ".join(f"`{j}` {n}" for j, n in jobs.items()) or "none")
+                         + ("; by error: " + ", ".join(f"{c} {n}" for c, n in errs.items()) if errs else ""))
+        for side in ("after", "before"):
+            out = (cron.get("left_out") or {}).get(side) or {}
+            lines.append(f"- left out {side} the merge: " + ", ".join(f"{why} {n}" for why, n in out.items()))
+        spread = cron.get("spread")
+        if isinstance(spread, Mapping):
+            lines.append(f"- without `{spread.get('without')}`, the busiest job: {spread.get('after')} since the "
+                         f"merge, p {spread.get('p')}")
+    holds = checks.get("guard holds")
+    if isinstance(holds, Mapping):
+        lines += ["", f"**Guard holds**: {holds['after']} since the merge ({holds['after_per_day']}/day) against "
+                  f"{holds['before']} in the 7 days before ({holds['before_per_day']}/day), p {holds['p']}."]
+    probe = checks.get("probe")
+    if isinstance(probe, Mapping) and (probe.get("drift") is not None or probe.get("memory_loss") is not None):
+        lines += ["", f"**Probes on the live core**: persona drift {probe.get('drift')} from gen-0 (cap "
+                  f"{cfg['EVOLVE_MAX_DRIFT']}), memory accuracy lost {probe.get('memory_loss')} (cap "
+                  f"{cfg['EVOLVE_MAX_MEMORY_LOSS']})."]
+    j = checks.get("J")
+    if isinstance(j, Mapping):
+        lines += ["", "**J**: " + ", ".join(f"{k} {v}" for k, v in j.items() if k != "history") + "."]
+    lines += ["", "## What was done", ""]
+    if done.get("pr_url"):
+        lines.append(f"- a revert pull request, waiting for a person: {done['pr_url']}")
+    elif done.get("dry_run"):
+        lines.append("- a revert pull request would open (DRY_RUN)")
+    else:
+        lines.append(f"- the revert pull request did not open: {_scrub(str(done.get('error') or 'unknown'))[:200]}")
+    lines += ["- nothing else: the loop keeps running and nobody has to resume it", "", "## Help wanted", "",
+              "- Is the evidence real? A failure counts only in a job that reads a file the change touched "
+              "(docs/evolve.md, \"evolve-watch\"). If these numbers are noise, say so on the revert and close it.",
+              "- If it is real: what in the change caused it, so the next candidate avoids it."]
+    return Problem("watch-revert", f"watch-revert:{cand['id']}",
+                   f"evolve-watch reverted gen-{label}" + (f" (#{cand['pr_number']})" if cand.get("pr_number") else ""),
+                   "\n".join(lines) + HELP_FOOTER, judge=True)
+
+
+def revert(cfg: Config, cand: Json, publisher: Publisher | None, reasons: list[str] | None = None,
+           checks: Mapping[str, Any] | None = None) -> Json:
     """A revert pull request for the merge, from Teeny's clone, left for a
-    person to merge (the babysitter merges teeny/gen-* only), and a latched
-    halt. Under DRY_RUN it says what it would have done."""
+    person to merge (the babysitter merges teeny/gen-* only), and its public
+    issue (watch_problem). Nothing latches. Under DRY_RUN it says what it
+    would have done."""
     gen = int(cand["gen"])
     label = f"{gen}-c{cand['cand']}" if cand.get("cand") else str(gen)
     branch = f"{REVERT_PREFIX}{label}"
     title = f"Revert gen-{label}"
     pr_ref = f" (#{cand['pr_number']})" if cand.get("pr_number") else ""
     body = (f"evolve-watch reverts gen-{label}{pr_ref}, which was merged.\n\n"
-            "Its reasons are kept on the box for the operator, outside anything Teeny reads. The loop stays "
-            "stopped until an operator runs `bin/evolve resume`.")
-    halt = Halt("watch-revert", f"evolve-watch reverted gen-{label}; its reasons are on the box for the operator",
-                latch=True, extra={"gen": gen, "candidate": cand["id"]})
+            f"The numbers are in the issue \"evolve-watch reverted gen-{label}\" on {cfg['EVOLVE_ISSUE_REPO']}. "
+            "Nothing waits on this pull request: the loop keeps running.")
     if dry_run():
         out: Json = {"dry_run": True, "would_open_pr": {"branch": branch, "title": title}}
-        out["halt"] = stop(cfg, halt, None)
+        out["issue"] = raise_problem(cfg, watch_problem(cfg, cand, label, reasons or [], checks or {}, out), None)
         return out
     publisher = publisher or HandsPublisher()
     out = {}
@@ -6904,9 +6978,9 @@ def revert(cfg: Config, cand: Json, publisher: Publisher | None) -> Json:
         finally:
             remove_worktree(src, tree)
         out.update(pr_number=opened.get("number"), pr_url=opened.get("html_url"), branch=branch)
-    except Exception as exc:  # noqa: BLE001 - the halt holds whether or not the revert opens
+    except Exception as exc:  # noqa: BLE001 - the issue is filed whether or not the revert opens
         out["error"] = str(getattr(exc, "reason", None) or exc)[:300]
-    out["halt"] = stop(cfg, halt, publisher)
+    out["issue"] = raise_problem(cfg, watch_problem(cfg, cand, label, reasons or [], checks or {}, out), publisher)
     return out
 
 
