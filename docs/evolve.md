@@ -1919,6 +1919,10 @@ happens **once at most** per candidate, so a candidate is measured twice at
 most. A fence broken, a second regression, or a regression in the last round
 is final: `regressed`.
 
+An `unproven` candidate (section 6, the publish rule) goes back the same way
+and under the same budget: its reason is the next round's finding, and a
+candidate is still measured twice at most.
+
 **The worst case.** Per candidate: one research turn (and, when searches
 are on, one query turn and up to `EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
 (3) build turns and 3 review turns (a regression's extra round is one of the
