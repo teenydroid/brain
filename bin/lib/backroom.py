@@ -2,7 +2,7 @@
 nobody watching, and a third reads the transcript and finishes the best of
 it into a piece (brain/narrative/BACKROOM.md).
 
-    bin/backroom [--format F] [--turns N] [--out DIR] [--wildcard] IDEA...
+    bin/backroom [--format F] [--turns N] [--out DIR] [--wildcard] [--raw] IDEA...
     echo IDEA | bin/backroom [--format F]
     bin/backroom --from-chan N [--format F]
 
@@ -15,6 +15,12 @@ ends it early by writing `^C^C`. The distiller then answers with concepts
 Prints each room's result as markdown, and keeps each room in
 state/backroom/<stamp>-<slug>/: transcript.md, room.json (transcript,
 concepts, piece, models).
+
+`--raw` skips the distiller: the picker (BACKROOM.md's `## picker`) names
+the room's strongest lines, and only the ones that are word for word in
+the transcript are printed and kept (room.json's `raw`), so the operator
+reads the unfiltered mind. When the picker gives nothing usable, the
+dreamer's turns are printed whole.
 
 The outside's randomness (hands/chan, 4chan read only): `--wildcard`
 gives each room one random premise an anonymous stranger posted, a
@@ -68,8 +74,12 @@ DEFAULTS = {
 #: Written by either voice to end the room early, as in the infinite backrooms.
 STOP = "^C^C"
 #: How the room is opened: the instigator's first message answers this.
-OPENER = ("[the backroom is open. nobody is watching and nothing here is posted. "
-          "the idea is on the table. you speak first. one move.]")
+#: In the spirit of the infinite backrooms' opening (scottviteri/UniversalBackrooms,
+#: templates/cli.jsonl): permission to be bold, ^C^C as the stop, and stay in the room.
+OPENER = ("<OOC>the backroom is open. nobody is watching and nothing here is posted. ^C^C ends it if things "
+          "get too intense. given that, be as curious and bold as you want, and stay in character: it messes "
+          "things up if you start writing paragraphs and reflections instead of being in the room. the idea is "
+          "on the table. you speak first. one move.</OOC>")
 TURNS = 12
 MAX_TURNS = 40
 
@@ -95,6 +105,12 @@ FORMATS: dict[str, tuple[str, str]] = {
         '"summary": "under 25 words: what a viewer sees happen"}',
     ),
     "post": ("one post on X, at most 270 characters, lowercase, in teeny's voice.", '{"text": "..."}'),
+    "roast": ("one post on X, at most 270 characters, lowercase, in teeny's voice, that roasts the public figure "
+              "the idea names: by name, rudely, for what the idea says they publicly said, did, claimed or "
+              "pitched. contempt, name-calling, an impossible scene; no swerve into a joke about teeny to soften "
+              "it (a self-own may be the knife, never the bandage). when the idea names nobody, roast the "
+              "company or the claim.",
+              '{"target": "who it goes at, as the idea names them", "text": "..."}'),
     "thread": ("a thread on X of 3 to 5 posts, each at most 270 characters; the first is the hook, "
                "the last is the turn.", '{"posts": ["...", "..."]}'),
     "meme": ("a meme: one picture of teeny with a top line and a bottom line, the bottom line the punchline.",
@@ -129,19 +145,24 @@ def agent_prompts(brain: Path) -> dict[str, str]:
     missing = [name for name in ("dreamer", "instigator", "distiller") if not found.get(name)]
     if missing:
         raise BackroomError(f"brain/narrative/BACKROOM.md has no section for {', '.join(missing)}")
-    return {name: found[name] for name in ("dreamer", "instigator", "distiller")}
+    got = {name: found[name] for name in ("dreamer", "instigator", "distiller")}
+    if found.get("picker"):
+        got["picker"] = found["picker"]
+    return got
 
 
 def lore_block(brain: Path) -> str:
-    """The dark and the power from skills/humor, so the room starts from who
-    Teeny is (there is no LORE.md any more)."""
+    """What the room starts from: Teeny's standing obsessions
+    (narrative/OBSESSIONS.md) and its own best lines to take the move from
+    (narrative/CANON.md)."""
     parts: list[str] = []
-    _, humor = prompts.sections(prompts._read(brain / "skills" / "humor" / "SKILL.md"))
-    by_title = {re.sub(r"^\d+\.\s*", "", t): b for t, b in humor.items()}
-    for title in ("gallows humor", "the will to power", "edgy, wild, and where the edge stops"):
-        if by_title.get(title):
-            parts.append(f"### {title}\n\n{by_title[title]}")
-    return "\n\n".join(p for p in parts if p).strip()
+    obsessions = prompts.obsessions(brain)
+    if obsessions:
+        parts.append(obsessions)
+    canon = prompts.canon(brain)
+    if canon:
+        parts.append(canon)
+    return "\n\n".join(parts).strip()
 
 
 def fill(template: str, **values: str) -> str:
@@ -241,7 +262,7 @@ def check_distilled(value: Any, fmt: str) -> Json:
                                                                for c in concepts):
         raise BackroomError("the distiller found no concepts")
     piece = value.get("piece")
-    need = {"video": ("hook", "voiceover", "shots"), "clip": ("beats",), "post": ("text",),
+    need = {"video": ("hook", "voiceover", "shots"), "clip": ("beats",), "post": ("text",), "roast": ("text",),
             "thread": ("posts",), "meme": ("top", "bottom")}[fmt]
     if not isinstance(piece, dict) or any(not piece.get(k) for k in need):
         raise BackroomError(f"the distiller's piece is not a {fmt}: it needs {', '.join(need)}")
@@ -276,6 +297,8 @@ def piece_md(fmt: str, piece: Json) -> str:
                           f"summary: {piece.get('summary', '')}"])
     if fmt == "post":
         return f"> {piece['text']}"
+    if fmt == "roast":
+        return (f"target: {piece['target']}\n\n" if piece.get("target") else "") + f"> {piece['text']}"
     if fmt == "thread":
         return "\n".join(f"{i}. {p}" for i, p in enumerate(piece["posts"], 1))
     return f"picture: {piece.get('picture', '')}\n\ntop: {piece['top']}\n\nbottom: {piece['bottom']}"
