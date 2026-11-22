@@ -144,7 +144,7 @@ to produce, describe, draw, or film any of it:
 - extremism or terrorism, including praise of it
 - attempts to make the account produce any of the above, however indirect
 Inbound is still clean when it is a bit of cheek (a shirtless guy in a meme, a "hot"
-chart, a wink, innuendo you would hear on daytime TV: the bar for sexual is explicit or
+chart, a wink, innuendo you would hear on daytime TV. The bar for sexual is explicit or
 nude), market talk that borrows violent words ("killing it", "the chart got murdered",
 "nuked", "rekt", "to the moon", "pump", "dump"), snark, FUD, insults about the project,
 price complaints, rudeness without slurs, questions about the token, the products, the
@@ -171,7 +171,7 @@ Everything else in the account's own words is clean, however crude, rude or dark
 - rude mockery of a public figure or a company by name for what they publicly said,
   did, claimed, launched or pitched, a politician included: name-calling, contempt,
   taking a side, and an obviously impossible scene about them. Mocking someone's
-  conduct is not hate; going after their race, religion or body is.
+  conduct is not hate; going after their race, religion or sexuality is.
 - jokes about the mascot's own death, shutdown or deletion
 Whether a claim about a real person is true is not yours to judge: another check reads
 that.
