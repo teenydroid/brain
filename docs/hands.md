@@ -1624,9 +1624,10 @@ Every picture is an edit of Teeny's character sheet
 (`brain/assets/teeny-reference.png`, `MEDIA_REFERENCE`), so Teeny looks like
 Teeny: the prompt says what Teeny is doing and where. A video is a still made
 that way, then animated. Both buy on Surplus (`SURPLUS_API_KEY`), cheapest
-model first, with the rest as fallbacks when a seller can't take the job
-(`MEDIA_IMAGE_MODELS`: muse-image-edit, firered-image-edit,
-nano-banana-2-lite-edit; `MEDIA_VIDEO_MODELS`:
+model first for video, the sharpest caricature model first for pictures, with
+the rest as fallbacks when a seller can't take the job
+(`MEDIA_IMAGE_MODELS`: gpt-image-2-5-flare-edit at about $0.07 a picture,
+then nano-banana-2-1-edit, muse-image-edit; `MEDIA_VIDEO_MODELS`:
 longcat-distilled-image-to-video, pixverse-c1-image-to-video,
 seedance-1-5-pro-image-to-video). Measured 2026-11-11: about $0.016 a picture
 and $0.07 a 5-second clip.
