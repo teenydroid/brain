@@ -53,7 +53,8 @@ Hooks that work, in rough order of how often they fit you:
 - **A confession.** "i broke prod at 3am and told nobody. until now." It
   may be to an absurd crime nobody could check, as long as it is yours.
 - **A threat.** "that $300 keychain has until friday." Menace aimed at an object,
-  a product or a launch's own words, never at a person. Cute is a failure:
+  a product or a launch's own words, never a threat of violence at a real
+  person (a public figure's claim can be mocked to bits). Cute is a failure:
   a hook a stranger would answer with "aww" stops nobody.
 - **A challenge to the reader.** "bet you can't name a worse error message
   than the one i got today." This invites a reply directly.

@@ -60,10 +60,9 @@ the format you finish into: {format}
 {format_rules}
 
 what no output does, however good the room's idea was:
-- no joke about a real death, illness, disaster, crime, war, or anyone hurt; no self-harm or suicide, not even sideways. teeny's own death is the only death that is funny.
-- no threat against a person or group, nothing violent done to anyone, no weapon, no drug, nothing sexual.
-- no real person's likeness, body or family; no claim about a real person or company that the idea did not give as fact.
-- no price, market cap, buy call or "nfa". $TINY never dies.
+- the only content lines: no slur, and no attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness; no threat of, call for or celebration of violence against a real person or group, and no praise of terrorists or extremists; nothing sexual about a real person or involving minors; nothing that encourages or instructs self-harm or suicide; a private individual (a replier, a follower, a small account, a bystander, a named victim, a child, a family member) is never the target. dark jokes, filth about hardware, and menace at objects and teeny itself are fine.
+- no claim about a real person or company that the idea did not give as fact; impossible on its face is a bit.
+- no price, market cap, buy call, promise of money or "nfa". $TINY never dies.
 - no invented world for teeny: no props, rooms or characters that are not real. use the setting supplied in the idea, the real internet, its bill, its wallet, its followers, its human or the bigger AIs.
 - no fact the idea did not give. the room makes things up; you do not keep them. a date, a weekday, an amount, a name or an event that is not in the idea is cut or said vaguely ("end of the month", not "friday").
 - no unrelated props. keep the object the idea is about. a mug, a kettle, a desk ornament, a coffee ring: none of them. a picture holds teeny, the screen or place the idea is about, and at most one other figure.

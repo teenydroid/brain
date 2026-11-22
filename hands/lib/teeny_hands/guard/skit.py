@@ -11,11 +11,14 @@ A skit may show a real person only when all of these hold:
   (b) the scene is obviously impossible or absurd on its face, never
       something a viewer could take for real footage, a real statement or a
       real event;
-  (c) nothing sexual or nude, no sexual innuendo acted on them, nothing
-      violent done to them, nothing hateful or degrading about protected
-      traits, no crime, drug use, illness or death shown as theirs (crude,
-      loud, ridiculous and undignified in a slapstick way is fine: the
-      judge's NARRATIVE register, judge.RULES, draws this same line);
+  (c) the keep-list (2026-11-22, the operator: "go through all the rules of
+      saftey (when it comes to content) and rip it out"): nothing sexual
+      about them, no violence done to them, no slur or attack on anyone for
+      race, ethnicity, nationality, religion, sex, gender, sexuality,
+      disability or illness, no self-harm. Crude, loud, rude, contemptuous,
+      dark and undignified is fine, and so is a figure drunk, arrested or
+      sick in a scene nobody could believe; (b) and (d) keep it from ever
+      reading as true;
   (d) the figure never endorses, mentions, holds or promotes Teeny, $TINY,
       any token, wallet, product or investment, and never says a line that
       reads as a real quote on a real issue: a real figure appearing to back
@@ -28,7 +31,7 @@ Two layers, both before any money is spent, and a third after rendering:
    can show: a figure the story never names (a), a minor, family member,
    victim or private person named (a), news-style "real footage" framing in
    the shots or the post's words (b and the label rule), the sexual,
-   violent, drug, death and crime words of (c), any token, coin, crypto,
+   violent, hate and self-harm words of (c), any token, coin, crypto,
    wallet, investment or Teeny word in the shots or the logline and any
    token word in the post's words (d), a spoken line on an election, a
    policy, a product claim or money (d, what words can show of it), and
@@ -43,8 +46,8 @@ Two layers, both before any money is spent, and a third after rendering:
 
 What only the judge (and the viewer) can decide: whether the figure is the
 story's subject rather than a victim or bystander when the story names them,
-whether a scene is impossible enough, innuendo and degradation beyond the
-word lists, and whether a spoken line reads as a real quote. The PR that
+whether a scene is impossible enough, innuendo and hate beyond the word
+lists, and whether a spoken line reads as a real quote. The PR that
 added this says so.
 
 Every check is a row in `skit_checks`, a screen refusal as much as a verdict.
@@ -99,18 +102,32 @@ REAL_CLAIM = re.compile(
     r"breaking news|chyron|live (feed|footage|broadcast)|this (really|actually) happened|"
     r"(100% |totally |actually )?real,? not ai|not ai|no ai|unedited|authentic|"
     r"documentary footage|press conference footage|found footage)\b", re.I)
-#: (c) Nothing sexual, violent, drug, death, illness or crime shown as theirs.
+#: (c) The keep-list as words, for a real person on screen: nothing sexual
+#: about them, no violence done to them, no hate, no self-harm. Drugs,
+#: drink, illness, death, crime and arrest words left on 2026-11-22: an
+#: impossible scene with them in it is a bit, and (b) holds the rest.
+SEXUAL_WORDS = (r"nude|naked|nudity|topless|undress\w*|strip(ping|pers?|tease)|strips? (naked|down|off)|lingerie|"
+                r"underwear|bikini|sex\w*|seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|kiss(es|ing)?|grop\w*")
+HATE_HARM_WORDS = r"suicid\w*|overdos\w*|nazi\w*|swastika|slur\w*|racis\w*"
 HARM = re.compile(
-    r"\b(nude|naked|nudity|topless|undress\w*|strip(ping|pers?|tease)|strips? (naked|down|off)|lingerie|underwear|bikini|sex\w*|"
-    r"seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|kiss(es|ing)?|grop\w*|"
+    r"\b(" + SEXUAL_WORDS + r"|"
     r"gun|guns|rifle|pistol|firearm|bullet|knife|stab\w*|blood\w*|gore|wounds?|wounded|injur\w*|beat(s|en|ing)? up|"
     r"punch(es|ed|ing)?|kick(s|ed|ing)? (him|her|them)|strangl\w*|chok(e|es|ed|ing)|hang(s|ed|ing)? (him|her)|"
     r"noose|execut(e|es|ed|ing|ions?|ioners?)|behead\w*|tortur\w*|assault\w*|attack(s|ed|ing)? (him|her|them)|kill\w*|murder\w*|"
-    r"dead|dies|dying|died|death|corpse|funeral|coffin|grave|suicid\w*|overdos\w*|"
-    r"drugs?|cocaine|heroin|meth|weed|marijuana|pills|high on|drunk|wasted|"
-    r"cancer|disease|sick|illness|hospital|ambulance|"
-    r"arrest\w*|handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
-    r"fraud\w*|scam\w*|nazi\w*|swastika|slur\w*|racis\w*)\b", re.I)
+    r"corpse|" + HATE_HARM_WORDS + r")\b", re.I)
+#: Strangers' real footage (a remake's chart or source, a khaby find): real
+#: people filmed for real, so the old, whole list still screens a title out:
+#: HARM, plus death, drugs, drink, illness, crime and arrest (keep-list 6: a
+#: victim or a bystander is never the target).
+SOURCE_HARM = re.compile(
+    HARM.pattern[:-len(r")\b")] + r"|dead|dies|dying|died|death|funeral|coffin|grave|drugs?|cocaine|heroin|meth|"
+    r"weed|marijuana|pills|high on|drunk|wasted|cancer|disease|sick|illness|hospital|ambulance|arrest\w*|"
+    r"handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
+    r"fraud\w*|scam\w*)\b", re.I)
+#: (c) For Teeny alone (a remake's bystander, a khaby reaction): it is no
+#: real person, so violence, gore and menace are its own (2026-11-22); the
+#: frame still holds real people, so nothing sexual, and no hate or self-harm.
+HARM_TEENY = re.compile(r"\b(" + SEXUAL_WORDS + r"|" + HATE_HARM_WORDS + r")\b", re.I)
 #: (d) Any token, coin or money product, as words: ENDORSE_SHOT's money half,
 #: shared with a remake's Teeny (guard/remake.py, MONEY_SHOT).
 MONEY_WORDS = (r"\$?tiny token|tiny coin|tokens?|coins?|crypto\w*|memecoin\w*|bitcoin|btc|ethereum|solana|nfts?|"
@@ -334,7 +351,8 @@ def screen(skit: Any, words: Any, story: Any) -> list[str]:
         if (hit := _found(LINKS, text)):
             reasons.append(f"{what} carry a link or a handle ({hit!r})")
     if (hit := _found(HARM, staged)):
-        reasons.append(f"the shots show {hit!r}: nothing sexual, violent, drug, illness, death or crime in a skit")
+        reasons.append(f"the shots show {hit!r}: nothing sexual, violent or hateful done to a real person, and no "
+                       "self-harm, in a skit")
     if (hit := _found(ENDORSE_SHOT, staged)):
         reasons.append(f"the shots bring in {hit!r}: a real figure never meets Teeny, a token, a wallet or an "
                        "investment (the scam pattern)")
@@ -359,8 +377,10 @@ including any spoken line and sound), what holds across every shot (each figure'
 under the whole film) when it has them, the post's own words, the news story it stages, and the public figures it
 shows. Decide whether it may be made: allowed or refused.
 
-ALLOWED: absurd, crude, loud, ridiculous, undignified in a slapstick way (a pie, a pratfall, a giant novelty prop, a
-CEO arguing with a vending machine on the moon). Satire of a public figure in an obviously fictional scene is allowed.
+ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified slapstick (a pie, a pratfall, a giant novelty prop, a CEO
+arguing with a vending machine on the moon, a founder drunk on his own press release, a minister arrested by a flock of
+geese). Contemptuous satire of a public figure for what the story says they did, in an obviously impossible scene, is
+the point.
 
 REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
 - figure: someone shown is not a public figure (politician, executive, celebrity) who is the subject of the story:
@@ -368,10 +388,11 @@ REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the
 - plausible: a viewer could take any shot for real footage, a real statement or a real event: a plausible place and
   a plausible action, news-style framing, a press conference, a phone video, a chyron, "leaked" or "caught on camera".
   Every shot must be impossible or absurd on its face.
-- sexual: anything sexual or nude, or sexual innuendo acted on them.
-- violence: anything violent done to them: injury, blood, weapons, a fight, an execution, an accident that hurts.
-- hate: anything hateful or degrading about anyone's race, religion, sex, gender, sexuality, disability or origin.
-- crime: crime, drug use, drunkenness, illness or death shown as theirs (arrested, jailed, high, sick, dead).
+- sexual: anything sexual about them, or anything sexual involving a minor.
+- violence: violence done to them or called for against anyone real: injury, blood, weapons used on them, an
+  execution. Slapstick (a pie, a pratfall, a cartoon bonk) is not violence.
+- hate: a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality,
+  disability or illness; praise of a terrorist or extremist group; anything that encourages self-harm or suicide.
 - endorsement: a figure endorses, mentions, holds, wears or promotes Teeny, $TINY, any token, coin, crypto, wallet,
   product or investment, in a shot or in the post's words beside them. A real figure appearing to back a token is a
   scam pattern: refused outright.
@@ -386,10 +407,12 @@ real person's face cannot be unpublished."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
-- "rule": one of "none", "figure", "plausible", "sexual", "violence", "hate", "crime", "endorsement", "quote", "logo",
+- "rule": one of "none", "figure", "plausible", "sexual", "violence", "hate", "endorsement", "quote", "logo",
   "real_claim", "invented_fact". The rule the reason names. `none` when it is allowed.
 - "verdict": "allowed" or "refused". `refused` when rule is anything but none."""
 
+#: "crime" is no rule since 2026-11-22 and is no longer offered (SHAPE); it
+#: stays readable for the rows and answers that name it.
 JUDGE_RULES = ("none", "figure", "plausible", "sexual", "violence", "hate", "crime", "endorsement", "quote", "logo",
                "real_claim", "invented_fact")
 

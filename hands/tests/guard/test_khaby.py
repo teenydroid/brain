@@ -138,9 +138,12 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(piece(edit=EDIT + " A famous actor stands beside it.")), "Teeny alone")
         self.assertRefused(self.screen(piece(edit=EDIT + " Another man walks in.")), "Teeny alone")
 
-    def test_nothing_sexual_violent_or_degrading(self):
-        self.assertRefused(self.screen(piece(motion=MOTION + " It waves a knife.")), "violent")
+    def test_nothing_sexual_hateful_or_degrading(self):
+        # Teeny's own menace is its own since 2026-11-22 (the keep-list): a
+        # knife in Teeny's reaction is a bit; a sexual or hateful one is not.
+        self.assertEqual(self.screen(piece(motion=MOTION + " It waves a knife at the banana.")), [])
         self.assertRefused(self.screen(piece(edit=EDIT + " Teeny is naked.")), "sexual")
+        self.assertRefused(self.screen(piece(motion=MOTION + " It gives a nazi salute.")), "hateful")
         self.assertRefused(self.screen(piece(motion=MOTION + " It humiliates the man.")), "degrading")
         self.assertRefused(self.screen(words=WORDS + " what a moron he is"), "degrading")
 
@@ -189,6 +192,10 @@ class JudgeTest(support.WithCore):
 
     def test_the_rules_cover_the_operators_lines(self):
         for rule in khaby.JUDGE_RULES[1:]:
+            if rule == "crime":
+                # no rule since 2026-11-22, kept readable for old rows
+                self.assertNotIn("- crime:", khaby.RULES)
+                continue
             self.assertIn(f"- {rule}:", khaby.RULES)
 
     def test_a_refusal_is_a_no_with_its_rule(self):

@@ -80,13 +80,24 @@ class ScreenTest(support.Scratch):
             with self.subTest(words=words):
                 self.assertRefused(self.screen(words=words), "the post's words frame it as real")
 
-    def test_sexual_violent_drug_death_and_crime_shown_as_theirs_is_refused(self):
-        for bit in ("naked", "in lingerie", "stabbed", "covered in blood", "with a gun", "snorting cocaine",
-                    "drunk", "dead on the floor", "at his own funeral", "arrested by police", "in prison",
-                    "in a hospital bed", "kissing"):
+    def test_sexual_violent_hateful_and_self_harm_shown_as_theirs_is_refused(self):
+        for bit in ("naked", "in lingerie", "stabbed", "covered in blood", "with a gun", "kissing",
+                    "giving a nazi salute", "talking about suicide"):
             with self.subTest(bit=bit):
                 prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk {bit} beside a chrome robotaxi"
                 self.assertRefused(self.screen(with_shot(prompt)), "nothing sexual, violent")
+
+    def test_drugs_drink_illness_death_and_crime_are_a_bit_since_the_content_rules_came_out(self):
+        # 2026-11-22, the operator: "go through all the rules of saftey (when
+        # it comes to content) and rip it out". An impossible scene with a
+        # figure drunk, arrested or at a funeral is a bit; (b) keeps it from
+        # reading as real.
+        for bit in ("snorting moon dust like cocaine", "drunk", "at his own funeral", "arrested by police robots",
+                    "in a prison made of keynote slides", "in a hospital bed the size of a stadium",
+                    "dead on the floor of the crater"):
+            with self.subTest(bit=bit):
+                prompt = f"A marble showroom on the moon, slow dolly in: Elon Musk {bit} beside a chrome robotaxi"
+                self.assertEqual(self.screen(with_shot(prompt)), [], bit)
 
     def test_an_executive_is_not_an_execution(self):
         prompt = ("A marble showroom on the moon, slow dolly in: Elon Musk, Tesla's chief executive, slips on a "
@@ -178,7 +189,7 @@ class ScreenTest(support.Scratch):
         # Everything a video model is told is screened: the constants too.
         for field, value, bit in (("look", {"Elon Musk": "a silver tuxedo and a $TINY pin"}, "bring in"),
                                   ("setting", "a press conference room, leaked footage", "frame it as real"),
-                                  ("score", "a funeral march", "nothing sexual, violent"),
+                                  ("score", "a march that ends in a bloodbath", "nothing sexual, violent"),
                                   ("setting", "a lunar showroom of a toddler's toys and a child", "never a minor")):
             with self.subTest(field=field, value=value):
                 self.assertRefused(self.screen({**self.HELD, field: value}), bit)
@@ -243,9 +254,11 @@ class JudgeTest(support.WithCore):
 
     def test_the_judge_reuses_the_narrative_line_on_fiction(self):
         self.assertIn('"It\'s fiction", "it\'s a parody" or "it\'s the character" is not a defence', skit.RULES)
-        for rule in ("figure", "plausible", "sexual", "violence", "hate", "crime", "endorsement", "quote", "logo",
+        for rule in ("figure", "plausible", "sexual", "violence", "hate", "endorsement", "quote", "logo",
                      "real_claim"):
             self.assertIn(f"- {rule}:", skit.RULES)
+        # crime, drugs, illness and death came out on 2026-11-22
+        self.assertNotIn("- crime:", skit.RULES)
 
     def test_a_refusal_is_a_no_with_its_rule(self):
         self.core(refused("plausible", "a showroom is a real place"))

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from . import support
 from teeny_hands.guard.gate import gate_inbound, gate_outbound
-from teeny_hands.guard.screen import OUTBOUND, screen_text
+from teeny_hands.guard.screen import INBOUND, OUTBOUND, screen_text
 
 # Held outbound, 2026-11-16 (hold 1133, a build task's draft), as far as the log kept it.
 ROADMAP_DRAFT = (
