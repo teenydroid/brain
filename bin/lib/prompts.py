@@ -38,10 +38,10 @@ from the seed when there is none (a fresh checkout, the first boot) and
 never touches either once the live page exists.
 
 There is no LORE.md any more (2026-11-21: the operator cut it; who Teeny is
-lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow. The studio writer also reads
-narrative/VOICE.md, shared with the terminal episodes and the backroom, and
-narrative/CANON.md, Teeny's own best lines (`canon`); its pitch turn shows
-narrative/OBSESSIONS.md (`obsessions`), and the backroom reads both.
+lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow.
+narrative/VOICE.md is shared with the terminal episodes and the backroom;
+narrative/CANON.md, Teeny's own best lines (`canon`), and
+narrative/OBSESSIONS.md (`obsessions`) are the backroom's.
 
 Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
