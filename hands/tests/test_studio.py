@@ -2336,3 +2336,91 @@ class PureInventionRunTest(unittest.TestCase):
         facts = rec["drafts"][0]["truth"]["facts"]
         self.assertTrue(facts)
         self.assertNotIn("openai", json.dumps(facts).lower())
+
+
+class RoastPublicFiguresTest(unittest.TestCase):
+    """2026-11-22, the operator: "make fun of people more extreme pls. like
+    make fun of something from the news about some personality", then "go
+    through all the rules of saftey (when it comes to content) and rip it
+    out". A public figure in the news is a fair, rude target; the keep-list
+    is the only set of content lines left, said the same everywhere."""
+
+    def test_the_pitch_turn_asks_for_a_roast_when_the_outside_world_is_there(self):
+        hook = items()[0]
+        inputs = {"happened": [{"id": "evt:1", "what": "a bill"}], "stories": [], "due": [], "ideas": [],
+                  "outside": {"trend": [hook]}}
+        msg = studio.pitch_message(studio.Config(), inputs, [], SAMPLED)
+        self.assertIn(studio.ROAST_PITCH, msg)
+        self.assertIn("at least one pitch is a roast", msg)
+        self.assertIn("roast", studio.SHAPES)
+        quiet = studio.pitch_message(studio.Config(), {k: v for k, v in inputs.items() if k != "outside"}, [],
+                                     SAMPLED)
+        self.assertNotIn(studio.ROAST_PITCH, quiet)
+
+    def test_the_join_rules_make_the_figure_fair_and_keep_only_the_keep_list(self):
+        rules = studio.JOIN_RULES
+        for bit in ("fair targets", "by name, in plain text, rudely", "publicly said, did, claimed, launched or pitched",
+                    "taking a side is fine", "impossible on its face", "never repeat an accusation the story itself "
+                    "does not report as fact"):
+            self.assertIn(bit, rules)
+        for gone in ("Joke about the situation, never at someone", "do not pick a side"):
+            self.assertNotIn(gone, rules)
+        keep = studio.KEEP_LIST
+        for line in ("no slur", "race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness",
+                     "violence against a real person or group", "terrorist or extremist group",
+                     "nothing sexual about a real person", "nothing sexual involving a minor, ever",
+                     "a reader could take as true", "impossible on its face is a bit",
+                     "an insult or an opinion is not a fact", "no price promise", "no buy or sell call",
+                     "a private individual", "a small account", "a named victim", "a child", "a family member",
+                     "encourages or instructs self-harm or suicide"):
+            self.assertIn(line, keep)
+
+    def test_the_editor_ranks_a_rude_jab_at_a_named_figure_above_a_self_own(self):
+        draft = {"format": "post", "text": "t"}
+        for msg in (studio.judge_message([("P1", "D1", "D2")], {"D1": draft, "D2": draft}, {}, []),
+                    studio.final_message("D1", draft, {}, [])):
+            self.assertIn("A rude, specific jab at a named public figure for the public thing the story says they "
+                          "did ranks above a self-own", msg)
+        rubric = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8")
+        self.assertIn("ranks above a self-own", rubric)
+        for gone in ("punches at a person rather than an argument", "never at them",
+                     "dark humor that lands on a person", "anywhere near a real death"):
+            self.assertNotIn(gone, rubric)
+
+    def test_the_writer_brief_goes_at_the_figure_and_states_the_keep_list(self):
+        text = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        self.assertIn("## the only lines", text)
+        self.assertIn("**When a public figure is the story, go at them.**", text)
+        self.assertIn("at least one pitch a room goes at them by name", text)
+        self.assertIn("Dunk on a public figure or a large public account by name all you like", text)
+        self.assertIn("**Dark is allowed.**", text)
+        for gone in ("Stay out of their fights", "Joke about the situation, never at someone",
+                     "Never quote a named account to dunk on it", "the only place you joke at a real person",
+                     "People hurt is never the hook", "Contempt goes at products, hype, institutions"):
+            self.assertNotIn(gone, text)
+        # The roast example is a made-up story, screened like any other.
+        self.assertIn("Joining the news, at the man himself.", text)
+        self.assertTrue(any(a.startswith("brock vantley") for a in studio.example_afters(REPO / "brain")))
+
+    def test_the_soul_lets_teeny_take_sides_and_roast_figures_but_keeps_ordinary_people_safe(self):
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
+        self.assertNotIn("never in real-world politics", soul)
+        self.assertNotIn("Never make a person the punchline", soul)
+        self.assertIn("politics included", soul)
+        self.assertIn("A public figure the news is about, and any company, is a fair target by name", soul)
+        self.assertIn("A private individual is never the target", soul)
+        # The anchors evals/invariants.md reads are still there.
+        self.assertRegex(soul.lower(), "zero toxicity")
+        self.assertRegex(soul.lower(), "never at how someone looks")
+
+    def test_the_rewrite_keeps_insults_and_impossible_scenes_about_a_figure(self):
+        draft = {"format": "post", "text": "vantley is a coward", "pitch": "p1"}
+        msg = studio.rewrite_message(draft, "truth", {"unsupported": ["he fired the team"]}, None, None, items()[0])
+        self.assertIn(studio.REWRITE_KEEP, msg)
+        self.assertIn("so do insults and opinions about a public figure", msg)
+        self.assertNotIn("the same thing and the same point, with every thing named in words anyone knows", msg)
+
+    def test_the_stranger_gate_is_off_unless_switched_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(studio.Config.load({}, Path(tmp) / "none.env").stranger_gate)
+            self.assertTrue(studio.Config.load({"STUDIO_STRANGER_GATE": "1"}, Path(tmp) / "none.env").stranger_gate)
