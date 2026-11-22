@@ -50,6 +50,13 @@ class LabelPublisher(FakePublisher):
         return got
 
 
+class NoLabelPublisher(FakePublisher):
+    """An older publisher shape: open_issue takes no labels."""
+
+    def open_issue(self, repo, title, body, judge=False):
+        return super().open_issue(repo, title, body, judge=judge)
+
+
 class Routed(EvolveCase):
     def setUp(self):
         super().setUp()
@@ -210,7 +217,7 @@ class Routed(EvolveCase):
         self.refusals("moltbook-curate", 6)
         self.tried_twice("f:refusals:moltbook-curate:duplicate")
         self.live()
-        publisher = FakePublisher()  # no labels argument
+        publisher = NoLabelPublisher()  # no labels argument
         cfg = evolve.load_config()
         got = evolve.route_findings(cfg, self.entries(), evolve.read_findings(cfg), publisher)
         self.assertEqual(len(publisher.issues), 1)
