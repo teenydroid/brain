@@ -694,7 +694,7 @@ class Restarts(EvolveCase):
         out = self.run_gen(1, evaluator=Verdicts(), scheduled=True)
         self.assertTrue(out.get("resumed"), out)
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "skipped this run: generations")
 
     def test_a_generation_from_before_learnings_is_marked_interrupted_not_resumed(self):
         old = evolve.gen_dir(8)
