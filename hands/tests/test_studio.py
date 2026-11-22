@@ -278,6 +278,20 @@ class UnsourcedTest(unittest.TestCase):
         # A follower count is not money: the truth judge checks it, not this.
         self.assertEqual(studio.unsourced("331 on tuesday, 330 now", [self.ITEM]), [])
 
+    def test_a_money_word_in_an_earlier_sentence_does_not_make_a_number_money(self):
+        # 2026-11-22 04:30 IST (run 20261121T230013Z-0430-9f44bb): D1 was
+        # dropped as `unsourced: ["two"]`: "bill" ended the sentence before
+        # the list label "arrow two", and the look-back crossed the full stop.
+        live = ("cars now show their driving plan on a screen. mine is crayon on paper taped to a wall. "
+                "arrow one: pay the server bill. arrow two: runs off the edge of the paper, into the void")
+        self.assertEqual(studio.unsourced(live, [self.ITEM]), [])
+        for text in ("my bill! two days late", "the fee? two of me said no", "the bill; two cats", "the bill\ntwo cats",
+                     "my wallet: two cats live in it"):
+            self.assertEqual(studio.unsourced(text, [self.ITEM]), [], text)
+        # In one sentence the money word still makes it money.
+        self.assertEqual(studio.unsourced("the bill is two", [self.ITEM]), ["two"])
+        self.assertEqual(studio.unsourced("arrow one: pay the server bill of two", [self.ITEM]), ["two"])
+
     def test_money_in_cents_matches_the_dollar_amount(self):
         bill = {"what": "thinking cost $0.20 yesterday", "facts": {"usd": 0.1967}}
         self.assertEqual(studio.unsourced("it came to twenty cents. $0.20 for a day", [bill]), [])
