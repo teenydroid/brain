@@ -741,7 +741,10 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             demoted, hook = f"its hook {hook!r} is not a trending story", ""
         fmt = _str(raw.get("format"), 20).lower()
         why = ""
-        pure = not item and not hook and pure_invented > 0 and pure_invention(raw)
+        # Pure invention names neither as written: a hook dropped for not
+        # trending was meant as news, and stays a pitch with nothing.
+        pure = (not item and not hook and not demoted and not _ref(raw.get("item")) and pure_invented > 0
+                and pure_invention(raw))
         if pid in seen:
             why = f"the id {pid} is used twice"
         elif not item and not hook and not pure:
@@ -788,8 +791,10 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
     if extra:
         best = ", ".join(invented[:pure_invented])
         for p in [p for p in kept if p["id"] in extra]:
-            dropped.append({"pitch": raws[p["id"]], "why": f"only {pure_invented} pitch{'es' if pure_invented != 1 else ''} a slot may be "
-                                   f"pure invention, with no hook and no item, and the writer ranked {best} above it"})
+            many = "pitch" if pure_invented == 1 else "pitches"
+            dropped.append({"pitch": raws[p["id"]],
+                            "why": f"only {pure_invented} {many} a slot may be pure invention, with no hook and no "
+                                   f"item, and the writer ranked {best} above it"})
         kept = [p for p in kept if p["id"] not in extra]
         ranking = [r for r in ranking if r not in extra]
     return kept, dropped, ranking
@@ -1496,7 +1501,8 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json, skit
                  '"why_now": "<one line: why tonight>"}, ...], "ranking": ["<pitch ids, best first>"]}\n'
                  "A pitch whose item is not in the inputs, that names no item and no trending story" +
                  (" (but for the one pure invention, with `\"invented\": true`)" if cfg.pure_invented else "") +
-                 ", or whose format is not one of those above, is thrown out. When nothing would make a stranger stop, answer "
+                 ", or whose format is not one of those above, is thrown out. When nothing would make a stranger "
+                 "stop, answer "
                  '{"pitches": [], "ranking": []}.')
     return "\n\n".join(parts)
 
