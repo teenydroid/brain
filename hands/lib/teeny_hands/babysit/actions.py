@@ -277,6 +277,8 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
             errors.append({"repo": result["repo"], "number": result["number"], "error": str(exc)})
     out: Json = {"counts": listed["counts"], "audited": len(listed["pulls"]), "triaged": triaged, "merged": merged,
                  "errors": errors}
+    if judged is not None:
+        out["rollback"] = judged
     try:
         out["deploy"] = deploy.run()
     except hand.HandError as exc:
