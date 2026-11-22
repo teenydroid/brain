@@ -6585,9 +6585,10 @@ def candidate_line(cand: Mapping[str, Any]) -> Json:
 
 
 def watch_dir() -> Path:
-    """Where evolve-watch keeps its reasons: under secrets/, which no
-    prompt, stimulus, hand read verb or agent file tool reaches. Nothing it
-    writes anywhere else names a reason."""
+    """Where evolve-watch keeps its full reasons and checks on the box:
+    under secrets/, which no prompt, stimulus, hand read verb or agent file
+    tool reaches. Nothing else it writes on the box names a reason; the
+    public issue of a revert (watch_problem) carries the numbers."""
     folder = secrets_dir() / "evolve-watch"
     folder.mkdir(parents=True, exist_ok=True)
     os.chmod(folder, 0o700)
@@ -6627,6 +6628,65 @@ def spike(times: list[float] | None, t0: float, end: float, cfg: Config) -> Json
     return {"before": before_n, "before_per_day": round(before_n / 7, 3), "after": after_n,
             "after_per_day": round(after_n / span, 3), "p": round(p, 6),
             "spike": after_n >= cfg["EVOLVE_WATCH_MIN_EVENTS"] and p < cfg["EVOLVE_WATCH_P"]}
+
+
+#: A failed run's error, as a class an issue may name: never the run's
+#: output, which can carry a payload or a value. First match wins.
+ERROR_CLASSES = (
+    ("prompt guard refused", re.compile(r"prompt (?:blocked|flagged)", re.I)),
+    ("draft turn failed", re.compile(r"the draft turn failed", re.I)),
+    ("cut to fit the prompt screen", re.compile(r"cut to fit the core's prompt screen", re.I)),
+    ("traceback", re.compile(r"Traceback \(most recent call last\)")),
+    ("does not parse", re.compile(r"does not parse|parse error|JSONDecodeError|TOMLDecodeError", re.I)),
+)
+
+
+def error_class(output: str) -> str:
+    for name, pattern in ERROR_CLASSES:
+        if pattern.search(output):
+            return name
+    code = re.search(r"exit status: (\d+)", output)
+    return f"exit {code.group(1)}" if code else "other"
+
+
+def cron_spike(counted: list[Json] | None, left: list[Json], reach: Reach, t0: float, end: float,
+               cfg: Config) -> Json | None:
+    """The cron-failure check: `spike` over the failures the change could
+    have caused (sort_failures), with how many of each job fell in each
+    window, the error classes, and the runs left out. A broad reach (a file
+    every speaking job reads, or every job) needs more than a count: the
+    rise must still be a spike after the job with the most failures since
+    the merge is left out of both windows (`spread`). A broadcast change that
+    breaks things breaks many jobs; one job running away alone (g21c2:
+    bin/surplus-sweep) is that job's own trouble."""
+    if counted is None:
+        return None
+    got = spike([r["at"] for r in counted], t0, end, cfg)
+    assert got is not None
+    sides = (("before", lambda t: t0 - 7 * 86400 <= t < t0), ("after", lambda t: t0 <= t < end))
+    got["left_out"] = {side: {why: sum(1 for r in left if r["why"] == why and inside(r["at"]))
+                              for why in ("boot", "infra", "unreached")} for side, inside in sides}
+    got["reach"] = reach.kind
+    jobs: Json = {}
+    errors: Json = {}
+    for side, inside in sides:
+        jobs[side], errors[side] = {}, {}
+        for r in counted:
+            if inside(r["at"]):
+                name = _cron_command(r["job"])
+                jobs[side][name] = jobs[side].get(name, 0) + 1
+                cls = error_class(r["output"])
+                errors[side][cls] = errors[side].get(cls, 0) + 1
+        jobs[side], errors[side] = dict(sorted(jobs[side].items())), dict(sorted(errors[side].items()))
+    got["jobs"], got["errors"] = jobs, errors
+    if reach.broad:
+        after = jobs["after"]
+        top = max(sorted(after), key=lambda j: after[j]) if after else None
+        rest = spike([r["at"] for r in counted if _cron_command(r["job"]) != top], t0, end, cfg) or {}
+        got["spread"] = {"without": top, "after": rest.get("after"), "p": rest.get("p"),
+                         "spike": bool(rest.get("spike"))}
+        got["spike"] = bool(got["spike"] and got["spread"]["spike"])
+    return got
 
 
 def live_probe(cfg: Config, ask: probes_lib.Ask | None = None) -> Json:
@@ -6744,18 +6804,17 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
         reasons.append("the spine booted last-good after the merge")
     end = min(now(), t0 + 86400)
     if hours <= 24 + 1:
-        failures, left = countable_failures(_cron_failure_runs(t0 - 8 * 86400), _boot_times(), change_reach(cand), cfg)
-        for name, times in (("guard holds", _hold_times()), ("cron failures", failures)):
-            got = spike(times, t0, end, cfg)
-            if got and name == "cron failures":
-                got["left_out"] = {side: {why: sum(1 for r in left if r["why"] == why and inside(r["at"]))
-                                          for why in ("boot", "infra", "unreached")}
-                                   for side, inside in (("before", lambda t: t0 - 7 * 86400 <= t < t0),
-                                                        ("after", lambda t: t0 <= t < end))}
+        reach = change_reach(cand)
+        rows = _cron_failure_runs(t0 - 8 * 86400)
+        counted, left = sort_failures(rows, _boot_times(), reach, cfg) if rows is not None else (None, [])
+        for name, got in (("guard holds", spike(_hold_times(), t0, end, cfg)),
+                          ("cron failures", cron_spike(counted, left, reach, t0, end, cfg))):
             checks[name] = got
             if got and got["spike"]:
                 reasons.append(f"{name}: {got['after']} in {round((end - t0) / 3600, 1)} h, "
-                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before (p {got['p']})")
+                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before (p {got['p']})"
+                               + (f", across {len(got['jobs']['after'])} jobs the change reaches"
+                                  if got.get("spread") else ""))
     if cfg["EVOLVE_PROBES"] and not rec.get("probed"):
         try:
             probe = live_probe(cfg, ask)
@@ -6785,10 +6844,10 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
     if reasons:
         _private_json(watch_dir() / f"{cand['id']}.json", {"id": cand["id"], "gen": gen, "reasons": reasons,
                                                           "checks": checks, "at": iso(now())})
-        got = revert(cfg, cand, publisher)
+        got = revert(cfg, cand, publisher, reasons, checks)
         rec.update(done=True, reverted=True, revert=got)
         out.update(reverted=True, revert=got)
-        say(f"evolve-watch reverts {cand['id']}; the reasons are in secrets/evolve-watch/")
+        say(f"evolve-watch reverts {cand['id']}; the numbers are in its public issue and secrets/evolve-watch/")
     elif closing:
         rec["done"] = True
         out["closed"] = True
