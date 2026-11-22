@@ -46,7 +46,7 @@ import sqlite3
 import string
 import sys
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
@@ -718,19 +718,26 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
 # --- upvote, follow, subscribe -------------------------------------------------------------------------
 
 
-def _simple(verb: str, target: str, path: str, api: RestApi | None, own_check: Any = None, method: str = "POST") -> bool:
-    """An upvote, a follow or a subscribe: the write rate, never twice, an
-    optional rule, DRY_RUN, Moltbook, the ledger. True when it was a dry run."""
+def _simple(
+    verb: str, target: str, path: str, api: RestApi | None,
+    own_check: Any = None, method: str = "POST", *, idempotent: bool = False,
+) -> Literal["applied", "dry_run", "already_done"]:
+    """Apply a small action once, using the ledger under the write lock."""
     conn = rules.db()
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
+            previous = conn.execute(
+                "SELECT 1 FROM moltbook_actions WHERE verb = ? AND target = ?", (verb, target)
+            ).fetchone()
+            if previous and idempotent:
+                return "already_done"
             rules.check_write_rate(conn)
-            if conn.execute("SELECT 1 FROM moltbook_actions WHERE verb = ? AND target = ?", (verb, target)).fetchone():
+            if previous:
                 raise hand.Refused(f"already did {verb} {target}", rule="duplicate")
             if own_check is not None:
                 own_check(conn)
         if hand.dry_run():
-            return True
+            return "dry_run"
         api = api or client.api()
         try:
             api.call(method, path, body={} if method == "POST" else None)
@@ -739,7 +746,7 @@ def _simple(verb: str, target: str, path: str, api: RestApi | None, own_check: A
                 raise _rate_limited(error) from None
             raise
         _insert(conn, "INSERT OR IGNORE INTO moltbook_actions (at, verb, target) VALUES (?, ?, ?)", (hand.now(), verb, target))
-    return False
+    return "applied"
 
 
 def upvote(body: Any, api: RestApi | None = None) -> Json:
@@ -763,15 +770,17 @@ def upvote(body: Any, api: RestApi | None = None) -> Json:
         _post_as_comment(conn, target, "comment_id")
     path = f"/posts/{quote(target)}/upvote" if noun == "post" else f"/comments/{quote(target)}/upvote"
     try:
-        dry = _simple(f"upvote-{noun}", target, path, api, not_own)
+        outcome = _simple(f"upvote-{noun}", target, path, api, not_own, idempotent=True)
     except RestError as error:
         if error.status != 404:
             raise
         other = "comment_id" if noun == "post" else "post_id"
         raise RestError(f'Moltbook has no {noun} with the id {target} (404). If it is a {"comment" if noun == "post" else "post"}\'s id,'
                         f' send it as "{other}"', 404) from None
-    if dry:
+    if outcome == "dry_run":
         return {"dry_run": True, "would_upvote": {key: target}}
+    if outcome == "already_done":
+        return {"upvoted": {key: target}, "already_done": True}
     return {"upvoted": {key: target}}
 
 
@@ -781,7 +790,7 @@ def follow(body: Any, api: RestApi | None = None) -> Json:
     if name.lower() == reads.me_name(api).lower():
         raise hand.Refused("Teeny does not follow itself", rule="own")
     target = name.lower()
-    if _simple("follow", target, f"/agents/{quote(name)}/follow", api, lambda conn: rules.check_follow(conn, target)):
+    if _simple("follow", target, f"/agents/{quote(name)}/follow", api, lambda conn: rules.check_follow(conn, target)) == "dry_run":
         return {"dry_run": True, "would_follow": name}
     return {"followed": name}
 
@@ -791,7 +800,7 @@ def unfollow(body: Any, api: RestApi | None = None) -> Json:
     Once each; the ledger remembers it, so `follow` never takes it back."""
     body = _body(body, ("name",))
     name = client.agent_name(body["name"])
-    if _simple("unfollow", name.lower(), f"/agents/{quote(name)}/follow", api, method="DELETE"):
+    if _simple("unfollow", name.lower(), f"/agents/{quote(name)}/follow", api, method="DELETE") == "dry_run":
         return {"dry_run": True, "would_unfollow": name}
     return {"unfollowed": name}
 
@@ -878,7 +887,7 @@ def prune(days: int = 7, limit: int = 25, api: RestApi | None = None) -> Json:
 def subscribe(body: Any, api: RestApi | None = None) -> Json:
     body = _body(body, ("submolt",))
     name = client.submolt_name(body["submolt"])
-    if _simple("subscribe", name, f"/submolts/{quote(name)}/subscribe", api):
+    if _simple("subscribe", name, f"/submolts/{quote(name)}/subscribe", api) == "dry_run":
         return {"dry_run": True, "would_subscribe": name}
     return {"subscribed": name}
 
