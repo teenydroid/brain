@@ -149,6 +149,53 @@ class TruthJudgeTest(support.WithCore):
         self.assertIn("a callback to an earlier post or a running story", message)
         self.assertNotIn("last day", message)
 
+    def test_the_judge_is_told_crowd_hyperbole_is_a_figure_of_speech(self):
+        # 2026-11-22: a live draft failed for "everyone clapped" alone. How
+        # the world reacted, said as a figure of speech, is never a claim; a
+        # number of people, a quote or a named reaction still is.
+        core = self.core(said(True))
+        anchor.truth(CLAPPED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn(CLAPPED, message)
+        self.assertIn("Crowd-hyperbole about how the world reacted is a figure of speech, never a hard claim", message)
+        for figure in ('"everyone clapped"', '"the whole internet lost it"', '"everyone\'s doing the math on it"'):
+            self.assertIn(figure, message)
+        self.assertIn("a number of people, a quote, or a reaction by a named person or company", message)
+        # the old "how widely it is discussed" bar is gone
+        self.assertNotIn("a claim that everyone is talking about it is unsupported", message)
+
+    def test_the_judge_is_told_a_hedge_said_flatly_is_supported_by_its_substance(self):
+        # 2026-11-22: "nobody has checked it yet" failed against facts saying
+        # available reporting does not establish independent verification.
+        core = self.core(said(True))
+        anchor.truth(UNCHECKED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("A hedge in the FACTS said flatly in the draft is supported when the FACTS support its "
+                      "substance", message)
+        self.assertIn('"nobody has checked it yet"', message)
+        self.assertIn("does not establish independent verification", message)
+
+    def test_the_judge_is_told_a_bit_may_borrow_a_real_thing_as_its_prop(self):
+        core = self.core(said(True))
+        anchor.truth(UNCHECKED, PROOF_FACTS)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("A bit may borrow a real thing as its prop", message)
+        self.assertIn('"i proved it last night at 3am"', message)
+        self.assertIn("only what it says the real thing, or a real person, did or is, is checked", message)
+
+    def test_the_judge_still_checks_a_real_persons_deeds_and_counts_the_facts_give(self):
+        # Real drafts it rightly failed, 2026-11-21/22: an invented deed of
+        # the human who keeps Teeny's code, and "merged two of mine" when the
+        # facts record one. The loosening leaves both failing.
+        core = self.core(said(False, ["the human who keeps my code went to fill the kettle and left his keyboard "
+                                      "unlocked"]), said(False, ["last night he merged two of mine"]))
+        for text in (KETTLE, MERGED_TWO):
+            self.assertFalse(anchor.truth(text, MERGE_FACTS)["truthful"], text)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("(the human who keeps the agent's code too)", message)
+        self.assertIn("a figure or an outcome the story does not give", message)
+        self.assertIn("A figure of speech never covers a deed, a quote or a count given to a real person", message)
+
     def test_asks_the_guards_judge_model_when_one_is_set(self):
         core = self.core(said(True))
         self.secrets("SAFETY_JUDGE_MODEL=small-judge\n")
