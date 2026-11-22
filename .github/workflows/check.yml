@@ -35,6 +35,15 @@ jobs:
       # The image's modules stage copies OpenHuman scripts piecemeal; their
       # imports must come along (this job has vendor/openhuman checked out).
       - run: bin/test/dockerfile_test.sh
+      # The one hands test that reads vendor/openhuman's source: the hands
+      # shards skip it (they do not check the submodule out), so it runs here.
+      - name: Prompt test that reads vendor/openhuman
+        working-directory: hands/tests
+        env:
+          TEENY_REQUIRE_OPENHUMAN: "1"
+        run: >-
+          python3 -m unittest -v
+          test_prompts.PromptsTest.test_the_runtimes_instructions_update_note_is_named_as_the_operators_own
       # OpenHuman links X11, xdo, evdev and ALSA on Linux.
       - name: Install system headers
         run: |
