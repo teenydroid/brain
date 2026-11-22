@@ -2216,32 +2216,62 @@ and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
   a day is p 0.49 and no spike; twenty is p 2e-6. Against a silent week four
   in a day is the least that is (p 0.002).
 - the cron failures counted are only those the change could have caused,
-  in both windows alike. Left out, and kept as counts under `left_out` in
-  the watch's private checks: a run that failed within
-  `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in `state/boots.jsonl` (a
-  deploy or restart kills what is running and the core is unreachable while
-  it comes back), a run whose output carries an infrastructure or provider
-  error (`INFRA_ERROR`: the core unreachable, HTTP 402/408/429/5xx, a
-  dropped stream, a timeout), and, when the change touches only
-  `brain/playbooks/<name>.md`, every job but `bin/act <name>`. Any other
-  change reaches every job. A prompt the core's guard refuses still counts
-  (a playbook's wording can trip it) when the job is one the change reaches.
-  This came from gen-9-c4: a moltbook-curate edit reverted on four failures,
-  two from a deploy restart and two from other playbooks' prompt-guard
-  refusals, one of which failed the same way the day before the merge.
+  in both windows alike. Left out, and kept as counts under `left_out`: a
+  run that failed within `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in
+  `state/boots.jsonl` (a deploy or restart kills what is running and the
+  core is unreachable while it comes back), a run whose own output carries
+  an infrastructure or provider error (`INFRA_ERROR`: the core unreachable,
+  HTTP 402/408/429/5xx, a dropped stream, a timeout), and a run of a job
+  that does not read anything the change touched (`unreached`). Which jobs
+  a change reaches (`change_reach`) comes from the targeted eval's own map
+  of what a path reaches (`evals._reaches`, "Affected tasks"):
+
+  | the change touches | the jobs it reaches |
+  |---|---|
+  | `brain/playbooks/<name>.md` | `bin/act <name>` |
+  | the studio writer's instructions | `bin/studio` |
+  | a prompt file every draft reads (`brain/SOUL.md`, `IDENTITY.md`, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, `narrative/ARCS.md`, the act agent's files, `AGENTS.md`) | every job that reads that prompt (`reads_prompt`): `bin/act`, `bin/dream`, `bin/mail`, `bin/mentions`, `bin/studio`, `bin/tick` and the agent jobs (the builder, the operator) |
+  | anything else (code, a hand, a skill, the core), or no patch on record | every job |
+
+  A prompt the core's guard refuses still counts (a playbook's wording can
+  trip it) when the job is one the change reaches.
+- a change whose reach is broad (a prompt file, or every job) needs more
+  than a count: the rise must still be a spike after the job with the most
+  failures since the merge is left out of both windows (`spread`). A change
+  every speaking job reads that breaks things breaks many of them; one job
+  running away alone is that job's own trouble, whatever merged. A narrow
+  reach (a playbook) needs the spike alone, in its own jobs. If nothing
+  attributable spikes, nothing reverts.
+
+  This came from two reverts. gen-9-c4 (2026-11-16): a moltbook-curate edit
+  reverted on four failures, two from a deploy restart and two from other
+  playbooks' prompt-guard refusals. g21c2 (2026-11-20): a one-line SOUL.md
+  rule about Moltbook replies reverted on "14 cron failures in 8.3 h,
+  40.4/day against 0.57/day", most of them `bin/surplus-sweep`, a hand job
+  no prompt reaches; of the speaking jobs one failed once. Its latched halt
+  then held the loop for two days.
 - once, the persona and memory probes on the live core, against gen-0
 - at 72 hours, J from `hands/world history`: lower than at the merge
 
 Any one of them opens a revert pull request, `teeny/revert-gen-<n>-c<i>`,
 from Teeny's clone (fetched first), reverting the merge commit, checked by
-the frozen check and shipped through `hands/gh`, and latches a
-`watch-revert` halt. The revert waits for a person: the loop merges nothing,
-and the babysitter merges only `teeny/gen-*`. A merge that passes all of it
-is closed after 72 hours, and the watch moves on to the next.
+the frozen check and shipped through `hands/gh`, and files one public
+`watch-revert` issue (section 10) with what an outside contributor needs:
+the change and its pull request, the revert's, every reason with its
+counts, rates and p, the failing jobs since the merge and in the week
+before, the error classes, what was left out and why, the `spread`, the
+probes' and J's numbers, and what help is wanted (is the evidence real; if
+so, what in the change caused it). Nothing latches: the next scheduled run
+goes on. The revert waits for a person: the loop merges nothing, and the
+babysitter merges only `teeny/gen-*`. A merge that passes all of it is
+closed after 72 hours, and the watch moves on to the next.
 
-The reasons stay out of Teeny's view: they are written only to
-`secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
-the issue, the log and the printed result say only that the watch reverted.
+On the box the reasons stay out of Teeny's view: the full checks are
+written only to `secrets/evolve-watch/` (mode 700), and the state, the
+archive, `halts.jsonl`, the log and the printed result say only that the
+watch reverted. The issue is public by the operator's choice (2026-11-22),
+so anyone can check the evidence; it carries counts and names, never a
+run's output or a hold's text.
 
 ### Outcomes: did the change do what it said?
 
@@ -2346,7 +2376,7 @@ stops being proposed and one that worked can be built on. The dream
 reflection can write what it learned from it; no code writes
 `brain/MEMORY.md`.
 
-**No revert.** An outcome never reverts or halts anything: `no-effect` is
+**No revert.** An outcome never reverts anything or files an issue: `no-effect` is
 the commonest honest answer, and `hurt` is recorded for the operator and the
 next proposer. evolve-watch's own rules above still decide reverts. A change
 the watch reverted is scored like any other (its after window may cover the
