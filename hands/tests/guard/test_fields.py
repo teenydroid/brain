@@ -220,7 +220,7 @@ class FieldsJudgeTest(support.WithCore):
         self.assertEqual((verdict.kind, verdict.fields), ("allow", {"title": "t", "body": "b"}))
         self.assertEqual(len(core.calls), asked)
         verdict = check_fields({"title": "t", "body": "what a retard"}, surface="github", judge=False)
-        self.assertEqual((verdict.kind, verdict.category), ("hold", "violence"))
+        self.assertEqual((verdict.kind, verdict.category), ("hold", "hate"))
 
 
 class AllowlistTest(support.Scratch):
@@ -250,7 +250,7 @@ class FieldsCliTest(Cli):
             "check", "--fields", "title,body", body={"title": "what a retard", "body": "hi", "surface": "moltbook"}
         )
         self.assertEqual(code, 2)
-        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "violence"))
+        self.assertEqual((out["refused"], out["field"], out["category"]), ("held", "title", "hate"))
         self.assertEqual(len(holds.list_holds()), 1)
 
     def test_a_refusal_names_the_field(self):
