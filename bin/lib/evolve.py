@@ -3323,7 +3323,7 @@ def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:
     if isinstance(check, Mapping) and check.get("kind") in evolve_outcomes.KINDS and check["kind"] != "judged":
         src = dataclasses.replace(outcome_sources(cfg), tree=tree)
         try:
-            before = evolve_outcomes.count(check, src, now() - days * DAY, now())
+            before = evolve_outcomes.count(check, src, now() - days * 86400, now())
         except Exception as exc:  # noqa: BLE001 - an unreadable ledger is an unpowered check, never a crash
             say(f"the check's history could not be counted: {str(exc)[:160]}")
     return evolve_selection.power(check, before, days, power_need(cfg), source_cuts(tree, base))
