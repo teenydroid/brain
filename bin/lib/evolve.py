@@ -6387,19 +6387,18 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
                     scheduled: bool = False) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
-    if halt_path().exists():
-        latched = json.loads(halt_path().read_text(encoding="utf-8"))
-        return {"ok": True, "skipped": f"halted ({latched.get('kind')}) until `bin/evolve resume`", "halt": latched}
+    retire_stale_halt()
     if not wait_for_dream():
         return {"ok": True, "kind": "busy", "skipped": "a dream is still writing MEMORY.md"}
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
     progress["publisher"] = publisher
     resume_gen = resumable()
-    halts = halts_before(cfg, new_generation=resume_gen is None, scheduled=scheduled)
-    if halts:
-        return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
-                "halts": [stop(cfg, h, publisher) for h in halts]}
+    skips, found = preconditions(cfg, new_generation=resume_gen is None, scheduled=scheduled)
+    problems = [raise_problem(cfg, p, publisher) for p in found]
+    if skips:
+        return {"ok": True, "skipped": "skipped this run: " + ", ".join(s.kind for s in skips),
+                "skips": [s.brief() for s in skips], **({"problems": problems} if problems else {})}
     entries = archive()
     if not dry_run():
         refresh_prs(entries, publisher)
@@ -6448,6 +6447,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings or findings: nothing to act on"}
             if down:
                 out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
+            if problems:
+                out["problems"] = problems
             if queue:
                 wording = make_proposer(cfg, proposals)
                 out["published"] = [{"id": c["id"], **publish(cfg, c, src, publisher, open_count, wording)}
@@ -6511,21 +6512,20 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         if cand.get("title"):
             siblings.append(f"{cand['component']}: {cand['title']}")
     pending = [c for c in cands if c["verdict"] == "pending"]
-    halted: list[Json] = []
 
     def done(cand: Json, got: Json) -> None:
         cand.update(verdict=got["verdict"], eval=got.get("eval"), eval_reason=got.get("reason"),
                     **({"report": got["report"]} if got.get("report") else {}),
                     **({"probe": got["probe"]} if got.get("probe") else {}))
-        halt = drift_halt(cfg, cand)
+        drifted = drift_problem(cfg, cand)
         if got.get("infra"):
             # The eval could not run (a lab that did not boot, the baseline,
             # the judge): not measured, so not the change's verdict. No try.
             cand.update(verdict=DEFERRED, deferred_for="infra", reason=str(got.get("reason") or "")[:300],
                         infra={"stage": "eval", "detail": str(got.get("reason") or "")[:300]})
-        elif halt is not None:
+        elif drifted is not None:
             cand["verdict"] = "flagged"
-            halted.append(stop(cfg, halt, publisher))
+            problems.append(raise_problem(cfg, drifted, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
             cand["verdict"] = REVISING
         record(cand)
@@ -6553,11 +6553,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     ready = [c for c in cands if c["verdict"] in SHIPS]
     published = []
     for cand in [*queue, *ready]:
-        if halt_path().exists():
-            # A latched halt mid-run: a person looks first, and what passed waits.
-            cand.update(verdict="waiting", waiting="a halt latched during the run")
-        else:
-            published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count, proposer)})
+        published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count, proposer)})
         record(cand)
     for cand in cands:
         remove_worktree(src, gdir / f"cand-{cand['cand']}")
@@ -6567,8 +6563,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         result["resumed"] = True
     if cut:
         result["runway"] = cut
-    if halted:
-        result["halts"] = halted
+    if problems:
+        result["problems"] = problems
     write_json(gdir / "result.json", result)
     return {"ok": True, **result}
 
