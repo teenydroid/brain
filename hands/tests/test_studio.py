@@ -577,6 +577,19 @@ class ValidatePostsTest(unittest.TestCase):
         self.assertEqual([p["alone"] for p in kept], [False, True, False])
         self.assertEqual(dropped[0]["why"], "an image needs its scene")
 
+    def test_a_long_scene_with_two_people_in_it_is_kept_whole(self):
+        # 2026-11-22: the picture brief asks for the place, Teeny and one or
+        # two named people with their clothes, faces and props. Those scenes
+        # ran 700 to 900 characters and were cut at 600, mid-word ("grey
+        # t-shirt und"), dropping the second person from the picture.
+        scene = ("A cramped test cell at night. Teeny hugs a gauge. " * 4 + "Behind glass, Sam Altman, caricatured with "
+                 "a smug proud-dad grin, grey t-shirt under a rumpled jacket, gives a thumbs-up. ") * 3
+        self.assertGreater(len(scene), 900)
+        kept, dropped = self.validate([{"card": "hn:101", "format": "image", "text": "w", "image": scene}])
+        self.assertEqual(dropped, [])
+        self.assertEqual(kept[0]["image"], scene.strip())
+        self.assertLessEqual(studio.SCENE_MAX, studio.media_prompt_max())
+
     def test_a_meme_keeps_its_template_lines_and_picture(self):
         kept, dropped = self.validate([{"card": "hn:101", "format": "meme", "text": "t", "meme": MEME}])
         self.assertEqual(dropped, [])
