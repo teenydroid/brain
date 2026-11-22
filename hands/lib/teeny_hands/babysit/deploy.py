@@ -223,7 +223,15 @@ def run() -> Json | None:
 
     paths = _changed(checkout, head, sha)
     steps = plan(paths)
-    if steps["restart"]:
+    if every and steps["restart"] and _restarted_within(min_gap_minutes()):
+        _once(pending, "deploy_wait", "gap")
+        return {**out, "waiting": ["gap"]}
+    if steps["restart"] or every:
+        # The outgoing commit, which is running now. With every self-change
+        # merging itself, recorded on every deploy, not only one that
+        # restarts: a boot for any reason (a crash, compose, the next
+        # restart's) that fails on a merge which restarted nothing falls back
+        # to the commit just before it, not to whatever the last restart left.
         _last_good().record(checkout, state, head, f"pr-{number}")
     error = live.fast_forward(checkout, sha)
     if error:
