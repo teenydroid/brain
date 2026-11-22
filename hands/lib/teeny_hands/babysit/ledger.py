@@ -9,7 +9,12 @@
                       person approved), and each deploy step after a
                       self-merge (`deploy_wait`, `deploy_refused`,
                       `deploy_ff`, `deploy_submodules`, `deploy_seed_cron`,
-                      `deploy_restart`, `deploy_dry_run`)
+                      `deploy_restart`, `deploy_dry_run`), and, with
+                      BABYSIT_SELF_MERGE_ALL, the judgement of a deploy
+                      after it (rollback.py: `deploy_ok`, `deploy_bad` with
+                      the paths it changed, `deploy_revert` and
+                      `deploy_revert_held` for its revert issue,
+                      `rollback_dry_run`)
 
 No row carries a pull request's words. The dream and the audit read these
 tables, and a payload kept here would reach the model it was written for.
