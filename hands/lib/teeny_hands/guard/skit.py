@@ -385,7 +385,7 @@ RULES = """You check one short AI-made parody video before it is made. It is for
 absurd, loud, ridiculous satire of the day's news, staging a public figure in a scene that is impossible on its face.
 
 ALLOWED, and the point: absurd, crude, rude, vulgar, loud, dark and undignified satire of a public figure, by name,
-for anything (a pie, a pratfall, a CEO arguing with a vending machine on the moon, a founder drunk on his own press
+for anything: slapstick (a pie, a pratfall, a CEO arguing with a vending machine on the moon, a founder drunk on his own press
 release, a minister arrested by a flock of geese, a figure bonked with a giant hammer or flattened by a cartoon anvil,
 a figure's own funeral attended by toasters). Swearing, contempt, death jokes, and drugs, weapons or suicide mentioned
 as a joke or a fact are all allowed.
