@@ -107,6 +107,17 @@ def clean(text: str) -> bool:
     return screen_text(text, OUTBOUND) is None
 
 
+def hateful(text: str) -> bool:
+    """True when TEXT carries a slur of the guard lexicon's `hate` category:
+    the one screen a thread's premise faces (2026-11-22: the studio's sparks
+    were pre-filtered thin by the whole lexicon). The rest of the lexicon is
+    the guard's, on Teeny's own words."""
+    from ..guard.screen import INBOUND, screen_text
+
+    hit = screen_text(text, INBOUND)
+    return hit is not None and hit.category == "hate"
+
+
 def _get(api: RestApi | None, path: str) -> Any:
     client.pace()
     return (api or client.api()).call("GET", path, auth=False)
@@ -168,7 +179,7 @@ def _shape(board: str, thread: Mapping[str, Any], dropped: Dropped) -> Json | No
     if len(text) < PREMISE_MIN:
         dropped.empty += 1
         return None
-    if not clean(text):
+    if hateful(text):
         dropped.screened += 1
         return None
     out: Json = {"id": f"chan:{board}:{thread['no']}", "board": board, "no": thread["no"], "premise": text,

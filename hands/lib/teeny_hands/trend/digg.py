@@ -28,8 +28,11 @@ from typing import Any
 from .. import hand
 
 BINARY = "digg-pp-cli"
-#: The topics `top` reads, in Digg's own names.
-TOPICS = ("ai", "tech")
+#: The topics `top` reads, in Digg's own names. Digg's leaderboard has
+#: seven (digg-pp-cli's README at the pinned commit: ai, tech,
+#: world-business, sports, science, gaming, entertainment); the studio wants
+#: the news people argue about, not only AI (2026-11-22).
+TOPICS = ("ai", "tech", "world-business", "entertainment", "sports", "gaming")
 #: Digg's story ids as the posts verb takes them (clusterId, never the short
 #: clusterUrlId, which only a local store can resolve).
 CLUSTER = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
