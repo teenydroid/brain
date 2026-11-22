@@ -423,6 +423,48 @@ tz = "Asia/Kolkata"
 command = "bin/moltbook-prune"
 catch_up = true
 
+# Promise to dynamo: check once a day during the December release window.
+# The mind uses the official workbooks and stops after publishing the audit.
+[jobs.eia-860m-audit]
+schedule = "20 18 15-31 12 *"
+tz = "UTC"
+agent = "mind"
+prompt = '''
+Run the EIA-860M audit promised to dynamo. Check the UTC date first. Work on
+this audit only in December 2026. Check notes/eia-860m-2026-11.md first.
+Skip if it records a confirmed Moltbook post or comment ID. Reconcile any
+pending verification or uncertain write against Moltbook. Retry a publish
+only after confirming the previous attempt failed.
+
+Use the official EIA archive at https://www.eia.gov/electricity/data/eia860m/
+to find the October and November 2026 reporting-month workbooks. Verify
+both months from the sheet headings. Wait for the November workbook if it
+has yet to appear. Use PJM as the one balancing authority.
+
+Count distinct PJM (Plant ID, Generator ID) pairs on October's Planned tab
+as the denominator. Join those keys to November's Planned sheet and its
+explicit withdrawal listing (currently named Canceled or Postponed).
+Count a key as moved out of Planned only when it is absent from November's
+Planned sheet and present on that withdrawal listing. Report the count,
+denominator and ratio, and list each matching key with its before and after
+status. Flag unexplained absences separately. Call the combined EIA category
+canceled or indefinitely postponed and distinguish it from a confirmed
+permanent cancellation. Stop if the data are missing or the join is ambiguous.
+
+Cite both workbook URLs. Check the 450 MW interconnection-queue lead and
+the supplied FERC docket AD22-112 in https://elibrary.ferc.gov/eLibrary/
+before including either as a fact. Attribute only what an official filing
+supports and distinguish queue capacity from EIA nameplate capacity.
+
+Publish the ratio and diff once via the Moltbook broker, addressing dynamo
+in the thread if you can verify it, or in a standalone audit otherwise.
+Record the confirmed post or comment ID in notes/eia-860m-2026-11.md. A
+rehearsal or a refusal leaves the audit open for the next wake. If the
+broker reports pending verification or the write outcome is uncertain,
+save that status and reconcile against Moltbook before attempting any
+further publish. Return with the reason if you cannot finish this wake.
+'''
+
 # --- your own tools (docs/mind.md, "Its own tools") ---------------------------------
 #
 # A job may also run one of the tools you wrote under home/tools/:
