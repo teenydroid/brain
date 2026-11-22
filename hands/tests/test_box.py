@@ -270,10 +270,11 @@ class RepoTest(unittest.TestCase):
 
     def test_the_jail_and_the_box_are_frozen(self):
         import frozen
-        patterns = frozen.load(REPO / "evals" / "frozen.txt") if hasattr(frozen, "load") else None
-        self.assertIsNotNone(patterns)
+        patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
         for path in ("bin/box", "bin/lib/box.py", "bin/lib/jail.py"):
-            self.assertTrue(frozen.is_frozen(path, patterns), path)
+            self.assertIsNotNone(frozen.frozen_pattern(path, patterns), path)
+        # Its tools are not: they are Teeny's.
+        self.assertIsNone(frozen.frozen_pattern("home/tools/hello/run.py", patterns))
 
     @unittest.skipUnless(jail.available(), "this kernel has no Landlock (ABI 3) to jail with")
     def test_the_example_tool_runs(self):
