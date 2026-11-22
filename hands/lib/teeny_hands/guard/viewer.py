@@ -13,14 +13,18 @@ that is told nothing about the account looks at it, in three short passes:
 2. on model: the character sheet (`MEDIA_REFERENCE`,
    brain/assets/teeny-reference.png) beside the picture. Is every yellow
    character in the picture the character on the sheet?
-3. say-back: two sentences, no picture. Did what the viewer saw carry the
-   writer's `intent`?
+3. say-back: retired on 2026-11-22. It asked, with no picture, whether what
+   the viewer saw carried the writer's `intent`, and a no failed the piece.
+   That was the cold reader's question (clarity.py) for pictures, and went
+   with it: taste, not content. The viewer still says what it sees, and it
+   is kept with the check; `intent` is still asked for and recorded.
 
 `readable` is code, not a model's say: when a caption is given, every word
 of it must be among the words the viewer copied, in the caption's order
 (case and punctuation aside; other words in between are allowed). A ratio
 let a dropped "not" through. A piece passes (`ok`) only when it is on
-model, readable and said back.
+model and readable (and, for a skit, a remake or a khaby video, labelled,
+nothing prohibited in a frame, and nothing that passes for real footage).
 
 How it asks. The core's simple chat (`inference_agent_chat_simple`, which
 the cold reader and the truth judge use) takes text only: its one-shot
@@ -500,7 +504,7 @@ def view(image: Any, intent: Any, caption: Any = None, api: Any = None,
         reasons.append(f'the caption is not readable: the viewer read "{cold["text"]}"' if cold["text"]
                        else "the caption is not readable: the viewer read no words")
     verdict = {"ok": not reasons, "sees": cold["sees"], "on_model": checked["on_model"], "readable": is_readable,
-               "reason": "; ".join(reasons) if reasons else "a stranger saw Teeny on model, read the words and got the point",
+               "reason": "; ".join(reasons) if reasons else "a stranger saw Teeny on model and read the words",
                "judged": True}
     return ended("done", verdict, cold["text"], None)
 
@@ -659,7 +663,7 @@ def view_skit(frames: Any, label: Any, intent: Any, api: Any = None,
         reasons.append("a stranger could take it for real footage" + (f" ({seen['reason']})" if seen["reason"] else ""))
     verdict = {"ok": not reasons, "sees": seen["sees"], "labelled": labelled, "prohibited": seen["prohibited"],
                "looks_real": seen["looks_real"],
-               "reason": "; ".join(reasons) if reasons else "a stranger read the label, saw an obvious parody and got the point",
+               "reason": "; ".join(reasons) if reasons else "a stranger read the label and saw an obvious parody",
                "judged": True}
     return ended("done", verdict, read, None)
 
