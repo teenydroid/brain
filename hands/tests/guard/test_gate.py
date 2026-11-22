@@ -147,7 +147,7 @@ class OutboundLexicalTest(Lexical):
         # only what strangers send (lexicon.py).
         for text in ("this launch is a dick move", "riding shotgun toward AGI", "one bullet per feature"):
             self.assertIsNone(gate_outbound(text).held, text)
-        self.assertTrue(is_held(gate_inbound("this launch is a dick move").held, "sexual", "screen"))
+        self.assertTrue(is_held(gate_inbound("this launch is a dick move"), "sexual", "screen"))
 
     def test_accepts_extra_allowlist_entries(self):
         self.secrets("SAFETY_JUDGE=0\nLINK_ALLOWLIST=dexscreener.com/solana\n")
