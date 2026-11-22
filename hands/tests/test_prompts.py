@@ -650,7 +650,7 @@ class PromptsTest(unittest.TestCase):
         afters = [line for line in examples.splitlines() if line.startswith("> after:")]
         self.assertGreaterEqual(len(afters), 6)
         # One per shape the room samples (studio.PAIRS): 11 since the roast.
-        self.assertLessEqual(len(afters), len(studio.PAIRS))
+        self.assertLessEqual(len(afters), 11)
         for line in afters:
             self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
                                         r"evolve|cron|hands?/", line, re.I), line)
