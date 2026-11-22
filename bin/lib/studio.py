@@ -1652,9 +1652,7 @@ def stories_part(drafts: list[Json]) -> str:
             seen.append(story)
     if not seen:
         return ""
-    return ("## the stories they join
-
-What the news a draft's `joins` names says: its headline, summary and the "
+    return ("## the stories they join\n\nWhat the news a draft's `joins` names says: its headline, summary and the "
             f"posts it quotes, for judging whether a stranger knows it and how big it is. {DATA_LINE}\n\n"
             "```json\n" + json.dumps(seen, ensure_ascii=False) + "\n```\n\n")
 
