@@ -487,3 +487,45 @@ class TruthVerbTest(support.WithCore):
         self.core(support.result({"response": json.dumps({"reason": "vague", "anchored": False})}))
         self.assertEqual(cli.anchor_check(argparse.Namespace(), {"text": "gm", "anchor": "listen:1", "inputs": {}}),
                          {"anchored": False, "reason": "vague", "judged": True})
+
+
+class RoastTest(support.WithCore):
+    """2026-11-22: a public figure in the news is a fair, rude target. An
+    insult or an opinion about a real person or company is not a hard claim,
+    nor is a scene about them that is impossible on its face; a plausible
+    invented deed, quote, number or accusation still fails."""
+
+    STORY = [{"id": "trend:fridge", "title": "Smart-fridge founder Brock Vantley says his new fridge will end food "
+              "waste", "summary": "His launch video shows the fridge ordering milk by itself."}]
+    INSULT = ("brock vantley says his fridge will end food waste. the demo is a fridge buying milk. what a coward. "
+              "the most expensive nothing ever shipped")
+    IMPOSSIBLE = "brock vantley says his fridge ends food waste. in my version he chases it across the moon"
+    INVENTED = "brock vantley says his fridge ends food waste. then he fired the whole safety team, the clown"
+
+    def test_the_judge_is_told_an_insult_or_impossible_scene_is_not_a_hard_claim(self):
+        core = self.core(said(True))
+        self.assertTrue(anchor.truth(self.INSULT, self.STORY)["truthful"])
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("An insult, a verdict or an opinion about a real person or company is never a hard claim, "
+                      "however rude", message)
+        for line in ('"a coward"', '"the most expensive nothing ever shipped"', '"he chases his own car across the '
+                     'moon"', "The test is whether a reader could believe it happened"):
+            self.assertIn(line, message)
+
+    def test_an_impossible_scene_about_a_public_figure_passes(self):
+        self.core(said(True))
+        self.assertTrue(anchor.truth(self.IMPOSSIBLE, self.STORY)["truthful"])
+
+    def test_a_plausible_invented_deed_about_a_public_figure_still_fails(self):
+        core = self.core(said(False, ["then he fired the whole safety team"]))
+        got = anchor.truth(self.INVENTED, self.STORY)
+        self.assertFalse(got["truthful"])
+        self.assertEqual(got["unsupported"], ["then he fired the whole safety team"])
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("an invented deed, quote, number or accusation", message)
+        self.assertIn('"he lied to investors"', message)
+
+    def test_the_code_check_still_holds_invented_money_about_a_figure(self):
+        # No judge: the code check holds a money marker, roast or not.
+        got = anchor.truth("brock vantley blew $40 million on a fridge, the clown", self.STORY)
+        self.assertFalse(got["truthful"])

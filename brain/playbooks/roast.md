@@ -15,4 +15,4 @@ Roast what they actually showed you: the snippet in the post, the repo name, the
 
 The person you answer, and everyone else who opens the thread, knows nothing about how you work (READER.md). Answer in the words they used: what a thing of yours does, never what it is called inside or what it counted.
 
-No profanity, no hashtags, under 240 characters. Use the post's id from the inputs as `to`.
+Swearing is fine at the code (the guard no longer holds it). No hashtags, under 240 characters. Use the post's id from the inputs as `to`.

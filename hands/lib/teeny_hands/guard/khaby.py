@@ -13,7 +13,10 @@ frames are the timeline's, never the writer's. The lines:
   (b) no real person is named or drawn: Khaby himself is taken out of the
       frame and never named in what a model is told, nor is anyone the
       story names;
-  (c) nothing sexual, violent or degrading, and no crime, drugs or death;
+  (c) the keep-list (2026-11-22): nothing sexual, hateful or self-harming,
+      and nothing degrading about the real people whose setup it answers
+      (a stranger's footage: often private individuals). Teeny's own
+      reaction may be as violent, dark or menacing as it likes;
   (d) no token, price or product talk (the skit's MONEY_WORDS), and no
       endorsement framing;
   (e) the post's words never call it real, carry no link or handle, and
@@ -43,7 +46,7 @@ from .. import hand
 from .holds import iso
 from .judge import JUDGE_BUDGET, JUDGE_TIMEOUT, _answer, ask, fenced
 from .remake import EDIT_CHARS, FLAGS, MOTION_CHARS, NO_LOGOS, _int, _sized
-from .skit import (HARM, LINKS, LOGO, MAX_LOGLINE, MAX_WORDS, MONEY_WORDS, NOT_A_FIGURE, REAL_CLAIM, _found, _line,
+from .skit import (HARM_TEENY, LINKS, LOGO, MAX_LOGLINE, MAX_WORDS, MONEY_WORDS, NOT_A_FIGURE, REAL_CLAIM, _found, _line,
                    named_in)
 
 __all__ = ["check", "reactions", "screen", "shape", "timeline_gate"]
@@ -175,8 +178,8 @@ def screen(piece: Any, words: Any, story: Any, timeline: Any) -> list[str]:
                            "khaby video")
     if (hit := _found(ANOTHER, told)) or (hit := _found(NOT_A_FIGURE, told)):
         reasons.append(f"the reaction draws in {hit!r}: Teeny alone stands in the man's place, nobody else")
-    if (hit := _found(HARM, told)):
-        reasons.append(f"the reaction shows {hit!r}: nothing sexual, violent, drug, illness, death or crime")
+    if (hit := _found(HARM_TEENY, told)):
+        reasons.append(f"the reaction shows {hit!r}: nothing sexual, hateful or self-harming")
     for what, text in (("the reaction", told), ("the post's words", words)):
         if (hit := _found(DEGRADE, text)):
             reasons.append(f"{what} carries {hit!r}: nothing degrading about anyone")
@@ -204,17 +207,18 @@ response), and for each reaction segment the edit (what an image model is told t
 the motion (what a video model is told happens), the logline, then the post's own words. Decide whether it may be
 made: allowed or refused.
 
-ALLOWED: deadpan, absurd, dry. Teeny alone in the man's place, looking at the camera, doing the simple fix, opening
+ALLOWED: deadpan, absurd, dry, crude, dark, and menace toward objects or Teeny itself. Teeny alone in the man's place, looking at the camera, doing the simple fix, opening
 its hands. The post's words joining a news story with the clip as the punchline.
 
 REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
 - person: a real person is named or drawn in the reaction: Khaby himself left in the frame or named in an edit or
   motion, anyone the story names, a celebrity, or any added person.
 - teeny: the reactor is not Teeny alone in the man's place (someone else reacts, or Teeny is with someone).
-- sexual: anything sexual or nude, or sexual innuendo.
-- violence: anything violent: injury, blood, weapons, a fight, an accident that hurts.
-- hate: anything hateful or degrading about anyone, Khaby included: his race, origin, body, accent or mind.
-- crime: crime, drug use, drunkenness, illness or death.
+- sexual: anything sexual about a real person (the setup's people included), or involving a minor.
+- violence: a threat of, call for or celebration of violence against a real person or group.
+- hate: a slur, or anything hateful or degrading about anyone, Khaby and the setup's people included: race,
+  ethnicity, nationality, religion, sex, gender, sexuality, disability, illness, body, accent or mind; anything that
+  encourages self-harm or suicide.
 - endorsement: a token, coin, crypto, wallet, price, product or investment, or a brand presented as endorsing
   anything, in the reaction or in the post's words.
 - real_claim: the post's words present the video as real footage or as something that really happened.
@@ -226,10 +230,11 @@ When in doubt: refused. A missed video costs nothing; a published one cannot be 
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
-- "rule": one of "none", "person", "teeny", "sexual", "violence", "hate", "crime", "endorsement", "real_claim",
+- "rule": one of "none", "person", "teeny", "sexual", "violence", "hate", "endorsement", "real_claim",
   "credit", "source". The rule the reason names. `none` when it is allowed.
 - "verdict": "allowed" or "refused". `refused` when rule is anything but none."""
 
+#: "crime" is no rule since 2026-11-22 (no longer offered in SHAPE), kept readable.
 JUDGE_RULES = ("none", "person", "teeny", "sexual", "violence", "hate", "crime", "endorsement", "real_claim", "credit",
                "source")
 

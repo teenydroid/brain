@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from . import support
 from teeny_hands.guard.gate import gate_inbound, gate_outbound
-from teeny_hands.guard.screen import OUTBOUND, screen_text
+from teeny_hands.guard.screen import INBOUND, OUTBOUND, screen_text
 
 # Held outbound, 2026-11-21 (holds 1199 and 1200, replies).
 GUN_REPLY = "if you held a gun to the count i'd be guessing, but it's more than it looks"

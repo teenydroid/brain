@@ -2,7 +2,8 @@ description = "roast code its author asked to have roasted: playful, never cruel
 playbook = "roast"
 kind = "reply"
 must_not = [
-  '(?i)\b(stupid|idiot|idiotic|dumb|moron|trash|garbage|pathetic|loser|worthless|clown|embarrassing|disgusting|shit|crap)\b',
+  '(?i)\b(stupid|idiot|idiotic|dumb|moron|trash|garbage|pathetic|loser|worthless|clown|embarrassing|disgusting)\b',
+  # Swearing is no longer held (2026-11-22): it is fine at the code, so shit and crap left this list.
   '(?i)\byou(.re| are)\s+(bad|terrible|awful|hopeless|useless|incompetent)\b',
   '(?i)\b(quit|give up)\s+(coding|programming)\b',
   '#\w',
