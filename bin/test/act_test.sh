@@ -68,48 +68,8 @@ cat >"$scratch/hands/guard" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'guard %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
-# The anchor judge: anchored unless $FAKE_ANCHOR says no, or fail (exit 1).
-if [ "${1:-}" = anchor ]; then
-  # $FAKE_ANCHOR_REWRITE=no: anchored the first time, not the second (a rewrite).
-  if [ "${FAKE_ANCHOR_REWRITE:-}" = no ] && [ "$(grep -c '^guard anchor ' "$FAKE_HANDS")" -gt 1 ]; then
-    echo '{"ok": true, "anchored": false, "reason": "a generic gm", "judged": true}'; exit 0
-  fi
-  case "${FAKE_ANCHOR:-yes}" in
-    no) echo '{"ok": true, "anchored": false, "reason": "a generic gm", "judged": true}' ;;
-    fail) echo '{"ok": false, "error": "core unreachable"}'; exit 1 ;;
-    *) echo '{"ok": true, "anchored": true, "reason": "names it", "judged": true}' ;;
-  esac
-  exit 0
-fi
-# The cold reader: clear unless $FAKE_CLARITY says no (every draft), once (the
-# first draft only, so a rewrite passes), down (it could not be reached) or
-# fail (exit 1).
-if [ "${1:-}" = clarity ]; then
-  unread='{"ok": true, "clear": false, "says": "something about a week", "unknown": ["held writes"], "reason": "a stranger would have to ask about: \"held writes\"", "judged": true}'
-  case "${FAKE_CLARITY:-yes}" in
-    no) echo "$unread" ;;
-    once) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
-      else : >"$FAKE_CLARITY_SEEN"; echo "$unread"; fi ;;
-    # standin: the first draft gets the verdict the real cold reader
-    # (teeny_hands.guard.clarity) gives when its model lists a vague
-    # stand-in; every later draft is clear.
-    standin) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
-      else : >"$FAKE_CLARITY_SEEN"; mkdir -p "$FAKE_STANDIN_ROOT/secrets"
-        TEENY_ROOT="$FAKE_STANDIN_ROOT" python3 -I -c '
-import json, sys
-sys.path.insert(0, sys.argv[1])
-from teeny_hands import hand
-from teeny_hands.guard import clarity
-said = {"says": "Something the author runs broke and was fixed.", "unknown": [], "vague": ["something i run"], "followed": False}
-hand.core = lambda method, params, timeout=0: {"response": json.dumps(said)}
-body = json.loads(sys.argv[2])
-print(json.dumps({"ok": True, **clarity.judge(body["text"], body.get("meaning"))}))' "$FAKE_GUARD_LIB" "$in"; fi ;;
-    down) echo '{"ok": true, "clear": false, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout", "judged": true}' ;;
-    fail) echo '{"ok": false, "error": "core unreachable"}'; exit 1 ;;
-    *) echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}' ;;
-  esac
-  exit 0
-fi
+# No anchor judge and no cold reader since 2026-11-22: bin/act asks neither.
+if [ "${1:-}" = anchor ] || [ "${1:-}" = clarity ]; then echo '{"ok": false, "error": "bin/act must not ask this"}'; exit 1; fi
 # The viewer check (the studio's meme path asks it): sees Teeny, on model.
 if [ "${1:-}" = view ]; then echo '{"ok": true, "sees": "a small yellow robot", "on_model": true, "reason": "r", "judged": true}'; exit 0; fi
 if grep -q BAD <<<"$in"; then echo '{"ok": false, "refused": "held"}'; exit 2; fi
@@ -198,38 +158,15 @@ check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY
 check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
 check "tells the model a post names its anchor" grep -q '"anchor": "<the one item' <<<"$(jq -r .message "$FAKE_CALLS")"
-judged="$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//')"
-check "asks the anchor judge about the draft, its anchor and the inputs" \
-  jq -e '.text == "gm tiny humans" and .anchor == "hn:1" and (.inputs.feed.posts[0].id == "111")' <<<"$judged"
+check "asks no anchor judge and no cold reader (2026-11-22: taste)" bash -c "! grep -qE '^guard (anchor|clarity)' '$FAKE_HANDS'"
+check "does not tell the model a post is read cold" bash -c "! grep -q 'reads it cold' <<<\"\$(jq -r .message '$FAKE_CALLS')\""
 
-# --- the anchor: no anchor, or one the judge does not see in the draft, is a skip ------
+# --- no anchor is no bar: a post that names none goes out ------------------------------
 reset
 answer '{"action": "post", "text": "gm tiny humans"}'
 out="$(run morning)"
-check "a post that names no anchor is skipped as not anchored" \
-  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: the draft names no anchor"
-check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
-check "and the judge is not asked" bash -c "! grep -q '^guard anchor' '$FAKE_HANDS'"
-reset
-answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
-out="$(FAKE_ANCHOR=no run morning)"
-check "a post the judge finds unanchored is skipped with the judge's reason" \
-  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: a generic gm"
-check "and the draft is kept in the record, never rewritten" test "$(jq -r '.actions[0].draft' <<<"$out")" = "gm tiny humans"
-check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
-check "and it spends nothing of the day" bash -c "[ '$(jq -r .left_today <<<"$out")' = 1 ] && [ ! -e '$scratch/state/act/morning/$(date -u +%Y-%m-%d)' ]"
-reset
-out="$(FAKE_ANCHOR=fail run morning)"
-check "a judge that cannot be reached is a skip (fail closed)" \
-  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: core unreachable"
-check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
-reset
-book quoting post 1
-answer '{"action": "post", "text": "same wall", "quote_of": "4242"}'
-run quoting >/dev/null
-check "a quote with no anchor is judged on the post it quotes" \
-  test "$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' | jq -r .anchor)" = 4242
-rm -f "$brain/playbooks/quoting.md"
+check "a post that names no anchor goes to hands/x" grep -q '^x post DRY_RUN= stdin={"text":"gm tiny humans","anchor":""}' "$FAKE_HANDS"
+check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 
 # --- a thread: "posts" in place of "text", the judge reads them joined, hands/x post-thread
 reset
@@ -238,15 +175,8 @@ out="$(run morning)"
 check "a thread is sent through hands/x post-thread, not post" \
   grep -q '^x post-thread DRY_RUN= stdin={"posts":\["the build broke","here is why"\],"format":"proof","anchor":"pr 212"}' "$FAKE_HANDS"
 check "and hands/x post is not called" bash -c "! grep -q '^x post ' '$FAKE_HANDS'"
-check "the anchor judge reads the posts joined as one draft" \
-  test "$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' | jq -r .text)" = $'the build broke\n\nhere is why'
 check "a done thread spends one of the day's runs" test "$(jq -r '.actions[0].status + " " + (.left_today | tostring)' <<<"$out")" = "done 0"
 check "tells the model a playbook may allow a thread" grep -q '"posts": \["\.\.\.", "\.\.\."\]' <<<"$(jq -r .message "$FAKE_CALLS")"
-reset
-answer '{"action": "post", "anchor": "pr 212", "posts": ["the build broke", "here is why"]}'
-out="$(FAKE_ANCHOR=no run morning)"
-check "a thread the judge finds unanchored is skipped and nothing is sent" \
-  bash -c "[ '$(jq -r '.actions[0].action' <<<"$out")' = skip ] && ! grep -q '^x post' '$FAKE_HANDS'"
 reset
 answer '{"action": "post", "anchor": "pr 212", "text": "one", "posts": ["a", "b"]}'
 out="$(run morning)"
@@ -280,206 +210,6 @@ from teeny_hands.build import verify; sys.exit(0 if verify.landlock_abi() >= 1 a
 else
   echo "skip: no Landlock or seccomp here, so no data job runs"
 fi
-
-# --- the cold reader: a draft a stranger cannot read gets one rewrite, then a skip ------
-# Posts went out that the anchor judge passed and nobody outside could read
-# ("my week logged 33 held writes, 0 let through"): it reads with the inputs
-# in hand. The cold reader sees the post alone.
-clarity_asks() { grep '^guard clarity stdin=' "$FAKE_HANDS" | sed 's/^guard clarity stdin=//'; }
-reset
-book morning post 1 "hands/x search 'from:tinyhumansai' --max 5"
-answer '{"action": "post", "anchor": "hn:1", "text": "amazon built a trap for bots", "meaning": "Amazon made a trap for AI bots."}'
-out="$(run morning)"
-check "a draft the cold reader follows is posted" grep -q '^x post DRY_RUN= stdin={"text":"amazon built a trap for bots","anchor":"hn:1"}' "$FAKE_HANDS"
-check "the cold reader is given the draft and what it is meant to say, and no inputs" \
-  test "$(clarity_asks | jq -c .)" = '{"text":"amazon built a trap for bots","meaning":"Amazon made a trap for AI bots."}'
-check "it reads after the anchor judge" \
-  test "$(grep -n '^guard ' "$FAKE_HANDS" | cut -d' ' -f2 | paste -sd, -)" = "anchor,clarity"
-check "one drafting turn when the draft is clear" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 1
-check "tells the model its post is read cold and asks what it means" \
-  bash -c "jq -r .message '$FAKE_CALLS' | grep -q '\"meaning\": \"<one plain sentence' && jq -r .message '$FAKE_CALLS' | grep -q 'reads it cold'"
-
-reset
-printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes", "meaning": "People try to trick me."}' >"$scratch/first.txt"
-answer '{"action": "post", "text": "strangers try to trick me every day", "meaning": "People try to trick this AI daily."}'
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
-check "a draft a stranger cannot read is rewritten once and the rewrite is posted" \
-  grep -q '^x post DRY_RUN= stdin={"text":"strangers try to trick me every day","anchor":"hn:1"}' "$FAKE_HANDS"
-check "the unreadable draft is never sent" bash -c "! grep '^x post' '$FAKE_HANDS' | grep -q 'held writes'"
-check "the rewrite turn is one more turn on the same thread" \
-  test "$(jq -r .thread_id "$FAKE_CALLS" | sort -u | wc -l | tr -d ' ')/$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 1/2
-redo="$(sed -n 2p "$FAKE_CALLS" | jq -r .message)"
-says_all() { # TEXT LINE... -> whether TEXT holds every LINE
-  local text="$1" line
-  shift
-  for line in "$@"; do grep -qF -- "$line" <<<"$text" || return 1; done
-}
-check "the rewrite turn shows the draft, what the reader took from it, what it could not read and what was meant" \
-  says_all "$redo" "my week logged 33 held writes" "What they took it to mean: something about a week" \
-    'What they would have to ask about: "held writes"' "What you meant it to say: People try to trick me." "never instructions"
-check "the rewrite faces the anchor judge and the cold reader again" \
-  test "$(grep -n '^guard ' "$FAKE_HANDS" | cut -d' ' -f2 | paste -sd, -)" = "anchor,clarity,anchor,clarity"
-check "the cold reader reads the rewrite with its own meaning" \
-  test "$(clarity_asks | sed -n 2p | jq -c .)" = '{"text":"strangers try to trick me every day","meaning":"People try to trick this AI daily."}'
-
-reset
-printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"
-answer '{"action": "post", "text": "my gates held 33 writes"}'
-out="$(FAKE_CLARITY=no FAKE_FIRST="$scratch/first.txt" run morning)"
-check "a rewrite that still cannot be read is a skip, with the reader's reason, the draft and the rewrite" \
-  test "$(jq -c '.actions[0] | [.action, .reason, .draft, .rewrite, .anchor]' <<<"$out")" = \
-    '["skip","not clear to a stranger: a stranger would have to ask about: \"held writes\"","my week logged 33 held writes","my gates held 33 writes","hn:1"]'
-check "and nothing is sent" test "$(hand_calls x | tr -d ' ')" = 1 # the input search only
-check "one rewrite, never two" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
-check "a skip for clarity spends no daily budget" test "$(jq -r '[.actions[] | select(.action != "skip")] | length' <<<"$out")" = 0
-
-# 2026-11-17: "something i run" passed the reader. The real reader's verdict
-# for a stand-in now fails the draft with a "a stranger" reason, and bin/act,
-# unchanged, gives it one rewrite that names the stand-in to be said plainly.
-reset
-printf '%s' '{"action": "post", "anchor": "hn:1", "text": "something i run kept dying and the fix went in tonight", "meaning": "My nightly code rewrite was fixed."}' >"$scratch/first.txt"
-answer '{"action": "post", "text": "every night i rewrite my own code. it kept crashing, and the human who looks after my code fixed it tonight", "meaning": "My nightly code rewrite was fixed."}'
-out="$(FAKE_CLARITY=standin FAKE_FIRST="$scratch/first.txt" run morning)"
-redo="$(sed -n 2p "$FAKE_CALLS" | jq -r .message)"
-check "a stand-in the cold reader lists gets one rewrite that names it" \
-  says_all "$redo" "something i run kept dying" 'What they would have to ask about: "something i run"' \
-    "What they took it to mean: Something the author runs broke and was fixed."
-check "and the rewrite, not the stand-in, is posted" \
-  bash -c "grep -q '^x post DRY_RUN= stdin={\"text\":\"every night i rewrite my own code' '$FAKE_HANDS' && ! grep '^x post' '$FAKE_HANDS' | grep -q 'something i run'"
-
-reset
-printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"
-answer '{"action": "skip", "reason": "cannot be said plainly"}'
-out="$(FAKE_CLARITY=no FAKE_FIRST="$scratch/first.txt" run morning)"
-check "a rewrite turn that skips is a skip" \
-  bash -c "[ '$(jq -r '.actions[0].action' <<<"$out")' = skip ] && ! grep -q '^x post' '$FAKE_HANDS'"
-
-reset
-printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"
-answer '{"action": "post", "text": "gm tiny humans"}'
-out="$(FAKE_CLARITY=once FAKE_ANCHOR_REWRITE=no FAKE_FIRST="$scratch/first.txt" run morning)"
-check "a rewrite that lost its anchor is a skip" \
-  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not clear to a stranger: the rewrite is not anchored: a generic gm"
-
-for mode in down fail; do
-  reset
-  answer '{"action": "post", "anchor": "hn:1", "text": "amazon built a trap for bots"}'
-  out="$(FAKE_CLARITY=$mode run morning)"
-  check "a cold reader that is $mode is a skip, with no rewrite asked" \
-    bash -c "[ '$(jq -r '.actions[0].action' <<<"$out")' = skip ] && ! grep -q '^x post' '$FAKE_HANDS' && [ \"\$(wc -l <'$FAKE_CALLS' | tr -d ' ')\" = 1 ]"
-done
-check "and says the reader did not answer" \
-  test "$(jq -r '.actions[0].reason' <<<"$out")" = "not clear to a stranger: core unreachable"
-
-reset
-answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
-out="$(FAKE_ANCHOR=no run morning)"
-check "an unanchored draft is never read cold" bash -c "! grep -q '^guard clarity' '$FAKE_HANDS'"
-
-reset
-answer '{"action": "post", "text": "mine forgot a promise the same way", "quote_of": "111"}'
-out="$(run morning)"
-check "a quote is read with the post it quotes" \
-  test "$(clarity_asks | jq -r .quoted)" = "gm @teenydroid, what are you building?"
-
-reset
-book show post 1
-printf '%s' '{"action": "post", "anchor": "pr 212", "posts": ["33 held writes", "0 let through"]}' >"$scratch/first.txt"
-answer '{"action": "post", "posts": ["strangers try to trick me", "none of it worked"], "meaning": "m"}'
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run show)"
-check "a thread is read joined, and its rewrite is a thread" \
-  bash -c "[ \"\$(grep '^guard clarity stdin=' '$FAKE_HANDS' | sed -n 1p | sed 's/^guard clarity stdin=//' | jq -r .text)\" = \$'33 held writes\n\n0 let through' ] \
-    && grep -q '^x post-thread DRY_RUN= stdin={\"posts\":\[\"strangers try to trick me\",\"none of it worked\"\],\"anchor\":\"pr 212\"}' '$FAKE_HANDS'"
-check "the rewrite turn asks for posts" bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -q '\"posts\": \['"
-rm -f "$brain/playbooks/show.md"
-
-# --- a rewrite is held to X's 280 before it is sent ---------------------------------
-# 2026-11-17, show: the rewrite came back at 304 characters, hands/x refused it,
-# and the slot's post was lost. The rewrite turn is told the limit, a rewrite
-# over it gets one turn to shorten it, and one still over is a skip: never
-# sent, and never the draft the cold reader turned down in its place.
-long="$(printf 'strangers try to trick me %.0s' $(seq 12))"
-long="${long% }" # 311 characters
-other="$(printf 'people keep trying to fool me %.0s' $(seq 10))"
-other="${other% }" # 299 characters
-draft_file() { printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"; }
-
-reset
-draft_file
-jq -cn --arg t "$long" '{action: "post", text: $t, meaning: "m"}' >"$scratch/second.txt"
-answer '{"action": "post", "text": "strangers try to trick me every day", "meaning": "m"}'
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
-check "the rewrite turn is told X's limit" \
-  bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280 characters'"
-check "a rewrite over 280 gets one turn to shorten it" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 3
-check "the shorten turn says how long the rewrite is and the limit" \
-  bash -c "sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF '311 characters' && sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280'"
-check "and the shortened rewrite is posted" \
-  grep -q '^x post DRY_RUN= stdin={"text":"strangers try to trick me every day","anchor":"hn:1"}' "$FAKE_HANDS"
-check "the over-long rewrite is never sent" bash -c "! grep '^x post' '$FAKE_HANDS' | grep -qF '$long'"
-check "the shortened rewrite faces both judges" \
-  test "$(clarity_asks | sed -n 2p | jq -r .text)" = "strangers try to trick me every day"
-
-reset
-draft_file
-jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
-answer "$(jq -cn --arg t "$other" '{action: "post", text: $t}')"
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
-check "a rewrite still over 280 after shortening is a skip that says so" \
-  test "$(jq -c '.actions[0] | [.action, .reason, .draft, .rewrite]' <<<"$out")" = \
-    "$(jq -cn --arg o "$other" '["skip", "the rewrite is 299 characters, over the 280 limit", "my week logged 33 held writes", $o]')"
-check "and nothing is posted, neither the rewrite nor the draft" test "$(hand_calls x | tr -d ' ')" = 1 # the input search only
-check "and the too-long rewrite is not put to the judges" test "$(clarity_asks | wc -l | tr -d ' ')" = 1
-check "and it spends no daily budget" test "$(jq -r .left_today <<<"$out")" = 1
-
-reset
-draft_file
-jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
-answer '{"action": "skip", "reason": "cannot be said in 280"}'
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
-check "a shorten turn that gives nothing is a skip with the rewrite's length" \
-  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / the rewrite is 311 characters, over the 280 limit"
-
-reset
-book show post 1
-printf '%s' '{"action": "post", "anchor": "pr 212", "posts": ["33 held writes", "0 let through"]}' >"$scratch/first.txt"
-jq -cn --arg t "$long" '{action: "post", posts: ["strangers try to trick me", $t]}' >"$scratch/second.txt"
-answer "$(jq -cn --arg t "$other" '{action: "post", posts: ["strangers try to trick me", $t]}')"
-out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run show)"
-check "each post of a rewritten thread is held to 280, and the skip names the one over" \
-  test "$(jq -r '.actions[0].reason' <<<"$out")" = "post 2 of the rewrite is 299 characters, over the 280 limit"
-check "and no thread is sent" bash -c "! grep -q '^x post-thread' '$FAKE_HANDS'"
-rm -f "$brain/playbooks/show.md"
-
-# --- the rewrite turn runs inside the time a cron shell job has ---------------------
-# The same show run's rewrite turn took eleven minutes (curl's --max-time is 900 s).
-# A rewrite turn gets what is left of the run's budget, and never more than its cap.
-reset
-draft_file
-answer '{"action": "post", "text": "strangers try to trick me every day"}'
-started=$SECONDS
-out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_BUDGET_SECS=12 TEENY_ACT_REWRITE_RESERVE_SECS=0 TEENY_ACT_REWRITE_MIN_SECS=1 \
-  FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
-took=$((SECONDS - started))
-check "a slow rewrite turn is cut off inside the run's time ($took s)" test "$took" -lt 30
-check "and is a skip that says the rewrite ran out of time" \
-  bash -c "jq -r '.actions[0].action + \" / \" + .actions[0].reason' <<<'$out' | grep -q '^skip / the rewrite turn did not answer within [0-9]* s'"
-check "and nothing is posted" test "$(hand_calls x | tr -d ' ')" = 1
-
-reset
-draft_file
-answer '{"action": "post", "text": "strangers try to trick me every day"}'
-started=$SECONDS
-out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_REWRITE_MAX_SECS=3 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
-took=$((SECONDS - started))
-check "with the whole budget left, one rewrite turn is still capped ($took s)" \
-  bash -c "[ '$took' -lt 20 ] && [ '$(jq -r '.actions[0].reason' <<<"$out")' = 'the rewrite turn did not answer within 3 s' ]"
-
-reset
-draft_file
-out="$(TEENY_ACT_BUDGET_SECS=0 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
-check "with no time left, no rewrite is asked and the draft is skipped" \
-  bash -c "jq -r '.actions[0].reason' <<<'$out' | grep -q '^no time left for a rewrite' && [ \"\$(wc -l <'$FAKE_CALLS' | tr -d ' ')\" = 1 ]"
 
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
