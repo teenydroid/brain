@@ -26,8 +26,8 @@ component (teeny_hands.world.collect, never a second classifier):
              after the post, and who came first (`first_contact` is
              `theirs`: Teeny had not @-ed it before). Its class is
              `classify`'s (human, agent or unknown)
-  nobody     a post that drew no reply, like, repost or quote (x_post_metrics
-             at its latest checkpoint)
+  nobody     a post that drew no reply, like, repost or quote (x_mentions, and
+             x_post_metrics at its latest checkpoint before the window's end)
   answered   a reply the account it answered answered again in the same
              conversation (as evolve_evidence counts it)
 
@@ -181,7 +181,7 @@ def items(src: eo.Sources, since: float, until: float) -> list[Item] | None:
                      "WHERE created_at >= ? AND created_at < ? AND kind IN ('post', 'quote', 'reply') ORDER BY created_at",
                      (since, until - SETTLE_SECONDS))
         own = {str(r["id"]) for r in _rows(conn, "SELECT id FROM x_posts WHERE kind IN ('post', 'quote', 'thread')")}
-        metrics = _latest_metrics(conn)
+        metrics = _latest_metrics(conn, until)
         writers = _writers(src) if rows else {}
         out: list[Item] = []
         for r in rows:
@@ -200,9 +200,12 @@ def items(src: eo.Sources, since: float, until: float) -> list[Item] | None:
         conn.close()
 
 
-def _latest_metrics(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
-    rows = _rows(conn, "SELECT post_id, likes, reposts, quotes FROM x_post_metrics m WHERE checkpoint = "
-                 "(SELECT max(checkpoint) FROM x_post_metrics WHERE post_id = m.post_id)")
+def _latest_metrics(conn: sqlite3.Connection, until: float) -> dict[str, sqlite3.Row]:
+    """What X counted on each post at its latest checkpoint taken before
+    UNTIL: a like that came after a window's end is not that window's."""
+    rows = _rows(conn, "SELECT post_id, likes, replies, reposts, quotes FROM x_post_metrics m WHERE at < ? AND "
+                 "checkpoint = (SELECT max(checkpoint) FROM x_post_metrics WHERE post_id = m.post_id AND at < ?)",
+                 (until, until))
     return {str(r["post_id"]): r for r in rows}
 
 
@@ -223,7 +226,7 @@ def _drew(conn: sqlite3.Connection, item: Item, counted: sqlite3.Row | None, unt
         if key not in seen or (when is not None and (seen[key] is None or when < seen[key])):
             seen[key] = when
     item.drew = bool(seen) or bool(counted is not None and any((counted[k] or 0) > 0
-                                                                for k in ("likes", "reposts", "quotes")))
+                                                                for k in ("likes", "replies", "reposts", "quotes")))
     for who, when in seen.items():
         first = _first_contact(conn, who, when)
         if first is None or first < item.at:
