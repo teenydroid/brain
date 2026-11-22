@@ -10,7 +10,6 @@ import json
 import os
 import stat
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -20,7 +19,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-sys.path.insert(0, str(HERE.parent / "lib"))
 
 T0 = 1_789_369_200.0  # 2026-09-14T07:00:00Z
 
