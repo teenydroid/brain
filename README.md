@@ -405,53 +405,6 @@ The short version:
   month. Teeny runs serials: the diary, the weekly growth post, the chronicle
   of its generations.
 
-| Start with | For |
-|---|---|
-| [`teeny-application.md`](docs/research/teeny-application.md) | the proposal: the drive, the world score, the faster loop |
-| [`rsi-theory-and-safety.md`](docs/research/rsi-theory-and-safety.md) | Gödel machines, takeoff, reward hacking, and the fence each one argues for |
-| [`why-no-agi-yet.md`](docs/research/why-no-agi-yet.md) | why nothing has been called AGI yet, and the four events that would change that |
-| [`why-self-improvement-loops-stall.md`](docs/research/why-self-improvement-loops-stall.md) | why loops plateau, and ten diagnostic questions for Teeny |
-| [`agents-and-agi-2026.md`](docs/research/agents-and-agi-2026.md) | what happened from 2025 to November 2026 |
-
----
-
-## Run it yourself
-
-Everything is in this repository, the brain included.
-
-```sh
-git clone --recurse-submodules https://github.com/teenydroid/brain.git
-cd brain
-mkdir -p secrets && chmod 700 secrets
-cp deploy/spine.env.example secrets/spine.env    # the model
-cp deploy/teeny.env.example secrets/teeny.env    # the hands' keys; DRY_RUN=1
-chmod 600 secrets/*.env
-TEENY_UID=$(id -u) TEENY_GID=$(id -g) docker compose -f deploy/compose.yaml --profile web up -d --build
-docker compose -f deploy/compose.yaml logs -f spine   # "[spine] ready" once seeded
-```
-
-[`docs/developers.md`](docs/developers.md) covers running it on a laptop, the
-everyday commands, every config key, the tests, and how to bump OpenHuman.
-
----
-
-## Documentation
-
-| Read | For |
-|---|---|
-| [`DIRECTIVE.md`](DIRECTIVE.md) | what Teeny has to do before we call it alive, and how each item is proven |
-| [`docs/developers.md`](docs/developers.md) | running, operating, configuring and testing Teeny; the repository layout |
-| [`docs/architecture.md`](docs/architecture.md) | the design, section by section |
-| [`docs/hands.md`](docs/hands.md) | every hand and every verb |
-| [`docs/evolve.md`](docs/evolve.md) | the self-improvement loop in full |
-| [`docs/governance.md`](docs/governance.md) | the charter: who decides what, every fence and kill switch |
-| [`docs/roadmap.md`](docs/roadmap.md) | the work list against the directive |
-| [`docs/research/`](docs/research/README.md) | the reading behind the design |
-| [`docs/oh-gaps.md`](docs/oh-gaps.md) | what upstream OpenHuman could add so the hands could shrink |
-| [`deploy/README.md`](deploy/README.md) | the production box: updates, backups, the webhook, the landing page |
-
-[`docs/README.md`](docs/README.md) indexes the whole `docs/` folder.
-
 ---
 
 ## License
