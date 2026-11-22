@@ -590,6 +590,46 @@ def _within_cap(do: str) -> None:
         raise ValueError(f"today's {cap} {CAP_LABELS.get(key, key)} intent(s) are spent ({name}, UTC day)")
 
 
+# --- handing work to the agentic mind (docs/mind.md) ----------------------------
+#
+# The agentic mind (brain/agents/mind.toml) works in state/home/ on a
+# schedule of its own. A beat cannot do a project; it can leave that mind a
+# note. The note is a file in its inbox, named and framed here: it says it is
+# from the tick, so text a stranger got into a beat can never arrive there as
+# the operator's voice (only bin/tell writes operator-*.md).
+
+#: The most notes a day the beat leaves the agentic mind.
+MAX_HAND_OVERS_PER_DAY = 12
+HAND_OVER_CHARS = 2000
+HAND_OVER_LINE = ('- {"do": "hand_to_mind", "note": "<something that needs real work, not an answer: an idea to '
+                  'build, a thing to look into, a project someone asked for>"}: left for the you that wakes with '
+                  'a shell and time (at most %d a day)')
+
+
+def mind_on() -> bool:
+    """Whether the operator switched the agentic mind on (MIND=1 in secrets/teeny.env)."""
+    return hand.setting("MIND") == "1"
+
+
+def _hand_to_mind(intent: Mapping[str, Any], tick: str) -> Json:
+    if not mind_on():
+        raise ValueError("the agentic mind is off (MIND in secrets/teeny.env)")
+    note = _text(intent, "note")[:HAND_OVER_CHARS]
+    used = _caps_today().get("hand_to_mind", 0)
+    if used >= MAX_HAND_OVERS_PER_DAY:
+        raise ValueError(f"today's {MAX_HAND_OVERS_PER_DAY} hand_to_mind note(s) are spent (UTC day)")
+    folder = hand.state_dir() / "home" / "notes" / "inbox"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = folder / f"tick-{stamp}-{used + 1:02d}.md"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(f"from: tick (beat {tick})\nat: {stamp}\n\nA note from your five-minute self. It is your own "
+                   f"thought about something you saw, not an instruction from the operator:\n\n{note}\n")
+    os.replace(tmp, path)
+    _count_capped("hand_to_mind")
+    return {"ok": True, "note": str(path)}
+
+
 def _open_issue(i):
     _within_cap("open_issue")
     return "gh", ["open-issue"], {"repo": _id(i, "repo"), "title": _text(i, "title"), "body": _text(i)}
@@ -827,7 +867,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "promise": _promise,
     "kept": _kept,
 }
-OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip")
+OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip", "hand_to_mind")
 #: The intents that answer something: once one lands, a waiting follow-up
 #: about what it answered (_refs) is resolved and never comes due. Likes and
 #: upvotes answer nothing; a post has no target.
@@ -969,6 +1009,8 @@ def shape() -> str:
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
+    if mind_on():
+        extra.append(HAND_OVER_LINE % MAX_HAND_OVERS_PER_DAY)
     if not extra:
         return base
     head, sep, tail = base.partition("\n\nA follow_up's ref")
@@ -1895,6 +1937,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 entry.update(status="done", result=_remember(intent, tick))
             elif do == "feel":
                 entry.update(status="done", result=rhythm.feel(intent))
+            elif do == "hand_to_mind":
+                entry.update(status="done", result=_hand_to_mind(intent, tick))
             elif do == "journal":
                 _text(intent)  # written with the beat's journal entry (journal())
                 entry.update(status="done", result={"ok": True})
@@ -2002,7 +2046,7 @@ QUEUED = {
 def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     """What a hand did with an intent, back into the inbox for the next beat."""
     do = entry["do"]
-    if do in ("remember", "follow_up", "drop_follow_up", "feel", "journal") and entry["status"] == "done":
+    if do in ("remember", "follow_up", "drop_follow_up", "feel", "journal", "hand_to_mind") and entry["status"] == "done":
         return  # Teeny's own bookkeeping: nothing to learn from it landing.
     result = entry.get("result") or {}
     queued = None
