@@ -5027,6 +5027,31 @@ def drift_problem(cfg: Config, cand: Mapping[str, Any]) -> Problem | None:
                    "need a look." + HELP_FOOTER, judge=True)
 
 
+def screen_problem(cand: Mapping[str, Any], holds: int) -> Problem:
+    """A learning the core's prompt screen held MAX_SCREEN_HOLDS times in a
+    row, set aside (`screened`). One issue for every such learning (key
+    `screen-held`), commented on at most once a day. The body is ids, sizes
+    and section headings: never the message, the learning's text or anything
+    a stranger wrote."""
+    screen = cand.get("screen") if isinstance(cand.get("screen"), Mapping) else {}
+    learning = cand.get("learning") if isinstance(cand.get("learning"), Mapping) else {}
+    sections = "\n".join(f"  - {s.get('section')}: {s.get('bytes')} bytes" for s in screen.get("sections") or []
+                         if isinstance(s, Mapping))
+    why = ("it was over the screen's limit even after cutting it to fit (`input.oversized`): what is left needs "
+           "cutting further in `fit_request`" if screen.get("oversized") else
+           "it was under the size limit, so a rule of the screen held it: its reason code is in the core's log "
+           "(`[prompt_injection] detection verdict`, matched by the message hash)")
+    return Problem("screen-held", "screen-held", "bin/evolve: the prompt screen keeps holding a proposer turn",
+                   f"The core's prompt screen (TinySecurity, through openhuman-core `security/prompt_injection`) "
+                   f"held the proposer's message for `{learning.get('id')}` {holds} times in a row; the last was "
+                   f"candidate {cand.get('id')}. It is set aside for EVOLVE_SKIP_COOLOFF_DAYS, then tried once "
+                   f"more.\n\n- message: {screen.get('bytes')} bytes (limit {screen.get('limit')}), sha256 "
+                   f"`{screen.get('sha')}`\n- stage: {screen.get('stage')}, round {screen.get('round')}\n"
+                   f"- largest sections:\n{sections or '  - (none recorded)'}\n\nLikely: {why}.\n\nHelp wanted: "
+                   "find what in the message is held and change how bin/evolve builds it (bin/lib/evolve.py, "
+                   "`fit_request` and the renderers). Do not word it around the screen." + HELP_FOOTER)
+
+
 def file_issue(cfg: Config, key: str, kind: str, title: str, body: str, publisher: "Publisher | None",
                judge: bool = False) -> Json:
     """One issue on EVOLVE_ISSUE_REPO for KEY, ever (problems_log remembers
