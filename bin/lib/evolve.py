@@ -1796,12 +1796,14 @@ class EvolverProposer:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.cfg["EVOLVE_EVOLVER_AGENT"], "--cwd", str(tree),
                 "--thread", f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
         try:
-            done = subprocess.run(argv, input=message or render_evolver_request(request), capture_output=True,
+            done = subprocess.run(argv, input=message, capture_output=True,
                                   text=True, env=code_env(**lab.env()), timeout=1800)
         except subprocess.TimeoutExpired:
             raise EvolveError("the evolver's turn took over 1800 s") from None
         finally:
             lab_lib.stop(lab)
+        if done.returncode != 0 and SCREEN_REFUSAL.search(done.stderr):
+            raise ScreenHeld(message, done.stderr.strip())
         if done.returncode != 0:
             raise EvolveError(f"the evolver's turn failed: {done.stderr.strip()[-300:]}")
         return first_json(done.stdout)
