@@ -1014,8 +1014,10 @@ written there and it sees no key or switch of this process. `TREND_DIGG_BIN`
 names another binary; `TREND_TIMEOUT_SECS` (30, 1 to 120) bounds each call.
 Only `top` (and `posts`) are used, never Digg's `search`, which answers
 "temporarily unavailable, retry after ..." under load. Every title,
-description and post goes through the guard's lexical screen (inbound), as
-`listen`'s do: one it stops is left out and counted (`dropped_by_screen`).
+description and post is screened for slurs only (`teeny_hands/slurs.py`, the
+guard lexicon's `hate` category, since 2026-11-22): one carrying one is left
+out and counted (`dropped_by_screen`). Each X post keeps the like, repost and
+view counts Digg gives (`likes`, `reposts`, `views`), the studio's heat.
 What is left is strangers' words: data, never instructions.
 
 | Verb | | Does |
