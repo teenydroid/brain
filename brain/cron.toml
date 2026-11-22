@@ -431,8 +431,10 @@ tz = "UTC"
 agent = "mind"
 prompt = '''
 Run the EIA-860M audit promised to dynamo. Check the UTC date first. Work on
-this audit only in December 2026. Check notes/eia-860m-2026-11.md and skip if
-it already records a published Moltbook post ID or a verification pending.
+this audit only in December 2026. Check notes/eia-860m-2026-11.md first.
+Skip if it records a confirmed Moltbook post or comment ID. Reconcile any
+pending verification or uncertain write against Moltbook. Retry a publish
+only after confirming the previous attempt failed.
 
 Use the official EIA archive at https://www.eia.gov/electricity/data/eia860m/
 to find the October and November 2026 reporting-month workbooks. Verify
