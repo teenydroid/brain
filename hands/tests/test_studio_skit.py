@@ -261,9 +261,9 @@ class EditorSkitTest(unittest.TestCase):
 
     def test_the_editors_rubric_leaves_the_labelled_parody_to_the_skit_lines(self):
         rubric = (REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text()
-        line = next(x for x in rubric.splitlines() if "made up about a real person" in x)
+        line = next(x for x in rubric.splitlines() if "labelled parody" in x)
         self.assertIn("skit", line)
-        self.assertIn("labelled parody", line)
+        self.assertIn("judged by the skit lines", line)
 
 
 class WriterSkitBriefTest(unittest.TestCase):
@@ -823,7 +823,9 @@ class SkitVetoRunTest(unittest.TestCase):
         self.assertNotIn("skit", [a["format"] for a in record["publish"]["attempts"]])
         self.assertEqual(record["published"]["outcome"], "would_post")
 
-    def test_a_veto_of_the_post_after_the_skit_is_a_real_veto(self):
+    def test_a_veto_of_the_post_after_the_skit_falls_to_the_rest_of_the_ranking(self):
+        # 2026-11-22: a no on the top draft no longer ends the slot; every
+        # draft left is asked, and only when each is vetoed is it empty.
         self.finals = []
 
         def ask(root, agent, message, thread, model, secs):
@@ -832,9 +834,14 @@ class SkitVetoRunTest(unittest.TestCase):
                 return 0, json.dumps({"verdict": "none", "reason": "neither"}), ""
             return SkitSlotRunTest.ask(self, root, agent, message, thread, model, secs)
         code, out = studio.run(self.args, self.env, ask=ask)
-        self.assertEqual(out["outcome"], "vetoed")
-        self.assertEqual(len(self.finals), 2)
-
+        self.assertEqual(out["outcome"], "empty")
+        record = json.loads((self.root / "state" / "studio" / "runs.jsonl").read_text().splitlines()[-1])
+        attempts = record["publish"]["attempts"]
+        self.assertEqual(record["final_veto"]["label"], attempts[0]["label"])
+        self.assertEqual(attempts[0]["format"], "post")
+        self.assertNotIn("skit", [a["format"] for a in attempts])
+        self.assertTrue(all(a["editor"]["verdict"] == "none" for a in attempts))
+        self.assertEqual(len(self.finals), 1 + len(attempts))
 
 SECOND = {"figures": ["Elon Musk"], "premise": "musk said the car drives itself, so it drives off without him",
           "look": {"Elon Musk": "silver tuxedo, a brass diving helmet under one arm"},

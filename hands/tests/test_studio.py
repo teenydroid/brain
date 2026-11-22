@@ -1884,8 +1884,8 @@ class UnhingedTest(unittest.TestCase):
                     studio.final_message("D1", draft, {}, [])):
             self.assertIn("screenshot or argue with", msg)
             self.assertIn("absurd claim Teeny makes about itself is the point", msg)
-            self.assertIn("invented money", msg)
-            self.assertIn("still loses outright", msg)
+            # Facts are the truth check's, after the editor (2026-11-22).
+            self.assertIn("You judge taste, never facts", msg)
 
     def test_the_writer_brief_is_unhinged_and_keeps_the_hard_lines(self):
         text = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
