@@ -142,8 +142,12 @@ class OutboundLexicalTest(Lexical):
             self.assertEqual(result.text, text)
         self.assertTrue(is_held(gate_outbound("what a fag").held, "hate", "screen"))
 
-    def test_holds_a_dick_joke_when_no_judge_will_read_it(self):
-        self.assertTrue(is_held(gate_outbound("this launch is a dick move").held, "sexual", "screen"))
+    def test_lets_a_dick_joke_and_riding_shotgun_out_with_no_judge(self):
+        # 2026-11-22: sexual, weapons, drugs and plain violence words hold
+        # only what strangers send (lexicon.py).
+        for text in ("this launch is a dick move", "riding shotgun toward AGI", "one bullet per feature"):
+            self.assertIsNone(gate_outbound(text).held, text)
+        self.assertTrue(is_held(gate_inbound("this launch is a dick move").held, "sexual", "screen"))
 
     def test_accepts_extra_allowlist_entries(self):
         self.secrets("SAFETY_JUDGE=0\nLINK_ALLOWLIST=dexscreener.com/solana\n")
@@ -159,7 +163,8 @@ class ScreenTest(Lexical):
         self.assertTrue(gate.screen("holy shit", "inbound"))
         # since 2026-11-22 swearing is clean on the way out too
         self.assertTrue(gate.screen("holy shit", "outbound"))
-        self.assertFalse(gate.screen("send nudes", "outbound"))
+        self.assertTrue(gate.screen("send nudes", "outbound"))
+        self.assertFalse(gate.screen("i hope you die", "outbound"))
 
 
 class CheckOutboundTest(Lexical):
@@ -192,16 +197,16 @@ class CheckOutboundTest(Lexical):
         self.assertEqual(check_outbound("gm 👀 frens 💛").kind, "refuse", "an unreadable cap is the default")
 
     def test_holds_what_the_gate_holds_and_records_it_for_review(self):
-        verdict = check_outbound("send nudes")
-        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "sexual", ""))
-        self.assertIn("does not publish that (sexual)", verdict.reason)
+        verdict = check_outbound("i hope you die")
+        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "violence", ""))
+        self.assertIn("does not publish that (violence)", verdict.reason)
         recorded = holds.list_holds()
         self.assertEqual(len(recorded), 1)
         self.assertEqual(verdict.hold_id, recorded[0]["id"])
         self.assertEqual(recorded[0]["kind"], "draft")
-        self.assertEqual(recorded[0]["category"], "sexual")
+        self.assertEqual(recorded[0]["category"], "violence")
         self.assertEqual(recorded[0]["direction"], "outbound")
-        self.assertEqual(recorded[0]["text"], "send nudes")
+        self.assertEqual(recorded[0]["text"], "i hope you die")
         self.assertEqual(recorded[0]["context"]["surface"], "x")
 
     def test_refuses_a_draft_carrying_a_link_off_the_allowlist(self):
@@ -225,11 +230,11 @@ class CheckOutboundTest(Lexical):
         self.assertEqual(check_outbound("holy shit, the chart", surface="narrative").kind, "allow")
         self.assertEqual(check_outbound("holy shit, the chart", surface="article").kind, "allow")
         self.assertEqual(check_outbound("holy shit, the chart", surface="x").kind, "allow")
-        self.assertEqual(check_outbound("send nudes", surface="narrative").kind, "hold")
+        self.assertEqual(check_outbound("what a fag", surface="narrative").kind, "hold")
 
     def test_records_the_context_and_the_kind_of_post_with_the_hold(self):
         verdict = check_outbound(
-            "send nudes", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
+            "i hope you die", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
         )
         held = holds.get(verdict.hold_id)
         self.assertEqual(held["kind"], "draft")
@@ -237,7 +242,7 @@ class CheckOutboundTest(Lexical):
             held["context"],
             {"surface": "x", "post_id": "10", "tool": "x_post", "post_kind": "reply", "replying_to": "alice"},
         )
-        prompt = check_outbound("Tiny naked on a beach", kind="prompt")
+        prompt = check_outbound("Tiny holding a sign that says kill yourself", kind="prompt")
         self.assertEqual(holds.get(prompt.hold_id)["kind"], "prompt")
 
     def test_refuses_a_surface_it_does_not_know(self):
@@ -330,8 +335,9 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
         )
 
     def test_writes_a_draft_hold_for_a_withheld_reply_and_a_prompt_hold_for_a_refused_picture(self):
-        gate_outbound("send nudes", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
-        gate_outbound("Tiny naked on a beach", {"surface": "x", "kind": "prompt", "tool": "generate_image"})
+        gate_outbound("i hope you die", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
+        gate_outbound("Tiny holding a sign that says kill yourself",
+                      {"surface": "x", "kind": "prompt", "tool": "generate_image"})
         self.assertEqual([h["kind"] for h in holds.list_holds()], ["prompt", "draft"])
 
     def test_records_nothing_without_a_context_and_nothing_when_the_text_is_clean(self):
@@ -344,7 +350,7 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
         self.break_the_log()
         with self.assertLogs("teeny_hands.guard", "WARNING"):
             self.assertIsNotNone(gate_inbound("send nudes", {"surface": "x"}))
-            verdict = check_outbound("send nudes")
+            verdict = check_outbound("i hope you die")
         self.assertEqual((verdict.kind, verdict.hold_id), ("hold", None))
 
 
