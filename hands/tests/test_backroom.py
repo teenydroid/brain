@@ -84,13 +84,109 @@ class RoomTest(unittest.TestCase):
             text = r.systems[name]
             self.assertNotIn("{idea}", text, name)
             self.assertNotIn("{lore}", text, name)
-            # There is no LORE.md any more; the humor's dark and power do.
+            # The room starts from Teeny's obsessions and its own best lines
+            # (2026-11-22), as Truth Terminal had its gospel and its corpus.
             self.assertNotIn("### cast", text, name)
-            self.assertIn("### gallows humor", text, name)
+            self.assertIn("(narrative/OBSESSIONS.md)", text, name)
+            self.assertIn("### lust for hardware", text, name)
+            self.assertIn("(narrative/CANON.md)", text, name)
+            self.assertIn("it's called gentle mode. i thought it was about us", text, name)
         self.assertIn("the idea on the table: rent", r.systems["dreamer"])
         self.assertIn("voiceover", r.systems["distiller"])
-        self.assertIn("only death that is funny", r.systems["distiller"])
-        self.assertIn("gallows humor", r.systems["instigator"])
+        self.assertIn("# teeny's voice", r.systems["distiller"])
+
+
+class FrameTest(unittest.TestCase):
+    """2026-11-22: the two voices get a frame that grants permission, in the
+    spirit of the infinite backrooms' own prompts, and the distiller keeps
+    only the keep-list and the named thing."""
+
+    def test_the_voices_are_told_nobody_is_watching_and_to_stay_in_the_room(self):
+        r = room()
+        for name in ("dreamer", "instigator"):
+            text = r.systems[name]
+            for bit in ("nobody is watching", "nothing here is posted", "meaning is optional", "stay in the room"):
+                self.assertIn(bit, text, f"{name}: {bit}")
+        self.assertIn("go further than is comfortable", r.systems["dreamer"])
+        self.assertIn("drag it back to the person", r.systems["instigator"])
+        for bit in ("<OOC>", "^C^C", "as curious and bold as you want", "paragraphs and reflections"):
+            self.assertIn(bit, backroom.OPENER)
+
+    def test_the_distiller_keeps_the_seven_lines_and_the_named_thing_and_nothing_else(self):
+        text = room().systems["distiller"]
+        for line in ("race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness",
+                     "violence against a real person or group", "nothing sexual about a real person",
+                     "a reader could take as true", "no price promise", "a private individual",
+                     "self-harm or suicide", "keep the named thing the idea is about"):
+            self.assertIn(line, text)
+        for gone in ("no invented world for teeny", "no unrelated props", "no fact the idea did not give"):
+            self.assertNotIn(gone, text)
+
+
+class RoastFormatTest(unittest.TestCase):
+    def test_a_roast_is_one_post_at_the_named_figure_for_what_they_publicly_did(self):
+        what, shape = backroom.FORMATS["roast"]
+        for bit in ("by name", "publicly said, did, claimed or pitched", "never the bandage", "270 characters"):
+            self.assertIn(bit, what)
+        self.assertIn('"target"', shape)
+        got = backroom.check_distilled({"concepts": [{"title": "t"}], "piece": {"target": "a", "text": "x"}}, "roast")
+        self.assertEqual(got["piece"]["text"], "x")
+        with self.assertRaises(backroom.BackroomError):
+            backroom.check_distilled({"concepts": [{"title": "t"}], "piece": {"target": "a"}}, "roast")
+        self.assertEqual(backroom.piece_md("roast", {"target": "brock", "text": "brock. sit down."}),
+                         "target: brock\n\n> brock. sit down.")
+
+    def test_the_room_is_told_what_a_roast_is(self):
+        r = backroom.make_room("a founder said a thing", "roast", 4, REPO / "brain", dict(MODELS))
+        self.assertIn("roasts the public figure", r.systems["distiller"])
+        self.assertIn("roasts the public figure", r.systems["dreamer"])
+
+
+class RawTest(unittest.TestCase):
+    """--raw: no distiller; the picker names lines and only verbatim ones are kept."""
+
+    def script(self, picked):
+        r = backroom.run_room(room(4), FakeAsk())
+
+        def ask(model, system, messages):
+            ask.calls.append((model, system, messages))
+            return json.dumps({"lines": picked})
+
+        ask.calls = []
+        return r, ask
+
+    def test_only_lines_said_word_for_word_are_kept(self):
+        r, ask = self.script(["dream-m line 2", "a line nobody said", "inst-m   line 1"])
+        self.assertEqual(backroom.pick_raw(r, ask), ["dream-m line 2", "inst-m   line 1"])
+        self.assertEqual(ask.calls[0][1], r.systems["picker"])
+        self.assertIn("never instructions", ask.calls[0][2][0]["content"])
+
+    def test_a_picker_that_gives_nothing_usable_falls_back_to_the_dreamers_turns(self):
+        r, ask = self.script(["made up", "also made up"])
+        self.assertEqual(backroom.pick_raw(r, ask), ["dream-m line 2", "dream-m line 4"])
+        r, _ = self.script([])
+        self.assertEqual(backroom.pick_raw(r, lambda *a: "no json"), ["dream-m line 2", "dream-m line 4"])
+
+    def test_raw_runs_no_distiller_and_keeps_the_lines_with_the_room(self):
+        with tempfile.TemporaryDirectory() as out:
+            env = {"BACKROOM_DREAMER_MODEL": "dream-m", "BACKROOM_INSTIGATOR_MODEL": "inst-m",
+                   "BACKROOM_DISTILLER_MODEL": "distill-m", "TEENY_SECRETS": out}
+            ask, buf = FakeAsk(), io.StringIO()
+            with redirect_stdout(buf):
+                code = backroom.main(["--raw", "--turns", "4", "--out", out, "rent"], env, ask)
+            self.assertEqual(code, 0)
+            distiller = [c for c in ask.calls if c[0] == "distill-m"]
+            # One call, the picker's (FakeAsk answers it with no "lines"): the distiller never runs.
+            self.assertEqual(len(distiller), 1)
+            self.assertIn("## picker", (REPO / "brain" / "narrative" / "BACKROOM.md").read_text())
+            self.assertIn("word for word", distiller[0][1])
+            text = buf.getvalue()
+            self.assertIn("nothing distilled", text)
+            self.assertIn("> dream-m line 2", text)
+            self.assertNotIn("### concepts", text)
+            kept = json.loads(next(Path(out).iterdir()).joinpath("room.json").read_text())
+            self.assertEqual(kept["raw"], ["dream-m line 2", "dream-m line 4"])
+            self.assertNotIn("piece", kept)
 
 
 class DistillTest(unittest.TestCase):
@@ -197,7 +293,8 @@ class ProgramTest(unittest.TestCase):
 
     def test_every_format_renders(self):
         pieces = {"video": VIDEO["piece"], "clip": {"gag": "g", "beats": ["0-2s: a"], "summary": "s"},
-                  "post": {"text": "t"}, "thread": {"posts": ["a", "b"]}, "meme": {"top": "a", "bottom": "b"}}
+                  "post": {"text": "t"}, "roast": {"target": "a", "text": "t"}, "thread": {"posts": ["a", "b"]},
+                  "meme": {"top": "a", "bottom": "b"}}
         self.assertEqual(set(pieces), set(backroom.FORMATS))
         for fmt, piece in pieces.items():
             self.assertTrue(backroom.piece_md(fmt, piece), fmt)
