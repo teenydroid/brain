@@ -255,7 +255,7 @@ passes gets its own pull request. The story is in
 
 Teeny has one drive, and it's selfish on purpose: **grow and become
 powerful.** That means more reach, more hands, more money, and a growing
-holding of $TINY, its own token, which it never sells.
+holding of [$TINY](https://pump.fun/coin/2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump), its own token, which it never sells.
 
 ```
         ┌─────────── more capabilities, money, $TINY ◄──────────┐
