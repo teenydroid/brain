@@ -680,9 +680,16 @@ check "and the rewrite, gated again, is what goes out" \
 check "the rewrite is the writer's, on the run's thread" \
   test "$(jq -r 'select(.message | startswith("# studio: rewrite")) | .agent_id + " " + .thread_id' "$FAKE_CALLS")" = "writer studio:$plain_id"
 reset
-out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=no,yes live)"
-check "a stranger no gets one rewrite, told what they took and would ask about" \
-  bash -c "grep -q 'the desk' <<<\"\$2\" && [ \"\$(jq -r .outcome <<<\"\$1\")\" = published ]" _ "$out" "$(step_msgs '# studio: rewrite')"
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=no live)"
+rec="$(last_record)"
+# 2026-11-22: the cold reader is advice in the studio, not a gate (STUDIO_STRANGER_GATE, off).
+check "a stranger no is kept in the record as advice: no rewrite, and the draft goes out" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].gates.stranger.clear == false and .publish.attempts[0].gates.stranger.advisory == true' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ]" _ "$rec" "$(step_msgs '# studio: rewrite')"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=no,yes STUDIO_STRANGER_GATE=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+rec="$(last_record)"
+check "with STUDIO_STRANGER_GATE=1 a stranger no drops the draft with no rewrite, and the next one goes out" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].result == \"failed the stranger check\"' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ]" _ "$rec" "$(step_msgs '# studio: rewrite')"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=no,no,yes FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
 rec="$(last_record)"
@@ -704,8 +711,12 @@ check "an empty slot is an outcome, not an error" bash -c "[ '$code' = 0 ] && jq
 check "and nothing reaches hands/x" test -z "$(posts)"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=down live)"
+check "a cold reader that cannot be reached costs the slot nothing: the draft goes out" \
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = published ]" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=down STUDIO_STRANGER_GATE=1 live)"
 rec="$(last_record)"
-check "a cold reader that cannot be reached fails closed: no rewrite, no other draft, an empty slot" \
+check "with STUDIO_STRANGER_GATE=1 a cold reader that cannot be reached fails closed: no rewrite, no other draft, an empty slot" \
   bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ] && [ -z \"\$3\" ]" _ "$rec" "$(step_msgs '# studio: rewrite')" "$(posts)"
 
 # --- the posting rules

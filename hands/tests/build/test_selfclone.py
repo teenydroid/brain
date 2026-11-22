@@ -700,7 +700,7 @@ class SelfShipTest(SelfJobScratch):
         self.assertEqual(self.request_row(rid)["status"], "picked")
 
     def test_a_held_pull_request_pushes_nothing(self):
-        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n"}, summary="send nudes")
+        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n"}, summary="i hope you die")
         out = jobs.ship()
         self.assertEqual(out["results"][0]["error"], "held")
         self.assertIsNone(self.origin_ref(job["branch"]))

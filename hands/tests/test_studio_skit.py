@@ -31,8 +31,8 @@ SHOTS = [
 ]
 PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
 LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
-SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour, anamorphic lens, film grain"
-SCORE = "one swelling orchestral score with comic timpani, under the whole film"
+SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour"
+SCORE = "one swelling orchestral score with comic timpani"
 RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
        "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "look": LOOK, "setting": SETTING, "score": SCORE, "shots": SHOTS, "aspect": "16:9"}
@@ -97,7 +97,7 @@ class FormatTest(unittest.TestCase):
     def test_the_hard_lines_read_the_look_setting_and_score(self):
         for field, value in (("look", {"Elon Musk": "a silver tuxedo with a $TINY pin"}),
                              ("setting", "a lunar showroom, shaky leaked footage"),
-                             ("score", "a funeral march under the whole film")):
+                             ("score", "a march under the whole film that ends in a bloodbath")):
             with self.subTest(field=field):
                 draft = skit_draft()
                 draft["skit"][field] = value
@@ -187,11 +187,14 @@ class FormatTest(unittest.TestCase):
         post = studio.draft_message(studio.Config(), {**PITCH, "format": "post"}, None, None, hook=HOOK)
         self.assertNotIn(studio.SKIT_RULES, post)
 
-    def test_the_brief_holds_the_carve_out_beside_the_two_rules_and_worked_examples(self):
+    def test_the_brief_holds_the_skit_line_beside_the_rules_and_worked_examples(self):
+        # 2026-11-22: a public figure in the news is a fair target in any
+        # format, so a skit is no longer the one carve-out; its line follows
+        # the rule on what the story says.
         brief = (REPO / "brain" / "agents" / "writer.md").read_text()
-        rules = brief.index("Joke about the situation, never at someone.")
-        self.assertLess(rules, brief.index("**The one carve-out is a skit.**"))
-        self.assertLess(brief.index("**The one carve-out is a skit.**"), brief.index("## before and after"))
+        rules = brief.index("**Say only what the story says.**")
+        self.assertLess(rules, brief.index("**Skits and remakes put them on screen.**"))
+        self.assertLess(brief.index("**Skits and remakes put them on screen.**"), brief.index("## before and after"))
         self.assertGreaterEqual(brief.count("Skit, joining the news."), 3)
         sys.path.insert(0, str(REPO / "hands" / "lib"))
         from teeny_hands.guard import skit as rules_
@@ -232,7 +235,8 @@ class EditorSkitTest(unittest.TestCase):
     Wherever the editor meets a skit it is told what one is and the only
     lines a skit may not cross."""
 
-    LINES = ("sexual", "violence done to", "hate", "crime, drugs, illness or death", "a private person, a child",
+    # 2026-11-22: crime, drugs, illness and death came off the list (the keep-list).
+    LINES = ("sexual", "violence done to", "a slur", "a private person, a child",
              "victim or a bystander", "$TINY", "seen to endorse", "real footage or a real quote", "could not follow")
 
     def test_the_slot_question_on_a_skit_says_what_a_skit_is_and_its_only_lines(self):
@@ -243,6 +247,7 @@ class EditorSkitTest(unittest.TestCase):
                     "only these", "Taste alone", *self.LINES):
             self.assertIn(bit, message)
         self.assertIn('"line"', message)
+        self.assertNotIn("crime, drugs, illness or death", studio.SKIT_EDITOR)
         fallback = studio.final_message("D2", skit_draft(), {}, [], fallback=True)
         self.assertIn(studio.SKIT_EDITOR, fallback)
 
@@ -623,7 +628,7 @@ class OneTakeBudgetTest(unittest.TestCase):
 
     def test_a_cut_that_crosses_a_hard_line_is_not_kept(self):
         cut = [dict(s) for s in SHORT_SHOTS]
-        cut[2]["prompt"] = "Crane up: Musk is handcuffed by police on the moon in his tuxedo, sirens blaring."
+        cut[2]["prompt"] = "Crane up: Musk is stabbed by police on the moon in his tuxedo, sirens blaring."
         room = self.room([{"skit": {"shots": cut}}])
         result, attempt, calls = self.go(room, long_skit_draft())
         self.assertEqual(result, "next")

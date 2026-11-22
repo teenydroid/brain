@@ -27,7 +27,8 @@ from typing import Any
 
 from .. import hand
 from ..guard.screen import INBOUND, screen_text
-from ..guard.skit import HARM, NOT_A_FIGURE
+from ..guard.skit import NOT_A_FIGURE
+from ..guard.skit import SOURCE_HARM as HARM  # strangers' footage keeps the whole list (guard/skit.py)
 from ..remake import charts, ledger
 from ..remake.service import clean_text, source_of
 from ..trend.top import cache_key

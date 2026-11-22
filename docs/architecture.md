@@ -833,8 +833,9 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    producer for the format (post | thread | image | meme | skit | remake)
                 │
-   truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
-       a no: one rewrite by the writer with the reason, gated once more
+   truth judge (hands/guard truth) ──> cold reader (hands/guard clarity: advice, kept, never a gate
+       unless STUDIO_STRANGER_GATE=1)
+       a truth no: one rewrite by the writer that cuts only the claim, gated once more
        a second no: the next draft of the ranking the editor does not veto (at most 2)
                 │
    image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
@@ -952,8 +953,9 @@ stranger gets with the sound off, consequence, payoff; the constants said
 once as data and the shots saying only what changes, the figure's full
 name, the framing, the action, a line, spot sound effects, never their own
 music; one action and at most one short line a shot; cinematography, an
-expensive absurd set, escalation) and the hard lines, and `writer.md` holds the
-carve-out from "joke about the situation, never at someone" with worked
+expensive absurd set, escalation) and the hard lines, and `writer.md` holds
+its lines (since 2026-11-22 a public figure in the news is a fair, rude
+target in any format, not only on video) with worked
 examples and one pun-against-premise contrast (the first live skit slot,
 2026-11-19, drew three skits that were all a pun on the headline's
 "raises", with the figure watching). Wherever the editor meets a skit (a
@@ -961,8 +963,9 @@ compare batch holding one, every slot question on one) it is told what a
 skit is and its only lines (`SKIT_EDITOR`): a public figure from the story
 in an impossible scene, in a role the story never gave them, with the joke
 on them, is the point and no reason for a none; a skit loses only for
-something sexual, violence done to the figure, hate, crime, drugs, illness
-or death shown as theirs, a private person, child, family member, victim
+something sexual about the figure, violence done to the figure, a slur or
+an attack for who anyone is (crime, drugs, illness and death in an
+impossible scene came off the list on 2026-11-22), a private person, child, family member, victim
 or bystander, the figure near Teeny, a token, a wallet, an investment or
 a product they are seen to endorse, a scene or line that could pass for real, or
 a skit a stranger could not follow at all. The slot question adds
@@ -1345,9 +1348,15 @@ One run is one slot:
    says, the posts quoted) with the rules for real news (`JOIN_RULES`, and
    `writer.md`, "start from their world, not yours"): join the conversation
    with Teeny's own event as the reason; say only what the story says, never
-   a fact about a real person or company it does not hold; repeat no
-   accusation and take no side between named people or companies; no
-   @-mentions; name the story in a clause. Every text
+   a fact about a real person or company it does not hold, and no
+   accusation the story does not report as fact; a public figure the story
+   is about, and any company, is a fair, rude target by name for what they
+   publicly did (`ROAST_LINE`; one pitch a room roasts them, `ROAST_PITCH`);
+   the only content lines (`KEEP_LIST`); no @-mentions; name the story in
+   a clause. A draft turn that fails (an error, or no answer in time, after
+   the writer's fall back to the core's default) drops its pitch with the
+   reason in `drafts_dropped`, and the run goes on; it fails only when no
+   pitch could be drafted, or on a lasting provider failure. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
    ones over get one shorten turn together, and one still over is dropped.
    Then a plain-code screen: a draft with an amount of money or of a token
@@ -1403,10 +1412,13 @@ One run is one slot:
    money figure the summary gave). Both are shown what the truth judge is
    given of each story a draft joins (`joined_story`: the hook's own fact,
    its headline, summary and quoted posts, marked untrusted, cut to
-   `STORY_SHOWN_MAX`), under "the stories they join". Its hard lines stay
-   (a joke near real harm, self-harm, slurs, a threat against a real person,
-   cruelty to a private individual, promising money or telling anyone to
-   buy, tagging): it can see those in the words. Ranked by win rate
+   `STORY_SHOWN_MAX`), under "the stories they join". Its only content
+   lines are the keep-list (2026-11-22: slurs and attacks for who someone
+   is, a threat of violence against a real person, anything sexual about a
+   real person or a minor, money promises and buy calls, a private
+   individual as the target, encouraging self-harm) and tagging: it can see
+   those in the words. A rude jab at a named public figure ranks above a
+   self-own. Ranked by win rate
    over the pairs judged (none judged ranks last; ties: more wins, fewer
    losses, the head-to-head, the shuffle); then one turn on the winner:
    `pick` (any case) or none worth a slot. A none on the winner does not end
@@ -1432,10 +1444,14 @@ One run is one slot:
    with a mark of money or the token, `path: "code"` in the record,
    `TRUTH_FAIL_CLOSED=1` for the old no), the **cold reader** (`hands/guard clarity`; bin/act and
    bin/tick run it before their own posts and hands/x does not, so this is
-   its one run), and the **safety guard**, which `hands/x post` runs itself
-   before the posting rules. A truth or stranger no gets one rewrite turn by
-   the writer, told the reason and what was unsupported or unclear, and is
-   gated once more; a second no falls to the next draft of the ranking, which
+   its one run; since 2026-11-22 its verdict is advice, kept in the record
+   as `advisory` and in `clarity_checks`, and a no or an unreachable reader
+   costs the draft nothing unless `STUDIO_STRANGER_GATE=1`, when a no drops
+   the draft with no rewrite), and the **safety guard**, which `hands/x post`
+   runs itself before the posting rules. A truth no gets the one rewrite
+   turn left, told what was unsupported and to cut or correct only that,
+   keeping every other word, the joke and the rudeness; a rewrite turn that
+   fails is that draft's no, never the run's; it is gated once more; a second no falls to the next draft of the ranking, which
    faces the editor's slot question first, told that nothing has gone out
    in the slot yet and never shown the draft that failed. At most two
    fallbacks go through the gates; one the editor vetoes costs no fallback,

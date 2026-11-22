@@ -52,10 +52,10 @@ class CheckTest(Cli):
         self.assertEqual((code, out), (0, {"ok": True, "text": "gm, frens"}))
 
     def test_holds_and_says_which_hold(self):
-        code, out = self.guard("check", body={"text": "send nudes", "context": {"post_id": "7"}})
+        code, out = self.guard("check", body={"text": "i hope you die", "context": {"post_id": "7"}})
         self.assertEqual(code, 2)
         held = holds.list_holds()[0]
-        self.assertEqual(out, {"ok": False, "refused": "held", "category": "sexual", "hold_id": held["id"]})
+        self.assertEqual(out, {"ok": False, "refused": "held", "category": "violence", "hold_id": held["id"]})
         self.assertEqual(held["context"], {"surface": "x", "post_id": "7", "post_kind": "post"})
 
     def test_refuses_what_the_model_may_rewrite(self):
@@ -113,11 +113,11 @@ class StyleTest(Cli):
 
 
 class HoldsTest(Cli):
-    def held(self, text="send nudes"):
+    def held(self, text="i hope you die"):
         return self.guard("check", body={"text": text})[1]["hold_id"]
 
     def test_lists_newest_first_with_the_counts(self):
-        first, second = self.held(), self.held("send nudes")
+        first, second = self.held(), self.held("i hope you die")
         code, out = self.guard("holds", "list")
         self.assertEqual(code, 0)
         self.assertEqual([h["id"] for h in out["holds"]], [second, first])
