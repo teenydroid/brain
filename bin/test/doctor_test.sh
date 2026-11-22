@@ -60,6 +60,29 @@ check "checks the guard's screen" grep -q '^ok   guard screen' "$scratch/doctor.
 check "says which hand-test sandbox works, never failing for want of one" \
   jq -e '[.checks[] | select(.check == "hand-test sandbox") | .status != "fail"] == [true]' "$scratch/report.json"
 
+# --- a red report outlives the green one that follows it ------------------------------
+# state/doctor.json is overwritten each run; the babysitter's rollback sweep reads it
+# up to 20 minutes later, so each failing run is also kept in state/doctor-failures.jsonl.
+fresh
+rm -f "$root/state/doctor-failures.jsonl"
+check "a green run leaves no failure record" doctor
+check "and no failures file" test ! -e "$root/state/doctor-failures.jsonl"
+rm "$root/brain/SOUL.md"
+doctor || true
+cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+check "a red run is kept in state/doctor-failures.jsonl, with its time and failing checks" \
+  jq -e -s 'length == 1 and (.[0].at | test("^[0-9]{4}-")) and ([.[0].checks[].check] | index("brain/SOUL.md") != null)' \
+  "$root/state/doctor-failures.jsonl"
+check "a green run after it overwrites doctor.json" bash -c 'cd "$1" && bin/doctor >/dev/null 2>&1' _ "$root"
+check "but the red record is still there" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 1
+check "and keeps no detail, only names" jq -e -s '.[0].checks | all(.[]; keys == ["check", "status"])' "$root/state/doctor-failures.jsonl"
+for _ in $(seq 1 60); do
+  printf '{"at":"2026-01-01T00:00:00Z","commit":"x","checks":[]}\n' >>"$root/state/doctor-failures.jsonl"
+done
+rm "$root/brain/SOUL.md"
+doctor || true
+check "the failures file is bounded to the latest 50" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 50
+
 # --- hands/trend's reader: present, warned outside the image, failed inside it -------
 fresh
 mkdir -p "$root/secrets"
