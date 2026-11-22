@@ -94,6 +94,8 @@ class Routed(EvolveCase):
                 cur = conn.execute("INSERT INTO build_requests (source, source_id, text, created_at) VALUES "
                                    "('self', ?, ?, ?)", (f"want:{body.get('want')}:{T0:.6f}", body["text"], T0))
                 return 0, {"ok": True, "id": cur.lastrowid, "status": "pending", "want": body.get("want")}
+        if name == "gh" and args[:1] == ["pr"]:
+            return 0, {"ok": True, "pr": {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 + DAY)}}
         raise AssertionError(f"unexpected hand call: {name} {args}")
 
     def state(self, fid):
@@ -134,6 +136,22 @@ class Routed(EvolveCase):
         row = self.status_row(fid)
         self.assertEqual(row["state"], "routed")
         self.assertEqual(row["routed"]["said"], "routed to builder (job 1)")
+
+    def test_a_merged_fix_is_scored_on_the_findings_own_count_a_week_on(self):
+        fid = "f:refusals:brief:duplicate"
+        self.refusals("brief", 6)
+        self.tried_twice(fid)
+        self.assertEqual(wants.file_one(wants.load_settings())["filed"], "w:f:refusals:brief:duplicate")
+        self.ledger.sql("INSERT INTO build_jobs (kind, request_id, slug, status, pr_url, rubric) VALUES "
+                        "('self', 1, 'self-1', 'shipped', 'https://github.com/teenydroid/brain/pull/9', ?)",
+                        json.dumps({"ok": True, "kind": "fix", "hands": [], "tests": ["hands/tests/test_x.py"]}))
+        os.environ["EVOLVE_NOW"] = str(T0 + 9 * DAY)  # merged T0 + 1 day, seven days on
+        with unittest.mock.patch("teeny_hands.stimuli.add") as told:
+            got = wants.watch(wants.load_settings())
+        (record,) = got["scored"]
+        self.assertEqual((record["kind"], record["before"], record["after"], record["verdict"]),
+                         ("finding", 6, 0, "worked"))
+        self.assertIn("routed finding w:f:refusals:brief:duplicate", told.call_args.args[3])
 
     def test_one_prompt_fix_is_not_enough_and_a_count_that_fell_stays_with_the_proposer(self):
         fid = "f:refusals:brief:duplicate"
