@@ -29,6 +29,10 @@ def can_administer(api: Any, repo: str) -> bool | None:
     try:
         api.call("GET", _PROBE.format(owner=owner, name=name))
     except GitHubError as exc:
+        # GitHub answers 403 (and 429) for a spent rate limit too, which says
+        # nothing about what the token may do.
+        if exc.status == 429 or "rate limit" in str(exc).lower():
+            return None
         return False if exc.status in (401, 403, 404) else None
     return True
 

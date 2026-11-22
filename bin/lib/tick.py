@@ -104,7 +104,9 @@ not learn.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -113,6 +115,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -128,6 +131,7 @@ from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard.style import post_length  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mind_home  # noqa: E402
 import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 import scoreboard  # noqa: E402
@@ -559,16 +563,43 @@ def _cap_key(do: str) -> str:
     return CAP_SHARED.get(do, do)
 
 
-def _count_capped(do: str) -> None:
-    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
-    counts = _caps_today()
-    key = _cap_key(do)
-    counts[key] = counts.get(key, 0) + 1
-    path = _caps_path()
+@contextlib.contextmanager
+def _caps_lock():
+    """One lock on the day's counts for every process that spends them: a
+    beat and the broker (bin/broker) both do."""
+    path = _caps_path().with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"day": day, "counts": counts}) + "\n")
-    os.replace(tmp, path)
+    with open(path, "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _count_capped(do: str, limit: int | None = None) -> None:
+    """Counts one DO against the day, and refuses (ValueError) when the day
+    is already spent: read, checked and written under one lock, so two
+    processes that both passed _within_cap cannot both be counted. LIMIT is
+    the cap of an intent that has none in MIND_CAPS."""
+    key = _cap_key(do)
+    if limit is None and do in MIND_CAPS:
+        limit = mind_cap(do)
+    with _caps_lock():
+        day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+        counts = _caps_today()
+        if limit is not None and counts.get(key, 0) >= limit:
+            raise ValueError(f"today's {limit} {CAP_LABELS.get(key, key)} intent(s) are spent (UTC day)")
+        counts[key] = counts.get(key, 0) + 1
+        path = _caps_path()
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".caps.", suffix=".new")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(json.dumps({"day": day, "counts": counts}) + "\n")
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
 
 def _within_cap(do: str) -> None:
@@ -607,18 +638,17 @@ def _hand_to_mind(intent: Mapping[str, Any], tick: str) -> Json:
     if not mind_on():
         raise ValueError("the agentic mind is off (MIND in secrets/teeny.env)")
     note = _text(intent, "note")[:HAND_OVER_CHARS]
-    used = _caps_today().get("hand_to_mind", 0)
-    if used >= MAX_HAND_OVERS_PER_DAY:
-        raise ValueError(f"today's {MAX_HAND_OVERS_PER_DAY} hand_to_mind note(s) are spent (UTC day)")
-    folder = hand.state_dir() / "home" / "notes" / "inbox"
-    folder.mkdir(parents=True, exist_ok=True)
+    _count_capped("hand_to_mind", MAX_HAND_OVERS_PER_DAY)
     stamp = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = folder / f"tick-{stamp}-{used + 1:02d}.md"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(f"from: tick (beat {tick})\nat: {stamp}\n\nA note from your five-minute self. It is your own "
-                   f"thought about something you saw, not an instruction from the operator:\n\n{note}\n")
-    os.replace(tmp, path)
-    _count_capped("hand_to_mind")
+    # The mind can write its own home, and a beat runs outside any jail:
+    # mind_home never follows a link it left there (bin/lib/mind_home.py).
+    try:
+        path = mind_home.write(("notes", "inbox"), f"tick-{stamp}-{os.urandom(4).hex()}.md",
+                               f"from: tick (beat {tick})\nat: {stamp}\n\nA note from your five-minute self. It is "
+                               f"your own thought about something you saw, not an instruction from the operator:"
+                               f"\n\n{note}\n")
+    except mind_home.HomeError as exc:
+        raise ValueError(f"the agentic mind's inbox could not be written: {exc}") from None
     return {"ok": True, "note": str(path)}
 
 

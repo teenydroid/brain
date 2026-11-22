@@ -85,6 +85,8 @@ MAX_AGENT_RUNS_PER_DAY = 240
 #: "1" in secrets/teeny.env. Never read from the environment, and never
 #: Teeny's to set: secrets/ is outside every agent's reach.
 SWITCH_NAME = re.compile(r"[A-Z][A-Z0-9_]{1,31}")
+#: agent -> the switch every job that runs it follows.
+SWITCHED_AGENTS = {"mind": "MIND"}
 MAX_PROMPT_CHARS = 4000
 CATCH_UP_DEFAULT_HOURS = 6
 CATCH_UP_MAX_HOURS = 12
@@ -154,22 +156,18 @@ def _secrets_file() -> Path:
 
 
 def _switch_on(name: str) -> bool:
-    """Whether NAME is "1" in secrets/teeny.env. A missing file is off."""
+    """Whether NAME is "1" in secrets/teeny.env, read as the hands read it
+    (hand._parse_env_file: the last assignment wins). A missing file is off."""
+    hands_lib = str(Path(__file__).resolve().parents[2] / "hands" / "lib")
+    if hands_lib not in sys.path:
+        sys.path.insert(0, hands_lib)
+    from teeny_hands import hand
+
     try:
         text = _secrets_file().read_text(encoding="utf-8")
     except OSError:
         return False
-    value = None
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("export "):
-            line = line[len("export "):].lstrip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, raw = line.partition("=")
-        if key.strip() == name:
-            value = raw.strip().strip('"').strip("'")
-    return value == "1"
+    return hand._parse_env_file(text).get(name) == "1"
 
 
 def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
@@ -369,6 +367,10 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
+        if agent in SWITCHED_AGENTS:
+            # Wherever the job is written (pinned, or the brain's own), the
+            # agent runs only while the operator has it switched on.
+            enabled = enabled and _switch_on(SWITCHED_AGENTS[agent])
         if "switch" in job:
             switch = job["switch"]
             if not pinned:
