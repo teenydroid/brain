@@ -32,7 +32,7 @@ from typing import Any, Mapping
 from .. import hand
 from ..gh import actions as gh_actions
 from . import audit as auditing
-from . import deploy, ledger, policy
+from . import deploy, ledger, policy, rollback
 from .api import PullsApi
 
 Json = dict[str, Any]
