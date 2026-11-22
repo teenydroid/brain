@@ -4384,29 +4384,74 @@ def restore_tree(tree: Path, before: tuple[str, str]) -> None:
 
 
 
-# --- halts ------------------------------------------------------------------------------------------------------
+# --- skips and problems -----------------------------------------------------------------------------------------
+#
+# Nothing stops the loop until a person acts (2026-11-22: a latched halt held
+# it from 11-20 09:27 to 11-22, five scheduled runs skipped, and nobody
+# noticed). A per-run precondition or budget is a Skip of that one run, which
+# clears by itself. A real problem is a Problem: one public issue on
+# EVOLVE_ISSUE_REPO, deduplicated by its key, and the next run goes on.
 
 
-def halt_path() -> Path:
+def stale_halt_path() -> Path:
+    """Where the old latch lived. Nothing reads it any more: a run removes one
+    left on a box (`retire_stale_halt`)."""
     return evolve_dir() / "halt.json"
 
 
-def halts_log() -> Path:
+def retire_stale_halt() -> None:
+    """Removes a state/evolve/halt.json left from before the latch was cut,
+    whatever it holds, so it cannot be mistaken for one."""
+    try:
+        stale_halt_path().unlink()
+        say("removed a stale state/evolve/halt.json: the loop no longer latches")
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        say(f"could not remove the stale state/evolve/halt.json ({exc}); it is ignored")
+
+
+def problems_log() -> Path:
+    """The problem issues filed, a line per event (opened, updated, noted):
+    key, kind, the issue's number and link, never its body. Still named
+    halts.jsonl, which bin/lib/audit.py counts. A record a former `resume`
+    marked `resumed` no longer deduplicates anything."""
     return evolve_dir() / "halts.jsonl"
 
 
 @dataclass
-class Halt:
-    kind: str  # generations | manual-generations | j-rise | doctor | fallback | persona-drift | watch-revert | crash
+class Skip:
+    """This run alone does not start: the day's cap, a doctor red right
+    now, J rising faster than the cap. The next run asks again."""
+    kind: str  # generations | manual-generations | doctor | j-rise
     detail: str
-    latch: bool
-    extra: Json = field(default_factory=dict)
 
-    @property
-    def key(self) -> str:
-        """What a repeat of this halt is deduplicated by: until resumed, or
-        for the day when it does not latch."""
-        return self.kind if self.latch else f"{self.kind}:{day(now())}"
+    def brief(self) -> Json:
+        return {"kind": self.kind, "detail": self.detail}
+
+
+@dataclass
+class Problem:
+    """Something a person (anyone: the issue is public) should look at. KEY
+    deduplicates it: one open issue per key, updated at most once a day.
+    BODY is public, so it carries counts, names and links, never a secret,
+    an env value, a private payload or a held-out task. JUDGE: the guard's
+    judge reads it, for text a model wrote (a candidate's title)."""
+    kind: str  # crash | doctor | fallback | j-rise | persona-drift | watch-revert
+    key: str
+    title: str
+    body: str
+    judge: bool = False
+
+
+#: The label a problem issue gets, so contributors can find it. A label the
+#: repository lacks is left off; the issue opens either way.
+PROBLEM_LABELS = ("help wanted",)
+#: A doctor red at every run for this long is a problem, not a moment.
+DOCTOR_RED_HOURS = 24
+
+HELP_FOOTER = ("\n\n---\n*Filed by `bin/evolve` (docs/evolve.md, \"10. Skips, problems and settings\"). The loop "
+               "keeps running; nobody has to resume it. A comment with a diagnosis, or a pull request, is welcome.*")
 
 
 #: Who started a generation (generation.json `trigger`): the pinned job
