@@ -33,6 +33,7 @@ on the branch. Never merges.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import shutil
 import stat
