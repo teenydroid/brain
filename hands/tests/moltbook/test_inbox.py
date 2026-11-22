@@ -80,7 +80,9 @@ class HeldCommentTest(InboxCase):
     when its hold is cleared. Live on 2026-11-13: one comment on Teeny's
     own post was held again on every intake run, a dozen pending holds."""
 
-    HELD = "A captcha killed the reply, the retry cleared it"
+    # A slur: what the lexicon holds on sight since 2026-11-22 (a bare "killed"
+    # held this test's comment before, as a judged term with the judge off).
+    HELD = "A retard captcha ate the reply, the retry cleared it"
 
     def setUp(self):
         super().setUp()
