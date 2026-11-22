@@ -136,6 +136,20 @@ def count_since(verbs: str | tuple[str, ...], since: float) -> int:
         conn.close()
 
 
+def actions_since(verbs: str | tuple[str, ...], since: float) -> list[dict[str, Any]]:
+    """The `babysit_actions` rows of `verbs` at or after `since`, newest
+    first, each with its detail read back."""
+    verbs = (verbs,) if isinstance(verbs, str) else tuple(verbs)
+    conn = connect()
+    try:
+        marks = ", ".join("?" for _ in verbs)
+        rows = conn.execute(f"SELECT id, at, verb, repo, number, head_sha, detail FROM babysit_actions"
+                            f" WHERE verb IN ({marks}) AND at >= ? ORDER BY at DESC, id DESC", (*verbs, since)).fetchall()
+        return [{**dict(row), "detail": json.loads(row["detail"] or "{}")} for row in rows]
+    finally:
+        conn.close()
+
+
 def injections(days: int, max_rows: int) -> list[dict[str, Any]]:
     conn = connect()
     try:
