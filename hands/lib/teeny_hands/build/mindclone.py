@@ -185,3 +185,81 @@ def prepare() -> Json:
     holds edits: fetches, then checks out afresh what is missing or clean."""
     with hand.lock("mind-clone"):
         return _prepare_locked()
+
+
+# --- shipping -----------------------------------------------------------------------------------
+
+#: What the pushed branch is called: teeny/mind-<slug>, a teeny/* branch as
+#: hands/gh push_branch requires, apart from the builder's teeny/<slug>.
+MIND_BRANCH_PREFIX = selfclone.BRANCH_PREFIX + "mind-"
+SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
+MAX_TITLE = 120
+MAX_BODY = 8000
+#: The disclosure every pull request from the mind's clone ends with.
+DISCLOSURE = "—\nWritten by Teeny's agentic mind, an autonomous AI agent (github.com/teenydroid), from its own clone."
+
+
+def _text(value: Any, name: str, most: int) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    if not 1 <= len(text) <= most:
+        raise hand.Refused(f"the {name} is 1 to {most} characters", rule=name)
+    return text
+
+
+def _branch(slug: Any) -> str:
+    if not isinstance(slug, str) or not SLUG.fullmatch(slug):
+        raise hand.Refused("the branch is 1 to 41 lowercase letters, digits and dashes, starting with a letter or "
+                           "digit", rule="branch")
+    return MIND_BRANCH_PREFIX + slug
+
+
+def _commit(message: str) -> str:
+    """The tree as it is now, committed on HEAD as Teeny, without moving HEAD
+    or touching the tree: staged in the clone's index, written with
+    write-tree and commit-tree (which run no hooks), the index put back."""
+    try:
+        _git("add", "-A")
+        tree = _bare("write-tree").stdout.decode().strip()
+    finally:
+        _git("reset", "-q", check=False)
+    return _bare("commit-tree", tree, "-p", "HEAD", "-m", message).stdout.decode().strip()
+
+
+def _changed(base: str, head: str) -> list[str]:
+    raw = _bare("diff", "--name-only", "-z", "--no-renames", base, head).stdout.decode("utf-8", "replace")
+    return sorted(p for p in raw.split("\0") if p)
+
+
+def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
+    """The mind's tree as a pull request from teeny/mind-<slug> into main,
+    after every rule; under DRY_RUN every rule runs and nothing is sent."""
+    from ..gh import actions
+    from ..gh.client import GitHubApi
+
+    branch = _branch(slug)
+    title = _text(title, "title", MAX_TITLE)
+    body = _text(body, "body", MAX_BODY)
+    full = selfclone.repo()
+    with hand.lock("mind-clone"):
+        _prepare_locked()
+        if _rev(f"refs/remotes/origin/{branch}") is not None:
+            raise hand.Refused(f"{branch} is already on GitHub (one pull request per branch): pick another name",
+                               rule="branch_taken")
+        fields = actions.guarded({"title": title, "body": body}, "pr", {"repo": full, "head": branch})
+        commit = _commit(fields["title"])
+        files = _changed("HEAD", commit)
+        if not files or _changed(ORIGIN_BASE, commit) == []:
+            raise hand.Refused("nothing changed against origin/main", rule="empty")
+        _bare("update-ref", f"refs/heads/{branch}", commit)
+        text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
+        if gh is None and not hand.dry_run():
+            gh = GitHubApi.from_settings()
+        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
+        try:
+            opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
+                                      "body": text}, gh=gh)
+        finally:
+            if not pushed.get("dry_run"):
+                _fresh(_rev(ORIGIN_BASE) or commit)
+    return {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
+            "pr_url": opened.get("html_url"), "number": opened.get("number")}
