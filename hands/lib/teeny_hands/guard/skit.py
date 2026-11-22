@@ -223,6 +223,14 @@ def _held(skit: dict[str, Any]) -> list[str]:
     return out
 
 
+#: What every one-take script ends with (docs/video.md §4): video models give
+#: extras moving mouths, cut off or reverse an action with no end, and
+#: garble any lettering in the set (the "AI parody" label is burned in by the
+#: reel cutter after). In the script, so skit_budget counts it.
+LOCKS = ("Only the figures named speak; nobody else's lips form words. The last shot ends on a held still image. "
+         "No text, letters, signs or logos anywhere in the frame.")
+
+
 def script(skit: dict[str, Any], seconds: list[int] | None = None, style: str = "") -> str:
     """The one prompt a one-take render sends (hands/video skit): a header
     with the film's length, hard cuts, one continuous score and the cast,
