@@ -2,16 +2,15 @@
 
 How do you tell whether a self-improving system is getting more capable, and
 not only luckier, kinder to its judge, or riding a better week? This page
-collects what the published loops measured, what the AI R&D benchmarks can
-and cannot tell you, how to check the judge, how much data a claim needs, and
-how to separate the agent from its environment. It ends with a scoreboard for
-Teeny. The research was done on 2026-11-22.
+covers what the published loops measured, what AI R&D benchmarks can tell
+you, how to check the judge, how much data a claim needs, and how to separate
+the agent from its world, then proposes a scoreboard for Teeny. Researched
+2026-11-22.
 
 [`self-improving-agents.md`](self-improving-agents.md) covers how each loop
-works. This page covers only how each one was scored. Where a figure comes
-from coverage or a search summary rather than the source, the entry says so.
+works; this page covers how each was scored. Figures from coverage say so.
 Sample sizes marked *(computed)* are standard power calculations done for
-this page, not taken from a source.
+this page, not from a source.
 
 ## The short answer
 
@@ -32,7 +31,7 @@ this page, not taken from a source.
    version change is a new instrument (§3).
 6. **Small samples cannot see small gains.** Telling a 55% win rate from
    50% takes about 780 decisive comparisons. With no real difference, a
-   candidate wins 12 of 20 one time in four (§4).
+   candidate wins 12 or more of 20 one time in four (§4).
 7. **Live metrics need a holdback.** Only a concurrent, randomised
    comparison with a frozen old version separates agent from weather (§5).
 
