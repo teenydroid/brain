@@ -199,8 +199,10 @@ class VerdictTest(AllScratch):
         self.on()
         self.self_pr()
         text = actions.report(audit.audit(REPO, 7))
-        self.assertIn("BABYSIT_SELF_MERGE_ALL", text)
-        self.assertNotIn("teeny/eval", text)
+        (line,) = [line for line in text.splitlines() if line.startswith("no person approved")]
+        self.assertIn("required check", line)
+        self.assertIn("BABYSIT_SELF_MERGE_ALL", line)
+        self.assertNotIn("teeny/eval", line)
 
 
 class CapsTest(AllScratch):
