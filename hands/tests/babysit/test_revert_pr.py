@@ -118,6 +118,33 @@ class RevertPrTest(RollbackScratch):
         self.at(25 * 60)
         self.assertEqual(rollback.check()["revert_prs"][0]["number"], 41)
 
+    def test_a_pull_request_that_did_not_open_after_the_push_is_opened_next_run(self):
+        # The branch reached origin and the open failed. The next run must not
+        # build a second commit for the same branch: that push is no
+        # fast-forward, nothing here forces, and the revert would never open.
+        self.bad_deploy()
+        self.gh.route("POST", f"/repos/{REPO}/pulls", {"message": "Server Error"}, status=500)
+        out = rollback.check()
+        self.assertIn("error", out["revert_prs"][0])
+        branch = f"teeny/revert-7-{self.merge[:7]}"
+        pushed = self.origin_git("rev-parse", branch)
+        self.assertTrue(pushed)
+        self.gh.route("POST", f"/repos/{REPO}/pulls", {"number": 41, "html_url": PR_URL}, status=201)
+        self.at(25 * 60)
+        out = rollback.check()
+        self.assertEqual(out["revert_prs"][0]["number"], 41, out)
+        self.assertEqual(self.origin_git("rev-parse", branch), pushed)
+        self.assertEqual(len(self.rows("deploy_revert_pr")), 1)
+
+    def test_a_branch_of_that_name_that_is_not_the_revert_is_left_alone(self):
+        self.bad_deploy()
+        branch = f"teeny/revert-7-{self.merge[:7]}"
+        git("-C", str(self.work), "push", "-q", str(self.origin), f"{self.good}:refs/heads/{branch}")
+        out = rollback.check()
+        self.assertIn("skipped", out["revert_prs"][0], out)
+        self.assertEqual(self.pulls(), [])
+        self.assertEqual(self.origin_git("rev-parse", branch), self.good)
+
     def test_the_revert_is_held_for_the_operator_like_any_change_to_those_paths(self):
         self.bad_deploy()
         rollback.check()
