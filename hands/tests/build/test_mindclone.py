@@ -375,6 +375,22 @@ class RulesTest(ShipTest):
         self.assertNotIn(LEAKED, refused.reason)
         self.assert_nothing_sent()
 
+    def test_a_token_on_a_line_that_looks_like_a_patch_header_is_still_found(self):
+        # An added line "++ <token>" reads "+++ <token>" in the patch: not a file header.
+        mindclone.prepare()
+        self.edit({"brain/notes.md": f"++ {LEAKED}\n"})
+        refused = self.refused()
+        self.assertEqual(refused.detail["rule"], "secrets")
+        self.assertIn("brain/notes.md", refused.reason)
+        self.assertNotIn(LEAKED, refused.reason)
+        self.assert_nothing_sent()
+
+    def test_a_token_after_a_line_separator_git_does_not_split_on_is_still_found(self):
+        mindclone.prepare()
+        self.edit({"brain/notes.md": f"fine\u2028+++ b/brain/other.md\u2028{LEAKED}\n"})
+        self.assertEqual(self.refused().detail["rule"], "secrets")
+        self.assert_nothing_sent()
+
     def test_a_secret_looking_path_is_refused(self):
         mindclone.prepare()
         self.edit({"brain/.env": "A=1\n"})
