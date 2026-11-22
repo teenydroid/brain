@@ -653,10 +653,30 @@ class CommentTest(Scratch, Refusing):
 
 
 class SmallActionsTest(Scratch, Refusing):
-    def test_upvote_once_and_never_own(self):
+    def test_repeating_an_upvote_acknowledges_the_existing_vote(self):
+        for noun, target in (("post", "x1"), ("comment", "k1")):
+            with self.subTest(noun=noun):
+                path = f"/{noun}s/{target}/upvote"
+                vote = {f"{noun}_id": target}
+                self.mb.route("POST", path, {"success": True})
+                self.assertEqual(actions.upvote(vote), {"upvoted": vote})
+                self.assertEqual(actions.upvote(vote), {"upvoted": vote, "already_done": True})
+                self.assertEqual(len(self.mb.requests("POST", path)), 1)
+        self.assertEqual(len(rows("moltbook_actions")), 2)
+
+    def test_a_recorded_upvote_is_acknowledged_when_the_write_budget_is_spent(self):
+        conn = hand.open_db(rules.SCHEMA)
+        for i in range(30):
+            conn.execute("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'upvote-post', ?)",
+                         (T0 - 10, f"x{i}"))
+        vote = {"post_id": "x1"}
+        self.assertEqual(actions.upvote(vote), {"upvoted": vote, "already_done": True})
+        self.refused(actions.upvote, {"post_id": "new"}, "rate_limit")
+        self.assertEqual(self.mb.writes(), [])
+
+    def test_upvote_never_own(self):
         self.mb.route("POST", "/posts/x1/upvote", {"success": True})
         self.assertEqual(actions.upvote({"post_id": "x1"}), {"upvoted": {"post_id": "x1"}})
-        self.refused(actions.upvote, {"post_id": "x1"}, "duplicate")
         self.mb.route("POST", "/comments/k1/upvote", {"success": True})
         actions.upvote({"comment_id": "k1"})
         conn = hand.open_db(rules.SCHEMA)
