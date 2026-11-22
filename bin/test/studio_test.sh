@@ -515,8 +515,8 @@ check "a live run posts the top of the ranking" \
   jqe '.outcome == "published" and .published.outcome == "posted" and .published.post_id == "2123000000000000001" and .dry == false' <<<"$out"
 check "through hands/x post, live (DRY_RUN left to hands/x)" test "$(posts | grep -c '^x post DRY_RUN= ')" = 1
 check "with the studio's tags: producer, format, its card as anchor and a pitch_id" \
-  jqe --arg l "$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == $c
-    and .pitch_id == ("'"$id"':" + $l) and (.text | startswith("post 1:"))' <<<"$(stdin_of 'x post ')"
+  jqe --arg p "$id:$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == $c
+    and .pitch_id == $p and (.text | startswith("post 1:"))' <<<"$(stdin_of 'x post ')"
 check "the studio_runs record carries the post" jqe '.outcome == "published" and .published.post_id == "2123000000000000001"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
 reset
 out="$(FAKE_FORMATS=thread live)"
