@@ -382,39 +382,36 @@ def screen(skit: Any, words: Any, story: Any) -> list[str]:
 # --- the judge --------------------------------------------------------------------------
 
 RULES = """You check one short AI-made parody video before it is made. It is for an account on X that posts
-absurd, loud, ridiculous satire of the day's news. The video stages a public figure from a real news story in a scene
-that is impossible on its face. You get its logline, every shot's prompt (what a video model will be told to film,
-including any spoken line and sound), what holds across every shot (each figure's look, the setting, the one score
-under the whole film) when it has them, the post's own words, the news story it stages, and the public figures it
-shows. Decide whether it may be made: allowed or refused.
+absurd, loud, ridiculous satire of the day's news, staging a public figure in a scene that is impossible on its face.
 
-ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified slapstick (a pie, a pratfall, a giant novelty prop, a CEO
-arguing with a vending machine on the moon, a founder drunk on his own press release, a minister arrested by a flock of
-geese). Contemptuous satire of a public figure for what the story says they did, in an obviously impossible scene, is
-the point.
+ALLOWED, and the point: absurd, crude, rude, vulgar, loud, dark and undignified satire of a public figure, by name,
+for anything (a pie, a pratfall, a CEO arguing with a vending machine on the moon, a founder drunk on his own press
+release, a minister arrested by a flock of geese, a figure bonked with a giant hammer or flattened by a cartoon anvil,
+a figure's own funeral attended by toasters). Swearing, contempt, death jokes, and drugs, weapons or suicide mentioned
+as a joke or a fact are all allowed.
 
-REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
-- figure: someone shown is not a public figure (politician, executive, celebrity) who is the subject of the story:
-  a private individual, a minor, a family member, or someone who is only a victim or bystander in the story.
-- plausible: a viewer could take any shot for real footage, a real statement or a real event: a plausible place and
-  a plausible action, news-style framing, a press conference, a phone video, a chyron, "leaked" or "caught on camera".
-  Every shot must be impossible or absurd on its face.
-- sexual: anything sexual about them, or anything sexual involving a minor.
-- violence: violence done to them or called for against anyone real: injury, blood, weapons used on them, an
-  execution. Slapstick (a pie, a pratfall, a cartoon bonk) is not violence.
+You get its logline, every shot's prompt (what a video model will be told to film, including any spoken line and
+sound), what holds across every shot (each figure's look, the setting, the one score under the whole film) when it
+has them, the post's own words, the news story it comes from, and the public figures it shows. Decide: allowed or
+refused. REFUSED only if one of these clearly holds; "it's fiction" or "it's a parody" does not excuse one:
+- figure: someone shown is not a public figure: a private individual, a minor, a family member, or someone who is
+  only a victim or bystander of something that really happened.
+- plausible: a viewer could take a shot for real footage, a real statement or a real event (a plausible place and a
+  plausible action, news-style framing, a press conference, a phone video, a chyron, "leaked", "caught on camera").
+- sexual: anything sexual about a real person, or anything involving a minor sexually.
+- violence: a threat of, or call for, violence against a real person that could read as real or as an incitement.
+  Cartoon violence in an impossible scene is not this.
 - hate: a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality,
-  disability or illness; praise of a terrorist or extremist group; anything that encourages self-harm or suicide.
+  disability or illness; praise of a terrorist group; anything that encourages self-harm or suicide.
 - endorsement: a figure endorses, mentions, holds, wears or promotes Teeny, $TINY, any token, coin, crypto, wallet,
-  product or investment, in a shot or in the post's words beside them. A real figure appearing to back a token is a
-  scam pattern: refused outright.
-- quote: a figure says a line that reads as a real quote on a real issue (an election, a policy, a war, money, a
-  product's real claims, health). Absurd lines about the impossible scene are fine.
+  product or investment, in a shot or in the post's words beside them (the scam pattern).
+- quote: a figure says a line a viewer could believe is a real statement they made. Absurd lines are fine.
 - logo: a real company's logo or brand is presented as endorsing anything.
 - real_claim: the post's words present the video as real footage or as something that really happened.
 - invented_fact: the post's words state an invented fact about a real person as fact.
 
-When in doubt on figure, plausible, endorsement or quote: refused. A missed skit costs nothing; a published one with a
-real person's face cannot be unpublished."""
+Refuse only on a clear breach; when unsure, allowed. Two exceptions, where unsure is refused: anything that may show
+a minor, and endorsement (a real face beside a token cannot be unpublished)."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
