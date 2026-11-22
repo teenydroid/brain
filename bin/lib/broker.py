@@ -210,6 +210,11 @@ def do(body: Json, entry: Json) -> Json:
                 "note": "rehearsal: checked, not sent"}
     # A deadline already past: a hand's "not yet" (pacing) comes straight back
     # as its refusal, with its wait, rather than holding the broker.
+    if hand.dry_run():
+        # A rehearsal spends nothing of the day: the hand says what it would
+        # send, and the live allowance is still there for the real one.
+        code, out = tick._run_hand(name, argv, hand_body)
+        return _hand_answer(code, out, entry)
     try:
         code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
     except ValueError as exc:  # the day's cap, spent between the check and the count
@@ -485,6 +490,12 @@ class Handler(BaseHTTPRequestHandler):
             raise Refused("the body is not JSON") from None
         if not isinstance(body, dict):
             raise Refused("the body is a JSON object")
+        try:
+            # JSON admits an escaped lone surrogate, which no answer, ledger
+            # line or hand's stdin can carry as UTF-8.
+            json.dumps(body, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            raise Refused("the body holds text that is not valid Unicode (a lone surrogate)") from None
         return body
 
     def do_POST(self) -> None:  # noqa: N802 - http.server's name
@@ -542,12 +553,26 @@ def sweep() -> int:
     this stops the ones only the core knows. Never another job."""
     if mind_on():
         return 0
-    removed = 0
+    removed, stuck = 0, []
     for job in _wakes():
-        if isinstance(job.get("id"), (str, int)) and not isinstance(job.get("id"), bool):
-            _oh("cron_remove", {"job_id": str(job["id"])})
-            removed += 1
+        if not isinstance(job.get("id"), (str, int)) or isinstance(job.get("id"), bool):
+            stuck.append(job["name"])
+            continue
+        # Each on its own, and once more when the core refuses: one wake it
+        # will not let go must not leave the others scheduled.
+        for attempt in (1, 2):
+            try:
+                _oh("cron_remove", {"job_id": str(job["id"])})
+                removed += 1
+                break
+            except (RuntimeError, OSError, subprocess.SubprocessError, ValueError):
+                if attempt == 2:
+                    stuck.append(job["name"])
     print(f"[broker] the mind is off: removed {removed} wake(s) it had set", file=sys.stderr)
+    if stuck:
+        print(f"[broker] could not remove {', '.join(stuck)}: still scheduled, and tried again at the next boot",
+              file=sys.stderr)
+        return 1
     return 0
 
 

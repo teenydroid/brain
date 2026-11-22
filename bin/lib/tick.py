@@ -546,9 +546,11 @@ def _caps_path() -> Path:
     return hand.state_dir() / "tick" / "caps.json"
 
 
-def _caps_today() -> dict[str, int]:
-    """Today's (UTC) count of each capped intent that reached its hand."""
-    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+def _caps_today(day: str | None = None) -> dict[str, int]:
+    """Today's (UTC) count of each capped intent that reached its hand. DAY
+    is the day a caller already read the clock for, so its read and its
+    write agree across midnight."""
+    day = day or dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
     try:
         saved = json.loads(_caps_path().read_text())
     except (OSError, ValueError):
@@ -587,7 +589,7 @@ def _count_capped(do: str, limit: int | None = None) -> None:
         limit = mind_cap(do)
     with _caps_lock():
         day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
-        counts = _caps_today()
+        counts = _caps_today(day)
         if limit is not None and counts.get(key, 0) >= limit:
             raise ValueError(f"today's {limit} {CAP_LABELS.get(key, key)} intent(s) are spent (UTC day)")
         counts[key] = counts.get(key, 0) + 1
