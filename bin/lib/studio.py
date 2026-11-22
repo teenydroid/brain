@@ -113,7 +113,8 @@ In order:
 told-to brief, the outward quote; bin/act asks): one candidate, pick or none,
 recorded in studio_runs (`vetoed` is its no, the one outcome by that
 name). It fails closed: an editor that cannot answer is a none. It judges
-taste, never facts (VETO_FACTS_LINE): it is not shown what the post rests on. With STUDIO=0 it answers pick without a turn. For the outward quote it
+taste, never facts (VETO_FACTS_LINE): it is not shown what the post rests
+on. With STUDIO=0 it answers pick without a turn. For the outward quote it
 asks whether the quote is funny or striking and about the post it quotes
 (`VETO_QUESTION`), not the slot rubric's first-hand bar.
 
