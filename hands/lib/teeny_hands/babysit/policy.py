@@ -12,6 +12,13 @@ is read from secrets/teeny.env (the operator's), never the environment.
                       approval when the audit is clean and teeny/eval
                       passed at the head (`self-merge` at L5, the
                       operator's decision of 2026-11-15); default off
+  BABYSIT_SELF_MERGE_ALL  1, with BABYSIT_SELF_MERGE, lets every pull request
+                      of Teeny's own from a teeny/ branch of teenydroid/brain
+                      merge on green CI (REQUIRED_CHECKS), no teeny/eval, when
+                      the audit is otherwise clean; caps, deploys and the
+                      rollback watch change with it (actions.py, deploy.py,
+                      rollback.py; the operator's decision of 2026-11-22);
+                      default off
 """
 
 from __future__ import annotations

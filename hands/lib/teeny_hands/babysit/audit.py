@@ -37,6 +37,19 @@ a failed one a fail (the ordinary check rules). Nothing else changes: a
 block, fail or operator finding stops it exactly as before, so a frozen
 path, a sensitive path or an injection in Teeny's own diff still needs the
 operator. `self_merge` in the answer says a ready verdict came this way.
+
+With BABYSIT_SELF_MERGE_ALL=1 as well (the operator's decision of
+2026-11-22, every self-change by a pull request that merges itself on green
+CI), the candidate is Teeny's own pull request from any teeny/<slug> branch
+(policy.TEENY_BRANCH) of teenydroid/brain itself, and the stand-in for the
+approval is CI rather than teeny/eval (`gate` "checks" in the answer): every
+check in policy.REQUIRED_CHECKS on the head, green. One missing is a wait
+(`required_check_missing`), one running the ordinary wait, one finished any
+other way (skipped, neutral, cancelled, red) a fail
+(`required_check_not_green`); any other red check, teeny/eval's included,
+still fails. Every block, fail and operator finding stops it as before, and
+one more: `recently_rolled_back` (operator), a path a bad deploy changed in
+the last day (rollback.py).
 """
 
 from __future__ import annotations
