@@ -342,3 +342,52 @@ class RubricTest(Tree):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PatternTest(Tree):
+    """The skeleton every feature job carries (feature.PATTERN) is a whole
+    feature: written under a name, it passes the rubric as the desk runs it,
+    so a builder that starts from it starts from something that ships."""
+
+    HAND_LIB = Path(__file__).resolve().parents[2] / "lib" / "teeny_hands"
+
+    def lay(self, name: str = "tinychart") -> list[tuple[str, str]]:
+        self.write("hands/lib/teeny_hands/__init__.py", (self.HAND_LIB / "__init__.py").read_text())
+        self.write("hands/lib/teeny_hands/hand.py", (self.HAND_LIB / "hand.py").read_text())
+        changed = []
+        for rel, text in feature.PATTERN.items():
+            rel = rel.replace("NAME", name)
+            self.write(rel, text.replace("NAME", name), 0o755 if rel == f"hands/{name}" else 0o644)
+            changed.append(("M" if rel in ("brain/cron.toml", "docs/hands.md") else "A", rel))
+        return changed
+
+    def as_the_desk_runs_them(self, tree, *, start, top, pattern):
+        """verify.run's command, without the jail: isolated, nothing on the path."""
+        proc = subprocess.run([sys.executable, "-I", "-B", "-m", "unittest", "discover", "-s", start, "-t", top,
+                               "-p", pattern], cwd=tree, capture_output=True, text=True, timeout=60,
+                              env={"PATH": "/usr/bin:/bin", "HOME": str(tree)})
+        ran = feature.verify._SUMMARY.findall(proc.stdout + proc.stderr)
+        return {"ok": proc.returncode == 0 and bool(ran), "jailed": True, "ran": int(ran[-1]) if ran else 0,
+                "output": proc.stdout + proc.stderr}
+
+    def test_the_pattern_written_under_a_name_passes_the_rubric(self):
+        out = feature.rubric(self.tree, self.lay(), run_tests=self.as_the_desk_runs_them)
+        self.assertEqual(out["missing"], [])
+        self.assertTrue(out["ok"])
+        found = out["hands"][0]
+        self.assertEqual((found["name"], found["entry"], found["contract"], found["tests"], found["docs"]),
+                         ("tinychart", True, True, True, True))
+        self.assertEqual((found["ran"]["ok"], found["ran"]["ran"]), (True, 1))
+        self.assertEqual(found["scheduled"], ["tinychart-look"])
+
+    def test_the_patterns_hand_answers_by_the_contract(self):
+        self.lay()
+        proc = subprocess.run([str(self.tree / "hands" / "tinychart"), "look", "--limit", "2"], capture_output=True,
+                              text=True, timeout=60, env={"PATH": "/usr/bin:/bin", "TEENY_ROOT": str(self.tree)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(__import__("json").loads(proc.stdout), {"ok": True, "limit": 2})
+
+    def test_the_pattern_names_every_file_a_feature_needs(self):
+        self.assertEqual(sorted(feature.PATTERN), [
+            "brain/cron.toml", "brain/playbooks/NAME-look.md", "docs/hands.md", "hands/NAME",
+            "hands/lib/teeny_hands/NAME/__init__.py", "hands/lib/teeny_hands/NAME/cli.py", "hands/tests/test_NAME.py"])
