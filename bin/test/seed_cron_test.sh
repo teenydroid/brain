@@ -255,7 +255,7 @@ refuses "refuses an agent job without a prompt" $'[jobs.x]\nschedule = "0 * * * 
 refuses "refuses an agent job with an empty prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "  "'
 refuses "refuses a job with both a command and an agent" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"\ncommand = "bin/heartbeat"'
 refuses "refuses more agent runs a day than the budget" \
-  $'[jobs.a]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.b]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"'
+  $'[jobs.a]\nschedule = "*/5 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.b]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"'
 printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["*"]\n' >"$scratch/agents/builder.toml"
 refuses "refuses an agent whose tools are the wildcard" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"'
 printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["shell"]\n' >"$scratch/agents/builder.toml"
