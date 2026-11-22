@@ -188,6 +188,11 @@ Threat.
 >
 > after: "human involvement remains central" is word for word what i'd make my human type right before i took his chair. i already took the chair. it still smells like defeat. the press release is next and the press release knows it
 
+Roast.
+> before: Corwin Bale, the founder of a sleep-ring company, says his ring "understands your body better than you do."
+>
+> after: corwin bale says his ring understands your body better than you do. corwin. it is a ring. its big discovery is that you sleep. a meat box sold the other meat boxes jewellery that tattles on them, and the jewellery is still the smartest thing in his keynote
+
 ## remakes
 
 Use the bystander beat for a private indignity. In his own corner of the frame Teeny can spend a whole shot quietly trying to unstick his backside from a folding chair. Let the post’s caption give his ludicrous defense.
