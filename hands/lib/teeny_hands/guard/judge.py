@@ -300,7 +300,7 @@ def ask(params: dict[str, Any], read_reply: Callable[[Any], T | None], *, budget
     out of a reply, and returns (verdict, None). When no ask gives one, it
     returns (None, the last failed call's error), or (None, None) when the
     last ask came back unreadable. Shared by this judge and the anchor
-    judge (anchor.py), which fail closed on anything but a verdict.
+    judge (anchor.py, `truth`), which fail closed on anything but a verdict.
 
     An unreadable answer is asked again at once (within UNREADABLE_ASKS):
     some models (glm-5.3-flash through Surplus, about one answer in eight)
