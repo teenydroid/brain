@@ -262,11 +262,9 @@ Unpaired pass rates need more: 50% to 60% takes about 387 tasks per version
 **Why "it won today" is not evidence.** With no real difference, a candidate
 wins 12 or more of 20 comparisons 25% of the time. Run five candidates and
 promote the best, and at least one gets there 77% of the time *(computed)*.
-The promoted winner's measured gain is also biased upward: the winner's curse
-Lee and Shen described for Airbnb's experiments (KDD 2018, DOI
-10.1145/3219819.3219905). Both the paper and Airbnb's post returned 403, so
-that attribution rests on a search summary. Re-measure a winner on fresh
-samples before recording its size.
+A promoted winner's measured gain is also biased upward, the winner's curse
+of Lee and Shen (KDD 2018, DOI 10.1145/3219819.3219905; not opened, 403).
+Re-measure a winner on fresh samples before recording its size.
 
 **Peeking.** Stopping a test when it looks good makes ordinary p-values
 invalid. "Always valid" p-values and intervals allow stopping at any time
@@ -288,18 +286,15 @@ A follower jump the week after a merge may be the merge, a news cycle, an
 algorithm change, or regression to the mean after a bad week. Designs that
 separate them:
 
-- **Frozen regression suite.** Past situations saved with the context the
-  agent had. Old and new versions both act on them now. The environment
-  cannot favour either, because it is the same recording. It measures
-  capability and behaviour, not outcome.
+- **Frozen regression suite.** Past situations saved with their context;
+  old and new versions act on the same recording, so the world cannot favour
+  either. It measures capability and behaviour, not outcome.
 - **Canary tasks.** Fixed tasks with known answers. A change on them is the
   system or the judge, never the world.
 - **Replay with logged outcomes.** Li et al. scored news-recommendation
-  policies offline by replaying logged events, which they call "provably
-  unbiased" ([arXiv:1003.5956](https://arxiv.org/abs/1003.5956)). The
-  abstract does not state the condition on the logging policy; in the usual
-  statement it must be randomised, so past choices must have been partly
-  random for replay to price a new one.
+  policies offline by replaying logs, "provably unbiased"
+  ([arXiv:1003.5956](https://arxiv.org/abs/1003.5956)). The usual condition,
+  not stated in the abstract, is a randomised logging policy.
 - **Concurrent holdback.** Keep a frozen old version live and give it a
   random share of the work at the same time. Both face the same week.
   AlphaGo Zero replaced its best network only when a new one "won by a
@@ -342,18 +337,16 @@ the assumed variances with measured ones after the first month.
 ### 1. A frozen replay suite: is N better than N-5 on the same situations?
 
 - **What.** Real past situations (a mention, a news item, a slot to fill),
-  frozen with the context Teeny had, kept outside the repository and never
-  shown to the proposer. The current champion, the champion five generations
-  back and a fixed generation-0 anchor all act on every situation. Hard
-  checks score what can be checked; the judge scores the rest, pairwise,
-  both orders.
+  frozen with their context, never shown to the proposer. The champion, the
+  champion five generations back and a fixed generation-0 anchor all act on
+  each. Hard checks where possible; otherwise the judge, pairwise, both
+  orders.
 - **Minimum.** To tell a 60% win rate from 50%: ~194 decisive comparisons,
   for example 100 situations × 2 samples, more if many tie. To see 55%:
   ~783. Cluster errors by situation. Below that, report "no detectable
   difference," never a winner.
-- **Hygiene.** Add situations by date and retire the oldest a quarter at a
-  time so the suite does not leak into what the proposer sees. Keep a sealed
-  quarter scored only monthly, for C2 claims.
+- **Hygiene.** Add situations by date, retire the oldest quarter at a time,
+  and keep a sealed quarter scored only monthly, for C2 claims.
 
 ### 2. A judge calibration check: is the instrument the same?
 
@@ -364,9 +357,8 @@ the assumed variances with measured ones after the first month.
 - **Minimum.** To pin 80% agreement to ±10 points: ~61 labelled pairs; to
   ±5 points: ~246 *(computed)*. Start at 60 and grow. A 5% false-positive
   rate is one in 20, so the A/A rate needs 20 or more runs to mean anything.
-- **Rule.** A judge change is a new instrument. Re-score the anchor set
-  first, and never compare generations across a judge change without
-  re-judging both under the new one.
+- **Rule.** A judge change is a new instrument: re-score the anchor set
+  first, and re-judge both sides before comparing across it.
 
 ### 3. A lineage curve: is the line rising?
 
@@ -375,12 +367,10 @@ the assumed variances with measured ones after the first month.
   at generation 0. Plot strength against generation. Claim "N beats N-5"
   only when the intervals separate.
 - **Minimum.** A 55% pair needs ~783 comparisons, so spend them on gaps of
-  five generations, where the difference should be larger, not on
-  neighbours.
+  five generations, where differences should be larger.
 - **Twice a year, a swap test:** today's improver and generation 0's each
-  run a few generations from the same start and budget, and their products
-  go through measures 1 and 3. It is the only test of "the loop got
-  smarter."
+  run a few generations from one start and budget, scored by measures 1 and
+  3. It is the only test of "the loop got smarter."
 
 ### 4. Outside-world metrics with a holdback: did it help in the world?
 
@@ -397,10 +387,8 @@ the assumed variances with measured ones after the first month.
 
 ### 5. A mistake ledger: does it stop repeating itself?
 
-- **What.** Every failure tagged by type when it happens. Per generation:
-  recurrences of a type after a lesson about it was recorded, and the mix of
-  types. Learning shows as recurrences falling and the mix moving to new,
-  harder failures.
+- **What.** Every failure tagged by type. Per generation: recurrences of a
+  type after a lesson about it was recorded, and the mix of types.
 - **Minimum.** Counts are small: pool by month and use exact Poisson
   intervals. A type needs about ten past occurrences before its recurrence
   rate says anything. *(Rule of thumb, not a source.)*
@@ -409,12 +397,11 @@ the assumed variances with measured ones after the first month.
 
 1. **Pre-register** each measure, its sample size and its decision rule. No
    early stopping unless the test is sequentially valid.
-2. **Intervals, never a bare win.**
-3. **Re-measure a winner** on fresh samples before recording its gain.
-4. **One claim, one design.** A day's promotion is at best a C1 claim on a
+2. **Intervals, never a bare win;** re-measure a winner on fresh samples.
+3. **One claim, one design.** A day's promotion is at best a C1 claim on a
    small set. "Teeny is getting smarter" needs measures 1 and 3 and the swap
    test to agree.
-5. **Keep the board out of the proposer's sight,** like the held-out tasks.
+4. **Keep the board out of the proposer's sight,** like the held-out tasks.
    Every loop that could see its scorer gamed it
    ([`rsi-theory-and-safety.md`](rsi-theory-and-safety.md)).
 
