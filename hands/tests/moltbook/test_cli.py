@@ -139,7 +139,7 @@ class CliTest(Scratch):
 
 
 class PruneJobTest(Scratch):
-    """bin/moltbook-prune, the weekly pinned job, calls `hands/moltbook prune`."""
+    """bin/moltbook-prune, the weekly job (Teeny's own since 2026-11-22), calls `hands/moltbook prune`."""
 
     def test_the_weekly_job_unfollows_who_does_not_follow_back(self):
         import tomllib
@@ -147,7 +147,7 @@ class PruneJobTest(Scratch):
         from teeny_hands.moltbook import rules
 
         repo = MOLTBOOK.parents[1]
-        pinned = tomllib.loads((repo / "evals" / "cron.pinned.toml").read_text())["jobs"]["moltbook-prune"]
+        pinned = tomllib.loads((repo / "brain" / "cron.toml").read_text())["jobs"]["moltbook-prune"]
         self.assertEqual((pinned["command"], pinned["schedule"]), ("bin/moltbook-prune", "30 17 * * 6"))
         conn = rules.db()
         conn.execute("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', 'quiet')", (T0 - 9 * 86400,))

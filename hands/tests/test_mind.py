@@ -145,6 +145,35 @@ class MindCronTest(unittest.TestCase):
         (self.tmp / "secrets" / "teeny.env").write_text("MIND=1\n")
         self.assertIs(self._load()["teeny.research"]["enabled"], True)
 
+    def test_the_brain_schedules_its_own_dreams_and_prune_as_written_and_no_other_script(self):
+        # The pipelines are Teeny's to move since 2026-11-22: it may run
+        # these operator scripts with exactly these arguments, and nothing
+        # else under bin/ (a cron shell job runs outside any jail).
+        self.pinned.write_text("")
+        for command in ("bin/dream --detach", "bin/dream --light --detach", "bin/moltbook-prune"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            self.assertEqual(self._load()["teeny.x"]["command"], command)
+        for command in ("bin/dream", "bin/dream --detach --root /tmp/x", "bin/dream --light", "bin/moltbook-prune now",
+                        "bin/evolve run", "bin/spine", "bin/broker serve", "bin/pay-bills", "bin/babysit"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            with self.assertRaises(cron_policy.PolicyError, msg=command):
+                self._load()
+
+    def test_the_first_pipelines_are_in_teenys_own_cron_file(self):
+        with open(REPO / "brain" / "cron.toml", "rb") as fh:
+            brain = tomllib.load(fh)["jobs"]
+        with open(REPO / "evals" / "cron.pinned.toml", "rb") as fh:
+            pinned = tomllib.load(fh)["jobs"]
+        for name in ("dream", "dream-midday", "builder", "episode", "moltbook-prune"):
+            self.assertIn(name, brain)
+            self.assertNotIn(name, pinned)
+        self.assertEqual(brain["builder"]["agent"], "builder")
+        self.assertIs(brain["episode"]["enabled"], False)
+        # What watches Teeny, and what moves money, stays pinned.
+        for name in ("tick", "mind", "babysit", "health", "audit", "guard-review", "evolve-watch", "goals-check",
+                     "pay-bills", "surplus-sweep"):
+            self.assertIn(name, pinned)
+
     def test_the_caps_leave_room_for_the_mind(self):
         # builder 12 a day, operator 72, the mind 48, and room for the jobs
         # the mind schedules for itself in brain/cron.toml.

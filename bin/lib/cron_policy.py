@@ -72,6 +72,14 @@ MIN_GAP_MINUTES = 5
 MAX_JOBS = 60
 MAX_ACT_RUNS_PER_DAY = 400
 BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio")
+#: The operator scripts a brain job may also run, each with exactly one of
+#: these argument lists: the pipelines that are Teeny's to schedule since
+#: 2026-11-22 (docs/mind.md). Exact, because a cron shell job runs outside
+#: any jail: the brain picks when one of these runs, never what it is given.
+BRAIN_SCRIPTS = {
+    "bin/dream": (("--detach",), ("--light", "--detach")),
+    "bin/moltbook-prune": ((),),
+}
 #: Commands that speak on X however they are scheduled: never caught up.
 SPEAKING_COMMANDS = ("bin/studio",)
 SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
@@ -178,8 +186,13 @@ def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
         raise PolicyError(f"{where}: command must run a script under bin/, got {command!r}")
     argv = command.split()
     if not pinned:
-        if argv[0] not in BRAIN_COMMANDS:
-            raise PolicyError(f"{where}: a brain job runs {' or '.join(BRAIN_COMMANDS)}, got {argv[0]!r}")
+        if argv[0] in BRAIN_SCRIPTS:
+            if tuple(argv[1:]) not in BRAIN_SCRIPTS[argv[0]]:
+                allowed = " or ".join(repr(" ".join((argv[0], *args))) for args in BRAIN_SCRIPTS[argv[0]])
+                raise PolicyError(f"{where}: a brain job runs {argv[0]} only as {allowed}, got {command!r}")
+        elif argv[0] not in BRAIN_COMMANDS:
+            raise PolicyError(f"{where}: a brain job runs {' or '.join((*BRAIN_COMMANDS, *BRAIN_SCRIPTS))}, "
+                              f"got {argv[0]!r}")
         if argv[0] == "bin/act":
             if len(argv) != 2 or not PLAYBOOK_NAME.fullmatch(argv[1]):
                 raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
