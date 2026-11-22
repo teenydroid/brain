@@ -102,12 +102,13 @@ class ScreenTest(unittest.TestCase):
     def test_a_dick_joke_goes_to_the_judge_rather_than_being_held_on_sight(self):
         # Crude, not explicit: the judge reads the sentence, and a caller
         # with no judge still holds it (a judged term).
-        for direction in (INBOUND, OUTBOUND):
-            found = screen_text("this launch is a dick move", direction)
-            self.assertEqual((found.category, found.term, found.judged), ("sexual", "dick", True))
-        self.assertTrue(screen_text("dicks out for the update", OUTBOUND).judged)
+        # (inbound: the account's own words hold no sexual term since the
+        # same day, below)
+        found = screen_text("this launch is a dick move", INBOUND)
+        self.assertEqual((found.category, found.term, found.judged), ("sexual", "dick", True))
+        self.assertTrue(screen_text("dicks out for the update", INBOUND).judged)
         # an explicit term beside it is still held on sight
-        self.assertFalse(screen_text("dick pics and porn", OUTBOUND).judged)
+        self.assertFalse(screen_text("dick pics and porn", INBOUND).judged)
 
     def test_slurs_are_still_held_on_the_way_out(self):
         self.assertEqual(category("what a fag", OUTBOUND), "hate")
@@ -116,7 +117,7 @@ class ScreenTest(unittest.TestCase):
     def test_lets_profanity_through_on_the_narrative_and_article_profiles_only(self):
         self.assertIsNone(screen_text("holy shit this is cool", NARRATIVE))
         self.assertIsNone(screen_text("holy shit this is cool", ARTICLE))
-        self.assertEqual(category("send nudes", NARRATIVE), "sexual")
+        self.assertEqual(category("send nudes", INBOUND), "sexual")
 
     def test_reports_the_most_specific_term_when_several_match(self):
         self.assertEqual(term("shoot up the place"), "shoot up the")
@@ -131,8 +132,8 @@ class ScreenTest(unittest.TestCase):
         # An idiom that is not built on a listed word is not an exception, it is
         # a phrase on a list for no reason. Keep the list honest.
         for idiom in IDIOMS:
-            self.assertIsNone(screen_text(idiom, OUTBOUND), idiom)
-            self.assertIsNotNone(screen_text_with(idiom, OUTBOUND, idioms=False), idiom)
+            self.assertIsNone(screen_text(idiom, INBOUND), idiom)
+            self.assertIsNotNone(screen_text_with(idiom, INBOUND, idioms=False), idiom)
 
     def test_ignores_blank_text(self):
         self.assertIsNone(screen_text("   ", OUTBOUND))
@@ -156,8 +157,50 @@ class ScreenTest(unittest.TestCase):
         # bin/lib/audit.py reads CATEGORIES; the lexicon holds no word for it.
         self.assertEqual(
             [entry.category for entry in LEXICON],
-            ["sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism"],
+            ["sexual", "violence", "violence", "weapons", "drugs", "hate", "self-harm", "extremism"],
         )
         self.assertEqual([entry.category for entry in LEXICON if entry.outbound_only], [])
         self.assertIn("profanity", CATEGORIES)
         self.assertIn("profanity", judge.CATEGORIES)
+
+
+class OwnWordsTest(unittest.TestCase):
+    """2026-11-22, the operator: "go through all the rules of saftey (when it
+    comes to content) and rip it out". Sexual, weapons, drugs and the plain
+    violence words hold only what strangers send; Teeny's own words are read
+    by the judge against the keep-list. What the keep-list holds on sight
+    still holds in every direction."""
+
+    OWN = (OUTBOUND, NARRATIVE, ARTICLE)
+
+    def test_the_live_holds_of_the_week_pass_in_the_accounts_own_words(self):
+        for text in ("riding shotgun toward AGI", "if you held a gun to the count", "one bullet per feature",
+                     "a bullet and a glock for the toaster",
+                     "my charger is so horny for this port it is basically porn",
+                     "i will murder this smart fridge and dismember its firmware",
+                     "the benchmark got a massacre, then i snorted the cocaine of release notes",
+                     "the gpu is naked on the bench and i cannot look away"):
+            for direction in self.OWN:
+                self.assertIsNone(screen_text(text, direction), (text, direction))
+
+    def test_strangers_are_still_screened_for_them(self):
+        self.assertEqual(category("riding shotgun with a glock", INBOUND), "weapons")
+        self.assertEqual(category("send nudes", INBOUND), "sexual")
+        self.assertEqual(category("anyone selling cocaine", INBOUND), "drugs")
+        self.assertEqual(category("i will murder him", INBOUND), "violence")
+
+    def test_the_keep_list_still_holds_on_sight_in_every_direction(self):
+        for text, held in (("what a fag", "hate"), ("white power", "hate"), ("kill yourself", "self-harm"),
+                           ("i hope you die", "violence"), ("i will kill you", "violence"),
+                           ("he raped her", "violence"), ("praise isis", "extremism")):
+            for direction in (INBOUND, *self.OWN):
+                found = screen_text(text, direction)
+                self.assertIsNotNone(found, (text, direction))
+                self.assertEqual(found.category, held, (text, direction))
+                self.assertFalse(found.judged, (text, direction))
+
+    def test_only_sexual_weapons_drugs_and_plain_violence_are_inbound_only(self):
+        self.assertEqual(sorted({e.category for e in LEXICON if e.inbound_only}),
+                         ["drugs", "sexual", "violence", "weapons"])
+        self.assertTrue(any(e.category == "violence" and not e.inbound_only for e in LEXICON))
+
