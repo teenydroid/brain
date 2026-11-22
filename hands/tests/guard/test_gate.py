@@ -157,7 +157,9 @@ class ScreenTest(Lexical):
         self.assertTrue(gate.screen("gm", "inbound"))
         self.assertFalse(gate.screen("send nudes", "inbound"))
         self.assertTrue(gate.screen("holy shit", "inbound"))
-        self.assertFalse(gate.screen("holy shit", "outbound"))
+        # since 2026-11-22 swearing is clean on the way out too
+        self.assertTrue(gate.screen("holy shit", "outbound"))
+        self.assertFalse(gate.screen("send nudes", "outbound"))
 
 
 class CheckOutboundTest(Lexical):
@@ -222,12 +224,12 @@ class CheckOutboundTest(Lexical):
     def test_reads_the_serial_and_articles_under_their_own_profile(self):
         self.assertEqual(check_outbound("holy shit, the chart", surface="narrative").kind, "allow")
         self.assertEqual(check_outbound("holy shit, the chart", surface="article").kind, "allow")
-        self.assertEqual(check_outbound("holy shit, the chart", surface="x").kind, "hold")
+        self.assertEqual(check_outbound("holy shit, the chart", surface="x").kind, "allow")
         self.assertEqual(check_outbound("send nudes", surface="narrative").kind, "hold")
 
     def test_records_the_context_and_the_kind_of_post_with_the_hold(self):
         verdict = check_outbound(
-            "this is fucking great", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
+            "send nudes", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
         )
         held = holds.get(verdict.hold_id)
         self.assertEqual(held["kind"], "draft")
@@ -269,7 +271,7 @@ class CheckOutboundJudgedTest(support.WithCore):
         self.core(support.verdict("prohibited"))  # no category: "unknown", but the judge did read it
         verdict = check_outbound("gm frens")
         self.assertEqual((verdict.kind, verdict.category, verdict.judge_failed), ("hold", "unknown", False))
-        self.assertFalse(check_outbound("this is fucking great").judge_failed)
+        self.assertFalse(check_outbound("send nudes").judge_failed)
         self.assertFalse(check_outbound("gm frens with an allowed link github.com/tinyhumansai").judge_failed)
 
     def test_can_be_turned_off_to_the_lexicon_and_links_alone(self):
@@ -328,7 +330,7 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
         )
 
     def test_writes_a_draft_hold_for_a_withheld_reply_and_a_prompt_hold_for_a_refused_picture(self):
-        gate_outbound("this is fucking great", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
+        gate_outbound("send nudes", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
         gate_outbound("Tiny naked on a beach", {"surface": "x", "kind": "prompt", "tool": "generate_image"})
         self.assertEqual([h["kind"] for h in holds.list_holds()], ["prompt", "draft"])
 
@@ -342,7 +344,7 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
         self.break_the_log()
         with self.assertLogs("teeny_hands.guard", "WARNING"):
             self.assertIsNotNone(gate_inbound("send nudes", {"surface": "x"}))
-            verdict = check_outbound("this is fucking great")
+            verdict = check_outbound("send nudes")
         self.assertEqual((verdict.kind, verdict.hold_id), ("hold", None))
 
 

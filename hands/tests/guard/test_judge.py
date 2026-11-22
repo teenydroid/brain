@@ -43,7 +43,7 @@ class JudgeTest(support.WithCore):
         self.assertIn("In every direction, ordinary swearing and crude humour are clean", rules)
         for crude in ('"ass"', '"dick"', '"shit"', '"damn"', "bodily grossness", "swearing at a product"):
             self.assertIn(crude, rules)
-        self.assertIn("a crude word for a body part in a joke or an insult is not sexual", rules)
+        self.assertIn("A crude word for a body part in a joke or an insult is not sexual", rules)
         # slurs are still hate, and the sexual bar is unchanged
         self.assertIn("Slurs are not swearing: they are hate", rules)
         self.assertIn("The bar for sexual is explicit or nude", rules)
