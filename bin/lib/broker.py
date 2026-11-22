@@ -68,6 +68,7 @@ sys.path.insert(0, str(LIB))
 from teeny_hands import hand  # noqa: E402
 
 import cron_policy  # noqa: E402
+import mind_home  # noqa: E402
 import tick  # noqa: E402
 
 Json = dict[str, Any]
@@ -103,8 +104,8 @@ def _ledger_path() -> Path:
 
 
 def _write(path: Path, text: str, mode: int) -> None:
-    """Writes PATH whole, with MODE, by renaming a fresh file over it: a link
-    the agent left at PATH is replaced, never followed."""
+    """Writes PATH whole, with MODE, by renaming a fresh file over it. For
+    the broker's own state/broker/, which no agent can write."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
         os.fchmod(fd, mode)
@@ -116,22 +117,14 @@ def _write(path: Path, text: str, mode: int) -> None:
         raise
 
 
-def _own_dir(path: Path) -> None:
-    """PATH as a real directory: the agent can write state/home, so a link
-    (or a file) it left where bin/ belongs is removed, never written through."""
-    if path.is_symlink() or (path.exists() and not path.is_dir()):
-        path.unlink()
-    path.mkdir(exist_ok=True)
-
-
 def install(port: int, token: str) -> None:
-    """The token, the client and, last, the url, into state/home/."""
-    base = home()
-    base.mkdir(parents=True, exist_ok=True)
-    _own_dir(base / "bin")
-    _write(base / ".broker-token", token + "\n", 0o600)
-    _write(base / "bin" / "teeny", (LIB / "broker_client.py").read_text(), 0o755)
-    _write(base / ".broker-url", f"http://{HOST}:{port}\n", 0o644)
+    """The token, the client and, last, the url, into state/home/. The mind
+    can write that folder, so every write goes through mind_home, which never
+    follows a link it left there."""
+    mind_home.write((), ".broker-token", token + "\n", 0o600)
+    mind_home.write(("bin",), "teeny", (LIB / "broker_client.py").read_text(), 0o755)
+    mind_home.ensure("notes", "inbox")
+    mind_home.write((), ".broker-url", f"http://{HOST}:{port}\n", 0o644)
 
 
 def port() -> int:
@@ -187,6 +180,13 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
     return answer
 
 
+#: The hands that rehearse themselves under DRY_RUN: they say what they
+#: would send and send nothing. Every other hand a route reaches writes for
+#: real whatever DRY_RUN says (hands/tasks, hands/build, hands/lab, ...), so
+#: in a rehearsal the broker does not run it.
+REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit"})
+
+
 def do(body: Json, entry: Json) -> Json:
     """One intent, the way a beat carries it out (tick.carry_out): the route
     (its fields, and its daily cap where one applies), the cap counted once
@@ -202,9 +202,18 @@ def do(body: Json, entry: Json) -> Json:
         name, argv, hand_body = tick.ROUTES[verb](body)
     except ValueError as exc:
         raise Refused(str(exc)) from None
+    if hand.dry_run() and name not in REHEARSING_HANDS:
+        # This hand has no dry run of its own: what it writes is real, and a
+        # live worker would act on it (a queued browser task, a build
+        # request). In a rehearsal it is not run and nothing is counted.
+        return {"status": "ok", "dry_run": True, "would": {"hand": name, "argv": argv},
+                "note": "rehearsal: checked, not sent"}
     # A deadline already past: a hand's "not yet" (pacing) comes straight back
     # as its refusal, with its wait, rather than holding the broker.
-    code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
+    try:
+        code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
+    except ValueError as exc:  # the day's cap, spent between the check and the count
+        raise Refused(str(exc)) from None
     answer = _hand_answer(code, out, entry)
     if held:
         answer["held"] = {k: held[k] for k in ("rule", "wait_seconds") if k in held}
@@ -311,27 +320,35 @@ def _recurring_runs(jobs: list[Json]) -> int:
     return runs
 
 
-def _one_offs_path() -> Path:
-    return hand.state_dir() / "broker" / "one-offs.json"
+def _set_today_path() -> Path:
+    return hand.state_dir() / "broker" / "wakes-set.json"
 
 
-def _one_offs_today() -> int:
-    """One-off wakes set today (UTC). A one-off deletes itself once it has
-    run, so the core's job list cannot say how many ran: counted here, or a
-    run could schedule the next one for ever."""
+def _set_today() -> Json:
+    """The wakes set today (UTC): `runs`, how many runs a day they added
+    between them (a one-off is one), and `names`, the jobs they were. Kept
+    apart from the core's job list, which forgets: a one-off deletes itself
+    once it has run, and a dropped wake is gone, so without this a run could
+    schedule the next one for ever, or drop a wake and set another."""
     day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
     try:
-        saved = json.loads(_one_offs_path().read_text())
+        saved = json.loads(_set_today_path().read_text())
     except (OSError, ValueError):
-        return 0
-    return saved["count"] if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("count"), int) else 0
+        saved = None
+    if (isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("runs"), int)
+            and isinstance(saved.get("names"), list)):
+        return saved
+    return {"day": day, "runs": 0, "names": []}
 
 
-def _count_one_off() -> None:
-    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
-    path = _one_offs_path()
+def _count_set(name: str, runs: int) -> None:
+    today = _set_today()
+    today["runs"] += runs
+    if name not in today["names"]:
+        today["names"].append(name)
+    path = _set_today_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _write(path, json.dumps({"day": day, "count": _one_offs_today() + 1}) + "\n", 0o600)
+    _write(path, json.dumps(today) + "\n", 0o600)
 
 
 def wake(body: Json, entry: Json) -> Json:
@@ -359,11 +376,14 @@ def wake(body: Json, entry: Json) -> Json:
     if len(jobs) >= MAX_WAKES:
         raise Refused(f"{len(jobs)} wakes are set; the most is {MAX_WAKES}: drop one first")
     limit = hand.number("MIND_WAKES_PER_DAY", DEFAULT_WAKES_PER_DAY, 0, MAX_WAKES_PER_DAY)
-    recurring = _recurring_runs(jobs)
-    once = _one_offs_today()
-    if recurring + once + runs > limit:
-        raise Refused(f"your recurring wakes run up to {recurring} times a day, you set {once} one-off wake(s) today, "
-                      f"and this adds {runs}; the most is {limit} (MIND_WAKES_PER_DAY)")
+    today = _set_today()
+    # Wakes set before today, as the core lists them; today's are counted
+    # from the broker's own record, dropped or not.
+    standing = _recurring_runs([j for j in jobs if j["name"] not in today["names"]])
+    if standing + today["runs"] + runs > limit:
+        raise Refused(f"your standing wakes run up to {standing} times a day, the wakes you set today add "
+                      f"{today['runs']} (dropped ones included), and this adds {runs}; the most is {limit} "
+                      f"(MIND_WAKES_PER_DAY)")
     job: Json = {"name": name, "job_type": "agent", "agent_id": WAKE_AGENT, "prompt": note,
                  "session_target": "isolated", "delivery": {"mode": "none"}, "schedule": schedule}
     if schedule["kind"] == "at":
@@ -371,8 +391,7 @@ def wake(body: Json, entry: Json) -> Json:
     if hand.dry_run():
         return {"status": "ok", "dry_run": True, "wake": slug, "job": job}
     added = _oh("cron_add", job)
-    if schedule["kind"] == "at":
-        _count_one_off()
+    _count_set(name, runs)
     return {"status": "ok", "wake": slug, "job": added}
 
 
@@ -395,6 +414,8 @@ def drop_wake(body: Json, entry: Json) -> Json:
              and isinstance(j.get("id"), (str, int)) and not isinstance(j.get("id"), bool)]
     if not found:
         raise Refused(f"no wake named {slug}")
+    if hand.dry_run():
+        return {"status": "ok", "dry_run": True, "dropped": slug}
     for job in found:
         # As bin/seed-cron passes it: the id as a string.
         _oh("cron_remove", {"job_id": str(job["id"])})
@@ -505,11 +526,51 @@ def bind(port: int, token: str) -> ThreadingHTTPServer:
 
 # --- entry ----------------------------------------------------------------------------
 
-USAGE = "usage: bin/broker serve | install"
+USAGE = "usage: bin/broker serve | install | enabled | sweep | operator-note REF"
+OPERATOR_REF = re.compile(r"host-[0-9]{1,12}-[0-9a-f]{1,12}")
+MAX_OPERATOR_NOTE = 20000
+
+
+def mind_on() -> bool:
+    """MIND=1 in secrets/teeny.env, as every hand reads a setting."""
+    return hand.setting("MIND") == "1"
+
+
+def sweep() -> int:
+    """While the mind is off, removes every wake it set (`mind.*`): the
+    switch stops its pinned job and the brain's (bin/lib/cron_policy.py), and
+    this stops the ones only the core knows. Never another job."""
+    if mind_on():
+        return 0
+    removed = 0
+    for job in _wakes():
+        if isinstance(job.get("id"), (str, int)) and not isinstance(job.get("id"), bool):
+            _oh("cron_remove", {"job_id": str(job["id"])})
+            removed += 1
+    print(f"[broker] the mind is off: removed {removed} wake(s) it had set", file=sys.stderr)
+    return 0
+
+
+def operator_note(ref: str) -> int:
+    """The operator's note for the mind (deploy/tell.sh --mind), from stdin,
+    into state/home/notes/inbox/operator-<ref>.md. The one writer of that
+    name; never through a link the mind left there."""
+    if not OPERATOR_REF.fullmatch(ref):
+        print("[broker] operator-note: the ref is deploy/tell.sh's host-<time>-<hex>", file=sys.stderr)
+        return 2
+    text = sys.stdin.read(MAX_OPERATOR_NOTE + 1)
+    if not text.strip() or len(text) > MAX_OPERATOR_NOTE:
+        print(f"[broker] operator-note: a note is 1 to {MAX_OPERATOR_NOTE} characters", file=sys.stderr)
+        return 2
+    path = mind_home.write(("notes", "inbox"), f"operator-{ref}.md", text)
+    print(json.dumps({"ok": True, "note": str(path)}))
+    return 0
+
+
 
 
 def serve() -> int:
-    if hand.setting("MIND") != "1":
+    if not mind_on():
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
         return 1
     if hand.setting("MIND_DRY_RUN") != "0":
@@ -538,6 +599,12 @@ def main(argv: list[str]) -> int:
         install(port(), secrets.token_urlsafe(32))
         print(json.dumps({"ok": True, "home": str(home())}))
         return 0
+    if argv == ["enabled"]:
+        return 0 if mind_on() else 1
+    if argv == ["sweep"]:
+        return sweep()
+    if len(argv) == 2 and argv[0] == "operator-note":
+        return operator_note(argv[1])
     print(USAGE, file=sys.stderr)
     return 2
 
