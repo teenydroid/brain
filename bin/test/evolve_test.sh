@@ -197,7 +197,7 @@ counted='{"kind": "act_failed", "playbook": "moltbook-follow", "direction": "fal
 with_check() { # FILE CHECK
   jq --argjson c "$2" '.check = $c' "$1" >"$1.tmp" && mv "$1.tmp" "$1"
 }
-last_gen() { ls "$root/state/evolve" | grep -E '^[0-9]+$' | sort -n | tail -1; }
+last_gen() { find "$root/state/evolve" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' -printf '%f\n' | sort -n | tail -1; }
 
 rule_env 1
 learning m70
@@ -265,7 +265,7 @@ PY
 out="$("$evolve" run --candidates 1 --proposals "$root/props" 2>/dev/null)"
 check "the evidence leads with the lessons, by kind" test "$(jq -r '.lessons.kinds[0].kind' "$root/state/evolve/$(last_gen)/evidence.json")" = prompt-rule/learning
 check "the fourth rule of an exhausted kind is rejected" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = parked
-check "naming the lesson" grep -q 'lesson `prompt-rule/learning` is exhausted' <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
+check "naming the lesson" grep -qF "lesson \`prompt-rule/learning\` is exhausted" <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 
 # --- the pinned jobs -------------------------------------------------------------------------------
