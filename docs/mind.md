@@ -135,7 +135,10 @@ those (a hand, the site) can run outside the mind's jail, so it is opened
 and waits for a person. After a merge the babysitter deploys it; if the
 doctor is red afterwards, or the spine fell back to its last good checkout,
 it records the deploy as bad, opens a "revert #N" issue and holds self-merge
-on the paths that change touched for a day.
+on the paths that change touched for a day. While `main` is still that
+deploy it also opens the revert itself: a pull request `teeny/revert-N-<sha>`
+that puts back the tree the box ran before. That pull request touches the
+held paths, so it waits for the operator like any other change to them.
 
 ## Its own tools
 

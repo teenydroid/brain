@@ -529,7 +529,12 @@ deploys that restart the spine are at least `BABYSIT_DEPLOY_MIN_GAP_MINUTES`
 apart, and each run starts with the rollback watch (`rollback.py`): a deploy
 followed within an hour by a red `state/doctor.json` or a last-good fallback
 is recorded `deploy_bad`, a "revert #N" issue is opened once, and the paths
-it changed are held for 24 hours. While `state/spine-fallback.json` exists
+it changed are held for 24 hours. When `origin/main` is still the deployed
+commit, a revert pull request (`teeny/revert-N-<sha>`, one commit whose tree
+is the one before the deploy, built in Teeny's own clone's git directory) is
+opened once too (`deploy_revert_pr`); otherwise the reason is recorded
+(`deploy_revert_pr_skipped`) and the issue stands alone. The audit holds
+that pull request for the operator, since it touches the held paths. While `state/spine-fallback.json` exists
 no further deploy is made.
 
 **Deploy on merge.** A self-merge queues `state/deploy-pending.json`
