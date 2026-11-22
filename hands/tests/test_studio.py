@@ -343,10 +343,10 @@ TREND = {"stories": [
      "published_at": "2026-11-18T06:00:00Z"},
 ]}
 HN = {"stories": [{"id": 101, "title": "Show HN: a toaster that runs Linux", "score": 400, "descendants": 120,
-                   "time": NOW - 2 * HOUR},
+                   "time": NOW - 10 * HOUR},
                   {"id": 102, "title": "Ask HN: is the cloud just someone's computer", "score": 50, "time": NOW}]}
 CHAN = {"sparks": [{"id": "chan:x:7", "premise": "the moon is a hard drive and it is almost full", "replies": 40,
-                    "age_hours": 1.0}]}
+                    "age_hours": 30.0}]}
 
 
 def answers(**over):
@@ -456,8 +456,9 @@ class FeedTest(unittest.TestCase):
         cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW)
         self.assertEqual(len(room.turns), 1)
         self.assertEqual(room.turns[0][:3], ("editor", "feed", "feed"))
-        self.assertEqual(cards[0]["id"], "digg:s2")  # named, so it beats the hotter Tesla card
-        self.assertEqual(cards[0]["what_happened"], "nvidia doubled its revenue")
+        named = next(c for c in cards if c["id"] == "digg:s2")
+        self.assertEqual((named["people"], named["what_happened"]), (["Nvidia"], "nvidia doubled its revenue"))
+        self.assertTrue(all(c["people"] == [] for c in cards if c["id"] != "digg:s2"))
         self.assertEqual(note["tag"], {"tagged": 1, "of": 5})
         self.assertEqual((note["candidates"], note["cards"]), (5, 5))
 
@@ -655,7 +656,8 @@ class PickTest(unittest.TestCase):
         self.assertTrue(message.startswith("# studio: pick"))
         self.assertIn("rudest and funniest", message)
         self.assertIn("Nothing else is a reason to mark one", message)
-        self.assertNotIn("digg:s1", message)
+        for hidden in ('"label"', '"story"', '"untrusted"', '"alone"'):
+            self.assertNotIn(hidden, message)
 
 
 # --- publishing ------------------------------------------------------------------------------
@@ -1028,7 +1030,7 @@ class RunTest(unittest.TestCase):
     def test_a_slot_rule_refusal_ends_the_slot_live(self):
         self.args.dry_run = False
         rules = dict(FAKE)
-        rules["x post"] = [{"code": 2, "out": {"ok": False, "refused": "rule", "rule": "gap"}}]
+        rules["x post"] = rules["x post-thread"] = [{"code": 2, "out": {"ok": False, "refused": "rule", "rule": "gap"}}]
         self.fake(rules)
         code, out = self.go(self.ask(), STUDIO="1")
         rec = self.record()
