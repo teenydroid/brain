@@ -2126,7 +2126,7 @@ def render_request(request: Json) -> str:
     parts = [
         f"# evolve: generation {request['gen']}, candidate {request['cand']}",
         *brief(request, edits_in_place=False),
-        evidence_text(request["evidence"]),
+        evidence_text(request["evidence"], lessons_shown=True),
     ]
     planned = research_text(request.get("research"))
     if planned:
