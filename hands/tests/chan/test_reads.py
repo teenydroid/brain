@@ -77,13 +77,14 @@ class CatalogTest(Scratch):
         # 2026-11-22: premises were screened by the whole lexicon at its
         # strictest, and the studio's sparks came through thin. Only a slur
         # drops one now; a thread's replies are still read through `clean`.
-        self.catalog("x", op(1, com="my toaster is horny for the fucking microwave and it shows"),
+        self.catalog("x", op(1, com="the pigeons are planning a mass shooting at the fucking bread factory"),
                      op(2, com="the moon landing was staged in a porn studio's back lot"),
                      op(3, com="what a retard theory, the moon is obviously a hard drive"))
         got = reads.catalog("x", 10)
         self.assertEqual(sorted(t["no"] for t in got["threads"]), [1, 2])
         self.assertEqual(got["dropped"]["screened"], 1)
-        self.assertFalse(reads.clean("my toaster is horny for the fucking microwave and it shows"))
+        # The thread screen, still the whole lexicon outbound, would hold it.
+        self.assertFalse(reads.clean("the pigeons are planning a mass shooting at the fucking bread factory"))
 
     def test_a_boards_standing_general_threads_are_not_premises(self):
         self.catalog("tv", op(1, sub="/hor/ - Horror General", com="T-Virus edition"),
