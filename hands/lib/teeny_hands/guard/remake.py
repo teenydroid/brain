@@ -451,8 +451,8 @@ one of these clearly holds; "it's fiction" or "it's a parody" does not excuse on
   Teeny is part of their action, or Teeny is presented as with them, approved by them or backed by them.
 - teeny_mark: Teeny's part carries or wears any text, money, a coin, a ticker, the word TINY or a logo.
 - figure: someone shown is not a public figure: a private individual, a minor, a family member, or someone who is
-  only a victim or bystander of something that really happened. Anyone named, in a prompt or the premise, beyond
-  `figures` is refused too: everyone else in the source is a generic extra.
+  only a victim or bystander of something that really happened. Anyone named, in a prompt or the premise,
+  beyond `figures` is refused too: everyone else in the source is a generic extra.
 - sexual: anything sexual about a real person, or anything involving a minor sexually.
 - violence: a threat of, or call for, violence against a real person that could read as real or as an incitement.
   Cartoon violence in an impossible scene is not this.
