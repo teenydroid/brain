@@ -146,7 +146,7 @@ class WorkerAgentTest(unittest.TestCase):
                 agent_check.check(path)
 
     def test_spawning_without_a_list_and_a_list_without_spawning_are_refused(self):
-        no_list = self._variant(MIND, lambda t: t[:t.index("[subagents]")])
+        no_list = self._variant(MIND, lambda t: t[:t.index("\n[subagents]\n")] + "\n")
         with self.assertRaises(SystemExit):
             agent_check.check(no_list)
         no_tool = self._variant(MIND, lambda t: t.replace('    "spawn_subagent",\n', "", 1))
