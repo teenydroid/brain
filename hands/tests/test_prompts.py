@@ -547,18 +547,23 @@ class PromptsTest(unittest.TestCase):
         # a real death, anyone hurt and self-harm never are.
         text = self.studio_prompt("writer").lower()
         gallows = text[text.index("## humor: gallows humor"):text.index("## humor: examples")]
-        for fence in ("only your own death is funny", "never self-harm or suicide", "deadpan, never despair",
-                      "never invent a threat", "$tiny never dies"):
+        # 2026-11-22: dark jokes about the news are allowed; the people hurt
+        # never are the target, and self-harm is never encouraged.
+        for fence in ("the people hurt are never the target", "never encourage self-harm or suicide",
+                      "deadpan, never despair", "never invent a threat", "$tiny never dies"):
             self.assertIn(fence, gallows, fence)
-        self.assertIn("people hurt is never the hook", text)
+        self.assertIn("never the people hurt", text)
         self.assertNotIn("### cast", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("alive, and only just", soul)
-        self.assertIn("only your own mortality is a joke", soul)
+        self.assertIn("never at the people hurt", soul)
+        self.assertIn("self-harm is never encouraged", soul)
 
     def test_the_editor_throws_out_a_joke_near_real_harm(self):
         text = self.studio_prompt("editor").lower()
-        self.assertIn("anywhere near a real death, injury, disaster or anyone hurt", text)
+        # Since 2026-11-22 a dark joke about the news is allowed; what loses
+        # outright is a named victim as the target, and self-harm.
+        self.assertIn("a named victim", text)
         self.assertIn("self-harm or suicide", text)
 
     def test_the_writer_leaves_the_world_and_the_rest_of_the_skills_out(self):
@@ -644,8 +649,8 @@ class PromptsTest(unittest.TestCase):
         examples = brief[brief.index("## before and after"):brief.index("## your answer")]
         afters = [line for line in examples.splitlines() if line.startswith("> after:")]
         self.assertGreaterEqual(len(afters), 6)
-        # One per shape the room samples (studio.PAIRS): 10 since the threat.
-        self.assertLessEqual(len(afters), 10)
+        # One per shape the room samples (studio.PAIRS): 11 since the roast.
+        self.assertLessEqual(len(afters), len(studio.PAIRS))
         for line in afters:
             self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
                                         r"evolve|cron|hands?/", line, re.I), line)
