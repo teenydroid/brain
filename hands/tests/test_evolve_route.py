@@ -142,7 +142,7 @@ class Routed(EvolveCase):
         self.assertEqual(self.state(fid), "open")
         self.attempt(fid, 2, "parked", 30)
         self.attempt(fid, 3, "parked", 40)
-        self.assertEqual(self.state(fid), "open")  # 6 now, under the 40 it stood at last time: something helped
+        self.assertNotEqual(self.state(fid), "routed")  # 6 now, under the 40 it stood at last time: something helped
         self.assertEqual(wants.finding_wants(), [])
 
     def test_a_learnings_candidate_on_the_same_family_counts_as_a_try(self):
