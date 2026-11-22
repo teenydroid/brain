@@ -235,7 +235,7 @@ for path in "$brain"/agents/*.toml; do
 done
 # Teeny's own tools (home/tools/, bin/box): with BOX=1 the kernel must be able
 # to jail them, or bin/box runs nothing and every job naming one is dead.
-run "box" python3 "$TEENY_ROOT/bin/lib/box.py" check
+run "box" env TEENY_ROOT="$root" python3 "$TEENY_ROOT/bin/lib/box.py" check
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"
 fi

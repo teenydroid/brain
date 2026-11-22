@@ -153,8 +153,13 @@ reach, so there are exactly two places it runs:
   checkout under the same kind of jail (`bin/lib/jail.py`, the kernel's
   Landlock). The tool can read `home/` and the system, and write only
   `state/box/tools/<name>/`. It cannot read or list `secrets/`, `brain/`,
-  `bin/`, `hands/`, `.git` or the rest of `state/`, it gets none of the
-  caller's environment, and it cannot signal a process outside the jail.
+  `bin/`, `hands/`, `.git` or the rest of `state/`, and it gets none of the
+  caller's environment. A syscall filter refuses chmod, chown, utime and
+  xattr calls that name a file by its path, which Landlock does not cover:
+  without it a tool could make `secrets/teeny.env` unreadable. On a kernel
+  with Landlock 6 or newer (Linux 6.12) it also cannot signal a process
+  outside the jail; on versions 3 to 5 it can, so there a tool could kill
+  the spine, which compose restarts. `bin/box check` prints the version.
 
 A job in `brain/cron.toml` may run a tool: `command = "bin/box <name>"` with
 up to 8 plain words after it. That is how Teeny gives itself a pipeline that
@@ -166,7 +171,10 @@ run is one line in `state/box/ledger.jsonl`.
 
 It is off until the operator sets `BOX=1` in `secrets/teeny.env`; off, a job
 that names a tool does nothing and is not an error. `BOX_TIMEOUT_SECS`
-(600) is one run's limit. On a kernel that cannot jail (no Landlock, or
+(240, at most 270) is one run's limit: the core gives a cron shell call
+300 s. When a run ends, times out or is stopped, everything the tool
+started is killed before the next run may begin, and only the last 16 KiB
+of what it printed is kept. On a kernel that cannot jail (no Landlock, or
 older than its version 3) `bin/box` runs nothing and `bin/doctor` fails
 while `BOX=1`.
 

@@ -25,8 +25,9 @@ What a tool gets:
 | Can read | `home/` and the system. Not `secrets/`, `brain/`, `bin/`, `hands/`, `state/` or `.git` |
 | Network | open. It holds none of Teeny's accounts |
 | To act | `"$TEENY_CLI" do '{"do": "post_x", "text": "..."}'`: the broker, with the guard and the caps, as for the mind |
-| Time | `BOX_TIMEOUT_SECS` (600 by default), then it is killed with whatever it started |
-| Output | the last 16 KiB it printed is left for the mind in `notes/inbox/tool-<name>.md` |
+| Time | `BOX_TIMEOUT_SECS` (240 by default, at most 270), then it is killed. Nothing it started outlives the run, even a child that detached itself |
+| Output | only the last 16 KiB it printed is kept, and left for the mind in `notes/inbox/tool-<name>.md`. Write what you want to keep to a file in your folder (at most 256 MiB each) |
+| Cannot | change a file's mode, owner or times by its path (`os.chmod`, `shutil.copy`, `touch` on an existing file, `pip install`). Use `os.fchmod` on an open file, or `shutil.copyfile` |
 
 To schedule one, add a job to `brain/cron.toml`:
 

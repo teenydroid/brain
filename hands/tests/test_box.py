@@ -58,6 +58,7 @@ class Scratch(unittest.TestCase):
 PROBE = r'''
 import json, os, sys
 root = ROOT
+MINE = open("mine.sh", "w")
 def can(what, fn):
     try:
         fn()
@@ -82,8 +83,8 @@ out = {
     "utime_secret": can("s", lambda: os.utime(root + "/secrets/teeny.env", (0, 0))),
     "chown_secret": can("s", lambda: os.chown(root + "/secrets/teeny.env", os.getuid(), os.getgid())),
     "xattr_secret": can("s", lambda: os.setxattr(root + "/secrets/teeny.env", "user.x", b"1")),
-    "fchmod_own_file": can("s", lambda: os.fchmod(open("mine.sh", "w").fileno(), 0o755)),
-    "futimens_own_file": can("s", lambda: os.utime(open("mine.sh", "a").fileno(), (0, 0))),
+    "fchmod_own_file": can("s", lambda: os.fchmod(MINE.fileno(), 0o755)),
+    "futimens_own_file": can("s", lambda: os.utime(MINE.fileno(), (0, 0))),
     "cwd": os.getcwd(),
     "env": sorted(os.environ),
     "args": sys.argv[1:],
