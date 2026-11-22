@@ -1223,7 +1223,7 @@ One run is one slot:
    `STUDIO_SKIT_SLOTS` (none: the video slots), `STUDIO_SKIT_SECS` (900),
    `STUDIO_VIDEO_BUDGET_SECS` (3600, a video slot's run), `STUDIO_REMAKE_SECS`
    (1200), `STUDIO_PITCHES` (12),
-   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
+   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFT_INVENTED` (1), `STUDIO_PURE_INVENTED` (1), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
