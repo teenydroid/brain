@@ -6322,12 +6322,12 @@ def crash_site(exc: BaseException) -> str:
 
 
 def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -> Json:
-    """Tells of a generation that raised, the way a halt is told: a line in
-    the log (state/evolve/evolve.log under --detach, where the cron call's
-    `ok` hid gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
-    status`, and a `crash` halt through stop(), which never latches (the next
-    scheduled run tries again) and files one issue a day (its key). Its own
-    failure never hides the crash."""
+    """Tells of a generation that raised: a line in the log
+    (state/evolve/evolve.log under --detach, where the cron call's `ok` hid
+    gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
+    status`, and a `crash` problem (raise_problem): one public issue while it
+    is open, updated at most once a day. The next scheduled run tries again.
+    Its own failure never hides the crash."""
     gen = progress.get("gen")
     error = f"{type(exc).__name__}: {exc}"
     for where, to in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
@@ -6341,15 +6341,14 @@ def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -
         publisher = progress.get("publisher")
         if publisher is None and not dry_run():
             publisher = HandsPublisher()
-        halt = Halt("crash", f"{who} raised {error}" + (f" at {site}" if site else "")
-                    + ". Its learnings stay open, charged no try.", latch=False,
-                    extra={"gen": gen, "error": error})
-        entry = stop(cfg, halt, publisher)
+        problem = Problem("crash", "crash", "bin/evolve: a generation crashed",
+                          f"{who} raised an exception and was ended; its learnings stay open, charged no try, and "
+                          f"the next scheduled run starts a new generation.\n\n- error: `{error}`\n"
+                          f"- where: {('`' + site + '`') if site else 'not in this repository'}\n- at: {iso(now())}"
+                          "\n\nHelp wanted: the error above is from bin/lib/evolve.py or a module it calls; a "
+                          "fix with a regression test in hands/tests/test_evolve.py is welcome." + HELP_FOOTER)
+        entry = raise_problem(cfg, problem, publisher)
         crash["issue"] = entry.get("issue")
-        if crash["issue"] == "already filed":
-            filed = [r.get("issue") for r in read_jsonl(halts_log()) if r.get("key") == halt.key and r.get("issue")
-                     and r.get("issue") != "already filed"]
-            crash["issue"] = filed[-1] if filed else None
         if entry.get("dry_run"):
             crash["dry_run"] = True
     except Exception as err:  # noqa: BLE001 - the crash itself is what must be told
