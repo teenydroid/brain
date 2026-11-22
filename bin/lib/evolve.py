@@ -6966,6 +6966,12 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
             cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
         record(cand)
+        if cand.get("deferred_for") == "screen":
+            holds = 1 + len(list(itertools.takewhile(
+                lambda e: e.get("deferred_for") == "screen",
+                reversed([e for e in history(entries, str(learning.get("id"))) if e.get("id") != cand["id"]]))))
+            if holds >= MAX_SCREEN_HOLDS:
+                problems.append(raise_problem(cfg, screen_problem(cand, holds), publisher))
         if cand["verdict"] != "pending":
             remove_worktree(src, gdir / f"cand-{i}")
             say(f"candidate {i}: {cand['verdict']} {cand.get('reason') or ''}".rstrip())
