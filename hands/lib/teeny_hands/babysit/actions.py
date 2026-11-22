@@ -261,7 +261,7 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
     # bad one holds this run's merges of what it changed.
     try:
         judged = rollback.check(api)
-    except hand.HandError as exc:
+    except (hand.Refused, hand.HandError) as exc:
         judged = {"error": str(exc)}
     listed = auditing.queue(None, max_results, api)
     triaged, merged, errors = [], [], []
