@@ -269,6 +269,14 @@ def run() -> Json | None:
     return out
 
 
+def min_gap_minutes() -> int:
+    return hand.number("BABYSIT_DEPLOY_MIN_GAP_MINUTES", DEFAULT_MIN_GAP_MINUTES, 1, 24 * 60)
+
+
+def _restarted_within(minutes: int) -> bool:
+    return ledger.count_since("deploy_restart", hand.now() - minutes * 60) > 0
+
+
 def _changed(checkout: Path, old: str, new: str) -> list[str]:
     got = _live().git(checkout, "diff", "--name-only", "--no-renames", old, new)
     return [line for line in got.stdout.splitlines() if line]
