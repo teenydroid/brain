@@ -2386,7 +2386,7 @@ def publish(room: Room, record: Json, slot: Slot, vetoed: Json | None = None) ->
             break
         attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
         attempts.append(attempt)
-        if len(attempts) > 1:
+        if len(attempts) > 1 or vetoed:
             answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now,
                                                                 fallback=True), None, soft=True)
             verdict = _str((answer or {}).get("verdict"), 20).lower() if isinstance(answer, dict) else ""
@@ -3092,9 +3092,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         if not order:
             record.update({"outcome": "empty", "reason": reason or "the editor picked none", "pick": None})
             return 0
-        if top not in order:
-            vetoed = None
-        record.update({"outcome": "picked", "reason": reason or "the editor picked none", "pick": None})
+        record.update({"outcome": "picked", "pick": None,
+                       "reason": f"the editor passed on {top} ({reason or 'no reason given'}); the rest of the "
+                                 "ranking gets the slot question"})
     else:
         pick = dict(blind[top]) | {"label": top}
         record.update({"outcome": "picked", "reason": reason, "pick": pick})
