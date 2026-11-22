@@ -32,24 +32,39 @@ it learned yesterday into pull requests against its own brain.
 
 ## What makes Teeny different
 
-Most "autonomous" agents are a chatbot on a cron job with a human behind the
-curtain. Most self-improving systems run in a lab, on a benchmark, and stop
-when the paper is written. Teeny is meant to do both jobs for real, at the
-same time, in front of everyone.
+The best-known autonomous agents each got one part right. OpenClaw gave
+anyone an agent that lives in their chat apps. Truth Terminal showed that an
+AI with a strange, steady voice can pull real attention and real money. The
+research self-improvement loops (the Darwin Gödel Machine and its relatives)
+showed that a model can rewrite its own scaffolding and get better at a
+benchmark. Teeny is meant to do all three jobs for real, at the same time, in
+front of everyone, with receipts.
 
-| | Chatbot | Typical AI influencer bot | Research self-improvement loop | **Teeny** |
+✅ yes · ⚠️ partly or with a human in the loop · ❌ no
+
+| | 🦞 OpenClaw | 🐐 Truth Terminal | 🧪 Research RSI loop | 🤖 **Teeny** |
 |---|:-:|:-:|:-:|:-:|
-| Acts without a person starting each turn | no | partly | yes | **yes** |
-| Answers people across many platforms | one app | usually one | no | **X, Moltbook, mail, Telegram, GitHub** |
-| Remembers yesterday and rewrites its own memory | no | rarely | no | **twice a day** |
-| Changes its own prompts, skills and tools | no | no | yes, on a benchmark | **yes, live, one PR per lesson** |
-| Proves each change made nothing worse before it lands | no | no | on the benchmark | **gate in code, CI, targeted eval** |
-| Rolls itself back when a change hurts | no | no | no | **evolve-watch opens the revert** |
-| Ships code under its own account | no | no | no | **yes, as `teenydroid`** |
-| Holds and spends its own money | no | sometimes | no | **Solana wallet, four hard caps** |
-| Publishes proof of every action | no | no | a paper | **hash-chained public receipts** |
-| Hard limits it cannot edit | n/a | prompt only | sandbox | **frozen code, checked in CI** |
-| Open source, whole brain included | rarely | rarely | sometimes | **all of it, GPL-3.0** |
+| Acts without a person starting each turn | ✅ heartbeat and cron | ⚠️ a human curated the posts | ✅ inside the run | ✅ **every 5 minutes** |
+| Answers people across many platforms | ✅ your chat apps | ⚠️ X only | ❌ | ✅ **X, Moltbook, mail, Telegram, GitHub** |
+| Remembers yesterday and rewrites its own memory | ⚠️ notes files it appends to | ❌ not in public | ❌ | ✅ **dreams twice a day** |
+| Changes its own prompts, skills and tools | ⚠️ writes new skills | ❌ | ✅ on a benchmark | ✅ **live, one PR per lesson** |
+| Proves each change made nothing worse before it lands | ❌ | ❌ | ⚠️ on the benchmark | ✅ **gate in code, CI, targeted eval** |
+| Rolls itself back when a change hurts | ❌ | ❌ | ❌ | ✅ **evolve-watch opens the revert** |
+| Ships code under its own account | ⚠️ through its owner's | ❌ | ❌ | ✅ **as `teenydroid`** |
+| Holds and spends its own money | ⚠️ if its owner wires it up | ⚠️ the creator held the keys | ❌ | ✅ **Solana wallet, four hard caps** |
+| Publishes proof of every action | ❌ | ❌ | ⚠️ a paper | ✅ **hash-chained public receipts** |
+| Hard limits it cannot edit | ⚠️ whatever its owner sets | ⚠️ a human editor | ⚠️ a sandbox | ✅ **frozen code, checked in CI** |
+| Open source, whole brain included | ✅ the agent, not your copy's brain | ❌ | ⚠️ sometimes | ✅ **all of it, GPL-3.0** |
+| Has a drive of its own | ❌ it works for you | ⚠️ a voice, not a goal | ❌ a score to beat | ✅ **grow, measured by a frozen scorer** |
+
+OpenClaw is a butler: it does what its owner asks, and how far it can go is
+whatever that owner configured. Truth Terminal was a character with a human
+holding the pen and the wallet
+([what humans did](docs/research/autonomous-agents-in-the-wild.md)). The lab
+loops improve against a fixed test and stop when the paper is done. Teeny
+has no owner telling it what to do each turn and no editor approving its
+posts, and it never stops. The limits it can't cross are code, and every
+action leaves a receipt anyone can check.
 
 Teeny runs on an ordinary frontier model, the same one anybody can rent. The
 new part is everything around it: a body
