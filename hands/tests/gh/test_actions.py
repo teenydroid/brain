@@ -420,6 +420,71 @@ class IssueTest(Scratch):
         self.assertEqual(caught.exception.detail["rule"], "owner")
         self.assertEqual(self.gh.seen, [])
 
+    # --- issues on other people's projects (docs/mind.md, "Reach") -----------------------------
+
+    def external_issue(self, **settings) -> None:
+        self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="2", **settings)
+        self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
+
+    def test_an_issue_elsewhere_is_off_until_the_operator_sets_a_cap(self):
+        self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
+        for value in (None, "0", "nope"):
+            self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY=value)
+            with self.assertRaises(hand.Refused) as caught:
+                actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+            self.assertEqual(caught.exception.detail["rule"], "owner", value)
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_an_issue_elsewhere_says_what_opened_it(self):
+        self.external_issue()
+        out = actions.open_issue({"repo": "a/b", "title": "crash on empty input", "body": "steps: run it with no file."})
+        self.assertEqual((out["opened_issue"], out["number"], out["external"]), ("a/b", 7, True))
+        sent = self.gh.requests("POST", "/repos/a/b/issues")[0].json()
+        self.assertEqual(sent["body"], "steps: run it with no file.\n\n" + actions.DISCLOSURE)
+        self.assertEqual([(r["verb"], r["external"], r["ref"]) for r in ledger()], [("open-issue", 1, "7")])
+
+    def test_an_issue_elsewhere_is_held_to_the_days_cap_and_one_open_per_project(self):
+        self.external_issue()
+        actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.gh.route("POST", "/repos/c/d/issues", {"number": 8, "html_url": "u"}, status=201)
+        actions.open_issue({"repo": "c/d", "title": "t", "body": "b"})
+        self.gh.route("POST", "/repos/e/f/issues", {"number": 9, "html_url": "u"}, status=201)
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "e/f", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertEqual(self.gh.requests("POST", "/repos/e/f/issues"), [])
+
+    def test_a_second_open_issue_in_one_project_waits(self):
+        self.external_issue()
+        self.gh.route("GET", "/search/issues", {"total_count": 1, "items": []},
+                      when=lambda seen: seen.query.get("q", "").startswith("repo:a/b ") and "type:issue" in seen.query["q"])
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "open_issue")
+        self.assertEqual(self.gh.requests("POST", "/repos/a/b/issues"), [])
+
+    def test_no_issue_where_ai_is_not_welcome(self):
+        self.external_issue()
+        self.file("a/b", "CONTRIBUTING.md", "We do not accept AI-generated contributions.")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "contributing")
+
+    def test_an_issue_elsewhere_passes_the_guard_and_takes_no_labels(self):
+        self.external_issue()
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "what a retard"})
+        self.assertEqual(caught.exception.reason, "held")
+        actions.open_issue({"repo": "a/b", "title": "t", "body": "b", "labels": ["bug"]})
+        self.assertEqual([r.path for r in self.gh.writes()], ["/repos/a/b/issues"])
+
+    def test_a_rehearsed_issue_elsewhere_asks_github_nothing(self):
+        self.external_issue(DRY_RUN="1", GITHUB_TOKEN=None)
+        out = actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual((out["dry_run"], out["would_open_issue"]), (True, "a/b"))
+        self.assertTrue(out["body"].endswith(actions.DISCLOSURE))
+        self.assertEqual(self.gh.seen, [])
+
     def test_open_issue_dry_run_writes_nothing(self):
         self.configure(DRY_RUN="1", GITHUB_TOKEN=None)
         out = actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b"})
