@@ -280,3 +280,20 @@ def rubric(tree: Path, changed: list[tuple[str, str]], run_tests: Callable[..., 
         hands.append(found)
         missing += gaps
     return {"ok": not missing, "missing": missing, "hands": hands}
+
+
+def fix_rubric(changed: list[tuple[str, str]]) -> Json:
+    """The rubric of a fix for a routed finding (a want `w:f:...`): a test
+    under hands/tests/ is among the changes, and so is something that is not
+    a test. The count falling a week after the merge is the real gate
+    (bin/wants watch); this only keeps a fix from shipping with no test.
+    `hands` is empty: a fix adds no hand to count the uses of."""
+    paths = [path for status, path in changed if status != "D"]
+    tests = sorted(p for p in paths if p.startswith("hands/tests/") and p.endswith(".py"))
+    code = sorted(p for p in paths if not p.startswith("hands/tests/"))
+    missing = []
+    if not tests:
+        missing.append("a test under hands/tests/ that reproduces what the finding counts")
+    if not code:
+        missing.append("the fix itself: a change outside hands/tests/")
+    return {"ok": not missing, "kind": "fix", "missing": missing, "tests": tests, "files": code, "hands": []}

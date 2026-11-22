@@ -563,6 +563,30 @@ class FeatureJobTest(SelfJobScratch):
         plain = {k: v for k, v in done.items() if k != "rubric"}
         self.assertNotIn("Feature rubric", selfclone.pr_text(plain)[1])
 
+    def test_a_routed_finding_is_a_fix_held_to_a_test_not_to_the_feature_rubric(self):
+        """bin/evolve routes a finding prompt rules kept failing to fix to the
+        builder as a want `w:f:<family>`: a change to code that exists, which
+        no new hand, playbook or docs section is asked of."""
+        self.queue_want(want="w:f:refusals:brief:duplicate", text="want: w:f:refusals:brief:duplicate\nfix it")
+        offer = jobs.next_job()
+        self.assertEqual(offer["job"]["fix"], {"want": "w:f:refusals:brief:duplicate", "requires": jobs.FIX_REQUIRES})
+        self.assertNotIn("feature", offer["job"])
+        self.assertEqual(offer["rules"], jobs.SELF_FIX_RULES)
+        self.lay({"hands/brief": "#!/usr/bin/env python3\n# checks before it calls\n"})
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a fix is no feature")), \
+                self.assertRaises(hand.Refused) as caught:
+            self.report(offer["job"])
+        self.assertEqual(caught.exception.detail["missing"],
+                         ["a test under hands/tests/ that reproduces what the finding counts"])
+        self.lay({"hands/tests/test_brief_fix.py": "import unittest\n"})
+        with mock.patch.object(feature, "rubric", side_effect=AssertionError("a fix is no feature")):
+            self.report(offer["job"])
+        row = jobs.listing("ok")["jobs"][0]
+        self.assertEqual((row["rubric"]["kind"], row["rubric"]["tests"]), ("fix", ["hands/tests/test_brief_fix.py"]))
+        body = selfclone.pr_text(row)[1]
+        self.assertIn("**Fix rubric**", body)
+        self.assertNotIn("Feature rubric", body)
+
 
 PR_URL = "https://github.com/teenydroid/brain/pull/7"
 

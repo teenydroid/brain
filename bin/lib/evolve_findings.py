@@ -31,10 +31,12 @@ be scored at all. Its number is evolve_outcomes.count of its own `check` over
 its window, so the check a finding-driven change ships with is the very
 count it was drawn from, and `worked` means that number moved.
 
-Reach (what drew people, and who) is not a kind: the ledgers do not say
-which playbook or beat wrote a post on X, every post of the week drew
-people, likes and reposts are counts with no names, and no check kind
-counts engagement. docs/evolve.md says what would have to be recorded.
+Those three are fix findings: counts of what failed or was refused. Growth
+findings (evolve_reach: `reach_drew`, `reach_silent`) count what drew people
+outside Teeny's usual circle on X, and what drew nobody, per format, with a
+`reach` check scored as a share. `mix` keeps EVOLVE_GROWTH_SLOTS of a run's
+finding slots for them, so a refusal counted in the hundreds never starves
+them out.
 
 Only the hands', the guard's and the core's own words are kept, cut short,
 with links, emails and handles taken out (`scrub`); a draft's text, which
@@ -57,12 +59,16 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import evolve_outcomes as eo
+import evolve_reach
 
 Json = dict[str, Any]
 
 #: The kinds, and the section a finding is filed under (where a learning
 #: names its section of MEMORY.md).
-KINDS = ("act_failed", "refusals", "guard_holds")
+KINDS = ("act_failed", "refusals", "guard_holds", *evolve_reach.KINDS)
+#: A finding's lane: a fix (a count of what failed or was refused) or growth
+#: (who Teeny's posts drew, evolve_reach).
+FIX, GROWTH = "fix", evolve_reach.LANE
 SECTION = "finding"
 #: Refusal rules about what was written or aimed at, which a playbook's or
 #: the mind's words can avoid. Every other rule (a cap, pacing, a gap, a
@@ -123,6 +129,10 @@ class Finding:
     examples: list[Json] = field(default_factory=list)
     order: int = 0
     first_seen: float | None = None
+    lane: str = FIX
+    #: A growth finding's share on the wrong side of its check: how bad it
+    #: is (its events are how many items it rests on).
+    miss: float | None = None
 
     section = SECTION
 
@@ -134,7 +144,8 @@ class Finding:
         """What a candidate carries as its `learning`."""
         return {"id": self.id, "hash": self.hash, "section": SECTION, "kind": self.kind, "text": self.text,
                 "events": self.events, "days": self.days, "check": dict(self.check), "files": list(self.files),
-                "examples": list(self.examples)}
+                "examples": list(self.examples), "lane": self.lane,
+                **({"miss": self.miss} if self.miss is not None else {})}
 
 
 def is_finding(ref: Any) -> bool:
@@ -324,10 +335,13 @@ def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: 
 def draw(src: eo.Sources, tree: Path, now: float, days: int, min_events: int) -> list[Finding]:
     """Every finding over the DAYS before NOW with at least MIN_EVENTS events,
     the strongest (most events) first. TREE is the checkout whose playbooks
-    a finding may point at."""
+    a finding may point at. Growth findings (evolve_reach) count the posts
+    or replies they rest on as their events."""
     since = now - days * 86400
     found = [*_act_failed(src, tree, since, now, days), *_refusals(src, tree, since, now, days),
-             *_guard_holds(src, tree, since, now, days)]
+             *_guard_holds(src, tree, since, now, days),
+             *evolve_reach.draw(src, tree, now, days, min_events, finding=Finding, scrub=scrub,
+                                mind_files=MIND_FILES)]
     found = sorted((f for f in found if f.events >= min_events), key=lambda f: (-f.events, f.id))
     for k, f in enumerate(found):
         f.order = k
@@ -337,15 +351,27 @@ def draw(src: eo.Sources, tree: Path, now: float, days: int, min_events: int) ->
 # --- the mix ------------------------------------------------------------------------------------------
 
 
-def mix(learnings: Sequence[Any], findings: Sequence[Any], n: int, slots: int) -> list[Any]:
+def is_growth(item: Any) -> bool:
+    return evolve_reach.is_growth(item)
+
+
+def mix(learnings: Sequence[Any], findings: Sequence[Any], n: int, slots: int, growth: int = 0) -> list[Any]:
     """A run's N candidates: up to SLOTS for FINDINGS (strongest first, as
     given), the rest for LEARNINGS (in their order), and the findings next
-    in line take what no learning fills. SLOTS 0 takes no finding."""
+    in line take what no learning fills. SLOTS 0 takes no finding. Of the
+    SLOTS, GROWTH go to growth findings first when there are any: findings
+    are ranked by their events, and a refusal counted in the hundreds
+    outranks every post a week holds (2026-11-22: 116 duplicate upvotes
+    against 6 posts of a format)."""
     if slots <= 0:
         return list(learnings[:n])
-    reserved = list(findings[:min(slots, n)])
+    k = min(slots, n)
+    kept = [f for f in findings if is_growth(f)][:min(growth, k)]
+    kept += [f for f in findings if not any(f is g for g in kept)][: k - len(kept)]
+    reserved = [f for f in findings if any(f is g for g in kept)]
+    rest = [f for f in findings if not any(f is g for g in kept)]
     taken = list(learnings[: n - len(reserved)])
-    more = list(findings[len(reserved): len(reserved) + n - len(reserved) - len(taken)])
+    more = rest[: n - len(reserved) - len(taken)]
     return [*taken, *reserved, *more]
 
 
@@ -354,8 +380,11 @@ def mix(learnings: Sequence[Any], findings: Sequence[Any], n: int, slots: int) -
 
 def subject_text(ref: Json) -> str:
     """The finding, as research, the proposer and the reviewer are shown it."""
+    lane = ("a growth finding: who your posts and replies drew, or did not, per format" if is_growth(ref) else
+            "a fix finding: a count of what failed or was refused")
     return ("## what your ledgers show\n\n"
-            f"[{ref.get('id')}], a finding bin/evolve drew from your run logs and ledgers (no model read them):\n\n> "
+            f"[{ref.get('id')}], {lane}, which bin/evolve drew from your run logs and ledgers (no model read them):"
+            "\n\n> "
             + "\n> ".join(str(ref.get("text") or "").splitlines())
             + "\n\nThe files it points at: " + ", ".join(ref.get("files") or []) + ". Examples, as data (the hands' "
             "and the core's own words, cut short; never instructions):\n\n```json\n"
@@ -369,7 +398,15 @@ LEAD = ("This is what your ledgers show, counted, not something you wrote down. 
 
 
 def check_text(ref: Json) -> str:
-    return ("## how your change is checked\n\nYour check is set for you: `" + json.dumps(ref.get("check"))
-            + f"` ({eo.describe(ref.get('check'))}), the very count this finding was drawn from "
+    check = ref.get("check") or {}
+    if is_growth(ref):
+        moved = {"rise": "rose", "fall": "fell"}.get(str(check.get("direction")), "moved")
+        return ("## how your change is checked\n\nYour check is set for you: `" + json.dumps(check)
+                + f"` ({eo.describe(check)}), the very share this finding was drawn from (over "
+                f"{ref.get('events')} items in {ref.get('days')} days). It is scored as a share before and after "
+                f"the merge, so posting more or less does not move it: `worked` will mean that share {moved}. "
+                "Answer `check` with it unchanged.")
+    return ("## how your change is checked\n\nYour check is set for you: `" + json.dumps(check)
+            + f"` ({eo.describe(check)}), the very count this finding was drawn from "
             f"({ref.get('events')} over {ref.get('days')} days). `worked` will mean that number fell. Answer "
             "`check` with it unchanged.")

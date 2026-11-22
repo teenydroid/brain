@@ -113,6 +113,8 @@ import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
 import evolve_findings  # noqa: E402
+import evolve_reach  # noqa: E402
+import evolve_route  # noqa: E402
 import evolve_outcomes  # noqa: E402
 import evolve_selection  # noqa: E402
 import frozen  # noqa: E402
@@ -209,6 +211,14 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # what the run logs and ledgers count as not working), strongest first;
     # findings also take the candidates no open learning takes. 0: none.
     "EVOLVE_FINDING_SLOTS": ("2", int, 0, 8),
+    # Of the finding slots, at least this many go to growth findings
+    # (evolve_reach: what drew people, what drew nobody) when there are any,
+    # so a refusal counted in the hundreds never starves them. 0: no reserve.
+    "EVOLVE_GROWTH_SLOTS": ("1", int, 0, 8),
+    # A fix finding whose family has had this many prompt-level candidates
+    # that did not help goes to code: a builder want, or a public issue when
+    # the fix needs a frozen path (evolve_route). 0: never routed.
+    "EVOLVE_ROUTE_AFTER": ("2", int, 0, 10),
     # Two: the pinned job runs after the night's dream and after midday's.
     # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
@@ -944,7 +954,7 @@ def _finding_held(entry: Mapping[str, Any], past: list[Json], item: Any, days: i
     learning's. Anything else (a frozen or not-actionable skip, a rejected,
     duplicate, regressed or flagged change, a closed pull request, a dry
     run's) holds it until the number grows past where it was."""
-    recurs = item.events > _level(entry)
+    recurs = evolve_reach.recurs(entry, item) if evolve_reach.is_growth(item) else item.events > _level(entry)
     if entry.get("verdict") == "opened" and entry.get("merged_at"):
         spans = _configured_horizons()
         got = evolve_outcomes.outcome_of(entry, spans)
@@ -981,9 +991,80 @@ def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) 
     if flying:
         return Standing("in-flight", 0, infra, flying[-1])
     failed = [e for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED)]
+    if evolve_route.decide(entries, item, _route_after(), _configured_horizons()) is not None:
+        # Prompt rules kept failing to fix it: code's, not the proposer's
+        # (bin/lib/evolve_route.py). Not offered again while that holds.
+        return Standing("routed", len(failed), infra)
     if len(failed) >= MAX_ATTEMPTS and item.events <= max(_level(e) for e in failed):
         return Standing("gave-up", len(failed), infra)
     return Standing("open", len(failed), infra)
+
+
+def _route_after() -> int:
+    """EVOLVE_ROUTE_AFTER as secrets/evolve.env sets it, or its default when
+    it does not parse (the run that reads it refuses on its own)."""
+    try:
+        return load_config()["EVOLVE_ROUTE_AFTER"]
+    except EvolveError:
+        return int(SETTINGS["EVOLVE_ROUTE_AFTER"][0])
+
+
+def routed_log() -> Path:
+    """The public issues filed for routed findings, one per family."""
+    return evolve_dir() / "routed.jsonl"
+
+
+def finding_routes(entries: Mapping[str, Json], findings: list[Any], cfg: "Config") -> list[Json]:
+    """The routed families among FINDINGS (evolve_route.routes): only those
+    whose standing is `routed` (one settled by an open pull request or a
+    cool-off waits for it)."""
+    cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
+    routed = [f for f in findings if standing(entries, f, cooloff).state == "routed"]
+    return evolve_route.routes(entries, routed, cfg["EVOLVE_ROUTE_AFTER"], outcome_horizons(cfg), CODE)
+
+
+def route_findings(cfg: "Config", entries: Mapping[str, Json], findings: list[Any],
+                   publisher: "Publisher | None") -> list[Json]:
+    """File the one public issue of each routed family whose fix needs a
+    frozen path; a family for the builder waits for bin/wants. Under
+    DRY_RUN it says what it would open."""
+    out = []
+    for route in finding_routes(entries, findings, cfg):
+        if route["to"] != evolve_route.ISSUE:
+            out.append({"family": route["family"], "to": route["to"], "want": route["want"]})
+            continue
+        if dry_run() or publisher is None:
+            seen = evolve_route.filed_issue(evolve_route.read_log(routed_log()), route["family"])
+            out.append({"family": route["family"], "to": route["to"], **({"issue": seen["issue"]} if seen else
+                        {"dry_run": True, "would_open_issue": route["title"]})})
+            continue
+        got = evolve_route.file_issue(route, cfg["EVOLVE_ISSUE_REPO"], publisher, routed_log(), iso(now()))
+        out.append(got)
+        if not got.get("already"):
+            say(f"routed {route['family']} to a public issue: " + str(got.get("url") or got.get("error")))
+    return out
+
+
+def route_status(entries: Mapping[str, Json], findings: list[Any], cfg: "Config | None") -> dict[str, Json]:
+    """finding id -> where its routed family is (`bin/evolve status`)."""
+    if cfg is None:
+        return {}
+    log = evolve_route.read_log(routed_log())
+    filed = evolve_route.read_log(state_dir() / "wants" / "filed.jsonl")
+    db = evolve_outcomes._Db(state_dir() / "hands.db")
+    try:
+        def job_of(request: Any) -> Any:
+            rows = db.rows("SELECT id FROM build_jobs WHERE request_id = ?", (request,)) if isinstance(request, int) else []
+            return rows[0][0] if rows else None
+
+        out = {}
+        for route in finding_routes(entries, findings, cfg):
+            got = evolve_route.where(route, log, filed, job_of)
+            for fid in route["findings"]:
+                out[fid] = got
+        return out
+    finally:
+        db.close()
 
 
 def read_findings(cfg: "Config | None" = None) -> list[Any]:
@@ -4709,8 +4790,10 @@ class HandsPublisher:
         return self._actions().set_status({"repo": self._repo(), "sha": sha, "state": state,
                                            "context": STATUS_CONTEXT, "description": description})
 
-    def open_issue(self, repo: str, title: str, body: str, judge: bool = False) -> Json:
-        got = self._actions().open_issue({"repo": repo, "title": title, "body": body}, judge=judge)
+    def open_issue(self, repo: str, title: str, body: str, judge: bool = False, labels: list[str] | None = None
+                   ) -> Json:
+        got = self._actions().open_issue({"repo": repo, "title": title, "body": body,
+                                          **({"labels": list(labels)} if labels else {})}, judge=judge)
         return {"number": got.get("number"), "html_url": got.get("html_url")}
 
     def fetch(self) -> None:
@@ -6358,6 +6441,12 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
+    # A fix finding prompt rules kept failing to fix goes to code: its public
+    # issue is filed here, once; a builder's want, by bin/wants.
+    try:
+        route_findings(cfg, entries, findings, publisher)
+    except Exception as exc:  # noqa: BLE001 - the generation goes ahead; the next run files it
+        say(f"routing findings failed ({type(exc).__name__}: {str(exc)[:200]})")
     # Routing stops new picks only: a candidate that passed before its
     # learning was routed still ships.
     queue = waiting(entries, [*learnings, *routed, *findings])
@@ -6386,7 +6475,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         picks = [item.ref() for item in evolve_findings.mix(
             [item for item in open_learnings(entries, learnings, cooloff) if item.id not in waiting_for_box],
             [item for item in open_findings(entries, findings, cooloff) if item.id not in waiting_for_box],
-            n, cfg["EVOLVE_FINDING_SLOTS"])]
+            n, cfg["EVOLVE_FINDING_SLOTS"], cfg["EVOLVE_GROWTH_SLOTS"])]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer
@@ -6966,8 +7055,11 @@ def status() -> Json:
                       "wants": [{"id": item.id, "section": item.section, "text": item.text[:160]}
                                 for item in routed]},
         "findings": {"slots": cfg["EVOLVE_FINDING_SLOTS"] if cfg is not None else None,
-                     "current": [{**standing_brief(f, got), "kind": f.kind, "events": f.events, "days": f.days,
-                                  "check": evolve_outcomes.describe(f.check), "text": f.text[:300]}
+                     "growth_slots": cfg["EVOLVE_GROWTH_SLOTS"] if cfg is not None else None,
+                     "current": [{**standing_brief(f, got), "kind": f.kind, "lane": f.lane, "events": f.events,
+                                  "days": f.days, "check": evolve_outcomes.describe(f.check), "text": f.text[:300],
+                                  **({"routed": where[f.id]} if f.id in where and got.state == "routed" else {})}
+                                 for where in [route_status(entries, findings, cfg)]
                                  for f in findings for got in [standing(entries, f, cooloff)]]},
         "open_prs": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "pr_url": e.get("pr_url"),
                       "branch": e.get("branch"), "status": (e.get("status") or {}).get("state")}
