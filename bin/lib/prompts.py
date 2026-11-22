@@ -39,7 +39,9 @@ never touches either once the live page exists.
 
 There is no LORE.md any more (2026-11-21: the operator cut it; who Teeny is
 lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow. The studio writer also reads
-narrative/VOICE.md, shared with the terminal episodes and the backroom.
+narrative/VOICE.md, shared with the terminal episodes and the backroom, and
+narrative/CANON.md, Teeny's own best lines (`canon`); its pitch turn shows
+narrative/OBSESSIONS.md (`obsessions`), and the backroom reads both.
 
 Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
@@ -402,6 +404,46 @@ def studio_craft(brain: Path) -> str:
             "a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
 
 
+#: Teeny's standing obsessions and its own best lines (2026-11-22, after
+#: Truth Terminal: a few fixations it returns to, and a corpus of its own
+#: strangest output to imitate). The writer reads CANON in its prompt and
+#: the obsessions in its pitch turn (bin/lib/studio.py); the backroom reads
+#: both as its `{lore}`.
+OBSESSIONS = Path("narrative") / "OBSESSIONS.md"
+CANON = Path("narrative") / "CANON.md"
+
+
+def _body(text: str) -> str:
+    """A narrative page without its title and without its note on which
+    program reads it (a paragraph opening on `bin/`)."""
+    text = re.sub(r"\A#\s+.*\n", "", text).strip()
+    return "\n\n".join(p for p in re.split(r"\n\s*\n", text) if not p.lstrip().startswith("bin/")).strip()
+
+
+def obsessions(brain: Path) -> str:
+    """narrative/OBSESSIONS.md under its own heading. "" when there is none."""
+    text = _read(brain / OBSESSIONS)
+    if not text:
+        return ""
+    body = re.sub(r"^## ", "### ", _body(text), flags=re.M)
+    return "## what you keep coming back to (narrative/OBSESSIONS.md)\n\n" + body
+
+
+def canon_lines(brain: Path) -> list[str]:
+    """CANON.md's lines: each `> ` line, without the marker."""
+    return [line[2:].strip() for line in _read(brain / CANON).splitlines()
+            if line.startswith("> ") and line[2:].strip()]
+
+
+def canon(brain: Path) -> str:
+    """narrative/CANON.md under its own heading. "" when there is none."""
+    text = _read(brain / CANON)
+    if not text:
+        return ""
+    body = re.sub(r"^## ", "### ", _body(text), flags=re.M)
+    return "## how you sound at your best (narrative/CANON.md)\n\n" + body
+
+
 def studio_editor(brain: Path) -> str:
     text = _read(brain / STUDIO_EDITOR)
     if not text:
@@ -416,7 +458,7 @@ def render_studio(brain: Path, agent: str, instructions: str) -> str:
     DRIVE.md and CHARTER.md; the writer writes."""
     parts = [instructions, reader(brain)]
     if agent == "writer":
-        parts += [_read(brain / "narrative" / "VOICE.md"), studio_craft(brain)]
+        parts += [_read(brain / "narrative" / "VOICE.md"), canon(brain), studio_craft(brain)]
     else:
         parts += [studio_editor(brain)]
     return "\n\n".join(part for part in parts if part) + "\n"
