@@ -71,7 +71,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 MIN_GAP_MINUTES = 5
 MAX_JOBS = 60
 MAX_ACT_RUNS_PER_DAY = 400
-BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio")
+BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio", "bin/box")
+#: bin/box runs one of Teeny's own tools (home/tools/<name>/) in a jail, so a
+#: brain job may name any of them: the name and a few plain words, the same
+#: shapes bin/lib/box.py takes.
+BOX_TOOL = re.compile(r"[a-z][a-z0-9-]{0,30}")
+BOX_ARG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._=:,@-]{0,63}")
+BOX_MAX_ARGS = 8
+BOX_ENTRIES = ("run", "run.py", "run.sh")
 #: The operator scripts a brain job may also run, each with exactly one of
 #: these argument lists: the pipelines that are Teeny's to schedule since
 #: 2026-11-22 (docs/mind.md). Exact, because a cron shell job runs outside
@@ -198,6 +205,15 @@ def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
                 raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
             if not (path.parent / "playbooks" / f"{argv[1]}.md").is_file():
                 raise PolicyError(f"{where}: no playbook {argv[1]!r} in {path.parent / 'playbooks'}")
+        if argv[0] == "bin/box":
+            if len(argv) < 2 or not BOX_TOOL.fullmatch(argv[1]) or argv[1] in ("list", "check"):
+                raise PolicyError(f"{where}: bin/box takes a tool's name, got {command!r}")
+            if len(argv) - 2 > BOX_MAX_ARGS or not all(BOX_ARG.fullmatch(a) for a in argv[2:]):
+                raise PolicyError(f"{where}: a tool takes at most {BOX_MAX_ARGS} plain words, got {command!r}")
+            tool = path.parent.parent / "home" / "tools" / argv[1]
+            if tool.is_symlink() or not any((tool / e).is_file() and not (tool / e).is_symlink()
+                                            for e in BOX_ENTRIES):
+                raise PolicyError(f"{where}: no tool {argv[1]!r} with a run file in {tool.parent}")
         if argv[0] == "bin/studio":
             legacy = _studio_legacy(argv, command, where)
             if legacy and not (path.parent / "playbooks" / f"{legacy}.md").is_file():
