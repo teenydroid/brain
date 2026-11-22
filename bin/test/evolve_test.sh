@@ -177,7 +177,7 @@ cp -r "$root/hands" "$proof/hands"
 root="$proof"
 export TEENY_ROOT="$root" TEENY_HANDS="$root/hands"
 rule_env() { # ROUNDS
-  printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\nEVOLVE_REVISE_ROUNDS=%s\n' "$1" >"$root/secrets/evolve.env"
+  printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\nEVOLVE_FINDING_SLOTS=0\nEVOLVE_REVISE_ROUNDS=%s\n' "$1" >"$root/secrets/evolve.env"
 }
 learning() { # ID: a page with that one learning
   printf '# MEMORY.md\n\n## what i have decided\n\n- [%s] before retrying anything, check whether it already went through (%s).\n' "$1" "$1" >"$root/brain/MEMORY.md"

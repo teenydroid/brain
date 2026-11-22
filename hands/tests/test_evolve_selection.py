@@ -110,7 +110,7 @@ class Better:
 class SelectionCase(EvolveCase):
     def setUp(self):
         super().setUp()
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_FINDING_SLOTS=0)
         self.live()
         self.ledger = Ledger(self.root / "state")
 
@@ -121,7 +121,7 @@ class SelectionCase(EvolveCase):
 
 class PublishRule(SelectionCase):
     def test_no_detectable_difference_without_a_live_check_is_unproven_and_not_published(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_REVISE_ROUNDS=1)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_FINDING_SLOTS=0, EVOLVE_REVISE_ROUNDS=1)
         self.propose(1, [self.playbook_edit("Check first.")])
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub, evaluator=Better())
@@ -165,7 +165,7 @@ class PublishRule(SelectionCase):
         self.assertEqual(self.entries()["g1c1"]["round"], 1)
 
     def test_a_check_history_says_will_be_no_data_is_refused_with_that_reason(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_REVISE_ROUNDS=1)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_FINDING_SLOTS=0, EVOLVE_REVISE_ROUNDS=1)
         self.failures("moltbook-follow", 2)
         self.failures("moltbook-follow", 9, since_days=6)  # outside the 2-day window: not counted
         self.propose(1, [self.playbook_edit("Check first.")])
@@ -189,7 +189,7 @@ class PublishRule(SelectionCase):
         self.assertIn("better than main", pub.prs[0]["body"])
 
     def test_unmeasurable_follows_the_same_rule(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_REVISE_ROUNDS=1)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_FINDING_SLOTS=0, EVOLVE_REVISE_ROUNDS=1)
         self.propose(1, [self.playbook_edit("Check first.")])
         pub = FakePublisher()
         self.run_gen(1, publisher=pub)  # EVOLVE_EVALUATOR=none: unmeasurable
@@ -197,7 +197,7 @@ class PublishRule(SelectionCase):
         self.assertIn("no eval task reaches this change", self.entries()["g1c1"]["reason"])
 
     def test_the_rule_is_the_operators_switch(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=0)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=0, EVOLVE_FINDING_SLOTS=0)
         self.propose(1, [self.playbook_edit("Check first.")])
         pub = FakePublisher()
         self.run_gen(1, publisher=pub, evaluator=Better())
@@ -215,7 +215,7 @@ class PublishRule(SelectionCase):
 
 class SilencedSource(SelectionCase):
     def test_a_falling_check_on_a_change_that_turns_its_job_off_is_not_powered(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_REVISE_ROUNDS=1)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PUBLISH_PROOF=1, EVOLVE_FINDING_SLOTS=0, EVOLVE_REVISE_ROUNDS=1)
         self.failures("moltbook-follow", 8)
         cron = self.base_text("brain/cron.toml")
         anchor = 'command = "bin/act moltbook-follow"'
