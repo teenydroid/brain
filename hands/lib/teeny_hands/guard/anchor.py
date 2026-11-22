@@ -36,8 +36,8 @@ supported by the facts the piece may draw on. A hard claim is money and the
 token (any amount, price, cost, payment, giveaway, wallet movement, $TINY or
 any token); real people, companies, products and accounts (what they did or
 said, a quote, who did what between them and Teeny, its followers); the news
-and the outside world said as fact (an event, a story's figures, how widely
-it is discussed); and anything said as a safety, legal, medical or security
+and the outside world said as fact (an event, a story's figures; until
+2026-11-22 how widely it is discussed too, below); and anything said as a safety, legal, medical or security
 fact. Everything else Teeny says about itself is a bit, and a bit is never a
 reason to fail: invention, exaggeration, impossible claims ("there were two
 of me last night"), boasts, bets, grudges, opinions, made-up scenes and
