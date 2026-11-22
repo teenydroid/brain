@@ -187,11 +187,14 @@ class FormatTest(unittest.TestCase):
         post = studio.draft_message(studio.Config(), {**PITCH, "format": "post"}, None, None, hook=HOOK)
         self.assertNotIn(studio.SKIT_RULES, post)
 
-    def test_the_brief_holds_the_carve_out_beside_the_two_rules_and_worked_examples(self):
+    def test_the_brief_holds_the_skit_line_beside_the_rules_and_worked_examples(self):
+        # 2026-11-22: a public figure in the news is a fair target in any
+        # format, so a skit is no longer the one carve-out; its line follows
+        # the rule on what the story says.
         brief = (REPO / "brain" / "agents" / "writer.md").read_text()
-        rules = brief.index("Joke about the situation, never at someone.")
-        self.assertLess(rules, brief.index("**The one carve-out is a skit.**"))
-        self.assertLess(brief.index("**The one carve-out is a skit.**"), brief.index("## before and after"))
+        rules = brief.index("**Say only what the story says.**")
+        self.assertLess(rules, brief.index("**Skits and remakes put them on screen.**"))
+        self.assertLess(brief.index("**Skits and remakes put them on screen.**"), brief.index("## before and after"))
         self.assertGreaterEqual(brief.count("Skit, joining the news."), 3)
         sys.path.insert(0, str(REPO / "hands" / "lib"))
         from teeny_hands.guard import skit as rules_
