@@ -59,7 +59,7 @@ elif method == "cron_add":
     json.dump(jobs + [job], open(os.environ["FAKE_JOBS"], "w"))
     print(json.dumps(job))
 elif method == "cron_remove":
-    json.dump([j for j in jobs if j["id"] != params["job_id"]], open(os.environ["FAKE_JOBS"], "w"))
+    json.dump([j for j in jobs if str(j["id"]) != str(params["job_id"])], open(os.environ["FAKE_JOBS"], "w"))
     print("{}")
 else:
     sys.exit(f"unexpected method {method}")
@@ -414,6 +414,93 @@ class RehearsalTest(BrokerCase):
         self.assertIs(self.ledger()[-1]["dry_run"], True)
 
 
+class RehearsalQueuesTest(BrokerCase):
+    """A rehearsal must not leave work in a queue a live worker empties."""
+
+    def test_a_rehearsed_browser_task_is_never_queued(self):
+        # hands/tasks has no dry run: a task it adds is pending, and the
+        # browser operator would do it for real at its next run.
+        self.start(MIND_DRY_RUN="1", MIND_TASKS_PER_DAY="3", MIND_SIGNUPS_PER_DAY="2", MIND_BUILDS_PER_DAY="1",
+                   SAFETY_JUDGE="0")
+        for intent in ({"do": "queue_task", "goal": "find the newest release",
+                        "start_url": "https://github.com/tinyhumansai/openhuman/releases", "done_when": "named"},
+                       {"do": "propose_change", "title": "say gm earlier", "why": "more people are awake",
+                        "what": "move the morning post"}):
+            code, out = self.post("/do", intent)
+            self.assertEqual((code, out["status"]), (200, "ok"), out)
+            self.assertIs(out["dry_run"], True)
+            self.assertIn("would", out)
+        self.assertEqual([c["hand"] for c in self.hand_calls() if c["hand"] in ("tasks", "build")], [])
+        self.assertEqual(self.caps(), {})  # nothing was sent, so nothing is spent
+
+    def test_a_rehearsed_post_still_reaches_its_hand_which_rehearses_it(self):
+        self.start(MIND_DRY_RUN="1")
+        code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        self.assertIs(out["result"]["dry_run"], True)
+
+    def test_a_rehearsal_drops_no_wake(self):
+        daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
+        self.set_jobs([TICK_JOB, _mind_job("morning", daily, 1)])
+        self.start(MIND_DRY_RUN="1")
+        code, out = self.post("/drop-wake", {"name": "morning"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertIs(out["dry_run"], True)
+        self.assertEqual(self.oh_calls("cron_remove"), [])
+        self.assertEqual(len(self.jobs()), 2)
+
+
+class SwitchTest(BrokerCase):
+    def test_enabled_follows_the_settings_parser_not_the_shape_of_the_line(self):
+        for text, code in (("MIND=1\n", 0), ("MIND = 1\n", 0), ("  MIND=1\n", 0), ('MIND="1"\n', 0),
+                           ("MIND=1\nMIND=0\n", 1), ("MIND=0\nMIND=1\n", 0), ("#MIND=1\n", 1), ("MIND=10\n", 1),
+                           ("", 1)):
+            (self.root / "secrets" / "teeny.env").write_text(text)
+            self.assertEqual(self.broker("enabled").returncode, code, repr(text))
+
+    def test_sweep_removes_every_wake_and_nothing_else(self):
+        daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
+        self.set_jobs([TICK_JOB, _mind_job("morning", daily, 1), _mind_job("evening", daily, 2),
+                       {**TICK_JOB, "id": "core-2", "name": "teeny.mind"}])
+        self.settings(MIND="0")
+        out = self.broker("sweep")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(sorted(j["name"] for j in self.jobs()), ["teeny.mind", "teeny.tick"])
+
+    def test_sweep_leaves_the_wakes_while_the_mind_is_on(self):
+        daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
+        self.set_jobs([TICK_JOB, _mind_job("morning", daily, 1)])
+        self.settings(MIND="1")
+        self.assertEqual(self.broker("sweep").returncode, 0)
+        self.assertEqual(len(self.jobs()), 2)
+
+
+class OperatorNoteTest(BrokerCase):
+    def note(self, ref, text):
+        return subprocess.run([str(REPO / "bin" / "broker"), "operator-note", ref], input=text, capture_output=True,
+                              text=True, env=self.env, timeout=60)
+
+    def test_the_operators_note_lands_in_the_inbox_under_its_ref(self):
+        self.settings()
+        out = self.note("host-1795360228-330177", "from: operator\n\ntry one claw idea\n")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        path = self.home / "notes" / "inbox" / "operator-host-1795360228-330177.md"
+        self.assertIn("try one claw idea", path.read_text())
+
+    def test_a_ref_that_is_not_a_host_ref_is_refused(self):
+        self.settings()
+        for ref in ("../../secrets/teeny", "host-1-zz", "tick-1", "", "host-1-ab/x"):
+            self.assertNotEqual(self.note(ref, "x").returncode, 0, ref)
+        self.assertFalse((self.home / "notes").exists() and any((self.home / "notes").rglob("*.md")))
+
+    def test_a_linked_inbox_is_not_written_through(self):
+        self.settings()
+        (self.home).mkdir(parents=True)
+        (self.home / "notes").symlink_to(self.root / "secrets")
+        self.assertEqual(self.note("host-1-ab", "hello").returncode, 0)
+        self.assertEqual(sorted(p.name for p in (self.root / "secrets").iterdir()), ["teeny.env"])
+
+
 class BodyTest(BrokerCase):
     def test_a_body_over_64_kib_is_refused_without_running_anything(self):
         self.start()
@@ -536,6 +623,18 @@ class WakeTest(BrokerCase):
         self.assertIn("MIND_WAKES_PER_DAY", out["reason"])
         self.assertEqual(len(self.oh_calls("cron_add")), 3)
 
+    def test_dropping_a_wake_does_not_give_its_runs_back_that_day(self):
+        # Drop and re-add at another hour would otherwise run more wakes in
+        # a day than MIND_WAKES_PER_DAY.
+        self.start(MIND_WAKES_PER_DAY="2")
+        for name, hour in (("a", 9), ("b", 10)):
+            code, out = self.post("/wake", {"name": name, "note": "n", "cron": f"0 {hour} * * *"})
+            self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(self.post("/drop-wake", {"name": "a"})[0], 200)
+        code, out = self.post("/wake", {"name": "c", "note": "n", "cron": "0 11 * * *"})
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("MIND_WAKES_PER_DAY", out["reason"])
+
     def test_under_dry_run_a_wake_creates_nothing(self):
         self.start(DRY_RUN="1")
         code, out = self.post("/wake", {"name": "soon", "note": "n", "cron": "0 9 * * *"})
@@ -571,6 +670,7 @@ class DropWakeTest(BrokerCase):
         code, out = self.post("/drop-wake", {"name": "morning"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
         self.assertEqual(self.oh_calls("cron_remove"), [{"method": "cron_remove", "params": {"job_id": "42"}}])
+        self.assertEqual(self.jobs(), [TICK_JOB])
 
     def test_drop_wake_never_reaches_a_job_not_the_minds(self):
         self.set_jobs([TICK_JOB, {**TICK_JOB, "id": "core-2", "name": "tick"}])

@@ -41,6 +41,16 @@ class AdminTest(unittest.TestCase):
             api = FakeApi({PROBE: GitHubError(f"GitHub answered {status}", status)})
             self.assertIs(admin.can_administer(api, "teenydroid/brain"), False, status)
 
+    def test_a_rate_limit_403_is_not_a_refusal(self):
+        # GitHub answers 403 for a spent rate limit too: that says nothing
+        # about what the token may do, so the check must not report ok.
+        for message in ("GitHub answered 403: API rate limit exceeded for user ID 1.",
+                        "GitHub answered 403: You have exceeded a secondary rate limit."):
+            api = FakeApi({PROBE: GitHubError(message, 403)})
+            self.assertIsNone(admin.can_administer(api, "teenydroid/brain"), message)
+        self.assertEqual(admin.check(FakeApi({PROBE: GitHubError("GitHub answered 429: rate limit", 429)}),
+                                     ["teenydroid/brain"])[0], "warn")
+
     def test_an_unreachable_github_is_not_an_answer(self):
         api = FakeApi({PROBE: GitHubError("could not reach GitHub (URLError)")})
         self.assertIsNone(admin.can_administer(api, "teenydroid/brain"))

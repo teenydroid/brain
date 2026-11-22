@@ -102,6 +102,7 @@ class MindCronTest(unittest.TestCase):
 
     def test_the_mind_may_run_from_cron(self):
         self.assertIn("mind", cron_policy.AGENT_JOB_AGENTS)
+        (self.tmp / "secrets" / "teeny.env").write_text("MIND=1\n")
         self.pinned.write_text('[jobs.mind]\nschedule = "*/30 * * * *"\nagent = "mind"\nprompt = "wake"\n')
         job = self._load()["teeny.mind"]
         self.assertEqual((job["kind"], job["agent"], job["enabled"]), ("agent", "mind", True))
@@ -137,7 +138,12 @@ class MindCronTest(unittest.TestCase):
     def test_the_brain_may_schedule_the_mind_itself(self):
         self.pinned.write_text("")
         self.cron.write_text('[jobs.research]\nschedule = "0 6 * * *"\nagent = "mind"\nprompt = "read the papers"\n')
-        self.assertEqual(self._load()["teeny.research"]["agent"], "mind")
+        job = self._load()["teeny.research"]
+        self.assertEqual(job["agent"], "mind")
+        # And every mind job follows the one switch, wherever it is written.
+        self.assertIs(job["enabled"], False)
+        (self.tmp / "secrets" / "teeny.env").write_text("MIND=1\n")
+        self.assertIs(self._load()["teeny.research"]["enabled"], True)
 
     def test_the_caps_leave_room_for_the_mind(self):
         # builder 12 a day, operator 72, the mind 48, and room for the jobs

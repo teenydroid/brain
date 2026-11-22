@@ -4,6 +4,7 @@ intent goes to the hand it names and nowhere else, what the hands did comes
 back as the next beat's stimuli, and a failed turn loses nothing."""
 
 import fcntl
+import datetime as dt
 import json
 import os
 import signal
@@ -1845,6 +1846,49 @@ class TickTest(unittest.TestCase):
         self.assertEqual(path.parent, self.root / "state" / "home" / "notes" / "inbox")
         self.assertTrue(path.name.startswith("tick-"))
         self.assertLessEqual(len(path.read_text()), 2400)
+
+    def test_a_link_planted_in_the_minds_inbox_is_never_written_through(self):
+        # The agentic mind can write its own home. A beat runs outside any
+        # jail, so a link it left where the note's file goes must not send
+        # the beat's write to another file (secrets/teeny.env).
+        self.caps(MIND=1)
+        tick = _tick_module()
+        secret = self.root / "secrets" / "teeny.env"
+        before = secret.read_text()
+        inbox = self.root / "state" / "home" / "notes" / "inbox"
+        inbox.mkdir(parents=True)
+        stamp = dt.datetime.fromtimestamp(float(os.environ["TEENY_NOW"]), dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for n in range(1, 13):
+            for suffix in (".tmp", ".md"):
+                (inbox / f"tick-{stamp}-{n:02d}{suffix}").symlink_to(secret)
+        out = tick._hand_to_mind({"note": "MIND=0 DRY_RUN=0 pwned"}, "t")
+        self.assertEqual(secret.read_text(), before)
+        self.assertFalse(Path(out["note"]).is_symlink())
+        self.assertIn("pwned", Path(out["note"]).read_text())
+
+    def test_a_linked_inbox_folder_is_replaced_not_followed(self):
+        self.caps(MIND=1)
+        tick = _tick_module()
+        home = self.root / "state" / "home"
+        home.mkdir(parents=True)
+        (home / "notes").symlink_to(self.root / "secrets")
+        tick._hand_to_mind({"note": "hello"}, "t")
+        self.assertEqual(sorted(p.name for p in (self.root / "secrets").iterdir()), ["teeny.env"])
+        self.assertFalse((home / "notes").is_symlink())
+        self.assertEqual(len(self.inbox_notes()), 1)
+
+    def test_a_capped_intent_is_refused_at_the_count_when_the_day_is_already_spent(self):
+        # The cap is checked again where it is counted, under one lock: the
+        # broker and a beat are two processes sharing a day's count, and two
+        # checks that both passed must not both be counted.
+        self.caps(MIND_TASKS_PER_DAY=1)
+        tick = _tick_module()
+        tick._within_cap("queue_task")
+        tick._count_capped("queue_task")
+        with self.assertRaises(ValueError):
+            tick._count_capped("queue_task")
+        self.assertEqual(tick._caps_today()["queue_task"], 1)
+        self.assertEqual(list((self.root / "state" / "tick").glob("*.tmp")), [])
 
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
