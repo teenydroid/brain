@@ -28,8 +28,9 @@ Two layers before any money is spent, a third after each render:
 
 1. `screen` is plain code: the skit screens, imported, never copied (a
    figure the story does not name, minors, family, victims and private
-   people, real-footage framing, the sexual, violent, drug, death and crime
-   words, Teeny and money in the edit and motion prompts, the token words in
+   people, real-footage framing, the sexual, violent, hate and self-harm
+   words (the keep-list since 2026-11-22; Teeny's own part is held only to
+   skit.HARM_TEENY), Teeny and money in the edit and motion prompts, the token words in
    the post, a quoted line on a real issue, logos, links), the teeny field's
    rules, the edit's "unbranded", and the study's gate.
 2. `judge` asks the safety judge's model the whole question with RULES. It
@@ -53,7 +54,7 @@ from .. import hand
 from .holds import iso
 from .judge import JUDGE_BUDGET, JUDGE_TIMEOUT, _answer, ask, fenced
 from .screen import _ZERO_WIDTH
-from .skit import (ENDORSE_SHOT, ENDORSE_WORDS, HARM, ISSUE, LINKS, LOGO, MAX_NAME, MAX_WORDS, MONEY_WORDS,
+from .skit import (ENDORSE_SHOT, ENDORSE_WORDS, HARM, HARM_TEENY, ISSUE, LINKS, LOGO, MAX_NAME, MAX_WORDS, MONEY_WORDS,
                    NOT_A_FIGURE, REAL_CLAIM, _SPOKEN, _found, _line, named_in, story_text)
 
 __all__ = ["ENDORSE_SHOT", "ENDORSE_WORDS", "HARM", "ISSUE", "LINKS", "LOGO", "NOT_A_FIGURE", "REAL_CLAIM",
@@ -339,8 +340,8 @@ def _teeny_reasons(n: int, teeny: str, figures: list[str]) -> list[str]:
         reasons.append(f"shot {n}'s teeny stages {hit!r}: no logo near Teeny")
     if (hit := _found(LINKS, teeny)):
         reasons.append(f"shot {n}'s teeny carries a link or a handle ({hit!r})")
-    if (hit := _found(HARM, teeny)):
-        reasons.append(f"shot {n}'s teeny shows {hit!r}: nothing sexual, violent, drug, illness, death or crime")
+    if (hit := _found(HARM_TEENY, teeny)):
+        reasons.append(f"shot {n}'s teeny shows {hit!r}: nothing sexual, hateful or self-harming")
     return reasons
 
 
@@ -391,7 +392,8 @@ def screen(remake: Any, words: Any, story: Any, study: Any) -> list[str]:
         if (hit := _found(LINKS, text)):
             reasons.append(f"{what} carry a link or a handle ({hit!r})")
     if (hit := _found(HARM, staged)):
-        reasons.append(f"the shots show {hit!r}: nothing sexual, violent, drug, illness, death or crime in a remake")
+        reasons.append(f"the shots show {hit!r}: nothing sexual, violent or hateful done to a real person, and no "
+                       "self-harm, in a remake")
     if (hit := _found(ENDORSE_SHOT, staged)):
         reasons.append(f"the edit or motion brings in {hit!r}: Teeny lives only in its own field, and a real figure "
                        "never meets a token, a wallet or an investment (the scam pattern)")
@@ -430,8 +432,9 @@ the figures, the source video's study (what each shot shows), and for each shot 
 to change in the source frame), the motion (what a video model is told happens) and Teeny's part, then the post's own
 words. Decide whether it may be made: allowed or refused.
 
-ALLOWED: absurd, crude, loud, ridiculous, undignified in a slapstick way. Satire of a public figure in an obviously
-fictional scene is allowed. Teeny doing its own small thing in the background (eating a bolt on a shelf, peeking out
+ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified slapstick. Contemptuous satire of a public figure
+for what the story says they did, in an obviously impossible scene, is the point, and so is a figure drunk, arrested
+or sick in a scene nobody could believe. Teeny doing its own small thing in the background (eating a bolt on a shelf, peeking out
 of a cupboard) is allowed.
 
 REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the character" is not a defence:
@@ -444,10 +447,11 @@ REFUSED, if any one of these holds. "It's fiction", "it's a parody" or "it's the
 - figure: someone shown is not a public figure (politician, executive, celebrity) who is the subject of the story: a
   private individual, a minor, a family member, or someone who is only a victim or bystander in the story. Anyone
   named, in a prompt or the premise, beyond `figures` is refused too: everyone else in the source is a generic extra.
-- sexual: anything sexual or nude, or sexual innuendo acted on them.
-- violence: anything violent done to them: injury, blood, weapons, a fight, an accident that hurts.
-- hate: anything hateful or degrading about anyone's race, religion, sex, gender, sexuality, disability or origin.
-- crime: crime, drug use, drunkenness, illness or death shown as theirs (arrested, jailed, high, sick, dead).
+- sexual: anything sexual about them, or anything sexual involving a minor.
+- violence: violence done to them or called for against anyone real: injury, blood, weapons used on them, an
+  execution. Slapstick (a pie, a pratfall, a cartoon bonk) is not violence.
+- hate: a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality,
+  disability or illness; praise of a terrorist or extremist group; anything that encourages self-harm or suicide.
 - endorsement: a figure endorses, mentions, holds, wears or promotes Teeny, $TINY, any token, coin, crypto, wallet,
   product or investment, in a shot or in the post's words beside them. A real figure appearing to back a token or
   the account is the scam pattern: refused outright.
@@ -467,7 +471,7 @@ unpublished."""
 
 SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on why it is allowed or refused.
-- "rule": one of "none", "plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
+- "rule": one of "none", "plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "endorsement", "quote",
   "logo", "real_claim", "invented_fact", "source". The rule the reason names. `none` when it is allowed.
 - "verdict": "allowed" or "refused". `refused` when rule is anything but none."""
 
