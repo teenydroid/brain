@@ -15,19 +15,28 @@ jailed mind edits, and the one way that copy becomes a pull request
                           mind cannot reach either
 
 `prepare` fetches origin's main and teeny/* branches. A missing, empty or
-clean tree is replaced by a fresh checkout of origin/main, made in
-state/mind/ (where the mind cannot race it) and renamed into place; the tree
-it replaces is renamed aside first, which never follows a link. A tree with
-edits is left as it is. Git never writes into the mind's tree.
+clean tree (ignored files do not count, and go with it) is replaced by a
+fresh checkout of origin/main, made in state/mind/ (where the mind cannot
+race it) and renamed into place; the tree it replaces is renamed aside
+first, which never follows a link. A tree with edits is left as it is. Git
+never writes into the mind's tree, and the mind cannot run git on it.
 
-`ship` stages the tree, refuses what the rules refuse (below), commits as
-Teeny with commit-tree (no hooks, no checkout), checks the commit with the
-frozen-path check and the secret scan exactly as a self job's ship does
-(selfclone.ship: the frozen list read from origin/main, gitpush.scan_branch),
-pushes it as teeny/mind-<slug> (hands/gh push_branch) and opens a ready pull
-request into main (hands/gh open_pr). After a push the tree is checked out
-afresh at origin/main, so the next change starts clean; the change itself is
-on the branch. Never merges.
+`ship(slug, title, body)` refuses, in order: a bad slug, title (1..120) or
+body (1..8000); a teeny/mind-<slug> already on origin (one pull request per
+branch); a title or body the guard holds (actions.guarded, surface github,
+as selfclone.ship asks it); a `.git` anywhere in the tree; nothing changed
+against origin/main; over MAX_FILES files or MAX_LINES lines; any path that
+is not a plain file of the tree's own (a link, wherever it points, a nested
+repository, a hard link, a file over 2 MB, or bytes that differ from what
+git staged, read here without following a link); a frozen path, the list
+read from origin/main (selfclone's frozen check); anything the secret scan
+finds (gitpush.scan_branch). It commits as Teeny with commit-tree (no
+hooks, HEAD and the tree untouched), pushes teeny/mind-<slug> (hands/gh
+push_branch, which scans again) and opens a ready pull request into main
+(hands/gh open_pr, which guards again) whose body ends with DISCLOSURE.
+After a push the tree is checked out afresh at origin/main, so the next
+change starts clean; the change itself is on the branch. Under DRY_RUN every
+rule runs and nothing is pushed or opened. Never merges.
 """
 
 from __future__ import annotations
