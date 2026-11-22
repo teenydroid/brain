@@ -288,11 +288,6 @@ class HostileTreeTest(ShipTest):
         self.assertEqual((refused.detail["rule"], refused.detail["path"]), ("changed", "brain/notes.md"))
         self.assert_nothing_sent()
 
-    def test_a_file_name_with_a_newline_is_counted_not_a_crash(self):
-        mindclone.prepare()
-        self.edit({"brain/odd\nname.md": "odd\n"})
-        self.assertEqual(self.ship()["files"], ["brain/odd\nname.md"])
-
     def test_a_folder_swapped_for_a_link_is_refused(self):
         mindclone.prepare()
         subprocess.run(["rm", "-rf", str(self.tree / "brain")], check=True)

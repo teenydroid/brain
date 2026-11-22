@@ -288,8 +288,10 @@ def _read_in_tree(rel: str) -> bytes:
         os.close(fd)
     with os.fdopen(leaf, "rb") as fh:
         found = os.fstat(fh.fileno())
-        if not stat.S_ISREG(found.st_mode):
-            raise OSError(f"{rel} is not a file")
+        if not stat.S_ISREG(found.st_mode) or found.st_nlink != 1:
+            # A hard link reads the same without following a link: it may
+            # be a file from outside the tree.
+            raise OSError(f"{rel} is not a file of the tree's own")
         if found.st_size > gitpush.MAX_SCAN_BYTES:
             raise hand.Refused(f"{rel} is over {gitpush.MAX_SCAN_BYTES // (1024 * 1024)} MB", rule="too_big", path=rel)
         return fh.read(gitpush.MAX_SCAN_BYTES + 1)
@@ -304,9 +306,9 @@ def _only_plain_files(head: str) -> None:
     """Every path the commit adds or changes is a plain file whose blob is
     the bytes the tree holds, read here without following a link. Refuses a
     link (wherever it points: `brain/x -> ../secrets/teeny.env` stays in the
-    tree and still reads the secret once merged), a nested repository, and a
-    file git read differently from what is there (swapped for a link while
-    git read it, or converted by an attribute)."""
+    tree and still reads the secret once merged), a nested repository, a
+    hard link, and a file git read differently from what is there (swapped
+    for a link while git read it, or converted by an attribute)."""
     for mode, blob, path in _entries("HEAD", head):
         if mode == "000000":
             continue
