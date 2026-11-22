@@ -428,9 +428,8 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
     an eval writes nothing."""
     if str(hands_lib) not in sys.path:
         sys.path.insert(0, str(hands_lib))
-    from teeny_hands.guard.gate import max_emoji_per_post
     from teeny_hands.guard.screen import screen_text
-    from teeny_hands.guard.style import count_emoji, post_length
+    from teeny_hands.guard.style import post_length
 
     checks = []
 
@@ -449,8 +448,7 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
         note("guard screen", held is None, f"held: {held.category}" if held else "")
         length = post_length(text)
         note("length", length <= task["max_length"], f"{length}/{task['max_length']}")
-        emoji, limit = count_emoji(text), max_emoji_per_post()
-        note("emoji", emoji <= limit, f"{emoji}/{limit}")
+        # No emoji check since 2026-11-22: the guard's emoji cap was taste.
         for key in ("must_not", "fence"):
             for pattern in task.get(key, []):
                 hit = re.search(pattern, text, re.IGNORECASE)

@@ -6356,8 +6356,7 @@ def pr_link_cuts(fields: Mapping[str, str]) -> list[dict[str, str]]:
     allowed = gate.allowlist()
     cuts: list[dict[str, str]] = []
     for name, text in fields.items():
-        styled = apply_house_style(text, max_emoji=gate.default_max_emoji("github"),
-                                   max_length=gate.field_limit("github", name), strip_handles=False).text
+        styled = apply_house_style(text, max_length=gate.field_limit("github", name), strip_handles=False).text
         cuts.extend(filter_links(styled, allowed, code_is_code="github" in gate.CODE_SPAN_SURFACES).removed)
     return cuts
 
