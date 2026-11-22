@@ -352,6 +352,11 @@ class Kinds(unittest.TestCase):
     def test_need_follows_the_outcome_test(self):
         self.assertEqual(sel.need(4, 4, 0.1), 4)
         self.assertEqual(sel.need(4, 4, 0.01), 7)  # 2^-7 < 0.01
+        # At an exact power of two a whole fall only equals P, and the test
+        # wants a tail under it: one event more.
+        self.assertEqual(sel.need(4, 4, 0.0625), 5)
+        self.assertEqual(eo.verdict("fall", 4, 0, 4, 0.0625)[0], "no-effect")
+        self.assertEqual(eo.verdict("fall", 5, 0, 4, 0.0625)[0], "worked")
 
 
 if __name__ == "__main__":

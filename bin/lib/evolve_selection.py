@@ -29,7 +29,6 @@ Frozen with bin/: a candidate cannot change how it is selected.
 
 from __future__ import annotations
 
-import math
 from typing import Any, Iterable, Mapping
 
 import evolve_outcomes as eo
@@ -208,8 +207,12 @@ def lessons_text(lessons_: Iterable[Mapping[str, Any]] | None) -> str | None:
 def need(floor: int, min_events: int, p: float) -> int:
     """The fewest events in the window before a check's verdict can come out
     anything but no-data, and a whole move of them pass the test at P: a
-    fall to nothing of N events has a tail of 2^-N."""
-    return max(int(floor), int(min_events), math.ceil(math.log2(1 / p)) if 0 < p < 1 else 1)
+    fall to nothing of N events has a tail of 2^-N, and the test wants it
+    strictly under P (evolve_outcomes.verdict)."""
+    whole = 1
+    while 0 < p < 1 and 2.0 ** -whole >= p:
+        whole += 1
+    return max(int(floor), int(min_events), whole)
 
 
 def power(check: Any, before: int | None, days: int, needed: int, cuts: Iterable[str] = ()) -> Json:

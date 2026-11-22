@@ -1998,8 +1998,8 @@ So a candidate is published only when one of these holds
    counted on the box's own ledgers by `evolve_outcomes.count`, exactly as
    the outcome will be. `need` is the largest of `EVOLVE_POWER_MIN_EVENTS`
    (4), `EVOLVE_OUTCOME_MIN_EVENTS` (4) and the fewest events whose whole
-   fall passes the outcome test at `EVOLVE_OUTCOME_P` (`ceil(log2(1/p))`, 4
-   at 0.1). Fewer and history says the verdict would be `no-data`, and the
+   fall passes the outcome test at `EVOLVE_OUTCOME_P` (the least n with
+   2^-n < p: 4 at 0.1, 5 at 0.0625). Fewer and history says the verdict would be `no-data`, and the
    reason says so: "act_failed: failed bin/act self-improve runs, should
    fall counted 3 event(s) in the last 2 day(s); its 2-day verdict needs at
    least 4, so history says it would come out no-data".
@@ -2259,7 +2259,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
 | `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
 | `EVOLVE_PUBLISH_PROOF` | `1` | the publish rule (section 6): a candidate opens only when the eval finds it better or its check is powered; `0` switches it off |
-| `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than `ceil(log2(1/EVOLVE_OUTCOME_P))` |
+| `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than the least n with 2^-n under `EVOLVE_OUTCOME_P` |
 | `EVOLVE_LESSON_MIN_JUDGED` | `3` | judged outcomes with none worked that make a kind of change exhausted, 0 to 50; `0` shows the lessons and enforces none |
 
 Three more halts don't latch and open one issue a day: a doctor report
