@@ -826,9 +826,9 @@ def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_out
     A pitch that is pure invention (`invented`, no hook and no item:
     `validate_pitches` keeps at most PURE_INVENTED) is always drafted, in the
     first of the INVENTED places (it is the most invention-led pitch there
-    is), or beside them when INVENTED is 0, and a video slot never gives its
-    place to a video while another can go. What was chosen and any
-    shortfall, for the record."""
+    is), or beside them when INVENTED is 0; a video slot gives its place to a
+    video or to the words to fall back on only when no other place is left.
+    What was chosen and any shortfall, for the record."""
     invented = min(invented, top)
     want = hooks_wanted(top) if have_outside else 0
     pure = [p for p in ranked if by_id[p].get("invented")][:top]
@@ -1254,11 +1254,27 @@ def reach_line(measure: Json, topic: str | None) -> str:
             "talking about it.")
 
 
-def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -> list[Json]:
+#: Who Teeny is, as a fact the truth judge can read: the first of a pure
+#: invention's facts (`facts_for`). Only what writer.md says of it as fact.
+SELF_FACT = {"id": "teeny", "what": ("Teeny is a small AI robot that runs on its own, with a wallet of its own, a "
+                                     "monthly bill for a server of its own that the wallet is meant to cover, and a "
+                                     "human who keeps its code. What it has really done, been paid or been billed "
+                                     "is in the facts after this one, and nowhere else.")}
+
+
+def facts_for(item: Json | None, story: Json | None, hook: Json | None = None,
+              happened: list[Json] | None = None) -> list[Json]:
     """What one draft may draw on, as `hands/guard truth` takes `facts`: the
     outside story it joins (its headline, what it says, the posts quoted),
     how widely it is discussed (`reach_line`), Teeny's own item, the
-    storyline."""
+    storyline. A pure invention (no item and no hook) has none of those, and
+    the guard refuses an empty list, so it is given what Teeny really has
+    (`happened`: SELF_FACT, then the desk's items as the pitch turn saw them,
+    then its storyline): a draft that names the real bill is checked against
+    the real bill, and one with an amount, a real person or the news that
+    none of them holds fails, as any other draft's would."""
+    if happened is not None and not item and not hook:
+        return [SELF_FACT, *[i for i in happened if isinstance(i, dict)], *([story] if story else [])]
     reach: Json | None = None
     if hook:
         line = reach_line(hook.get("trend") or {}, _str(hook.get("topic")) or None)
