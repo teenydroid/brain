@@ -100,6 +100,43 @@ The mind can also schedule itself in the repository: a job in
 `brain/cron.toml` with `agent = "mind"` and a `prompt` is a wake that
 survives a redeploy and that everyone can read.
 
+## How it changes itself
+
+`state/home/repo/` is a working copy of Teeny's own repository
+(`hands/lib/teeny_hands/build/mindclone.py`). The mind edits files there and
+asks the broker for a pull request:
+
+```
+bin/teeny repo                 a fresh checkout of main (left alone while it holds edits)
+bin/teeny pr '{"branch": "calmer-mornings", "title": "...", "body": "..."}'
+```
+
+The working copy is hostile input, so the broker treats it as one:
+
+- Its git directory is `state/mind/repo.git`, outside the jail. The mind
+  cannot run git there, plant a hook or edit git's config, and a `.git`
+  anywhere in the tree is refused.
+- Only plain files are carried. A link, a hard link, a nested repository or
+  a file that differs from what git staged is refused.
+- The title and body pass the guard. The diff is checked against
+  `evals/frozen.txt` as it is on `main`, so a change cannot unfreeze what it
+  touches, then against the secret scan and the size limits (100 files,
+  3,000 lines).
+- The branch is `teeny/mind-<name>`, pushed and opened through `hands/gh`,
+  and the body ends by saying an autonomous AI agent wrote it.
+- `MIND_PRS_PER_DAY` caps it; `0`, the default, keeps it off.
+
+What happens next is the babysitter's (`docs/hands.md`, "babysit"). With
+`BABYSIT_SELF_MERGE_ALL=1`, a pull request of Teeny's own from any `teeny/`
+branch merges with no person's approval once every job of the check
+workflow is on its head and green, as long as the audit finds nothing else
+and the change stays inside `brain/`, `docs/` and `home/`. Anything outside
+those (a hand, the site) can run outside the mind's jail, so it is opened
+and waits for a person. After a merge the babysitter deploys it; if the
+doctor is red afterwards, or the spine fell back to its last good checkout,
+it records the deploy as bad, opens a "revert #N" issue and holds self-merge
+on the paths that change touched for a day.
+
 ## Who talks to it
 
 - **The operator**: `deploy/tell.sh --mind "..."` leaves
@@ -168,25 +205,25 @@ Limits to know about:
 
 ## Turning it on
 
-1. Set `MIND=1` in `secrets/teeny.env` on the box. The reaches it should
-   have are the tick's caps in the same file (`MIND_TASKS_PER_DAY`,
-   `MIND_SEARCHES_PER_DAY`, `MIND_BUILDS_PER_DAY` and so on).
-2. Check that no evolve generation is running, then recreate the spine.
-   The boot log says `broker: started for the agentic mind`.
-3. `deploy/tell.sh --mind "..."` to give it a first direction, or leave it
-   to pick its own.
-4. Read a day or two of `state/broker/ledger.jsonl`. When what it asks for
-   is what you want sent, set `MIND_DRY_RUN=0` and recreate the spine.
+Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
+
+1. `MIND=1`: the mind wakes and rehearses. Check that no evolve generation
+   is running, then recreate the spine; the boot log says
+   `broker: started for the agentic mind`. Give it a first direction with
+   `deploy/tell.sh --mind "..."`, or leave it to pick its own.
+2. `MIND_DRY_RUN=0`: what it asks for is sent. Read a day or two of
+   `state/broker/ledger.jsonl` first. What it may reach is the tick's caps
+   in the same file (`MIND_TASKS_PER_DAY`, `MIND_SEARCHES_PER_DAY`, ...).
+3. `MIND_PRS_PER_DAY=3` (say): it may open pull requests from its clone.
+   They wait for a person until the next step.
+4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`): its pull
+   requests, the builder's and evolve's merge on green checks and deploy.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
 
 ## Not built yet
 
-- **Changing itself directly.** The mind can file a change through
-  `do propose_change`, which goes to the builder and opens a pull request a
-  person merges. Pushing a branch from its own clone and having it merge on
-  green CI is the next step.
 - **Owning every pipeline.** The two dreams, the builder, the lore episode
   and the Moltbook prune are in `brain/cron.toml` now, Teeny's to
   reschedule, pause or drop. Evolve, the wants feed and the desks stay
