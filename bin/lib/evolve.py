@@ -4656,9 +4656,10 @@ class Problem:
     judge: bool = False
 
 
-#: The label a problem issue gets, so contributors can find it. A label the
-#: repository lacks is left off; the issue opens either way.
-PROBLEM_LABELS = ("help wanted",)
+#: The labels a problem issue asks for, so contributors can find it: the
+#: routed findings' own (evolve_route), one convention. hands/gh adds them
+#: after the issue opens; one the repository refuses leaves it unlabelled.
+PROBLEM_LABELS = evolve_route.CONTRIBUTOR_LABELS
 #: A doctor red at every run for this long is a problem, not a moment.
 DOCTOR_RED_HOURS = 24
 
@@ -4916,15 +4917,12 @@ def raise_problem(cfg: Config, problem: Problem, publisher: "Publisher | None") 
                                             judge=problem.judge)
                     entry["update"] = "commented"
             else:
-                opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge)
+                try:
+                    opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge,
+                                                  labels=list(PROBLEM_LABELS))
+                except TypeError:  # a publisher that takes no labels (as evolve_route.file_issue)
+                    opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge)
                 entry.update(filed=True, issue=opened.get("number"), url=opened.get("html_url"))
-                label = getattr(publisher, "label_issue", None)
-                if label is not None and isinstance(entry["issue"], int):
-                    try:
-                        label(repo, entry["issue"], list(PROBLEM_LABELS))
-                        entry["labelled"] = True
-                    except Exception:  # noqa: BLE001 - the issue is open either way; its title says what it is
-                        entry["labelled"] = False
         except Exception as exc:  # noqa: BLE001 - the problem is told whether or not GitHub answers
             entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
     if entry.get("update") != "already told today":
@@ -5011,11 +5009,6 @@ class HandsPublisher:
         from teeny_hands.gh import client
 
         return client, client.GitHubApi.from_settings()
-
-    def label_issue(self, repo: str, number: int, labels: list[str]) -> None:
-        client, api = self._api()
-        owner, name = client.split_repo(repo)
-        api.call("POST", f"/repos/{owner}/{name}/issues/{int(number)}/labels", body={"labels": list(labels)})
 
     def issue_state(self, repo: str, number: int) -> str | None:
         client, api = self._api()

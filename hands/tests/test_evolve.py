@@ -55,18 +55,17 @@ class FakePublisher:
         self.statuses.append({"sha": sha, "state": state, "description": description})
         return {"id": len(self.statuses)}
 
-    def open_issue(self, repo, title, body, judge=False):
+    def open_issue(self, repo, title, body, judge=False, labels=None):
         self.issues.append({"repo": repo, "title": title, "body": body, "judge": judge})
+        if labels:
+            self.labels.append({"repo": repo, "number": 100 + len(self.issues), "labels": list(labels)})
         return {"number": 100 + len(self.issues), "html_url": "https://github.com/teenydroid/brain/issues/1"}
 
-    # The problem issues' updates: a comment on the open one, its labels,
-    # and whether a person closed it (`closed`, the numbers closed).
+    # The problem issues' updates: a comment on the open one, and whether a
+    # person closed it (`closed`, the numbers closed). `labels`: those asked for.
     def comment_issue(self, repo, number, body, judge=False):
         self.comments.append({"repo": repo, "number": number, "body": body, "judge": judge})
         return {"html_url": f"https://github.com/{repo}/issues/{number}#comment"}
-
-    def label_issue(self, repo, number, labels):
-        self.labels.append({"repo": repo, "number": number, "labels": list(labels)})
 
     def issue_state(self, repo, number):
         return "closed" if number in self.closed else "open"
