@@ -6885,7 +6885,7 @@ def watch_problem(cfg: Config, cand: Mapping[str, Any], label: str, reasons: lis
     error classes, what was left out and why) and what help is wanted.
     Never a run's output, a hold's text, a probe's answers or anything from
     secrets/: counts, job names and classes only."""
-    lines = [f"evolve-watch reverted gen-{label}, merged {cand.get('merged_at') or '?'}: "
+    lines = [f"evolve-watch reverted gen-{label} (candidate {cand['id']}), merged {cand.get('merged_at') or '?'}: "
              f"{str(cand.get('title') or 'untitled')[:160]} ({_merged_pr(cfg, cand)}).", "", "## Why", ""]
     lines += [f"- {r}" for r in reasons]
     lines += ["", "## The numbers", "", f"Checked {checks.get('hours')} h after the merge."]
