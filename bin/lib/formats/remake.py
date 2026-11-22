@@ -83,7 +83,7 @@ def _remake_rules():
 
 
 def chart_items(got: Any) -> list[Json]:
-    """hands/remake charts' candidates as items a remake pitch may name:
+    """hands/remake charts' candidates as items a remake may re-create:
     `chart:<provider>:<video id>`, its title, who made it, how long, how
     popular, how old. All of it strangers' words."""
     out: list[Json] = []
