@@ -132,9 +132,68 @@ class ColdReaderTest(support.WithCore):
         # no comparison is asked for a post the reader could not read
         self.assertEqual(len(core.calls), 1)
 
-    def test_a_listed_word_fails_it_even_when_the_reader_says_it_followed(self):
-        self.core(read("Amazon made a trap.", ["held writes"], True))
-        self.assertFalse(clarity.judge(BLANK)["clear"])
+    def test_a_word_listed_by_a_reader_who_said_the_post_back_is_advice_not_a_no(self):
+        # 2026-11-22: 13 of 18 first reads failed in clarity_checks (19-22
+        # Nov), nearly all for one listed word while the reader's own
+        # say-back was right. The words are still asked for, returned and
+        # kept; only a reader who could not say it back, or got it wrong,
+        # fails a draft.
+        for text, listed, says, meaning in SAID_BACK:
+            core = self.core(read(says, listed, True), matched(True, "same point"))
+            out = clarity.judge(text, meaning)
+            self.assertTrue(out["clear"], (listed, out))
+            self.assertEqual((out["says"], out["unknown"], out["vague"]), (says, listed, []))
+            self.assertEqual(out["reason"], "a stranger said back what was meant; would still ask about: "
+                                            + ", ".join(f'"{w}"' for w in listed))
+            # the comparison is still asked
+            self.assertEqual(len(core.calls), 2)
+
+    def test_a_word_listed_by_a_reader_who_said_it_back_passes_without_a_meaning(self):
+        self.core(read("Amazon made a trap for AI bots.", ["honeypot"], True))
+        out = clarity.judge(BLANK)
+        self.assertTrue(out["clear"], out)
+        self.assertEqual(out["unknown"], ["honeypot"])
+        self.assertEqual(out["reason"], 'a stranger could say it back; would still ask about: "honeypot"')
+
+    def test_a_stand_in_listed_by_a_reader_who_said_it_back_is_advice_too(self):
+        self.core(read("An AI's nightly self-rewrite kept crashing until its human fixed it.", [], True,
+                       vague=["something i run"]), matched(True))
+        out = clarity.judge(STAND_IN, MEANING)
+        self.assertTrue(out["clear"], out)
+        self.assertEqual((out["unknown"], out["vague"]), (["something i run"], ["something i run"]))
+        self.assertEqual(out["reason"], 'a stranger said back what was meant; would still not know what these '
+                                        'stand for: "something i run"')
+
+    def test_the_lures_post_it_was_built_for_still_fails(self):
+        # A reader cannot say it back: it does not know what was counted, or
+        # who was lured into what.
+        core = self.core(read("", ["33 held writes", "0 let through", "lures"], False))
+        out = clarity.judge(LURES, "Strangers tried to trick me 33 times this week and none got through.")
+        self.assertFalse(out["clear"])
+        self.assertTrue(out["reason"].startswith("a stranger"), out["reason"])
+        self.assertEqual(out["unknown"], ["33 held writes", "0 let through", "lures"])
+        self.assertEqual(len(core.calls), 1)
+
+    def test_a_word_listed_with_a_say_back_that_misses_the_point_still_fails(self):
+        self.core(read("Tesla released a new car.", ["FSD v15"], True), matched(False, "the claim is the point"))
+        text, _, _, meaning = SAID_BACK[0]
+        out = clarity.judge(text, meaning)
+        self.assertFalse(out["clear"])
+        self.assertTrue(out["reason"].startswith('a stranger took it to mean "Tesla released a new car."'),
+                        out["reason"])
+
+    def test_the_reader_is_told_followed_means_it_could_say_the_post_back(self):
+        core = self.core(read("x", [], True))
+        clarity.judge(PLAIN)
+        message = " ".join(core.messages()[0].split())
+        self.assertNotIn("Do not be generous", message)
+        self.assertNotIn("both lists are empty", message)
+        self.assertIn('"followed": true or false. True when you could say back what the post says, even if you '
+                      "listed things", message)
+        # the say-back is still held honest
+        self.assertIn("A sentence that repeats the post's words without naming what concretely happened is not a "
+                      "say-back", message)
+        self.assertIn("If you had to guess what the post is about, leave the say-back empty", message)
 
     def test_a_reader_who_cannot_say_it_back_fails_it(self):
         for reply in (read("", [], True), read("Something about agents.", [], False)):
