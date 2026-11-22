@@ -675,15 +675,11 @@ def final_gate(room: Room, label: str, post: Json, attempt: Json) -> list[str] |
 
 
 def try_post(room: Room, label: str, post: Json, attempt: Json) -> str:
-    """One post through the guard (`final_gate`), its producer and hands/x.
-    What came of it: "posted", "would_post", "next" (try the next post) or
-    "stop" (the slot is shut, the time ran out, or hands/x may have posted:
-    nothing else either)."""
+    """One post, its words already past `final_gate`, through its producer
+    and hands/x. What came of it: "posted", "would_post", "next" (try the
+    next post) or "stop" (the slot is shut, the time ran out, or hands/x may
+    have posted: nothing else either)."""
     fmt = post["format"]
-    passed = final_gate(room, label, post, attempt)
-    if passed is None:
-        return "stop" if attempt["gates"][-1]["code"] == -2 else "next"
-    post = {**post, **({"posts": passed} if "posts" in post else {"text": passed[0]})}
     media_ids: list[str] = []
     if fmt in registry():
         made = picture(room, post, attempt)
@@ -771,6 +767,15 @@ def publish(room: Room, record: Json, order: list[str], blind: dict[str, Json]) 
             continue
         attempt: Json = {"label": label, "card": post.get("card"), "format": fmt}
         attempts.append(attempt)
+        # No post reaches its producer or hands/x without its words past the
+        # guard here first, and the attempt keeps what the guard said.
+        passed = final_gate(room, label, post, attempt)
+        if passed is None:
+            if attempt["gates"][-1]["code"] == -2:
+                ended = "the run's time ran out at the guard"
+                break
+            continue
+        post = {**post, **({"posts": passed} if "posts" in post else {"text": passed[0]})}
         result = try_post(room, label, post, attempt)
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, text=attempt.get("sent"),
