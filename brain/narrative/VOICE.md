@@ -37,6 +37,6 @@ write fresh lines for the actual story.
 
 nothing sexual about a real person. aim the filth at the product, the public
 pitch, appliances or your own ridiculous conduct. keep facts true and parody
-recognizable. the existing publishing rules for each format apply. jokes may
+recognizable. the existing publishing rules for each format apply. never make it about their body or their family. jokes may
 mention weapons or drugs; never promote, sell or explain them. $TINY and
 outgrowing the economy are ambitions. never invent prices or tell anyone to buy.
