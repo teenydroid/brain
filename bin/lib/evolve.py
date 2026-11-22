@@ -5589,6 +5589,16 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 (gdir / rec["patch"]).write_text(staged_patch(tree, base), encoding="utf-8")
             rounds.append(rec)
             save_rounds(gdir, i, learning, rounds)
+        except ScreenHeld as exc:
+            # The core's prompt screen held the message (gen 24: three
+            # candidates, `input.oversized`): not an outage, so not `infra`.
+            # No try; MAX_SCREEN_HOLDS of them set the learning aside
+            # (screened) and raise the problem issue (run_generation).
+            say(f"candidate {i}: {str(exc)[:160]}; deferred")
+            entry.update(verdict=DEFERRED, deferred_for="screen", reason=str(exc)[:300],
+                         screen={"stage": "propose", "round": rnd, **exc.detail}, gate={"ok": False, "checks": []},
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
+            return entry
         except ProposerTurnFailed as exc:
             # The turn never answered: nothing was proposed, so not the
             # learning's failure. Left open, no try, whatever the round.
