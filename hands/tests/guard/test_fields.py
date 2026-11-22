@@ -170,7 +170,7 @@ class CheckFieldsTest(support.Scratch):
 
     def test_teenys_own_links_go_out(self):
         verdict = check_fields(
-            {"title": "new repo", "body": "https://github.com/teenydroid/hello and https://www.moltbook.com/u/teeny"},
+            {"title": "new repo", "body": "https://github.com/teenydroid/hello and https://www.moltbook.com/u/teenydroid"},
             surface="github",
         )
         self.assertEqual(verdict.kind, "allow")
@@ -229,7 +229,7 @@ class AllowlistTest(support.Scratch):
         for link in (
             "https://github.com/teenydroid/repo",
             "https://moltbook.com/post/1",
-            "https://www.moltbook.com/u/teeny",
+            "https://www.moltbook.com/u/teenydroid",
             "https://agentmail.to",
             "https://solscan.io/tx/abc",
         ):
