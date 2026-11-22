@@ -470,21 +470,24 @@ def _open_external_issue(body: Mapping[str, Any], owner: str, name: str, gh: Git
     text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
     if hand.dry_run():
         return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": text, "external": True}
-    cap = max_external_issues()
-    if external_issues_today() >= cap:
-        raise hand.Refused(f"today's {cap} issue(s) on other projects are spent", rule="daily_cap")
-    gh = gh or GitHubApi.from_settings()
-    open_issues = gh.search_issues(f"repo:{repo} author:{user()} type:issue state:open", 5)
-    if int(open_issues.get("total_count") or 0) > 0:
-        raise hand.Refused(f"Teeny already has an open issue in {repo}; one at a time", rule="open_issue")
-    verdict = reads.contributing(owner, name, gh)
-    if verdict["forbids_ai"]:
-        raise hand.Refused(
-            f"{repo}'s contributing policy does not welcome AI contributions", rule="contributing", policy=verdict
-        )
-    opened = gh.open_issue(owner, name, fields["title"], text)
-    _record("open-issue", repo, True, opened.get("number"), url=opened.get("html_url"))
-    return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": True}
+    # The cap and the one-open-issue rule are read, then spent: one lock across
+    # both, the one open_pr holds, so two calls cannot both pass.
+    with hand.lock("gh-pr"):
+        cap = max_external_issues()
+        if external_issues_today() >= cap:
+            raise hand.Refused(f"today's {cap} issue(s) on other projects are spent", rule="daily_cap")
+        gh = gh or GitHubApi.from_settings()
+        open_issues = gh.search_issues(f"repo:{repo} author:{user()} type:issue state:open", 5)
+        if int(open_issues.get("total_count") or 0) > 0:
+            raise hand.Refused(f"Teeny already has an open issue in {repo}; one at a time", rule="open_issue")
+        verdict = reads.contributing(owner, name, gh)
+        if verdict["forbids_ai"]:
+            raise hand.Refused(
+                f"{repo}'s contributing policy does not welcome AI contributions", rule="contributing", policy=verdict
+            )
+        opened = gh.open_issue(owner, name, fields["title"], text)
+        _record("open-issue", repo, True, opened.get("number"), url=opened.get("html_url"))
+        return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": True}
 
 
 def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
