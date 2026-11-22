@@ -522,6 +522,14 @@ class DropWakeTest(BrokerCase):
         self.assertEqual(self.oh_calls("cron_remove"), [{"method": "cron_remove", "params": {"job_id": "m-1"}}])
         self.assertEqual([j["name"] for j in self.jobs()], ["teeny.tick"])
 
+    def test_drop_wake_passes_a_numeric_id_as_seed_cron_does(self):
+        daily = {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"}
+        self.set_jobs([TICK_JOB, {**_mind_job("morning", daily, 1), "id": 42}])
+        self.start()
+        code, out = self.post("/drop-wake", {"name": "morning"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(self.oh_calls("cron_remove"), [{"method": "cron_remove", "params": {"job_id": "42"}}])
+
     def test_drop_wake_never_reaches_a_job_not_the_minds(self):
         self.set_jobs([TICK_JOB, {**TICK_JOB, "id": "core-2", "name": "tick"}])
         self.start()
