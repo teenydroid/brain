@@ -14,7 +14,8 @@
   holds release ID [--note T]
   links list | approve HOST[/PATH]
   repeats [--days N] -> {"repeats", "by_surface"}: near-duplicate posts the
-            posting rules refused over the last N days (default 30)
+            posting rules refused over the last N days (default 30); none
+            are refused since 2026-11-22, so this counts the old rows
   rescreen  -> the re-screen's counts: the holds a judge outage made, asked
             about again (rescreen.py; the pinned guard-rescreen job)
   truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged", "path"}:
