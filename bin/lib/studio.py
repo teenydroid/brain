@@ -2343,13 +2343,16 @@ def judge_is_writer(room: Room) -> str:
     return ""
 
 
-def publish(room: Room, record: Json, slot: Slot) -> Json:
+def publish(room: Room, record: Json, slot: Slot, vetoed: Json | None = None) -> Json:
     """The pick, then at most MAX_FALLBACKS more of the ranking, through
     `try_draft` until one goes out (or would, dry). A fallback faces the
-    editor's slot question first: one it vetoes counts as tried. What came of
-    it, also kept in the record as `publish`: {outcome: posted | would_post
-    | empty, ...}. A live run whose judges would be the writer's own model
-    posts nothing (a dry run warns)."""
+    editor's slot question first: one it vetoes counts as tried, and costs
+    none of the budget. `vetoed` is the slot question's no on the ranking's
+    first draft (`room_run`): it is the first attempt, vetoed, and the next
+    draft is asked as a fallback, so the budget is whole for the drafts after
+    it. What came of it, also kept in the record as `publish`: {outcome:
+    posted | would_post | empty, ...}. A live run whose judges would be the
+    writer's own model posts nothing (a dry run warns)."""
     afters = example_afters(room.brain)
     attempts: list[Json] = []
     out: Json = {"dry": room.dry, "attempts": attempts}
@@ -2366,6 +2369,14 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
     failed_videos: set[str] = set()
     gated = 0
     ended = ""
+    if vetoed and vetoed.get("label") in left:
+        first = slot.blind[vetoed["label"]]
+        left.remove(vetoed["label"])
+        attempts.append({"label": vetoed["label"], "draft": first["id"], "pitch": first["pitch"],
+                         "format": first["format"],
+                         "editor": {"verdict": _str(vetoed.get("verdict"), 20) or "no answer",
+                                    "reason": _str(vetoed.get("reason"), 400)},
+                         "result": "the editor vetoed it as the winner"})
     while left and gated <= MAX_FALLBACKS:
         label = next_fallback(left, slot, fell) if attempts else left[0]
         left.remove(label)
@@ -2422,7 +2433,7 @@ def publish(room: Room, record: Json, slot: Slot) -> Json:
     else:
         if left:
             ended = f"the fallback budget ({MAX_FALLBACKS} through the checks) was spent"
-        elif len(slot.order) > 1:
+        elif len(slot.order) > 1 or vetoed:
             ended = "every ranked draft was tried"
     out.update(outcome="empty", reason=empty_reason(attempts, ended))
     return out
@@ -3070,22 +3081,38 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 verdict, reason = slot_question(top)
     else:
         verdict, reason = slot_question(top)
+    # A no on the top draft is no longer the end of the slot (2026-11-22: the
+    # winner vetoed for a fact the editor could not see, and nothing else was
+    # tried): it is the first attempt, vetoed, and the rest of the ranking is
+    # asked as fallbacks, as when a gate fails (`publish`).
+    vetoed: Json | None = None
     if verdict != "pick":
-        record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})
-        return 0
-    pick = dict(blind[top]) | {"label": top}
-    record.update({"outcome": "picked", "reason": reason, "pick": pick})
+        vetoed = dict(record["final"])
+        record["final_veto"] = vetoed
+        if not order:
+            record.update({"outcome": "empty", "reason": reason or "the editor picked none", "pick": None})
+            return 0
+        if top not in order:
+            vetoed = None
+        record.update({"outcome": "picked", "reason": reason or "the editor picked none", "pick": None})
+    else:
+        pick = dict(blind[top]) | {"label": top}
+        record.update({"outcome": "picked", "reason": reason, "pick": pick})
     slot = Slot(order=order, blind=blind, board=board, stories_now=state_now,
                 pitches=by_id, items=known_items, stories=stories, thread=thread,
                 rates={r["label"]: -1.0 if r["rate"] is None else r["rate"] for r in ranked_drafts},
                 close=1 / cfg.meetings)
-    done = publish(room, record, slot)
+    done = publish(room, record, slot, vetoed=vetoed)
+    if vetoed and done.get("label"):
+        # The pick is the draft the editor said pick to, as a fallback.
+        record["pick"] = dict(blind[done["label"]]) | {"label": done["label"]}
     record["published"] = {k: done[k] for k in ("outcome", "dry", "label", "draft", "post_id", "text", "reason",
                                                 *registry()) if k in done}
+    said = f"the editor passed on {top}" if vetoed else f"the editor picked {top}"
     if done["outcome"] == "posted":
         record["outcome"] = "published"
     elif done["outcome"] == "empty":
-        record.update(outcome="empty", reason=f"the editor picked {top}, and nothing could go out: {done['reason']}")
+        record.update(outcome="empty", reason=f"{said}, and nothing could go out: {done['reason']}")
     return 0
 
 
