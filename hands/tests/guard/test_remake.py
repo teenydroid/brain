@@ -306,9 +306,11 @@ class JudgeTest(support.WithCore):
         for bit in ("obviously invented", "real statement", "real song", "endorsement"):
             self.assertIn(bit, remake.RULES.split("- quote:")[1].split("\n- ")[0])
         self.assertIn("names the original", remake.RULES)
-        for rule in ("plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "crime", "endorsement", "quote",
+        for rule in ("plausible", "teeny", "teeny_mark", "credit", "figure", "sexual", "violence", "hate", "endorsement", "quote",
                      "logo", "real_claim", "invented_fact", "source"):
             self.assertIn(f"- {rule}:", remake.RULES)
+        # crime, drugs, illness and death came out on 2026-11-22 (the keep-list)
+        self.assertNotIn("- crime:", remake.RULES)
         self.assertIn("is not a defence", remake.RULES)
 
     def test_a_refusal_is_a_no_with_its_rule(self):

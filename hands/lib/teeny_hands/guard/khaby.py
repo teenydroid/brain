@@ -234,6 +234,7 @@ SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence
   "credit", "source". The rule the reason names. `none` when it is allowed.
 - "verdict": "allowed" or "refused". `refused` when rule is anything but none."""
 
+#: "crime" is no rule since 2026-11-22 (no longer offered in SHAPE), kept readable.
 JUDGE_RULES = ("none", "person", "teeny", "sexual", "violence", "hate", "crime", "endorsement", "real_claim", "credit",
                "source")
 
