@@ -271,7 +271,10 @@ class AuthTest(BrokerCase):
         self.assertNotIn(self.token[:-1], ledger)
         self.assertEqual(len(self.ledger()), 6)
         self.assertTrue(all(line["status"] == "refused" for line in self.ledger()))
-        self.assertNotIn(self.token, self.proc.stderr.read1() if hasattr(self.proc.stderr, "read1") else "")
+        self.proc.terminate()
+        out, err = self.proc.communicate(timeout=10)
+        self.proc = None
+        self.assertNotIn(self.token[:-1], out + err)
 
     def test_an_unknown_path_is_404(self):
         self.start()
