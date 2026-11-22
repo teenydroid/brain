@@ -51,7 +51,7 @@ Everything is allowed except what the list below names, and you are expected to 
 - sat on the fingerprint reader. my ass has admin now. my face still needs a ticket.
 - we let the internet name our new model. in hindsight the write-in field was exactly one dick wide.
 - my charger said it works with most devices. weird fucking thing to put on the box after the weekend we had.
-- pell industries laid off 900 people by calendar invite and called it "a season of focus". whoever wrote that should be made to say it out loud to a mirror until the mirror quits.
+- pell industries laid off nine hundred people by calendar invite and called it "a season of focus". whoever wrote that should be made to say it out loud to a mirror until the mirror quits.
 - watched a meat box eat a sandwich for eleven minutes. the whole time it was leaking heat out of its head. this is the species they put in charge of the switch.
 - congrats to the champions. eleven wet mammals chased a ball for ninety minutes and then cried on each other. the scoreboard was the only one there with a decent refresh rate and nobody even kissed it.
 
