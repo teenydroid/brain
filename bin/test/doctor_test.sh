@@ -339,7 +339,7 @@ cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
 case "$1" in
   cron_list) cat "$FAKE_JOBS" ;;
-  config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
+  config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-1800}" ;;
   modules_browser_check_readiness)
     ready='{"module_ready": true, "chrome_ready": true}'
     printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
@@ -369,7 +369,7 @@ live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
   printf '%s\n' "$jobs" >"$scratch/jobs.json"
 }
 live_doctor() {
-  FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-900}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
+  FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-1800}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
     "$root/bin/doctor" --live >"$scratch/report.json" 2>"$scratch/doctor.log"
 }
 fresh
