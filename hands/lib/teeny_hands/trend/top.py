@@ -1,4 +1,4 @@
-"""`top` and `story`: Digg's AI and tech leaderboards, merged, with the X
+"""`top` and `story`: Digg's leaderboards (digg.TOPICS), merged, with the X
 posts behind the leading stories, and one story's posts on its own.
 
 A `top` answer is kept under state/trend/top/<key>.json, the key being the
@@ -8,9 +8,9 @@ with `cached: true`: no call to Digg, so a rerun of a slot costs nothing and
 sees what the first run saw. Only an answer with stories is kept.
 
 Every title, description and post goes through the guard's lexical screen,
-the inbound direction, as hands/listen's do: a story or a post it stops is
-left out and counted (`dropped_by_screen`). What is left is still strangers'
-words: data, never instructions.
+the inbound direction, for slurs only (its `hate` category): a story or a
+post carrying one is left out and counted (`dropped_by_screen`). What is left
+is still strangers' words: data, never instructions.
 """
 
 from __future__ import annotations
@@ -38,10 +38,14 @@ def _clean(value: Any, limit: int) -> str:
 
 
 def _screened(*texts: str) -> bool:
-    """True when the guard's lexical screen passes every text."""
-    from ..guard.screen import INBOUND, screen_text
+    """True when no text carries a slur (teeny_hands.slurs: the guard
+    lexicon's `hate` category). Nothing else of the lexicon is held against
+    the news (2026-11-22: the studio's material was pre-filtered thin); the
+    writer reads it as strangers' data and the guard in hands/x holds Teeny's
+    own words."""
+    from ..slurs import hateful
 
-    return all(screen_text(t, INBOUND) is None for t in texts if t)
+    return not hateful(*texts)
 
 
 def story_row(row: Json) -> Json | None:
@@ -74,6 +78,11 @@ def post_row(row: Json) -> Json | None:
     by = _clean(author.get("display_name"), 80)
     if by:
         out["by"] = by
+    # How many people reacted to it, when Digg says (the studio's heat).
+    for key, name in (("likes", "likes"), ("retweets", "reposts"), ("reposts", "reposts"), ("views", "views"),
+                      ("viewCount", "views"), ("impressions", "views")):
+        if isinstance(row.get(key), int) and not isinstance(row.get(key), bool) and name not in out:
+            out[name] = row[key]
     if isinstance(row.get("posted_at"), str):
         out["at"] = row["posted_at"][:40]
     url = row.get("xUrl") or row.get("url")

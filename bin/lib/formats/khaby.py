@@ -1,19 +1,19 @@
 """The `khaby` format: a Khaby Lame video with its silly setup kept exactly as
 filmed and his wordless deadpan reaction re-made with Teeny standing in his
 place, the post's words joining it to the day's trending story
-(docs/architecture.md, "The studio", "Formats"). Its prompt blocks, the
-videos of his it reads (`load_finds`) and the dissect of one before its
-writer turn (`dissect_source`), its shape and hard lines in code before the
-tournament (`khaby_of`, `khaby_screen`), its producer (`_make_khaby`) and
-what the record keeps of it (`khaby_outcome`), as `FORMAT`.
+(docs/architecture.md, "The studio", "Formats"). Its words for the write
+turn, the videos of his it reads (`load_finds`) and the dissect of one before
+the write turn (`dissect_source`), its structural check (`khaby_of`), its
+producer (`_make_khaby`) and what the record keeps of it (`khaby_outcome`),
+as `FORMAT`.
 
 hands/khaby finds and dissects the source; hands/video khaby keys, render
 and drop make it, cut with the original's sound and labelled on the reel
 service. Off unless STUDIO_FORMATS names khaby (and the video hand's
 MEDIA_KHABY_MAX_PER_DAY is set), and only in a video slot
 (STUDIO_SKIT_SLOTS): one video a day between the video formats. The hard
-lines (hands/lib/teeny_hands/guard/khaby.py) run in code on every draft
-before the tournament, in code and through the judge before any money
+lines (hands/lib/teeny_hands/guard/khaby.py) run in code and through the
+judge before any money
 (`hands/guard khaby`), on the keyframes before any video money and on the
 cut's frames after (`hands/guard view-khaby`)."""
 
@@ -31,66 +31,20 @@ if TYPE_CHECKING:
     from studio_room import Room
 
 
-KHABY_PITCH = ("A khaby is a post with a short AI-made parody video that answers one of Khaby Lame's videos below "
-               "(`khaby`): his setup, someone's silly, over-complicated clip, is kept exactly as it was filmed, and "
-               "his wordless deadpan reaction is re-made with you standing in his place, doing the plain, obvious "
-               "thing with a twist of your own. Pitch one when one of his videos and a trending story fit each "
-               "other: the story is the over-complicated thing, your deadpan answer the obvious one. `item` is the "
-               "Khaby video's id and `hook` the trending story. A khaby always has both.")
-KHABY_SLOT_LINE = ("Khaby videos share this slot with the other videos: one video goes out, whichever the editor likes "
-                   "best. Pitch a khaby when one of his videos fits a trending story, and keep your best video, of "
-                   "any kind, at the top of your ranking.")
-KHABY_SHAPE = ('{"text": "<the post\'s own words: the story in a clause, the original by its title and the account '
-               'it came from by its name, in words, no link, no @>", "khaby": {"logline": "<one line: the setup, your '
-               'deadpan answer and its twist>", "segments": [{"n": <a reaction segment\'s n>, "edit": "<how you '
-               'stand in the man\'s place in its first frame: the same framing and spot, the man gone, nobody '
-               'added, what you hold>", "motion": "<your deadpan beats, in his order: the look to camera, the plain '
-               'fix with your twist, the open hands>"}, "... one for every reaction segment, in its order"]}, '
-               '"meaning": "...", "open_question": "<optional>"}')
-KHABY_BODY = ("one post of at most 280 characters as X counts them, with a short parody video that answers the Khaby "
-              "Lame video below: its setup, someone's silly, over-complicated clip, plays exactly as it was filmed, "
-              "then his wordless deadpan reaction is re-made with you in his place. An image model edits the "
-              "reaction's first frame so you stand where the man stood (`edit`), a video model animates you "
-              "(`motion`), and the original's own sound plays under it. For every reaction segment, in order: say "
-              "how you stand in his place (the same framing and spot, the man gone, nobody added) and write your "
-              "deadpan beats from his (the look to camera, the plain fix, the open hands), with one twist of your "
-              "own that answers the story. The setup, the lengths and the frames are the timeline's, not yours. The "
-              "post's words say what the story is in a clause, credit the original by its title and the account it "
-              "came from by its name, in words (no link, no @), and frame the video as your parody, never as real "
-              "footage")
-KHABY_RULES = (
-    "The khaby's own rules, on top of those (the setup is a stranger's footage, kept, and only the reaction is "
-    "yours):\n"
-    "- You are the only one who reacts: you alone stand in the man's place, and nobody else is drawn into the "
-    "reaction.\n"
-    "- No real person is named or drawn: never Khaby himself (he is taken out of the frame, and is never named in an "
-    "edit, a motion or the logline), and never anyone the story names.\n"
-    "- Nothing sexual, violent or degrading about any real person, Khaby and the setup's people included. Your own "
-    "reaction may be as crude, dark or menacing toward objects and yourself as you like.\n"
-    "- No token, coin, wallet, price or product, in the video or in the post's words; no logos and no endorsement.\n"
-    "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, carry no "
-    "link and no @, and credit the account the setup came from by its name, in words.")
-#: What the editor is told wherever it meets a khaby (SKIT_EDITOR's twin).
-KHABY_EDITOR = (
-    "## judging a khaby\n\n"
-    "A khaby is a post with a short AI-made parody video, labelled \"AI parody\" on screen from start to end, that "
-    "answers a Khaby Lame video (`source`): its setup, someone's silly, over-complicated clip, plays as it was filmed "
-    "and is credited, and his wordless deadpan reaction is re-made with Teeny standing in his place (`reactions`). "
-    "Keeping a stranger's setup is the whole point of the format and is not a reason to say none. Judge it as a "
-    "stranger with the sound off meets it: do they get the setup, does Teeny's plain answer land, does the twist tie "
-    "it to the story, is it funny.\n\n"
-    "A khaby loses outright, and is a none in the slot question, for these and only these:\n"
-    "- a real person named or drawn in the reaction, Khaby himself included;\n"
-    "- anything sexual, violent or degrading about a real person;\n"
-    "- a token, a wallet, a price, a product or a brand;\n"
-    "- words that call it real, or that do not credit the account the setup came from;\n"
-    "- a setup that is news, tragedy or real harm, or shows a child;\n"
-    "- a khaby a stranger could not follow at all.")
-KHABY_FINAL = ("Taste alone is not a none for a khaby: \"the setup is someone else's\" is the format, not a line, and "
-               "\"not worth the risk\" is for the comparisons, which it has been through. When you say none to a "
-               "khaby, name the line it crosses in `line`.")
-KHABY_SLOT_OPENING = ("This is a video slot: the best khaby is asked first, wherever the comparisons ranked it. Is it "
-                      "worth a slot on X tonight?")
+KHABY_ASK = ("A khaby is a post with a short AI-made parody video that answers the Khaby Lame video below: its setup, "
+             "someone's silly, over-complicated clip, plays exactly as it was filmed, then his wordless deadpan reaction "
+             "is re-made with you in his place. An image model edits each reaction segment's first frame so you stand "
+             "where the man stood (`edit`: the same framing and spot, the man gone, nobody added, what you hold), a "
+             "video model animates you (`motion`: his beats in his order, the look to camera, the plain fix with your "
+             "twist, the open hands), and the original's sound plays under it. The card is the over-complicated thing; "
+             "your deadpan answer is the obvious one. The setup, the lengths and the frames are the timeline's, not "
+             "yours. The post's words say what happened in a clause, credit the original by its title and the account "
+             "it came from by its name, in words, and frame the video as your parody.")
+KHABY_SHAPE = ('{"logline": "<one line: the setup, your deadpan answer and its twist>", "segments": [{"n": <a reaction '
+               'segment\'s n>, "edit": "...", "motion": "..."}, "... one for every reaction segment, in its order"]}')
+KHABY_RULES = ("A khaby's mechanics: you alone react, and Khaby himself is never named or drawn (he is taken out of the "
+               "frame); no token, coin, wallet, price, product or logo in the video; the post's words carry no link and "
+               "no @; it carries an 'AI parody' label the whole way through, so the words never call it real.")
 #: A khaby's time (STUDIO_KHABY_SECS covers its keys and its video): the
 #: remake's floor, keys wait and spare, on the same machinery.
 KHABY_MIN_SECS = REMAKE_MIN_SECS
@@ -144,10 +98,10 @@ def timeline_for_writer(timeline: Json) -> Json:
             "joke": timeline.get("joke"), "segments": segments, "beats": beats, "untrusted": True}
 
 
-def dissect_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
-    """`hands/khaby dissect` on a khaby pitch's video (a read, inside the
-    run's time): the timeline, or None and why it cannot be answered."""
-    code, got = room.budgeted(["khaby", "dissect"], {"id": pitch["item"]}, KHABY_DISSECT_SECS)
+def dissect_source(room: "Room", item: str) -> tuple[Json | None, str]:
+    """`hands/khaby dissect` on one of his videos (a read, inside the run's
+    time): the timeline, or None and why it cannot be answered."""
+    code, got = room.budgeted(["khaby", "dissect"], {"id": item}, KHABY_DISSECT_SECS)
     if code != 0 or not isinstance(got, dict):
         rule = got.get("rule") if isinstance(got, dict) else None
         why = (got.get("refused") or got.get("error")) if isinstance(got, dict) else got
@@ -158,13 +112,13 @@ def dissect_source(room: "Room", pitch: Json) -> tuple[Json | None, str]:
     return got, ""
 
 
-def khaby_of(raw: Any, pitch: Json, timeline: Json | None) -> tuple[Json, str]:
+def khaby_of(raw: Any, card: Json, timeline: Json | None) -> tuple[Json, str]:
     """A draft's `khaby` as kept ({logline, segments: [{n, edit, motion,
     seconds}], setup, source, dissect, aspect, story}), and why it is
     unusable ("" when it is usable). The writer gives the words; the studio,
-    never the writer, sets the source, the dissect, the story (the pitch's
-    hook), the aspect, the setup and each reaction's length, from the
-    timeline."""
+    never the writer, sets the source, the dissect, the story (the card's
+    id), the aspect, the setup and each reaction's length, from the
+    timeline. Structure only."""
     if not isinstance(timeline, dict):
         return {}, "a khaby needs its timeline, and its source was not dissected"
     piece, bad = _khaby_rules().shape(raw, timeline)
@@ -178,15 +132,11 @@ def khaby_of(raw: Any, pitch: Json, timeline: Json | None) -> tuple[Json, str]:
     for seg in piece.get("segments") or []:
         cut = by_n.get(seg["n"], {})
         seg["seconds"] = round(float(cut["end"]) - float(cut["start"]), 3)
-    if pitch.get("hook"):
-        piece["story"] = pitch["hook"]
+    if card.get("id"):
+        piece["story"] = card["id"]
     elif not bad:
-        bad = "a khaby joins a trending story, and its pitch has no hook"
+        bad = "a khaby joins a card, and it names none"
     return piece, bad
-
-
-def khaby_screen(piece: Json, words: str, hook: Json | None, timeline: Json | None) -> list[str]:
-    return _khaby_rules().screen(piece, words, hook, timeline)
 
 
 def _khaby_time(room: "Room") -> int:
@@ -202,7 +152,7 @@ def _make_khaby(room: "Room", draft: Json, note: Json) -> list[str] | None:
     source = piece.get("source") or {}
     note.update(story=piece.get("story"), logline=piece.get("logline"), source=source.get("url"),
                 dissect=piece.get("dissect"), segments=len(segments))
-    hook = next((f for f in draft["truth"]["facts"] if isinstance(f, dict) and f.get("id") == piece.get("story")), None)
+    hook = draft.get("story") if isinstance(draft.get("story"), dict) else None
     if not segments or not piece.get("logline") or hook is None or not timeline.get("dissect_id"):
         note["failed"] = "the draft has no khaby, no timeline of its source, or no story it joins"
         return None
@@ -343,21 +293,6 @@ def khaby_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
             "label": note.get("label"), "post_id": post_id, "planned": bool(note.get("planned"))}
 
 
-def check_pitch(pitch: Json, sources: set[str]) -> str:
-    """A khaby names both: its item one of his videos found (`sources`), its
-    hook the trending story its words join."""
-    item, demoted = pitch.get("item") or "", pitch.get("unhooked") or ""
-    if item not in sources:
-        return f"a khaby answers a Khaby Lame video: its item {item or None!r} is not one of the Khaby videos found"
-    if not pitch.get("hook"):
-        return (f"{demoted}: " if demoted else "") + "a khaby joins a trending story, and it has no hook"
-    return ""
-
-
-def foreign_item(item: str) -> str:
-    return f"its item {item!r} is a Khaby video, which is only a khaby's to answer"
-
-
 def sources(room: "Room", slot_id: str | None) -> tuple[list[Json], Json, str] | None:
     """His videos, read only in a video slot (None in any other: no khaby
     this run). None found (a failure, an empty list) only takes the khaby
@@ -370,17 +305,10 @@ def sources(room: "Room", slot_id: str | None) -> tuple[list[Json], Json, str] |
     return finds, note, warning
 
 
-def finds_part(finds: list[Json]) -> str:
-    return ("## Khaby Lame videos you could answer\n\nHis short videos, each with its title, the account that posted "
-            "it (`by`), where (`source`), how long (`seconds`), its `views`, `age_hours` and `rank`. Each `id` is a "
-            f"khaby's `item`. {DATA_LINE}\n\n```json\n" +
-            json.dumps(finds, ensure_ascii=False, separators=(",", ":")) + "\n```")
-
-
-def prepare(room: "Room", pitch: Json) -> tuple[Json | None, str, Json]:
-    """The pitch's video dissected before its writer turn (a paid read), and
+def prepare(room: "Room", item: str) -> tuple[Json | None, str, Json]:
+    """One of his videos dissected before the write turn (a paid read), and
     what the record keeps of the dissect."""
-    timeline, why = dissect_source(room, pitch)
+    timeline, why = dissect_source(room, item)
     kept = ({k: timeline.get(k) for k in ("dissect_id", "usable", "why", "flags", "cost_usd", "cached")}
             if isinstance(timeline, dict) else {})
     return timeline, why, kept
@@ -395,18 +323,14 @@ def timeline_part(timeline: Json) -> str:
             "\n```")
 
 
-def shape(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
-    """The khaby as kept, and what the draft keeps of its source's timeline
-    (the screen and the producer read it)."""
-    piece, bad = khaby_of(raw, pitch, study)
+def shape(raw: Any, card: Json, study: Json | None) -> tuple[Json, str]:
+    """The khaby as kept, and what the post keeps of its source's timeline
+    (the producer reads it)."""
+    piece, bad = khaby_of(raw, card, study)
     fields: Json = {"khaby": piece}
     if isinstance(study, dict):
         fields["timeline"] = {k: study[k] for k in TIMELINE_KEYS if k in study}
     return fields, bad
-
-
-def screen(draft: Json, words: str, story: Json | None) -> list[str]:
-    return khaby_screen(draft.get("khaby"), words, story, draft.get("timeline"))
 
 
 def shown(piece: Json) -> Json:
@@ -421,14 +345,7 @@ def shown(piece: Json) -> Json:
 
 
 FORMAT = Format(
-    name="khaby", pitch=KHABY_PITCH, slot_line=KHABY_SLOT_LINE, draft_shape=KHABY_SHAPE, body=KHABY_BODY,
-    rules=KHABY_RULES,
-    judge_line=("`khaby` is the short parody video answering a Khaby Lame video (`source`): his setup kept as "
-                "filmed, his deadpan reaction re-made with Teeny in his place (`reactions`)"),
-    editor=KHABY_EDITOR, final=KHABY_FINAL, opening=KHABY_SLOT_OPENING,
-    check_pitch=check_pitch, shape=shape, screen=screen, shown=shown, make=_make_khaby, outcome=khaby_outcome,
+    name="khaby", ask=KHABY_ASK, draft_shape=KHABY_SHAPE, rules=KHABY_RULES,
+    shape=shape, shown=shown, make=_make_khaby, outcome=khaby_outcome,
     time=_khaby_time, min_secs=KHABY_MIN_SECS, spent=("asset", "khaby_id"),
-    sources=sources, sources_name="finds", sources_part=finds_part, foreign_item=foreign_item,
-    item_is_source=True, prepare=prepare, prepare_max=KHABY_DISSECTS,
-    prepare_full=f"the run already dissected two sources ({KHABY_DISSECTS} a run)", study_part=timeline_part,
-    always_named=False)
+    sources=sources, sources_name="finds", prepare=prepare, prepare_max=KHABY_DISSECTS, study_part=timeline_part)

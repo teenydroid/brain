@@ -113,15 +113,16 @@ class Room:
     skit_slot: bool = False
 
     def __post_init__(self) -> None:
-        self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model}
+        self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model,
+                                      "feed": getattr(self.cfg, "feed_model", "") or self.cfg.editor_model}
 
     def left(self) -> int:
         return int(self.cfg.budget_secs - (time.monotonic() - self.started))
 
     @property
     def writer_thread(self) -> str:
-        """The run's one writer thread: the pitch, draft, shorten and rewrite
-        turns all read what the writer said before."""
+        """The run's one writer thread: the write turn, and a skit's one cut
+        to fit after it, read what the writer said before."""
         return f"studio:{self.run_id}"
 
     def hand_code(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[int, Any]:
@@ -172,19 +173,22 @@ class Room:
         return code == 0, got
 
     def _fall_back(self, agent: str, model: str, why: str) -> None:
-        """AGENT's model failed a turn: the rest of the run asks the core's
-        default for it, and the record says so, twice over when that leaves
-        the writer and the editor on one model."""
+        """AGENT's model (a role: writer, editor or feed) failed a turn: the
+        rest of the run asks the core's default for it, and the record says
+        so, twice over when that leaves the writer and the editor on one
+        model."""
         self.models[agent] = ""
         self.warnings.append(f"the {agent}'s model {model} failed a turn ({why}): it and the rest of this run's "
                              f"{agent} turns ran on the core's default model instead")
+        if agent == "feed":
+            return
         other = "editor" if agent == "writer" else "writer"
-        if self.models[other] == "":
+        if self.models.get(other) == "":
             self.warnings.append("the writer and the editor ran on the same model (the core's default) for the "
                                  "rest of this run: the editor judged its own voice")
 
     def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False,
-             want: type = dict, check: Callable[[Any], Any] | None = None) -> Any:
+             want: type = dict, check: Callable[[Any], Any] | None = None, role: str | None = None) -> Any:
         """One model turn, bounded by what is left of the budget. Its parsed
         JSON, which must be a `want` (an object) and pass `check` when one is
         given (what it returns is the answer; a ValueError it raises makes the
@@ -207,9 +211,10 @@ class Room:
         told twice though nothing had gone out (preview-box-2, 2026-11-19)."""
         first = message
         attempt = 0
+        role = role or agent
         while attempt < 2:
             attempt += 1
-            model = self.models.get(agent, "")
+            model = self.models.get(role, "")
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
             if secs < self.cfg.turn_min_secs:
                 raise Stop("skipped", f"out of time before the {step} turn ({self.cfg.budget_secs} s budget)")
@@ -218,6 +223,8 @@ class Room:
             status, out, err = (self.ask or ask_core)(self.root, agent, message, on, model, secs)
             call = {"agent": agent, "step": step, "attempt": attempt, "secs": round(time.monotonic() - began, 1),
                     "bytes": len(message.encode())}
+            if role != agent:
+                call["role"] = role
             if model:
                 call["model"] = model
             self.calls.append(call)
@@ -228,7 +235,7 @@ class Room:
                     provider_error.classify(err) or err.strip()[-120:] or f"exit {status}")
                 call["failed"] = (f"no answer within {secs} s" if status in (124, 137) else err[-300:])
                 call["fell_back"] = True
-                self._fall_back(agent, model, why)
+                self._fall_back(role, model, why)
                 attempt -= 1
                 continue
             if status in (124, 137):
@@ -259,7 +266,10 @@ class Room:
 
 def ask_core(root: Path, agent: str, message: str, thread: str | None, model: str, secs: int) -> tuple[int, str, str]:
     """bin/ask, as bin/act calls it: one tool-less turn, with --model when one
-    is set, killed at `secs`."""
+    is set, killed at `secs`. With STUDIO_ASK=openrouter (a local sample, off
+    the box: no core) the turn goes to OpenRouter instead (`ask_openrouter`)."""
+    if os.environ.get("STUDIO_ASK") == "openrouter":
+        return ask_openrouter(root, agent, message, model, secs)
     argv = [str(root / "bin" / "ask"), "--agent", agent]
     if thread:
         argv += ["--thread", thread]
@@ -272,6 +282,39 @@ def ask_core(root: Path, agent: str, message: str, thread: str | None, model: st
     except OSError as exc:
         return 1, "", str(exc)
     return done.returncode, done.stdout, done.stderr
+
+
+def ask_openrouter(root: Path, agent: str, message: str, model: str, secs: int) -> tuple[int, str, str]:
+    """One turn on OpenRouter's chat API, for a local sample run with no
+    core (`bin/studio --dry-run --print`): the agent's system prompt as
+    bin/lib/prompts.py builds it, the message, and MODEL (or
+    STUDIO_LOCAL_MODEL). Needs OPENROUTER_API_KEY. No thread: every turn is
+    cold. Exit 124 on no answer in time, 1 on any other failure."""
+    import urllib.error
+    import urllib.request
+
+    import prompts
+
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    model = model or os.environ.get("STUDIO_LOCAL_MODEL", "")
+    if not key or not model:
+        return 1, "", "STUDIO_ASK=openrouter needs OPENROUTER_API_KEY and a model (STUDIO_*_MODEL or STUDIO_LOCAL_MODEL)"
+    system = prompts.render(root / "brain", agent)
+    body = json.dumps({"model": model, "messages": [{"role": "system", "content": system},
+                                                    {"role": "user", "content": message}]}).encode()
+    request = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=body, method="POST",
+                                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=secs) as reply:
+            got = json.loads(reply.read().decode())
+    except TimeoutError:
+        return 124, "", "no answer in time"
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return 1, "", f"openrouter: {exc}"[:300]
+    try:
+        return 0, got["choices"][0]["message"]["content"] or "", ""
+    except (KeyError, IndexError, TypeError):
+        return 1, "", f"openrouter answered no message: {str(got)[:300]}"
 
 
 #: How a judge's no begins when it could not judge at all (the hands' own

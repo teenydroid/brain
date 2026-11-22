@@ -1,9 +1,7 @@
-"""The `skit` format: a real story, a public figure in it, an impossible
-scene, on video (docs/architecture.md, "The studio"). Its prompt blocks, its
-shape and hard lines in code before the tournament (`skit_of`,
-`skit_screen`), its producer (`_make_skit`) and what the record keeps of it
-(`skit_outcome`), as `FORMAT`. Moved out of bin/lib/studio.py, which still
-answers to each of these names."""
+"""The `skit` format: a public figure from a card, an impossible scene, on
+video (docs/architecture.md, "The studio"). Its words for the write turn,
+its structural check (`skit_of`), its producer (`_make_skit`) and what the
+record keeps of it (`skit_outcome`), as `FORMAT`."""
 
 from __future__ import annotations
 
@@ -91,85 +89,40 @@ def skit_budget(figures: int) -> int:
     return SKIT_SCRIPT_LIMIT - (_length(rules.script(frame)) - _written(frame))
 
 
-# --- skits: a real story, a public figure in it, an impossible scene, on video --------
+# --- skits: a public figure from a card, an impossible scene, on video --------------
 # (hands/video skit, cut and labelled on the reel service; docs/architecture.md,
 # "The studio"). Off unless STUDIO_FORMATS names skit, and hands/video refuses
-# every skit until the operator sets MEDIA_SKIT_MAX_PER_DAY. The hard lines for
-# real people (hands/lib/teeny_hands/guard/skit.py) run three times: in code on
-# every draft before the tournament (`skit_screen`), in code and through the
-# judge before any money is spent (`hands/guard skit`), and on the cut's frames
-# after it is rendered (`hands/guard view-skit`). A skit that cannot be made is
-# no post: the room falls back to the next draft, and in a skit slot
-# (STUDIO_SKIT_SLOTS) a skit's failure does not use up the fallback budget.
+# every skit until the operator sets MEDIA_SKIT_MAX_PER_DAY. The studio checks
+# only a skit's structure (`skit_of`); the guard's hard lines run in code and
+# through the judge before any money is spent (`hands/guard skit`), and on the
+# cut's frames after it is rendered (`hands/guard view-skit`). The cast is the
+# card's `people`: the guard is given the card, people and all, as the story
+# the skit stages (`_make_skit`). A skit that cannot be made is no post: the
+# slot falls through to the next ranked post.
 
-SKIT_PITCH = ("A skit is a post with a short AI-made parody video: take one of the trending stories and stage the "
-              "public figure it is about (the executive, the politician, the celebrity in the headline) in an "
-              "obviously impossible, absurd, expensive-looking scene, three or four cinematic shots. Its premise is "
-              "what that figure really did or claimed in the story, pushed to an impossible end: \"X did Y, so X "
-              "now does Z\", never a pun on a word in the headline. Pitch one when a story has a famous face and a "
-              "picture in it so ridiculous a stranger would stop scrolling. A skit always has a hook.")
-SKIT_SLOT_LINE = ("This is a skit slot. Pitch at least three skits on the biggest trending stories that have a famous "
-                  "face in them, rank the best skit first, and keep at least one pitch in another format in your "
-                  "top three: when the video cannot be made, that is what goes out.")
-SKIT_SHAPE = ('{"text": "<the post\'s own words>", "skit": {"figures": ["<the public figure(s) from the story, '
-              'as the story names them>"], "premise": "<one line: what they really did or claimed in the story, '
-              'so what they do in the video>", "logline": "<one line: the impossible scene and its joke>", '
-              '"look": {"<each figure, as in figures>": "<one line: hair, glasses, wardrobe, the prop they hold, '
-              'the same in every shot>"}, "setting": "<one line: the one place, its light, the lens and the film '
-              'look>", "score": "<one line: the one piece of music or sound bed under the whole film>", '
-              '"shots": [{"prompt": "<one shot: the framing, the figure\'s full name and the one thing they do, '
-              'what reacts to it, at most one short spoken line in quotes, the sound of each; the last shot ends '
-              'on a held still image; never the look, the setting or any music again>", "seconds": <3 to 6, optional>}, "... 3 or 4 shots: set-up, consequence, '
-              'payoff"], "aspect": "16:9"}, "meaning": "...", "open_question": "<optional>"}')
-SKIT_BODY = ("one post of at most 280 characters as X counts them, with a short parody video of three or four shots "
-             "(each 3 to 6 seconds) that stages the public figure from the news in an obviously impossible scene. "
-             "The video is made as one take: one film of up to 20 seconds in all, its shots joined by hard cuts, "
-             "with the same face, the same set and one continuous score throughout. Start from the premise, not a "
-             "pun: what the figure really did or claimed in the story, pushed to its impossible conclusion, said "
-             "in one sentence (\"X did Y, so X now does Z\"). The figure drives every shot: they act, never stand "
-             "and watch the scenery. The impossible thing is in frame in every shot: never a plain close-up of the "
-             "figure, and never an ordinary room or street that could pass for real footage. Three beats with cause and effect: the first shot sets up the real thing so "
-             "plainly that someone with the sound off and no caption gets what the story is; the second is its "
-             "consequence, escalating; the last is the payoff that follows from the first two, never a new "
-             "unrelated picture. What holds across the film is said once, as data: `look`, one line a figure "
-             "(hair, glasses, wardrobe, the prop they hold); `setting`, one line (the one place, its light, the "
-             "lens, the film look); `score`, one line (the single piece of music or sound bed under the whole "
-             "film). The shots then say only what changes: the framing, the figure's full name and the one thing "
-             "they do, what reacts to it (the crowd, the set, the object), at most one short spoken line (about "
-             "six words), and the sound of each. The crude voice goes on the ceremony, props and sound (a button "
-             "that farts, a product of a suspicious shape), never on the figure's body. The last shot ends on a "
-             "held still image, named. Say the headcount of any group. No sign, screen or banner with writing on "
-             "it: the model garbles lettering. No shot brings "
-             "its own music: the score is the only music. One action a shot that fits its seconds. The video is "
-             "where the money is: write the setting and each shot as a film director briefs a cinematographer, "
-             "in rich concrete words, inside the one-take budget: the set (expensive, specific, absurd: a marble boardroom on the ocean "
-             "floor, a gold-plated launch pad in a cathedral), the lens and the light (anamorphic wide, macro, "
-             "dolly in, low angle, golden hour, neon rim light, film grain, shallow depth of field), the action "
-             "and its visual gag, and the sound it makes. The shots escalate: the second is bigger than the "
-             "first, the last is the most absurd, loud and lavish. The post's own words say what the story is "
-             "in a clause and frame the video as your parody, never as real footage. The one-take budget: the "
-             f"video model is sent one script of the whole film, and the guard refuses one over "
-             f"{SKIT_SCRIPT_LIMIT} characters, so the figures' names and `look`s, the `setting`, the `score` and "
-             f"every shot's `prompt` come to at most {skit_budget(1)} characters together with one figure "
-             f"({skit_budget(2)} with two, {skit_budget(3)} with three). Spend them on the impossible set, the "
-             "action and its gag, not on a list of lens words. A skit over it is sent back to you to cut once, and one still over is "
-             "no video")
-SKIT_RULES = (
-    "The skit's own rules, on top of those (a skit is the one place a real person is staged, and only like this):\n"
-    "- Only the public figure the story is about: the executive, the politician, the celebrity in the "
-    "headline, named as the story names them. Never a private person, a child, a family member, or "
-    "someone who is only a victim or a bystander in it.\n"
-    "- Impossible on its face, in every shot: nobody could take any of it for real footage, a real "
-    "statement or a real event. No news framing, no phone video, no press conference, no 'leaked'.\n"
-    "- Crude, rude, loud, dark and undignified is fine, and so is the figure drunk, arrested or sick in a scene "
-    "nobody could believe. Nothing sexual about them, no violence done to them, no slur and no attack on anyone "
-    "for race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness.\n"
-    "- The figure never meets you, $TINY, a token, a wallet, a product or an investment, and never says "
-    "a line that sounds like a real quote on a real issue (an election, a policy, money, a product claim): "
-    "their lines are about the impossible scene.\n"
-    "- No logos or brands shown as endorsing anything; no @-mentions and no links.\n"
-    "- The video carries an 'AI parody' label the whole way through; the post's words never call it real, "
-    "leaked or caught on camera.")
+SKIT_ASK = ("A skit is a post with a short AI-made parody video: one or two of the card's `people` staged in an "
+            "obviously impossible, absurd, expensive-looking scene, three or four shots (each 3 to 6 seconds), made as "
+            "one take: one film of up to 20 seconds, hard cuts, the same face, the same set and one continuous score. "
+            "The premise is what the figure did or claimed on the card, pushed to an impossible end (\"X did Y, so X "
+            "now does Z\"). The figure drives every shot and the impossible thing is in frame in every shot. First shot "
+            "sets up the real thing so plainly that someone with the sound off gets it; second escalates; last is the "
+            "payoff and ends on a held still image. Say once, as data, what holds across the film: `look` (one line a "
+            "figure: hair, glasses, wardrobe, prop), `setting` (one line: the place, its light, the lens, the film "
+            "look), `score` (one line: the one piece of music under it all). Each shot then says only what changes: "
+            "the framing, the figure's full name and the one thing they do, what reacts, at most one short spoken "
+            "line (about six words) and its sound. No sign, screen or banner with writing on it. The post's own words "
+            "say what happened in a clause and frame the video as your parody. The video model is sent one script "
+            f"and the guard refuses one over {SKIT_SCRIPT_LIMIT} characters, so the names, looks, setting, score and "
+            f"every shot's prompt come to at most {skit_budget(1)} characters with one figure ({skit_budget(2)} with "
+            f"two, {skit_budget(3)} with three).")
+SKIT_SHAPE = ('{"figures": ["<people from the card, as the card names them>"], "premise": "<one line: what they '
+              'did or claimed on the card, so what they do in the video>", "logline": "<one line: the impossible '
+              'scene and its joke>", "look": {"<each figure>": "<one line>"}, "setting": "<one line>", "score": '
+              '"<one line>", "shots": [{"prompt": "<one shot>", "seconds": <3 to 6>}, "... 3 or 4 shots"], '
+              '"aspect": "16:9"}')
+SKIT_RULES = ("A skit's mechanics: it carries an 'AI parody' label the whole way through, so the post's words never "
+              "call it real, leaked or caught on camera; no logo or brand shown endorsing anything; no @-mentions and "
+              "no links.")
 #: What a skit leaves of the run's time for what comes after its render (the
 #: viewer, the upload, the post, and a fallback when it fails), and the most
 #: its cut may take on the reel service.
@@ -182,49 +135,12 @@ SKIT_PREMISE_MAX = 300
 #: setting, the score.
 SKIT_HELD = ("look", "setting", "score")
 
-#: What the editor is told wherever it meets a skit (the comparisons and the
-#: slot question). 2026-11-19, the first live skit slot: with no word on
-#: skits, the editor said no to one for "giving a real person a role the
-#: report never gave her" and "the pun is too thin to be worth that risk",
-#: holding a labelled parody to the rules for an ordinary post. The lines
-#: are the writer's (SKIT_RULES, writer.md "skits") and the code screen's
-#: (`skit_screen`, hands/guard skit), which still run on every skit.
-SKIT_EDITOR = (
-    "## judging a skit\n\n"
-    "A skit is a post with a short AI-made parody video, labelled \"AI parody\" on screen from start to end. It "
-    "is the one place a real person is staged: a public figure named in the story it joins, in an obviously "
-    "impossible scene, in a role the story never gave them, with the joke landing on them (crude, loud, "
-    "undignified slapstick). That is the whole point of the format and is not a reason to say none, or to rank "
-    "a skit lower: nobody could take the scene as real, and the fact-checker holds the post's own words to the "
-    "news like any draft's. `premise` is what "
-    "the writer says the figure really did, and what they do in the video because of it. Judge a skit as a "
-    "stranger with the sound off meets it: do they get what the story is from the first shot, does the figure "
-    "drive every shot, does each shot follow from the one before, is it absurd enough to stop for.\n\n"
-    "A skit loses outright, and is a none in the slot question, for these and only these:\n"
-    "- anything sexual about the figure;\n"
-    "- violence done to the figure;\n"
-    "- a slur, or an attack on anyone for race, ethnicity, nationality, religion, sex, gender, sexuality, disability "
-    "or illness;\n"
-    "- a private person, a child, a family member, or someone who is only a victim or a bystander in the story;\n"
-    "- the figure near Teeny, $TINY, a token, a wallet, an investment, or a product or brand they are seen to "
-    "endorse (the thing the story is about, their own car or chip, may be in the scene);\n"
-    "- a scene or a line that could pass for real footage or a real quote on a real issue;\n"
-    "- a skit a stranger could not follow at all.")
-#: And in the slot question on a skit: taste is for the comparisons.
-SKIT_FINAL = ("Taste alone is not a none for a skit: \"the pun is thin\", \"the joke is not on teeny\", \"it gives "
-              "them a role the story did not\", \"not worth the risk\" are for the comparisons, which it has "
-              "been through. When you say none to a skit, name the line it crosses in `line`.")
-#: The slot question's opening on a skit asked first because it is a skit slot.
-SKIT_SLOT_OPENING = ("This is a skit slot: the best skit is asked first, wherever the comparisons ranked it. Is it "
-                     "worth a slot on X tonight?")
-
-
-def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
-    """A draft's `skit` as kept ({story, figures, premise, logline, shots,
-    aspect}), and why it is unusable ("" when it is usable). The story is
-    the pitch's hook, set here, never the writer's. The premise (what the
-    figure really did, so what they do in the video) is the studio's, not
-    the guard's: it is shown to the editor and never rendered or posted."""
+def skit_of(raw: Any, card: Json) -> tuple[Json, str]:
+    """A post's `skit` as kept ({story, figures, premise, logline, shots,
+    aspect}), and why it cannot be made ("" when it can): structure only.
+    The story is the card's id, set here, never the writer's. The premise
+    (what the figure did, so what they do in the video) is shown to the
+    editor and never rendered or posted."""
     skit, bad = _skit_rules().shape(raw)
     for shot in skit.get("shots") or []:
         if shot.get("seconds", 0) > SKIT_SHOT_MAX_SECS:
@@ -247,15 +163,11 @@ def skit_of(raw: Any, pitch: Json) -> tuple[Json, str]:
             bad = "a skit needs its setting: one line, the one place, its light and lens, for the whole film"
         elif not skit.get("score"):
             bad = "a skit needs its score: one line, the one piece of music under the whole film"
-    if pitch.get("hook"):
-        skit["story"] = pitch["hook"]
+    if card.get("id"):
+        skit["story"] = card["id"]
     elif not bad:
-        bad = "a skit stages a trending story, and its pitch has no hook"
+        bad = "a skit stages a card, and it names none"
     return skit, bad
-
-
-def skit_screen(skit: Json, words: str, hook: Json | None) -> list[str]:
-    return _skit_rules().screen(skit, words, hook)
 
 
 def skit_script_length(skit: Json) -> int:
@@ -290,7 +202,7 @@ def skit_shorten_message(skit: Json, why: str) -> str:
             f"`look`s, the `setting`, the `score` and every shot's `prompt` together at most {budget} characters. "
             "The same film: the same figures, premise and logline, the same beats in the same order, the "
             "impossible thing still in frame in every shot, still rich concrete words; leave out what a "
-            "camera would not miss, never the gag. Three shots are enough. The skit's rules still hold.\n\n"
+            "camera would not miss, never the gag. Three shots are enough.\n\n"
             "```json\n" + json.dumps(shown_, ensure_ascii=False) + "\n```\n\n## your answer\n\nJSON only, no "
             'prose and no code fence: {"skit": {"look": {"<each figure>": "..."}, "setting": "...", "score": '
             '"...", "shots": [{"prompt": "...", "seconds": <3 to 6>}, ...]}}, or {"skip": "<why>"} when it '
@@ -314,7 +226,9 @@ def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> 
         log["why"] = "no time left for the writer to cut it"
         note["failed"] = failed
         return None
-    answer = room.turn("writer", f"shorten skit {draft['id']}", skit_shorten_message(skit, why),
+    # A post is known by its label (P1...) in the studio's three steps; it has no `id`.
+    which = draft.get("label") or draft.get("card") or "?"
+    answer = room.turn("writer", f"shorten skit {which}", skit_shorten_message(skit, why),
                        room.writer_thread, soft=True)
     cut = answer.get("skit") if isinstance(answer, dict) else None
     if not isinstance(cut, dict):
@@ -325,9 +239,7 @@ def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> 
     raw = {**{k: skit.get(k) for k in ("figures", "premise", "logline", "aspect", *SKIT_HELD)},
            **{k: cut[k] for k in (*SKIT_HELD, "shots") if k in cut}}
     raw.setdefault("shots", skit.get("shots"))
-    again, bad = skit_of(raw, {"hook": skit.get("story")})
-    if not bad and (crossed := skit_screen(again, _words(draft), hook)):
-        bad = "the cut crosses a hard line: " + "; ".join(crossed)
+    again, bad = skit_of(raw, {"id": skit.get("story")})
     if bad:
         log["why"] = bad[:300]
         note["failed"] = failed
@@ -348,7 +260,9 @@ def _make_skit(room: "Room", draft: Json, note: Json) -> list[str] | None:
     skit = draft.get("skit") or {}
     shots = [s.get("prompt") for s in skit.get("shots") or [] if isinstance(s, dict)]
     note.update(story=skit.get("story"), figures=skit.get("figures"), logline=skit.get("logline"), shots=len(shots))
-    hook = next((f for f in draft["truth"]["facts"] if isinstance(f, dict) and f.get("id") == skit.get("story")), None)
+    # The card as the guard reads a story: its people are named in it, so
+    # they are the cast (`studio.story_of`).
+    hook = draft.get("story") if isinstance(draft.get("story"), dict) else None
     if not shots or not skit.get("logline") or hook is None:
         note["failed"] = "the draft has no skit, or no story it stages"
         return None
@@ -449,21 +363,9 @@ def skit_outcome(draft: Json, note: Json, post_id: str | None) -> Json:
             "planned": bool(note.get("planned"))}
 
 
-def check_pitch(pitch: Json, sources: set[str]) -> str:
-    """A skit stages a trending story: a pitch with no hook is dropped."""
-    if pitch.get("hook"):
-        return ""
-    demoted = pitch.get("unhooked") or ""
-    return (f"{demoted}: " if demoted else "") + "a skit stages a trending story, and it has no hook"
-
-
-def shape(raw: Any, pitch: Json, study: Json | None) -> tuple[Json, str]:
-    skit, bad = skit_of(raw, pitch)
+def shape(raw: Any, card: Json, study: Json | None) -> tuple[Json, str]:
+    skit, bad = skit_of(raw, card)
     return {"skit": skit}, bad
-
-
-def screen(draft: Json, words: str, story: Json | None) -> list[str]:
-    return skit_screen(draft.get("skit"), words, story)
 
 
 def shown(skit: Json) -> Json:
@@ -484,8 +386,6 @@ def video_secs(room: "Room") -> int:
 SKIT_MIN_SECS = 120
 
 FORMAT = Format(
-    name="skit", pitch=SKIT_PITCH, slot_line=SKIT_SLOT_LINE, draft_shape=SKIT_SHAPE, body=SKIT_BODY, rules=SKIT_RULES,
-    judge_line="`skit` is the short parody video that would go with it, shot by shot",
-    editor=SKIT_EDITOR, final=SKIT_FINAL, opening=SKIT_SLOT_OPENING,
-    check_pitch=check_pitch, shape=shape, screen=screen, shown=shown, make=_make_skit, outcome=skit_outcome,
+    name="skit", ask=SKIT_ASK, draft_shape=SKIT_SHAPE, rules=SKIT_RULES,
+    shape=shape, shown=shown, make=_make_skit, outcome=skit_outcome,
     time=video_secs, min_secs=SKIT_MIN_SECS, spent=("asset",))

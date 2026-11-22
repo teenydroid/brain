@@ -324,8 +324,8 @@ real figure.
 ## 9. Fallbacks and failure
 
 As the skit and remake producers do now: a refused or failed take moves to the
-next model; no model means the next video pitch; no video means the slot posts
-text or a meme. A content refusal from a provider is final for that image on
+next model; no model means the next ranked video; no video means the slot posts
+the next ranked word post. A content refusal from a provider is final for that image on
 that model.
 
 ## 10. Build plan (one PR each)
