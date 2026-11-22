@@ -32,6 +32,9 @@ case "$*" in
       none) : ;;
     esac >>"$FAKE_ROOT/state/tick/runs.jsonl"
     ;;
+  *"tee state/home/notes/inbox/operator-"*)
+    mkdir -p "$FAKE_ROOT/state/home/notes/inbox"
+    cat >"$FAKE_ROOT/state/home/notes/inbox/${*##*/}" ;;
   *) echo "unexpected docker call: $*" >&2; exit 1 ;;
 esac
 FAKE
@@ -88,6 +91,26 @@ fresh empty
 set +e; tell "   " >/dev/null 2>&1; code=$?; set -e
 check "an empty message is refused" [ "$code" = 1 ]
 check "and reaches nothing" [ ! -e "$root/calls.log" ]
+
+# --- --mind: a note for the agentic mind's inbox (docs/mind.md) ----------------
+fresh mind
+set +e; out="$(tell --mind "look at what the claw agents are doing and try one idea" 2>&1)"; code=$?; set -e
+check "--mind exits 0" [ "$code" = 0 ]
+note="$(ls "$root"/state/home/notes/inbox/operator-host-*.md 2>/dev/null | head -n 1)"
+check "it leaves one operator note in the mind's inbox" [ -n "$note" ]
+check "the note carries the text" grep -q "look at what the claw agents are doing and try one idea" "$note"
+check "and says it is the operator's" grep -q "^from: operator" "$note"
+check "no stimulus is added and no beat started" sh -c "! grep -q 'stimuli add\|bin/tick' '$root/calls.log'"
+check "it is counted in said.jsonl, by hash and never by text" python3 -c '
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1])]
+assert len(rows) == 1 and rows[0]["to"] == "mind" and rows[0]["chars"] == 55 and "text" not in rows[0], rows
+' "$root/state/host/said.jsonl"
+check "it says where the note went" grep -q "left for the mind" <<<"$out"
+
+fresh mindempty
+set +e; tell --mind "  " >/dev/null 2>&1; code=$?; set -e
+check "--mind refuses an empty note" [ "$code" = 1 ]
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
