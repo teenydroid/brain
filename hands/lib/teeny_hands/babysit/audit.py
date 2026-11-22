@@ -120,7 +120,11 @@ class _Audit:
         self.author = pr.get("user")
         self.author_tier = self.tier(self.author)
         self.head_sha = pr.get("head_sha")
-        self.evolve = self._is_evolve_pr()
+        # What stands in for a person's approval of a self-merge candidate:
+        # teeny/eval (an evolve PR), or the required checks (every teeny/
+        # PR, BABYSIT_SELF_MERGE_ALL). None for everyone else.
+        self.gate = "checks" if self._is_self_change() else "eval" if self._is_evolve_pr() else None
+        self.evolve = self.gate is not None
         self.eval_state: str | None = None
         if pr.get("state") != "open":
             return self._answer(closed=True)
