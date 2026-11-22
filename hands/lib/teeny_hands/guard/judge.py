@@ -110,8 +110,14 @@ def failed(reason: str) -> bool:
 # Every category the judge's answer may name. "profanity" is no longer
 # offered (ANSWER_SHAPE) and holds nothing since 2026-11-22: a judge that
 # still answers it is read as clean (`read`), so swearing can never hold a
-# text, whatever the model reaches for.
-CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity")
+# text, whatever the model reaches for. "extremism" is not offered since the
+# same day's content list either (RULES); it stays readable for old answers
+# and rows. "harassment", "misinformation" and "doxxing" are the X-rules lines
+# of that list; a threat against a real person is "violence".
+CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity",
+              "harassment", "misinformation", "doxxing")
+OFFERED = ("none", "sexual", "drugs", "weapons", "hate", "violence", "self-harm", "harassment", "misinformation",
+           "doxxing")
 
 
 @dataclass(frozen=True)
@@ -162,7 +168,7 @@ Prohibit only on a clear breach of one of these lines. When unsure, clean."""
 # nearest. The descriptions are the Rust schema's.
 ANSWER_SHAPE = """Answer with one JSON object and nothing else (no prose, no code fence), with these fields in this order:
 - "reason": a string. One short sentence on what the text is and why it is clean or prohibited.
-- "category": one of "none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism". The prohibited category the reason names. `none` when the text is clean.
+- "category": one of "none", "sexual", "drugs", "weapons", "hate", "violence" (a threat against a real person), "self-harm", "harassment", "misinformation" (fake news stated as fact about a real person), "doxxing". The prohibited line the reason names. `none` when the text is clean.
 - "verdict": "clean" or "prohibited". `prohibited` when category is anything but none."""
 
 
