@@ -231,6 +231,8 @@ class _Audit:
                      path, what)
         if policy.is_test_removal(raw, status):
             self.add("removes_test", "operator", path)
+        if path in self.rolled_back:
+            self.add("recently_rolled_back", "operator", path)
         if frozen is not None:
             pattern = frozen(raw)
             if pattern is not None:
