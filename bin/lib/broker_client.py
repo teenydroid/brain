@@ -32,6 +32,13 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
   teeny wakes                list your wakes
   teeny drop-wake <name>     remove one of your wakes
   teeny goals                list your goals
+  teeny repo                 your clone of your own repository, at repo/ beside bin/: checked out
+                             afresh at the upstream head unless it holds edits (delete repo/ for a
+                             fresh one). Its git lives outside your home: edit files, don't run git
+  teeny pr '<json>'          turn your edits in repo/ into a pull request from teeny/mind-<branch>:
+                             teeny pr '{"branch": "fix-morning-post", "title": "...", "body": "..."}'
+                             (refused when it touches a frozen path, holds a secret or a link, is
+                             over 100 files or 3000 lines, or today's pull requests are spent)
   teeny help                 this
 """
 
@@ -53,9 +60,9 @@ def _object(text: str) -> dict:
 def _request(argv: list[str]) -> tuple[str, dict]:
     """The path and body for a command; ValueError when it is malformed."""
     command, args = argv[0], argv[1:]
-    if command in ("do", "wake") and len(args) == 1:
+    if command in ("do", "wake", "pr") and len(args) == 1:
         return f"/{command}", _object(args[0])
-    if command in ("wakes", "goals") and not args:
+    if command in ("wakes", "goals", "repo") and not args:
         return f"/{command}", {}
     if command == "drop-wake" and len(args) == 1:
         return "/drop-wake", {"name": args[0]}
