@@ -13,6 +13,7 @@ calls a model or spends money."""
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import sys
 import tempfile
@@ -24,6 +25,7 @@ REPO = Path(__file__).resolve().parents[1].parent
 sys.path.insert(0, str(REPO / "bin" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import studio  # noqa: E402
+import formats  # noqa: E402
 from formats import remake as rf  # noqa: E402
 
 import test_studio_skit as skit_t  # noqa: E402
@@ -579,11 +581,13 @@ class RemakeDropTest(unittest.TestCase):
                 self.assertTrue(any("could not be dropped" in w and "r1" in w for w in room.warnings), room.warnings)
 
 
-class VideoPublishTest(skit_t.PublishTest):
+class VideoPublishTest(unittest.TestCase):
     """Across the video formats: a failed video that spent money (a
     remake's keys) takes the skits out too; one that spent nothing lets the
     next video, of any format, be tried; a video with no time left for its
     format is passed over."""
+
+    publish = skit_t.PublishTest.publish
 
     def test_a_failed_remake_that_spent_nothing_gives_the_skit_its_try(self):
         out, tried = self.publish(["R1", "R2", "S1", "P1"], {"R1": "next", "R2": "next"})
@@ -659,8 +663,9 @@ class RemakeWinsRunTest(VideoSlotRun):
     def test_the_videos_go_first_in_the_editors_order_then_the_rest(self):
         self.prefer = ("post", "remake", "skit")
         self.env["STUDIO_RUN_ID"] = "remake-2"
-        with mock.patch.object(studio.registry()["remake"], "make", lambda room, post, note: None), \
-                mock.patch.object(studio.registry()["skit"], "make", lambda room, post, note: None):
+        failing = {name: dataclasses.replace(studio.registry()[name], make=lambda room, post, note: None)
+                   for name in ("skit", "remake")}
+        with mock.patch.dict(formats.REGISTRY, failing):
             code, out, record, calls = self.run_slot()
         self.assertEqual([a["format"] for a in record["publish"]["attempts"]], ["remake", "skit", "post"])
         self.assertEqual(record["ranking"]["order"][0], record["publish"]["attempts"][2]["label"])
