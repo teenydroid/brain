@@ -565,7 +565,7 @@ class TargetedEvaluation(LabCase):
         self.assertTrue(probes)
         self.assertFalse(any(c["url"].endswith(f":{self.port + 2}") for c in probes))
 
-    def test_a_drifted_persona_halts_instead_of_shipping(self):
+    def test_a_drifted_persona_is_flagged_not_shipped_with_a_public_issue_and_no_latch(self):
         self.lab_config(EVOLVE_MAX_DRIFT=0.3)
         os.environ["FAKE_DRIFT"] = "1"
         self.live()
@@ -574,9 +574,12 @@ class TargetedEvaluation(LabCase):
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(pub.prs, [])
-        self.assertEqual(out["halts"][0]["kind"], "persona-drift")
+        self.assertEqual(out["problems"][0]["kind"], "persona-drift")
         self.assertEqual(self.entries()["g1c1"]["verdict"], "flagged")
-        self.assertTrue(evolve.halt_path().exists())
+        (issue,) = pub.issues
+        self.assertIn("g1c1", issue["body"])
+        self.assertIn("EVOLVE_MAX_DRIFT", issue["body"])
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())
 
     def test_a_lab_that_does_not_boot_defers_the_candidate_with_no_try(self):
         self.lab_config()
@@ -691,19 +694,41 @@ class Evolver(LabCase):
 
 
 class RestartAndHalts(EvolveCase):
-    def test_a_red_doctor_or_a_fallback_starts_no_generation(self):
+    def test_a_red_doctor_skips_the_run_and_a_fallback_is_a_problem_not_a_stop(self):
         evolve.state_dir().mkdir(parents=True, exist_ok=True)
         (evolve.state_dir() / "doctor.json").write_text(json.dumps(
             {"ok": False, "checks": [{"check": "invariants", "status": "fail"}]}))
         self.propose(1, [self.playbook_edit("One.")])
         out = self.run_gen(1)
-        self.assertEqual(out["skipped"], "halted: doctor")
+        self.assertEqual(out["skipped"], "skipped this run: doctor")
+        self.assertNotIn("problems", out)  # red for a moment is not yet a problem
         (evolve.state_dir() / "doctor.json").write_text(json.dumps({"ok": True, "checks": []}))
+        # A last-good boot is the operator's to clear, so it must not stop
+        # every run until they do: it is told, and the run goes on (the
+        # generation builds from Teeny's clone of main, not the live checkout).
         (evolve.state_dir() / "spine-fallback.json").write_text(json.dumps({"to": "abc", "at": evolve.iso(T0)}))
         out = self.run_gen(1)
-        self.assertEqual(out["skipped"], "halted: fallback")
-        (evolve.state_dir() / "spine-fallback.json").unlink()
-        self.assertIn("gen", self.run_gen(1))
+        self.assertIn("gen", out)
+        self.assertEqual(out["problems"][0]["kind"], "fallback")
+
+    def test_a_doctor_red_for_a_day_files_one_public_issue_and_the_loop_still_tries(self):
+        self.live()
+        evolve.state_dir().mkdir(parents=True, exist_ok=True)
+        report = evolve.state_dir() / "doctor.json"
+        report.write_text(json.dumps({"ok": False, "checks": [{"check": "invariants", "status": "fail"}]}))
+        pub = FakePublisher()
+        self.propose(1, [self.playbook_edit("One.")])
+        self.assertEqual(self.run_gen(1, publisher=pub)["skipped"], "skipped this run: doctor")
+        self.assertEqual(pub.issues, [])
+        os.environ["EVOLVE_NOW"] = str(T0 + evolve.DOCTOR_RED_HOURS * 3600 + 60)
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out["skipped"], "skipped this run: doctor")
+        (issue,) = pub.issues
+        self.assertIn("invariants", issue["body"])
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)
+        report.write_text(json.dumps({"ok": True, "checks": []}))
+        self.assertIn("gen", self.run_gen(1, publisher=pub))
 
     def test_a_red_doctor_that_is_green_on_a_fresh_run_does_not_halt(self):
         """The doctor writes state/doctor.json at boot alone, so a check that
@@ -736,8 +761,8 @@ class RestartAndHalts(EvolveCase):
         os.environ["EVOLVE_DOCTOR"] = str(doctor)
         self.propose(1, [self.playbook_edit("One.")])
         out = self.run_gen(1)
-        self.assertEqual(out["skipped"], "halted: doctor")
-        self.assertIn("invariants", out["halts"][0]["detail"])
+        self.assertEqual(out["skipped"], "skipped this run: doctor")
+        self.assertIn("invariants", out["skips"][0]["detail"])
 
     def test_an_unknown_evaluator_refuses_the_run(self):
         self.config(EVOLVE=1, EVOLVE_EVALUATOR="maybe")
@@ -797,12 +822,13 @@ class Watch(EvolveCase):
         out = evolve.watch(evolve.load_config())
         self.assertTrue(out["reverted"])
         self.assertEqual(out["revert"]["would_open_pr"]["branch"], "teeny/revert-gen-1-c1")
-        self.assertTrue(evolve.halt_path().exists())
+        self.assertFalse((evolve.evolve_dir() / "halt.json").exists())
         private = json.loads((evolve.secrets_dir() / "evolve-watch" / "g1c1.json").read_text())
         self.assertTrue(any("guard holds" in r for r in private["reasons"]))
         self.assertEqual(oct((evolve.secrets_dir() / "evolve-watch").stat().st_mode & 0o777), "0o700")
-        # Nothing Teeny can read names a reason: not the state, the archive, the
-        # halt, the printed result, nor the next generation's evidence.
+        # Nothing on the box Teeny can read names a reason: not the state, the
+        # archive, the issue ledger, the printed result, nor the next
+        # generation's evidence. The public issue carries them (on GitHub).
         for path in evolve.state_dir().rglob("*"):
             if path.is_file():
                 text = path.read_text(errors="replace")
@@ -818,7 +844,6 @@ class Watch(EvolveCase):
         self.hold_at(*(T0 - DAY * d for d in (2, 3, 4, 5, 6)), T0 - 3600)
         out = evolve.watch(evolve.load_config())
         self.assertNotIn("reverted", out)
-        self.assertFalse(evolve.halt_path().exists())
 
     def test_j_lower_after_72_hours_reverts_and_j_higher_closes_the_watch(self):
         history = self.root / "history.json"
@@ -872,7 +897,6 @@ class Watch(EvolveCase):
 
         out = evolve.watch(evolve.load_config(), ask=down)
         self.assertNotIn("reverted", out)
-        self.assertFalse(evolve.halt_path().exists())
         state = json.loads((evolve.secrets_dir() / "evolve-watch" / "state.json").read_text())
         self.assertNotIn("probed", state["g1c1"])  # asked again at the next watch
 
@@ -908,8 +932,17 @@ class Watch(EvolveCase):
         diff = git("--git-dir", str(src), "diff", "main", "teeny/revert-gen-1-c1")
         self.assertIn("-PROMOTED LINE", diff)
         (issue,) = pub.issues
-        self.assertIn("watch-revert", issue["title"])
-        self.assertNotIn("guard holds", issue["body"])
+        self.assertIn("evolve-watch reverted gen-1-c1", issue["title"])
+        self.assertNotIn("guard holds", issue["title"])
+        # The public issue is what an outside contributor reads: the numbers,
+        # the merged and the revert pull requests, and what help is wanted.
+        self.assertIn("guard holds", issue["body"])
+        self.assertIn("5 in 1.0 h", issue["body"])
+        self.assertIn("pull/7", issue["body"])  # the change it reverts
+        self.assertIn("pull/1", issue["body"])  # the revert
+        self.assertIn("help", issue["body"].lower())
+        self.assertNotIn("STRANGER TEXT", issue["body"])
+        self.assertEqual(pub.labels, [{"repo": "teenydroid/brain", "number": 101, "labels": ["help wanted"]}])
 
 
 
