@@ -427,27 +427,33 @@ class WakeTest(BrokerCase):
     def test_a_bad_wake_is_refused_and_nothing_is_created(self):
         self.start()
         bad = [
-            {"name": "past", "note": "n", "at": "2026-09-14T06:59:00Z"},
-            {"name": "far", "note": "n", "at": "2026-12-14T07:00:01Z"},
-            {"name": "local", "note": "n", "at": "2026-09-14T09:30:00+05:30"},
-            {"name": "garbled", "note": "n", "at": "tomorrow"},
-            {"name": "fast", "note": "n", "cron": "*/2 * * * *"},
-            {"name": "every", "note": "n", "cron": "* * * * *"},
-            {"name": "bogus", "note": "n", "cron": "bogus"},
-            {"name": "days", "note": "n", "cron": "0 9 * * mon"},
-            {"name": "both", "note": "n", "cron": "0 9 * * *", "at": "2026-09-14T09:30:00Z"},
-            {"name": "neither", "note": "n"},
-            {"name": "empty", "note": " ", "cron": "0 9 * * *"},
-            {"name": "long", "note": "n" * 2001, "cron": "0 9 * * *"},
-            {"name": "Bad", "note": "n", "cron": "0 9 * * *"},
-            {"name": "a.b", "note": "n", "cron": "0 9 * * *"},
-            {"name": "../x", "note": "n", "cron": "0 9 * * *"},
-            {"name": "a" * 33, "note": "n", "cron": "0 9 * * *"},
-            {"note": "n", "cron": "0 9 * * *"},
+            ({"name": "past", "note": "n", "at": "2026-09-14T06:59:00Z"}, "past"),
+            ({"name": "far", "note": "n", "at": "2026-12-13T07:00:01Z"}, "90 days"),
+            ({"name": "local", "note": "n", "at": "2026-09-14T09:30:00+05:30"}, "UTC"),
+            ({"name": "garbled", "note": "n", "at": "tomorrow"}, "UTC"),
+            ({"name": "fast", "note": "n", "cron": "*/2 * * * *"}, "every 5 minutes"),
+            ({"name": "every", "note": "n", "cron": "* * * * *"}, "every 5 minutes"),
+            ({"name": "bogus", "note": "n", "cron": "bogus"}, "five-field"),
+            ({"name": "days", "note": "n", "cron": "0 9 * * mon"}, "unsupported"),
+            ({"name": "hour", "note": "n", "cron": "0 25 * * *"}, "outside"),
+            ({"name": "both", "note": "n", "cron": "0 9 * * *", "at": "2026-09-14T09:30:00Z"}, "not both"),
+            ({"name": "neither", "note": "n"}, "not both"),
+            ({"name": "empty", "note": " ", "cron": "0 9 * * *"}, "note"),
+            ({"name": "long", "note": "n" * 2001, "cron": "0 9 * * *"}, "note"),
+            ({"name": "Bad", "note": "n", "cron": "0 9 * * *"}, "name"),
+            ({"name": "a.b", "note": "n", "cron": "0 9 * * *"}, "name"),
+            ({"name": "../x", "note": "n", "cron": "0 9 * * *"}, "name"),
+            ({"name": "a" * 33, "note": "n", "cron": "0 9 * * *"}, "name"),
+            ({"note": "n", "cron": "0 9 * * *"}, "name"),
         ]
-        for body in bad:
+        for body, why in bad:
             code, out = self.post("/wake", body)
             self.assertEqual((code, out["status"]), (403, "refused"), body)
+            self.assertIn(why, out["reason"], body)
+        code, out = self.post("/wake", {"name": "edge", "note": "n", "at": "2026-12-13T07:00:00Z"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(len(self.oh_calls("cron_add")), 1)
+        self.oh_calls_before = None
         self.assertEqual(self.oh_calls("cron_add"), [])
 
     def test_a_wake_by_a_name_already_taken_is_refused(self):
