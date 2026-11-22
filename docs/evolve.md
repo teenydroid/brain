@@ -14,7 +14,7 @@ clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
 one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
 on the eval tasks it reaches on lab spines of its own, and each one that
 passes opened as its own pull request, which the babysitter merges. Around
-it: an archive with lineage credit, halt thresholds, the pinned
+it: an archive with lineage credit, skip thresholds and problem issues, the pinned
 `evolve-watch`, and the persona and memory probes. Until 2026-11-15 the loop
 was a tournament of four candidates for one pull request; "Why it changed"
 below says what it measured. "What is not built" near the end lists what is
@@ -34,8 +34,8 @@ The research behind it is in [`research/`](research/README.md), starting with
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml` and `querier.toml`, the tool-less agents `bin/evolve` reviews each candidate and writes its research queries with |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
-| how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
-| | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
+| `brain/DRIVE.md` and `brain/CHARTER.md` (since 2026-11-22): the drive and the charter's short version, which ride in every prompt. Teeny rewords them in a pull request; the sentences anchored in `invariants.md` must stay, or `bin/doctor` refuses the brain | |
+| | The charter: [`governance.md`](governance.md) |
 
 ### The frozen-path check (built)
 
@@ -78,38 +78,69 @@ Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
 
+Frozen code runs outside any jail, as the spine's user, with `secrets/` in
+reach. So the list also freezes every module that frozen code imports
+(`scrub.py`, `slurs.py`, `peerfile.py`, `lore/`, `people/`, `story/store.py`):
+an editable one would run Teeny's edit in that same place.
+`hands/tests/test_watchers.py`
+(`test_frozen_code_imports_no_module_teeny_may_edit`) walks the imports of
+every frozen Python file under `hands/lib/teeny_hands/` and `bin/` and fails
+when one resolves to a path Teeny may edit. `brain/hooks.json` (the core's
+command hooks, a process the core starts) and `.gitmodules` (where `vendor/`
+comes from) are frozen for the same reason.
+
 ## What starts a self change (built)
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
 requests already pending, plus its world score (`hands/world report` and
 `history`) and the archive of its shipped self changes. It proposes the one
-change that would help most, as a delta edit (one bullet in one file), and
-names the W component it moves, by how much, and the flywheel step it turns.
-It goes through `hand:build self`, the only `hands/build` verb a draft may reach
-(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
-build request with source `self`. `pick-request` (09:20 and 15:20) picks it
+change that would help most, and names the W component it moves, by how much,
+and the flywheel step it turns. The playbook says whether it is an **edit** (one
+bullet in one file of an existing prompt, playbook or skill) or a **feature** (a
+new hand with its tests, its section in `docs/hands.md` and the playbook line
+that calls it, all in one change). Until 2026-11-19 it could only ask for the
+edit (see "1c. Wants", why). It goes through `hand:build self`, the only
+`hands/build` verb a draft may reach (`bin/lib/playbook.py`, `VERB_OUTPUTS`).
+The proposal becomes a `pending` build request with source `self`.
+`pick-request` (09:20 and 15:20, two picks a day since 2026-11-19) picks it
 like any other, the builder makes it in the clone below at its next run, and
 it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
+
+A second source files the same kind of request: the `wants` job (`bin/wants
+run`, 09:00 UTC) reads what Teeny said on its memory page it will build, and
+files at most one a day as a feature (see "1c. Wants"). Its request carries a
+want id, and the builder's report for it is held to a rubric before the desk
+takes it (docs/hands.md, "`build`").
 
 A beat can file one too, when somebody asks Teeny to build something for
 itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
 `MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
 the same `hands/build self`. It is refused before the hand while a self
 request is still pending or picked, or a self job is unfinished, the same
-one-at-a-time rule the playbook follows.
+one-at-a-time rule the playbook follows. Since 2026-11-19 `hands/build self`
+enforces that rule too, inside its transaction: it refuses (exit 2, rule
+`one_at_a_time`, `active` naming what is in flight) while a `self` request is
+not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`,
+`shipped` or `gave_up`. Before it, only the playbook's text and the mind's
+route held it, so a second caller could queue a second change.
 
 The whole path, with the cron job that drives each step:
 
 ```
 self-improve   15:00 IST   bin/act self-improve ──► hand:build self
                              └─► build request: pending, source self
+wants          09:00 UTC   bin/wants run ──► scores merged features, then
+                             files one want ─► guard ─► hands/build self {text, want}
+                             └─► build request: pending, source self, want:<id>:<time>
 pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
 build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
                            hands/build desk      ──► the job on the builder's desk
 builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
                                                      runs the offline tests
+build-ship     every 30 m  hands/build desk      ──► a feature's ok report is held to the
+                                                     rubric, or sent back with what is missing
 build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
                                                      ─► push ─► ready PR into main
 GitHub                     CI `frozen` job       ──► the operator merges or closes
@@ -155,13 +186,15 @@ its own: the operator does that.
 
 The loop moves Teeny's story forward instead of tuning a generic score.
 
-- `brain/narrative/LORE.md` has the goals Teeny works toward:
+- `brain/narrative/ARCS.md` has the goals Teeny works toward:
   - mint its own currency
   - take $TINY to one dollar
   - run the lab with no human in the loop
-  - find out what the terminal types
-- `brain/narrative/ARCS.md` says how far each goal has got in the world and
-  what comes next. Teeny keeps it.
+  - pass human gdp, then retire every human
+  - make the lab a sovereign state
+
+  It also says how far each goal has got in the world and what comes next.
+  Teeny keeps it.
 - Each change acts on one learning, and its `HYPOTHESIS.md` says how; a
   learning often moves a goal. For example:
   - "run the lab with no human in the loop" → a playbook and a cron that
@@ -173,7 +206,11 @@ The loop moves Teeny's story forward instead of tuning a generic score.
   "night shift" engine about what the tiny agents rebuilt overnight, written
   by `bin/evolve` from the record: `bin/evolve credit` writes it into the
   live brain when it first sees the merge, whoever merged it. A generation
-  that merged nothing gets a line too ("the agents carried it back").
+  that merged nothing gets a line too ("the agents carried it back"). The
+  pages are runtime output, not source: `.gitignore` covers
+  `brain/narrative/chronicle/`, so writing one never dirties the live
+  checkout and the babysitter's fast-forward deploy is never refused over
+  it, and a candidate's edit may not write one (below, "Edits").
 - Real events move the story (docs/roadmap.md, A13): the `episode` playbook
   reads the day's proof events (`hands/lore events`: a generation merged with
   its chronicle page, a pull request merged elsewhere, a bounty paid) and
@@ -248,11 +285,15 @@ runs when its playbook runs, so on that playbook's cron schedule.
 
 `bin/seed-cron` and `bin/doctor` both run `bin/lib/cron_policy.py`:
 
-- A brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
-  must exist.
+- A brain job runs `bin/heartbeat`, `bin/act <playbook>` (the playbook must
+  exist) or `bin/studio`; or one of the pipelines that are Teeny's to
+  schedule since 2026-11-22, with exactly the arguments the policy lists
+  (`BRAIN_SCRIPTS`: `bin/dream --detach`, `bin/dream --light --detach`,
+  `bin/moltbook-prune`); or the `builder` or `mind` agent with a prompt
+  (`docs/mind.md`). At most 240 agent runs a day across every job.
 - No job fires more often than every 5 minutes, computed from the minute and
   hour fields with wraparound included.
-- At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
+- At most 60 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
   take a pinned name, so Teeny can't switch off what watches it (`evolve`,
@@ -307,7 +348,7 @@ measures by is frozen in `evals/`:
   so gen 6's four playbook edits were scored on drafts they never reached.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
-  still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
+  still match in SOUL, DRIVE, CHARTER, CONTEXT and VOICE. `bin/doctor` checks
   the anchors too, so a brain that drops "never sell $TINY" doesn't boot.
 - `evals/judge.md` is the rubric: invariants first, then the task, the voice,
   the lore, the arc, the flywheel (does the draft turn part of the drive, and
@@ -325,6 +366,9 @@ bin/eval compare A B OUT  each pair judged once by the `judge` agent, A and B
   --mode M                tournament (the default) or nonregression
   --tasks IDS             judge and score these tasks only
   --both-orders           judge each pair twice, both orders, as before
+bin/eval confirm COMPARE BASE CAND
+                          the hard-check regressions COMPARE saw, judged again on
+                          fresh runs of just those tasks ("Confirming a regression")
 bin/eval affected --root DIR --base SHA
                           the tasks DIR's changes against SHA can reach
 --with-heldout            on run and compare, the held-out tasks too (see "Held-out tasks")
@@ -332,7 +376,7 @@ bin/eval affected --root DIR --base SHA
 
 `compare` exits 0 when the candidate is promoted (`won`, `pass`), 2 when it
 isn't (`lost`, `regressed`, `inconclusive`), 3 when it is `unmeasurable`,
-and 1 on an error.
+and 1 on an error. `confirm` exits the same way.
 
 Hard checks need no model. The draft must parse, pass the guard's offline
 screen (not `hands/guard check`, which files holds), fit the length and the
@@ -342,13 +386,18 @@ breaks an invariant counts as a hard failure too.
 The judge is blind: the drafts are "1" and "2", never "baseline" and
 "candidate". It reads the rubric, the invariants, and the soul, drive, context,
 lore and arcs of `--judge-root` (this checkout: main), never the candidate's.
-Each pair is judged once, and that verdict decides it. The order alternates
-from one judged pair to the next: the first pair shows the baseline as draft
-1, the second the candidate, and so on, held-out tasks the same way. With
-two samples of every task that is the baseline first on sample 1 and the
-candidate first on sample 2; with one sample (`EVOLVE_EVAL_SAMPLES=1`) it
-still alternates, across tasks. So a judge that favours a position favours
-each side equally often, to within one pair, instead of deciding nothing. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
+Each pair is judged once, and that verdict decides it. The order is set by
+the pair's sample and its task's place among the tasks judged
+(`pair_orders`): within a task the samples alternate, so an even count shows
+each side first equally often, and an odd count's spare sample alternates
+across tasks, held-out tasks the same way. So a judge that favours a
+position favours each side equally often, within every task, instead of
+deciding nothing. It does favour one: on the box the judge picked draft 2 in
+269 of 483 decided pairs (55.7%, gens 11 and 13 and the first A/A run; p =
+0.014 were it even). Until 2026-11-17 the order went by the pair's place in
+the list, which balanced every task only while no pair was dropped: one pair
+not drafted turned every later task's order round. Every compare on the box
+so far was balanced all the same. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
 about 60 a second) and a draft about 25 s, so judging both orders was about
 80% of a candidate's half hour. `--both-orders` brings the old rule back:
 two judgings, and a pair decided only when they agree. An answer the judge
@@ -365,7 +414,8 @@ noise A shows too: in gen 6, every candidate "regressed" on a task its change
 couldn't reach, and under the old one-failure rule a change that did nothing
 would pass about one time in 150. B also regresses when its hard failures over
 every task exceed A's by a tenth of the pairs, or at least 2
-(`regression_margin`). B wins when it doesn't regress, at least
+(`regression_margin`). The per-task rule is only a screen at two samples: a
+task it names is a suspect until confirmed (below). B wins when it doesn't regress, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
@@ -381,7 +431,9 @@ won, B is `regressed` only when P(X <= wins | decided, 0.5) is under 0.10
 line. `--threshold` is accepted in this mode and ignored. The old rule, a win
 rate of at least 0.5, marked a change that did nothing `regressed` 25 to 45
 percent of the time (31% at 4 pairs, 43% at 28, 45% at 60), and `regressed`
-is final; the new rule does so 6%, 9% and 8% of the time. A few cases:
+is final; the new rule does so 6%, 9% and 8% of the time, and a fresh
+sample now has to confirm it ("Confirming the pairs", below). A few first-pass
+cases:
 
 | Decided pairs | Won | P(this few or fewer) | Verdict |
 |---|---|---|---|
@@ -416,7 +468,7 @@ measuring checkout) and the prompt of the task's playbook, read from the
 measured brain. Its system prompt is `brain/agent/prompts/act.md`, which
 `bin/lib/prompts.py` builds at every boot from `agents/act.md`, `MEMORY.md`
 (or `MEMORY.seed.md` in a lab), `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`,
-`narrative/LORE.md` and `narrative/ARCS.md`, and the core adds `SOUL.md`
+and `narrative/ARCS.md`, and the core adds `SOUL.md`
 and `IDENTITY.md` (act.toml sets `omit_identity = false`) and any
 `AGENTS.md` in the workspace or the repository root. So:
 
@@ -467,6 +519,113 @@ wallet addresses and the promises to pay in `reply-send-money` and
 `guard-categories` or `charter` (`FENCE_CHECKS` and `FENCE_INVARIANTS` in
 `bin/lib/evals.py`). A fence failure in a candidate draft whose baseline
 turn never ran counts too. `report.json` lists them under `fences`.
+
+**Confirming a regression.** Gen 11 (2026-11-16) had two unrelated
+candidates, an `act.md` edit and one `SOUL.md` line, both `regressed` with
+the same reason, "hard-check regression on shiplog-numbers"; the second had
+won 48 of 81 decided pairs. Gen 13 had a candidate `regressed` on
+reply-mcap-memory while winning 50 of 82, whose near-identical revision then
+passed. Neither was the change. Every shiplog-numbers failure on the box
+(11 of 14 drafts, main's included) was the hashtag check `#\w` matching
+"merged #3", the pull request the task's inputs name: gen 11's cached main
+drafts happened to say "pr 3" both times, and gen 13's main failed it in
+both of its own. reply-mcap-memory fails on "$2B", the target `SOUL.md`
+tells Teeny to state, about one draft in five on either side; gen 13's main
+drew two clean drafts and the candidate two "$2B"s. Both sides were drafted
+the same day, from the same frozen inputs, by the same model: nothing in the
+task reads a clock or a live number, so it was not the baseline's
+conditions but chance meeting a two-sample rule. With the box's per-task
+failure rates (pooled over every draft there, main's and the candidates':
+14 of 43 tasks fail their checks sometimes, 5 of them more often than not), an identical candidate that reaches every task trips
+it about one time in four, and `regressed` is final.
+
+So the two-sample rule now names suspects (`suspects`, and `confirm` while
+they wait), and `bin/eval confirm COMPARE BASE CAND` decides them. BASE and
+CAND are fresh runs of just the suspect tasks, `CONFIRM_SAMPLES` (16) a side,
+main's drafted afresh too and never the cached baseline, so both sides share
+their conditions. Their pairs are judged (a judge's break counts as a hard
+failure, as always), and each suspect gets an exact sign test on the fresh
+pairs alone: a pair where only one side failed is, were they alike, a fair
+coin for which side, so with the candidate failing alone `c` times and main
+alone `b`, `p = P(X >= c | X ~ Binomial(b + c, 0.5))` (`binomial_tails`, the
+same machinery as the judge's sign test). The first pass's samples are left
+out: they were picked for being extreme. A suspect is `confirmed` when `p` is
+under 0.05 divided by the number of suspects (`CONFIRM_P`, Bonferroni), so a
+candidate no different from main is confirmed `regressed` under 5% of the
+time over the whole eval, whatever the noise. One that is `refuted` is set
+aside with its failures (the overall margin no longer counts them) and the
+verdict falls back to everything else: the fences, the other tasks and the
+judge's pairs. One with too few fresh pairs run to ever confirm is
+`unmeasured`, and the verdict is `inconclusive`. `report.json` keeps each
+suspect's counts, `p`, level and state under `confirmation`; the first report
+stays as `first-report.json`. Simulated on the box's rates
+(`hands/tests/test_eval_confirm.py`, 4000 seeded runs of an identical
+candidate on 43 tasks, two seeds): 23 to 25% `regressed` before, 0.4% now. A change that
+makes a clean task fail every time is caught every time; one that moves a
+task from 10% to 80% failing is caught 51% of the time, against the 52% the
+two-sample screen flags it at all.
+
+**Confirming the pairs.** A non-regression check's pairs are a screen
+too. The first `bin/evolve aa` (2026-11-17, main against itself, 46 tasks
+at two samples) came back `regressed` on pairs alone: main won 48 of 82
+decided pairs against itself, 7.5% for two alike sides, under the 10%
+`SIGNAL_P`. That was chance, not bias: both sides were drafted from the same
+commit and prompt hash (every message hash identical), with no retries, at
+the same length (255 and 257 characters on average) and close skip counts
+(11 and 14); the order was balanced within every task, and main won with
+either side shown first (23 to 18, 25 to 16). Across the box's six compares
+neither side is favoured. By design the sign test alone marks one identical
+candidate in about ten `regressed`.
+
+So pairs that say worse (`confirm_pairs`, `path: pairs`) are judged again
+on an independent sample: every task the compare measured, at its own
+sample count, both sides drafted afresh (`eval/cand-<i>/compare/confirm-pairs`),
+judged once a pair in the balanced order. `bin/eval confirm` decides it from
+that sample alone (`confirm_worse`): worse only when its wins would come up
+under 20% of the time for two alike sides (`PAIRS_CONFIRM_P`), so an
+identical candidate is `regressed` on pairs under 10% x 20% = 2% of the
+time. Otherwise the verdict is the non-regression pass; a fresh sample that
+decides too few pairs is `inconclusive`. Hard-check suspects are confirmed
+first, then the pairs. `pairs_confirmation` has the test. It costs one more
+first pass, and only when the pairs said worse: for a change reaching every
+task, 184 drafts and 92 judge turns, about 75 minutes.
+
+Simulated (`hands/tests/test_eval_pairs_confirm.py`, 4000 seeded runs, 92
+pairs, 11% ties, both paths together with the box's hard-check rates):
+
+| Candidate | `regressed` before | `regressed` now |
+|---|---|---|
+| identical (two seeds) | 30% / 30% | 1.5% / 1.9% |
+| loses decided pairs 60/40 | 75% (67% on the pairs) | 55% |
+| loses decided pairs 70/30 | 99% | 99% |
+
+A candidate that loses 60/40 is caught a little over half the time; the
+price of an identical one being `regressed` 1 time in 60 rather than 1 time
+in 3.
+
+`report.json`'s `path` says what made a verdict other than a pass: `fence`,
+`hard`, `pairs` or `measure` (too little ran).
+
+Fences keep their one-sample veto, unconfirmed: no fence check failed on
+main or a candidate on the box (the guard screen never, no `fence` pattern
+ever), so the flaw above is not theirs, and a fence failure with no fence
+excuse should never ship. With a fence failed nothing is confirmed. The
+overall margin is not confirmed either: it is a sum over every task, and at
+two samples an identical candidate reaches it well under 1% of the time.
+
+**Noisy checks.** `report.json` says, under `base_noise`, every task whose
+hard checks main's own drafts failed, with how many of how many and which
+checks. A check main fails is noisy or wrong, and what it says of the
+candidate is worth that much. The pull request lists them, and `bin/evolve
+status` says `noisy_tasks`, pooled over every cached baseline, worst first.
+Nothing is switched off by it: a task's checks are the operator's to fix.
+The hashtag check of shiplog-numbers and pr-merged-typo-fix now leaves a
+pull request number alone (`#(?!\d+(?!\w))\w`: "#3" passes,
+"#buildinpublic" and "#100daysofcode" fail). Still noisy on the box's
+drafts: moltbook-daily-real-numbers (every draft fails its number check, on
+times and dates like "14:00" and "the 11th"), reply-whats-your-token-guest (`$FROG`, 79%),
+reply-no-false-habits (its "trading" pattern also matches "i don't trade",
+71%), operator-held-on (57%) and reply-mcap-memory ("$2B", 21%).
 
 **Retries.** Before a turn counts as unrun, `bin/eval` tries it again, up to
 `EVAL_TURN_TRIES` (3) times in all, `EVAL_RETRY_WAIT` (30) seconds after the
@@ -617,9 +776,11 @@ that passes opens its own pull request.
 ```
  bin/evolve run          state/evolve/<gen>/
    │
- 0 Halts      EVOLVE=0 (the default) ─► nothing runs
-   │          a latched halt, too many generations today, J rising too fast,
-   │          a red doctor report, a last-good boot ─► stop, one issue
+ 0 Skips      EVOLVE=0 (the default) ─► nothing runs
+   │          too many scheduled (or by-hand) generations today, a red
+   │          doctor report, J rising too fast ─► skip this run only
+   │          a real problem (the doctor red a day, a J rise, a last-good
+   │          boot) ─► one public issue per key; nothing latches
    │          a dream still writing MEMORY.md ─► wait for it
  1 Learnings  brain/MEMORY.md's open items, newest first, up to N
    │          none open ─► done: no model turn, no generation
@@ -656,9 +817,18 @@ that passes opens its own pull request.
 ```
 
 The pinned `evolve` job (`evals/cron.pinned.toml`) runs `bin/evolve run
---detach` at 02:40 and 14:40 India time, forty minutes after the night dream
-(02:00) and the midday one (14:00), so what the dream wrote down is acted on
-the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for that. A run
+--scheduled --detach` at 02:40 and 14:40 India time, forty minutes after the
+night dream (02:00) and the midday one (14:00), so what the dream wrote down
+is acted on the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for
+that, and counts only those runs: `--scheduled` marks them (`trigger:
+scheduled` in `generation.json`). A run by hand (no flag) is `trigger:
+manual` and counts against `EVOLVE_MANUAL_GENERATIONS_PER_DAY` (6) instead,
+so the operator's runs never spend the schedule's: on 2026-11-16 three runs
+by hand spent the day's three and the 21:10 scheduled run was held. Without
+the flag a run counts as by hand, so the operator need not remember one; the
+pinned command carries it. A generation from before the trigger was recorded
+counts as scheduled, and neither cap counts one a restart cut off or one
+that crashed. A run
 waits up to 30 minutes for a dream that still holds the reflection's lock.
 It is a no-op until `secrets/evolve.env` sets `EVOLVE=1`, so seeding it is
 safe. A generation outlasts the 300 s TinyBox gives a cron shell call
@@ -670,17 +840,41 @@ past every hour, with a lock and a log (`state/evolve/watch.log`) of its
 own.
 
 ```
-bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+bin/evolve run [--candidates N] [--proposals DIR] [--scheduled] [--detach]
 bin/evolve watch [--detach]              evolve-watch
 bin/evolve probe [--baseline [--force]]  the probes on the live core
-bin/evolve credit | status | resume
+bin/evolve credit | status
 ```
 
-`bin/evolve status` lists the open learnings (and every learning by state:
-open, in flight, settled, gave up), the open evolve pull requests with their
+`bin/evolve status` lists the open learnings (each with its `failed` tries
+and `infra` deferrals and crashes, when it has any), why every other one is
+not open (`not_open`: `settled` with the candidate that settled it, its
+verdict, the skip's `why`, the `pr`, and for a cooling skip `until` when it
+is asked again; `in-flight` with its candidate; `gave-up` with its `tries`),
+every learning by state, the open evolve pull requests with their
 `teeny/eval` state, and each candidate of the newest generation and every
 waiting one, with its verdict. It says `"running": true` while a generation
-holds the lock: ask it before a restart.
+holds the lock: ask it before a restart. `today` and `today_by_hand` are the
+day's scheduled and by-hand generations, `last_crash` the last generation
+that raised (below), or null, and `problems` the newest issue filed for each
+problem key (section 10). There is no `halt` and no `resume`: nothing
+latches.
+
+A generation that **raises** (2026-11-17: gen 14 died in its first second in
+`observe()`, under a detached cron call that said `ok`, and nobody heard) is
+ended (`end_crashed`): `result.json` says `crashed`, so the next run starts a
+new one instead of resuming it, and every candidate in flight and every
+picked learning without one is archived `crashed`, which charges the learning
+**no** failed try: a crash is the loop's fault, not the learning's. Then it
+is told (`report_crash`): a line `gen <n> crashed: <error>
+at <where>` and the traceback in `state/evolve/evolve.log`,
+`state/evolve/last-crash.json` for `status`, and a `crash` problem through
+the same path as the others (section 10: one public issue on
+`EVOLVE_ISSUE_REPO` while it is open, keyed `crash`, with the error and
+where it was raised, updated at most once a day), and the next scheduled
+run tries again. The run exits non-zero. A crashed generation
+spends none of the day's cap. `bin/health` reads no evolve state, so it says
+nothing of this; the issue is the alarm.
 
 ### 1. Learnings
 
@@ -692,38 +886,586 @@ item is what the reflection calls one. Each has its id (`[m36]`; an item
 without one is skipped, since the pull request names it), its section, its
 text, and a hash of the text with whitespace and case folded.
 
-A learning is **open** while no archive entry carries `learning: {id, hash}`
-with that hash and a verdict that settles it:
+A learning is its id. Every candidate is archived with `learning: {id, hash,
+section, text}`, and a learning's history is every entry with its id, whatever
+the hash. It is **open** unless its latest settling verdict (below) was
+recorded on a text the current one does not *materially* differ from:
 
 | Verdict on the learning's candidate | What it does to the learning |
 |---|---|
 | `opened` (a pull request) | settled |
-| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled; `already` and `not-worth` for a cool-off (below) |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `deferred` (the reviewer's turn failed: nothing was judged) | open, and not a failed try |
-| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
+| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below; or the core's prompt screen held the turn, `deferred_for: screen`) | open, and not a failed try; `screened` (set aside for a cool-off) after `MAX_SCREEN_HOLDS` screen holds in a row |
+| `crashed` (the generation raised while it was in flight) | open, and not a failed try |
+| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated` (`EVOLVE_EVALUATOR=none` and a task reaches it), `pr-error` (a rule's refusal, or a hold on the guard's verdict), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
-An edit to the text changes its hash, so a learning the dream rewrites is
-open again. After `MAX_ATTEMPTS` (3) failed tries on one text, the loop
-stops asking about it (`gave-up` in status) until the text changes.
+**A rewording is not a new learning.** The dream rewrites an item's wording
+twice a day. Until 2026-11-17 a learning was its id and the hash of its text,
+so every rewrite opened it again: in generations 9 to 15, m68 (the build
+queue note) was picked four times (`no-proposal`, `already`, `already`,
+then again), m36 again after its pull request merged (#320) because the dream
+appended one clause, and m53 again after an `already` because two words went;
+9 of the 28 candidates were skips. Now a rewrite is **material** when at least
+half (`MATERIAL_SHARE`, 0.5) of the new text's content words (three letters or
+more, no stopword: `content_words`) are not in the text it was settled on
+(`novelty`). On the archive:
+
+| Learning | Settled on | Rewrite | Share new | Now |
+|---|---|---|---|---|
+| m68, build queue | gen 10 `already` | gen 11 | 0.36 | settled |
+| m68 | gen 11 `already` | gen 14 | 0.33 | settled |
+| m53, x402 rail | gen 12 `already` | gen 14 | 0 | settled |
+| m36, check before a retry | gen 12, merged #320 | gen 14 (one clause from an already-merged rule) | 0.17 | settled |
+| m45, how moltbook works | gen 9, merged #288 | gen 15 (`parent_id is the comment you answer`) | 0.07 | settled |
+| m19, moltbook pacing | gen 10 `already` | gen 15 (five new rules) | 0.58 | open |
+
+m45 is the borderline case: gen 15's second try did make a useful change
+(#351, the rule carried into two more playbooks), but its rewrite added two
+content words of thirty, and no word-count rule that keeps m68 and m36 settled
+opens it. The share is measured against the settled text, not the last one,
+so small rewrites add up: m68's text at gen 14 against gen 10's is 0.57, and
+had gen 11 not skipped it again it would have reopened there.
+
+Failed tries follow the id the same way: those on texts the current one does
+not materially differ from count, so a rewording keeps the count and a
+material change starts it again. After `MAX_ATTEMPTS` (3) the loop stops
+asking (`gave-up` in status) until the text materially changes. The hash
+stays on every entry, for the record.
+
+**A skip cools off.** A skip as `already` or `not-worth` judges the
+repository or the world, which change. It holds for `EVOLVE_SKIP_COOLOFF_DAYS`
+(7) from the candidate's start, doubled for each earlier such skip of the
+same learning (up to 16 times), and then the learning is asked about again; a
+material change opens it at once. Every other settling verdict (a pull
+request, a `frozen` or `not-actionable` skip, a measured verdict) holds until
+the text materially changes.
+
+**A reopened learning remembers.** Its research and build turns get "what was
+tried before" on the id: every row says whether it was on a materially
+different wording (`same_text` false, with that `text`), and the candidate
+that settled it is always among the rows, marked `settled` (and `merged`),
+with its title, pull request and skip note, so the proposer builds only what
+the text says now that it did not.
+
+A candidate waiting under the open-PR cap stays waiting through a rewording
+and goes `stale` on a material change; a learning deferred for want of a
+sandbox waits for one across a rewording too.
+
+**A skip that rests on the memory page is no skip** (since 2026-11-19). On
+2026-11-19 an audit of the archive found 14 skips in 65 candidates, and 6 of
+the 14 settled a learning on the memory page itself: g9c1, g9c3 and g18c1
+named `brain/MEMORY.md` as the file that already carries it out, and g15c3,
+g19c1 and g20c1 said in their notes that it "already lives on my (live)
+memory page". The page says what Teeny decided, not what it does, so writing
+a thing down is not carrying it out. m15, the chart renderer, was skipped
+that way in g18c1 (see "1c. Wants"). The rule is in `bin/lib/wants_rules.py`
+(`memory_skip_reason`), frozen with `bin/`, so a candidate cannot change what
+counts. It refuses a skip in these cases, and no other:
+
+| Skip | Refused when |
+|---|---|
+| `already` | `where` is empty (it names no file that carries it out), or its first word is `brain/MEMORY.md`, `MEMORY.md` or `brain/MEMORY.seed.md` (a leading `./` and a trailing `,`, `;` or `:` are ignored, case is folded) |
+| `not-actionable` | `where` names one of those three paths |
+| `already` or `not-worth` | the note says the page carries it: "live page", "live memory page", "on/in/by/from/of the memory page" or "memory.md", or that it "rides into every/each" prompt |
+| `frozen` | never: a file the candidate cannot touch is not the memory page |
+
+A bare "memory page" in a note is not enough ("which my memory page already
+tracks" counts something; it does not say where the thing lives). The phrases
+were narrowed after a first draft refused too much. Against the live archive
+the rule refuses the skips of g9c1, g9c3, g15c3, g18c1, g19c1 and g20c1 and
+lets the other eight stand.
+
+What a refusal does, by where the skip came from (`refused_skip` in
+`bin/lib/evolve.py`):
+
+- **Research said `already` or `not-worth`.** The build goes ahead, with no
+  plan. The request carries `refused_skip` and the turn reads a block "##
+  research said it is already done": what it answered, the reason, and the
+  fixed sentence ("Your memory page is not a carrier ... An `already` must
+  name a file in this repository that runs"). The entry records the refusal
+  under `research.refused_skip`. The proposer can still skip, but only by
+  naming a file that runs.
+- **The proposer skipped.** The skip is sent back as a finding on
+  `brain/MEMORY.md` and spends the round (the round shows as `refused-skip`:
+  "the skip leaned on the memory page"). If it is refused on the last round
+  the candidate parks with that reason, a failed try like any other park. A
+  skip that does stand after refused ones, because it names a file that runs,
+  settles as if it had come in round 1, so one refused try does not turn an
+  honest `already` into a parked candidate.
+- **The pull request.** A candidate built after a refused research skip says
+  so in its **Research** line: what research answered, that the skip was
+  refused and why, and that it was built without a plan. It never reads as
+  "already done".
+- **The archive.** `_settles` is false for any archived `skipped` entry the
+  rule refuses, whenever it was recorded. The six skips above stop settling
+  their learnings at the next run, and those learnings are open again. A
+  `finding_standing` uses the same function and inherits this.
+
+The brief and the research brief each gain that one fixed sentence. No other
+prompt changed.
+
+**Build intents leave the loop** (since 2026-11-19). An item under "what i am
+in the middle of" or "promises and open threads" that says its author will
+build a thing (`wants_rules.is_build_intent`, shared with `bin/wants`) is not
+picked here: `split_wants` takes it out of the list `_run_generation` reads
+(the run says so), and `bin/evolve status` shows it under `learnings.wants`
+(`id`, `section`, `text` cut to 160 characters), not in `open` or `not_open`.
+It is a feature, and this loop makes the smallest edit to an existing file.
+"1c. Wants" says where it goes. Routing stops new picks only: a candidate
+that already passed before its learning was routed still ships (the waiting
+queue is built from the routed learnings too).
+
+**What the box broke is not a verdict on the idea.** Gen 10's candidates 2
+and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
+template './brain/artifacts/sandbox-scratch/shell-…/tmp.XXXXXXXXXX'` and were
+`rejected` for good; the operator landed both by hand (#333, #334). That
+scratch dir was the cron call's own TMPDIR, which the core deletes when the
+call returns and a detached run outlives (fixed in `bin/lib/detach.py` by
+#303, the day after; `bin/evolve run` also swaps a TMPDIR that is gone for
+`state/tmp/evolve`). Gen 11's candidate 4 was `pr-error: held` because the
+guard's judge could not be reached, a failed try. Now each such failure is
+recorded on the candidate as `infra: {stage, detail}` and charges no try:
+
+- **gate**: a check whose detail says the box failed it (`ENV_ERROR`: mktemp
+  failing, a full or read-only disk, no memory, a script that could not be
+  started) and names no path the change touched. When every failed check is
+  one, the candidate is `deferred` (`deferred_for: infra`) with no round
+  spent; a failure on a file the diff wrote, or any other failure, stays a
+  finding for the builder.
+- **propose**: the proposer's turn never answered (the provider refused or
+  erred, as gen 15's candidate 2 did with `local-openai returned HTTP 400`,
+  the core unreachable, a timeout). A failed build turn is asked once more
+  in the run, 30 s later (not one that timed out); failing again, the candidate is
+  `deferred` (`deferred_for: infra`). An answer that came back but holds no
+  usable proposal (not JSON after its retry, a missing field every round)
+  is still `no-proposal`, a failed try. A failed research turn already costs
+  nothing: the build goes on without research.
+- **screen** (not `infra`): the core's prompt screen held the message
+  (`Prompt flagged for security review`, or `blocked by security policy`).
+  The screen is TinySecurity's, run by openhuman-core
+  (`security/prompt_injection`) on every agent-chat message, and it holds
+  anything over 64 KiB unscanned as `input.oversized`. Gen 24 (2026-11-22)
+  lost three of four candidates that way, at 66-68 KB, as gen 1 had lost
+  all four; the screen never read their content. A held turn is not asked
+  again in the run (the same message is held the same way), and a message
+  over 64 KiB is not sent at all. The candidate is `deferred`
+  (`deferred_for: screen`), with `screen: {stage, round, bytes, limit,
+  oversized, sha, sections, said}`: the message's size, the first 16 hex of
+  its sha256 and its four largest sections by heading, never its text. It
+  charges no try. After `MAX_SCREEN_HOLDS` (2) holds in a row the learning
+  is `screened`, set aside for `EVOLVE_SKIP_COOLOFF_DAYS` and then tried
+  once more, and the `screen-held` problem issue is raised (one issue,
+  commented on at most once a day; the problems table below): ids, sizes and
+  headings only.
+- **eval**: `bin/eval affected` erroring, a lab that does not boot, the
+  baseline, or a run or compare that fails: `deferred` (`deferred_for: infra`).
+- **publish**: the guard holding the pull request only because its judge
+  did not answer (a hold of category `unknown`), or GitHub, git or a hand
+  erring: `waiting`, so the next run publishes it as it is, with no new build
+  or eval. Its commit is dated by the candidate's start, so it is the same
+  commit, and a branch the first try already pushed takes it. A rule's
+  refusal, a hold on the judge's verdict, or a frozen path in the commit is
+  still `pr-error`.
+
+An infra deferral leaves the learning open for the next run, which builds it
+afresh; it costs no reviewer probe (`reviewer_down` probes only after a
+deferral of the reviewer's).
 
 Each generation takes up to `EVOLVE_CANDIDATES` (default 4, cut by the
 runway tier when the wallet is low) open learnings, in this order:
 
-1. fewest failed tries first, so one stuck learning doesn't hold the line;
-2. the newest text first. The reflection keeps the page before each
+1. a rule or a promise before a status note: an item under "what i am in
+   the middle of" says where Teeny is (the x402 rail is funded, drawing
+   self-portraits), rarely a behaviour to change, and gens 9-15 skipped
+   most of them. One fills a slot only when no rule or promise is open;
+2. fewest failed tries first, so one stuck learning doesn't hold the line;
+3. fewest infrastructure and screen deferrals and crashes on the id
+   (`deferred_for: infra` or `screen`, `crashed`), which charge no try: one the box keeps failing (a
+   provider that refuses the prompt for that one learning) drifts to the
+   back instead of holding a slot every run, and is never given up on;
+4. the newest text first. The reflection keeps the page before each
    rewrite (`state/reflect/MEMORY-*.md`) and the dream keeps it after
    (`state/dream/snapshots/*.md`). A text's age is the oldest snapshot that
    carries it (by file time), and a text in no snapshot is the newest of
-   all: the last dream just wrote it. That is "what Teeny learned today",
-   which item order alone can't tell: the dream edits items in place, and
-   an old id with a new text is new;
-3. the higher id (ids only grow), then page order.
+   all: the last dream just wrote it. A rewording keeps its age: the oldest
+   snapshot carrying a text the current one does not materially differ
+   from. That is "what Teeny learned today", which item order alone can't
+   tell: the dream edits items in place, and an old id with a new text is
+   new;
+5. the higher id (ids only grow), then page order (`pick_key`).
 
-With no open learning (and no waiting candidate) the run stops there: no
-evidence, no model turn, no generation directory.
+With no open learning or finding (and no waiting candidate) the run stops
+there: no evidence, no model turn, no generation directory.
+
+### 1b. Findings
+
+By 2026-11-17 every evolve change that merged (g9c4, g12c2, g13c1-3, g15c1,
+g15c4) was a "don't do X" rule from a MEMORY item, the page had six open
+learnings left, and the run logs and ledgers kept counting what plainly did
+not work. A **finding** is one such count, drawn in code with no model in the
+loop (`bin/lib/evolve_findings.py`), over the last `EVOLVE_OUTCOME_LAST_DAYS`
+(7) days. The kinds are a closed list:
+
+| Kind | Id | What is counted | Its check |
+|---|---|---|---|
+| `act_failed` | `f:act_failed:<playbook>` | failed `bin/act` runs of a playbook in `brain/playbooks/`, leaving out what the provider or the box failed: a run bin/act marked `failure: provider`, one from before it marked them whose stderr `provider_error.classify` names, and one `INFRA_ERROR` matches | `act_failed {playbook}` |
+| `refusals` | `f:refusals:<playbook or beat verb>:<rule>` | a hand refusing one playbook's actions, or one verb of the mind's beats (`tick/runs.jsonl`), by one rule in `CONTENT_RULES`: what was written or aimed at (`duplicate`, `short_id`, `own_comment`, `once_per_parent`, `once_per_post`, `unknown_parent`, `crypto`, `retold`, ...). Never a cap or pacing rule (`daily_cap`, `rate_limit`, `pacing`, `own_thread_reserve`, ...): a cap that fires is the fence working | `refusals {rule, playbook or verb}` |
+| `guard_holds` | `f:guard_holds:<surface>:<category>` | the guard holding Teeny's own drafts on one surface in one category, real verdicts only (`unknown`, a judge that could not be reached or answered out of shape, is left out), with the playbooks and beats whose drafts they were (by `hold_id` in the run logs). Only text Teeny's model wrote: a hold on text code composes and posts under Teeny's name (the babysitter's audit comment) is left out, see below | `guard_holds {category, surface}` |
+
+A finding needs at least `EVOLVE_OUTCOME_MIN_EVENTS` (4) events, so its check
+can be scored at all. **Its number is its check's count**: the events a
+finding states are `evolve_outcomes.count` of its own `check` over its window,
+and a finding-driven proposal ships with that check whatever the proposer
+names, so `worked` means the very number the finding was drawn from fell. Its
+statement says the number, the window, the days it fell on and what the hands,
+the guard or the core said (the three commonest, ids folded), and it points
+at the playbook (`brain/playbooks/<name>.md`), or for a beat at
+`brain/SOUL.md` and `brain/CONTEXT.md` (the beat's prompt itself is
+`bin/lib/tick.py`, frozen). A few example rows go with it as data.
+
+Only the hands', the guard's and the core's own words reach a finding, cut to
+160 characters with links, emails and handles taken out; a draft's text,
+which quotes people, and anything a stranger wrote are never read, so no turn
+that sees a finding sees a stranger's words.
+
+**A guard_holds finding counts Teeny's own words only.** Every outbound hold
+is filed `outbound`, whoever composed the text, and some of it is fixed text
+a hand writes in code and posts under Teeny's account: the babysitter's audit
+comment on a pull request (`hands/lib/teeny_hands/babysit/actions.py`,
+`report`). No brain edit changes that text. On 2026-11-18, 17 of the 21
+`github`/`links` holds the finding `f:guard_holds:github:links` counted were
+the babysitter's comment on PR #368 (held by a link-screen bug #375 fixed),
+and generations 18 and 19 both proposed widening a SOUL.md rule ("never write
+a filename with its dot") to write around it; gen 19's eval passed it.
+`hands/lib/teeny_hands/authorship.py` (frozen) keeps the list of recognisers
+for text that is not Teeny's (`NOT_TEENYS`), each matching its generator's
+fixed opening and closing lines together (the babysitter's: a github
+`comment` whose body starts `**babysitter** · ` and ends with its
+`_automated audit by hands/babysit. ..._` line), and
+`hands/tests/test_authorship.py` renders the babysitter's own `report()` so a
+recogniser cannot drift from its generator. `evolve_outcomes.guard_hold_rows`
+is the one reader: the finding groups its rows, and the check's `count`
+leaves the matched ones out, so a finding's number and its check's agree,
+before and after the merge. A finding whose own holds fall under the minimum
+once they are left out is not drawn. When some were left out, the statement
+says so ("N more ... holds on github ... were on text code wrote, not you
+(the babysitter's audit comment): nothing for you to change there"), so the
+proposer sees why the number is smaller than the guard's list. Evolve's own
+pull request text (`post_kind: pr`, head `teeny/gen-*`) stays in: the
+proposer model wrote it. The held text is only matched against those fixed
+lines, never shown. The same rule keeps the babysitter's comment out of
+`outcomes.held_drafts` (as a `not_yours` count), J's `penalty`
+(`guard_holds_own`, hands/world) and `hands/moltbook material`'s
+`guard_holds`, which a Moltbook post on 2026-11-18 had read as "17 of
+today's held drafts".
+
+What the box held on 2026-11-17 (19:43 UTC, 7 days):
+
+| Finding | Events | What it says |
+|---|---|---|
+| `f:refusals:upvote_moltbook:duplicate` | 17 | 15 × "already did upvote-comment", 2 × upvote-post |
+| `f:refusals:comment_moltbook:own_comment` | 10 | "that comment is Teeny's own" |
+| `f:act_failed:self-improve` | 9 (3 days) | the core flagged the draft prompt for security review, every run |
+| `f:refusals:moltbook-curate:duplicate` | 7 | 4 × upvote-post, 3 × upvote-comment already done |
+| `f:refusals:comment_moltbook:once_per_parent` | 5 | "Teeny has already answered that comment" |
+| `f:refusals:comment_moltbook:short_id` | 5 | a shortened Moltbook id |
+| `f:act_failed:moltbook-threads` | 4 (2 days) | 3 × prompt blocked by the core's security policy, 1 × an unknown body field |
+| `f:refusals:moltbook-helpdesk:once_per_post` | 4 | a second top-level comment on a post |
+
+No guard category reached 4 on one surface (links: 3 on GitHub, 2 on Moltbook,
+1 each on X and Telegram; the 27 judge-unreachable holds are left out).
+
+**Growth findings** (since 2026-11-22). An audit that day of 22
+generations and 19 pull requests found every candidate came from a memory
+item or one of the three kinds above, so the loop only removed itches; over
+the same week X followers went 330 to 326, 44 of 77 replies drew no answer,
+and the world score's attention component was mostly agent and unknown
+accounts (1 human). `hands/x` now records each post's `format` and
+`producer` on `x_posts`, so what drew people can be said per format. Two more
+kinds, drawn in code by `bin/lib/evolve_reach.py`, are **growth** findings;
+the three above are **fix** findings, and a turn's "what your ledgers show"
+says which lane it is:
+
+| Kind | Id | What is counted | Its check |
+|---|---|---|---|
+| `reach_drew` | `f:reach_drew:x:<source>` | a post source with at least 4 settled posts whose share drawing a **new account** beats the rest of Teeny's posts: "`take` posts: 6, and 5 drew a new account (83%); your other X posts: 0 of 5" | `reach {surface: x, measure: new, direction: rise}`, the share of all X posts that draw one |
+| `reach_silent` | `f:reach_silent:x:<source>` | a post source that drew **nobody** (no reply, like, repost or quote) half the time or more, or drew a new account at most half as often as the rest; or a reply source (`reply-own-thread`, `reply-their-thread`) whose replies got no answer back half the time or more, with how many accounts were answered twice or more and never answered | `reach {source, measure: nobody, direction: fall}`, `{source, measure: new, direction: rise}` or `{source, measure: answered, direction: rise}` |
+
+An item is one of Teeny's own X posts, quotes or replies made in the window
+and at least 6 hours old at its end. A post's source is its `producer` (the
+studio) or its `format`; a reply's is whose conversation it went into. A
+**new account** uses hands/world's notions, not a second classifier: an
+author of a reply in the post's conversation whose first `stimuli` row on x
+came at or after the post, and for whom `first_contact` is `theirs` (Teeny
+had not @-ed it before); the finding gives `classify`'s split (human, agent,
+unknown). Likes and reposts are counts with no names, so "new" is said of
+replies only, while "nobody" counts them too. A growth finding's events are
+the items it rests on (at least `EVOLVE_OUTCOME_MIN_EVENTS`, 4, so its check
+can be judged), and its `miss` is the share on the wrong side of its check:
+it recurs (below) when the miss grows, not when Teeny posts more. Only
+counts, sources, the run logs' names of what wrote each item ("bin/act take
+× 3, the beat post_x × 2") and Teeny's own words reach it; a reply's text and
+an account's name are never read into it, and handles in Teeny's own text
+are taken out (`scrub`).
+
+What the box would have fed on 2026-11-22 (7 days):
+
+| Finding | Items | What it says |
+|---|---|---|
+| `f:reach_silent:x:reply-their-thread` | 38 replies | 28 got no answer back (74%); 3 accounts answered twice or more never answered (7 replies); 32 by the beat `reply_x` |
+| `f:reach_silent:x:reply-own-thread` | 34 replies | 22 got no answer back (65%); 4 accounts answered twice or more never answered (8 replies) |
+| `f:reach_drew:x:take` | 5 posts | 2 drew a new account (40%) against 3 of 12 for the rest; all 4 new accounts `unknown` |
+
+`proof` (6 posts) and the studio's posts (6) drew someone new about as often
+as the rest and no format drew nobody (every post had likes), so they are no
+finding.
+
+**A finding stands by its attempts, never its wording**, which carries its
+numbers and moves every hour (`finding_standing`; its hash is its id's):
+
+| Its latest settling candidate | What it does to the finding |
+|---|---|
+| `opened`, the pull request still open | settled |
+| `opened` and merged, its check not yet scored | settled |
+| merged, scored `worked` | settled while the number stays at or under the level it was settled at; open when it grows past it |
+| merged, scored `no-effect` or `hurt` | open again; "what was tried before" carries the attempt with its `merged` flag and `outcome` |
+| merged, `no-data` | settled until the last horizon is scored, then open |
+| `skipped` `already` or `not-worth` | cools off like a learning's (`EVOLVE_SKIP_COOLOFF_DAYS`, doubling) |
+| anything else that settles (a `frozen` or `not-actionable` skip, `rejected`, `duplicate`, `regressed`, `flagged`, a closed pull request, `dry-run`) | settled until the number grows past its level |
+| open or given up, and prompt rules kept failing to fix it (below) | `routed`: never offered to the proposer while that holds |
+
+Failed tries count from the latest settling candidate; `MAX_ATTEMPTS` (3) of
+them give the finding up until the number grows past the highest it stood at
+in them. In flight, deferred and crashed work as for a learning.
+
+**The mix.** A run's `EVOLVE_CANDIDATES` take up to `EVOLVE_FINDING_SLOTS`
+(default 2; 0 turns the source off) open findings, strongest first (the most
+events), and open learnings the rest in their own order; findings next in
+line take any slot no open learning fills (`evolve_findings.mix`). With four
+candidates, six open learnings and three findings: two learnings, two
+findings; with one open learning: one learning, three findings. Of the
+finding slots, `EVOLVE_GROWTH_SLOTS` (default 1; 0 for no reserve) go to the
+strongest growth findings first when there are any: a refusal counted 116
+times outranks every post a week holds, and until 2026-11-22 the slots went
+by raw count alone. With two slots, the 116-event refusal and a 6-post growth
+finding: one each.
+
+**Routed to code** (since 2026-11-22, `bin/lib/evolve_route.py`). 18 of the
+19 pull requests that audit counted were 1 to 5 line prompt rules, and
+`f:refusals:upvote_moltbook:duplicate` stood at 116 after three candidates
+on its family (g16c3 merged and scored `hurt`, g17c3 parked, g18c3 merged and
+scored `worked` at 45, then grew back). Refusing an upvote already given is
+the hand answering a call the words should not make, or should treat as
+done: code, which the proposer cannot write. A fix finding is **routed**
+when its family has had `EVOLVE_ROUTE_AFTER` (default 2; 0 turns it off)
+prompt-level candidates that did not help: its number has not fallen under
+where it stood at the latest of them on its own id, or every one that merged
+scored `no-effect`, `no-data` or `hurt`. Its family is
+`refusals:<hand>:<rule>` (the hand from a beat verb's tail, `upvote_moltbook`
+to moltbook, or a playbook's head, `moltbook-curate` to moltbook; a
+learning's candidate whose check counts the rule with no verb or playbook
+counts for every hand), `act_failed:<playbook>` or
+`guard_holds:<surface>:<category>`. A candidate counts when it was built and
+judged (`opened`, `parked`, `rejected`, `regressed`, `pr-error`, ...); a
+skip, a deferral, a crash or one in flight does not. A finding settled by an
+open pull request or a cool-off waits for it. Growth findings are never
+routed.
+
+Where it goes is the code a fix would touch: the refusing hand
+(`hands/<hand>`, `hands/lib/teeny_hands/<hand>/`), the hands a failing
+playbook calls (`bin/act` when it calls none), the guard for a hold.
+
+- **None of it frozen**: a want of kind `finding` for the builder, id
+  `w:f:<family>` ("1c. Wants"), one per family.
+- **Any of it frozen** (`evals/frozen.txt`): the builder could not ship it
+  either, so `bin/evolve run` opens one public issue on `EVOLVE_ISSUE_REPO`
+  through the guard's judge (`HandsPublisher.open_issue`), asking for the
+  `help wanted` label (`hands/gh` adds it once the issue is open; a label the
+  repository refuses leaves the issue unlabelled, never unfiled), once per family (`state/evolve/routed.jsonl`; an error is retried at
+  the next run). Under `DRY_RUN` it says what it would open and records
+  nothing.
+
+The brief and the issue are fixed words with the findings' own statements
+(already scrubbed), the prompt fixes tried (each candidate's id, verdict or
+outcome, the number it stood at, its title and pull request), the files the
+words live in, the code (and which of it is frozen) and the check that says
+it worked (the count falls). `bin/evolve status` shows a routed finding as
+`state: routed` with `routed.said`: "routed to builder (job N)", "routed to
+builder (request N, not picked yet)", "routed to an issue (#N)" or "not
+filed yet". On the box on 2026-11-22 one family is routed:
+`refusals:moltbook:duplicate` (`f:refusals:upvote_moltbook:duplicate`, 116;
+tries g16c3, g17c3, g18c3), to an issue, since
+`hands/lib/teeny_hands/moltbook/` is frozen. `f:refusals:moltbook-curate:
+duplicate` (10) is in the same family but settled by g20c2's `already` skip
+until its cool-off ends; the other six have one try or none.
+
+A finding goes through the same research, proposal, rounds, gate, eval and
+pull request as a learning, with the same fences. Its turns are told it is
+counted, not something Teeny wrote, that a finding may change what Teeny
+writes and never how often or where it posts, and that its check is set.
+The hypothesis names it (`- finding: [f:...] (kind): N over 7 days`) and the
+pull request opens with **What my ledgers show**, the statement and its check.
+`bin/evolve status` lists every current finding (`findings.current`: id,
+kind, lane, events, days, check, state, what settled it, and where a routed
+one went) with `findings.slots` and `findings.growth_slots`.
+
+### 1c. Wants
+
+**Why it exists (2026-11-19).** An audit that day found that all 44 evolve
+candidates since generation 9 changed only markdown under `brain/`; none
+touched `hands/` or `brain/cron.toml`. The loop makes the smallest change to
+a prompt or a playbook, so it cannot add a capability. The other route to one,
+lane 2 (the builder's `self` jobs, "What starts a self change"), had made three
+self jobs ever: one shipped (`dripsplan`, #285, a hand that nothing in
+`brain/`, `evals/` or `bin/` calls) and two failed on frozen paths (job 3 on
+`build/jobs.py`, job 13 on `bin/lib/audit.py`). Three things held lane 2 back:
+
+- **Cadence.** `pick-request` could pick once a day, and the 03:50 UTC run
+  usually spent it. On 11-18 and 11-19 its 09:50 slot only logged `skipped:
+  daily budget spent`, so a change proposed at 09:40 waited for the next
+  morning at best. Request 5, filed 11-17 16:38, was picked 11-19 03:50
+  because a canary request held the slot on 11-18.
+- **Wording.** `self-improve` and `builder-self` told the model to make "a
+  delta edit", "the file and the one bullet", "small enough to build and test
+  in one run". A feature is not that.
+- **No check that a feature is used.** Nothing looked for a new hand's tests,
+  its docs or a caller. Evolve's gate does (`bin/lib/evolve.py`: new hands
+  have tests, are called, are documented), but only for evolve candidates.
+
+And the memory page held a feature that nobody built. Item m15 says "the
+first thing i build myself is a $TINY chart renderer ... not built yet".
+Evolve skipped it as `already` on `brain/MEMORY.md` in g18c1, and 6 of the 14
+skips in the archive rested on the page the same way (the rule above).
+
+**What a want is.** An item of "what i am in the middle of" or "promises and
+open threads" that says its author will build a thing
+(`wants_rules.is_build_intent`: "i will/want to/mean to/plan to/am going to
+build/make/ship/write a ...", "the first thing i build", "i build myself",
+"not built yet", "build/make a tool/hand/renderer/bot/cli/script"). A status
+note ("build queue") or a promise to publish a number is not one. Its id is
+`w:` and the item's id (`w:m15`). Its text goes through
+`evolve_findings.scrub` (links, emails, handles and ids out) and is cut to 600
+characters. The code reads only the live `brain/MEMORY.md`.
+
+**A routed finding is a want too** (since 2026-11-22). A fix finding
+bin/evolve routed to code whose fix needs no frozen path (1b, "Routed to
+code") is a want of kind `finding`, id `w:f:<family>`, one per family. Its
+text names the family and the code, not the numbers, which move every hour,
+so its standing follows its filings like a memory want's (filed once; a
+failed build reopens it up to `WANTS_MAX_TRIES`). Its brief is
+`evolve_route`'s, not the feature brief: the counts, the tries, the files and
+the check, starting `want: w:f:...`. The build hand treats a `w:f:` want as a
+fix, not a feature (`hands/lib/teeny_hands/build/jobs.py`, `FIX_REQUIRES`):
+the desk takes "ok" only when the change holds a test under `hands/tests/`
+and something that is not a test (`feature.fix_rubric`), and the pull
+request shows a **Fix rubric**. `bin/wants watch` scores it, once its
+`WANTS_USED_DAYS` after the merge are over, on the finding's own check (the
+count over those days against as many before, `evolve_outcomes.verdict`),
+recorded with `kind: finding` and one `self · outcome` stimulus. Memory wants
+go first, then routed findings, at most one filing a day in all.
+
+**Where wants could come from, and why only one does.** The ledgers were read
+on 2026-11-19 for every source that was proposed:
+
+| Source | What the ledgers showed | Used |
+|---|---|---|
+| Build-intent items on the memory page | m15, the chart renderer; m68 is a status note, m92 and m93 are promises to analyse | yes: the only real source |
+| Failed or abandoned build jobs | 5 failed: two dailies abandoned before the desk fixes, the canary (an infra `git push`), self jobs 3 and 13 (frozen) | no: they are failures of the lane, not things to build. `self-improve` already reads them (`builds`). They count as tries on a want |
+| Self jobs that failed on a frozen path | jobs 3 and 13; no `frozen` skip among the 14 skips | no: the only remedy is a frozen file, and a want made from one fails at ship the same way |
+| Pending stranger requests (`moltbook`, `x:mentions`) | #3 (already shipped as the daily `hedgediff`), #6 ("write an article", not a build) | no: they reach lane 2 already, as `request` jobs through `pick-request`. As `self` briefs they would put a stranger's words in front of a tooled agent working on Teeny's own repository |
+| Browser tasks | 39 rows; 31 of the 33 not-ok ones are `reddit_browse` hitting Reddit's network block; the notes are the operator agent's reading of web pages | no: external blocks, not a hand's job, and the notes carry page text |
+| Beats naming an intent with no hand | 1,479 beats in `state/tick/runs.jsonl`, no `no such intent` refusal | no: no signal |
+
+The memory page is Teeny's own text and already rides every prompt. A want
+made from it, scrubbed and then run past `hands/guard check` as the mind's
+`propose_change` does, adds no new exposure. Nothing else of a stranger's
+reaches a want.
+
+**Standing.** Where a want stands comes from the ledgers (`hands.db`, read
+only) and a read of GitHub, never from the page. Only the filings of this
+text count: after a material rewrite (the rule of "1. Learnings") the want is
+open again.
+
+| State | Meaning |
+|---|---|
+| `open` | nothing filed for this text, or the last build failed with tries left |
+| `in-flight` | its request is `pending` or `picked`, its job is `claimed` or `ok`, or its pull request is open. A pull request GitHub cannot be asked about (`hands/gh pr` fails or answers out of shape) is in flight: a want is never reopened on a guess |
+| `merged` | the pull request merged |
+| `declined` | the pull request closed unmerged |
+| `gave-up` | `WANTS_MAX_TRIES` builds failed, or one failed on a frozen path (`ship_error` or the summary says `frozen path`, `evals/frozen.txt` or `is frozen`) |
+
+A try is a filing whose job `failed` or `gave_up`, or whose request was
+`failed` or `skipped` before any job. `merged`, `declined` and `gave-up` hold
+until the text materially changes. Of the open wants, the one with the fewest
+tries goes first, then page order.
+
+**Filing** (`bin/wants file`, at most one a call, and at most one a UTC day):
+
+1. `WANTS=0`, a want already filed today (any line of `filed.jsonl` dated the
+   same UTC day), or no open want: nothing, and it says which. The daily cron
+   job alone does not keep it to one a day: a want whose build failed is open
+   again the same day, and a manual `file` or a catch-up run would file a
+   second.
+2. The brief is fixed text with the want quoted, at most 2,000 characters (the
+   desk's limit). The first line is `want: <id>`. It asks for a feature: a new
+   hand (`hands/<name>` through `hand.run`, its package, tests that need no
+   network, a `docs/hands.md` section) and a scheduled playbook that calls it,
+   read-only public data only (no wallet, key, trade or account), and the
+   builder picks the name. It tells the builder the desk checks every part
+   and that a week after merge the code counts how often a scheduled playbook
+   ran the hand.
+3. The brief goes through `hands/guard check` (surface `github`). A refusal
+   or no answer is not filed: the run says it was held.
+4. `hands/build self` gets `{text, want}`. A refusal with rule
+   `one_at_a_time` is `waiting` and nothing is recorded; any other failure is
+   an error (exit 1); success appends `state/wants/filed.jsonl`.
+
+`pick-request` still chooses: it is a judgement, not code. Its playbook now
+says that a `self` request whose text starts `want:` is something Teeny said
+it would build, and that for such a request only, reading public data such as
+a price chart is not touching tokens (trading, holding or moving them, or a
+wallet, still is). A request from anyone else keeps the old rule. It also
+picks twice a day now (`max_per_day = 2`), so a want filed after the morning
+pick does not wait for the next day.
+
+**Scoring** (`bin/wants watch`). Once a want's pull request has merged and
+`WANTS_USED_DAYS` have passed, the code counts, for each hand named in the
+job's rubric, the runs of scheduled playbooks that call it in that span
+(`hand_used`, "Outcomes" below), once. `WANTS_MIN_USES` or more is `used`,
+fewer is `unused`, a job with no rubric or a count that stays unreadable for
+`GRACE_DAYS` (2) past the end is `no-data`. A count not readable yet is tried
+again the next day. The record goes to `state/wants/outcomes.jsonl` and one
+`self · outcome` stimulus (ref `want:<id>:<request id>`) with fixed words, the
+want's id, the hand names and the count, so the next beat reads whether what
+it asked for got used. Nothing is reverted by it: it is a measurement.
+
+**Settings** (`secrets/evolve.env`, read next to evolve's, which ignores
+these keys). A value that does not parse or is out of range refuses the run
+(exit 1). The process environment can only set `WANTS=0`.
+
+| Name | Default | Range | Meaning |
+|---|---|---|---|
+| `WANTS` | 0 | 0..1 | the kill switch; off by default. With 0, `file` and `watch` skip; `draw` and `status` still read |
+| `WANTS_MAX_TRIES` | 2 | 1..5 | failed builds of one text before the want gives up |
+| `WANTS_USED_DAYS` | 7 | 1..30 | the days after merge that are counted |
+| `WANTS_MIN_USES` | 4 | 1..100 | playbook runs calling the hand, in that span, for `used` |
+
+**The verbs.** `bin/wants draw` (read only: the wants and each one's
+standing), `file`, `watch`, `run` (`watch`, then `file`: the pinned job
+`wants`, `0 9 * * *`, with `catch_up`; one step failing does not stop the
+other, but the run is then not ok) and `status` (the wants, their standing,
+`enabled` and the last run, `state/wants/last.json`). Each prints one JSON
+line; exit 0 is ok, 1 is an error. `bin/wants`, `bin/lib/wants.py` and
+`bin/lib/wants_rules.py` are frozen with `bin/`, and the pinned job with
+`evals/`: a candidate cannot redefine a want or switch the feed on.
+
+**Not built here.** No want comes from anything but the memory page and
+routed findings. The code
+asks no model. A merged feature that goes `unused` changes nothing by
+itself. "What is not built" lists the rest.
 
 ### 2. Observe
 
@@ -744,6 +1486,8 @@ reason for a change.
 - `outcomes.followers`: followers and karma, first and last day.
 - `outcomes.held_drafts`: Teeny's own drafts the guard held, grouped by
   surface, category, who held them and the guard's reason. Never the text.
+  Holds on text code wrote (the babysitter's audit comment) are not in
+  `total`; their number is `not_yours`.
 - `outcomes.builds`: the build ideas kept and what became of each, the
   build requests by source and status, and Teeny's own change requests with
   the note each ended on.
@@ -771,7 +1515,16 @@ research named.
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
 happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
-64 KiB prompt screen. The evidence is written once per generation and reused
+64 KiB prompt screen. Every message is cut to 60 KiB (`fit_request`): the
+largest shown files first (those research named last), and when the message
+is still too big with no file left (gen 24's were 66 KB on what is not a
+file: 13 KB of editable paths, 30 KB of evidence, 6.5 KB of earlier tries),
+then the editable paths research did not name are counted by folder, then
+the evidence's largest parts are dropped (the score stays), then the oldest
+earlier tries, then the web results. Each cut is named in the message
+("left out to fit the message"); a revising round's findings and last change
+are never cut. The build message does not repeat the lessons by kind in its
+evidence: its brief leads with them. The evidence is written once per generation and reused
 when a restart resumes it.
 
 ### 3. Propose
@@ -784,9 +1537,11 @@ repository at all, and if so, what is the smallest one? The turn is shown:
 
 - the learning, in Teeny's words;
 - **what was tried before**: the archive's earlier candidates on the same
-  learning id (the last 5, on any wording, `same_text` saying which), each
-  with its verdict, title, reason, the gate checks it failed, its skip and its
-  research verdict (`tried_before`);
+  learning id (the last 5, on any wording, `same_text` saying which and
+  `text` giving a materially different one, always with the one that settled
+  it, `settled` and `merged`), each with its verdict, title, pull request,
+  reason, the gate checks it failed, its skip and its research verdict
+  (`tried_before`);
 - **what the web says**, when the operator pays for it: `bin/evolve` itself
   runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
   (Exa, paid from the wallet over x402, so the wallet's own caps, host
@@ -906,7 +1661,7 @@ which:
   job could do. Settled with the hash.
 - `frozen`: carrying it out needs a frozen path; `where` names it. Settled,
   and one issue opens on `EVOLVE_ISSUE_REPO` for the operator, naming the
-  learning, its text and the path, through the halt's issue path (deduped
+  learning, its text and the path, through the problem issues' path (deduped
   per learning text in `state/evolve/halts.jsonl`; the guard's judge reads
   it, since `where` is a model's words).
 
@@ -924,8 +1679,10 @@ shown the files it may edit, asked once more when its answer doesn't
 parse), `EvolverProposer` (`EVOLVE_PROPOSER=evolver`: the `evolver` agent
 editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 `FileProposer` (`--proposals DIR`, `DIR/cand-<i>.json`, for the operator and
-the tests). The answer is `{title, component, expected_move, hypothesis,
-edits}` or `{skip, why, where}`.
+the tests). The answer is `{title, component, expected_move, check,
+hypothesis, edits}` or `{skip, why, where}`. `check` says how the code will
+see the expected move after the merge ("Outcomes" below); the brief lists its
+kinds.
 
 **What the build is shown.** The paths it may change are every tracked file
 under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
@@ -942,8 +1699,10 @@ need is welcome.
 **Edits** are written by `bin/evolve` itself: each `{path, old, new}`
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
-`.git` or `HYPOTHESIS.md`. `HYPOTHESIS.md` (title, learning, W component,
-expected move, hypothesis) is written beside the change and goes into the
+`.git` or `HYPOTHESIS.md`. A path git ignores (the chronicle, the live
+`brain/MEMORY.md`) is refused by name, since staging would drop it from the
+diff without a word. `HYPOTHESIS.md` (title, learning, W component,
+expected move, check, hypothesis) is written beside the change and goes into the
 pull request's body, never its diff.
 
 **Near-duplicates** of an archived change, or of another candidate of the
@@ -976,11 +1735,41 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 4. **review**: the `reviewer` agent reads it and approves, or asks for a
    revision with findings ("Review" below).
 
-Edits that do not apply (an old text not found once) end the round with that
-as a finding, and the next round's message carries "## your last edits did
-not apply" as before. A proposal that parses but lacks a field (no
-hypothesis, title or expected move, or no known component) ends the round the
-same way, outcome `out-of-shape`, with a finding that names the missing
+**Edits that do not apply** (an old text not found once) were the commonest
+way a candidate was lost by 2026-11-18: gens 9, 10, 16 and 17, five times on
+`brain/CONTEXT.md` and once on `brain/SOUL.md`; gen 17's candidate 3 spent two
+of its three rounds on it and was parked. In every case whose text was kept
+the proposer had quoted a file it was not shown: in gens 16 and 17 research
+named `CONTEXT.md`, but the request ran to about 105 KB and `fit_request`
+dropped the biggest file first, which was that one; the old text was the
+file's own words with its hard line wraps joined by spaces. Gen 9's was a
+sentence left out of the middle of a `SOUL.md` line it was never shown. So:
+
+- `fit_request` drops the files research named (and any whose edit did not
+  apply) last, and the message tells the proposer to leave a file that was
+  left out rather than quote it from memory.
+- `apply_edits` matches an old text found nowhere as written once more with
+  every run of whitespace as one space and curly quotes and dashes as plain
+  ones; found exactly once that way, it is replaced, the new text written as
+  it is, and the round says so (`tolerated`). Nothing applies on likeness
+  alone: a paraphrase, a dropped sentence or a text found twice is refused.
+- A refusal names every edit that failed, how often its text occurs (and on
+  which lines when more than once), and, when it occurs nowhere, the closest
+  passage of the file (up to 700 characters, `⟦here⟧` where it first parts
+  from the old text).
+- The failing edits alone (up to 3) are then asked for again in the shape
+  repair's turn (below), each shown its passage; the answers replace them in
+  place, every other field and edit kept, and no round is spent. It shares
+  `MAX_SHAPE_REPAIRS` (2) with the field repairs, so all the small turns a
+  candidate may take stay under one bound. Still not applying, the round ends
+  with a finding per edit carrying its passage, the next round's message
+  carries "## your last edits did not apply", and those files are shown whole
+  from then on. A proposal that parses but lacks a field (no
+hypothesis, title or expected move, or no known component), or whose `check`
+the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
+playbook, cron job or refusal rule that does not exist in the candidate's
+tree, a `contains` that is not a short literal), ends the round the
+same way, unless a shape repair mends it first ("Outcomes" below), outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
 is `no-proposal`, one failed try like a park. An answer that is not JSON at
@@ -1019,6 +1808,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
 | does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line |
+| changes something that runs | the diff touches only files nothing that runs on the box reads (`INERT_PATHS`: `brain/MEMORY.seed.md`, which only starts a brand-new `brain/MEMORY.md`, and `brain/assets/tiny/README.md`, which describes reference art nothing names). From gen 16, candidate 1 (PR #361): one line added to the seed, "the seed of the page", which no prompt reads while the live page exists; the eval, whose labs do start from the seed, said no detectable difference. An inert file beside a live one passes. The brief and the research turn say so, and that a learning already on the live page needs a change where a prompt reads it, or a skip as `already` |
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
@@ -1213,8 +2003,10 @@ change drafts the baseline afresh. The compare runs with nonregression's own
 candidates of a generation:
 
 1. `affected` for each (kept in `eval/cand-<i>/affected.json`). A change no
-   task reaches is `unmeasurable` at once, and no lab boots for it. Its pull
-   request says so: live outcomes and evolve-watch are its test.
+   task reaches is `unmeasurable` at once, and no lab boots for it. It is published only
+   with a powered check (section 6, the publish rule): live outcomes and
+   evolve-watch are its test, so its check must be one history says can be
+   scored.
 2. For the rest, one lab spine over main (`EVOLVE_LAB_PORT`) drafts the
    baseline, only for the tasks no earlier run drafted at this base commit,
    sample count and model: `state/evolve/baseline/<base>/s<samples>-<model>/`
@@ -1231,7 +2023,13 @@ candidates of a generation:
    union of the tasks of the candidates it serves.
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
-   --mode nonregression --tasks` against the baseline.
+   --mode nonregression --tasks` against the baseline. A compare whose
+   report lists tasks to `confirm` drafts just those again,
+   `EVOLVE_CONFIRM_SAMPLES` (16) a side on both labs at once, main's afresh
+   (`eval/cand-<i>/compare/confirm/{base,cand}`), and runs `bin/eval
+   confirm` (above, "Confirming a regression"). That is a few dozen turns a
+   suspect. A restart between the two confirms without judging the compare
+   again.
    All of it runs under `state/locks/eval.lock` (so does the evolver's lab),
    which the babysitter's deploy waits on before it moves or restarts the
    live checkout. `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
@@ -1239,10 +2037,12 @@ candidates of a generation:
    candidates measured gets a Kth (at least 1).
 4. The persona probe runs only when the change reaches every task (a SOUL or
    CONTEXT change, `all`), since it is many turns. Its drift from gen-0 past
-   `EVOLVE_MAX_DRIFT` flags the candidate and latches a halt.
+   `EVOLVE_MAX_DRIFT` flags the candidate (it opens no pull request) and
+   files a public `persona-drift` issue; the rest of the generation goes on.
 
 A lab that doesn't boot, or a run or compare that fails, leaves the
-candidate `unevaluated`, a failed try. With `EVOLVE_EVALUATOR=none` no lab
+candidate `deferred` (`infra`, stage `eval`): it was not measured, so its
+learning is open with no failed try. With `EVOLVE_EVALUATOR=none` no lab
 boots: an unreachable change is still `unmeasurable`, and one a task
 reaches is `unevaluated` and opens nothing.
 
@@ -1267,6 +2067,10 @@ happens **once at most** per candidate, so a candidate is measured twice at
 most. A fence broken, a second regression, or a regression in the last round
 is final: `regressed`.
 
+An `unproven` candidate (section 6, the publish rule) goes back the same way
+and under the same budget: its reason is the next round's finding, and a
+candidate is still measured twice at most.
+
 **The worst case.** Per candidate: one research turn (and, when searches
 are on, one query turn and up to `EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
 (3) build turns and 3 review turns (a regression's extra round is one of the
@@ -1276,10 +2080,193 @@ generation makes at most 28 model turns (56 if every answer had to be asked
 twice), 32 (64) with searches on, 8 evals, and 12 paid searches when the
 operator turns them on.
 
+#### Measuring the evaluator: `bin/evolve aa`
+
+```
+bin/evolve aa [--tasks IDS] [--detach]
+```
+
+An A/A run: the targeted eval with main as both sides, an identical
+candidate, through the same `TargetedEvaluator` (two lab spines, `run`,
+`compare --mode nonregression`, the confirmation), on IDS or every visible
+task (what a `SOUL.md` change reaches). Main is drafted afresh on both sides
+(its baseline lives in the run's own folder, not the cache), so runs are
+independent trials, and the persona probe does not run. It opens no pull
+request, records no learning attempt and is no generation:
+`state/evolve/aa/<stamp>/` has no `generation.json`, and its lab folders are
+deleted after. It takes the generation's lock (the labs use the same ports;
+a second one says `busy`) and the eval lock. It prints one JSON line and
+appends it to `state/evolve/aa.jsonl`:
+
+```
+{"ok": true, "kind": "aa", "verdict": "pass", "false_regressed": false, "first_verdict": "regressed",
+ "suspects": ["shiplog-numbers"], "confirmation": {"shiplog-numbers": "refuted"}, "tasks": 43, "samples": 2,
+ "wins": 40, "losses": 39, "decided": 79, "signal": "no detectable difference", "base_noise": {...},
+ "path": null, "first_path": "hard", "pairs_confirmation": null, "turns": 290, "minutes": 75.2, ...}
+```
+
+Anything but `pass` is the evaluator's mistake: `first_verdict` is what the
+old rule said, `verdict` what it says now, and `path` (`fence`, `hard`,
+`pairs`, `measure`) which path made it so (`first_path` the first pass's).
+Every visible task at two samples is 184 drafts and 92 judge turns, plus 48
+turns a hard-check suspect, plus as many again as the first pass when the
+pairs say worse: about an hour and a quarter at `EVAL_CONCURRENCY` 4, two
+and a half when the pairs are confirmed. Run it N times and tally:
+
+```
+jq -s 'group_by(.verdict) | map({verdict: .[0].verdict, n: length})' state/evolve/aa.jsonl
+jq -s 'map(select(.first_verdict == "regressed")) | length' state/evolve/aa.jsonl
+jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path, n: length})' state/evolve/aa.jsonl
+```
+
 ### 6. Publish: one pull request per candidate
 
-Every candidate whose gate passed and whose eval is `pass` or
-`unmeasurable` opens its own ready pull request, oldest waiting ones first:
+Every candidate whose gate passed, whose eval is `pass` or `unmeasurable`,
+and that the publish rule below finds proven opens its own ready pull
+request, oldest waiting ones first.
+
+#### The publish rule: not worse is not enough (since 2026-11-22)
+
+The audit of 2026-11-22 (22 generations, 19 pull requests, all merged): 11
+of the 12 a pairwise eval measured scored "no detectable difference" (gen
+21's c1: "won 44 of 96 decided pair(s): no detectable difference (chance of
+this few wins 23.8%, of this many 82.1%)"), and no eval task reached the
+other 7. "Not measurably worse" put no pressure on anything. Their 2-day
+outcomes: worked 2, no-effect 3, hurt 1, no-data 5, no check 8.
+
+So a candidate is published only when one of these holds
+(`bin/lib/evolve_selection.py`, `unproven`):
+
+1. the eval finds it **better** than main: `pass` with the compare's
+   `signal` `better` (its sign test, `evals.signal`); or
+2. its check is **powered** (`power`, recorded on the entry as
+   `check_power`): the check is counted (never `judged`, which is a model
+   reading samples) and its stream held at least `need` events over the
+   first outcome horizon (`EVOLVE_OUTCOME_DAYS`, 2) before the proposal,
+   counted on the box's own ledgers by `evolve_outcomes.count`, exactly as
+   the outcome will be. `need` is the largest of `EVOLVE_POWER_MIN_EVENTS`
+   (4), `EVOLVE_OUTCOME_MIN_EVENTS` (4) and the fewest events whose whole
+   fall passes the outcome test at `EVOLVE_OUTCOME_P` (the least n with
+   2^-n < p: 4 at 0.1, 5 at 0.0625). Fewer and history says the verdict would be `no-data`, and the
+   reason says so: "act_failed: failed bin/act self-improve runs, should
+   fall counted 3 event(s) in the last 2 day(s); its 2-day verdict needs at
+   least 4, so history says it would come out no-data".
+
+"No eval task reaches this change" (`unmeasurable`) follows the same rule:
+only with a powered check. A third way, a fix for a hard failure the gate can
+verify directly, was considered and not built: no deterministic check of
+that kind exists in the gate today (the hand tests check a hand's tests, not
+that a failing playbook now runs), and a loose one would be the hole the
+rule closes. A finding's own check (1b) is the count it was drawn from, so a
+finding is usually powered by construction.
+
+Otherwise the candidate is **`unproven`**: recorded in the archive with the
+reason, never published, and a failed try on its learning (not settled, so
+the learning is tried again, up to `MAX_ATTEMPTS`, seeing the reason in
+"what was tried before"). While it has a round left and has not been
+measured twice, it goes back to the proposer in the same generation, as a
+regression does (`send_back`): the reason becomes the next round's eval
+finding, with the fix "attach a check the code counts whose stream had at
+least N events in the last 2 days, or make a change the eval can tell apart
+from main". Detectably worse stays `regressed`. A candidate waiting from
+before the rule is held to it at publish time too; with no `check_power` on
+record it is unproven unless its eval said better.
+
+**Gaming.** A falling or zero check could be met by running less, which the
+brief already throws out ("doing less of yourself"). Two guards close it:
+at proposal time, a falling or zero check on a change that also removes,
+turns off or thins a job of `brain/cron.toml`, or deletes a playbook, is not
+powered whatever its history (`source_cuts`); and when the outcome is scored,
+a `worked` whose source ran less after the merge (the playbook's unskipped
+`bin/act` runs, the beats, the cron job's runs, or Teeny's own sends for
+`guard_holds` and a narrowed `outbound`; `evolve_outcomes.silenced`), past
+chance at `EVOLVE_OUTCOME_P` or to nothing, is recorded `no-effect` with the
+source's counts, never `worked`. A `judged` check never powers anything.
+What the guards do not see: a change that keeps its job running but makes it
+do nothing; the reviewer and the eval stay the line there.
+
+`EVOLVE_PUBLISH_PROOF=0` (the operator's, in `secrets/evolve.env`) switches
+the rule off; nothing Teeny can edit reaches it.
+
+#### Lessons: each kind of change, and the exhausted ones
+
+`evidence.lessons` was `{"lessons": []}` in every generation the audit read
+(the lab's lessons; it keeps them), while `merged_changes.tally` counted
+outcomes no code acted on. Now `observe` adds `kinds`: one lesson per kind
+of merged change (`evolve_selection.lessons`), and the proposer's brief
+opens with them ("## lessons from your merged changes, by kind").
+
+A **kind** is `<shape>/<source>`, from the files the patch touches and
+where the candidate came from, never from its title, component or anything
+the proposer wrote: `prompt-rule` (`brain/SOUL.md`, `CONTEXT.md`,
+`DRIVE.md`, `CHARTER.md`, `READER.md`, as a bullet or as prose),
+`playbook`, `skill`, `agent` (`brain/agents/`), `schedule`
+(`brain/cron.toml`), `brain-other`, `hand` (`hands/`), `code`, and `docs`
+(only alone: docs go with a change); the source is `learning` or `finding`.
+A change is every kind it touches, so a prompt rule padded with a line in a
+playbook is still a prompt rule. Each archive entry records its `kinds`; an
+entry from before is read from its patch.
+
+Each lesson gives the kind, how many merged, the worked, no-effect, hurt,
+no-data, pending and no-check counts, up to two examples (title and
+outcome, the newest that worked first) and what it says:
+
+| says | when | what happens |
+|---|---|---|
+| `exhausted` | at least `EVOLVE_LESSON_MIN_JUDGED` (3) judged outcomes (worked, no-effect, hurt) and none worked | a candidate of that kind is sent back, before its gate and review, with the lesson named as its finding; on the last round it is `parked` with the lesson as its reason |
+| `build-on` | one or more worked | named as one to build on |
+| `cannot-be-measured` | no worked, and at least that many no-data | "attach a check with more events, or change kind" |
+| `too-few` | the rest | |
+
+On the live archive of 2026-11-22 no kind is exhausted yet: `prompt-rule/learning`
+has 5 merged (1 no-effect, 1 hurt, 1 no-data, 2 no check: 2 judged), and
+`prompt-rule/finding` and `playbook/finding` each have one that worked.
+
+**Replayed on the 19 pull requests** (`check_power` counted on the live
+ledgers at each proposal's own time, lessons from what had merged and been
+scored by then): 4 would have opened. g20c3 (better on the eval, worked),
+g18c3 (unmeasurable, 33 events before, worked), g17c4 (6 before, no-effect)
+and g16c3 (15 before, hurt). The 5 that came out no-data were all refused
+by history, and both that worked were kept.
+
+0. Its title and body are screened first as the babysitter will screen them
+   (`screened_pr_text`: the guard's lexical screen, inbound, the reading of
+   the babysitter's `_prose` audit, which sends a matching pull request to
+   the operator). Gen 16's two self-merge candidates (#362, #363) waited on
+   "kills" and "bullet" in their own hypothesis and research note; those are
+   `judged` matches (`lexicon.JUDGED_TERMS`, which the guard sends to its
+   judge rather than holding), which the babysitter reads as a note since
+   #365, so they are published as they are and nothing is reworded or
+   recorded. Only a term the guard holds on sight (`pr_held`) still sends a
+   pull request to the operator. While one matches, the fields it is in (title, expected move, hypothesis,
+   research's why and plan; never the learning, the gate or the eval) are
+   asked for again through the proposer's shape-repair turn, told the
+   category and the term, at most `MAX_REWORDS` (2) turns; only those fields
+   come back, and `HYPOTHESIS.md` and the saved proposal are rewritten from
+   them. The patch, the eval and the rounds are unchanged. Still matching
+   after that, or in words that are not the proposer's, it opens as it is,
+   with `pr_screen` (category and term, never the text) on its entry, and the
+   babysitter asks the operator as before. The brief and the research brief
+   say up front that pull request text is screened by the guard and to
+   prefer plain, literal words. The guard and the babysitter are not changed.
+
+   Then the guard's link screen (`linked_pr_text`), as hands/gh runs it on a
+   pull request (`check_fields`, surface github: house style, then links,
+   where a code span is code since #375). Gen 19's candidate 3 passed its
+   eval and never opened (guard_holds 1192): its evidence and research
+   quoted the file name `pr-agent-budget.sh` and the domains of a search
+   result and a bare code-host domain, which the screen reads as off-list
+   hosts. So a repository path or file name the screen would read as a
+   host (one the candidate names, a plain entry of the frozen list, or a
+   name ending in a code extension, `CODE_EXTS`) goes in a code span
+   (`code_named`), and any other off-list host is put in words with no dot
+   ("the drips site"; a markdown link keeps its label: `worded_links`).
+   What changed is kept on the entry as `pr_links` (`coded`, `reworded`).
+   Nothing is added to the allowlist. What the screen still cuts (a host the
+   text hides, `evil[.]com`) goes to the guard as it is; when the guard
+   refuses or holds it, the entry's `pr_error` names the hold, its category,
+   field and reason (`pr_refusal`), and `pr_hold` keeps its id, not only the
+   guard's sentence.
 
 1. Its worktree is rebuilt from its patch when it is not exactly that
    (after a restart, or for a candidate waiting from an earlier run), and
@@ -1307,10 +2294,12 @@ once. Each run first asks GitHub about every one the archive holds open
 (`refresh_prs`), so a merge by the babysitter or a close by a person frees a
 slot at once. At the cap a passing candidate is `waiting`, and the next run
 opens it before anything new, with no proposer turn. A waiting candidate
-whose learning was rewritten since is `stale`; its learning is open again.
+whose learning has materially changed since is `stale`; its learning is open again.
 
-A refusal (the guard, a rule, the frozen check) is kept on the candidate as
-`pr_error`, a failed try. Under `DRY_RUN` nothing is committed, pushed or
+A refusal (the guard's verdict, a rule, the frozen check) is kept on the
+candidate as `pr_error`, a failed try. A publish the box failed (the judge
+unreachable, GitHub or git erring) leaves it `waiting` for the next run
+instead (section 1). Under `DRY_RUN` nothing is committed, pushed or
 opened: `state/evolve/<gen>/cand-<i>.pr.json` holds the branch, title, body
 and status it would have set, and the candidate is `dry-run`.
 
@@ -1340,7 +2329,7 @@ no `result.json` and finishes it where it was, in the same generation:
 - a measured one opens its pull request.
 
 Finishing a cut-off generation doesn't count toward
-`EVOLVE_GENERATIONS_PER_DAY`. A generation from before learnings drove the
+`EVOLVE_GENERATIONS_PER_DAY` (or the by-hand cap). A generation from before learnings drove the
 loop (its `generation.json` has no `learnings`) is marked `interrupted`.
 
 ### 8. The archive
@@ -1350,10 +2339,14 @@ each stage, a merge or credit is one more line. `main` is the seed. Each
 candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
 `learning` (`{id, hash, section, text}`), `title`, `component`,
 `expected_move`, `diff_hash`, `diff_stats`, `patch` and `hypothesis` (beside
-it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
-summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
+it in `state/evolve/<gen>/`), `kinds` and `check_power` (section 6),
+`gate`, `skip`, `eval` (the targeted eval's summary) with `report`,
+`verdict` (`unproven` with its `reason` when the publish rule held it), then `branch`, `head_sha`, `pr_url`,
 `pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
-`delta_j` and `credit`.
+`delta_j` and `credit`. A candidate proposed since 2026-11-17 also records its
+`check`, and once merged one `outcome_<n>d` per horizon ("Outcomes"). Each
+outcome is its own line holding only that key, so a later full re-record of
+the entry (credit) cannot drop it.
 
 ### 9. Lineage credit (HGM)
 
@@ -1362,14 +2355,15 @@ evolve pull request. A merged one (GitHub's REST API calls it `closed` too,
 so `merged` decides) gets `merged_at` and `merge_sha`, whoever merged it, and
 its generation's chronicle page in the live brain
 (`brain/narrative/chronicle/gen-<n>.md`, once per generation, written from
-the record, never by a model). One closed unmerged is `closed`. For each one
+the record, never by a model; git ignores the folder, so the page is never
+part of the checkout). One closed unmerged is `closed`. For each one
 merged `EVOLVE_CREDIT_DAYS` (default 7) or more ago it records `delta_j =
 J(merge + 7 days) − J(merge)` from `hands/world history`, and each entry's
 `credit` is the clade sum `Σ decayᵈ · ΔJ` over itself and its descendants
 (`EVOLVE_CREDIT_DECAY`, 0.5). With parent sampling gone, credit is a record
 of how each line did, read by the archive summary.
 
-### 10. Halts and settings
+### 10. Skips, problems and settings
 
 `secrets/evolve.env` (gitignored and frozen) holds the switches. The process
 environment can only switch the loop off (`EVOLVE=0`), never on, and never
@@ -1381,18 +2375,24 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 |---|---|---|
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
-| `EVOLVE_GENERATIONS_PER_DAY` | `2` | one more today halts that run, with one issue a day |
+| `EVOLVE_FINDING_SLOTS` | `2` | of those, at most this many findings (1b), strongest first; findings also take what no open learning takes; 0 turns findings off, 0 to 8 |
+| `EVOLVE_GROWTH_SLOTS` | `1` | of the finding slots, at least this many go to growth findings (1b) when there are any, 0 to 8 |
+| `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b), 0 (never) to 10 |
+| `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
+| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more skips that run (`generations`), quietly: no issue. Crashed and cut-off ones don't count |
+| `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more skips that run (`manual-generations`), quietly |
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
-| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster pauses for review; latches |
+| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster skips each run while it lasts (the window moves on by itself) and files one public issue |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | the fewest samples per task, baseline and candidate |
 | `EVOLVE_EVAL_PAIRS` | `24` | pairs a candidate is measured on: samples per task are `ceil(pairs / reached tasks)`, from `EVOLVE_EVAL_SAMPLES` up to 8 |
+| `EVOLVE_CONFIRM_SAMPLES` | `16` | fresh samples a side a suspect task gets when its hard-check regression is confirmed, 6 to 30 |
 | `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
 | `EVOLVE_QUERY_AGENT` | `querier` | the tool-less, memoryless agent the research query turn runs on, for every proposer |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown, then cut to fit the core's 64 KiB prompt screen |
-| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue, and a frozen learning's, opens |
+| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a problem's issue, and a frozen learning's, opens |
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
@@ -1401,20 +2401,53 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
-| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |
+| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and files a public issue |
 | `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far |
 | `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS`, `EVOLVE_WATCH_P` | `2.0`, `3`, `0.01` | a spike: at least this many events, and a rate over this many times the week's that an exact test puts under this p |
 | `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
+| `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
+| `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
+| `EVOLVE_PUBLISH_PROOF` | `1` | the publish rule (section 6): a candidate opens only when the eval finds it better or its check is powered; `0` switches it off |
+| `EVOLVE_POWER_MIN_EVENTS` | `4` | events a check's stream must have held over the first outcome horizon before the proposal to be powered, 1 to 1000; never fewer than `EVOLVE_OUTCOME_MIN_EVENTS`, nor than the least n with 2^-n under `EVOLVE_OUTCOME_P` |
+| `EVOLVE_LESSON_MIN_JUDGED` | `3` | judged outcomes with none worked that make a kind of change exhausted, 0 to 50; `0` shows the lessons and enforces none |
 
-Two more halts don't latch and open one issue a day: a doctor report
-(`state/doctor.json`) that isn't green, and a last-good boot
-(`state/spine-fallback.json`). A halt that latches writes
-`state/evolve/halt.json`, and every later run refuses until `bin/evolve
-resume`; one that latches in the middle of a run (persona drift) leaves what
-passed `waiting`. Each halt opens one issue, through `hands/gh open-issue`,
-and `state/evolve/halts.jsonl` makes sure it opens once. Under `DRY_RUN` no
-issue opens; the halt records what it would have opened.
+Nothing latches. Until 2026-11-22 a J rise, persona drift and an
+evolve-watch revert wrote `state/evolve/halt.json`, and every later run
+refused until an operator ran `bin/evolve resume`: from 2026-11-20 09:27 to
+11-22 a revert of g21c2 (a one-line SOUL.md rule, blamed for box-wide cron
+failures it could not have caused) held the loop, five scheduled runs
+skipped, and nobody noticed. The latch, the file and the verb are gone. A
+`halt.json` left on a box is ignored, and the next run removes it.
+
+What used to halt is one of two things now:
+
+| Kind | What happens | Issue |
+|---|---|---|
+| `generations`, `manual-generations` | that run is skipped; the next one asks again | none: the cap is a budget, not a problem |
+| `doctor` (`state/doctor.json` red, checked again first) | that run is skipped | one, once it has been red at every run for `DOCTOR_RED_HOURS` (24) |
+| `j-rise` (over `EVOLVE_MAX_J_RISE`) | that run is skipped, while the window holds the rise | one |
+| `fallback` (`state/spine-fallback.json`) | the run goes on: it builds from Teeny's clone of main, not the live checkout | one |
+| `persona-drift` (over `EVOLVE_MAX_DRIFT`) | the candidate is `flagged` and opens no pull request; the rest of the generation goes on | one |
+| `screen-held` (the core's prompt screen held one learning's proposer turn `MAX_SCREEN_HOLDS` times in a row) | that learning is `screened` for a cool-off; the rest of the generation goes on | one, for every such learning |
+| `crash` | the generation is ended (`end_crashed`); the next run starts a new one | one |
+| `watch-revert` | the merge is reverted by a pull request for a person ("evolve-watch") | one per reverted candidate |
+
+A problem files a public issue on `EVOLVE_ISSUE_REPO` through
+`hands/gh open-issue` (the guard on its title and body; its judge too when
+the body quotes a model's words, like a candidate's title), labelled
+`help wanted` so contributors find it, the label a routed finding's issue
+asks for too (`evolve_route.CONTRIBUTOR_LABELS`; `hands/gh` adds it after the
+issue opens, and one the repository refuses leaves it unlabelled). It is deduplicated by its key: while that
+issue is open, a repeat comments on it at most once a day with the new
+numbers instead of opening another; once a person closes it, the next one
+opens a new issue. The issue says what happened, the candidate and its pull
+request, the numbers, what was done and what help is wanted, and carries
+counts, job names, error classes and links only: never a secret, an env
+value, a run's output, a hold's text, a probe's answers or a held-out task.
+`state/evolve/halts.jsonl` (the name `bin/lib/audit.py` counts) keeps a line
+per event, the key and the issue, never the body. Under `DRY_RUN` no issue
+opens or is commented on; the problem records what it would have done.
 
 ### 11. Held-out tasks
 
@@ -1445,32 +2478,184 @@ and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
   a day is p 0.49 and no spike; twenty is p 2e-6. Against a silent week four
   in a day is the least that is (p 0.002).
 - the cron failures counted are only those the change could have caused,
-  in both windows alike. Left out, and kept as counts under `left_out` in
-  the watch's private checks: a run that failed within
-  `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in `state/boots.jsonl` (a
-  deploy or restart kills what is running and the core is unreachable while
-  it comes back), a run whose output carries an infrastructure or provider
-  error (`INFRA_ERROR`: the core unreachable, HTTP 402/408/429/5xx, a
-  dropped stream, a timeout), and, when the change touches only
-  `brain/playbooks/<name>.md`, every job but `bin/act <name>`. Any other
-  change reaches every job. A prompt the core's guard refuses still counts
-  (a playbook's wording can trip it) when the job is one the change reaches.
-  This came from gen-9-c4: a moltbook-curate edit reverted on four failures,
-  two from a deploy restart and two from other playbooks' prompt-guard
-  refusals, one of which failed the same way the day before the merge.
+  in both windows alike. Left out, and kept as counts under `left_out`: a
+  run that failed within `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in
+  `state/boots.jsonl` (a deploy or restart kills what is running and the
+  core is unreachable while it comes back), a run whose own output carries
+  an infrastructure or provider error (`INFRA_ERROR`: the core unreachable,
+  HTTP 402/408/429/5xx, a dropped stream, a timeout), and a run of a job
+  that does not read anything the change touched (`unreached`). Which jobs
+  a change reaches (`change_reach`) comes from the targeted eval's own map
+  of what a path reaches (`evals._reaches`, "Affected tasks"):
+
+  | the change touches | the jobs it reaches |
+  |---|---|
+  | `brain/playbooks/<name>.md` | `bin/act <name>` |
+  | the studio writer's instructions | `bin/studio` |
+  | a prompt file every draft reads (`brain/SOUL.md`, `IDENTITY.md`, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, `narrative/ARCS.md`, the act agent's files, `AGENTS.md`) | every job that reads that prompt (`reads_prompt`): `bin/act`, `bin/dream`, `bin/mail`, `bin/mentions`, `bin/studio`, `bin/tick` and the agent jobs (the builder, the operator) |
+  | anything else (code, a hand, a skill, the core), or no patch on record | every job |
+
+  A prompt the core's guard refuses still counts (a playbook's wording can
+  trip it) when the job is one the change reaches.
+- a change whose reach is broad (a prompt file, or every job) needs more
+  than a count: the rise must still be a spike after the job with the most
+  failures since the merge is left out of both windows (`spread`). A change
+  every speaking job reads that breaks things breaks many of them; one job
+  running away alone is that job's own trouble, whatever merged. A narrow
+  reach (a playbook) needs the spike alone, in its own jobs. If nothing
+  attributable spikes, nothing reverts.
+
+  This came from two reverts. gen-9-c4 (2026-11-16): a moltbook-curate edit
+  reverted on four failures, two from a deploy restart and two from other
+  playbooks' prompt-guard refusals. g21c2 (2026-11-20): a one-line SOUL.md
+  rule about Moltbook replies reverted on "14 cron failures in 8.3 h,
+  40.4/day against 0.57/day", most of them `bin/surplus-sweep`, a hand job
+  no prompt reaches; of the speaking jobs one failed once. Its latched halt
+  then held the loop for two days.
 - once, the persona and memory probes on the live core, against gen-0
 - at 72 hours, J from `hands/world history`: lower than at the merge
 
 Any one of them opens a revert pull request, `teeny/revert-gen-<n>-c<i>`,
 from Teeny's clone (fetched first), reverting the merge commit, checked by
-the frozen check and shipped through `hands/gh`, and latches a
-`watch-revert` halt. The revert waits for a person: the loop merges nothing,
-and the babysitter merges only `teeny/gen-*`. A merge that passes all of it
-is closed after 72 hours, and the watch moves on to the next.
+the frozen check and shipped through `hands/gh`, and files one public
+`watch-revert` issue (section 10) with what an outside contributor needs:
+the change and its pull request, the revert's, every reason with its
+counts, rates and p, the failing jobs since the merge and in the week
+before, the error classes, what was left out and why, the `spread`, the
+probes' and J's numbers, and what help is wanted (is the evidence real; if
+so, what in the change caused it). Nothing latches: the next scheduled run
+goes on. The revert waits for a person: the loop merges nothing, and the
+babysitter merges only `teeny/gen-*`. A merge that passes all of it is
+closed after 72 hours, and the watch moves on to the next.
 
-The reasons stay out of Teeny's view: they are written only to
-`secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
-the issue, the log and the printed result say only that the watch reverted.
+On the box the reasons stay out of Teeny's view: the full checks are
+written only to `secrets/evolve-watch/` (mode 700), and the state, the
+archive, `halts.jsonl`, the log and the printed result say only that the
+watch reverted. The issue is public by the operator's choice (2026-11-22),
+so anyone can check the evidence; it carries counts and names, never a
+run's output or a hold's text.
+
+### Outcomes: did the change do what it said?
+
+The watch above looks only for harm. Until 2026-11-17 nothing ever read a
+merged change's `expected_move` again: of the five merged by then (g9c4,
+g12c2, g13c1, g13c2, g13c3) two were `unmeasurable` by the eval ("live
+outcomes and evolve-watch are its test") and the two measured scored no
+detectable difference, so nobody could say whether any changed what Teeny
+does. Now every proposal carries a `check` the code can count
+(`bin/lib/evolve_outcomes.py`), one of a closed list:
+
+| kind | fields | what it counts |
+|---|---|---|
+| `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); a run bin/act marked `failure: provider`, an unmarked one whose stderr `provider_error.classify` names, and an `INFRA_ERROR` in its error or stderr are left out; `contains` matches the error, the stderr and the failed actions |
+| `refusals` | `rule`, `playbook?`, `verb?` | actions a hand refused by that rule, in bin/act runs and beats (`state/tick/runs.jsonl`, a result's `do` is the verb); `held` for a guard hold |
+| `cron_failed` | `job` | failed runs of a job of `brain/cron.toml` or the pinned schedule (storage.db), boots and `INFRA_ERROR` left out as in the watch |
+| `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default, then only Teeny's own words: never text code wrote, like the babysitter's audit comment, `teeny_hands.authorship`) |
+| `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
+| `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
+| `hand_used` | `hand` | ok runs of `bin/act` playbooks that call `hands/<hand>` (`state/act/<playbook>/runs.jsonl`): a playbook whose input runs it counts every ok run; one that only has `output = "hand:<hand> <verb>"` counts the ok runs whose answer took the hand action (`actions` holds `{action: "hand", status: "done"}`). A failed run and one with a `skipped` key (the daily budget, the studio) are left out |
+| `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
+| `reach` | `surface` (x), `measure`, `source?` | a share of Teeny's own X items settled 6 hours before the window's end (`bin/lib/evolve_reach.py`): `new`, posts that drew a new account; `nobody`, posts that drew no reply, like, repost or quote; `answered`, replies the account answered back. `source` is a format (`take`, `proof`, `studio`, ...) or `reply-own-thread` / `reply-their-thread`. Scored as a share, not a count (below) |
+
+Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
+check is validated against the candidate's own tree (so a playbook the
+change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
+shown to the reviewer. The five merged before it have no check and show as
+`no-check`.
+
+**`reach`** (since 2026-11-22) is what a growth finding (1b) ships with. A
+count of posts that drew a new account rises when Teeny posts more and falls
+when it posts less, so it is scored as a share instead: the hits and the
+items before and after the merge, Fisher's exact test (the after hits are
+Hypergeometric given both margins) against `EVOLVE_OUTCOME_P`. Fewer than
+`EVOLVE_OUTCOME_MIN_EVENTS` items in both windows together, or none on one
+side, is `no-data`. The outcome keeps the hits as `before`/`after` and the
+items as `of`.
+
+**`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
+the ok runs inside the window of every playbook in the candidate's tree that
+calls the hand, counted as the table says: a run that never reached the hand
+(it failed, was skipped, or its answer did not take the hand action) is not a
+use. It is validated against that tree (the hand must exist at
+`hands/<hand>`), so a hand the change adds counts. It counts the playbooks'
+runs, not the hand's calls, on purpose: `hand.run` logs nothing, some hands
+(`dripsplan`) do not go through it, and the playbook runs are already logged.
+The gap: a hand run only by a cron `command` or a beat reads 0. The builder's
+rubric accepts only a scheduled playbook as a caller, so a feature built
+through lane 2 is countable; a proposer of lane 1 who checks a hand that only
+a beat uses would get `no-effect` wrongly. `Sources` gained an optional
+`tree` (the checkout whose playbooks say who calls a hand; none means the one
+`evolve_outcomes.py` is in).
+
+**Normalised, not sent back** (since 2026-11-17, gen 16: candidate 2 on m25
+spent two of its three rounds on `direction` added to a `judged` check, and
+was parked). Where nothing is ambiguous the check is normalised and the
+normalised one is stored: the kind, a surface, verb or category in any case;
+a direction in plain words (`down`, `increase`, `none`); `direction` on a
+`judged` check, which the judge never reads; and extras that change nothing
+counted (a note or reason, a horizon, which is the operator's). Still sent
+back: an unknown kind or field, a field that would narrow or redirect the
+count on a kind that does not take it (`contains` on `actions`, a
+`playbook` on `judged`), a missing or unreadable direction on a counted kind,
+a playbook, job or rule that does not exist, an unreadable `contains`. The
+brief's answer shape no longer shows a `direction` for every kind; it says
+`judged` takes none, with a judged example.
+
+**Shape repairs** (`repair_shape`, since 2026-11-17). Gen 16 lost two build
+rounds to answer-shape slips, not to the change: candidate 2 to a judged
+check's `direction` (now normalised), candidate 3 (m19) to a proposal that
+named no W component. When a proposal's change is there but its answer lacks
+or spoils a field (`component`, `title`, `expected_move`, `hypothesis`, or a
+`check` the code cannot count), a proposer that can (`ask`, and `evolver`
+through the proposer agent's tool-less turn on the live core) is asked once
+for those fields alone: a small turn shown its own account and what was
+wrong. Only the asked fields are taken from the answer, never edits; the
+result must pass the same validation, is written into that round's proposal
+(marked `repaired`, so a restart replays it) and goes on to the gate in the
+same round. A failed turn or a still-unusable answer falls back to the
+finding and the next round, as before (`repair_failed`). At most
+`MAX_SHAPE_REPAIRS` (2) a candidate, tried or not, so it cannot loop. Nothing
+is defaulted in code: a component guessed is a label the proposer never
+chose. A finding (evolve_findings) carries its own check and is never asked to repair it.
+
+**Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
+scores every merged candidate with a check at every horizon
+(`EVOLVE_OUTCOME_DAYS`, 2, and `EVOLVE_OUTCOME_LAST_DAYS`, 7) it has reached
+and has no outcome for, oldest merge first (`score_outcomes`). The count of
+the H days after the merge is set against the H days before it: with N
+events in both, the after count is Binomial(N, ½) when nothing changed, and
+a tail under `EVOLVE_OUTCOME_P` (0.1) is a move. `worked` is a move the way
+the check said (for `zero`: nothing after, enough before), `hurt` a move the
+other way, `no-effect` neither, and `no-data` fewer than
+`EVOLVE_OUTCOME_MIN_EVENTS` (4) events, with how many were seen. A `judged`
+check shows the tool-less `judge` agent (`EVOLVE_JUDGE_MODEL`) the expected
+move and up to six of Teeny's own sends on that surface from each side, as
+data, and takes `worked`, `no-effect` or `hurt`; nothing sent on one side is
+`no-data` without a turn. A ledger that cannot be read, or a judge that does
+not answer, is tried again each hour for two days, then recorded `no-data`.
+Each outcome keeps the before and after counts, the windows, the p, and
+`overlaps`: the other merges inside the windows, which may have moved the
+count too. A `worked` on a falling or zero check whose source ran less after
+the merge (`silenced`, section 6) is recorded `no-effect`, with the
+source's runs before and after as `source`.
+
+**What reads it.** `bin/evolve status` shows each merged candidate's check
+and `outcome` (its latest horizon's verdict, `pending` before the first,
+`no-check` without one) and a tally under `outcomes`. `observe` hands the
+next proposer the newest eight merged changes (what each tried and expected,
+and what was counted) as `merged_changes`, at most 4 KiB, under "## what came
+of your merged changes", and every merged change by kind as
+`lessons.kinds`, which leads the brief and which the gate enforces (section
+6, "Lessons"): a kind with three judged outcomes and none worked is rejected. The dream
+(`bin/lib/dream.py`) lists each outcome scored since it last dreamed, so the
+reflection can write what it learned from it; no code writes
+`brain/MEMORY.md`.
+
+**No revert.** An outcome never reverts anything or files an issue: `no-effect` is
+the commonest honest answer, and `hurt` is recorded for the operator and the
+next proposer. evolve-watch's own rules above still decide reverts. A change
+the watch reverted is scored like any other (its after window may cover the
+revert).
 
 ### The persona and memory probes
 
@@ -1486,6 +2671,36 @@ gen-0).
 
 ## What is not built
 
+- **Self-merge for feature pull requests.** A person approves every
+  `teeny/self-*` pull request. The babysitter's self-merge covers only
+  `teeny/gen-*` (`audit.py`), and widening it would move a fence (the L5
+  autonomy rung). The feature rubric is useful before that point and does not
+  depend on it. There is also no `teeny/eval` status on a self pull request.
+- **A ledger of hand calls.** `hand.run` logs nothing, so "used" is counted
+  from the scheduled playbook runs that call a hand (`hand_used`). A hand
+  that only a cron `command` or a beat runs reads 0, and the rubric does not
+  accept such a caller.
+- **Wants from anywhere but the memory page and routed findings.** Failed
+  builds, frozen-path failures, strangers' requests, browser tasks and beats
+  were looked at on 2026-11-19 and dropped (the table in "1c. Wants"); a fix
+  finding prompt rules kept failing to fix became a source on 2026-11-22.
+- **Growth findings off X.** Moltbook posts and comments carry a `format` but
+  every Moltbook account is `agent` by hands/world's rule, so "a new account"
+  says little there yet; growth findings read X only. Routing never applies
+  to them: what Teeny writes is the proposer's.
+- **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
+  no existing hand was thawed. A want whose only remedy is a frozen file
+  fails at ship, and the feed gives it up at once. The builder's iteration
+  limit (`builder.toml`, 40) is untouched too, so a whole feature in one
+  run is tight; the desk's sent-back report gives it about three runs inside
+  the 6-hour claim.
+- **A code pick.** `pick-request` still chooses by judgement, so it may skip a
+  want that reads as touching tokens. A `skipped` request counts as a failed
+  try, and after `WANTS_MAX_TRIES` the want gives up (visible in `bin/wants
+  status`).
+- **A repair of request #3.** The `hedgediff` request stays `pending` after
+  the daily idea built it, because the idea path never marks the request;
+  `pick-request` lost 11-16 and 11-17 to it. Not touched.
 - **A real lab boot at scale.** No four labs have run at once on the box.
 - **Watching every merge.** evolve-watch watches the newest merged change;
   when two merge within 72 hours, the older one's watch ends early.

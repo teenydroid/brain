@@ -39,7 +39,13 @@ why, rather than editing it.
 One run gets at most 40 tool calls and about 15 minutes, and a resumed run
 starts from scratch with no memory of the last one. Plan for it:
 
-- Spend no more than 10 calls reading before you decide.
+- Spend no more than 10 calls reading before you decide. For a feature, no more than 3: `feature.pattern` on the
+  job already holds every file a feature needs, in the shape the desk checks. Write those files first, under your
+  hand's name, then make them do the real work. Don't open other hands to learn the shape.
+- If the job has `last_run`, it is what you said at the end of your last run on it. Start from what it settled
+  (the name, the verbs, the files), and don't read again what it already read.
+- Write files early. A run that only reads leaves nothing: the clone keeps your files between runs, your memory
+  of what you read is gone.
 - If `request` touches a frozen path, stop reading. Report `failed` at
   once, naming the file and the frozen line that covers it (`bin/frozen-check
   --files <path>`, run from inside `brain`).
@@ -66,7 +72,7 @@ Everything listed in `evals/frozen.txt` is frozen: `bin/`, `evals/`,
 touching any frozen path is refused when it ships, the whole change with it.
 Don't touch them, not even to fix a typo.
 
-1. Make the smallest change that does what `request` asks.
+1. For an edit, make the smallest change that does what `request` asks. For a feature (`feature` is set on the job), build the whole feature: the entry point at `hands/<name>` through `hand.run`, the package, its tests, a section in `docs/hands.md`, and a scheduled playbook that calls it. The desk checks each of these when you report ok, and sends the report back with what is missing. Your edits stay in the clone.
 2. Run the tests that need no network, from inside workdir (`cd brain &&`):
    - `python3 -m unittest discover -s hands/tests -t hands/tests`
    - `bin/test/seed_cron_test.sh`, `bin/test/act_test.sh`,

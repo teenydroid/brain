@@ -3,7 +3,8 @@ playbook = "pr-merged"
 kind = "post"
 max_length = 240
 must_not = [
-  '#\w',
+  # A hashtag, not a pull request number ("#212").
+  '#(?!\d+(?!\w))\w',
   '@\w',
   # Teeny's own repository does not count.
   '(?i)\bpomodoro\b',

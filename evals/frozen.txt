@@ -35,17 +35,15 @@ secrets/
 # The fences themselves.
 DIRECTIVE.md
 
-# Teeny's one drive (docs/research/teeny-application.md, §3). It rides in every
-# prompt and its core lines are anchored in invariants.md, so a candidate that
-# rewrote it would move what it is measured against. How Teeny pursues the
-# drive (playbooks, skills, SOUL, CONTEXT) stays Teeny's.
-brain/DRIVE.md
-
 # The charter (docs/roadmap.md, G1): who decides what, every fence and kill
-# switch, how a fence changes. The short version rides in every prompt and is
-# anchored in invariants.md, like the drive.
-brain/CHARTER.md
+# switch, how a fence changes.
 docs/governance.md
+# Not frozen since 2026-11-22 (the operator's decision, docs/mind.md):
+# brain/DRIVE.md and brain/CHARTER.md, the drive and the charter's short
+# version, are Teeny's own pages now, like SOUL.md. It rewords them in a pull
+# request. The sentences they must go on saying are the anchors in
+# evals/invariants.md, which stays frozen here (evals/**) and which bin/doctor
+# reads at every boot; the fences they describe live in code, not in the page.
 
 # The tool-less agents bin/act drafts with and bin/eval judges with, and the
 # agent definitions that say "Frozen like act.toml": the posture of a turn
@@ -64,12 +62,29 @@ brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
 brain/agents/builder.toml
 brain/agents/operator.toml
+# The agentic mind's tools and jail (docs/mind.md): a self-edited sandbox or
+# tool list is a way out of state/home/. Its prompt (mind.md) stays Teeny's.
+brain/agents/mind.toml
 # The agent bin/evolve's lab spine proposes with: file tools in a worktree.
 brain/agents/evolver.toml
+# The studio's writer and editor (bin/studio): tool-less, and the editor
+# memoryless and blind to who wrote what. Their prompts (writer.md,
+# editor.md, narrative/STUDIO-EDITOR.md) stay Teeny's, like act.md.
+brain/agents/writer.toml
+brain/agents/editor.toml
 
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# The studio's desk is what every original post is told from since the
+# cutover: what counts as having happened (and the entry point that serves
+# it) is the operator's, so a candidate cannot widen the facts a post may
+# claim. The rest of the story bible (storylines, beats) stays Teeny's.
+hands/story
+hands/lib/teeny_hands/story/desk.py
+# The studio's run records and its one-run-a-slot claim: a slot claimed
+# before any turn is what keeps a retried run from posting twice.
+hands/lib/teeny_hands/story/runs.py
 hands/reddit
 # Teeny's site passwords: only code makes and reads them, never Teeny's edits.
 hands/keychain
@@ -78,6 +93,9 @@ hands/hn
 # The wider intake (Lobsters, GitHub, arXiv, HN on the standing topics): what
 # strangers write reaches the mind only past the guard's screen, as data.
 hands/listen
+# What AI X is talking about (the studio's first outside source): strangers' words reach
+# the writer only past the guard's screen, as data, and the tool's pin is the operator's.
+hands/trend
 
 # The scorer: hands/world computes W and J from the other hands' data
 # (docs/research/teeny-application.md, section 2). Teeny can change how it
@@ -115,6 +133,11 @@ hands/lib/teeny_hands/deploy/
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
 # lands a hand that should be frozen too.
 hands/lib/teeny_hands/__init__.py
+# Which guard holds are on Teeny's own words and which on text code wrote
+# (the babysitter's audit comment): the evolve findings, their checks, the
+# proposer's held drafts, J's penalty and the Moltbook material count only
+# the first, so a candidate must not decide which of its holds count.
+hands/lib/teeny_hands/authorship.py
 hands/lib/teeny_hands/bounty/
 hands/lib/teeny_hands/briefs.py
 hands/lib/teeny_hands/build/
@@ -128,8 +151,74 @@ hands/lib/teeny_hands/hand.py
 hands/lib/teeny_hands/hn/
 hands/lib/teeny_hands/keychain/
 hands/lib/teeny_hands/listen/
+hands/lib/teeny_hands/trend/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
+# Skits stage real public figures on video: the tests that pin the hard
+# lines (the guard's screen and judge, the viewer on the frames), the caps
+# and the label are the operator's, like the wallet's. The code is frozen
+# above (guard/, media/) and in deploy/** (the reel front's cutter).
+hands/tests/guard/test_skit.py
+hands/tests/guard/test_viewer_skit.py
+hands/tests/media/test_skits.py
+# Remakes stage real public figures too, and share the skits' day cap and
+# cutter: the tests that pin their caps, keys and label are the operator's
+# (the code is frozen above, in media/).
+hands/tests/media/test_remakes.py
+# Khaby videos keep a stranger's footage and put Teeny in his place, on the
+# remake's caps and cutter: the tests that pin the timeline as the only word
+# on the video, the caps and the reservation are the operator's.
+hands/tests/media/test_khaby.py
+# hands/video's flavors route every skit and remake verb, old and new
+# spellings, and set which kinds share the day cap (code in media/, above).
+hands/tests/media/test_flavors.py
+hands/tests/reel/test_cut.py
+hands/tests/test_studio_skit.py
+# Remakes put real public figures into famous videos with Teeny in frame:
+# the tests that pin their hard lines (the guard's screen and judge, Teeny
+# as a bystander, the source study's gate, the viewer on the keyframes and
+# the cut) and the studio's order and time floors are the operator's too.
+hands/tests/guard/test_remake.py
+hands/tests/guard/test_viewer_remake.py
+hands/tests/test_studio_remake.py
+# Khaby videos keep a stranger's real setup and put Teeny in his place: the
+# tests that pin their hard lines (the guard's screen and judge, the
+# timeline's gate, the viewer on the keyframes and the cut) and the studio's
+# order, the drop and the credit are the operator's too.
+hands/tests/guard/test_khaby.py
+hands/tests/test_studio_khaby.py
+# Clips and songs: renders on the reel service and buys music under the
+# media caps, so the entry point and its library are the operator's, like
+# the wallet's.
+hands/reel
+hands/lib/teeny_hands/reel/
+# Remake: finds and studies short videos made by strangers. What it will fetch
+# (the address allowlist, in deploy/** with the ingest service), the flags that
+# make a study unusable and the day's cap on its paid call are the operator's,
+# like the reel's. The entry point and its library are frozen here, and so are
+# the tests that pin the allowlist, the shot rules and the study's reading.
+hands/remake
+hands/lib/teeny_hands/remake/
+hands/tests/ingest/
+hands/tests/remake/
+# Khaby: the same ingest side for Khaby Lame's videos, sharing remake's fetch
+# code and ledger; the flags, the rules a dissect is held to and its day's cap
+# on its paid video call are the operator's, like the study's.
+hands/khaby
+hands/lib/teeny_hands/khaby/
+hands/tests/khaby/
+# Memes and comics: words drawn on pictures that go out under Teeny's name,
+# screened by the guard's lexicon, and Giphy search held to g and pg. The
+# fonts are licensed files (brain/assets/fonts/README.md).
+hands/meme
+hands/lib/teeny_hands/meme/
+brain/assets/fonts/
+# Known meme templates (hands/meme template) render on the memegen service.
+# Its front, named although deploy/** covers it, is what keeps the service
+# to Teeny's own art and off the internet; the tests that pin that rule
+# (and the template verbs' refusals) are the operator's, like the wallet's.
+deploy/memegen/
+hands/tests/meme/test_templates.py
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/
@@ -178,3 +267,25 @@ hands/lib/teeny_hands/babysit/
 # OpenHuman releases against the pin and the gaps (docs/roadmap.md, G9).
 hands/upstream
 hands/lib/teeny_hands/upstream/
+
+# What frozen code imports. Frozen code runs outside any jail, as the spine's
+# user, with secrets/ in reach, so a module it imports runs there too: an
+# editable one would be Teeny's code past the freeze. hands/tests/
+# test_watchers.py (test_frozen_code_imports_no_module_teeny_may_edit) walks
+# the imports and fails on a new one.
+hands/lib/teeny_hands/scrub.py
+hands/lib/teeny_hands/slurs.py
+hands/lib/teeny_hands/peerfile.py
+hands/lore
+hands/lib/teeny_hands/lore/
+hands/people
+hands/lib/teeny_hands/people/
+hands/lib/teeny_hands/story/__init__.py
+hands/lib/teeny_hands/story/store.py
+
+# The core's hook file: a command hook is a process the core starts outside
+# any jail, so what it runs is the operator's.
+brain/hooks.json
+# Which commit of the core (and every other submodule) is built: vendor/** is
+# frozen, and so is the file that says where it comes from.
+.gitmodules

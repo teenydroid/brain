@@ -18,7 +18,8 @@ away), or a lab spine (SPINE_LAB=1). Only a promotion writes last-good, and
 promotion is off unless EVOLVE_AUTO_PROMOTE=1, so a checkout that never
 promoted never falls back.
 
-While STATE/spine-fallback.json exists, bin/evolve starts no generation and
+While STATE/spine-fallback.json exists, bin/evolve files one public issue
+about it (generations go on: they build from main in Teeny's own clone) and
 evolve-watch opens the revert pull request. The operator clears it (deletes
 the file) once main is good again.
 """

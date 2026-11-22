@@ -1,0 +1,37 @@
+# The reel image's build context is vendor/moneyprinter. BuildKit reads this
+# file instead of the submodule's own .dockerignore, so its entries are
+# repeated here, and Teeny's are added.
+
+# Upstream's own.
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+.env.*
+*.log
+*.db
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.idea/
+logs/
+.git
+.gitignore
+storage/
+config.toml
+
+# Teeny's. The bundled songs (taken from YouTube, the README says) never
+# enter the image; nor do the web UI, the tests, the docs or the other
+# images' files.
+resource/songs/
+webui/
+webui.sh
+webui.bat
+test/
+docs/
+Dockerfile*
+docker-compose*.yml
+README*.md

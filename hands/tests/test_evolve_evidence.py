@@ -182,6 +182,21 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(held["groups"][0]["surface"], "moltbook")
         self.assertNotIn("MY HELD DRAFT TEXT", json.dumps(out))
 
+    def test_held_drafts_leave_out_holds_on_the_babysitters_comment(self):
+        sys.path.insert(0, str(REPO / "hands" / "lib"))
+        from teeny_hands.babysit import actions
+        comment = json.dumps({"body": actions.report({"verdict": "waiting", "head_sha": "abc", "tier": "teeny"})})
+        context = json.dumps({"surface": "github", "post_kind": "comment", "number": 368})
+        with sqlite3.connect(self.db) as conn:
+            for h in range(4):
+                conn.execute("INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text) "
+                             "VALUES (?, 'outbound', 'link', ?, 'links', 'links', 'links', ?)",
+                             (iso(NOW - (h + 1) * HOUR), context, comment))
+        held = self.outcomes()["held_drafts"]
+        self.assertEqual(held["total"], 3)
+        self.assertEqual(held["not_yours"], 4)
+        self.assertNotIn("github", [g["surface"] for g in held["groups"]])
+
     def test_failing_jobs_say_whose_they_are(self):
         failing = self.outcomes()["failing"]
         where = {f["job"]: f["where"] for f in failing}

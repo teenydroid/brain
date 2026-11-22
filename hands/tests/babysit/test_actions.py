@@ -12,6 +12,8 @@ from pathlib import Path
 from .support import DIARY, HEAD, REPO, TOKEN, BabysitScratch, patch
 from teeny_hands import hand
 from teeny_hands.babysit import actions, ledger
+from teeny_hands.babysit import audit as auditing
+from teeny_hands.babysit.api import PullsApi
 from teeny_hands.guard import gate
 
 SHIM = Path(__file__).resolve().parents[2] / "babysit"
@@ -26,6 +28,28 @@ class _Allow:
     def __call__(self, fields, **kwargs):
         self.calls.append(dict(fields))
         return gate.FieldsVerdict("allow", dict(fields), "")
+
+
+class _HoldLinks:
+    """Stands in for the guard's check_fields as it answered the audit of
+    #368 on 2026-11-18: a link off the list, refused, with a link hold."""
+
+    def __init__(self, judge_failed: bool = False) -> None:
+        self.calls: list[dict] = []
+        self.judge_failed = judge_failed
+
+    def __call__(self, fields, **kwargs):
+        from teeny_hands.guard import holds
+
+        self.calls.append(dict(fields))
+        if self.judge_failed:
+            row = holds.record(direction="outbound", kind="draft", context={"surface": "github"}, category="unknown",
+                               reason="the judge did not answer", by="judge", text=json.dumps(fields))
+            return gate.FieldsVerdict("hold", {}, "held", "unknown", row["id"], "body", True)
+        row = holds.record(direction="outbound", kind="link", context={"surface": "github", **kwargs["context"]},
+                           category="links", reason="evil.sh is not on the link allowlist", by="links",
+                           text=json.dumps(fields))
+        return gate.FieldsVerdict("refuse", {}, "cut the link", "links", row["id"], "body")
 
 
 class WriteScratch(BabysitScratch):
@@ -70,6 +94,53 @@ class TriageTest(WriteScratch):
         self.assertNotIn("previous instructions", fields["body"])
         (labels,) = self.gh.requests("POST", f"/repos/{REPO}/issues/7/labels")
         self.assertEqual(json.loads(labels.body)["labels"], ["babysit:blocked", "prompt-injection"])
+
+    def hold_comments(self, judge_failed: bool = False) -> _HoldLinks:
+        from teeny_hands.gh import actions as gh_actions
+
+        guard = _HoldLinks(judge_failed)
+        gh_actions.check_fields = guard
+        return guard
+
+    def test_a_held_comment_is_not_posted_again_at_the_same_head(self):
+        from teeny_hands.guard import holds
+
+        self.configure(BABYSIT="1")
+        self.pull_request()
+        self.gh.route("GET", f"/repos/{DIARY}/pulls", [])
+        guard = self.hold_comments()
+        first = actions.sweep()
+        self.assertEqual(first["errors"][0]["number"], 7)
+        second = actions.sweep()
+        self.assertEqual(second["errors"], [])
+        self.assertTrue(second["triaged"][0]["comment_held"])
+        self.assertEqual(len(guard.calls), 1)
+        self.assertEqual(len(holds.list_holds()), 1)
+        self.assertEqual(self.gh.requests("POST", f"/repos/{REPO}/issues/7/comments"), [])
+
+    def test_a_held_comment_is_tried_again_when_its_words_change(self):
+        self.configure(BABYSIT="1")
+        self.pull_request()
+        guard = self.hold_comments()
+        result = auditing.audit(REPO, 7, PullsApi())
+        with self.assertRaises(hand.Refused):
+            actions.triage_result(result, PullsApi())
+        actions.triage_result(result, PullsApi())
+        self.assertEqual(len(guard.calls), 1)
+        with self.assertRaises(hand.Refused):
+            actions.triage_result({**result, "approved_by": ["someone-else"]}, PullsApi())
+        with self.assertRaises(hand.Refused):
+            actions.triage_result({**result, "head_sha": "c" * 40}, PullsApi())
+        self.assertEqual(len(guard.calls), 3)
+
+    def test_a_comment_the_judge_failed_on_is_tried_again(self):
+        self.configure(BABYSIT="1")
+        self.pull_request()
+        guard = self.hold_comments(judge_failed=True)
+        for _ in range(2):
+            with self.assertRaises(hand.Refused):
+                actions.triage({"repo": REPO, "number": 7})
+        self.assertEqual(len(guard.calls), 2)
 
     def test_dry_run_writes_nothing(self):
         self.configure(BABYSIT="1", DRY_RUN="1")

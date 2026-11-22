@@ -247,6 +247,23 @@ class DreamTest(unittest.TestCase):
             # Only the night may run the lab.
             self.assertEqual('"op": "experiment"' in message, not light)
 
+    def test_a_dream_hears_what_came_of_the_merged_evolve_changes(self):
+        # bin/evolve watch scores each merged change's check after the merge
+        # (bin/lib/evolve_outcomes.py); the dream is where Teeny hears it.
+        archive = self.root / "state" / "evolve" / "archive.jsonl"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        rows = [{"id": "g13c2", "title": "no likes on X", "merged_at": "2026-09-12T00:00:00Z",
+                 "expected_move": "X shows zero likes from this account"},
+                {"id": "g13c2", "outcome_2d": {"verdict": "worked", "before": 5, "after": 0, "days": 2,
+                                               "at": "2026-09-14T04:00:00Z"}}]
+        archive.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.answer({"ops": [], "diary": "d"})
+        self.dream()
+        message = self.message()
+        self.assertIn("## what came of your merged changes", message)
+        self.assertIn("g13c2 (no likes on X), 2 days after it merged: worked (5 before, 0 after)", message)
+        self.assertIn("X shows zero likes from this account", message)
+
     def test_a_dream_sees_which_moltbook_formats_worked_and_which_flopped(self):
         from teeny_hands.moltbook import rules
 

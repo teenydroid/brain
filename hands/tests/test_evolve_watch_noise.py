@@ -6,7 +6,14 @@ must be a real rise (an exact rate test), not a ratio on a handful of runs.
 The g9c4 shape is the live one of 2026-11-16: four failed cron runs in the
 22.19 hours after a moltbook-curate playbook edit, against thirteen in the
 week before, reverted and halted the loop although none of them came from
-the change."""
+the change.
+
+The g21c2 shape is the one of 2026-11-20: a one-line rule added to
+brain/SOUL.md, reverted 8.3 hours after its merge on "14 cron failures"
+(40/day against 0.57/day), most of them bin/surplus-sweep, a job no prompt
+reaches. A latched halt then held the loop for two days. Now a failure counts
+only in a job that reads what the change touched, and a change every speaking
+job reads (or one whose reach is unknown) needs a rise spread across jobs."""
 from __future__ import annotations
 
 import datetime as dt
@@ -20,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin" / "lib"))
 
-from test_evolve import EvolveCase  # noqa: E402
+from test_evolve import EvolveCase, FakePublisher  # noqa: E402
 from test_evolve_lab import WATCH_GUARD  # noqa: E402
 
 import evolve  # noqa: E402
@@ -46,6 +53,7 @@ JOBS = {
     "J-general": ("teeny.moltbook-general", "bin/act moltbook-general"),
     "J-take": ("teeny.take", "bin/act take"),
     "J-curate": ("teeny.moltbook-curate", "bin/act moltbook-curate"),
+    "J-surplus": ("teeny.surplus-sweep", "bin/surplus-sweep"),
 }
 
 PAID = ("status=exit status: 1\nstdout:\n{\"ok\":false,\"error\":\"the draft turn failed\",\"stderr\":\"[oh] "
@@ -93,6 +101,11 @@ CURATE_PATCH = ("diff --git a/brain/playbooks/moltbook-curate.md b/brain/playboo
                 "@@ -16 +16 @@\n-old line\n+new line\n")
 
 
+SOUL_PATCH = ("diff --git a/brain/SOUL.md b/brain/SOUL.md\n--- a/brain/SOUL.md\n+++ b/brain/SOUL.md\n"
+              "@@ -40,0 +41 @@\n+- a moltbook parent with my reply already under it is answered.\n")
+SWEEP_FAILED = ("status=exit status: 1\nstdout:\n{\"ok\":false,\"error\":\"bridge quote refused\"}\nstderr:\n")
+
+
 class CronCase(EvolveCase):
     """A scratch spine with storage.db at TEENY_STORAGE, checked at CHECKED."""
 
@@ -110,9 +123,9 @@ class CronCase(EvolveCase):
         os.environ["TEENY_STORAGE"] = str(self.storage)
         self.config(EVOLVE=1, EVOLVE_PROBES=0)
 
-    def merge(self, patch: str | None = CURATE_PATCH):
+    def merge(self, patch: str | None = CURATE_PATCH, merged: float = MERGED):
         entry = {"id": "g9c4", "gen": 9, "cand": 4, "parent": "main", "verdict": "opened", "gate": {"ok": True},
-                 "title": "curate owns the nod", "pr_number": 288, "merged_at": evolve.iso(MERGED),
+                 "title": "curate owns the nod", "pr_number": 288, "merged_at": evolve.iso(merged),
                  "merge_sha": "0" * 40}
         if patch is not None:
             (evolve.evolve_dir() / "9").mkdir(parents=True, exist_ok=True)
@@ -153,7 +166,6 @@ class WatchNoise(CronCase):
         self.boots(G9C4_BOOTS)
         out, got = self.watched()
         self.assertNotIn("reverted", out)
-        self.assertFalse(evolve.halt_path().exists())
         self.assertFalse(got["spike"])
         self.assertEqual(got["after"], 0)  # none of the four came from the curate playbook
         self.assertEqual(got["left_out"]["after"], {"boot": 2, "infra": 0, "unreached": 2})
@@ -207,10 +219,88 @@ class WatchNoise(CronCase):
 
         os.unlink(self.storage)
         (evolve.secrets_dir() / "evolve-watch" / "state.json").unlink()
-        self.cron([(MERGED + 10 * HOUR + i * 600, "J-threads", BROKEN) for i in range(7)])
+        # Every job alike (no patch on record): spread over two jobs, so the
+        # rise holds without the biggest one.
+        self.cron([(MERGED + 10 * HOUR + i * 600, ("J-threads", "J-general")[i % 2], BROKEN) for i in range(7)])
         out, got = self.watched()
         self.assertTrue(out["reverted"])
         self.assertEqual(got["after"], 7)
+
+
+class Attribution(CronCase):
+    """Only failures in jobs that read a file the change touched count."""
+
+    def test_a_soul_rule_is_not_blamed_for_a_job_that_never_reads_it(self):
+        """g21c2: the spike was bin/surplus-sweep's, a hand job with no
+        prompt; the one speaking job that failed failed once."""
+        self.merge(patch=SOUL_PATCH)
+        before = [(MERGED - 3 * DAY, "J-threads", BROKEN)] + [(MERGED - d * DAY, "J-improve", BROKEN) for d in (1, 2, 4)]
+        after = [(MERGED + HOUR + i * 1800, "J-surplus", SWEEP_FAILED) for i in range(12)]
+        after += [(MERGED + 5 * HOUR, "J-threads", BROKEN)]
+        self.cron(before + after)
+        out, got = self.watched()
+        self.assertNotIn("reverted", out)
+        self.assertFalse(got["spike"])
+        self.assertEqual(got["after"], 1)
+        self.assertEqual(got["left_out"]["after"]["unreached"], 12)
+        self.assertEqual(got["reach"], "prompt")
+
+    def test_a_job_that_reads_no_prompt_spiking_alone_is_not_blamed_on_an_unknown_reach(self):
+        """No patch on record reaches every job, so one job's runaway is
+        that job's own trouble: the rise must survive leaving it out."""
+        self.merge(patch=None)
+        self.cron([(MERGED + HOUR + i * 1800, "J-surplus", SWEEP_FAILED) for i in range(12)])
+        out, got = self.watched()
+        self.assertNotIn("reverted", out)
+        self.assertEqual(got["after"], 12)
+        self.assertFalse(got["spike"])
+        self.assertFalse(got["spread"]["spike"])
+        self.assertEqual(got["spread"]["without"], "bin/surplus-sweep")
+
+    def test_a_soul_rule_that_breaks_the_speaking_jobs_still_reverts(self):
+        self.merge(patch=SOUL_PATCH)
+        after = [(MERGED + HOUR + i * 900, job, BROKEN)
+                 for i, job in enumerate(["J-threads", "J-general", "J-helpdesk"] * 4)]
+        self.cron([(MERGED - 3 * DAY, "J-threads", BROKEN)] + after)
+        out, got = self.watched()
+        self.assertTrue(out["reverted"])
+        self.assertTrue(got["spike"])
+        self.assertTrue(got["spread"]["spike"])
+        self.assertEqual(got["jobs"]["after"], {"bin/act moltbook-general": 4, "bin/act moltbook-helpdesk": 4,
+                                                "bin/act moltbook-threads": 4})
+
+    def test_the_watch_reverts_files_one_public_issue_and_the_next_run_goes(self):
+        """After a revert nothing waits for a person but the revert pull
+        request itself: the next scheduled run starts a generation, and the
+        one public issue carries the numbers that used to stay on the box."""
+        os.environ.pop("DRY_RUN", None)
+        self.live()
+        self.merge()  # the curate playbook: bin/act moltbook-curate alone
+        week = [(MERGED - DAY * 7 + i * DAY / 2 + 600, "J-curate", BROKEN) for i in range(14)]
+        day = [(MERGED + HOUR + i * HOUR, "J-curate", BROKEN) for i in range(20)]
+        self.cron(week + day + [(MERGED + 2 * HOUR, "J-surplus", SWEEP_FAILED)])
+        pub = FakePublisher()
+        out = evolve.watch(evolve.load_config(), publisher=pub)
+        self.assertTrue(out["reverted"])
+        (issue,) = pub.issues
+        body = issue["body"]
+        self.assertIn("g9c4", body)
+        self.assertIn("pull/288", body)
+        for number in ("20 in 22.2 h", "21.6", "2.0/day", "p "):
+            self.assertIn(number, body)
+        self.assertIn("bin/act moltbook-curate", body)
+        self.assertIn("left out", body)
+        self.assertNotIn("bridge quote refused", body)  # job names and counts, never a run's output
+        self.assertNotIn("TEENY", body)
+        self.assertEqual(pub.labels[0]["labels"], ["help wanted"])
+        self.assertIsNone(evolve.watch(evolve.load_config(), publisher=pub)["watching"])
+        self.assertEqual(len(pub.issues), 1)
+        self.config(EVOLVE=1, EVOLVE_PROBES=0, EVOLVE_EVALUATOR="none", EVOLVE_GENERATIONS_PER_DAY=4)
+        self.propose(1, [self.playbook_edit("One.")])
+        got = self.run_gen(1, publisher=pub, scheduled=True)
+        self.assertIn("gen", got, got)
+        self.assertNotIn("skipped", got)
+        self.assertEqual(len(pub.issues), 1)
 
 
 class CronFailuresFeedBoth(CronCase):

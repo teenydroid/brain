@@ -217,11 +217,11 @@ class ReflectTest(unittest.TestCase):
                     "- [m1] nobody yet", '"ops"', '"retire"'):
             self.assertIn(bit, chat["message"])
 
-    def test_the_night_may_retire_lore_the_day_has_moved_past(self):
+    def test_the_night_may_retire_what_the_day_has_moved_past(self):
         self.answer({"memory": NEW_MEMORY, "diary": "a day."})
         self.assertTrue(self.reflect()["ok"])
         message = self.chats()[0]["message"]
-        self.assertIn("outranks the lore", message)
+        self.assertIn("it holds from then on", message)
         self.assertIn("your origin", message)
 
     def test_the_new_page_replaces_the_old_and_the_old_is_kept(self):
@@ -813,14 +813,18 @@ class ReflectTest(unittest.TestCase):
             time.sleep(0.1)
         self.fail("timed out waiting")
 
-    def test_the_pinned_jobs_dream_detached_and_no_longer_reflect(self):
+    def test_the_pinned_jobs_no_longer_reflect_and_dream_runs_only_detached(self):
         # bin/dream is the reflection with more to go on (bin/lib/dream.py);
-        # bin/reflect stays for a run by hand.
+        # bin/reflect stays for a run by hand. The dream jobs moved to
+        # brain/cron.toml (Teeny's to schedule); what stays fixed is that the
+        # pinned file holds none of them and that the cron policy lets a brain
+        # job run bin/dream only detached.
         jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
-        self.assertEqual(jobs["dream"]["command"], "bin/dream --detach")
-        self.assertEqual(jobs["dream-midday"]["command"], "bin/dream --light --detach")
-        self.assertNotIn("reflect", jobs)
-        self.assertNotIn("reflect-midday", jobs)
+        for name in ("dream", "dream-midday", "reflect", "reflect-midday"):
+            self.assertNotIn(name, jobs)
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import cron_policy
+        self.assertEqual(cron_policy.BRAIN_SCRIPTS["bin/dream"], (("--detach",), ("--light", "--detach")))
 
     def test_the_cron_call_starts_the_night_and_returns(self):
         stimuli.note("builds a cli for crabs", who="ana")

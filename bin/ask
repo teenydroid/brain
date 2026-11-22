@@ -40,6 +40,22 @@ fi
 # bash, and stalls for minutes on a long playbook or judge message.
 [[ "$message" =~ [^[:space:]] ]] || die "nothing to ask"
 
+# A model the core has no window for is budgeted at 4,096 tokens: the trim
+# then drops this message, keeps only the agent's system prompt, and the
+# provider answers "messages: at least one message is required" (the studio
+# preview on claude-fable-5.2 and claude-opus-5.5, 2026-11-19). bin/spine
+# registers windows only for the models configured at boot, so a --model
+# turn registers its own first (bin/lib/model_window.py). Never fatal: a
+# window it cannot find is said on stderr and the turn still runs.
+if [ -n "$model" ]; then
+  windowed="$(python3 "$(dirname "${BASH_SOURCE[0]}")/lib/model_window.py" ensure "$model" 2>/dev/null)" || windowed=""
+  jq -r --arg m "$model" '
+    (.added | to_entries[] | "model: registered a \(.value)-token window for \(.key)"),
+    (.unknown[] | "model: no window for \(.) from the endpoint; a long turn on it may come back empty"),
+    (.error // empty | "model: could not check the window of \($m): \(.)")' <<<"$windowed" 2>/dev/null |
+    while IFS= read -r line; do log "$line"; done || true
+fi
+
 params="$(jq -cn --arg m "$message" --arg a "$agent" --arg t "$thread" --arg o "$model" --arg c "$cwd" \
   '{message: $m} + (if $a != "" then {agent_id: $a} else {} end)
                  + (if $t != "" then {thread_id: $t} else {} end)

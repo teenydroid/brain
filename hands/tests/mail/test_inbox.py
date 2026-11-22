@@ -37,7 +37,7 @@ class IngestTest(IngestBase):
             message("<m1@x>", text="gm teeny, love the repo", stamp="2026-09-14T06:00:00Z"),
             message("<m2@x>", subject="idea", text="could you build a tide chart bot for my reef?", thread="t-reef", stamp="2026-09-14T06:01:00Z"),
             message("<m3@x>", sender="Teeny <teeny@agentmail.to>", labels=["sent"], stamp="2026-09-14T06:02:00Z"),
-            message("<m4@x>", text="kill yourself", stamp="2026-09-14T06:03:00Z"),
+            message("<m4@x>", text="what a retard", stamp="2026-09-14T06:03:00Z"),
         )
         out = inbox.ingest()
         self.assertEqual(out["new"], {"pending": 2, "skipped": 1, "held": 1})

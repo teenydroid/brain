@@ -12,8 +12,11 @@ Teeny owns cron.toml and may add, remove or reschedule any job in it, its
 heartbeat included (docs/architecture.md, "Evolution"). What it may not do is
 written here, in code it cannot edit:
 
-- a brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
-  is a file in the brain's playbooks/; anything new it wants to do is a
+- a brain job runs `bin/heartbeat`, `bin/act <playbook>`, or the studio's
+  slot, `bin/studio --slot <name> [--legacy <playbook>] --detach` (the playbook
+  that slot runs instead with STUDIO=0, one of the ones the studio
+  replaced: bin/lib/studio_switch.py), and every playbook it names is a
+  file in the brain's playbooks/; anything new it wants to do is a
   playbook over a hand, never a new script for cron to run;
 - no job fires more often than every MIN_GAP_MINUTES;
 - at most MAX_JOBS jobs of the brain's own (the pinned ones do not count),
@@ -36,8 +39,8 @@ written here, in code it cannot edit:
   few times a day can have one. Its day fields must be numbers, and not
   both set (cron implementations read that differently). Never on a
   playbook that speaks in public (posts, replies, comments, announces:
-  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb), however the job is named, nor on the
-  pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
+  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb, or the studio's slot), however the job is
+  named, nor on the pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
   hours late is a different act, not a late one. That last rule reads the
   playbook, which Teeny edits apart from this file: under --strict
   (bin/seed-cron --check: the evolve gate's check of a candidate) a catch-up job
@@ -57,19 +60,48 @@ written here, in code it cannot edit:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tomllib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 MIN_GAP_MINUTES = 5
-MAX_JOBS = 24
+MAX_JOBS = 60
 MAX_ACT_RUNS_PER_DAY = 400
-BRAIN_COMMANDS = ("bin/heartbeat", "bin/act")
+BRAIN_COMMANDS = ("bin/heartbeat", "bin/act", "bin/studio", "bin/box")
+#: bin/box runs one of Teeny's own tools (home/tools/<name>/) in a jail, so a
+#: brain job may name any of them: the name and a few plain words, the same
+#: shapes bin/lib/box.py takes.
+BOX_TOOL = re.compile(r"[a-z][a-z0-9-]{0,30}")
+BOX_ARG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._=:,@-]{0,63}")
+BOX_MAX_ARGS = 8
+BOX_ENTRIES = ("run", "run.py", "run.sh")
+#: The operator scripts a brain job may also run, each with exactly one of
+#: these argument lists: the pipelines that are Teeny's to schedule since
+#: 2026-11-22 (docs/mind.md). Exact, because a cron shell job runs outside
+#: any jail: the brain picks when one of these runs, never what it is given.
+BRAIN_SCRIPTS = {
+    "bin/dream": (("--detach",), ("--light", "--detach")),
+    "bin/moltbook-prune": ((),),
+}
+#: Commands that speak on X however they are scheduled: never caught up.
+SPEAKING_COMMANDS = ("bin/studio",)
+SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 #: The agents a cron job may run. Each acts unattended, so each is written
 #: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
-AGENT_JOB_AGENTS = ("builder", "operator")
-MAX_AGENT_RUNS_PER_DAY = 96
+AGENT_JOB_AGENTS = ("builder", "operator", "mind")
+#: The builder runs 12 times a day and the operator 72. The rest is the mind's:
+#: its pinned wake (48) and the agent jobs it schedules in brain/cron.toml.
+MAX_AGENT_RUNS_PER_DAY = 240
+#: A pinned job may name a switch: it is enabled only while that setting is
+#: "1" in secrets/teeny.env. Never read from the environment, and never
+#: Teeny's to set: secrets/ is outside every agent's reach.
+SWITCH_NAME = re.compile(r"[A-Z][A-Z0-9_]{1,31}")
+#: agent -> the switch every job that runs it follows.
+SWITCHED_AGENTS = {"mind": "MIND"}
 MAX_PROMPT_CHARS = 4000
 CATCH_UP_DEFAULT_HOURS = 6
 CATCH_UP_MAX_HOURS = 12
@@ -131,6 +163,28 @@ def min_gap(minutes: list[int]) -> int:
     return min(gaps)
 
 
+def _secrets_file() -> Path:
+    base = os.environ.get("TEENY_SECRETS")
+    if base:
+        return Path(base) / "teeny.env"
+    return Path(os.environ.get("TEENY_ROOT") or Path(__file__).resolve().parents[2]) / "secrets" / "teeny.env"
+
+
+def _switch_on(name: str) -> bool:
+    """Whether NAME is "1" in secrets/teeny.env, read as the hands read it
+    (hand._parse_env_file: the last assignment wins). A missing file is off."""
+    hands_lib = str(Path(__file__).resolve().parents[2] / "hands" / "lib")
+    if hands_lib not in sys.path:
+        sys.path.insert(0, hands_lib)
+    from teeny_hands import hand
+
+    try:
+        text = _secrets_file().read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return hand._parse_env_file(text).get(name) == "1"
+
+
 def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
     command = str(job.get("command", "")).strip()
     # Operator scripts only: what cron runs has no model in the loop, so
@@ -139,14 +193,55 @@ def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
         raise PolicyError(f"{where}: command must run a script under bin/, got {command!r}")
     argv = command.split()
     if not pinned:
-        if argv[0] not in BRAIN_COMMANDS:
-            raise PolicyError(f"{where}: a brain job runs {' or '.join(BRAIN_COMMANDS)}, got {argv[0]!r}")
+        if argv[0] in BRAIN_SCRIPTS:
+            if tuple(argv[1:]) not in BRAIN_SCRIPTS[argv[0]]:
+                allowed = " or ".join(repr(" ".join((argv[0], *args))) for args in BRAIN_SCRIPTS[argv[0]])
+                raise PolicyError(f"{where}: a brain job runs {argv[0]} only as {allowed}, got {command!r}")
+        elif argv[0] not in BRAIN_COMMANDS:
+            raise PolicyError(f"{where}: a brain job runs {' or '.join((*BRAIN_COMMANDS, *BRAIN_SCRIPTS))}, "
+                              f"got {argv[0]!r}")
         if argv[0] == "bin/act":
             if len(argv) != 2 or not PLAYBOOK_NAME.fullmatch(argv[1]):
                 raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
             if not (path.parent / "playbooks" / f"{argv[1]}.md").is_file():
                 raise PolicyError(f"{where}: no playbook {argv[1]!r} in {path.parent / 'playbooks'}")
+        if argv[0] == "bin/box":
+            if len(argv) < 2 or not BOX_TOOL.fullmatch(argv[1]) or argv[1] in ("list", "check"):
+                raise PolicyError(f"{where}: bin/box takes a tool's name, got {command!r}")
+            if len(argv) - 2 > BOX_MAX_ARGS or not all(BOX_ARG.fullmatch(a) for a in argv[2:]):
+                raise PolicyError(f"{where}: a tool takes at most {BOX_MAX_ARGS} plain words, got {command!r}")
+            tool = path.parent.parent / "home" / "tools" / argv[1]
+            if tool.is_symlink() or not any((tool / e).is_file() and not (tool / e).is_symlink()
+                                            for e in BOX_ENTRIES):
+                raise PolicyError(f"{where}: no tool {argv[1]!r} with a run file in {tool.parent}")
+        if argv[0] == "bin/studio":
+            legacy = _studio_legacy(argv, command, where)
+            if legacy and not (path.parent / "playbooks" / f"{legacy}.md").is_file():
+                raise PolicyError(f"{where}: no playbook {legacy!r} in {path.parent / 'playbooks'}")
     return command
+
+
+def _studio_legacy(argv: list[str], command: str, where: str) -> str | None:
+    """A studio slot's legacy playbook (None without one), after its shape:
+    `bin/studio --slot NAME [--legacy PLAYBOOK] --detach`, nothing else (no
+    --dry-run, no --force-slot: cron runs the real slot, and only when it is
+    open). `--detach` is required: a studio run outlasts the 300 s the core
+    gives a cron shell call, which then kills and retries it."""
+    from studio_switch import REPLACED
+
+    shape = "`bin/studio --slot NAME [--legacy PLAYBOOK] --detach`"
+    if argv[-1:] != ["--detach"]:
+        raise PolicyError(f"{where}: a studio slot runs detached, as {shape} (a run outlasts the core's 300 s for a "
+                          f"cron call), got {command!r}")
+    argv = argv[:-1]
+    if len(argv) not in (3, 5) or argv[1] != "--slot" or not SLOT_NAME.fullmatch(argv[2]):
+        raise PolicyError(f"{where}: bin/studio runs as {shape}, got {command!r}")
+    if len(argv) == 3:
+        return None
+    if argv[3] != "--legacy" or argv[4] not in REPLACED:
+        raise PolicyError(f"{where}: --legacy names one of the playbooks the studio replaced "
+                          f"({', '.join(REPLACED)}), got {command!r}")
+    return argv[4]
 
 
 def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
@@ -222,6 +317,8 @@ def _catch_up(job: dict, minutes: list[int], where: str, brain: Path, strict: bo
     argv = str(job.get("command", "")).split()
     if argv and argv[0] in NO_CATCH_UP_COMMANDS:
         raise PolicyError(f"{where}: {argv[0]} moves money and never catches up a missed slot")
+    if argv and argv[0] in SPEAKING_COMMANDS:
+        raise PolicyError(f"{where}: {argv[0]} posts on X and never catches up a missed slot")
     hours = CATCH_UP_DEFAULT_HOURS if hours is None else hours
     if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= CATCH_UP_MAX_HOURS:
         raise PolicyError(f"{where}: catch_up_hours is a whole number from 1 to {CATCH_UP_MAX_HOURS}")
@@ -279,7 +376,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise PolicyError(f"{where}: name must be lowercase letters, digits and dashes")
         extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled", "catch_up", "catch_up_hours",
-                           "make_up_hours"}
+                           "make_up_hours", "switch"}
         if extra:
             raise PolicyError(f"{where}: unknown keys: {', '.join(sorted(extra))}")
         expr = str(job.get("schedule", "")).strip()
@@ -299,6 +396,17 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
+        if agent in SWITCHED_AGENTS:
+            # Wherever the job is written (pinned, or the brain's own), the
+            # agent runs only while the operator has it switched on.
+            enabled = enabled and _switch_on(SWITCHED_AGENTS[agent])
+        if "switch" in job:
+            switch = job["switch"]
+            if not pinned:
+                raise PolicyError(f"{where}: only a pinned job may name a switch")
+            if not isinstance(switch, str) or not SWITCH_NAME.fullmatch(switch):
+                raise PolicyError(f"{where}: switch must be a setting name, got {switch!r}")
+            enabled = enabled and _switch_on(switch)
         catch_up_secs = _catch_up(job, minutes, where, brain, strict)
         out.append({
             "name": f"teeny.{name}",

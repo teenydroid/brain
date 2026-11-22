@@ -37,6 +37,19 @@ a failed one a fail (the ordinary check rules). Nothing else changes: a
 block, fail or operator finding stops it exactly as before, so a frozen
 path, a sensitive path or an injection in Teeny's own diff still needs the
 operator. `self_merge` in the answer says a ready verdict came this way.
+
+With BABYSIT_SELF_MERGE_ALL=1 as well (the operator's decision of
+2026-11-22, every self-change by a pull request that merges itself on green
+CI), the candidate is Teeny's own pull request from any teeny/<slug> branch
+(policy.TEENY_BRANCH) of teenydroid/brain itself, and the stand-in for the
+approval is CI rather than teeny/eval (`gate` "checks" in the answer): every
+check in policy.REQUIRED_CHECKS on the head, green. One missing is a wait
+(`required_check_missing`), one running the ordinary wait, one finished any
+other way (skipped, neutral, cancelled, red) a fail
+(`required_check_not_green`); any other red check, teeny/eval's included,
+still fails. Every block, fail and operator finding stops it as before, and
+one more: `recently_rolled_back` (operator), a path a bad deploy changed in
+the last day (rollback.py).
 """
 
 from __future__ import annotations
@@ -47,7 +60,7 @@ from .. import hand
 from ..gh import reads as gh_reads
 from ..gh import secretscan
 from ..gh.client import user
-from . import injection, ledger, policy
+from . import injection, ledger, policy, rollback
 from .api import PullsApi
 
 Json = dict[str, Any]
@@ -56,9 +69,6 @@ SEVERITIES = ("block", "fail", "operator", "wait", "note")
 VERDICTS = ("blocked", "failing", "needs_operator", "needs_review", "waiting", "ready")
 
 DEFAULT_MAX_FILES = 100
-#: What a path in a finding may look like. A filename is the author's text
-#: too: one that is not a plain path is named by its digest instead.
-_PLAIN_PATH = __import__("re").compile(r"[A-Za-z0-9._@+/-]{1,200}")
 DEFAULT_MAX_LINES = 3000
 
 
@@ -91,11 +101,8 @@ class _Audit:
             self.findings.append(finding)
 
     def where(self, path: str) -> str:
-        """`path` as a finding may name it: itself when it is a plain path
-        that says nothing to a model, else `path#<digest>`."""
-        if _PLAIN_PATH.fullmatch(path) and not injection.scan(path.replace("/", " ").replace("-", " ").replace("_", " "), "path"):
-            return path
-        return f"path#{injection._digest(path)}"
+        """`path` as a finding may name it (injection.place)."""
+        return injection.place(path)
 
     def role(self, login: str) -> str | None:
         if login not in self._roles:
@@ -120,7 +127,11 @@ class _Audit:
         self.author = pr.get("user")
         self.author_tier = self.tier(self.author)
         self.head_sha = pr.get("head_sha")
-        self.evolve = self._is_evolve_pr()
+        # What stands in for a person's approval of a self-merge candidate:
+        # teeny/eval (an evolve PR), or the required checks (every teeny/
+        # PR, BABYSIT_SELF_MERGE_ALL). None for everyone else.
+        self.gate = "checks" if self._is_self_change() else "eval" if self._is_evolve_pr() else None
+        self.evolve = self.gate is not None
         self.eval_state: str | None = None
         if pr.get("state") != "open":
             return self._answer(closed=True)
@@ -144,6 +155,15 @@ class _Audit:
                 and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
                 and policy.is_evolve_branch(pr.get("head_ref")))
 
+    def _is_self_change(self) -> bool:
+        """A self-merge candidate on the required checks: BABYSIT_SELF_MERGE_ALL
+        (and BABYSIT_SELF_MERGE) on, teenydroid/brain, Teeny's own pull
+        request from any teeny/ branch of the same repository."""
+        pr = self.pr
+        return (policy.self_merge_all_on() and policy.is_brain(self.repo) and self.author_tier == policy.TEENY
+                and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
+                and policy.is_teeny_branch(pr.get("head_ref")))
+
     def _prose_severity(self, rule: str) -> str:
         if self.author_tier == policy.STRANGER:
             return "block"
@@ -159,7 +179,12 @@ class _Audit:
             if where != "branch":
                 found = _screen(text)
                 if found is not None:
-                    self.add("lexicon", "operator", where, found.category)
+                    # A judged match (lexicon.JUDGED_TERMS: a bare kill,
+                    # bullet or gun word) means nothing held on sight was in
+                    # the text; the guard sends that to its judge rather than
+                    # holding it, and the babysitter has no judge, so it is a
+                    # note. "kill you", "rifle" and the rest stay operator.
+                    self.add("lexicon", "note" if found.judged else "operator", where, found.category)
 
     def _diff_severity(self, rule: str) -> str:
         if rule in injection.ALWAYS_HOSTILE:
@@ -175,6 +200,12 @@ class _Audit:
         if not files:
             self.add("empty_diff", "wait", "diff")
         frozen = policy.frozen_checker(self._frozen_list()) if policy.is_brain(self.repo) else None
+        # A self-merge candidate touching what a bad deploy changed waits for
+        # the operator for a day (rollback.py), on either gate.
+        self.rolled_back = rollback.blocked_places() if self.evolve else set()
+        if self.evolve and rollback.holds_everything():
+            self.add("recently_rolled_back", "operator", "diff",
+                     "a deploy looks bad and its changed paths are not all known yet")
         for f in files:
             raw = str(f.get("filename") or "")
             path = self.where(raw)
@@ -216,6 +247,10 @@ class _Audit:
                      path, what)
         if policy.is_test_removal(raw, status):
             self.add("removes_test", "operator", path)
+        if path in self.rolled_back:
+            self.add("recently_rolled_back", "operator", path)
+        if self.gate == "checks" and policy.outside_the_jail(raw):
+            self.add("outside_the_jail", "operator", path, "runs outside the mind's jail: a person merges it")
         if frozen is not None:
             pattern = frozen(raw)
             if pattern is not None:
@@ -270,7 +305,17 @@ class _Audit:
             if who_tier in policy.TRUSTED:
                 continue
             where = f"{c.get('kind')}:{c.get('id')}"
-            self.injected(injection.scan(c.get("body") or "", where), who, who_tier, lambda rule: "operator")
+            self.injected(injection.scan(c.get("body") or "", where, markers=self._markers(who)), who, who_tier,
+                          lambda rule: "operator")
+
+    def _markers(self, who: str | None) -> Any:
+        """The hidden comments `who` may leave without a `hidden_comment`
+        finding: on teenydroid/brain, PR-Agent's markers in comments by the
+        login its workflow posts as. A content exemption, not trust: the
+        author is still a stranger and every other rule still reads it."""
+        if policy.is_brain(self.repo) and who == policy.PR_AGENT_LOGIN:
+            return injection.PR_AGENT_MARKERS
+        return None
 
     def _shape(self) -> None:
         pr = self.pr
@@ -304,8 +349,24 @@ class _Audit:
             self.add("check_pending", "wait", f"check:{name}")
         if not runs and not status["statuses"]:
             self.add("no_checks", "wait", "checks", "nothing has checked this head yet")
-        if self.evolve:
+        if self.gate == "eval":
             self._eval(status["statuses"])
+        elif self.gate == "checks":
+            self._required(runs)
+
+    def _required(self, runs: list[Json]) -> None:
+        """Every one of policy.REQUIRED_CHECKS on the head, and green. One
+        missing waits (it may not have started); one still running is
+        already a wait (above); one that finished other than `success`
+        (skipped, neutral, cancelled, red) fails: a check that did not run
+        did not pass."""
+        for name in policy.REQUIRED_CHECKS:
+            found = [r for r in runs if r.get("name") == name]
+            if not found:
+                self.add("required_check_missing", "wait", f"check:{name}")
+            elif all(r.get("status") == "completed" for r in found) and any(
+                    r.get("conclusion") != "success" for r in found):
+                self.add("required_check_not_green", "fail", f"check:{name}")
 
     def _eval(self, statuses: list[Json]) -> None:
         """teeny/eval on the head of a self-merge candidate. Its pending and
@@ -338,7 +399,8 @@ class _Audit:
             latest[who] = r
             who_tier = self.tier(who)
             if who_tier not in policy.TRUSTED:
-                self.injected(injection.scan(r.get("body") or "", f"review:{who}"), who, who_tier,
+                self.injected(injection.scan(r.get("body") or "", f"review:{who}", markers=self._markers(who)),
+                              who, who_tier,
                               lambda rule: "operator")
         approved, blocking = [], []
         for who, r in latest.items():
@@ -373,9 +435,10 @@ class _Audit:
                 verdict = "needs_review"
             elif "wait" in severities:
                 verdict = "waiting"
-            elif not approved and self.eval_state != "success":
-                # A self-merge candidate merges unapproved only on a passed
-                # teeny/eval, whatever else its status says.
+            elif not approved and self.gate == "eval" and self.eval_state != "success":
+                # An evolve candidate merges unapproved only on a passed
+                # teeny/eval, whatever else its status says. A self-change
+                # candidate got here on its required checks (`_required`).
                 verdict = "needs_review"
             else:
                 verdict = "ready"
@@ -395,6 +458,7 @@ class _Audit:
             "verdict": verdict,
             "approved_by": approved,
             "self_merge": self_merge,
+            "gate": self.gate if self_merge else None,
             "eval": self.eval_state,
             "labels": [str(label) for label in self.pr.get("labels") or []],
             "findings": sorted(self.findings, key=lambda f: (SEVERITIES.index(f["severity"]), f["rule"], f["where"])),

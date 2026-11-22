@@ -235,17 +235,76 @@ class FoundLink:
     url: Url | None
 
 
-def find_links(text: str) -> list[FoundLink]:
+# A fenced block: up to three spaces, then three or more backticks or tildes.
+# It ends at a line opening with a fence of the same character at least as
+# long, or, unclosed, at the end of the text (as GitHub renders it).
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})", re.MULTILINE)
+_TICKS = re.compile(r"`+")
+
+
+def code_spans(text: str) -> list[tuple[int, int]]:
+    """Where the text is markdown code, as (start, end) offsets: fenced blocks
+    first, then inline code spans outside them (a run of backticks closed by
+    the next run of exactly as many; an unclosed run is plain backticks)."""
+    spans: list[tuple[int, int]] = []
+    at = 0
+    while True:
+        opened = _FENCE.search(text, at)
+        if opened is None:
+            break
+        fence = opened.group(1)
+        line_end = text.find("\n", opened.end())
+        if line_end == -1:
+            spans.append((opened.start(), len(text)))
+            break
+        closing = re.compile(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$", re.MULTILINE)
+        closed = closing.search(text, line_end + 1)
+        end = closed.end() if closed else len(text)
+        spans.append((opened.start(), end))
+        at = end
+    inline: list[tuple[int, int]] = []
+    pos = 0
+    for start, end in [*spans, (len(text), len(text))]:
+        inline.extend(_inline_spans(text, pos, start))
+        pos = end
+    return sorted(spans + inline)
+
+
+def _inline_spans(text: str, start: int, end: int) -> list[tuple[int, int]]:
+    runs = list(_TICKS.finditer(text, start, end))
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < len(runs):
+        width = len(runs[i].group(0))
+        close = next((j for j in range(i + 1, len(runs)) if len(runs[j].group(0)) == width), None)
+        if close is None:
+            i += 1
+            continue
+        spans.append((runs[i].start(), runs[close].end()))
+        i = close + 1
+    return spans
+
+
+def find_links(text: str, code_is_code: bool = False) -> list[FoundLink]:
     """Every link in the text, obfuscated ones included. A bare "name.tld" counts
     only when the tld is one people actually get links on, so "node.js" and
-    "v1.2" are words; anything with a scheme, a www, or a path is a link."""
+    "v1.2" are words; anything with a scheme, a www, or a path is a link.
+
+    `code_is_code` is for GitHub's markdown, where a code span or fenced block
+    is never linkified: a bare name inside one (`pr-agent-budget.sh`, a file
+    whose extension is a tld) is code, not a link. Anything with a scheme or a
+    www is a link wherever it sits, code or not."""
     found = []
-    for match in _URL_PATTERN.finditer(deobfuscate(text)):
+    plain = deobfuscate(text)
+    code = code_spans(plain) if code_is_code else []
+    for match in _URL_PATTERN.finditer(plain):
         raw = match.group(0).rstrip(".,;:!?")
         if not raw:
             continue
         explicit = _has_scheme(raw) or raw[:4].lower() == "www."
         if not explicit:
+            if any(start <= match.start() and match.start() + len(raw) <= end for start, end in code):
+                continue
             host = re.split(r"[/:?#]", raw)[0]
             tld = host.rsplit(".", 1)[-1].lower()
             # With a path, a made-up tld is still worth stripping: it costs a
@@ -323,15 +382,16 @@ _BLANKS_BEFORE_PUNCTUATION = re.compile(r"[ \t]+([,.!?])")
 _EMPTY_BRACKETS = re.compile(r"\(\s*\)")
 
 
-def filter_links(text: str, allowlist: list[AllowlistEntry]) -> LinkFilterResult:
+def filter_links(text: str, allowlist: list[AllowlistEntry], code_is_code: bool = False) -> LinkFilterResult:
     """The text with every disallowed link cut out. Cutting rather than refusing,
     because a reply is almost never about its link: "check the repo:
     github.com/evil" is still a reply without the tail. The caller decides
-    whether what is left is worth sending."""
+    whether what is left is worth sending. `code_is_code` is find_links':
+    GitHub's markdown only."""
     removed: list[dict[str, str]] = []
     kept: list[str] = []
     cleaned = deobfuscate(text)
-    for link in find_links(text):
+    for link in find_links(text, code_is_code):
         reason = judge_link(link, allowlist)
         if reason is None:
             kept.append(link.raw)

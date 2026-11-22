@@ -37,6 +37,8 @@
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+# shellcheck source=bin/lib/model_windows.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/model_windows.sh"
 need curl jq python3 sqlite3
 
 lab="${SPINE_LAB:-0}"
@@ -244,21 +246,12 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
     # answers an empty turn. SPINE_CONTEXT_WINDOW wins; else the endpoint's
     # own listing (the ladder reports `context_length`). The key goes in a
     # header file, never in curl's argv.
-    window="${SPINE_CONTEXT_WINDOW:-}"
-    if [ -z "$window" ]; then
-      window="$(curl -fsS -m 10 -H @<(printf 'authorization: Bearer %s\n' "${LADDER_API_KEY:-}") \
-        "${LADDER_URL%/}/models" 2>/dev/null | jq -r --arg m "$SPINE_MODEL" \
-        '[.data[]? | select(.id == $m or ((.aliases // []) | index($m)))
-          | (.context_length // .context_window // empty)][0] // empty' 2>/dev/null)" || window=""
-    fi
-    if [[ "$window" =~ ^[1-9][0-9]*$ ]]; then
-      oh inference_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" --argjson w "$window" \
-        '{model_registry: [{id: $m, provider: "local-openai", context_window: $w}]}')" >/dev/null ||
-        die "model: the core did not take the $window-token window"
-      log "model: $SPINE_MODEL has a $window-token window"
-    else
-      log "model: no window for $SPINE_MODEL from the endpoint; keeping the stored one (set SPINE_CONTEXT_WINDOW if turns come back empty)"
-    fi
+    # bin/studio's writer and editor ask for their own models per turn
+    # (STUDIO_WRITER_MODEL, STUDIO_EDITOR_MODEL in secrets/teeny.env). The core
+    # budgets those the same few thousand tokens, so a studio turn on them
+    # came back "messages: at least one message is required" (the preview of
+    # 2026-11-18), until each has its window here too (bin/lib/model_windows.sh).
+    register_windows
   else
     log "model: not configured (no LADDER_URL in $env_file)"
   fi
@@ -299,6 +292,31 @@ if [ "$lab" = 1 ]; then
 else
   "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
 fi
+
+# The broker (bin/broker, docs/mind.md): how the agentic mind acts on the
+# world from inside its jail. It runs here, outside any jail, beside the
+# core, and only while the operator has MIND=1 in secrets/teeny.env, read
+# as every hand reads a setting (`bin/broker enabled`; the same switch
+# enables every job that runs the `mind` agent). It mints a
+# fresh token into state/home/ at every start. Never on a lab spine: a lab
+# has no hands to call. A broker that will not start is logged, never a
+# reason to refuse the boot: the mind's wakes then find nothing to act
+# through and say so in its journal.
+broker=""
+if [ "$lab" = 1 ]; then
+  log "broker: off (a lab spine)"
+elif "$TEENY_ROOT/bin/broker" enabled; then
+  "$TEENY_ROOT/bin/broker" serve &
+  broker=$!
+  trap 'kill -TERM "$core" 2>/dev/null || true; kill -TERM "$broker" 2>/dev/null || true' TERM INT
+  log "broker: started for the agentic mind (pid $broker)"
+else
+  # Off means off: the switch already disables the pinned `mind` job and
+  # every `agent = "mind"` job of the brain's (bin/lib/cron_policy.py); the
+  # wakes the mind set for itself live only in the core, so they go here.
+  "$TEENY_ROOT/bin/broker" sweep || log "broker: could not remove the mind's own wakes"
+  log "broker: off (MIND is not 1 in secrets/teeny.env)"
+fi
 log "ready"
 
 # A trapped signal interrupts `wait` before the core has finished shutting
@@ -308,5 +326,6 @@ while :; do
   if wait "$core"; then status=0; else status=$?; fi
   kill -0 "$core" 2>/dev/null || break
 done
+[ -z "$broker" ] || kill -TERM "$broker" 2>/dev/null || true
 log "the core exited with status $status"
 exit "$status"

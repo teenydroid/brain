@@ -123,10 +123,10 @@ class WatchTest(Scratch):
         self.assertEqual([s["ref"] for s in self.inbox()], [f"{sig(2)}:USDC"])
 
     def test_a_held_memo_never_reaches_the_mind(self):
-        self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="kill yourself, bot"))
+        self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="retard bot"))
         senses.watch()
         (got,) = self.inbox()
-        self.assertNotIn("kill", got["text"])
+        self.assertNotIn("retard", got["text"])
         self.assertIn("the guard held", got["text"])
 
     def test_team_money_is_said_to_be_team_money(self):

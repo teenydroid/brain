@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# What Teeny said it would build (docs/evolve.md, "1c. Wants"): the build-intent
+# items of its memory page, drawn in code, filed at most one a day as a `self`
+# build request through the guard, and scored seven days after the feature
+# merges. Off unless WANTS=1 in secrets/evolve.env. The work is
+# bin/lib/wants.py.
+#
+#   bin/wants draw      the wants and where each stands (read-only)
+#   bin/wants file      file the top open want, if any
+#   bin/wants watch     score each merged feature, once its week is over
+#   bin/wants run       watch, then file: the pinned job
+#   bin/wants status    the wants, their standing and the last run
+#
+# One JSON line on stdout. Exit 0: ok; 1: an error, or a bad setting.
+set -euo pipefail
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/wants.py" "$@"

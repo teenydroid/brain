@@ -2,16 +2,24 @@
 "Invariants every hand port must keep"). `publish` runs them after the
 guard and before DRY_RUN; nothing else in the hand posts.
 
-- The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
-  post less than `POST_MIN_GAP_HOURS` after the last one, less
+- The gap between original posts (crates/teeny-cadence/src/cadence.rs): an
+  original post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
   minutes drawing before they post), is refused. Five hours by default:
   brain/cron.toml has four post slots a day, each a ceiling that skips when it
-  has nothing anchored to say, and the outward quote (`peer-suggest`) is one of
-  the four. Posts an hour apart are the repetitive-publishing shape the ranker
-  demotes. Replies are never subject to it: they are conversations, not slots.
-- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
-  Replies to mentions are not posts and are never counted.
+  has nothing anchored to say. Posts an hour apart are the
+  repetitive-publishing shape the ranker demotes. Replies are never subject
+  to it: they are conversations, not slots. Quotes are not either: they have
+  their own lane (below), so a quote never shuts a studio slot.
+- At most `X_POSTS_MAX_PER_DAY` original posts a UTC day (4 by default).
+  Quotes and replies to mentions are not counted.
+- The quote lane (`check_gap` and `check_daily_cap` with kind `quote`): a
+  quote of a post goes out at least `QUOTE_MIN_GAP_HOURS` (3) after the
+  previous quote, less the same tolerance, at least
+  `QUOTE_AFTER_POST_MINUTES` (45) after the newest original post, and at
+  most `X_QUOTES_MAX_PER_DAY` (2) a UTC day. So the day's ceiling is 4
+  originals plus 2 quotes. The spacing holds one way only: an original post
+  never waits for a quote.
 - A thread (`hands/x thread`, 2 to 5 posts) is one own post: its head is
   recorded as kind `post` and counts against the gap and the cap once; every
   later post is recorded as kind `thread` (a continuation, `in_reply_to` the
@@ -19,9 +27,11 @@ guard and before DRY_RUN; nothing else in the hand posts.
   post of Teeny's, but is no own post and no reply: the gap, the cap, the
   reply pacing and the one-reply rule never see it, and the link budget counts
   a thread once however many of its posts carry a link.
-- Every own post names its anchor (`check_anchor`): the one item from its
-  inputs it is about, kept in the ledger beside it. A quote is anchored on
-  the post it quotes unless it names another. Replies need none.
+- An own post may name its anchor (`check_anchor`): the item from its inputs
+  it is about, kept in the ledger beside it. A quote is anchored on the post
+  it quotes unless it names another. Since 2026-11-22 a post with none is no
+  longer refused: anchoring was a taste rule (the guard's content list,
+  teeny_hands.guard.judge.RULES, is the only content rule).
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
   job nor a retry after a crash can answer it twice.
@@ -33,8 +43,11 @@ guard and before DRY_RUN; nothing else in the hand posts.
   $0.015 without (docs.x.com, pricing), so posts and replies with a link are
   capped at `X_LINK_POSTS_MAX_PER_DAY` a UTC day (1 by default; 0 forbids
   them). A bare domain X would turn into a link counts.
-- A near-duplicate of anything Teeny said in the window is refused, replies
-  included (`check_repeat`).
+- A post is as long as X takes (`check_length`): X Premium's long post,
+  `X_MAX_POST_LENGTH` (25,000 by default, 280 at least). 280 is the length a
+  post is written to, not a limit, since 2026-11-22. Nothing refuses a post
+  for repeating an earlier one since that day either: the near-duplicate
+  rule (`check_repeat`, the guard's repeats.py) was taste.
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
@@ -65,12 +78,24 @@ from .. import hand, tags
 from .client import number_setting
 from .model import utf16_length
 
-#: The hard cap, as X counts it for plain text.
+#: X's classic length: what a post is written to, no longer a cap
+#: (2026-11-22). The hard cap is `max_post_length()`.
 MAX_POST_LENGTH = 280
-#: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
+#: The longest post X Premium publishes, and X_MAX_POST_LENGTH's default.
+X_LONG_POST_LIMIT = 25_000
+#: Original posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
 #: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
 DEFAULT_POSTS_MAX_PER_DAY = 4
 DEFAULT_POST_MIN_GAP_HOURS = 5.0
+#: The quote lane: quotes a UTC day (X_QUOTES_MAX_PER_DAY), the hours from
+#: one quote to the next (QUOTE_MIN_GAP_HOURS), and the minutes a quote waits
+#: after the newest original post (QUOTE_AFTER_POST_MINUTES).
+DEFAULT_QUOTES_MAX_PER_DAY = 2
+DEFAULT_QUOTE_MIN_GAP_HOURS = 3.0
+DEFAULT_QUOTE_AFTER_POST_MINUTES = 45.0
+#: The ledger kinds of each lane: a thread's head is kind `post`; its
+#: continuations (`thread`) and replies are in neither.
+LANES = {"post": "post", "quote": "quote"}
 #: No second quote of one author inside this many days.
 PEER_ROTATION_DAYS = 7
 #: The longest anchor kept: an id, a URL or "pr 212", never a paragraph.
@@ -83,6 +108,18 @@ THREAD_MAX_POSTS = 5
 COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
 #: The id of the account a quote quoted.
 QUOTE_COLUMNS = {"quote_author": "TEXT"}
+#: Who made an own post, and from what (`studio_tags`): added by the studio
+#: cutover, NULL on every row from before it and from the old paths.
+STUDIO_COLUMNS = {"producer": "TEXT", "storyline": "TEXT", "shape": "TEXT", "pitch_id": "TEXT"}
+#: The producers a post may name. `studio` is bin/studio; `brief` the
+#: told-to post (hands/brief post); `peer-quote` the outward quote
+#: (`peer-suggest`); `legacy` (or no producer at all, NULL) every older path:
+#: the replaced playbooks under STUDIO=0, the mind's own post_x, firsts,
+#: votes, giveaways.
+PRODUCERS = ("studio", "brief", "peer-quote", "legacy")
+STUDIO_FIELDS = tuple(STUDIO_COLUMNS)
+_STORYLINE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+_PITCH_ID = re.compile(r"^[A-Za-z0-9:_.-]{1,120}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
@@ -133,10 +170,38 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
     """`format` and `experiment` on x_posts (teeny_hands/tags.py), the
-    post's `anchor`, the quoted author and a continuation's `thread_of`, added to a ledger
-    created before they existed, and the kind `thread` its check allows."""
-    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS})
+    post's `anchor`, the quoted author, a continuation's `thread_of` and the
+    studio's columns (STUDIO_COLUMNS), added to a ledger created before they
+    existed (ALTER TABLE ADD COLUMN: old rows keep NULL), and the kind
+    `thread` its check allows."""
+    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS, **STUDIO_COLUMNS})
     allow_thread_kind(conn)
+
+
+def studio_tags(body: Any) -> tuple[Any, dict[str, Any]]:
+    """The body without the producer's tags, and the tags (each None when
+    absent): `producer` (one of PRODUCERS), `storyline` (a storyline key),
+    `shape` (a short word), `pitch_id` (the studio run and pitch it came
+    from). Like the lab tags, none is published; each is kept beside the
+    post. A body that is not an object is returned as it is."""
+    if not isinstance(body, Mapping):
+        return body, {name: None for name in STUDIO_FIELDS}
+    rest = {k: v for k, v in body.items() if k not in STUDIO_FIELDS}
+    out: dict[str, Any] = {}
+    for name in STUDIO_FIELDS:
+        value = body.get(name)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise hand.HandError(f'"{name}" is a non-empty string')
+        out[name] = value.strip() if isinstance(value, str) else None
+    if out["producer"] is not None and out["producer"] not in PRODUCERS:
+        raise hand.HandError(f'"producer" is one of {", ".join(PRODUCERS)}')
+    if out["storyline"] is not None and not _STORYLINE.match(out["storyline"]):
+        raise hand.HandError('"storyline" is a storyline key: lowercase letters, digits and -, at most 32')
+    if out["shape"] is not None and len(out["shape"]) > 40:
+        raise hand.HandError('"shape" is at most 40 characters')
+    if out["pitch_id"] is not None and not _PITCH_ID.match(out["pitch_id"]):
+        raise hand.HandError('"pitch_id" is at most 120 letters, digits and :_.-')
+    return rest, out
 
 
 def allow_thread_kind(conn: sqlite3.Connection) -> None:
@@ -171,16 +236,26 @@ def is_x_id(value: Any) -> bool:
 # --- the text ------------------------------------------------------------------------------
 
 
+def max_post_length() -> int:
+    """`X_MAX_POST_LENGTH`, held to MAX_POST_LENGTH..X_LONG_POST_LIMIT,
+    default X_LONG_POST_LIMIT (the account is on X Premium, which posts long
+    text as a long post). The guard reads the same setting the same way
+    (teeny_hands.guard.style.x_max_length)."""
+    return int(number_setting("X_MAX_POST_LENGTH", X_LONG_POST_LIMIT, MAX_POST_LENGTH, X_LONG_POST_LIMIT))
+
+
 def check_length(text: str) -> None:
     """Refuse, don't fix (crates/teeny-safety/src/gate.rs:377): what is
-    measured is the guard's rewrite, as X counts it."""
+    measured is the guard's rewrite, as X counts it, against X's long-post
+    limit (`max_post_length`)."""
     length = utf16_length(text)
-    if length > MAX_POST_LENGTH:
+    limit = max_post_length()
+    if length > limit:
         raise hand.Refused(
-            f"the post is {length} characters; X allows {MAX_POST_LENGTH}",
+            f"the post is {length} characters; X allows {limit}",
             rule="length",
             length=length,
-            limit=MAX_POST_LENGTH,
+            limit=limit,
             rewrite=True,
         )
 
@@ -188,13 +263,13 @@ def check_length(text: str) -> None:
 # --- the anchor ------------------------------------------------------------------------------
 
 
-def check_anchor(anchor: Any, quote_of: str | None) -> str:
-    """The anchor an own post is about: the item from its playbook's inputs
-    it names (a listen digest item id or URL, a material receipt id, a PR
-    number, the post it quotes). A quote with none is anchored on the quoted
-    post. A post with none, or a blank one, is refused before the guard is
-    asked or anything is sent: a post about nothing in particular is the
-    filler the slots are not for."""
+def check_anchor(anchor: Any, quote_of: str | None) -> str | None:
+    """The anchor an own post is about, for the ledger: the item from its
+    playbook's inputs it names (a listen digest item id or URL, a material
+    receipt id, a PR number, the post it quotes). A quote with none is
+    anchored on the quoted post; a post with none, or a blank one, has None.
+    Until 2026-11-22 a post with none was refused as filler; that was taste,
+    and the guard keeps only the content list."""
     if anchor is None and quote_of:
         return quote_of
     if isinstance(anchor, int) and not isinstance(anchor, bool):
@@ -203,11 +278,7 @@ def check_anchor(anchor: Any, quote_of: str | None) -> str:
         raise hand.HandError('"anchor" must be a short string naming the item the post is about')
     anchor = (anchor or "").strip()
     if not anchor:
-        raise hand.Refused(
-            "no anchor: an own post must name the one item from its inputs it is about (a listen item, a receipt, "
-            "a PR, the post it quotes) in \"anchor\". Nothing was published; skip when there is nothing to anchor on.",
-            rule="anchor",
-        )
+        return None
     if len(anchor) > MAX_ANCHOR_LENGTH:
         raise hand.HandError(f'"anchor" is at most {MAX_ANCHOR_LENGTH} characters: an id, a URL or a PR number')
     return anchor
@@ -328,37 +399,88 @@ def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
 # --- the gap between own posts -----------------------------------------------------------------
 
 
-def check_gap(conn: sqlite3.Connection) -> None:
-    """Whether an own post may go out now. Run under the posting lock, so the
-    answer still holds when the post is recorded."""
-    min_gap = number_setting("POST_MIN_GAP_HOURS", DEFAULT_POST_MIN_GAP_HOURS, 0.0, 48.0) * 3600.0
-    tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
-    last = conn.execute(
-        "SELECT id, created_at FROM x_posts WHERE kind IN ('post', 'quote') ORDER BY created_at DESC LIMIT 1"
+def _lane(kind: str) -> str:
+    if kind not in LANES:
+        raise ValueError(f"no posting lane for kind {kind!r}")
+    return LANES[kind]
+
+
+def _last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT id, created_at FROM x_posts WHERE kind = ? ORDER BY created_at DESC LIMIT 1", (kind,)
     ).fetchone()
-    if last is None:
+
+
+def _too_soon(rule: str, last: sqlite3.Row, wait: float, what: str) -> hand.Refused:
+    posted_at, next_at = iso(last["created_at"]), iso(last["created_at"] + wait)
+    return hand.Refused(
+        f"cadence: too soon after {what} {last['id']} ({posted_at}); next slot at {next_at}. "
+        "Nothing was published; do not post again before then.",
+        rule=rule,
+        last_post_id=last["id"],
+        last_posted_at=posted_at,
+        next_at=next_at,
+    )
+
+
+def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
+    """Whether an own post of `kind` may go out now. Run under the posting
+    lock, so the answer still holds when the post is recorded. An original
+    post (`post`, a thread's head) looks only at original posts; a quote
+    looks at the previous quote (QUOTE_MIN_GAP_HOURS, less the tolerance) and
+    the newest original post (QUOTE_AFTER_POST_MINUTES), never the other way
+    round."""
+    tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
+    now = hand.now()
+    if _lane(kind) == "post":
+        min_gap = number_setting("POST_MIN_GAP_HOURS", DEFAULT_POST_MIN_GAP_HOURS, 0.0, 48.0) * 3600.0
+        last = _last(conn, "post")
+        if last is not None and now - last["created_at"] + tolerance < min_gap:
+            raise _too_soon("gap", last, min_gap, "post")
         return
-    since = hand.now() - last["created_at"]
-    if since + tolerance < min_gap:
-        posted_at, next_at = iso(last["created_at"]), iso(last["created_at"] + min_gap)
-        raise hand.Refused(
-            f"cadence: too soon after post {last['id']} ({posted_at}); next slot at {next_at}. "
-            "Nothing was published; do not post again before then.",
-            rule="gap",
-            last_post_id=last["id"],
-            last_posted_at=posted_at,
-            next_at=next_at,
-        )
+    quote_gap = number_setting("QUOTE_MIN_GAP_HOURS", DEFAULT_QUOTE_MIN_GAP_HOURS, 0.0, 24.0) * 3600.0
+    last = _last(conn, "quote")
+    if last is not None and now - last["created_at"] + tolerance < quote_gap:
+        raise _too_soon("quote_gap", last, quote_gap, "quote")
+    spacing = number_setting("QUOTE_AFTER_POST_MINUTES", DEFAULT_QUOTE_AFTER_POST_MINUTES, 0.0, 600.0) * 60.0
+    last = _last(conn, "post")
+    if last is not None and now - last["created_at"] < spacing:
+        raise _too_soon("quote_gap", last, spacing, "post")
 
 
-def check_daily_cap(conn: sqlite3.Connection) -> None:
-    """Own posts and quotes today (UTC), against `X_POSTS_MAX_PER_DAY`. Run
-    under the posting lock with the gap. Replies are not counted."""
-    cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
+def quotes_today(conn: sqlite3.Connection) -> int:
+    """Quotes in the own-post ledger this UTC day."""
+    now = hand.now()
+    return int(conn.execute("SELECT count(*) FROM x_posts WHERE kind = 'quote' AND created_at >= ?",
+                            (now - (now % 86400.0),)).fetchone()[0])
+
+
+def quote_cap() -> int:
+    """`X_QUOTES_MAX_PER_DAY`: the one setting for quotes a UTC day, read by
+    the posting rule and by `peer-suggest`'s early skip."""
+    return int(number_setting("X_QUOTES_MAX_PER_DAY", DEFAULT_QUOTES_MAX_PER_DAY, 0, 12))
+
+
+def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
+    """Own posts of `kind`'s lane today (UTC): original posts against
+    `X_POSTS_MAX_PER_DAY`, quotes against `X_QUOTES_MAX_PER_DAY`. Run under
+    the posting lock with the gap. Replies are not counted."""
     now = hand.now()
     day_start = now - (now % 86400.0)
+    if _lane(kind) == "quote":
+        cap, sent = quote_cap(), quotes_today(conn)
+        if sent >= cap:
+            raise hand.Refused(
+                f"{sent} quote(s) went out today (UTC) and the cap is {cap}. Nothing was published; "
+                "the next quote is tomorrow.",
+                rule="quote_cap",
+                sent_today=sent,
+                cap=cap,
+            )
+        return
+    cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
     sent = conn.execute(
-        "SELECT count(*) FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?", (day_start,)
+        "SELECT count(*) FROM x_posts WHERE kind = 'post' AND created_at >= ?", (day_start,)
     ).fetchone()[0]
     if sent >= cap:
         raise hand.Refused(
@@ -368,33 +490,6 @@ def check_daily_cap(conn: sqlite3.Connection) -> None:
             sent_today=int(sent),
             cap=cap,
         )
-
-
-def check_repeat(conn: sqlite3.Connection, text: str) -> None:
-    """Whether an own post says something Teeny has not already said
-    (docs/roadmap.md, A2): refused when it is a near-duplicate
-    (teeny_hands.guard.repeats) of an own post, quote or reply of the last
-    REPEAT_WINDOW_DAYS. The refusal is counted (`hands/guard repeats`)."""
-    from ..guard import repeats
-
-    since = hand.now() - repeats.window_days() * 86400.0
-    earlier = conn.execute(
-        "SELECT id, text, created_at FROM x_posts WHERE created_at >= ? ORDER BY created_at DESC",
-        (since,),
-    ).fetchall()
-    hit = repeats.closest(text, ((r["id"], r["text"]) for r in earlier))
-    if hit is None:
-        return
-    post_id, score = hit
-    when = next(iso(r["created_at"]) for r in earlier if r["id"] == post_id)
-    repeats.record("x", score, post_id)
-    raise hand.Refused(
-        f"repeat: this says what post {post_id} ({when}) already said. Nothing was published; say something new.",
-        rule="repeat",
-        similar_to=post_id,
-        similar_at=when,
-        score=score,
-    )
 
 
 # --- quotes of somebody else's post ----------------------------------------------------------
@@ -469,19 +564,26 @@ def record_post(
     anchor: str | None = None,
     thread_of: str | None = None,
     quote_author: str | None = None,
+    producer: str | None = None,
+    storyline: str | None = None,
+    shape: str | None = None,
+    pitch_id: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
     an own post is about (`check_anchor`), None on a reply. `thread_of` is the
     head's id on a thread continuation (kind `thread`), None elsewhere; `quote_author` is the id of the account a quote
-    quoted (`check_peer_rotation`)."""
+    quoted (`check_peer_rotation`). `producer`, `storyline`, `shape` and
+    `pitch_id` say who made it and from what (`studio_tags`)."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
-        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author,"
+        " producer, storyline, shape, pitch_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author,
+         producer, storyline, shape, pitch_id),
     )
 
 

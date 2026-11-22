@@ -65,11 +65,10 @@ bin/audit --json                   # last week's audit page (holds, spend, halts
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
 bin/eval invariants                # does the brain still say what Teeny is?
-bin/evolve status                  # open learnings, open evolve PRs, each candidate's state, any halt
+bin/evolve status                  # open learnings, open evolve PRs, each candidate's state, problem issues
 bin/evolve run                     # one generation: a candidate and a PR per open learning (off until secrets/evolve.env says EVOLVE=1)
 bin/evolve watch                   # evolve-watch: the newest merge, reverted when it hurts
 bin/evolve probe --baseline        # record gen-0's persona and memory answers on the live core
-bin/evolve resume                  # clear a latched halt
 
 hands/brief add "talk about the new release"          # queue the next told-to post
 hands/brief list                                      # open, posted and cancelled briefs
@@ -97,6 +96,9 @@ hands/moltbook unlock                                 # clear the verification l
 hands/hn top --max 5                                  # the front page, read only
 hands/hn thread 42 --max 30                           # an item and the comments under it
 hands/hn watch list                                   # the threads Teeny follows; watch remove ID stops one
+hands/chan sparks --max 3                             # strangers' premises from 4chan's worksafe boards, read only
+bin/backroom --wildcard "my server bill"              # an idea, collided with one of them
+bin/backroom --from-chan 2 --format post              # two rooms, each on one of them
 
 hands/mail list --unread                              # recent mail
 hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
@@ -151,7 +153,7 @@ command = "bin/act morning"
 ```
 
 A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
-often than every 5 minutes, there can be at most 24 brain jobs, and `bin/act`
+often than every 5 minutes, there can be at most 60 brain jobs, and `bin/act`
 can run at most 400 times a day. The jobs in `evals/cron.pinned.toml` (the
 inbound jobs, `tick`, `reflect`, the builder and operator, and the rest) are
 always added and do not count toward the 24. These rules live in
@@ -195,8 +197,8 @@ environment forces a rehearsal.
 | `DRY_RUN` | On unless set to `0`. |
 | `TEENY_INBOX` | `mind` (the default): mentions and mail go to the one inbox `bin/tick` reads. `core`: the older per-surface path. |
 | `X_BOT_USERNAME`, `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`, `X_BEARER_TOKEN` | X API v2: OAuth 1.0a for writes, the bearer for reads. `X_API_SECRET` also signs the webhook. |
-| `POST_MIN_GAP_HOURS`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules. |
-| `MAX_EMOJI_PER_POST`, `SAFETY_JUDGE`, `LINK_ALLOWLIST` | The guard. |
+| `POST_MIN_GAP_HOURS`, `X_QUOTES_MAX_PER_DAY`, `QUOTE_MIN_GAP_HOURS`, `QUOTE_AFTER_POST_MINUTES`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules (quotes have their own lane: docs/hands.md, "x"). |
+| `SAFETY_JUDGE`, `LINK_ALLOWLIST`, `X_MAX_POST_LENGTH` | The guard (and hands/x, for the length). |
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
@@ -253,15 +255,19 @@ The database is unreadable without its key.
 [`evolve.md`](evolve.md) covers what Teeny may change and how the check works.
 
 ```
-spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
+spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library); src/ has the wallet quote backend (wallet_backend.rs, lifi.rs, debridge.rs), giveaway_tx.rs and browser_pictures.rs
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
-hands/               x, guard, gh, moltbook, hn, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
+                     bin/lib/studio.py the studio (feed, write, pick), bin/lib/studio_feed.py its cards, bin/lib/studio_room.py its Room,
+                     bin/lib/formats/ one module per studio video format (skit, remake, khaby) and REGISTRY
+hands/               one launcher per hand (x, guard, gh, moltbook, hn, chan, trend, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, giveaway, bounty, slopcash, and more; hands/README.md lists them): Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, browser-deny.txt, the nginx vhost
-web/                 the landing page (Next.js), its own image
-docs/                architecture, hands, evolve, upstream gaps
+web/                 the landing page and the /rewards page (Next.js), its own image
+docs/                architecture, hands, evolve, governance, roadmap, upstream gaps, the drops schema, research and audit notes
+
+Each of spine/, hands/, bin/, deploy/, evals/ and web/ has a README.md with a file table and how to build or test it.
 ```
 
 These are gitignored and created at run time:
@@ -294,7 +300,7 @@ bin/test/seed_cron_test.sh                                   # cron reconciliati
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
 bin/test/eval_test.sh                                        # hard checks, blind swapped judging, scoring, held-out tasks; the core faked
-bin/test/evolve_test.sh                                      # bin/evolve end to end: dry run, a lab-core evaluation, halts, evolve-watch; core, hands and GitHub faked
+bin/test/evolve_test.sh                                      # bin/evolve end to end: dry run, a lab-core evaluation, skips, evolve-watch; core, hands and GitHub faked
 bin/test/inbound_consume_test.sh                             # drafts to replies, batch-only, pacing; the core and hands faked
 bin/test/dockerfile_test.sh                                  # the image copies every module script it imports
 bin/test/proofs_test.sh                                      # bin/proofs over fixture ledgers; read-only, no core
@@ -309,6 +315,20 @@ the doctor, and the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above,
 plus shellcheck and the landing page's lint and build.
+
+PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
+opens or leaves draft and again on every push to it (not base-branch merges), and answers `/review`, `/describe`, `/improve` and
+`/ask` comments from the owner, members and collaborators. It runs
+`gpt-6.1-sol` (falling back to `gpt-6-luna`) on Surplus Intelligence with the
+`SURPLUS_API_KEY` repository secret, the same key as `secrets/teeny.env`. Fork
+PRs get no secrets, so it skips them.
+
+A budget job in front of it (`.github/scripts/pr-agent-budget.sh`, tested by
+`bin/test/pr_agent_budget_test.sh`) stops automatic reviews once a PR has had
+10, or once one author's PRs have had 25 in the last 24 hours, and says so once
+on the PR. A `/review` comment still runs and still counts. Repository
+variables `PR_AGENT_MAX_REVIEWS_PER_PR` and
+`PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY` change the caps (`0` is unlimited).
 
 ## Bumping OpenHuman
 

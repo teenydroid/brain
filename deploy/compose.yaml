@@ -69,6 +69,9 @@ services:
   cortexdb:
     image: cortexdb/cortexdb:v0.10.4
     restart: unless-stopped
+    # default (reel, memegen, xhook) and ingest-net (the ingest service, which
+    # shares nothing else): the spine lives in this namespace, so it reaches both.
+    networks: [default, ingest-net]
     env_file:
       - path: ../secrets/cortex.env
         required: false
@@ -216,6 +219,143 @@ services:
       - ../bin/sandbox-runner:/opt/sandbox/sandbox-runner:ro
       - ../bin/lib/sandbox.py:/opt/sandbox/sandbox.py:ro
 
+  # Clips with Teeny's voice and captions, and songs (hands/reel; docs/hands.md,
+  # "reel"): MoneyPrinterTurbo, the upstream repo itself at
+  # vendor/moneyprinter (a release tag, never edited here), built API-only by
+  # deploy/reel.Dockerfile and run behind Teeny's front, deploy/reel/serve.py,
+  # which takes one job route and refuses every other upstream route. Config
+  # is deploy/reel.config.toml: no stock footage, no model, no upload service,
+  # Edge captions. Teeny's media is mounted read-only (state/media/ and
+  # brain/assets/); jobs and renders live in the reel-storage volume until
+  # hands/reel copies the mp4 into state/media/ and deletes the task. No
+  # published port: the spine reaches it at http://reel:8080 (REEL_URL) on the
+  # compose network. Behind a profile, like web:
+  #   git submodule update --init vendor/moneyprinter
+  #   docker compose -f deploy/compose.yaml --profile reel up -d --build reel
+  # A render takes about 3 cores and 2.4 GB (one 12 s clip, 2026-11-18); one
+  # at a time (max_concurrent_tasks = 1 in its config), capped below.
+  reel:
+    profiles: [reel]
+    image: teeny-reel:current
+    build:
+      context: ../vendor/moneyprinter
+      dockerfile: ../../deploy/reel.Dockerfile
+      additional_contexts:
+        teeny: ./reel
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 4
+    mem_limit: 4g
+    pids_limit: 512
+    environment:
+      # The image's user has no writable home; caches go to the tmpfs.
+      HOME: /tmp
+    volumes:
+      - reel-storage:/MoneyPrinterTurbo/storage
+      - ./reel.config.toml:/MoneyPrinterTurbo/config.toml:ro
+      - ../state/media:/teeny/media:ro
+      - ../brain/assets:/teeny/assets:ro
+
+  # Known meme templates for hands/meme template (docs/hands.md, "meme"):
+  # memegen, the upstream repo itself at vendor/memegen (a pinned commit:
+  # upstream tags no releases; never edited here), built by its own
+  # Containerfile as it is. What runs is Teeny's front, deploy/memegen/front.py
+  # (mounted read-only at /opt/teeny), in place of upstream's app.main: the
+  # same app, but an overlay or background is copied from Teeny's art (state/
+  # media/ and brain/assets/, mounted read-only) for an http://teeny-art/...
+  # address and every other URL is refused, so it fetches nothing from the
+  # internet; no "Memegen.link" watermark; tracking and search are no-ops.
+  # REMOTE_TRACKING_URL and BUGSNAG_API_KEY stay unset (upstream's only other
+  # outbound calls). It writes only inside its own container (its template
+  # folders cache each pasted picture, images/ each render), so it is not
+  # read_only; a recreate starts it clean. No published port: the spine
+  # reaches it at http://memegen:5000 (MEMEGEN_URL) on the compose network.
+  # Behind a profile, like reel:
+  #   git submodule update --init vendor/memegen
+  #   docker compose -f deploy/compose.yaml --profile memegen up -d --build memegen
+  # Idle it holds about 120 MB; a render takes well under a second of one
+  # core (2026-11-18, the pinned commit). Capped below.
+  memegen:
+    profiles: [memegen]
+    image: teeny-memegen:current
+    build:
+      context: ../vendor/memegen
+      dockerfile: Containerfile
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 2
+    mem_limit: 1g
+    pids_limit: 256
+    environment:
+      TEENY_ART_ROOT: /teeny
+    # Upstream's own command (its Containerfile's entrypoint) with the front
+    # as the app.
+    entrypoint: ["poetry", "run", "gunicorn", "--bind", "0.0.0.0:5000",
+                 "--worker-class", "uvicorn.workers.UvicornWorker", "--timeout", "20",
+                 "--pythonpath", "/opt/teeny", "front:app"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:5000/templates/drake"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    volumes:
+      - ./memegen:/opt/teeny:ro
+      - ../state/media:/teeny/media:ro
+      - ../brain/assets:/teeny/assets:ro
+
+  # Short videos to study for hands/remake (docs/hands.md, "remake"): a pinned
+  # yt-dlp and ffmpeg behind Teeny's own small service, deploy/ingest/serve.py
+  # (built by deploy/ingest.Dockerfile). It lists an account's recent videos,
+  # fetches an excerpt of one (YouTube, TikTok or Instagram addresses only;
+  # deploy/ingest/policy.py is the allowlist) and cuts it into shots and
+  # frames, and answers over HTTP until hands/remake deletes the fetch (a
+  # sweep removes any it forgot after an hour). It holds no key and mounts
+  # nothing of Teeny's: its one optional setting is INGEST_PROXY_URL, in
+  # secrets/ingest.env (deploy/ingest.env.example), because YouTube refuses
+  # this box's address without a proxy. Read-only root; fetches live in the
+  # ingest-storage volume. No published port: the spine reaches it at
+  # http://ingest:8090 (INGEST_URL) on the compose network. Behind a profile,
+  # like reel:
+  #   docker compose -f deploy/compose.yaml --profile ingest up -d --build ingest
+  # One job at a time; a fetch takes a minute or two and about two cores.
+  ingest:
+    profiles: [ingest]
+    image: teeny-ingest:current
+    build:
+      context: ./ingest
+      dockerfile: ../ingest.Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+    # Its own network, so what it fetches can never reach reel, memegen, xhook
+    # or the web page: it shares a network only with cortexdb, whose namespace
+    # the spine lives in (the spine reaches it at http://ingest:8090), and
+    # cortexdb and the core listen on loopback only.
+    networks: [ingest-net]
+    env_file:
+      - path: ../secrets/ingest.env
+        required: false
+    environment:
+      # The image's user has no home; yt-dlp's scratch goes to the tmpfs.
+      HOME: /tmp
+    volumes:
+      - ingest-storage:/data
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try
@@ -238,5 +378,11 @@ services:
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"
 
+networks:
+  # Only the ingest service and cortexdb (so the spine) are on it.
+  ingest-net:
+
 volumes:
   cortexdb-data:
+  reel-storage:
+  ingest-storage:

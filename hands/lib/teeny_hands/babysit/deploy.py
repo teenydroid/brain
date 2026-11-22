@@ -25,6 +25,17 @@ restart took before it stopped merging):
              something read at boot (`plan`); compose starts it again and
              the doctor gates the boot
 
+With BABYSIT_SELF_MERGE_ALL (every self-change merging itself, so deploys
+come more often), more rules, none of them there with it off:
+
+  - wait also while the mind's beat runs (state/locks/tick.lock, bin/tick)
+  - wait while state/spine-fallback.json is there: the spine is on
+    last-good, and deploying would check main out under it again
+  - at most one deploy that restarts the spine per
+    BABYSIT_DEPLOY_MIN_GAP_MINUTES (default 60); a sooner one waits, pending,
+    for a later sweep. One that restarts nothing is not held
+  - last-good is recorded on every deploy, not only one that restarts
+
 Under DRY_RUN nothing moves: the plan is recorded and the deploy stays
 pending. Every step that happens is a `babysit_actions` row (`deploy_*`),
 with commits, counts and rule names, never a path or a word from the pull
@@ -50,6 +61,14 @@ PENDING = "deploy-pending.json"
 #: The runs a restart must never cut off: a generation (bin/evolve run),
 #: evolve-watch, and the targeted eval of an evolve PR.
 BUSY_LOCKS = ("evolve", "evolve-watch", "eval")
+#: With BABYSIT_SELF_MERGE_ALL, also the beat of Teeny's mind (bin/tick
+#: --detach holds state/locks/tick.lock through bin/lib/detach.py): a
+#: restart mid-beat would cut off a model turn and the hands it runs.
+ALL_BUSY_LOCKS = ("tick",)
+#: bin/spine's record of a last-good boot (bin/lib/last_good.py fallback),
+#: there until the operator clears it.
+FALLBACK = "spine-fallback.json"
+DEFAULT_MIN_GAP_MINUTES = 60
 SEED_TIMEOUT = 120
 
 #: Read once, at boot, by bin/spine or the core it starts: a change restarts.
@@ -60,7 +79,7 @@ SEED_TIMEOUT = 120
 #: and hands/lib/teeny_hands/websites.py; bin/ and spine/ are the spine itself.
 BOOT = (
     "brain/SOUL.md", "brain/CONTEXT.md", "brain/DRIVE.md", "brain/CHARTER.md",
-    "brain/narrative/LORE.md", "brain/narrative/ARCS.md",
+    "brain/narrative/ARCS.md",
     "brain/agents/**", "brain/skills/**",
     "hands/lib/teeny_hands/websites.py",
     "bin/**", "deploy/**", "spine/**", "vendor/**", ".gitmodules",
@@ -192,10 +211,18 @@ def run() -> Json | None:
         _once(pending, "deploy_dry_run", "dry_run", plan=steps)
         return {**out, "dry_run": True, "would_fetch": not have, "plan": steps}
 
-    busy = [name for name in BUSY_LOCKS if live.lock_held(state, name)]
+    every = policy.self_merge_all_on()
+    locks = BUSY_LOCKS + (ALL_BUSY_LOCKS if every else ())
+    busy = [name for name in locks if live.lock_held(state, name)]
     if busy:
         _once(pending, "deploy_wait", "busy:" + ",".join(busy))
         return {**out, "waiting": busy}
+    if every and (state / FALLBACK).exists():
+        # The spine is on last-good because main did not boot. Going on would
+        # put main back under it (prepare checks main out again) and record
+        # that as last-good; the operator clears the file once main is good.
+        _once(pending, "deploy_wait", "fallback")
+        return {**out, "waiting": ["fallback"]}
 
     if live.git(checkout, "merge-base", "--is-ancestor", sha, "HEAD").returncode == 0:
         _clear()
@@ -207,7 +234,15 @@ def run() -> Json | None:
 
     paths = _changed(checkout, head, sha)
     steps = plan(paths)
-    if steps["restart"]:
+    if every and steps["restart"] and _restarted_within(min_gap_minutes()):
+        _once(pending, "deploy_wait", "gap")
+        return {**out, "waiting": ["gap"]}
+    if steps["restart"] or every:
+        # The outgoing commit, which is running now. With every self-change
+        # merging itself, recorded on every deploy, not only one that
+        # restarts: a boot for any reason (a crash, compose, the next
+        # restart's) that fails on a merge which restarted nothing falls back
+        # to the commit just before it, not to whatever the last restart left.
         _last_good().record(checkout, state, head, f"pr-{number}")
     error = live.fast_forward(checkout, sha)
     if error:
@@ -243,6 +278,14 @@ def run() -> Json | None:
             ledger.record_action("deploy_restart_failed", repo, number, sha, reason=error)
             out["restart_error"] = error
     return out
+
+
+def min_gap_minutes() -> int:
+    return hand.number("BABYSIT_DEPLOY_MIN_GAP_MINUTES", DEFAULT_MIN_GAP_MINUTES, 1, 24 * 60)
+
+
+def _restarted_within(minutes: int) -> bool:
+    return ledger.count_since("deploy_restart", hand.now() - minutes * 60) > 0
 
 
 def _changed(checkout: Path, old: str, new: str) -> list[str]:

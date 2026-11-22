@@ -9,23 +9,68 @@
             failure names its `field`, and the draft writes at most one hold
   inbound   stdin {"text", "surface"?, "context"?} -> {"ok": true}, or held
   style     stdin {"text", "replying_to"?, "max_emoji"?} -> {"text", "length", "emoji"}
+            (no emoji cut unless max_emoji is given; the length cut is X's)
   holds list [--status S] [--limit N] | approve ID [--note T] | reject ID [--note T]
   holds release ID [--note T]
   links list | approve HOST[/PATH]
   repeats [--days N] -> {"repeats", "by_surface"}: near-duplicate posts the
-            posting rules refused over the last N days (default 30)
+            posting rules refused over the last N days (default 30); none
+            are refused since 2026-11-22, so this counts the old rows
   rescreen  -> the re-screen's counts: the holds a judge outage made, asked
             about again (rescreen.py; the pinned guard-rescreen job)
-  anchor    stdin {"text", "anchor", "inputs"?} -> {"anchored", "reason", "judged"}:
-            whether an own post says something specific about its anchor that
-            the inputs support (anchor.py; bin/act asks before a post). A
-            verdict, never a hold: anything but a clear yes is anchored false
-  clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
-            "reason", "judged"}: whether someone who has never heard of Teeny
-            could say the post back with nothing to ask about (clarity.py;
-            bin/act and bin/tick ask before an own post). `meaning` is what
-            the author meant it to say, `quoted` the post it quotes. A
-            verdict, never a hold: anything but a clear yes is clear false
+  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged", "path"}:
+            whether every hard claim in the text (money and the token; news
+            said as fact about a real person or company) is supported by
+            `facts`, the non-empty list of desk items and inputs it may draw
+            on (anchor.py, `truth`); a bit Teeny invents about itself is
+            never a claim. A verdict, never a hold: anything but a clear yes
+            is truthful false, except that a judge that could not judge is
+            stood in for by the code check (`path` "code": truthful only with
+            no amount of money and no buy or sell call; TRUTH_FAIL_CLOSED=1
+            makes it a no). Off
+            (TRUTH_JUDGE=0) it is truthful true with judged false, so a
+            caller that needs a judgment checks `judged`
+  quote     stdin {"text", "quoted", "with"?} -> {"reacts", "reason", "judged"}:
+            whether a reader of the quoted post would read the quote as a
+            reaction to it (quote.py; hands/x peer-suggest asks). Fails OPEN:
+            off (QUOTE_JUDGE=0), unreachable or unreadable is reacts true with
+            judged false; only a clear no is reacts false
+  clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear": true, "says", "unknown": [],
+            "vague": [], "reason", "judged": false}: the cold reader's old verb,
+            kept so a caller that still asks (bin/studio's advisory read) gets
+            an answer. Since 2026-11-22 it asks no model and always passes:
+            clarity is taste, and the guard keeps only the content list
+  view      stdin {"image", "intent", "caption"?} -> {"ok", "sees", "on_model",
+            "readable", "reason", "judged"}: whether a vision model that has never
+            heard of Teeny sees Teeny on model, can read `caption` and takes
+            `intent` from the picture (viewer.py). A verdict, never a hold:
+            anything but a clear yes is ok false. Off (VIEWER_JUDGE=0) it is ok
+            true with judged false. Nothing posts through it yet
+  skit      stdin {"skit", "text", "story"} -> {"ok", "rule", "reason", "screen", "judged"}:
+            the hard lines for a parody video of a public figure (skit.py): code's
+            screen first (`screen` lists every reason), then the safety judge's model
+            with the skit rules. A verdict, never a hold; anything but a clear
+            "allowed" is ok false, and there is no switch that turns it off
+  view-skit stdin {"frames", "label", "intent"} -> {"ok", "sees", "labelled", "prohibited",
+            "looks_real", "reason", "judged"}: the viewer on frames of a rendered skit
+            (viewer.view_skit): the label read on at least half of them, nothing
+            prohibited, nothing that passes for real footage, the logline taken
+  view-remake stdin {"frames", "label"|null, "intent", "stage": "keys"|"cut", "shots"?} -> view-skit's
+            fields and {"teeny", "interacts"} (viewer.view_remake): on the keyframes
+            (no label; Teeny on model in every one) or on the cut (the label on at
+            least half; Teeny on model on at least half); nobody meets Teeny
+  remake    stdin {"remake", "text", "story", "study"} -> {"ok", "rule", "reason", "screen", "judged"}:
+            the hard lines for a remake, a popular video re-created with a public
+            figure and Teeny as a bystander (remake.py): the skit screens, Teeny's
+            own field, the source study's gate, then the judge. No off switch
+  khaby     stdin {"khaby", "text", "story", "timeline"} -> remake's fields: the hard
+            lines for a khaby video, a Khaby Lame video's setup kept and his
+            reaction re-made with Teeny in his place (khaby.py): Teeny alone, no
+            real person named or drawn, nothing sexual, violent or degrading, no
+            money, the source credited, the timeline's gate, then the judge
+  view-khaby stdin as view-remake -> view-remake's fields (viewer.view_khaby): the
+            cut keeps a stranger's real setup, so it is asked whether the made
+            part could pass for real, and Teeny is on model in at least one frame
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -43,9 +88,9 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds
+from . import anchor, clarity, gate, holds, khaby, quote, remake, skit, viewer
 from .links import parse_allowlist
-from .style import apply_house_style, count_emoji, post_length
+from .style import apply_house_style, count_emoji, post_length, x_max_length
 
 
 def _body(body: Any, *keys: str) -> dict[str, Any]:
@@ -93,14 +138,17 @@ def check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"text": verdict.text}
 
 
-def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
-    body = _body(body, "anchor", "inputs")
-    name = body.get("anchor")
-    if isinstance(name, int) and not isinstance(name, bool):
-        name = str(name)
-    if not isinstance(name, str) or not name.strip():
-        raise hand.HandError("anchor must name the item the post is about")
-    return anchor.judge(body["text"], name.strip(), body.get("inputs"))
+def quote_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    return quote.cli_body(body)
+
+
+def truth_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    body = _body(body, "facts")
+    if not body["text"].strip():
+        raise hand.HandError("text must not be empty")
+    if not isinstance(body.get("facts"), list) or not body["facts"]:
+        raise hand.HandError("facts must be a non-empty list of the items the text may draw on")
+    return anchor.truth(body["text"], body["facts"])
 
 
 def clarity_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -109,6 +157,75 @@ def clarity_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
         raise hand.HandError("text must not be empty")
     return clarity.judge(body["text"], _optional(body, "meaning", str, "a string"),
                          _optional(body, "quoted", str, "a string"))
+
+
+def view_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with an image and an intent")
+    unknown = set(body) - {"image", "intent", "caption"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    if not isinstance(body.get("image"), str) or not body["image"].strip():
+        raise hand.HandError("image must be the path of a picture under state/media/ or brain/assets/")
+    if not isinstance(body.get("intent"), str) or not body["intent"].strip():
+        raise hand.HandError("intent must say what the picture is meant to get across")
+    return viewer.view(body["image"], body["intent"], _optional(body, "caption", str, "a string"))
+
+
+def skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a skit, its text and its story")
+    unknown = set(body) - {"skit", "text", "story"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return skit.check(body.get("skit"), body.get("text"), body.get("story"))
+
+
+def view_skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label and an intent")
+    unknown = set(body) - {"frames", "label", "intent"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_skit(body.get("frames"), body.get("label"), body.get("intent"))
+
+
+def remake_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a remake, its text, its story and its study")
+    unknown = set(body) - {"remake", "text", "story", "study"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return remake.check(body.get("remake"), body.get("text"), body.get("story"), body.get("study"))
+
+
+def view_remake_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label or null, an intent and a stage")
+    unknown = set(body) - {"frames", "label", "intent", "stage", "shots"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_remake(body.get("frames"), body.get("label"), body.get("intent"), body.get("stage"),
+                              shots=body.get("shots"))
+
+
+def khaby_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a khaby piece, its text, its story and its timeline")
+    unknown = set(body) - {"khaby", "text", "story", "timeline"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return khaby.check(body.get("khaby"), body.get("text"), body.get("story"), body.get("timeline"))
+
+
+def view_khaby_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with frames, a label or null, an intent and a stage")
+    unknown = set(body) - {"frames", "label", "intent", "stage", "shots"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return viewer.view_khaby(body.get("frames"), body.get("label"), body.get("intent"), body.get("stage"),
+                             shots=body.get("shots"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -159,7 +276,8 @@ def style(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     max_emoji = _max_emoji(body)
     styled = apply_house_style(
         body["text"],
-        max_emoji=gate.max_emoji_per_post() if max_emoji is None else max_emoji,
+        max_emoji=max_emoji,
+        max_length=x_max_length(),
         replying_to=_optional(body, "replying_to", str, "a string"),
     )
     return {"text": styled.text, "length": post_length(styled.text), "emoji": count_emoji(styled.text)}
@@ -194,10 +312,10 @@ def _release_x(held: dict[str, Any]) -> str:
         return f"published on X as {out['id']} (a reply to {post_id})"
     if kind != "post":
         raise hand.Refused(f"a held {kind} cannot be released yet; only posts and replies", rule="release")
-    # The anchor the draft was held with (hands/x passes it in the context);
-    # a hold made before posts had anchors is anchored on the hold itself.
-    anchor = context.get("anchor") or f"hold:{held['id']}"
-    out = publish.post({"text": held["text"], "anchor": anchor}, approved=True)
+    # The anchor the draft was held with (hands/x passes it in the context),
+    # kept on the ledger row; a hold made without one is anchored on itself.
+    anchor_ = context.get("anchor") or f"hold:{held['id']}"
+    out = publish.post({"text": held["text"], "anchor": anchor_}, approved=True)
     return f"published on X as {out['id']}"
 
 
@@ -279,7 +397,11 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("clarity", clarity_check)):
+    for name, handler in (("inbound", inbound), ("style", style), ("truth", truth_check),
+                          ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
+                          ("skit", skit_check), ("view-skit", view_skit_check), ("remake", remake_check),
+                          ("view-remake", view_remake_check), ("khaby", khaby_check),
+                          ("view-khaby", view_khaby_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")

@@ -1,6 +1,6 @@
 # Deploying Teeny
 
-`deploy/compose.yaml` runs four services over the checkout, which is mounted
+`deploy/compose.yaml` runs these services over the checkout, which is mounted
 at `/srv/teeny`:
 
 | Service | What | Port |
@@ -9,6 +9,9 @@ at `/srv/teeny`:
 | `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `glm-5.3-flash` for writing memories, `gpt-6-luna` for recall, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine runs in its network namespace and finds it at `CORTEX_API_URL=http://127.0.0.1:3141` (`secrets/spine.env`); CortexDB binds loopback only. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
+| `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
+| `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
+| `ingest` | Short videos to study for `hands/remake` and to dissect for `hands/khaby`: a pinned yt-dlp and ffmpeg behind `deploy/ingest/serve.py`. No key, no mount of Teeny's. Behind the `ingest` profile. | none; compose network only (`http://ingest:8090`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
@@ -38,6 +41,25 @@ the checkout, mounted at /srv/teeny in spine and xhook
   └── secrets/            spine.env, teeny.env, cortex.env, core.token, openhuman.key
 ```
 
+## What is in this folder
+
+| Path | What it is |
+|---|---|
+| `compose.yaml` | The services above, over the checkout mounted at `/srv/teeny`. |
+| `spine.env.example`, `teeny.env.example`, `cortex.env.example`, `ingest.env.example`, `keychain.env.example` | Templates for the env files under `secrets/`: the model and memory store (spine), the hands' keys and `DRY_RUN` (teeny), CortexDB's keys, the ingest service's optional proxy, and the keychain's sealing key. Copy, fill, mode 600. |
+| `browser-allow.txt`, `browser-deny.txt`, `browser-proxy-domains.txt` | Operator-owned lists for the browser: the hosts the raw `http_request` tool may reach, the hosts the browser may never open, and the hosts reached through the residential proxy. Teeny cannot edit them (`evals/frozen.txt`). |
+| `reddit-subreddits.txt` | The subreddits `hands/reddit` may write in, reviewed by the operator. |
+| `reel.Dockerfile`, `reel.config.toml`, `reel/` | The `reel` service: MoneyPrinterTurbo's config and Teeny's front (`serve.py` routes, `policy.py` rules, `skitcut.py` the skit cutter). |
+| `memegen/` | The `memegen` front (`front.py`, `art.py`). The service itself builds from `vendor/memegen`. |
+| `ingest.Dockerfile`, `ingest/` | The `ingest` service: `serve.py`, `policy.py` (the URL allowlist) and `shots.py` (the cuts). |
+| `nginx/` | The host's vhosts: `teeny.enamakel.com.conf` (webhook and landing page) and `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`). |
+| `web-vhost.sh` | Installs the landing-page vhost and its certificate, once. |
+| `tell.sh` | Tells Teeny something from the host and has it act now. |
+
+The spine's own image is the `Dockerfile` at the repository root, and the
+landing page's is `web/Dockerfile`. The whole folder is frozen to Teeny's own
+pull requests (`evals/frozen.txt`).
+
 ## First time on the box
 
 From the checkout:
@@ -61,6 +83,140 @@ Compose reads interpolation values (`TEENY_UID`, `TEENY_GID`, `XHOOK_PORT`,
 file if one exists. Nothing else in this stack reads `deploy/.env`; the keys
 live in `secrets/`.
 
+## The reel service
+
+`hands/reel` renders clips and songs on the `reel` service
+(docs/hands.md, "reel"). It is opt-in, behind the `reel` profile, and posts
+nothing. It needs about 4 cores and 4 GB while rendering (capped at that in
+compose; one render at a time). To start it on the box:
+
+```sh
+git submodule update --init vendor/moneyprinter        # the pinned release tag
+docker compose -f deploy/compose.yaml --profile reel build reel
+docker compose -f deploy/compose.yaml --profile reel up -d reel
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://reel:8080/ping   # "pong"
+```
+
+`up -d reel` starts that one service; it does not recreate the spine. Then
+check what a clip would be, with nothing rendered:
+
+```sh
+echo '{"kind":"clip","script":"...","materials":["brain/assets/tiny/tiny-love.jpg"]}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/reel make
+```
+
+`REEL_URL` defaults to `http://reel:8080`. The caps (`REEL_MAX_PER_DAY`,
+`REEL_SONGS_MAX_PER_WEEK`) and the music switch (`REEL_MUSIC`, off) are in
+`secrets/teeny.env` (`deploy/teeny.env.example`). Renders wait in the
+`reel-storage` volume until the hand copies them into `state/media/` and
+deletes the task; a restart of the service forgets its tasks, and a folder
+left by a task in flight then stays in the volume
+(`docker compose -f deploy/compose.yaml --profile reel down reel` and
+`docker volume rm teeny-spine_reel-storage` clear it).
+
+Egress: the only outbound call the service makes is upstream's Edge TTS
+request (`speech.platform.bing.com`, Microsoft's unofficial endpoint, over
+https). No model, stock library, upload service or update check is
+configured or run. Compose does not restrict it today: the service sits on
+the stack's default network, which reaches the internet. To hold it to that
+one host, either put `reel` on its own network with an egress proxy that
+allows only `speech.platform.bing.com:443` (set `HTTPS_PROXY` on the
+service; edge-tts honours it), or add a host firewall rule on the
+`DOCKER-USER` chain that drops the reel container's traffic to anything but
+that host. Either way the spine still reaches it on the compose network.
+
+To move the pin: check out the new release tag in `vendor/moneyprinter`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_reel.py'`
+(its schema check reads the new job model), rebuild, render one clip, and
+land it as a pull request. Never edit the submodule; a fix upstream needs is
+a pull request to `harry0703/MoneyPrinterTurbo`.
+
+## The meme service
+
+`hands/meme templates` and `hands/meme template` render known meme templates
+on the `memegen` service (docs/hands.md, "meme"). Opt-in, behind the
+`memegen` profile; it posts nothing. Idle it holds about 125 MB; a render
+takes under a second of one core (capped at 2 cores and 1 GB). To start it
+on the box:
+
+```sh
+git submodule update --init vendor/memegen              # the pinned commit
+docker compose -f deploy/compose.yaml --profile memegen build memegen
+docker compose -f deploy/compose.yaml --profile memegen up -d memegen
+docker compose -f deploy/compose.yaml exec -T spine hands/meme templates --max 3
+```
+
+`up -d memegen` starts that one service; it does not recreate the spine.
+Then render one with nothing saved:
+
+```sh
+echo '{"template":"drake","lines":["a","b"],"teeny":"brain/assets/tiny/tiny-love.jpg"}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/meme template
+```
+
+`MEMEGEN_URL` defaults to `http://memegen:5000`. The studio drafts memes
+only when `STUDIO_FORMATS` names `meme` (`deploy/teeny.env.example`).
+
+The image is upstream's own build (`python:3.13` bookworm with poetry,
+about 2.6 GB). What runs is `deploy/memegen/front.py`, mounted read-only:
+upstream's app, but a picture to paste in is copied from Teeny's art
+(mounted read-only at `/teeny`, named `http://teeny-art/...`) and every other
+URL is refused, there is no "Memegen.link" watermark, and tracking and
+search are no-ops. `REMOTE_TRACKING_URL` and `BUGSNAG_API_KEY` stay unset;
+with them unset upstream makes no outbound call of its own. Compose does not
+restrict egress at the network level (as for `reel`): the front is what keeps
+it from fetching. The service writes only inside its container (each
+template folder caches the pictures pasted into it, `images/` each render),
+so it is not `read_only`; recreating it starts it clean.
+
+To move the pin: upstream tags no releases, so pick a commit on `main` whose
+CI passed, check it out in `vendor/memegen`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_templates.py'`
+(it checks that what the front replaces is still upstream's), rebuild,
+render one, and land it as a pull request. Never edit the submodule.
+
+## The ingest service
+
+`hands/remake` studies short videos on the `ingest` service
+(docs/hands.md, "remake"): a pinned `yt-dlp` and `ffmpeg` behind
+`deploy/ingest/serve.py`. Opt-in, behind the `ingest` profile; it posts and
+spends nothing. It holds no key and mounts nothing of Teeny's; its only
+setting is an optional proxy for YouTube. To start it on the box:
+
+```sh
+docker compose -f deploy/compose.yaml --profile ingest build ingest
+docker compose -f deploy/compose.yaml --profile ingest up -d ingest
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://ingest:8090/ping
+docker compose -f deploy/compose.yaml exec -T spine hands/remake charts --max 3
+```
+
+`up -d ingest` starts that one service; it does not recreate the spine.
+`INGEST_URL` defaults to `http://ingest:8090`. Which charts it reads is
+`REMAKE_TIKTOK_ACCOUNTS` and `YOUTUBE_API_KEY` (`deploy/teeny.env.example`);
+with neither set, `charts` answers nothing and says both are off.
+
+YouTube answers this box's address "Sign in to confirm you're not a bot" for
+every player client (2026-11-20), so YouTube videos need a proxy: copy
+`deploy/ingest.env.example` to `secrets/ingest.env`, set `INGEST_PROXY_URL`,
+and recreate the service. The proxy URL is read by that container only; the
+service takes it out of every error it reports. TikTok video downloads and
+account listings work without one; TikTok's tag and trending pages do not.
+
+The image is `python:3.11-slim` (the reel image's digest) with ffmpeg and
+yt-dlp installed from its release wheel by hash: `YTDLP_VERSION` and
+`YTDLP_SHA256` in `deploy/ingest.Dockerfile` move together (the digest is the
+wheel's sha256 on PyPI). yt-dlp changes often to keep up with the sites, so
+when a site stops working, bump both, rebuild and recreate. The service runs
+as its own user with a read-only root, a 256 MB tmpfs, no capabilities, no
+new privileges, 2 CPUs, 2 GB and 256 processes, and no published port.
+Fetches live in the `ingest-storage` volume until `hands/remake` deletes them;
+the service also sweeps any older than an hour (`INGEST_REAP_MINUTES`), and
+at start everything left from an earlier run. It is on a network of its own (`ingest-net`, shared only with cortexdb, whose namespace the spine lives in, so the spine still reaches `http://ingest:8090`): what it fetches cannot reach reel, memegen, xhook or the web page. Adding that network recreates cortexdb, and so the spine, the first time it is deployed. yt-dlp runs only the YouTube, TikTok and Instagram extractors, never `generic`. One job at a time: a second is
+answered 429. Compose does not restrict egress at the network level (as for
+`reel`): what keeps it from fetching anything but video pages is the address
+allowlist in `deploy/ingest/policy.py`, which `python3 -m unittest discover -s
+hands/tests -t hands/tests -p 'test_policy.py'` pins.
+
 ## The X webhook
 
 X's Activity API pushes `post.mention.create`, `post.reply.create`,
@@ -71,6 +227,86 @@ made, or refreshed after an event type is added, with
 challenge and refuses any delivery whose signature is not the HMAC of the
 body under `X_API_SECRET`. `curl -fsS http://127.0.0.1:3110/health` checks it.
 X search is not used.
+
+## The studio cutover
+
+Merging and deploying the studio changes what Teeny posts in public: from the
+first slot after the restart, every original post on X is written by
+`bin/studio` (docs/architecture.md, §4b) and goes out with no per-post
+approval. Replies are unchanged. To deploy it:
+
+1. Pull, with the submodules:
+
+   ```sh
+   git -C /home/ubuntu/teeny pull --ff-only
+   git -C /home/ubuntu/teeny submodule update --init --recursive
+   ```
+2. Add these lines to `secrets/teeny.env` (the rest of the `STUDIO_*`
+   switches can stay at their defaults; `deploy/teeny.env.example` shows
+   these commented out, so a copy of it stays off). `STUDIO` takes only
+   `1/true/yes/on` or `0/false/no/off`: anything else posts nothing on either
+   path and fails `bin/doctor`:
+
+   ```sh
+   STUDIO=1
+   STUDIO_WRITER_MODEL=claude-fable-5.2
+   STUDIO_EDITOR_MODEL=claude-opus-5.5
+   SAFETY_JUDGE_MODEL=claude-opus-5.5
+   ```
+
+   `SAFETY_JUDGE_MODEL` is what the truth judge, the cold reader, the anchor
+   judge and the guard's content judge ask, so no judge is the writer. It is
+   also asked for every reply and every Moltbook write the guard screens
+   (and with it unset, or equal to the writer's model, a live slot posts
+   nothing: `bin/doctor` warns):
+   expect the judge's share of the model bill to grow. Leave `STUDIO_DRY`
+   unset (0): set to 1, every slot runs its gates and posts nothing.
+3. Check no generation is running, since a restart kills it:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml exec -T spine bin/evolve status | jq .running
+   ```
+
+   Go on only when it prints `false`.
+4. Rebuild the spine image and start it (the cron jobs are reconciled at
+   boot):
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml up -d --build spine
+   ```
+5. Verify, after boot:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml logs spine | grep "the studio's"
+   ```
+
+   must show `model: the studio's claude-fable-5.2 has a N-token window` and
+   the same for `claude-opus-5.5` (bin/lib/model_windows.sh). A line saying
+   "no window" or "refused a window" means its turns may come back empty: fix
+   that before the next slot (a model set later, or for one run, gets its
+   window from `bin/ask --model` on its first turn; `bin/doctor --live`'s
+   `studio models answer` asks each studio model one turn and fails on a
+   refusal). Then `bin/crons` lists `teeny.studio-0430`,
+   `-0930`, `-1500`, `-sunday` and `-2300` and no `teeny.x-quote`,
+   `teeny.morning`, `teeny.take`, `teeny.show` or `teeny.growth`; `bin/doctor
+   --live` is green; and a preview that posts nothing:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml exec -T spine bin/studio --dry-run --slot check
+   ```
+
+   After the first slot: `tail state/studio/<slot>.log` (the detached run's
+   output), `hands/story runs --limit 4` (every run, its pick,
+   its gates and what came of it) and `sqlite3 state/hands.db "select id,
+   producer, storyline, shape from x_posts order by created_at desc limit 5"`.
+
+**To roll back**, set `STUDIO=0` in `secrets/teeny.env` and restart the
+spine (step 3 first). Nothing else changes: each studio job then runs its
+slot's old playbook (x-quote, morning, take, growth on Sundays, show),
+`shiplog` runs again at 23:10, the mind's `post_x` posts, and the brief and
+the peer quote post without the editor. The schedule is the same, except
+that the brief runs at 14:55 and 22:55 (five minutes before the slot, not
+after).
 
 ## Watching it
 

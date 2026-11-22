@@ -1,0 +1,72 @@
+# MoneyPrinterTurbo's config for Teeny's `reel` service (deploy/compose.yaml),
+# mounted read-only at /MoneyPrinterTurbo/config.toml. Upstream's own
+# defaults are in vendor/moneyprinter/config.example.toml; only what Teeny
+# needs differently is written here, and every key upstream would use to
+# reach a stock library, a language model, an upload service or a paid
+# voice is set empty on purpose.
+#
+# What this pins (docs/hands.md, "reel"):
+# - No stock footage: no Pexels or Pixabay keys, and video_source is local.
+#   hands/reel names Teeny's own stills and clips on every job, and the front
+#   (deploy/reel/serve.py) refuses any other source.
+# - No publishing: Upload-Post is off and has no key or account.
+# - No model calls: hands/reel sends the script verbatim, so no LLM is set.
+# - Captions from Edge TTS's own word timing; Whisper is never loaded.
+# - No API key on the service itself: it binds the compose network only,
+#   publishes no port, and only the spine reaches it.
+
+log_level = "INFO"
+listen_host = "0.0.0.0"
+listen_port = 8080
+
+[diagnostics]
+log_requests = false
+
+[app]
+api_key = ""
+hide_config = true
+
+# Teeny's own pictures and clips only.
+video_source = "local"
+pexels_api_keys = []
+pixabay_api_keys = []
+
+# No language model: the script comes from Teeny's writer, verbatim.
+llm_provider = ""
+openai_api_key = ""
+
+# Captions: Edge's word boundaries, exact for an Edge voice. Whisper stays
+# unloaded (it would download a multi-gigabyte model on first use).
+subtitle_provider = "edge"
+
+# Generated files stay in storage/tasks until hands/reel copies the mp4 out
+# and deletes the task. No public link is built.
+endpoint = ""
+material_directory = "task"
+
+# One render at a time: the box has room for one, and a second job queues.
+enable_redis = false
+max_concurrent_tasks = 1
+max_queued_tasks = 4
+video_clip_concurrency = 1
+
+# Never publish. hands/x is the only way anything of Teeny's reaches a network.
+upload_post_enabled = false
+upload_post_api_key = ""
+upload_post_username = ""
+upload_post_platforms = []
+upload_post_auto_upload = false
+
+[whisper]
+model_size = "base"
+device = "cpu"
+compute_type = "int8"
+
+[elevenlabs]
+# Empty: a voice or a music track is never bought from inside this service.
+# Music comes from hands/reel music (Surplus) and arrives as a file.
+api_key = ""
+
+[ui]
+hide_log = true
+open_task_folder_on_completion = false

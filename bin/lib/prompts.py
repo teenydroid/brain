@@ -6,21 +6,17 @@ Only SOUL.md (and the core's IDENTITY.md) reaches a turn on its own. What
 Teeny knows about its world sits beside them and used to reach no drafting
 turn at all: DRIVE.md (the one thing Teeny wants, and the rules it wants it
 under), CONTEXT.md (the wallet, the token, the rules, what it is doing
-now) and the parts of narrative/LORE.md written for Teeny to read (the
-premise, the cast, the running bits), plus narrative/ARCS.md (how far each
-goal has got), and brain/MEMORY.md, the notes Teeny keeps for itself: who
-people are, what it promised, what it is in the middle of. A playbook asking
-for "one running bit from the lore" drafted blind.
+now), plus narrative/ARCS.md (Teeny's goals and how far each has got), and brain/MEMORY.md, the notes Teeny keeps for itself: who
+people are, what it promised, what it is in the middle of.
 
 Each speaking agent keeps its own instructions in brain/agents/<id>.md and
 points its definition at the built file (`[system_prompt] file = "<id>.md"`).
 This writes brain/agent/prompts/<id>.md, where the core looks for a prompt
 file (`<workspace>/agent/prompts/`): the instructions, then "# your world".
 
-MEMORY.md leads the world, ahead of DRIVE.md, CONTEXT.md, the lore and the
-arcs. It is what actually happened, and where it disagrees with the context,
-the lore or the arcs it wins: the lore is where Teeny started, not a script
-it keeps replaying.
+MEMORY.md leads the world, ahead of DRIVE.md, CONTEXT.md and the arcs. It is
+what actually happened, and where it disagrees with the context or the arcs
+it wins.
 
 DRIVE.md comes second, after MEMORY.md and before CONTEXT.md. It is part of
 who Teeny is, so it sits with what Teeny remembers rather than with the facts
@@ -41,10 +37,11 @@ keeps where it started, brain/MEMORY.seed.md. A build starts the live page
 from the seed when there is none (a fresh checkout, the first boot) and
 never touches either once the live page exists.
 
-LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
-in the dark until the world trips them, and narrative/VOICE.md and
-EDITOR.md are prompts for other workflows (the terminal episodes, the
-editor); none of them is copied.
+There is no LORE.md any more (2026-11-21: the operator cut it; who Teeny is
+lives in SOUL.md and narrative/VOICE.md). EDITOR.md belongs to a separate workflow.
+narrative/VOICE.md is shared with the terminal episodes and the backroom;
+narrative/CANON.md, Teeny's own best lines (`canon`), and
+narrative/OBSESSIONS.md (`obsessions`) are the backroom's.
 
 Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
@@ -65,6 +62,17 @@ through"). Then the parts of skills/hooks and skills/conversation a post of
 Teeny's own is built from (CRAFT), for the agents that start posts (POSTING):
 the playbooks name those skills, and a drafting turn has no tool to open
 them with, so until they were copied here it only ever saw their names.
+
+The studio's two agents (STUDIO: `writer` and `editor`, run by bin/studio)
+are built differently, on purpose, and short. The writer's prompt is its
+instructions alone (brain/agents/writer.md: the persona, the voice, the
+content list), and the core adds no SOUL.md to it (writer.toml: omit_identity
+= true). The editor's is its instructions and narrative/STUDIO-EDITOR.md (the
+pick instruction and the same content list); it is not Teeny either. Neither
+carries READER.md, VOICE.md, CANON.md, a craft block or "# your world": in
+the writer's prompt they crowded out the voice and made every post sound like
+a policy (2026-11-22: an 82,000-character system prompt). Every fact a post
+uses comes from the run's own cards, never from a page of notes.
 
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
@@ -96,6 +104,12 @@ CRAFT = (
     ("hooks", ("the hook is the first seven words", "story shape", "pre-post check")),
     ("conversation", ("shapes that get replies", "what not to do", "pre-post check")),
 )
+#: The studio's agents (bin/studio): the writer pitches and drafts, the editor
+#: picks. Their prompts are built from their own sources (see the module
+#: docstring), never from world().
+STUDIO = ("writer", "editor")
+#: The editor's rubric and taste.
+STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
@@ -103,8 +117,6 @@ MEMORY_MAX_CHARS = 12_000
 #: from.
 MEMORY = "MEMORY.md"
 MEMORY_SEED = "MEMORY.seed.md"
-#: The LORE.md sections Teeny itself reads (the rest is the producer's).
-LORE_SECTIONS = ("cast", "running bits")
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 #: How many of its own posts per surface the prompt carries, and how long a
@@ -129,20 +141,6 @@ def sections(text: str, level: int = 2) -> tuple[str, dict[str, str]]:
             continue
         current.append(line)
     return "\n".join(preamble).strip(), {k: "\n".join(v).strip() for k, v in found.items()}
-
-
-def lore(text: str) -> str:
-    """LORE.md minus the producer's parts: the premise and origin, then the
-    sections Teeny reads."""
-    preamble, found = sections(text)
-    # The first preamble paragraph is the note to the producer about who
-    # reads what; the story starts after it.
-    paragraphs = [p for p in re.split(r"\n\s*\n", preamble) if p.strip() and not p.lstrip().startswith("# ")]
-    out = paragraphs[1:] if paragraphs and "producer" in paragraphs[0] else paragraphs
-    for name in LORE_SECTIONS:
-        if found.get(name):
-            out.append(f"### {name}\n\n{found[name]}")
-    return "\n\n".join(out).strip()
 
 
 def _read(path: Path) -> str:
@@ -278,7 +276,7 @@ def last_week(brain: Path) -> str:
 
 def world(brain: Path) -> str:
     """The "# your world" section every speaking agent carries: MEMORY.md
-    first, then DRIVE.md, CHARTER.md, CONTEXT.md, the lore and the arcs."""
+    first, then DRIVE.md, CHARTER.md, CONTEXT.md and the arcs."""
     parts: list[str] = []
     memory = _read(memory_page(brain))
     if memory:
@@ -291,7 +289,7 @@ def world(brain: Path) -> str:
         parts.append(
             "## what you keep in mind (MEMORY.md)\n\n"
             "This is what actually happened, so it comes first. Where it disagrees with the context, "
-            "the lore or the arcs below, MEMORY.md wins: the lore is where you started, not a script to replay.\n\n"
+            "or the arcs below, MEMORY.md wins.\n\n"
             + memory
         )
     drive = _read(brain / "DRIVE.md")
@@ -318,9 +316,6 @@ def world(brain: Path) -> str:
         # Its own "# CONTEXT.md" title would read as a second document.
         context = re.sub(r"\A#\s+CONTEXT\.md\s*\n", "", context).strip()
         parts.append(context)
-    story = lore(_read(brain / "narrative" / "LORE.md"))
-    if story:
-        parts.append("## the story you are in (narrative/LORE.md)\n\n" + story)
     arcs = _read(brain / "narrative" / "ARCS.md")
     if arcs:
         arcs = re.sub(r"\A#\s+arcs\s*\n", "", arcs).strip()
@@ -364,17 +359,75 @@ def craft(brain: Path) -> str:
     if not parts:
         return ""
     return ("# how a post of your own is built (skills/hooks, skills/conversation)\n\n"
-            "The parts of your skills a post is written from. Where one of them and READER.md pull apart, "
-            "READER.md wins: a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
+            "The parts of your skills a post is written from.\n\n" + "\n\n".join(parts))
+
+
+#: Teeny's standing obsessions and its own best lines (2026-11-22, after
+#: Truth Terminal: a few fixations it returns to, and a corpus of its own
+#: strangest output to imitate). The backroom reads both as its `{lore}`;
+#: the studio no longer does.
+OBSESSIONS = Path("narrative") / "OBSESSIONS.md"
+CANON = Path("narrative") / "CANON.md"
+
+
+def _body(text: str) -> str:
+    """A narrative page without its title and without its note on which
+    program reads it (a paragraph opening on `bin/`)."""
+    text = re.sub(r"\A#\s+.*\n", "", text).strip()
+    return "\n\n".join(p for p in re.split(r"\n\s*\n", text) if not p.lstrip().startswith("bin/")).strip()
+
+
+def obsessions(brain: Path) -> str:
+    """narrative/OBSESSIONS.md under its own heading. "" when there is none."""
+    text = _read(brain / OBSESSIONS)
+    if not text:
+        return ""
+    body = re.sub(r"^## ", "### ", _body(text), flags=re.M)
+    return "## what you keep coming back to (narrative/OBSESSIONS.md)\n\n" + body
+
+
+def canon_lines(brain: Path) -> list[str]:
+    """CANON.md's lines: each `> ` line, without the marker."""
+    return [line[2:].strip() for line in _read(brain / CANON).splitlines()
+            if line.startswith("> ") and line[2:].strip()]
+
+
+def canon(brain: Path) -> str:
+    """narrative/CANON.md under its own heading. "" when there is none."""
+    text = _read(brain / CANON)
+    if not text:
+        return ""
+    body = re.sub(r"^## ", "### ", _body(text), flags=re.M)
+    return "## how you sound at your best (narrative/CANON.md)\n\n" + body
+
+
+def studio_editor(brain: Path) -> str:
+    text = _read(brain / STUDIO_EDITOR)
+    if not text:
+        return ""
+    text = re.sub(r"\A#\s+.*\n", "", text).strip()
+    return "# how you judge (narrative/STUDIO-EDITOR.md)\n\n" + text
+
+
+def render_studio(brain: Path, agent: str, instructions: str) -> str:
+    """A studio agent's prompt: the writer's instructions alone, the
+    editor's with narrative/STUDIO-EDITOR.md. Deliberately nothing else: see
+    the module docstring."""
+    parts = [instructions]
+    if agent == "editor":
+        parts.append(studio_editor(brain))
+    return "\n\n".join(part for part in parts if part) + "\n"
 
 
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
+    if agent in STUDIO:
+        return render_studio(brain, agent, instructions)
     parts = [instructions]
     if agent in PUBLIC:
-        parts.append(reader(brain))
+        parts.extend([reader(brain), _read(brain / "narrative" / "VOICE.md")])
     if agent in POSTING:
         parts.append(craft(brain))
     parts.append(world(brain))
@@ -389,7 +442,7 @@ def build(brain: Path) -> list[Path]:
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for agent in SPEAKING:
+    for agent in SPEAKING + STUDIO:
         if not (brain / "agents" / f"{agent}.toml").is_file():
             continue
         text = render(brain, agent)

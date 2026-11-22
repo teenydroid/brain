@@ -15,7 +15,7 @@ and DRY_RUN itself.
   A  open-pr       {repo, head, base, title, body}      disclosure footer on others' repos
   A  comment       {repo, number, body}
   A  fork          {repo}
-  A  open-issue    {repo, title, body}                  on an own repo only
+  A  open-issue    {repo, title, body, labels?}         on an own repo only
   A  close-issue   {repo, number, comment?}             on an own repo only
      ingest                              notifications and new stars into the mind's inbox,
                                          screened by the inbound guard (off unless GH_INBOUND=1)

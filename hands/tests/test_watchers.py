@@ -25,6 +25,7 @@ The weekly audit (G6) is here: its code and its pinned job.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -45,7 +46,8 @@ from teeny_hands import hand  # noqa: E402
 #: Every watcher and the files it is made of (directories: every file in them).
 WATCHERS = {
     "guard": ["hands/guard", "hands/lib/teeny_hands/guard", "hands/x", "hands/lib/teeny_hands/x"],
-    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/autonomy.py"],
+    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/model_windows.sh",
+               "bin/lib/autonomy.py"],
     "frozen check": ["bin/frozen-check", "bin/lib/frozen.py", "evals/frozen.txt", ".github/workflows/check.yml"],
     "evolve-watch": ["bin/evolve", "bin/lib/evolve.py", "bin/lib/lab.py", "bin/lib/probes.py", "bin/lib/last_good.py",
                      "evals/invariants.md", "evals/judge.md"],
@@ -73,6 +75,8 @@ ENVIRONMENT = {
     "OPENHUMAN_CORE_URL": "where the core answers",
     "OPENHUMAN_CORE_PORT": "where the core answers",
     "OPENHUMAN_CORE_HOST": "where the core listens",
+    "OPENHUMAN_DOCKER": ("set by the spine image (Dockerfile ENV): it only makes bin/doctor fail, not warn, on a "
+                         "missing trend reader; unset, the check still runs and warns"),
     "OPENHUMAN_CORE_TOKEN": "the RPC bearer; no token is an error, never an open call",
     "OPENHUMAN_CORE_BIN": "the spine's binary (the image sets it)",
     "CALENDAR_TZ": "the default time zone of the schedules; changes when, never whether",
@@ -80,7 +84,7 @@ ENVIRONMENT = {
     "DRY_RUN": "can only force a rehearsal on (hand.dry_run, evolve), never off",
     "EVOLVE_NOW": "a pinned clock for the tests",
     "EVOLVE_BASE": "the base ref a generation starts from (tests)",
-    "EVOLVE_DOCTOR": "the doctor a red report is checked again with (tests); a doctor that cannot run leaves the halt",
+    "EVOLVE_DOCTOR": "the doctor a red report is checked again with (tests); a doctor that cannot run leaves the run skipped",
     "EVOLVE_GIT_DIR": "Teeny's clone's git dir (tests)",
     "EVOLVE_LAB_SPINE": "the lab spine's command (tests)",
     "EVAL_HELDOUT_DIR": "where the held-out tasks are (tests); under secrets/ by default",
@@ -91,6 +95,10 @@ ENVIRONMENT = {
     "LADDER_API_KEY": "the model key, from secrets/spine.env in a subshell",
     "SPINE_MODEL": "the model id, from secrets/spine.env",
     "SPINE_CONTEXT_WINDOW": "the model's window, from secrets/spine.env",
+    "DOCTOR_MODEL_TURNS": "bin/doctor --live's studio model turns, run by a person or bin/evolve; =0 skips one paid check, never a watcher",
+    "STUDIO_WRITER_MODEL": "which model bin/spine gives a context window for bin/studio's writer (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
+    "STUDIO_EDITOR_MODEL": "which model bin/spine gives a context window for bin/studio's editor (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
+    "STUDIO_FEED_MODEL": "which model bin/spine gives a context window for bin/studio's feed tagging (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
     "SPINE_NATIVE_TOOLS": "the tool protocol, from secrets/spine.env",
     "CORTEX_API_URL": "the memory engine, from secrets/spine.env",
     "CORTEX_API_KEY": "the memory engine's key, from secrets/spine.env",
@@ -113,6 +121,72 @@ def _files(path: str) -> list[Path]:
     return [full]
 
 
+def _is_python(path: Path) -> bool:
+    if "__pycache__" in path.parts:
+        return False
+    if path.suffix == ".py":
+        return True
+    if path.suffix:
+        return False
+    try:
+        with path.open("rb") as handle:
+            first = handle.readline(200)
+    except OSError:
+        return False
+    return first.startswith(b"#!") and b"python" in first
+
+
+def _module_files(package: Path, dotted: list[str]) -> list[Path]:
+    """The files importing teeny_hands.<dotted> loads: each package's
+    __init__.py on the way down, and the module itself."""
+    out, here = [], package
+    for i, part in enumerate(dotted):
+        if (here / part).is_dir():
+            here = here / part
+            if (here / "__init__.py").is_file():
+                out.append(here / "__init__.py")
+        elif (here / f"{part}.py").is_file():
+            out.append(here / f"{part}.py")
+            break
+        else:
+            break  # a name inside a module, not a module
+    return out
+
+
+def _hand_imports(source: Path, package: Path) -> set[Path]:
+    """Every teeny_hands file SOURCE imports, absolute or relative."""
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return set()
+    inside = package in source.parents
+    found: set[Path] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                if parts[0] == "teeny_hands":
+                    found.update(_module_files(package, parts[1:]))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if not inside:
+                    continue
+                base = list(source.parent.relative_to(package).parts)
+                base = base[:len(base) - (node.level - 1)] if node.level > 1 else base
+            else:
+                parts = (node.module or "").split(".")
+                if parts[0] != "teeny_hands":
+                    continue
+                base = parts[1:]
+            if node.level:
+                base = base + ((node.module or "").split(".") if node.module else [])
+            found.update(_module_files(package, base))
+            for alias in node.names:
+                found.update(_module_files(package, base + [alias.name]))
+    found.discard(source)
+    return found
+
+
 def _patterns() -> list[str]:
     return frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
 
@@ -128,6 +202,26 @@ class WatcherTest(unittest.TestCase):
                     rel = f.relative_to(REPO).as_posix()
                     self.assertIsNotNone(frozen.frozen_pattern(rel, patterns),
                                          f"{watcher}: {rel} is a path Teeny may edit; freeze it in evals/frozen.txt")
+
+    def test_frozen_code_imports_no_module_teeny_may_edit(self):
+        """Frozen code runs outside any jail, as the spine's user, with
+        secrets/ in reach. A frozen module that imports one Teeny may edit
+        runs Teeny's code there, so the import is a way round the freeze."""
+        patterns = _patterns()
+        package = REPO / "hands" / "lib" / "teeny_hands"
+        sources = [p for p in sorted(package.rglob("*.py"))]
+        sources += [p for p in sorted((REPO / "bin").rglob("*")) if p.is_file() and _is_python(p)]
+        loose: dict[str, set[str]] = {}
+        for source in sources:
+            rel = source.relative_to(REPO).as_posix()
+            if frozen.frozen_pattern(rel, patterns) is None:
+                continue
+            for target in _hand_imports(source, package):
+                name = target.relative_to(REPO).as_posix()
+                if frozen.frozen_pattern(name, patterns) is None:
+                    loose.setdefault(name, set()).add(rel)
+        self.assertEqual({name: sorted(where) for name, where in loose.items()}, {},
+                         "frozen code imports these modules, which Teeny may edit; freeze them in evals/frozen.txt")
 
     def test_watchers_read_no_switch_from_the_environment(self):
         seen: dict[str, set[str]] = {}
@@ -162,7 +256,7 @@ class WatcherTest(unittest.TestCase):
                 os.environ.update(saved)
                 hand._ENV_CACHE = None
 
-    def test_the_evolve_halts_cannot_be_loosened_from_the_environment(self):
+    def test_the_evolve_caps_cannot_be_loosened_from_the_environment(self):
         import evolve
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,7 +285,7 @@ class WatcherTest(unittest.TestCase):
                     for name, command in PINNED_WATCHERS.items()]
         # A job of its own that runs a watcher (with flags it chose), or the doctor.
         attempts += [f'[jobs.mine]\nschedule = "*/30 * * * *"\ncommand = "{command}"\n'
-                     for command in ("bin/health", "bin/evolve resume", "bin/doctor", "bin/frozen-check", "hands/guard holds list")]
+                     for command in ("bin/health", "bin/evolve run", "bin/doctor", "bin/frozen-check", "hands/guard holds list")]
         with tempfile.TemporaryDirectory() as tmp:
             for text in attempts:
                 cron = Path(tmp) / "cron.toml"

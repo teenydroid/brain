@@ -1,4 +1,7 @@
 +++
+# LEGACY since the studio cutover: this playbook runs only with STUDIO=0, the
+# rollback. With STUDIO=1 the studio owns its slot (brain/cron.toml) and bin/act
+# skips it before any input (bin/lib/studio_switch.py). Kept for the rollback.
 description = "the weekly growth diary: my world score W in real numbers, what grew and what failed"
 output = "post"
 max_per_day = 1

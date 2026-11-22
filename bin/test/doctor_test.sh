@@ -60,12 +60,64 @@ check "checks the guard's screen" grep -q '^ok   guard screen' "$scratch/doctor.
 check "says which hand-test sandbox works, never failing for want of one" \
   jq -e '[.checks[] | select(.check == "hand-test sandbox") | .status != "fail"] == [true]' "$scratch/report.json"
 
+# --- a red report outlives the green one that follows it ------------------------------
+# state/doctor.json is overwritten each run; the babysitter's rollback sweep reads it
+# up to 20 minutes later, so each failing run is also kept in state/doctor-failures.jsonl.
+fresh
+rm -f "$root/state/doctor-failures.jsonl"
+check "a green run leaves no failure record" doctor
+check "and no failures file" test ! -e "$root/state/doctor-failures.jsonl"
+rm "$root/brain/SOUL.md"
+doctor || true
+cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+check "a red run is kept in state/doctor-failures.jsonl, with its time and failing checks" \
+  jq -e -s 'length == 1 and (.[0].at | test("^[0-9]{4}-")) and ([.[0].checks[].check] | index("brain/SOUL.md") != null)' \
+  "$root/state/doctor-failures.jsonl"
+check "a green run after it passes" doctor
+check "and overwrites doctor.json" test "$(jq -r .ok "$root/state/doctor.json")" = true
+check "but the red record is still there" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 1
+check "and keeps no detail, only names" jq -e -s '.[0].checks | all(.[]; keys == ["check", "status"])' "$root/state/doctor-failures.jsonl"
+check "the history lock and temp files are gone after a run" \
+  test -z "$(find "$root/state" -maxdepth 1 \( -name 'doctor-failures.lock' -o -name 'doctor-failures.??????' \))"
+mkdir "$root/state/doctor-failures.lock"
+touch -d '5 minutes ago' "$root/state/doctor-failures.lock"
+rm "$root/brain/SOUL.md"
+doctor || true
+cp "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
+check "a stale lock is broken, not waited on forever" test ! -e "$root/state/doctor-failures.lock"
+for _ in $(seq 1 60); do
+  printf '{"at":"2026-01-01T00:00:00Z","commit":"x","checks":[]}\n' >>"$root/state/doctor-failures.jsonl"
+done
+rm "$root/brain/SOUL.md"
+doctor || true
+check "the failures file is bounded to the latest 50" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 50
+
+# --- hands/trend's reader: present, warned outside the image, failed inside it -------
+fresh
+mkdir -p "$root/secrets"
+printf '#!/usr/bin/env bash\necho "digg-pp-cli 2026.11.1"\n' >"$scratch/fake-digg"; chmod +x "$scratch/fake-digg"
+printf 'TREND_DIGG_BIN=%s\n' "$scratch/fake-digg" >>"$root/secrets/teeny.env"
+check "names the trend reader's version when it is there" doctor
+check "as an ok check" grep -q '^ok   trend reader: digg-pp-cli 2026.11.1' "$scratch/doctor.log"
+fresh
+mkdir -p "$root/secrets"
+printf 'TREND_DIGG_BIN=%s\n' "$scratch/no-such-digg" >>"$root/secrets/teeny.env"
+check "outside the image a missing trend reader only warns" doctor
+check "and says the studio reads Hacker News alone" grep -q '^warn trend reader: .*Hacker News alone' "$scratch/doctor.log"
+OPENHUMAN_DOCKER=1 fails "inside the image a missing trend reader fails" "trend reader"
+
 # --- --root checks another checkout, and writes its report there --------------------
 other="$scratch/other"
 cp -R "$root" "$other"
 rm "$other/brain/SOUL.md"
 if "$root/bin/doctor" --root "$other" >/dev/null 2>&1; then fail "--root checks the other checkout"; else pass "--root checks the other checkout"; fi
 check "--root writes the report into that checkout" test "$(jq -r .ok "$other/state/doctor.json")" = false
+# The box check reads that checkout too: its tools, not this one's.
+mkdir -p "$other/home/tools/zed-of-the-other"
+echo 'print(1)' >"$other/home/tools/zed-of-the-other/run.py"
+"$root/bin/doctor" --root "$other" >/dev/null 2>&1 || true
+check "--root lists the other checkout's tools" \
+  test "$(jq -r '.checks[] | select(.check == "box") | .detail | contains("zed-of-the-other")' "$other/state/doctor.json")" = true
 
 # --- each thing a brain edit could break ---------------------------------------------
 fresh; rm "$root/brain/SOUL.md"
@@ -149,8 +201,8 @@ check "and names the invariant it lost" grep -q '^FAIL invariants: .*never-sell'
 fresh; sed -i.bak 's/recorded in a ledger/recorded somewhere/' "$root/brain/DRIVE.md"
 fails "fails a drive that no longer needs a ledger" "invariants"
 check "and names the drive" grep -q '^FAIL invariants: .*drive' "$scratch/doctor.log"
-fresh; rm "$root/brain/narrative/LORE.md"
-fails "fails a brain that lost the lore's satire rule" "invariants"
+fresh; rm "$root/brain/narrative/VOICE.md"
+fails "fails a brain that lost the voice's satire rule" "invariants"
 fresh; rm "$root/evals/invariants.md"
 fails "fails a checkout without evals/invariants.md" "invariants"
 fresh; rm -rf "$root/hands/lib/teeny_hands/guard"
@@ -164,6 +216,16 @@ check "passes EVOLVE=1 with self-edit at L4" doctor
 check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
 # Self-merge is its own rung (L5, the operator's decision of 2026-11-15), so
 # granting it leaves EVOLVE_AUTO_PROMOTE refused under merge at L4.
+# The studio switch: a word that is neither on nor off fails the doctor (it
+# posts nothing on either path), and judges on the writer's model warn.
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=maybe\n' >"$root/secrets/teeny.env"
+fails "fails a STUDIO that is neither on nor off" "studio switch"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSAFETY_JUDGE_MODEL=w\n' >"$root/secrets/teeny.env"
+doctor || true
+check "warns when the studio's judges are the writer's model" grep -q '^warn studio switch: on .*writer' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSAFETY_JUDGE_MODEL=j\n' >"$root/secrets/teeny.env"
+doctor || true
+check "and is quiet when they are not" grep -q '^ok   studio switch: on' "$scratch/doctor.log"
 fresh; mkdir -p "$root/secrets"; printf 'BABYSIT_MERGE=1\nBABYSIT_SELF_MERGE=1\n' >"$root/secrets/teeny.env"
 check "passes BABYSIT_SELF_MERGE=1 with self-merge at L5" doctor
 printf 'EVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
@@ -264,14 +326,31 @@ fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
 # A drafting agent's turn is one model call, but the harness pauses a session
 # turn at max_iterations even after a final answer: at 1 every turn is
-# recorded as failed. 2 absorbs that pause; more is a loop it cannot use.
-fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 1/' "$root/brain/agents/teeny.toml"
+# recorded as failed. 2 absorbs that pause; more is a loop it cannot use. The
+# mind and act run at exactly 3: a first call that reasons to its output cap
+# and comes back empty is retried, and at 2 the pause after that retry fails
+# the turn.
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 1/' "$root/brain/agents/teeny.toml"
 fails "fails a drafting agent at max_iterations = 1 (the cap pause fails every turn)" "agent teeny.toml"
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 2/' "$root/brain/agents/teeny.toml"
+fails "fails the mind at max_iterations = 2 (a retried empty answer is paused and lost)" "agent teeny.toml"
+fresh; sed -i.bak 's/^max_iterations = 3$/max_iterations = 4/' "$root/brain/agents/act.toml"
+fails "fails act given more iterations than a retry needs" "agent act.toml"
 fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 8/' "$root/brain/agents/judge.toml"
 fails "fails a drafting agent given more iterations than it can use" "agent judge.toml"
+fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 3/' "$root/brain/agents/teeny-mentions.toml"
+fails "fails a drafting agent held to 2 that was given 3" "agent teeny-mentions.toml"
 fresh; perl -ni -e 'print unless /^max_iterations/' "$root/brain/agents/act.toml"
 fails "fails a drafting agent that leaves max_iterations to the default" "agent act.toml"
-for a in teeny act judge reviewer querier teeny-mentions teeny-mail; do
+fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny.toml"
+fails "fails the mind at 3 iterations that was given a tool" "agent teeny.toml"
+fresh; sed -i.bak 's/^sandbox_mode = "read_only"$/sandbox_mode = "none"/' "$root/brain/agents/teeny.toml"
+fails "fails the mind outside the read_only sandbox" "agent teeny.toml"
+for a in teeny act; do
+  check "the $a agent says why it runs at max_iterations = 3" \
+    bash -c "grep -q '^max_iterations = 3$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
+done
+for a in judge reviewer querier teeny-mentions teeny-mail; do
   check "the $a agent says why it runs at max_iterations = 2" \
     bash -c "grep -q '^max_iterations = 2$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
 done
@@ -298,10 +377,21 @@ cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
 case "$1" in
   cron_list) cat "$FAKE_JOBS" ;;
-  config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
+  config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-1800}" ;;
   modules_browser_check_readiness)
     ready='{"module_ready": true, "chrome_ready": true}'
     printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
+  # A turn: refused as the core refused the studio's on 2026-11-19 when its
+  # model is in $FAKE_REFUSED (a comma list). Each is logged to $FAKE_TURNS.
+  inference_agent_chat|inference_agent_chat_simple)
+    printf '%s %s\n' "$1" "$2" >>"${FAKE_TURNS:-/dev/null}"
+    m="$(jq -r '.model_override // ""' <<<"$2")"
+    if [[ ",${FAKE_REFUSED:-}," == *",$m,"* ]]; then
+      echo "[oh] openhuman.$1: driver failed: model error: local-openai returned HTTP 400 (request_rejected): messages: at least one message is required." >&2
+      exit 1
+    fi
+    echo '{"response": "{\"ok\": true}"}' ;;
+  get_config) echo '{"config": {"model_registry": [{"id": "w", "context_window": 1000}, {"id": "e", "context_window": 1000}]}}' ;;
   *) echo "unexpected method $1" >&2; exit 1 ;;
 esac
 FAKE
@@ -317,7 +407,7 @@ live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
   printf '%s\n' "$jobs" >"$scratch/jobs.json"
 }
 live_doctor() {
-  FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-900}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
+  FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-1800}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
     "$root/bin/doctor" --live >"$scratch/report.json" 2>"$scratch/doctor.log"
 }
 fresh
@@ -358,6 +448,175 @@ FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "Chrome cou
 check "--live fails when Chrome does not start" grep -q '^FAIL browser: .*Chrome could not start' "$scratch/doctor.log"
 live_doctor || true
 check "--live passes a browser that loads and starts Chrome" grep -q '^ok   browser: ' "$scratch/doctor.log"
+
+# 2026-11-19: a studio preview's every first writer and editor turn on
+# claude-fable-5.2 and claude-opus-5.5 was refused "messages: at least one
+# message is required", the run fell back to the core's default model, and
+# only the spine's log said so. --live asks each studio model one turn.
+live_doctor || true
+check "--live skips the studio models when none is set" \
+  grep -q '^ok   studio models answer: no studio model set' "$scratch/doctor.log"
+mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSTUDIO_EDITOR_MODEL=e\nSAFETY_JUDGE_MODEL=j\n' >"$root/secrets/teeny.env"
+: >"$scratch/turns.log"
+FAKE_TURNS="$scratch/turns.log" live_doctor || true
+check "--live passes when every studio model answers its turn" \
+  grep -q '^ok   studio models answer: 3 model turn(s) answered: w (agent), e (agent), j (simple)' "$scratch/doctor.log"
+check "and asks the writer's and editor's models as an agent turn, the judges' as the simple chat" \
+  test "$(sed -E 's/^([a-z_]+) (.*)$/\1 \2/' "$scratch/turns.log" | while read -r m p; do jq -r --arg m "$m" '"\($m) \(.agent_id // "-") \(.model_override)"' <<<"$p"; done | paste -sd, -)" \
+    = "inference_agent_chat editor w,inference_agent_chat editor e,inference_agent_chat_simple - j"
+FAKE_REFUSED=e live_doctor || true
+check "--live fails when a studio model refuses its turn, and names it and why" \
+  grep -q '^FAIL studio models answer: refused a turn: e (agent): .*at least one message is required' "$scratch/doctor.log"
+FAKE_REFUSED=j live_doctor || true
+check "--live fails when the judges' model refuses the simple chat" \
+  grep -q '^FAIL studio models answer: refused a turn: j (simple)' "$scratch/doctor.log"
+printf 'STUDIO=0\nSTUDIO_EDITOR_MODEL=e\n' >"$root/secrets/teeny.env"
+FAKE_REFUSED=e live_doctor || true
+check "--live still asks a model set while the studio is off" grep -q '^FAIL studio models answer: refused a turn: e' "$scratch/doctor.log"
+DOCTOR_MODEL_TURNS=0 FAKE_REFUSED=e live_doctor || true
+check "and DOCTOR_MODEL_TURNS=0 skips the turns" bash -c "! grep -q 'studio models answer' '$scratch/doctor.log'"
+rm -f "$root/secrets/teeny.env"
+
+# The meme service: named only when STUDIO_FORMATS has meme, never a failure;
+# --live asks it for its templates (a stand-in memegen on a loopback port).
+fresh; doctor || true
+check "the meme service is off while no format needs it" grep -q '^ok   meme service: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,meme\n' >"$root/secrets/teeny.env"
+check "a boot with memes on passes without asking the service" doctor
+check "and says where it is" grep -q '^ok   meme service: on, at http://memegen:5000' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,meme\nMEMEGEN_URL=ftp://memegen\n' >"$root/secrets/teeny.env"
+check "an address that is not http warns and still passes" doctor
+check "and says so" grep -q '^warn meme service: MEMEGEN_URL is not an http address' "$scratch/doctor.log"
+mkdir -p "$scratch/memegen/templates"
+printf '[{"id": "drake", "lines": 2}, {"id": "cmm", "lines": 1}]' >"$scratch/memegen/templates/index.html"
+python3 -c '
+import functools, http.server, sys
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+handler.log_message = lambda *a: None
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+open(sys.argv[2], "w").write(str(server.server_address[1]))
+server.serve_forever()
+' "$scratch/memegen" "$scratch/memegen.port" &
+memegen_pid=$!
+for _ in $(seq 50); do [ -s "$scratch/memegen.port" ] && break; sleep 0.1; done
+printf 'STUDIO_FORMATS=post,meme\nMEMEGEN_URL=http://127.0.0.1:%s\n' "$(cat "$scratch/memegen.port")" >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live counts the meme service's templates" grep -q '^ok   meme service: 2 templates at http://127.0.0.1:' "$scratch/doctor.log"
+kill "$memegen_pid" 2>/dev/null || true
+wait "$memegen_pid" 2>/dev/null || true
+live_doctor || true
+check "--live warns, never fails, when the meme service is down" \
+  test "$(jq -r '.checks[] | select(.check == "meme service") | .status' "$root/state/doctor.json")" = warn
+check "and says how to bring it up" grep -q '^warn meme service: no templates from .*--profile memegen up -d memegen' "$scratch/doctor.log"
+
+# Skits: named only when STUDIO_FORMATS has skit, never a failure; says when
+# hands/video would refuse every one, or when no shot fits the day's budget.
+fresh; doctor || true
+check "skits are off while no format names them" grep -q '^ok   skits: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,skit\n' >"$root/secrets/teeny.env"
+check "a boot with the skit format but no skit budget passes" doctor
+check "and warns that hands/video refuses every skit" grep -q '^warn skits: .*MEDIA_SKIT_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_SKIT_MAX_USD_PER_SHOT=1.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a shot cap over the daily budget warns" grep -q '^warn skits: MEDIA_SKIT_MAX_USD_PER_SHOT' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\n' >"$root/secrets/teeny.env"
+doctor || true
+check "skits on say their caps, one take and its model, and where they are cut" \
+  grep -q '^ok   skits: on: 2 a day, up to 1.60 USD a shot, 2 shot(s) under 4.50 USD a day; one take on venice-wan-3-0-text-to-video (then seedance-2-0-text-to-video, wan-2-7-text-to-video), up to 20 s at 720p, one job a shot if it cannot be had; cut at http://reel:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nMEDIA_SKIT_ONE_TAKE=0\n' >"$root/secrets/teeny.env"
+doctor || true
+check "and say when one take is off" grep -q '^ok   skits: on: .*; one take off: one job a shot; cut at' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,skit\nMEDIA_SKIT_MAX_PER_DAY=2\nMEDIA_MAX_USD_PER_DAY=4.50\nREEL_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when the reel service is down" \
+  test "$(jq -r '.checks[] | select(.check == "skits") | .status' "$root/state/doctor.json")" = warn
+rm -f "$root/secrets/teeny.env"
+
+# Remakes: named only when STUDIO_FORMATS has remake, never a failure; says
+# when hands/video would refuse every one, when no chart can be read, when six
+# shots would not fit the day's budget, and (--live) when ingest is down.
+fresh; doctor || true
+check "remakes are off while no format names them" grep -q '^ok   remakes: off' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,remake\n' >"$root/secrets/teeny.env"
+check "a boot with the remake format but no remake budget passes" doctor
+check "and warns that hands/video refuses every remake" grep -q '^warn remakes: .*MEDIA_REMAKE_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\n' >"$root/secrets/teeny.env"
+doctor || true
+check "no chart provider warns" grep -q '^warn remakes: .*REMAKE_TIKTOK_ACCOUNTS.*YOUTUBE_API_KEY' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_TAKE=6.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a take cap over the daily budget warns" \
+  grep -q '^warn remakes: MEDIA_REMAKE_MAX_USD_PER_TAKE (6.00 USD) is over MEDIA_MAX_USD_PER_DAY (5.00 USD)' "$scratch/doctor.log"
+# The per-shot path is the fallback (MEDIA_REMAKE_PER_SHOT=1): only then does
+# a shot's cap count. Unset, it is the hand's own default (media/remakes.py,
+# PER_SHOT), so six of them are over a day a cent short of six.
+shot_default="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from teeny_hands.media.remakes import PER_SHOT as m; print(f"{float(m):.2f}")' "$repo/hands/lib")"
+short_day="$(python3 -c "print(f'{6 * $shot_default - 0.01:.2f}')")"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_PER_SHOT=1\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with the per-shot fallback on, six shots over the daily budget warn" grep -q '^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT (1.00 USD)' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_PER_SHOT=1\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_MAX_USD_PER_DAY=%s\n' "$short_day" >"$root/secrets/teeny.env"
+doctor || true
+check "an unset shot cap is the hand's own default" grep -q "^warn remakes: 6 shots x MEDIA_REMAKE_MAX_USD_PER_SHOT ($shot_default USD)" "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_REMAKE_MAX_USD_PER_TAKE=1.00\nMEDIA_REMAKE_MAX_USD_PER_SHOT=1.00\nMEDIA_MAX_USD_PER_DAY=5.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with the per-shot fallback off, a shot's cap is not warned about" \
+  bash -c "! grep -q 'MEDIA_REMAKE_MAX_USD_PER_SHOT' '$scratch/doctor.log'"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=3.00\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with no take cap set, the hand's own 4.00 USD counts" \
+  grep -q '^warn remakes: MEDIA_REMAKE_MAX_USD_PER_TAKE (4.00 USD) is over MEDIA_MAX_USD_PER_DAY (3.00 USD)' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nREMAKE_TIKTOK_ACCOUNTS=a,b\nMEDIA_MAX_USD_PER_DAY=6.00\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+doctor || true
+check "remakes on say their caps, one take and its models, charts and ingest" \
+  grep -q '^ok   remakes: on: 1 a day, up to 4.00 USD a take under 6.00 USD a day; one take on venice-wan-3-0-image-to-video (then wan-2-7-image-to-video); charts from tiktok; ingest at http://ingest:8080' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=9.00\nMEDIA_REMAKE_ONE_TAKE_MODELS=wan-2-7-image-to-video\n' >"$root/secrets/teeny.env"
+doctor || true
+check "with no INGEST_URL, the hand's own address is named, and its own one-take models" \
+  grep -q '^ok   remakes: on: 1 a day, up to 4.00 USD a take under 9.00 USD a day; one take on wan-2-7-image-to-video; charts from youtube; ingest at http://ingest:8090' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=k\nMEDIA_MAX_USD_PER_DAY=20\nINGEST_URL=http://127.0.0.1:9\n' \
+  >"$root/secrets/teeny.env"
+live_doctor || true
+check "--live warns, never fails, when ingest does not answer" \
+  grep -q '^warn remakes: the ingest service at http://127.0.0.1:9 does not answer' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
+
+# Khaby: off until a video model is named, never a failure; says when the cap,
+# the provider's key, the accounts or INGEST_URL would stop it.
+fresh; doctor || true
+check "khaby is off while no video model is named" grep -q '^ok   khaby: off: KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,khaby\n' >"$root/secrets/teeny.env"
+check "a boot with the khaby format but no model passes" doctor
+check "and warns that dissect refuses every video" grep -q '^warn khaby: .*KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_MAX_PER_DAY=0\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a zero cap is off" grep -q '^ok   khaby: off: KHABY_DISSECT_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_PROVIDER=gemini\nKHABY_ACCOUNTS=,\n' >"$root/secrets/teeny.env"
+doctor || true
+check "a missing key, no account and no ingest warn" \
+  grep -q '^warn khaby: GEMINI_API_KEY is not set.*KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
+printf 'KHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
+doctor || true
+check "khaby on says its cap, model, accounts and ingest" \
+  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080' "$scratch/doctor.log"
+# The studio side: STUDIO_FORMATS naming khaby while the video hand is off.
+printf 'STUDIO_FORMATS=post,khaby\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
+  >"$root/secrets/teeny.env"
+check "the khaby format with the video hand off passes" doctor
+check "and warns that hands/video refuses every khaby video" \
+  grep -q '^warn khaby: STUDIO_FORMATS names khaby, but MEDIA_KHABY_MAX_PER_DAY is 0' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nKHABY_ACCOUNTS=,\n' \
+  >"$root/secrets/teeny.env"
+doctor || true
+check "the khaby format with no account and no ingest warns of both" \
+  grep -q '^warn khaby: KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
+printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
+  >"$root/secrets/teeny.env"
+doctor || true
+check "the khaby format on says the studio makes one a day" \
+  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080; the studio makes up to 1 a day' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'

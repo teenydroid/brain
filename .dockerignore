@@ -12,3 +12,6 @@ web
 deploy
 docs
 bin
+# The reel service's upstream (deploy/reel.Dockerfile builds from it on its
+# own); the spine never needs it.
+vendor/moneyprinter

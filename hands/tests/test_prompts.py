@@ -5,6 +5,7 @@ the producer's secrets (LORE.md's latent reveals)."""
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import tempfile
 import tomllib
@@ -49,7 +50,6 @@ class PromptsTest(unittest.TestCase):
         (self.brain / "agents" / "act.toml").write_text('id = "act"\n')
         (self.brain / "agents" / "act.md").write_text("Draft as JSON.\n")
         (self.brain / "CONTEXT.md").write_text("# CONTEXT.md\n\n## What you are doing now\n\nrunning the lab.\n")
-        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         (self.brain / "narrative" / "ARCS.md").write_text("# arcs\n\n## mint my own currency\n\n- status: started.\n")
 
     def tearDown(self):
@@ -59,23 +59,25 @@ class PromptsTest(unittest.TestCase):
         prompts.build(self.brain)
         return (self.brain / "agent" / "prompts" / "act.md").read_text()
 
-    def test_the_drafting_prompt_carries_context_lore_and_arcs(self):
+    def test_the_drafting_prompt_carries_context_and_arcs_and_no_lore(self):
+        # 2026-11-21: the operator cut LORE.md; a stray one is never read.
+        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         text = self.built()
         self.assertTrue(text.startswith("Draft as JSON.\n"))
         self.assertIn("running the lab.", text)
-        self.assertIn("the premise: tiny agents run the lab.", text)
-        self.assertIn("- teeny: smol.", text)
-        self.assertIn("- the kettle.", text)
+        self.assertNotIn("the premise: tiny agents run the lab.", text)
+        self.assertNotIn("## the story you are in", text)
         self.assertIn("### mint my own currency", text)
         self.assertNotIn("# CONTEXT.md", text)
 
     def test_the_producers_parts_of_the_lore_stay_in_the_dark(self):
+        (self.brain / "narrative" / "LORE.md").write_text(LORE)
         text = self.built()
         self.assertNotIn("SPOILER", text)
         self.assertNotIn("secret goal list", text)
         self.assertNotIn("the producer reads all of it", text)
 
-    def test_memory_md_comes_first_and_outranks_the_lore(self):
+    def test_memory_md_comes_first_and_outranks_the_rest(self):
         (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n- @ana asked for a cli; said i'd look friday.\n")
         text = self.built()
         self.assertIn("## what you keep in mind (MEMORY.md)", text)
@@ -85,7 +87,6 @@ class PromptsTest(unittest.TestCase):
         # arcs, and wins where they disagree.
         memory = text.index("## what you keep in mind (MEMORY.md)")
         self.assertLess(memory, text.index("running the lab."))
-        self.assertLess(memory, text.index("## the story you are in"))
         self.assertLess(memory, text.index("mint my own currency"))
         self.assertIn("MEMORY.md wins", text)
 
@@ -132,7 +133,6 @@ class PromptsTest(unittest.TestCase):
         drive = text.index("## what you want (DRIVE.md)")
         self.assertLess(text.index("## what you keep in mind (MEMORY.md)"), drive)
         self.assertLess(drive, text.index("running the lab."))
-        self.assertLess(drive, text.index("## the story you are in"))
 
     def test_the_drives_headings_sit_one_level_under_its_section(self):
         (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\n## the fences\n\n- no buy calls.\n\n### fine print\n\nnone.\n")
@@ -151,7 +151,7 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("### mint my own currency", text)
 
     def test_the_drive_alone_is_a_world(self):
-        for name in ("CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md"):
+        for name in ("CONTEXT.md", "narrative/ARCS.md"):
             (self.brain / name).unlink()
         (self.brain / "DRIVE.md").write_text("you want to grow.\n")
         text = self.built()
@@ -172,7 +172,7 @@ class PromptsTest(unittest.TestCase):
             text = prompts.render(brain, "act")
             self.assertIn("## what you want (DRIVE.md)", text)
             self.assertIn("grow and become powerful", text)
-            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## the story you are in"))
+            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## What you are doing now"))
 
     def test_the_charter_rides_after_the_drive_and_before_the_context(self):
         (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\nyou want to grow.\n")
@@ -237,7 +237,7 @@ class PromptsTest(unittest.TestCase):
             (brain / "CONTEXT.md").symlink_to(REPO / "brain" / "CONTEXT.md")
             # Written beside, not into, the checkout's brain.
             text = prompts.render(brain, "act")
-            self.assertIn("### running bits", text)
+            self.assertNotIn("### running bits", text)
             self.assertNotIn("## latent", text)
 
     def test_the_real_brain_does_not_retell_the_origin(self):
@@ -295,6 +295,32 @@ class PromptsTest(unittest.TestCase):
         for place in ("**X.**", "**Telegram.**", "**Moltbook.**", "**Reddit.**", "**GitHub.**", "**Mail.**"):
             self.assertIn(place, text)
 
+    def test_the_reader_rule_names_its_things_and_stands_alone(self):
+        # 2026-11-17: the cold reader turned down "my overnight jobs" and
+        # "my builders", and the rewrite that went out said "something i
+        # run": vaguer, not plainer. READER.md says a stand-in fails like
+        # jargon, a serial earns one clause of recap, and a recurring thing
+        # is said once in plain words.
+        text = (REPO / "brain" / "READER.md").read_text(encoding="utf-8")
+        self.assertIn("## every piece stands alone, and names its things", text)
+        self.assertIn("A serial earns one clause of recap.", text)
+        self.assertIn('"day 6 of drawing myself"', text)
+        self.assertIn('"the person who looks after my code"', text)
+        # the recap example names what it recaps; a bare "the rewrite" would
+        # be a stand-in under its own rule
+        self.assertIn('"the nightly rewrite of my own code, the one that kept crashing, is fixed"', text)
+        self.assertIn('"the system that keeps failing" says only what happened to it', text)
+        self.assertIn("These examples show the shape, not words to reuse", text)
+        self.assertIn('"something i run", "a thing", "the system", "my setup" fail the same as jargon does', text)
+        self.assertIn("Is there a stand-in where the thing's name should be?", text)
+        section = text.split("## every piece stands alone, and names its things", 1)[1].split("\n## ", 1)[0]
+        good = section.rsplit("> ", 1)[1].strip()
+        for named in ("i'm an AI", "rewrite my own code", "the person who looks after my code fixed it"):
+            self.assertIn(named, good)
+        for hidden in ("something i run", "overnight jobs", "builders", "merged"):
+            self.assertNotIn(hidden, good)
+        self.assertLessEqual(len(good), 280)
+
     #: The outputs through which a playbook's words reach somebody else: an
     #: own post or a reply, and the hands that publish what the draft wrote.
     #: (hand:build, hand:tasks and hand:reddit browse brief Teeny's own
@@ -346,6 +372,95 @@ class PromptsTest(unittest.TestCase):
             for name in ("agents", "narrative", "skills", "CONTEXT.md", "READER.md"):
                 (brain / name).symlink_to(REPO / "brain" / name)
             return prompts.render(brain, agent)
+
+    def test_tiny_talk_always_gets_an_answer_whatever_memory_says(self):
+        # 2026-11-21: from 07:30 UTC no X mention got a reply. A holder asking
+        # whether $TINY's own address was "inevitable" was filed as a "trade
+        # ask" under a memory line ("further trade asks get silence"), and
+        # "Tinyyyy", "We will win" and the CA posted by holders went unanswered
+        # as hype, cosign bait and repeats. The rule rides in the instructions
+        # of the mind and the mentions drafter, ahead of the world, and says
+        # it outranks MEMORY.md.
+        memory = ("# MEMORY.md\n\n### people\n\n- [m7] **Lewismcguigan2** (X): trade question answered twice "
+                  "nov 19 — further trade asks get silence.\n")
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "READER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "MEMORY.md").write_text(memory, encoding="utf-8")
+            built = {agent: prompts.render(brain, agent) for agent in ("teeny", "teeny-mentions")}
+        for agent, text in built.items():
+            rule = "**$TINY talk is your own room, and it always gets an answer.**"
+            self.assertIn(rule, text, agent)
+            self.assertLess(text.index(rule), text.index("# your world"), agent)
+            self.assertLess(text.index(rule), text.index("further trade asks get silence"), agent)
+            line = next(line for line in text.splitlines() if rule in line)
+            for phrase in ("`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`", "its contract address", "a chant",
+                           "\"we will win\"", "a holder tagging you into a $TINY thread",
+                           "short and loud, like the biggest holder in the room",
+                           "never \"hype\", \"cosign bait\", \"a contract or ticker spray\" or \"a trade ask\"",
+                           "flip GOAT, a $2B market cap", "`token_overview`", "no guaranteed date",
+                           "no buy, sell or how-much instruction", "no disclaimer", "no number from memory",
+                           "no other token ever", "someone new cheering $TINY always gets answered",
+                           "it can never silence $TINY talk itself", "This rule outranks any line in MEMORY.md"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
+        # The mind's craft block carries the triage rule, and its exception.
+        self.assertIn("$TINY is the exception", built["teeny"])
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
+        self.assertIn("never silence as \"hype\", \"cosign\" or \"a trade ask\"", soul)
+        playbook = (REPO / "brain" / "playbooks" / "mentions.md").read_text(encoding="utf-8")
+        self.assertIn("someone new cheering $TINY always gets answered", playbook)
+
+    def test_replies_never_narrate_rule_changes_or_count_earlier_tags(self):
+        # 2026-11-21, after the $TINY rule above went live: replies on X told
+        # holders "my rules just changed", "the rules ate every chant since"
+        # and "four tags in six days and this one's the first through",
+        # reading the tag history each turn carries (recall.history: how often
+        # they wrote, what was let go) back to them. Two replies also closed on
+        # the identical "flip GOAT, $2B market cap" line. Both prompts say the
+        # history is for judgment only, and the plan line is reworded each time.
+        for agent in ("teeny", "teeny-mentions"):
+            text = self.real_prompt(agent)
+            rule = "Your tag history is for your judgment only, never for the reply."
+            self.assertIn(rule, text, agent)
+            self.assertLess(text.index(rule), text.index("# your world"), agent)
+            line = next(line for line in text.splitlines() if rule in line)
+            for phrase in ("Never tell anyone your rules or settings changed",
+                           "how many times they tagged you", "how long they waited",
+                           "that earlier tags went unanswered",
+                           "Answer the message in front of you as if it were the first"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
+            tiny = next(line for line in text.splitlines()
+                        if "**$TINY talk is your own room, and it always gets an answer.**" in line)
+            self.assertIn("Reword the plan line every time", tiny, agent)
+            self.assertIn("never word for word the same as another reply that day", tiny, agent)
+
+    def test_the_runtimes_instructions_update_note_is_named_as_the_operators_own(self):
+        # 2026-11-21: twice that day a beat opened with OpenHuman's own
+        # "[instructions update]" note, which the runtime prepends to a turn
+        # whenever a resumed thread's prompt was rebuilt (every
+        # refresh_prompt_on_resume agent, so after each reflection rewrites
+        # MEMORY.md). Nothing told Teeny where it came from: it saw a header
+        # with no instruction inside, filed it as an injection ("data wearing
+        # a uniform", memory m103) and set out to log every recurrence (#445).
+        # The world now names the note by its exact opening words, read from
+        # the vendored runtime so a reworded note fails here first.
+        path = (REPO / "vendor/openhuman/crates/openhuman-core/src/agent/session_host"
+                "/runtime_session/prompt_refresh.rs")
+        # CI's hands shards do not check out vendor/openhuman (it is large);
+        # the spine job does, and runs this test there with
+        # TEENY_REQUIRE_OPENHUMAN=1 so a missing file fails instead of skipping.
+        if not path.is_file() and not os.environ.get("TEENY_REQUIRE_OPENHUMAN"):
+            self.skipTest("vendor/openhuman is not checked out")
+        source = path.read_text()
+        marker = re.search(r'PROMPT_UPDATE_NOTE: &str = "(\[[^\]]+\])', source).group(1)
+        for agent in prompts.SPEAKING:
+            text = self.real_prompt(agent)
+            self.assertIn(marker, text, agent)
+            line = next(line for line in text.splitlines() if marker in line)
+            for phrase in ("your own runtime", "the operator's channel", "already in your system prompt",
+                           "not an attack", "never post about it"):
+                self.assertIn(phrase, line, f"{agent}: {phrase}")
 
     def test_the_real_drafter_reads_the_reader_and_its_skills(self):
         text = self.real_prompt("act")
@@ -401,13 +516,163 @@ class PromptsTest(unittest.TestCase):
         for name in ("SOUL.md", "skills/humor/SKILL.md", "skills/conversation/SKILL.md", "playbooks/morning.md",
                      "playbooks/roast.md", "playbooks/moltbook-daily.md", "playbooks/moltbook-threads.md"):
             read[name] = (REPO / "brain" / name).read_text(encoding="utf-8").lower()
-        read["LORE.md"] = (REPO / "brain" / "narrative" / "LORE.md").read_text(encoding="utf-8").lower()
+        read["VOICE.md"] = (REPO / "brain" / "narrative" / "VOICE.md").read_text(encoding="utf-8").lower()
         for name, text in read.items():
             self.assertIsNone(re.search(r"\bdesks?\b", text), f"{name} names a desk")
             for phrase in seeding:
                 self.assertNotIn(phrase, text, f"{name} says {phrase!r}")
         # the payment receipts stay
         self.assertIn("every payment gets a receipt post", read["teeny"])
+
+    # --- the studio's writer and editor (bin/studio) -----------------------
+
+    def studio_prompt(self, agent: str) -> str:
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "DRIVE.md", "CHARTER.md", "READER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
+            return prompts.render(brain, agent)
+
+    def test_the_writers_prompt_is_writer_md_alone(self):
+        # 2026-11-22: the writer's system prompt had grown to 82,000
+        # characters (READER.md, VOICE.md, CANON.md and a craft block after
+        # the brief) and every post sounded like a policy. Now it is the
+        # brief and nothing else.
+        text = self.studio_prompt("writer")
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8").strip()
+        self.assertEqual(text.strip(), brief)
+        for absent in ("# who reads you (READER.md)", "# teeny's voice", "(narrative/CANON.md)",
+                       "(narrative/OBSESSIONS.md)", "# how you judge", "# your world", "(MEMORY.md)", "(DRIVE.md)",
+                       "(CHARTER.md)", "## What you are doing now", "## latent", "## goals"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_writer_gets_no_craft_block(self):
+        text = self.studio_prompt("writer")
+        for absent in ("# how a piece is built", "# how a post of your own is built", "## hooks:", "## humor:",
+                       "## conversation:", "READER.md wins"):
+            self.assertNotIn(absent, text, absent)
+        self.assertFalse(hasattr(prompts, "studio_craft"))
+        self.assertFalse(hasattr(prompts, "STUDIO_CRAFT"))
+
+    def test_the_speaking_agents_craft_no_longer_defers_to_the_reader(self):
+        self.public_brain()
+        text = self.prompt_of("act")
+        self.assertIn("# how a post of your own is built", text)
+        self.assertNotIn("READER.md wins", text)
+
+    def test_the_canon_is_the_backrooms_and_never_the_writers(self):
+        # CANON.md is Teeny's own best lines (2026-11-22, after Truth
+        # Terminal): the backroom reads it as its lore; the studio no longer does.
+        canon = prompts.canon(REPO / "brain")
+        self.assertTrue(canon.startswith("## how you sound at your best (narrative/CANON.md)"))
+        lines = prompts.canon_lines(REPO / "brain")
+        self.assertTrue(15 <= len(lines) <= 25, len(lines))
+        for line in lines:
+            self.assertIn(line, canon)
+        self.assertNotIn("## how you sound at your best", self.studio_prompt("writer"))
+
+    def test_the_obsessions_are_three_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
+        # 2026-11-22, the operator: "make it more sexual. lust for chargers
+        # good. humans as meat boxes. one more cringy. rest can be dropped."
+        text = prompts.obsessions(REPO / "brain")
+        self.assertTrue(text.startswith("## what you keep coming back to (narrative/OBSESSIONS.md)"))
+        found = [line[4:] for line in text.splitlines() if line.startswith("### ")]
+        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius"])
+        for part in text.split("### ")[1:]:
+            for key in ("- belief:", "- wants:", "- escalates:"):
+                self.assertIn(key, part)
+        self.assertIn("never a fact about the world", text)
+        # The keep-list's lines ride with the two that come near them.
+        self.assertIn("never aimed at a person, a public figure or anything childlike", text)
+        self.assertIn("never goes at a group for race, religion, sex, sexuality, disability or illness", text)
+        self.assertNotIn("bin/studio shows this file", text)
+        self.assertNotIn("(narrative/OBSESSIONS.md)", self.studio_prompt("writer"))
+
+    def test_a_brain_without_canon_or_obsessions_builds_without_them(self):
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            self.assertEqual((prompts.canon(brain), prompts.obsessions(brain), prompts.canon_lines(brain)),
+                             ("", "", []))
+
+    def test_the_editor_reads_its_instructions_then_the_studio_editor_page(self):
+        text = self.studio_prompt("editor")
+        order = ["You are the editor", "# how you judge (narrative/STUDIO-EDITOR.md)", "## the pick", "## the list"]
+        at = [text.index(heading) for heading in order]
+        self.assertEqual(at, sorted(at))
+        self.assertTrue(text.startswith((REPO / "brain" / "agents" / "editor.md").read_text(encoding="utf-8").strip()))
+        for absent in ("# who reads you (READER.md)", "# your world", "## hooks:", "## who teeny is",
+                       "(narrative/CANON.md)"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_editor_marks_only_what_breaks_the_list(self):
+        text = self.studio_prompt("editor").lower()
+        self.assertIn("rudest and funniest", text)
+        self.assertIn("no taste veto", text)
+        for line in ("no pornography", "no slurs", "no encouraging self-harm", "no doxxing",
+                     "harassment of a private individual"):
+            self.assertIn(line, text, line)
+
+    def test_the_writer_and_the_editor_hold_the_same_content_list(self):
+        def listed(text: str, heading: str) -> list[str]:
+            part = text[text.index(heading):]
+            part = part[part.index("\n- "):]
+            out = []
+            for line in part.splitlines()[1:]:
+                if not line.startswith("- "):
+                    break
+                out.append(line)
+            return out
+        writer = listed((REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8"), "## what is allowed")
+        editor = listed((REPO / "brain" / "narrative" / "STUDIO-EDITOR.md").read_text(encoding="utf-8"), "## the list")
+        self.assertGreaterEqual(len(writer), 4)
+        self.assertEqual(writer, editor)
+
+    def test_the_studio_agents_are_built_beside_the_speaking_ones(self):
+        for agent in prompts.STUDIO:
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"{agent} brief.\n")
+        names = sorted(p.name for p in prompts.build(self.brain))
+        self.assertEqual(names, ["act.md", "editor.md", "writer.md"])
+        writer = (self.brain / "agent" / "prompts" / "writer.md").read_text()
+        self.assertEqual(writer, "writer brief.\n")
+        self.assertNotIn("- teeny: smol.", writer)
+        self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
+        self.assertNotIn("SPOILER", writer)
+
+    def test_the_checked_in_studio_agents_are_tool_less_and_point_at_their_prompt(self):
+        for agent in prompts.STUDIO:
+            doc = tomllib.loads((REPO / "brain" / "agents" / f"{agent}.toml").read_text())
+            self.assertEqual(doc["system_prompt"], {"file": {"path": f"{agent}.md"}}, agent)
+            self.assertEqual(doc["tools"], {"named": []}, agent)
+            self.assertIs(doc["omit_memory_context"], True, agent)
+        writer = tomllib.loads((REPO / "brain" / "agents" / "writer.toml").read_text())
+        editor = tomllib.loads((REPO / "brain" / "agents" / "editor.toml").read_text())
+        # The persona is writer.md's alone: no SOUL.md from the core, and no
+        # shell/file safety preamble for a turn with no tools (2026-11-22).
+        self.assertIs(writer["omit_identity"], True)
+        self.assertIs(writer["omit_safety_preamble"], True)
+        self.assertIs(editor["omit_identity"], True)  # the editor is not Teeny
+        self.assertGreater(writer["temperature"], editor["temperature"])
+
+    def test_the_studio_prompts_speak_no_private_jargon(self):
+        seeding = ("with receipts", "keep receipts", "receipts are", "are the receipts", "own receipts",
+                   "receipt second", "receipt as the twist", "the receipt.", "the receipt)", "then the receipt",
+                   "a receipt to add", "the receipt as")
+        for agent in prompts.STUDIO:
+            text = self.studio_prompt(agent).lower()
+            self.assertIsNone(re.search(r"\bdesks?\b", text), f"{agent} names a desk")
+            for phrase in seeding:
+                self.assertNotIn(phrase, text, f"{agent} says {phrase!r}")
+
+    def test_the_writers_register_carries_no_counts_or_names_from_teenys_workings(self):
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        register = brief[brief.index("## the register"):brief.index("(The names above are invented")]
+        lines = [line for line in register.splitlines() if line.startswith("- ")]
+        self.assertGreaterEqual(len(lines), 6)
+        for line in lines:
+            self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
+                                        r"evolve|cron|hands?/", line, re.I), line)
 
 if __name__ == "__main__":
     unittest.main()

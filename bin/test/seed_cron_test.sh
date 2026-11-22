@@ -194,8 +194,8 @@ refuses "refuses bin/act with a path for a playbook" $'[jobs.x]\nschedule = "*/5
 refuses "refuses more bin/act runs a day than the budget" \
   $'[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"'
 many=""
-for i in $(seq 1 25); do many+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
-refuses "refuses more than 24 jobs" "$many"
+for i in $(seq 1 61); do many+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
+refuses "refuses more than 60 jobs" "$many"
 
 reset
 printf '[jobs.a]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\nenabled = false\n[jobs.b]\nschedule = "*/5 * * * *"\ncommand = "bin/act morning"\n' >"$toml"
@@ -255,7 +255,7 @@ refuses "refuses an agent job without a prompt" $'[jobs.x]\nschedule = "0 * * * 
 refuses "refuses an agent job with an empty prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "  "'
 refuses "refuses a job with both a command and an agent" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"\ncommand = "bin/heartbeat"'
 refuses "refuses more agent runs a day than the budget" \
-  $'[jobs.a]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.b]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"'
+  $'[jobs.a]\nschedule = "*/5 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.b]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"'
 printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["*"]\n' >"$scratch/agents/builder.toml"
 refuses "refuses an agent whose tools are the wildcard" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"'
 printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["shell"]\n' >"$scratch/agents/builder.toml"
@@ -452,6 +452,27 @@ for book in chatty vague; do
   check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
   check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
 done
+# The studio's slots: `bin/studio --slot NAME [--legacy PLAYBOOK] --detach`, the
+# legacy one a playbook the studio replaced, and never caught up or made up.
+reset
+printf '[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning --detach"\n[jobs.t]\nschedule = "0 23 * * *"\ncommand = "bin/studio --slot 2300 --detach"\n' >"$toml"
+if seed --check; then pass "accepts a studio slot, with or without its legacy playbook"; else fail "accepts a studio slot, with or without its legacy playbook"; fi
+refuses "refuses a studio slot whose legacy playbook the studio did not replace" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy chatty --detach"'
+refuses "refuses a legacy playbook that is not there" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy take --detach"'
+refuses "refuses a preview or a forced slot from cron" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --dry-run --slot 0930 --detach"'
+refuses "refuses a slot name that is not a short lowercase word" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot Morning_Post --detach"'
+refuses "refuses catch-up on a studio slot: it posts" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --detach"\ncatch_up = true'
+refuses "refuses make_up_hours on a studio slot" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --detach"\nmake_up_hours = 3'
+# A studio run outlasts the 300 s the core gives a cron call, which then kills
+# and retries it (review of PR #379): a slot runs detached, or not at all.
+refuses "refuses a studio slot that would run in the foreground" \
+  $'[jobs.s]\nschedule = "30 9 * * *"\ncommand = "bin/studio --slot 0930 --legacy morning"'
 # A slot every run of which failed on the model provider may be made up
 # (`make_up_hours`), on a playbook that speaks too: its post was never made.
 refuses "refuses make_up_hours on a job that is not a playbook" \
@@ -494,8 +515,9 @@ check "and self-improve catches up a slot a restart cut off" bash -c "
     jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
 check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
-      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | IN(\"teeny.studio-0430\", \"teeny.studio-0930\", \"teeny.studio-1500\",
+      \"teeny.studio-sunday\", \"teeny.studio-2300\", \"teeny.brief\", \"teeny.peer-quote\", \"teeny.shiplog\",
+      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 10 and all(. == 0)' >/dev/null"
 check "and no job that must follow another, or be followed, catches up out of order" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
@@ -505,7 +527,7 @@ check "and the Moltbook evening audit makes up a slot the model provider lost" b
     jq -e '[.[] | select(.name == \"teeny.moltbook-evening\") | .make_up_secs] | length == 1 and all(. > 0)' >/dev/null"
 check "and no X post makes one up: a late post would take the next one's eight-hour room" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\")) | .make_up_secs] | length == 3 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | startswith(\"teeny.studio-\")) | .make_up_secs] | length == 5 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "

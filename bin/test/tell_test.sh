@@ -32,6 +32,10 @@ case "$*" in
       none) : ;;
     esac >>"$FAKE_ROOT/state/tick/runs.jsonl"
     ;;
+  *"bin/broker operator-note host-"*)
+    mkdir -p "$FAKE_ROOT/state/home/notes/inbox"
+    all="$*"
+    cat >"$FAKE_ROOT/state/home/notes/inbox/operator-${all##* }.md" ;;
   *) echo "unexpected docker call: $*" >&2; exit 1 ;;
 esac
 FAKE
@@ -88,6 +92,32 @@ fresh empty
 set +e; tell "   " >/dev/null 2>&1; code=$?; set -e
 check "an empty message is refused" [ "$code" = 1 ]
 check "and reaches nothing" [ ! -e "$root/calls.log" ]
+
+# --- --mind: a note for the agentic mind's inbox (docs/mind.md) ----------------
+fresh mind
+set +e; out="$(tell --mind "look at what the claw agents are doing and try one idea" 2>&1)"; code=$?; set -e
+check "--mind exits 0" [ "$code" = 0 ]
+notes="$(find "$root/state/home/notes/inbox" -name "operator-host-*.md" 2>/dev/null)"
+check "it leaves exactly one operator note in the mind's inbox" [ "$(grep -c . <<<"$notes")" = 1 ]
+note="$(head -n 1 <<<"$notes")"
+check "the note carries the text" grep -q "look at what the claw agents are doing and try one idea" "$note"
+check "and says it is the operator's" grep -q "^from: operator" "$note"
+set +e; grep -q 'stimuli add\|bin/tick' "$root/calls.log"; found=$?; set -e
+check "no stimulus is added and no beat started (the call log was read)" [ "$found" = 1 ]
+check "it is counted in said.jsonl, by hash and never by text" python3 -c '
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1])]
+text = "look at what the claw agents are doing and try one idea"
+assert len(rows) == 1 and rows[0]["to"] == "mind" and rows[0]["chars"] == len(text) == 55, rows
+import hashlib
+assert rows[0]["sha256"] == hashlib.sha256(text.encode()).hexdigest(), rows
+assert text not in open(sys.argv[1]).read() and "claw agents" not in json.dumps(rows), rows
+' "$root/state/host/said.jsonl"
+check "it says where the note went" grep -q "left for the mind" <<<"$out"
+
+fresh mindempty
+set +e; tell --mind "  " >/dev/null 2>&1; code=$?; set -e
+check "--mind refuses an empty note" [ "$code" = 1 ]
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

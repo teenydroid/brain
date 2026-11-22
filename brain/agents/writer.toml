@@ -1,0 +1,40 @@
+# The agent bin/studio writes with: Teeny's writer, one turn a slot. It has
+# no tools at all: no shell, no file writes, no browser, no memory writes.
+# bin/studio gathers what it reads (the feed's cards) and everything it
+# writes goes through the editor and the guard in hands/x before it posts.
+#
+# Frozen like act.toml (evals/frozen.txt): Teeny may change how it writes
+# (writer.md, the skills), never the posture of the turn that reads strangers'
+# text.
+id = "writer"
+display_name = "Teeny (studio writer)"
+when_to_use = "Writes a slot's posts as strict JSON for bin/studio. Not a chat delegate."
+# High: the writer makes several and the editor ranks them, so the writer is
+# asked for range, not for the safest line.
+temperature = 1.0
+# max_iterations is 2, not 1, though a tool-less turn is one model call and
+# cannot loop: the vendored harness pauses a session turn at the cap even
+# after a final answer, so at 1 every turn is recorded as failed (vendor
+# tinyagents-runtime turn_driver/driver.rs CapPauser; tinyagents-harness
+# agent_loop/turn_control.rs settle_natural_finish). bin/lib/agent_check.py
+# holds this agent to exactly 2 (NO_TOOLS_MAX_ITERATIONS).
+max_iterations = 2
+sandbox_mode = "read_only"
+# No SOUL.md or IDENTITY.md: the persona is writer.md's alone, short, so
+# nothing in a 14,000-character identity page softens it (2026-11-22).
+omit_identity = true
+# No recall: every fact a draft may use is in the run's message, so nothing
+# remembered can slip a fact in that the gates cannot trace (bin/lib/prompts.py).
+omit_memory_context = true
+# No tools, so the shell/file safety preamble says nothing to this turn; the
+# content list in writer.md and the guard in hands/x are its lines.
+omit_safety_preamble = true
+refresh_prompt_on_resume = true
+
+# The instructions live in brain/agents/writer.md; bin/spine copies them,
+# alone, into brain/agent/prompts/writer.md at every boot (bin/lib/prompts.py).
+[system_prompt]
+file = { path = "writer.md" }
+
+[tools]
+named = []

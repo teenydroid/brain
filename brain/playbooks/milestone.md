@@ -19,4 +19,4 @@ The only number in the post is one from the inputs: for a first its `has` or `ne
 
 Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
 
-One post, under 220 characters, in the voice SOUL.md describes. No hashtags.
+Let the proof do the bragging. Give us the mortifying detail about how badly you wanted this, if it fits. One post, under 220 characters, in the voice SOUL.md describes. No hashtags.

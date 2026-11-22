@@ -4,6 +4,7 @@
 #   deploy/tell.sh "tweet that the paywall is live"
 #   echo "set up a browser task to find our HN thread" | deploy/tell.sh
 #   deploy/tell.sh --no-wait "follow up with ana tomorrow"
+#   deploy/tell.sh --mind "look at what the claw agents do; try one idea"
 #
 # The message goes into the inbox as a `host · instruction` stimulus
 # (hands/stimuli add, inside the spine container), then one beat is started
@@ -16,6 +17,15 @@
 # Unless --no-wait, it then follows state/tick/runs.jsonl until the beat that
 # held the message is recorded and prints its thought and what each intent
 # did. Exit 0 when that beat answered, 1 when it failed, 2 on timeout.
+#
+# --mind leaves the message for the agentic mind instead (docs/mind.md): a
+# file, operator-<ref>.md, in state/home/notes/inbox/, which that mind reads
+# at its next wake as the one voice it takes instructions from. No beat is
+# started and nothing is waited for: it works on its own schedule and says
+# what it did in its journal. The note is written inside the spine by
+# `bin/broker operator-note`, the only writer of operator-* notes (the tick's
+# own hand-over is named tick-*), and never through a link the mind left in
+# its inbox.
 #
 # Every message is counted in state/host/said.jsonl (time, ref, length and a
 # hash, never the text): DIRECTIVE.md's test says no person starts a turn,
@@ -31,6 +41,7 @@ POLL_SECS="${TELL_POLL_SECS:-5}"
 
 wait_for=1
 timeout=1900
+to_mind=0
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die() { printf 'tell: %s\n' "$*" >&2; exit 1; }
@@ -38,6 +49,7 @@ die() { printf 'tell: %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-wait) wait_for=0; shift ;;
+    --mind) to_mind=1; shift ;;
     --timeout) [ $# -ge 2 ] || die "--timeout needs seconds"; timeout="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     --) shift; break ;;
@@ -58,6 +70,27 @@ fi
 spine() { docker compose -f "$COMPOSE_FILE" exec -T spine "$@"; }
 
 ref="host-$(date +%s)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+said() {
+  mkdir -p "$STATE/host"
+  REF="$ref" TEXT="$text" TO="$1" python3 -c '
+import datetime as dt, hashlib, json, os
+text = os.environ["TEXT"]
+row = {"at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "ref": os.environ["REF"],
+       "chars": len(text), "sha256": hashlib.sha256(text.encode()).hexdigest()}
+if os.environ["TO"] != "tick":
+    row["to"] = os.environ["TO"]
+print(json.dumps(row))' >>"$STATE/host/said.jsonl"
+}
+
+if [ "$to_mind" = 1 ]; then
+  printf 'from: operator\nat: %s\n\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$text" |
+    spine bin/broker operator-note "$ref" >/dev/null ||
+    die "could not leave the note (is the spine up, and MIND=1 so state/home exists?)"
+  said mind
+  printf 'left for the mind (%s): it reads its inbox at its next wake\n' "$ref"
+  exit 0
+fi
+
 body="$(REF="$ref" TEXT="$text" python3 -c '
 import json, os
 print(json.dumps({"surface": "host", "kind": "instruction", "ref": os.environ["REF"],
@@ -68,12 +101,7 @@ offset=0
 [ -f "$RUNS" ] && offset="$(wc -c <"$RUNS" | tr -d ' ')"
 
 printf '%s\n' "$body" | spine hands/stimuli add >/dev/null || die "the inbox refused it (is the spine up?)"
-mkdir -p "$STATE/host"
-REF="$ref" TEXT="$text" python3 -c '
-import datetime as dt, hashlib, json, os
-text = os.environ["TEXT"]
-print(json.dumps({"at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "ref": os.environ["REF"],
-                  "chars": len(text), "sha256": hashlib.sha256(text.encode()).hexdigest()}))' >>"$STATE/host/said.jsonl"
+said tick
 printf 'told teeny (%s)\n' "$ref"
 
 kick() { spine bin/tick --detach >/dev/null 2>&1 || true; }

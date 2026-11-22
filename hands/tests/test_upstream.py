@@ -27,7 +27,7 @@ NOTES = """## What's new
 - Cron jobs can now be declared in a file (closes #8119)
 - Faster startup
 - Langfuse export without the proxy (tinyhumansai/openhuman/pull/9001, see https://github.com/tinyhumansai/openhuman/issues/8122)
-- kill yourself #8120
+- what a retard #8120
 """
 
 

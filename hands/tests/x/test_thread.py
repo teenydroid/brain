@@ -134,9 +134,10 @@ class RefusalTest(Threading):
             with self.subTest(bad=bad), self.assertRaises(hand.HandError):
                 publish.thread({"posts": bad, "anchor": "pr 1"})
 
-    def test_no_anchor(self):
-        self.refused({"posts": TEXTS}, "anchor")
-        self.refused({"posts": TEXTS, "anchor": "  "}, "anchor")
+    def test_no_anchor_is_no_bar(self):
+        # 2026-11-22: anchoring was taste.
+        self.serve()
+        self.assertEqual(publish.thread({"posts": TEXTS})["sent"], len(TEXTS))
 
     def test_a_quote_is_not_a_thread(self):
         self.refused(self.body(quote_of="555"), "thread")
@@ -161,9 +162,9 @@ class RefusalTest(Threading):
             self.refused(self.body())
 
     def test_one_over_long_post_refuses_the_whole_thread(self):
-        long = "x" * 281
+        long = "x" * 25_001
         exc = self.refused(self.body([TEXTS[0], long, TEXTS[2]]), "length")
-        self.assertEqual(exc.detail["length"], 281)
+        self.assertEqual(exc.detail["length"], 25_001)
 
     def test_two_hundred_eighty_is_allowed(self):
         texts = [TEXTS[0], "y" * 280]
@@ -220,23 +221,13 @@ class RulesTest(Threading):
         posting_rules.check_pacing(conn)
         posting_rules.check_not_replied(conn, "101")
 
-    def test_a_repeat_of_the_head_is_refused(self):
-        conn = hand.db()
-        posting_rules.ensure_schema(conn)
-        posting_rules.record_post(conn, "50", "post", TEXTS[0] + " today", created_at=T0 - 6 * HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.thread(self.body())
-        self.assertEqual(caught.exception.detail["rule"], "repeat")
-        self.assertEqual(self.x.writes(), [])
-
-    def test_a_repeat_of_an_earlier_thread_as_a_whole_is_refused(self):
+    def test_a_repeat_is_no_bar_since_the_repeat_rule_went(self):
+        # 2026-11-22: the near-duplicate refusal was taste.
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "50", "post", " ".join(TEXTS), created_at=T0 - 6 * HOUR)
-        with self.assertRaises(hand.Refused) as caught:
-            publish.thread(self.body(["one: the build failed", *TEXTS[1:]]))
-        self.assertEqual(caught.exception.detail["rule"], "repeat")
-        self.assertEqual(caught.exception.detail["similar_to"], "50")
+        self.serve()
+        self.assertEqual(publish.thread(self.body())["sent"], len(TEXTS))
 
     def test_a_link_anywhere_makes_it_one_link_post(self):
         texts = [TEXTS[0], "two: details at github.com/teenydroid/brain", "three: https://example.com/x"]
@@ -322,7 +313,7 @@ class DryRunTest(Threading):
     def test_dry_run_still_applies_every_rule(self):
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
-            publish.thread(self.body([TEXTS[0], "x" * 300]))
+            publish.thread(self.body([TEXTS[0], "x" * 25_001]))
         with self.assertRaises(hand.Refused):
             publish.thread(self.body(["only one"]))
 

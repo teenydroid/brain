@@ -203,10 +203,11 @@ class WriteVerbsTest(Cli):
         self.assertEqual((code, out), (0, {"ok": True, "id": "100", "kind": "post", "text": "gm, frens"}))
         self.assertEqual(self.x.requests("POST", "/2/tweets")[0].json(), {"text": "gm, frens"})
 
-    def test_a_post_without_an_anchor_is_exit_2_and_never_sent(self):
+    def test_a_post_without_an_anchor_is_sent(self):
+        # 2026-11-22: anchoring was taste.
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
         code, out, _ = self.run_x("post", stdin='{"text":"gm"}', guarded=True)
-        self.assertEqual((code, out["ok"], out["rule"]), (2, False, "anchor"))
-        self.assertEqual(self.x.writes(), [])
+        self.assertEqual((code, out["ok"], out["id"]), (0, True, "101"))
 
     def test_a_refusal_is_exit_2_with_the_reason(self):
         code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"buy $FAKE"}', guarded=True)

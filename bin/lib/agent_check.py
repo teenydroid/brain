@@ -8,7 +8,8 @@ needs; exits non-zero with the reason otherwise:
 - every agent has an id and a when_to_use;
 - the drafting agents (NO_TOOLS) have no tools at all and never act on a
   schedule: they read text strangers wrote;
-- the drafting agents run at exactly NO_TOOLS_MAX_ITERATIONS (see there);
+- the drafting agents run read_only, at exactly their count in
+  MAX_ITERATIONS, else NO_TOOLS_MAX_ITERATIONS (see there);
 - the judge, reviewer and querier (MEMORYLESS) load no memory and no identity;
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
@@ -33,11 +34,11 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail")
+NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail", "writer", "editor")
 #: The tool-less agents that must also load no memory and no identity: they
 #: are not Teeny, and are shown only what their message carries (the
-#: querier's queries leave the box).
-MEMORYLESS = ("judge", "reviewer", "querier")
+#: querier's queries leave the box; the studio's editor judges drafts blind).
+MEMORYLESS = ("judge", "reviewer", "querier", "editor")
 #: A drafting agent's turn is one model call: with no tools it cannot loop.
 #: But the vendored harness pauses a session turn when it reaches
 #: max_iterations even after a final answer (the CapPauser in
@@ -47,13 +48,31 @@ MEMORYLESS = ("judge", "reviewer", "querier")
 #: The second iteration only absorbs that pause (or an output-retry nudge).
 #: Drop to 1 once the harness stops pausing a finished turn.
 NO_TOOLS_MAX_ITERATIONS = 2
+#: The drafting agents whose first call has been seen to die: it reasons to
+#: its output cap and comes back empty or truncated, so the harness retries
+#: it as a second call with reasoning off (RunPolicy's call after a dead one,
+#: tinyagents-harness agent_loop/run_loop.rs). At 2 the cap pause then lands
+#: on that retry and the turn fails though it answered, and the beat is lost
+#: (12 of the mind's turns and 1 of act's in 12 hours on the box,
+#: 2026-11-21). The third iteration absorbs the pause after the retry. Each
+#: count is exact, like NO_TOOLS_MAX_ITERATIONS: a tool-less turn still
+#: cannot loop, and an agent not named here stays at 2.
+MAX_ITERATIONS = {"teeny": 3, "act": 3}
 #: Never in a scheduled agent: money, connectors, and any MCP server.
 NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 #: agent -> (tools it must have, tool name prefixes it must not have)
 SCHEDULED = {
     "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
+    # The mind works in its own home with a shell and no key (docs/mind.md).
+    # Nothing that schedules (a cron shell job runs outside any jail), spawns,
+    # installs into the core or browses: each is a way past the jail or the broker.
+    "mind": (("shell", "file_read", "file_write", "memory"),
+             ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
+              *NEVER)),
 }
+#: The scheduled agents whose shell must stay jailed to files in their workspace.
+JAILED = ("builder", "mind")
 
 #: agent -> the only tools it may have. The evolver edits a lab worktree
 #: and answers JSON; bin/evolve gates what it wrote.
@@ -61,7 +80,7 @@ EDITORS = {"evolver": ("file_read", "file_write", "edit", "glob", "grep", "list"
 
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
-WORKSPACE = {"builder": "state/workbench"}
+WORKSPACE = {"builder": "state/workbench", "mind": "state/home"}
 
 #: agent -> the exact final message of a run with nothing queued.
 NOTHING_TO_DO = {
@@ -95,9 +114,13 @@ def check(path: Path) -> str:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
         if scheduled:
             raise SystemExit(f"the {agent} agent must not set scheduled_actions")
-        if doc.get("max_iterations") != NO_TOOLS_MAX_ITERATIONS:
-            raise SystemExit(f"the {agent} agent must set max_iterations = {NO_TOOLS_MAX_ITERATIONS} "
-                             "(1 trips the harness's cap pause on every turn; more is a loop it has no tools for)")
+        if doc.get("sandbox_mode") != "read_only":
+            raise SystemExit(f'the {agent} agent must set sandbox_mode = "read_only"')
+        iterations = MAX_ITERATIONS.get(agent, NO_TOOLS_MAX_ITERATIONS)
+        if doc.get("max_iterations") != iterations:
+            raise SystemExit(f"the {agent} agent must set max_iterations = {iterations} "
+                             "(fewer trips the harness's cap pause on a turn that answered; "
+                             "more is a loop it has no tools for)")
         if agent in MEMORYLESS and not (doc.get("omit_memory_context") is True and doc.get("omit_identity") is True):
             raise SystemExit(f"the {agent} agent must set omit_memory_context = true and omit_identity = true")
         return agent
@@ -125,6 +148,11 @@ def check(path: Path) -> str:
     missing = [t for t in needs if t not in named]
     if missing:
         raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
+    if agent in JAILED and not (doc.get("sandbox_mode") == "sandboxed" and doc.get("sandbox_filesystem_only") is True):
+        raise SystemExit(f'the {agent} agent must set sandbox_mode = "sandboxed" and sandbox_filesystem_only = true '
+                         "(its shell is jailed to its workspace)")
+    if agent not in NOTHING_TO_DO:
+        return agent
     prompt = source.get("inline", "") if isinstance(source, dict) else ""
     line = NOTHING_TO_DO[agent]
     if f"`{line}`" not in prompt or "write no report" not in prompt or "Never end a run with an empty message." not in prompt:

@@ -11,6 +11,7 @@ from .support import T0, Scratch, me
 from guard.support import FakeCore, result
 from teeny_hands import hand
 from teeny_hands.x import mentions
+from teeny_hands.x import posting_rules as rules
 
 MENTIONS = "/2/users/1000/mentions"
 
@@ -27,6 +28,8 @@ class IngestBase(Scratch):
     #: Where an offer goes: these cases pin the core's queue; MindInboxTest
     #: leaves it unset, the default (Teeny's mind).
     INBOX: str | None = "core"
+    #: These cases read X on every run; PollIntervalTest pins the default.
+    settings = {"X_MENTIONS_POLL_HOURS": "0"}
 
     def setUp(self):
         super().setUp()
@@ -213,6 +216,55 @@ class CostTest(IngestTest):
 
         self.assertEqual(cache.reads().get_post("11")["text"], "@teenydroid wen moon")
         self.assertEqual(self.x.requests("GET", "/2/tweets/11"), [])
+
+
+class PollIntervalTest(IngestBase):
+    """X's webhook delivers mentions as they are written, and every read of
+    the mentions timeline is a billed X call, so `ingest` reads X once an hour
+    as a backstop and otherwise works from what is already queued."""
+
+    settings: dict[str, str] = {}
+
+    def queue_from_webhook(self, post_id: str, text: str) -> None:
+        conn = mentions._db()
+        with hand.transaction(conn):
+            mentions._store(conn, {"id": "1000"}, {"id": post_id, "authorId": "7", "authorUsername": "user7",
+                                                   "conversationId": "c" + post_id, "text": text},
+                            {s: 0 for s in mentions.STATUSES}, hand.now(), screen=False)
+
+    def test_a_run_inside_the_hour_does_not_read_x_and_still_offers_what_the_webhook_queued(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
+        mentions.ingest()
+        self.queue_from_webhook("12", "gm teeny")
+        self.at(T0 + 300)
+        out = mentions.ingest()
+        self.assertEqual(len(self.x.requests("GET", MENTIONS)), 1, "a second read of X five minutes later")
+        self.assertEqual((out["read"], out["offered"], out["screened"]), (0, 1, {"pending": 1}))
+        self.assertEqual(out["poll"], {"skipped": True, "next_at": rules.iso(T0 + 3600.0)})
+        self.assertEqual(self.statuses(), {"11": "offered", "12": "offered"})
+
+    def test_x_is_read_again_once_an_hour_has_passed(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
+        mentions.ingest()
+        self.at(T0 + 3600.0)
+        out = mentions.ingest()
+        self.assertEqual(len(self.x.requests("GET", MENTIONS)), 2)
+        self.assertNotIn("poll", out)
+
+    def test_a_failed_read_is_tried_again_on_the_next_run(self):
+        self.x.route("GET", MENTIONS, {"title": "Service Unavailable"}, status=503)
+        with self.assertRaises(hand.HandError):
+            mentions.ingest()
+        self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
+        self.at(T0 + 300)
+        self.assertEqual(mentions.ingest()["read"], 1)
+
+    def test_a_forced_poll_reads_x_inside_the_hour(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
+        mentions.ingest()
+        self.at(T0 + 300)
+        mentions.ingest(poll=True)
+        self.assertEqual(len(self.x.requests("GET", MENTIONS)), 2)
 
 
 class MindInboxTest(IngestBase):

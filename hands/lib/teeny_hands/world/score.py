@@ -109,7 +109,8 @@ def engaged_weight(kind: str, first_contact_theirs: bool) -> float:
 PENALTY = "penalty"
 PENALTY_WEIGHT = 0.02
 PENALTY_COUNTS = (
-    "guard holds on Teeny's own outbound text (not ones the operator approved or the re-screen cleared), "
+    "guard holds on Teeny's own outbound text (not ones the operator approved or the re-screen cleared, nor "
+    "text code composed under Teeny's name, like the babysitter's audit comment), "
     "and wallet payments that ended in doubt, on the UTC day before the snapshot"
 )
 

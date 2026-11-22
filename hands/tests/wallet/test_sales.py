@@ -87,7 +87,7 @@ class SalesTest(Scratch):
 
     def test_team_money_held_memos_and_unknown_requests_match_nothing(self):
         self.deposit(PRICE, "request 2", sender=TEAM)
-        self.deposit(PRICE, "kill yourself, bot request 2")
+        self.deposit(PRICE, "retard bot, request 2")
         self.deposit(PRICE, "request 99")
         self.assertEqual(sales.match()["matched"], [])
         self.assertEqual(self.rows(), [])

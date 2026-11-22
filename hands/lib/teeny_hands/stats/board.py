@@ -265,11 +265,17 @@ def by_format(writes: Iterable[Json]) -> list[Json]:
     return sorted(out, key=lambda g: (-g["avg"], -g["n"], g["format"]))
 
 
-def _surface(writes: list[Json]) -> Json:
+def rank(writes: Iterable[Json], top: int = TOP) -> tuple[list[Json], list[Json]]:
+    """The `top` best writes by result (the newer first on a tie) and the
+    `top` worst of the rest, the worst first: a write is never both."""
     ranked = sorted(writes, key=lambda w: (-w["result"], -w["at"]))
-    best = ranked[:TOP]
+    best = ranked[:top]
     rest = [w for w in ranked if w not in best]
-    worst = list(reversed(rest))[:TOP]
+    return best, list(reversed(rest))[:top]
+
+
+def _surface(writes: list[Json]) -> Json:
+    best, worst = rank(writes)
     shown = lambda w: {k: v for k, v in w.items() if v is not None and k != "at"}  # noqa: E731
     out: Json = {"measured": len(writes), "best": [shown(w) for w in best], "worst": [shown(w) for w in worst],
                  "formats": by_format(writes)}
