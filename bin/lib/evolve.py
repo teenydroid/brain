@@ -4413,7 +4413,7 @@ def retire_stale_halt() -> None:
 
 
 def problems_log() -> Path:
-    """The problem issues filed, a line per event (opened, updated, noted):
+    """The problem issues filed, a line per thing done (opened, commented):
     key, kind, the issue's number and link, never its body. Still named
     halts.jsonl, which bin/lib/audit.py counts. A record a former `resume`
     marked `resumed` no longer deduplicates anything."""
@@ -4713,7 +4713,9 @@ def raise_problem(cfg: Config, problem: Problem, publisher: "Publisher | None") 
                         entry["labelled"] = False
         except Exception as exc:  # noqa: BLE001 - the problem is told whether or not GitHub answers
             entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
-    append_jsonl(problems_log(), entry)
+    if entry.get("update") != "already told today":
+        # One line per thing done (bin/lib/audit.py counts them), not per run.
+        append_jsonl(problems_log(), entry)
     where = f"issue #{entry['issue']}" if isinstance(entry.get("issue"), int) else "its issue"
     say(f"problem ({problem.kind}): {where}" + (f", {entry['update']}" if entry.get("update") else "")
         + (f" (failed: {entry['issue_error']})" if entry.get("issue_error") else ""))
