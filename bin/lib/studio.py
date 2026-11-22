@@ -332,6 +332,9 @@ class Config:
     #: Of the draft_top drafted, how many are kept for an invention-led
     #: pitch (INVENTION_SHAPES) whenever the pitches hold one.
     draft_invented: int = 1
+    #: How many pitches a slot may keep that are pure invention, with no hook
+    #: and no item (`validate_pitches`, PURE_LINE): the writer's best-ranked.
+    pure_invented: int = 1
     drafts_each: int = 3
     meetings: int = 3
     pairs_per_turn: int = 5
@@ -401,6 +404,7 @@ class Config:
         c.pitches = _int(get("STUDIO_PITCHES"), 12, 1, 20)
         c.draft_top = _int(get("STUDIO_DRAFT_TOP"), 3, 1, 5)
         c.draft_invented = _int(get("STUDIO_DRAFT_INVENTED"), 1, 0, 5)
+        c.pure_invented = _int(get("STUDIO_PURE_INVENTED"), 1, 0, 3)
         c.drafts_each = _int(get("STUDIO_DRAFTS_EACH"), 3, 1, 5)
         c.meetings = _int(get("STUDIO_MEETINGS"), 3, 1, 8)
         c.pairs_per_turn = _int(get("STUDIO_PAIRS_PER_TURN"), 5, 1, 20)
@@ -2468,7 +2472,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
                     "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
                                "judge": cfg.judge_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
-                               "draft_invented": cfg.draft_invented,
+                               "draft_invented": cfg.draft_invented, "pure_invented": cfg.pure_invented,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
                                "pairs_per_turn": cfg.pairs_per_turn, "budget_secs": cfg.budget_secs},
                     "warnings": list(cfg.warnings)}
