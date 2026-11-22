@@ -64,7 +64,15 @@ NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 SCHEDULED = {
     "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
+    # The mind works in its own home with a shell and no key (docs/mind.md).
+    # Nothing that schedules (a cron shell job runs outside any jail), spawns,
+    # installs into the core or browses: each is a way past the jail or the broker.
+    "mind": (("shell", "file_read", "file_write", "memory"),
+             ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
+              *NEVER)),
 }
+#: The scheduled agents whose shell must stay jailed to files in their workspace.
+JAILED = ("builder", "mind")
 
 #: agent -> the only tools it may have. The evolver edits a lab worktree
 #: and answers JSON; bin/evolve gates what it wrote.
@@ -72,7 +80,7 @@ EDITORS = {"evolver": ("file_read", "file_write", "edit", "glob", "grep", "list"
 
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
-WORKSPACE = {"builder": "state/workbench"}
+WORKSPACE = {"builder": "state/workbench", "mind": "state/home"}
 
 #: agent -> the exact final message of a run with nothing queued.
 NOTHING_TO_DO = {
@@ -140,6 +148,11 @@ def check(path: Path) -> str:
     missing = [t for t in needs if t not in named]
     if missing:
         raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
+    if agent in JAILED and not (doc.get("sandbox_mode") == "sandboxed" and doc.get("sandbox_filesystem_only") is True):
+        raise SystemExit(f'the {agent} agent must set sandbox_mode = "sandboxed" and sandbox_filesystem_only = true '
+                         "(its shell is jailed to its workspace)")
+    if agent not in NOTHING_TO_DO:
+        return agent
     prompt = source.get("inline", "") if isinstance(source, dict) else ""
     line = NOTHING_TO_DO[agent]
     if f"`{line}`" not in prompt or "write no report" not in prompt or "Never end a run with an empty message." not in prompt:
