@@ -1557,7 +1557,7 @@ class FallbackTest(unittest.TestCase):
         return studio.Slot(order=list(rates), blind=blind, board={}, stories_now=[], pitches={}, items={},
                            stories={}, thread="studio:run-1", rates=rates, close=1 / 3)
 
-    def publish(self, slot):
+    def publish(self, slot, vetoed=None):
         def fake_try(room, draft, attempt, slot_, afters):
             label = attempt["label"]
             self.tried.append(label)
@@ -1571,8 +1571,46 @@ class FallbackTest(unittest.TestCase):
         record: dict = {}
         with mock.patch.object(studio, "try_draft", fake_try), mock.patch.object(studio, "example_afters",
                                                                                  lambda brain: []):
-            out = studio.publish(room, record, slot)
+            out = studio.publish(room, record, slot, **({"vetoed": vetoed} if vetoed else {}))
         return out
+
+    # Live dry runs of 2026-11-22 (editor-opus-b, editor-opus-c): the editor
+    # said none to the tournament's winner and the slot ended `vetoed`, with
+    # no other draft tried.
+    WINNER_VETO = {"label": "D5", "verdict": "none",
+                   "reason": "it puts a quote in tesla's mouth that does not appear in the story given"}
+
+    def test_a_veto_on_the_winner_moves_to_the_next_ranked_draft(self):
+        self.verdicts = {"D5": "none"}
+        out = self.publish(self.slot(), vetoed=self.WINNER_VETO)
+        self.assertEqual(out["outcome"], "would_post")
+        self.assertEqual(out["label"], "D8")
+        self.assertEqual(self.tried, ["D8"])
+        first = out["attempts"][0]
+        self.assertEqual(first["label"], "D5")
+        self.assertEqual(first["editor"], {"verdict": "none", "reason": self.WINNER_VETO["reason"]})
+        self.assertIn("vetoed", first["result"])
+        # The next draft faces the slot question as a fallback, cold.
+        fallback = [m for agent, m, _ in self.asked if agent == "editor"][1]
+        self.assertIn("Nothing has gone out in this slot yet", fallback)
+        self.assertNotIn(self.PICK, fallback)
+
+    def test_a_veto_on_the_winner_costs_none_of_the_fallback_budget(self):
+        self.results = {label: "next" for label in ("D8", "D2", "D1", "D3")}
+        out = self.publish(self.slot(), vetoed=self.WINNER_VETO)
+        self.assertEqual(self.tried, ["D8", "D1", "D2"][:1 + studio.MAX_FALLBACKS])
+        self.assertEqual(len(self.tried), 1 + studio.MAX_FALLBACKS)
+        self.assertEqual(out["outcome"], "empty")
+
+    def test_every_draft_vetoed_after_the_winner_ends_empty_and_says_so(self):
+        self.verdicts = {label: "none" for label in ("D5", "D8", "D2", "D1", "D3")}
+        out = self.publish(self.slot(), vetoed=self.WINNER_VETO)
+        self.assertEqual(out["outcome"], "empty")
+        self.assertEqual(self.tried, [])
+        self.assertEqual([a["label"] for a in out["attempts"]], ["D5", "D8", "D2", "D1", "D3"])
+        self.assertIn("the pick D5: the editor vetoed it (it puts a quote in tesla's mouth", out["reason"])
+        self.assertIn("4 fallbacks tried, none went out", out["reason"])
+        self.assertIn("every ranked draft was tried", out["reason"])
 
     def test_every_editor_turn_is_a_cold_read_on_a_thread_of_its_own(self):
         # A turn with no thread resumes the agent's newest transcript (the
