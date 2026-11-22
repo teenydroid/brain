@@ -218,8 +218,9 @@ class GitHubApi:
     def fork(self, owner: str, name: str) -> Json:
         return to_repo(self.call("POST", self._path("repos", owner, name, "forks"), body={}))
 
-    def open_issue(self, owner: str, name: str, title: str, body: str) -> Json:
-        got = self.call("POST", self._path("repos", owner, name, "issues"), body={"title": title, "body": body})
+    def open_issue(self, owner: str, name: str, title: str, body: str, labels: list[str] | None = None) -> Json:
+        fields: Json = {"title": title, "body": body, **({"labels": list(labels)} if labels else {})}
+        got = self.call("POST", self._path("repos", owner, name, "issues"), body=fields)
         return {"number": got.get("number"), "html_url": got.get("html_url")}
 
     def set_status(self, owner: str, name: str, sha: str, state: str, context: str, description: str) -> Json:
