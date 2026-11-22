@@ -3055,7 +3055,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         # is "this video cannot go out", never an empty video slot while
         # another draft is left; every one is kept in `skit_vetoes` (and the
         # first as `skit_veto`) with its format. A no to the other draft
-        # after them is a real veto.
+        # after them is the first attempt, vetoed, and the rest of the ranking
+        # is asked as fallbacks (`publish`).
         skits = video_finals(order, blind)
         others = [x for x in order if blind[x]["format"] not in registry()]
         refused: list[Json] = []
