@@ -148,6 +148,15 @@ class _Audit:
                 and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
                 and policy.is_evolve_branch(pr.get("head_ref")))
 
+    def _is_self_change(self) -> bool:
+        """A self-merge candidate on the required checks: BABYSIT_SELF_MERGE_ALL
+        (and BABYSIT_SELF_MERGE) on, teenydroid/brain, Teeny's own pull
+        request from any teeny/ branch of the same repository."""
+        pr = self.pr
+        return (policy.self_merge_all_on() and policy.is_brain(self.repo) and self.author_tier == policy.TEENY
+                and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
+                and policy.is_teeny_branch(pr.get("head_ref")))
+
     def _prose_severity(self, rule: str) -> str:
         if self.author_tier == policy.STRANGER:
             return "block"
