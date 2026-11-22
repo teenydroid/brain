@@ -31,9 +31,12 @@ model turn, so a retried run never posts twice).
    ranks them, the rudest and funniest first, and marks any that break the
    content list (brain/narrative/STUDIO-EDITOR.md) with the line it breaks.
    Then the ranked posts, marked ones left out (videos first in a video
-   slot), go to `hands/x post` one by one (`publish`): its guard is the
-   check; the first that is not held posts. A picture, a meme or a video is
-   made only for the post being tried. With STUDIO_DRY=1 (always under
+   slot), are tried one by one (`publish`): first the guard's content list
+   on the exact words (`final_gate`, `hands/guard check`, kept on the
+   attempt as `gates`; held, failed or unreadable sends nothing), then
+   `hands/x post`, whose guard runs again as it posts; the first that is not
+   held posts. A picture, a meme or a video is made only for the post being
+   tried, after its words passed. With STUDIO_DRY=1 (always under
    `--dry-run`) every hand runs with DRY_RUN=1: nothing is posted or bought.
 
 The record: the whole run to state/studio/runs.jsonl and, through `hands/story
