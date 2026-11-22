@@ -828,7 +828,8 @@ cron slot ──> bin/studio --slot S --legacy P --detach
        ──> 280 + unsourced-number screen
        remake pitch: hands/remake study on its chart video first (at most 2 a run; unusable: the next remake pitch)
                 │
-   editor: blind pairwise tournament ──> pick, or none (empty slot)
+   editor (taste only; facts are the truth judge's): blind pairwise tournament ──> pick,
+       or none (the winner is vetoed and the next draft of the ranking gets the slot question)
                 │
    producer for the format (post | thread | image | meme | skit | remake)
                 │
@@ -966,8 +967,7 @@ or bystander, the figure near Teeny, a token, a wallet, an investment or
 a product they are seen to endorse, a scene or line that could pass for real, or
 a skit a stranger could not follow at all. The slot question adds
 `SKIT_FINAL` (taste alone is not a none; a none names its `line`), and
-`STUDIO-EDITOR.md`'s "made up about a real person" line leaves a labelled
-parody to those lines. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
+`STUDIO-EDITOR.md` leaves a labelled parody to those lines. The hard lines for real people (`hands/guard skit`; `docs/hands.md`)
 run three times: code's half on every skit draft before the tournament
 (beside the copy and unsourced screens, which hold only its words to the
 facts: a shot's "35mm" is staging), code and the judge before any money is
@@ -994,7 +994,7 @@ and the best pitch in another format are always drafted, the best skit is
 tried first whatever the editor's ranking (the slot question is asked of
 it; a no to it hands the slot question to the next-ranked skit, up to
 `SKIT_FINALS` (3) skits, and only then to the best draft in another
-format, whose no is a real veto; every refusal is kept in `skit_vetoes`,
+format, whose no is the first attempt, vetoed, as on any winner (step 9); every refusal is kept in `skit_vetoes`,
 the first also as `skit_veto`), and when it cannot be made (off, over budget, a hard line, the reel
 service down, a render that failed) no other skit is tried that run and the
 failure uses none of the `MAX_FALLBACKS`, so the other formats still get
@@ -1394,11 +1394,24 @@ One run is one slot:
    come back; could only Teeny have written it tonight). Both the compare
    turns and the slot question say `NERVE_LINE`: prefer the draft a stranger
    would screenshot or argue with over the tidy one, an absurd claim Teeny
-   makes about itself is the point, and invented money or anything invented
-   about a real person, a company or the news still loses outright. Ranked by win rate
+   makes about itself is the point, and `FACTS_LINE`: the editor judges
+   taste, never facts, since the truth judge reads every draft after it with
+   the whole story, so it never passes on a draft, or ranks it lower, for a
+   fact, a number, a name or a quote it cannot find in what it is shown
+   (2026-11-22: shown only a headline, it vetoed the winner for "a quote not
+   in the story" that was Tesla's own quoted post, and a fallback for a
+   money figure the summary gave). Both are shown what the truth judge is
+   given of each story a draft joins (`joined_story`: the hook's own fact,
+   its headline, summary and quoted posts, marked untrusted, cut to
+   `STORY_SHOWN_MAX`), under "the stories they join". Its hard lines stay
+   (a joke near real harm, self-harm, slurs, a threat against a real person,
+   cruelty to a private individual, promising money or telling anyone to
+   buy, tagging): it can see those in the words. Ranked by win rate
    over the pairs judged (none judged ranks last; ties: more wins, fewer
    losses, the head-to-head, the shuffle); then one turn on the winner:
-   `pick` (any case) or none worth a slot. A duplicate pair in an answer or
+   `pick` (any case) or none worth a slot. A none on the winner does not end
+   the slot: it is kept as `final_veto` and as the first attempt, vetoed,
+   and the rest of the ranking is asked as fallbacks (step 9). A duplicate pair in an answer or
    a compare turn unusable twice is a warning in the record.
 8. **Record**: the whole run (seed, inputs digest and what was unavailable
    or cut, what each outside source gave (`outside`), pitches with their
@@ -1426,7 +1439,11 @@ One run is one slot:
    faces the editor's slot question first, told that nothing has gone out
    in the slot yet and never shown the draft that failed. At most two
    fallbacks go through the gates; one the editor vetoes costs no fallback,
-   so every ranked draft can be asked. A draft on another story goes first
+   so every ranked draft can be asked. A winner the editor vetoed is the
+   same: it is the first attempt, took no gate, and the next draft of the
+   ranking is asked as a fallback with the whole budget (three drafts through
+   the gates); the slot is empty only when every draft tried was vetoed or
+   failed. A draft on another story goes first
    when it ranks within one meeting's win rate of the next sibling of a
    story that failed. An empty slot's `reason` says what came of every
    attempt. A judge
