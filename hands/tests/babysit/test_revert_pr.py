@@ -51,7 +51,7 @@ class RevertPrTest(RollbackScratch):
         self.at(120)
 
     def pulls(self) -> list[dict]:
-        return [json.loads(r.body) for r in self.gh.requests if r.method == "POST" and r.path.endswith("/pulls")]
+        return [json.loads(r.body) for r in self.gh.requests("POST", f"/repos/{REPO}/pulls")]
 
     def test_a_bad_deploy_gets_a_revert_pull_request_back_to_the_tree_before_it(self):
         self.bad_deploy()
@@ -121,5 +121,4 @@ class RevertPrTest(RollbackScratch):
     def test_the_revert_is_held_for_the_operator_like_any_change_to_those_paths(self):
         self.bad_deploy()
         rollback.check()
-        self.assertIn("pr:brain/playbooks/morning.md" if False else "brain/playbooks/morning.md",
-                      " ".join(sorted(rollback.blocked_places())))
+        self.assertIn("brain/playbooks/morning.md", " ".join(sorted(rollback.blocked_places())))

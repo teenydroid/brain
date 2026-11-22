@@ -23,13 +23,23 @@ not. One found after its window has closed (the sweep runs every 20 minutes)
 is still judged on the evidence inside it, once; past twice the window it is
 history and left alone.
 
-The revert is an issue, not a pull request: evolve-watch's revert
-(bin/lib/evolve.py `revert`) builds its branch in Teeny's clone from an
-evolve candidate and its config, nothing a hand can call. The issue says
-what to revert and why; a person (or Teeny, on a teeny/ branch the audit
-then holds for the operator) opens the revert. It goes through hands/gh's
-`open_issue` (the guard, DRY_RUN, the gh ledger). One that does not open is
-tried again next run; one the guard holds is not asked again.
+The revert is an issue and, when it can be built, a pull request. The issue
+says what to revert and why. It goes through hands/gh's `open_issue` (the
+guard, DRY_RUN, the gh ledger). One that does not open is tried again next
+run; one the guard holds is not asked again.
+
+The pull request (`_revert_pr`) is one commit on main whose tree is the tree
+the box ran before the deploy (the deploy row's `from`), on the branch
+teeny/revert-<n>-<sha>. It is built in the git directory of Teeny's own
+clone (build/selfclone.py) with plumbing only, so the builder's working tree
+is never touched, then pushed and opened through hands/gh. Only when
+origin/main is still the deployed commit: once main has moved, putting the
+old tree back would drop what came after, and the issue stands alone. It
+touches the held paths, so the audit leaves it for the operator
+(`recently_rolled_back`): the babysitter asks for the revert, a person
+presses the button. A reason that will not change (no clone, main moved) is
+recorded once (`deploy_revert_pr_skipped`); a push or an open that failed is
+tried again next run.
 
 It never restarts or rolls the box back: bin/spine already boots last-good
 when the doctor fails, and deploy.py deploys nothing while that marker is
@@ -45,7 +55,8 @@ import math
 import re
 from typing import Any, Callable
 
-from .. import hand
+from .. import git, hand
+from ..build import selfclone
 from ..gh import actions as gh_actions
 from . import deploy, injection, ledger, policy
 from .api import PullsApi
@@ -83,6 +94,9 @@ def check(api: PullsApi | None = None) -> Json | None:
         reverts = _open_reverts(gh)
         if reverts:
             out["reverts"] = reverts
+        pulls = _open_revert_prs(gh)
+        if pulls:
+            out["revert_prs"] = pulls
     return out or None
 
 
@@ -136,7 +150,7 @@ def _judge(row: Json, gh: Callable[[], PullsApi]) -> Json:
         return {**base, "watching": number}
     verdict = "deploy_bad" if bad else "deploy_ok"
     numbers = [int(n) for n in row["detail"].get("numbers") or [number]]
-    detail: Json = {"deploy_id": row["id"], "numbers": numbers}
+    detail: Json = {"deploy_id": row["id"], "numbers": numbers, "base": row["detail"].get("from")}
     if bad:
         # Raises when GitHub cannot be read: nothing is recorded, and
         # `holds_everything` keeps every self-merge waiting until a later run
@@ -247,6 +261,85 @@ def _open_revert(gh: Callable[[], PullsApi], bad: Json) -> Json:
         return {"number": None, "error": str(exc)[:300]}
     ledger.record_action("deploy_revert", repo, number, sha, issue=opened.get("number"), url=opened.get("html_url"))
     return {"number": opened.get("number"), "html_url": opened.get("html_url")}
+
+
+# --- the revert pull request ----------------------------------------------------------------------
+
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+class _Skip(Exception):
+    """Why no revert pull request can be built for this deploy, ever."""
+
+
+def _open_revert_prs(gh: Callable[[], PullsApi]) -> list[Json]:
+    out = []
+    for bad in reversed(ledger.actions_since("deploy_bad", hand.now() - ROLLBACK_BLOCK_HOURS * 3600)):
+        repo, number, sha = str(bad["repo"]), int(bad["number"]), bad["head_sha"]
+        if any(ledger.acted(verb, repo, number, sha) for verb in ("deploy_revert_pr", "deploy_revert_pr_skipped")):
+            continue
+        try:
+            out.append(_revert_pr(gh, bad))
+        except _Skip as skip:
+            ledger.record_action("deploy_revert_pr_skipped", repo, number, sha, reason=str(skip))
+            out.append({"number": None, "skipped": str(skip)})
+        except hand.Refused as refused:
+            if "hold_id" in refused.detail and not refused.detail.get("judge_failed"):
+                ledger.record_action("deploy_revert_pr_skipped", repo, number, sha, reason="held by the guard")
+            out.append({"number": None, "refused": refused.reason})
+        except hand.HandError as exc:
+            out.append({"number": None, "error": str(exc)[:300]})
+    return out
+
+
+def _clone_git(*args: str) -> str:
+    done = git.run(hand.state_dir(), "--git-dir", str(selfclone.gitdir()), *args)
+    return done.stdout.decode("utf-8", "replace").strip()
+
+
+def revert_branch(number: int, sha: str) -> str:
+    return f"{policy.TEENY_BRANCH_PREFIX}revert-{number}-{sha[:7]}"
+
+
+def _revert_commit(bad: Json) -> tuple[str, str]:
+    """The revert's branch and the commit it adds to, made in the clone's git
+    directory. _Skip when it cannot be a clean return to the old tree."""
+    repo, number, sha = str(bad["repo"]), int(bad["number"]), str(bad["head_sha"] or "")
+    base = str(bad["detail"].get("base") or "")
+    if repo.lower() != selfclone.repo().lower():
+        raise _Skip(f"{repo} is not Teeny's own clone")
+    if not _SHA.fullmatch(sha) or not _SHA.fullmatch(base):
+        raise _Skip("the deploy recorded no commit to go back to")
+    if not selfclone.gitdir().is_dir():
+        raise _Skip("no clone of Teeny's own repository on this box (state/self/)")
+    branch = revert_branch(number, sha)
+    with hand.lock("self-clone"):
+        selfclone.fetch()
+        main = _clone_git("rev-parse", "--verify", f"{selfclone.ORIGIN_BASE}^{{commit}}")
+        if main != sha:
+            raise _Skip("main has moved past the deploy; putting the old tree back would drop what came after")
+        tree = _clone_git("rev-parse", "--verify", f"{base}^{{tree}}")
+        if tree == _clone_git("rev-parse", "--verify", f"{main}^{{tree}}"):
+            raise _Skip("the deploy changed no file")
+        message = (f"revert #{number}: the deploy left the box unhealthy\n\n"
+                   f"Puts back the tree of {base}, which the box ran before {sha}.")
+        commit = _clone_git("commit-tree", tree, "-p", main, "-m", message)
+        _clone_git("update-ref", f"refs/heads/{branch}", commit)
+    return branch, main
+
+
+def _revert_pr(gh: Callable[[], PullsApi], bad: Json) -> Json:
+    repo, number, sha = str(bad["repo"]), int(bad["number"]), bad["head_sha"]
+    try:
+        branch, main = _revert_commit(bad)
+    except git.GitError as exc:
+        raise hand.HandError(f"the revert could not be built: {str(exc)[:200]}") from exc
+    gh_actions.push_branch(selfclone.gitdir(), repo, branch, main, gh().gh)
+    opened = gh_actions.open_pr({"repo": repo, "head": branch, "base": selfclone.BASE, "title": title(number),
+                                 "body": body(bad)}, gh().gh)
+    ledger.record_action("deploy_revert_pr", repo, number, sha, pr=opened.get("number"), url=opened.get("html_url"),
+                         branch=branch)
+    return {"number": opened.get("number"), "html_url": opened.get("html_url"), "branch": branch}
 
 
 def title(number: int) -> str:
