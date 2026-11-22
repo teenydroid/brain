@@ -370,11 +370,13 @@ def drop_wake(body: Json, entry: Json) -> Json:
     if isinstance(body.get("name"), str):
         entry["verb"] = body["name"][:LEDGER_CLIP]
     slug = _slug(body.get("name"))
-    found = [j for j in _wakes() if j["name"] == WAKE_PREFIX + slug and isinstance(j.get("id"), str)]
+    found = [j for j in _wakes() if j["name"] == WAKE_PREFIX + slug
+             and isinstance(j.get("id"), (str, int)) and not isinstance(j.get("id"), bool)]
     if not found:
         raise Refused(f"no wake named {slug}")
     for job in found:
-        _oh("cron_remove", {"job_id": job["id"]})
+        # As bin/seed-cron passes it: the id as a string.
+        _oh("cron_remove", {"job_id": str(job["id"])})
     return {"status": "ok", "dropped": slug}
 
 
