@@ -25,6 +25,17 @@ restart took before it stopped merging):
              something read at boot (`plan`); compose starts it again and
              the doctor gates the boot
 
+With BABYSIT_SELF_MERGE_ALL (every self-change merging itself, so deploys
+come more often), more rules, none of them there with it off:
+
+  - wait also while the mind's beat runs (state/locks/tick.lock, bin/tick)
+  - wait while state/spine-fallback.json is there: the spine is on
+    last-good, and deploying would check main out under it again
+  - at most one deploy that restarts the spine per
+    BABYSIT_DEPLOY_MIN_GAP_MINUTES (default 60); a sooner one waits, pending,
+    for a later sweep. One that restarts nothing is not held
+  - last-good is recorded on every deploy, not only one that restarts
+
 Under DRY_RUN nothing moves: the plan is recorded and the deploy stays
 pending. Every step that happens is a `babysit_actions` row (`deploy_*`),
 with commits, counts and rule names, never a path or a word from the pull
