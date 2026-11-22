@@ -4,6 +4,9 @@
   ideas      the `build_ideas` table: the one idea a day the daily job is made from
   selfclone  Teeny's own clone of GITHUB_USER/brain: synced from origin/main,
              edited by a `self` job, shipped as a pull request (never merged)
+  mindclone  the agentic mind's own clone (state/home/repo/, its git directory
+             outside the jail): a hostile tree made into a pull request
+             through bin/broker (docs/mind.md)
   feature    the rubric a `self` job built for a want (a new hand, tested,
              called by a scheduled playbook, documented) must meet before
              the desk takes its ok report

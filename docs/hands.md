@@ -516,6 +516,22 @@ injection in Teeny's own diff or too large a change needs the operator), and
 every check must be green. Strangers, maintainers and builder pull requests
 still need a person's approval of the exact head.
 
+**Every self-change** (`BABYSIT_SELF_MERGE_ALL=1` as well, off by default;
+`docs/mind.md`). Any pull request of Teeny's own from a `teeny/` branch of
+`teenydroid/brain` is a self-merge candidate, and what stands in for the
+approval is CI, not `teeny/eval`: every job in `policy.REQUIRED_CHECKS` must
+be on the head and green (`required_check_missing` waits,
+`required_check_not_green` fails). Every other finding stops it as before,
+and two more need the operator: `outside_the_jail` (a path outside
+`brain/`, `docs/` and `home/`) and `recently_rolled_back`. The day's caps
+become `BABYSIT_MERGES_PER_DAY` and `BABYSIT_SELF_MERGES_PER_DAY` (12 each),
+deploys that restart the spine are at least `BABYSIT_DEPLOY_MIN_GAP_MINUTES`
+apart, and each run starts with the rollback watch (`rollback.py`): a deploy
+followed within an hour by a red `state/doctor.json` or a last-good fallback
+is recorded `deploy_bad`, a "revert #N" issue is opened once, and the paths
+it changed are held for 24 hours. While `state/spine-fallback.json` exists
+no further deploy is made.
+
 **Deploy on merge.** A self-merge queues `state/deploy-pending.json`
 (`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
 and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
