@@ -32,6 +32,7 @@ on the branch. Never merges.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
@@ -41,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import git, hand
+from ..gh import gitpush
 from . import selfclone
 
 Json = dict[str, Any]
@@ -196,6 +198,9 @@ MIND_BRANCH_PREFIX = selfclone.BRANCH_PREFIX + "mind-"
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
 MAX_TITLE = 120
 MAX_BODY = 8000
+#: The babysitter's limits on a pull request it would merge.
+MAX_FILES = 100
+MAX_LINES = 3000
 #: The disclosure every pull request from the mind's clone ends with.
 DISCLOSURE = "—\nWritten by Teeny's agentic mind, an autonomous AI agent (github.com/teenydroid), from its own clone."
 
@@ -359,21 +364,45 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None) -> Json:
         if _rev(f"refs/remotes/origin/{branch}") is not None:
             raise hand.Refused(f"{branch} is already on GitHub (one pull request per branch): pick another name",
                                rule="branch_taken")
-        fields = actions.guarded({"title": title, "body": body}, "pr", {"repo": full, "head": branch})
+        fields = _guarded({"title": title, "body": body}, branch)
+        _no_git_inside()
         commit = _commit(fields["title"])
         files = _changed("HEAD", commit)
-        if not files or _changed(ORIGIN_BASE, commit) == []:
+        if not files or not _changed(ORIGIN_BASE, commit):
             raise hand.Refused("nothing changed against origin/main", rule="empty")
+        _within_limits(commit, files)
+        _only_plain_files(commit)
         _bare("update-ref", f"refs/heads/{branch}", commit)
-        text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
-        if gh is None and not hand.dry_run():
-            gh = GitHubApi.from_settings()
-        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
+        try:
+            hits = _frozen_hits(branch)
+            if hits:
+                raise hand.Refused(f"it touches frozen path(s): {', '.join(hits)} (evals/frozen.txt as of {BASE})",
+                                   rule="frozen", paths=hits)
+            findings = gitpush.scan_branch(gitdir(), ORIGIN_BASE, branch)
+            if findings:
+                named = ", ".join(f"{f['path']} ({f['rule']})" for f in findings)
+                raise hand.Refused(f"it would publish what looks like a secret: {named}", rule="secrets",
+                                   findings=findings)
+            text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
+            if gh is None and not hand.dry_run():
+                gh = GitHubApi.from_settings()
+            pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
+        except BaseException:
+            _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
+            raise
+        if pushed.get("dry_run"):
+            try:
+                opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
+                                          "body": text}, gh=gh)
+            finally:
+                _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
+            would = {"repo": opened.get("would_open_pr"), **{k: opened.get(k) for k in ("head", "base", "title", "body")}}
+            return {"dry_run": True, "branch": branch, "files": files, "would_open": would}
         try:
             opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
                                       "body": text}, gh=gh)
         finally:
-            if not pushed.get("dry_run"):
-                _fresh(_rev(ORIGIN_BASE) or commit)
+            # Pushed: the change is on the branch, so the tree starts clean.
+            _fresh(_rev(ORIGIN_BASE) or commit)
     return {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
             "pr_url": opened.get("html_url"), "number": opened.get("number")}

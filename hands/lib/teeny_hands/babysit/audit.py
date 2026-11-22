@@ -47,7 +47,7 @@ from .. import hand
 from ..gh import reads as gh_reads
 from ..gh import secretscan
 from ..gh.client import user
-from . import injection, ledger, policy
+from . import injection, ledger, policy, rollback
 from .api import PullsApi
 
 Json = dict[str, Any]
