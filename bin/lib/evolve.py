@@ -4916,6 +4916,7 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                      "evidence": evidence, "siblings": siblings, "editable": editable,
                      "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
                      "gen_dir": str(gdir), "rounds": rounds_max, "horizons": outcome_horizons(cfg),
+                     "power_need": power_need(cfg),
                      "max_lines": max_change_lines(tree, base, cfg["EVOLVE_MAX_CHANGE_PCT"])}
     if rounds:
         entry["resumed"] = True
@@ -4976,6 +4977,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             unusable += rec["outcome"] == "unusable"
             if rec["outcome"] == "refused-skip" and rnd == rounds_max and findings:
                 parked_why = f"round {rnd}: the skip leaned on the memory page: {findings[0]['problem']}"[:300]
+            if rec["outcome"] == "lesson" and rnd == rounds_max and findings:
+                parked_why = f"round {rnd}: {findings[0]['problem']}"[:600]
             last_patch = rec.get("diff") or last_patch
             continue
         if rnd > 1:
@@ -5147,12 +5150,18 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         proposal = {**proposal, "check": check}
         entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
                      expected_move=proposal["expected_move"].strip()[:500], check=check)
+        # Whether the check can prove the change once merged (the publish
+        # rule, evolve_selection.power): counted now, on the box's history.
+        entry["check_power"] = check_power(cfg, check, tree, base)
         (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
         full = staged_patch(tree, base)
         stats = numstat(tree, base)
         entry.update(diff_hash=diff_hash(full), diff_stats={"files": len(stats),
                                                             "added": sum(a or 0 for a, _, _ in stats),
                                                             "removed": sum(r or 0 for _, r, _ in stats)})
+        # What kind of change it is, from the files it touches and where the
+        # candidate came from: never from anything the proposer wrote.
+        entry["kinds"] = evolve_selection.kinds([path for _, _, path in stats], learning)
         (gdir / f"cand-{i}.patch").write_text(full, encoding="utf-8")
         (gdir / f"cand-{i}.mutation.patch").write_text(full, encoding="utf-8")
         shutil.copyfile(tree / HYPOTHESIS, gdir / f"cand-{i}.HYPOTHESIS.md")
@@ -5177,6 +5186,19 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                         "detail": f"{sim:.2f} like {twin}"}]})
             return entry
         mutations[entry["id"]] = lines
+        # An exhausted kind (evolve_selection.lessons: enough judged outcomes,
+        # none worked) goes back, named, before anything is spent on it.
+        exhausted = evolve_selection.blocking(((evidence or {}).get("lessons") or {}).get("kinds"), entry["kinds"])
+        if exhausted:
+            why = evolve_selection.blocked_reason(exhausted)
+            say(f"candidate {i}: {why[:160]}; sent back")
+            findings = [{"file": "", "problem": why[:600], "check": "lesson",
+                         "fix": "make a different kind of change: one that does not touch what this kind touches "
+                                f"({exhausted.get('what')}), or skip the learning"}]
+            keep(rec, "lesson", findings)
+            if rnd == rounds_max:
+                parked_why = f"round {rnd}: {why}"[:600]
+            continue
         entry["gate"] = gate(tree, base, proposal["component"], evidence, cfg["EVOLVE_MAX_CHANGE_PCT"])
         if not entry["gate"]["hard_ok"]:
             entry["verdict"] = "rejected"
