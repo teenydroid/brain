@@ -98,6 +98,8 @@ def _clean(gif: Any) -> dict[str, str] | None:
         return None
     title = _title(gif.get("title"))
     if title:
+        # A title is a stranger's words: read as inbound (since 2026-11-22
+        # the account's own words hold no sexual, weapons or drug term).
         from ..guard.screen import INBOUND, screen_text
 
         if screen_text(title, INBOUND) is not None:

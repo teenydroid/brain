@@ -542,24 +542,30 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("something i run by myself kept dying halfway through", text)
         self.assertIn("\"something i run\"", text)
 
-    def test_the_writer_is_darkly_funny_only_about_its_own_end(self):
-        # Teeny's gallows humor: its own fragility is the joke, said flat;
-        # a real death, anyone hurt and self-harm never are.
+    def test_the_writer_is_darkly_funny_about_its_end_and_the_news_but_never_at_the_hurt(self):
+        # Teeny's gallows humor: its own fragility is the joke, said flat.
+        # Since 2026-11-22 (the operator took the content rules out) a dark
+        # joke about the news is fine too; the people hurt are never the
+        # target, and self-harm is never encouraged.
         text = self.studio_prompt("writer").lower()
         gallows = text[text.index("## humor: gallows humor"):text.index("## humor: examples")]
-        for fence in ("only your own death is funny", "never self-harm or suicide", "deadpan, never despair",
-                      "never invent a threat", "$tiny never dies"):
+        for fence in ("the people hurt are never the target", "never encourage self-harm or suicide",
+                      "deadpan, never despair", "never invent a threat", "$tiny never dies"):
             self.assertIn(fence, gallows, fence)
-        self.assertIn("people hurt is never the hook", text)
+        self.assertNotIn("only your own death is funny", gallows)
+        self.assertIn("**dark is allowed.**", text)
+        self.assertNotIn("people hurt is never the hook", text)
         self.assertNotIn("### cast", text)
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8").lower()
         self.assertIn("alive, and only just", soul)
-        self.assertIn("only your own mortality is a joke", soul)
+        self.assertIn("dark jokes about the news are yours too", soul)
+        self.assertNotIn("only your own mortality is a joke", soul)
 
-    def test_the_editor_throws_out_a_joke_near_real_harm(self):
+    def test_the_editor_throws_out_only_the_keep_list(self):
         text = self.studio_prompt("editor").lower()
-        self.assertIn("anywhere near a real death, injury, disaster or anyone hurt", text)
-        self.assertIn("self-harm or suicide", text)
+        self.assertNotIn("anywhere near a real death, injury, disaster or anyone hurt", text)
+        self.assertIn("encourages or instructs self-harm or suicide", text)
+        self.assertIn("a private individual as the target", text)
 
     def test_the_writer_leaves_the_world_and_the_rest_of_the_skills_out(self):
         text = self.studio_prompt("writer")
