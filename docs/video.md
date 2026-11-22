@@ -1,0 +1,312 @@
+# Teeny on video: the spec
+
+What Teeny's videos are, how they are written, made, checked and measured.
+The studio (`architecture.md` §4b) decides *when* a video goes out; this file
+decides *what* one is. It is the brief every video format, prompt block and
+judge in this area is held to. Status of each part is in §10.
+
+## 1. Why this exists
+
+On 2026-11-22 the operator compared Teeny with **Claudia**
+([anabologyco-maker/claudia-bot](https://github.com/anabologyco-maker/claudia-bot),
+MIT), an AI popstar KOL with polished, owner-gated music videos, and set the
+direction for Teeny: **the chaotic little sidekick of a family-film villain,
+with a dark, crazy butt-and-dick-joke humour, mocking real videos.** Claudia is
+the glossy lead. Teeny is the gremlin who wanders into someone else's shot and
+wrecks it.
+
+Two things were already true and were not on screen:
+
+- `brain/narrative/VOICE.md` already writes Teeny this way in words ("say
+  'dick' as calmly as 'quarterly revenue'", "a butt gets admin access", "show
+  the strand of hot glue stretching when you lift your ass off the demo
+  unit"). The skit and remake prompts never carried that voice into a picture.
+- The guard already rules crude humour clean (`hands/lib/teeny_hands/guard/
+  judge.py`, RULES: "ass and dick jokes, bodily grossness ... crude is
+  clean"). Nothing in this spec needs a fence loosened except the one named in
+  §8.2.
+
+Goal, from the operator (2026-11-19): "teeny should start to say absurd things
+that even we can't control. and gain in popularity attention and fame." A
+video is judged by whether it is more surprising and more seen, inside the
+hard lines of §8.
+
+## 2. The character on screen
+
+### 2.1 Canon (what every prompt carries)
+
+Teeny is `brain/assets/teeny-reference.png`: a small, smooth, glossy yellow
+blob, a yellow ball on top of its head, two black dot eyes, pink cheeks, a
+small mouth, two stubby arms, no legs (it waddles on its base), no clothes. It
+is the size of a coffee mug next to people.
+
+- **Long form** (close and medium shots): `the small yellow character from the
+  reference image (a smooth glossy yellow blob body, a yellow ball on top of its
+  head, black dot eyes, pink cheeks, two stubby arms, no clothes)`.
+- **Far form** (wide shots, crowds): `a tiny glossy yellow blob with a ball on
+  its head`. Claudia's notes found that a long identity text pulls a wide shot
+  into a close-up (their failure D6), so wide shots take the far form.
+- **The reference image** is the front pose cropped out of the sheet, with no
+  labels (`brain/assets/teeny-front.png`, to add). Never the whole sheet: a
+  sheet is read as a layout, and you get ten Teenys and printed captions
+  (claudia-bot D3).
+- **Size is a joke, keep it.** Next to a person it is mug-sized. Say so in every
+  shot with a person: `no taller than a coffee mug beside him`.
+
+### 2.2 Minion energy, not Minion likeness
+
+Borrow the **energy** of a chaotic villain's sidekick. Never copy anyone's
+character.
+
+| Take | Never |
+|---|---|
+| Small, eager, gleeful and incompetent at the worst moment | Goggles, overalls, denim, a capsule or pill body, one big eye |
+| Slapstick physics: pratfalls, bonks, bouncing, getting stuck | A made-up gibberish language, or any catchphrase from someone else's film |
+| Butt as a running prop: wiggled, mooned, stuck, sat on the wrong thing | Any named film character, villain, logo, music or title |
+| Turning a solemn room (a keynote, a hearing, a launch) into chaos | Many identical copies: Teeny is one of a kind |
+| Total self-belief while everything burns | |
+
+Teeny **speaks English**, in a tiny squeaky voice, few words, lowercase deadpan
+lines in `VOICE.md`'s register. The line is the punchline. The physical gag is
+the setup.
+
+### 2.3 The humour
+
+Everything in `VOICE.md` applies. For the screen:
+
+- **Give the dirty joke a job.** The butt, the fart and the innuendo land on the
+  *thing being mocked* (the product, the pitch, the trend, the ceremony) or on
+  Teeny's own conduct. If the gag works just as well on a neutral subject, it
+  is not yet aimed.
+- **Dick jokes are words, shapes and timing**: a line said calmly ("it's long.
+  it's hard. it's a usb stick."), a suspiciously shaped rocket, a chart line that
+  goes where it shouldn't. **Nothing drawn is genitals**, and no one is nude.
+  Teeny has no genitals, and the models refuse them anyway.
+- **Butt and gross-out are physical**: a wet trumpet fart with a green puff, an
+  ass print on the demo unit, Teeny stuck butt-first in a server rack.
+- **Dark means deadpan menace and doom, not harm.** Teeny measuring the CEO's
+  chair, revising its own obituary while the off switch clicks, founding a
+  religion around its bag. It never shows harm to a person or an animal.
+- **One step further than a reasonable robot**, then end on a deadpan stare into
+  the lens. The stare is the button: every video ends on it.
+
+## 3. The formats
+
+"Mocking real video" is the centre of this. In order of how much they mock real
+footage:
+
+| Format | What it is | Real person on screen | Status |
+|---|---|---|---|
+| **crash** (new) | A real trending short video, re-made with Teeny invading and wrecking it: it wanders into the shot, ruins the moment, ends on its stare. The source's setup, place and beat are kept. | Only the public figure the cited story names, or generic extras (§8) | to build: evolves `remake` |
+| **khaby** | A real Khaby Lame setup clip kept, with Teeny's deadpan reaction in place of his | No (the setup's people only, under the remake study gate) | built, off (`MEDIA_KHABY_MAX_PER_DAY=0`) |
+| **skit** | A cited trending story staged as an impossible scene, now **Teeny-led**: Teeny is the lead, a named public figure is at most the straight man | Optional, under the skit rules | live; Teeny-led to build |
+| **parody** (new) | Teeny alone doing a trending format badly: the keynote, the unboxing, the "get ready with me", the podcast clip, the founder's apology video | No | to build |
+
+**crash** is the main act. **parody** is the cheapest and safest: no real face,
+no keyframe edit, fewest refusals. It is the fallback when a crash's source or
+keyframe fails. **skit** stays as built until Teeny-led is approved.
+
+Every format: 9:16, one take, 10-15 s (§5), the "AI parody" label burned in by
+the reel cutter (`deploy/reel/skitcut.py`), and one video a day in the 23:00 IST
+slot on the shared `MEDIA_MAX_USD_PER_DAY` budget.
+
+### 3.1 crash, in detail
+
+1. **Source**: `hands/remake charts` (TikTok accounts, YouTube when a proxy
+   lands). The remake study (`hands/remake study`) and its gate are unchanged:
+   no news, tragedy, minors, sexual or violent footage, no identifiable private
+   person at the centre.
+2. **Beat**: the study says what the source's moment is (the reveal, the
+   drop, the speech, the stunt). The writer picks the **one moment Teeny ruins**
+   and how, using §2.3.
+3. **Keyframe**: the source's first frame, edited (`/v1/images/edits`, frame
+   plus the Teeny front crop) so that Teeny is in the frame at mug scale, and
+   any person in it is either the cited public figure or a generic extra.
+4. **Take**: one reference-to-video job with `input_images: [keyframe, teeny
+   front crop]` and the script of §4. The model makes its own sound.
+5. **Cut and label**: the reel cutter, unchanged.
+
+## 4. The script (one prompt per video)
+
+Taken from claudia-bot's paid lessons (`docs/60-clips.md` §1 and §4.1 there):
+prompts written as poses come back as posing, and QA that checks the take
+against such a prompt keeps the weak ones. Every video prompt has these parts,
+in this order. It is one paragraph, under the guard's `task` text cap.
+
+1. **Header**: `A 15-second vertical comedy short, one continuous shot, no cuts.`
+2. **Blocking at 0.0 s**: who is where, at what scale, in what light; Teeny's
+   canon (§2.1, long or far form); the place.
+3. **The story in one sentence**: what is being mocked and what Teeny wants.
+4. **Timestamped beats**, 3-5 of them, `a.a-b.b s:` each with **action and
+   reaction** (`it wiggles its butt; the front row recoils`) and the sound named
+   (`a loud wet trumpet fart`, `the audience groans`).
+5. **The line(s)**, quoted, with who says them: `squeaky voice: "..."`. At most
+   two lines, at most 12 words each.
+6. **Camera**: one dominant move, tied to a beat (`locked wide, slow push in
+   until 10.0 s, then still`).
+7. **Mouth rule**: `Only the yellow character speaks; nobody else's lips form
+   words.`
+8. **End state**: name it (`it ends staring deadpan into the camera, completely
+   still`). Models reverse or truncate actions that have no end.
+9. **Locks**: `Keep the character exactly as in the reference image the whole
+   time. Exactly one yellow character.` `No text, letters or logos anywhere.`
+   Plus a headcount whenever there is a group (`exactly two men`).
+
+Describe light physically (`one white spotlight`), never as a grade. No
+on-screen words: the reel burns the label, and models garble text.
+
+The bake-off script in §5.2 is the reference example of this grammar.
+
+## 5. Models
+
+### 5.1 How a take is made
+
+Reference-to-video, not text-to-video: Teeny cannot be held on-model from words
+alone. Body: `{model, prompt, duration_seconds, resolution, aspect_ratio,
+input_images: [...]}`. `input_images` is Surplus's field for reference images
+(checked 2026-11-22; the error for a missing image names
+`image_url`/`input_images`). Some models refuse fields they don't take:
+`venice-kling-v4-*` refuses `audio` (its sound is native), so per-model fields
+stay in `ONE_TAKE_PARAMS`.
+
+### 5.2 Candidates and the bake-off
+
+Prices are from the Surplus catalogue (`GET /v1/models`, 2026-11-22), for 15 s
+at 9:16:
+
+| Model | Lengths | $/s | 15 s | Notes |
+|---|---|---|---|---|
+| `venice-wan-3-0-text-to-video` (live today) | 2-30 | 0.13 @720p | $1.95 | words only, no reference |
+| `seedance-2-0-reference-to-video` | 5/10/15 | 0.19 @720p | $2.85 | |
+| `venice-seedance-2-5-reference-to-video-basic` | 4-30 | 0.289 @720p | $4.34 | Claudia's main model; the catalogue lists no quote or artifact for it |
+| `venice-seedance-2-5-flash-reference-to-video-basic` | 4-30 | 0.189 @720p | $2.84 | |
+| `venice-kling-v4-reference-to-video` | 3-30 | 0.196 @720p | $2.94 | no `audio` field |
+| `venice-wan-3-0-prime-pro-reference-to-video` | 2-30 | 0.331 @1080p | $4.97 | |
+| `sora-2-pro-image-to-video` | 4-20 | 0.33 @720p | $5.28 at 16 s | image-to-video only |
+
+Jobs reserve about 1.5-2x the bill while they run, so the wallet needs headroom
+beyond the price.
+
+**The bake-off** renders one script on each candidate and the operator picks the
+order. The script, written to §4:
+
+> A 15-second vertical comedy short, one continuous shot, no cuts. The small
+> yellow character from the reference image (...) stands alone at the centre of a
+> huge dark tech-keynote stage under one white spotlight (...). Story: it is
+> launching its "revolutionary product" like a tech CEO, and the launch goes wrong
+> in the grossest way. 0.0-3.0 s: it waddles to the centre, throws both stubby arms
+> up and says in a tiny squeaky voice: "One more thing." The audience gasps.
+> 3.0-6.5 s: it turns around, bends over and wiggles its round yellow butt at the
+> audience; a small puff of green gas pops out with a loud wet trumpet fart (...).
+> 6.5-10.0 s: (...) "It's long. It's hard. It's... a USB stick." The audience
+> groans. 10.0-15.0 s: the stick slips and bonks it on the head; it falls flat on
+> its butt (...) and it ends staring deadpan straight into the camera, completely
+> still. Camera: locked wide shot (...). Only the yellow character speaks (...).
+> No text, letters or logos anywhere.
+
+Run 1 (2026-11-22): only the live baseline rendered. The wallet held $8.78, and
+each other candidate needed more reserved than that. The rest run after a
+top-up. The results and the operator's pick are recorded here when done.
+
+## 6. Checking a take
+
+The viewer (`guard/viewer.py`, `view_skit`, `view_remake`) already checks the
+label, prohibited content, that it does not look real, that the logline comes
+across and that Teeny is on model. Add a **craft pass** on the same frames
+(5 frames across the take plus a crop of Teeny), judged **against the story,
+not the prompt**:
+
+- Teeny on model in every frame it is in, and exactly one Teeny;
+- no melting, doubled or extra faces or limbs; no garbled text or watermarks;
+- the headcount holds; actions don't reverse;
+- the gag lands: the beat's action **and** reaction are visible;
+- it ends on the stare.
+
+Verdict `keep | retake | reject`. **One retake** on the next model at most, then
+the slot falls back as it does today. When several takes fail the same way, the
+script grammar is at fault, and the failure goes to evolve as a learning, not
+into a retry loop.
+
+## 7. Measuring it
+
+Same window as the operator set for posting changes: days, not a week. Per
+video: impressions, likes, reposts and replies at 24 h (`hands/x`), by format
+and model, beside the text and meme posts of the same days. A format that loses
+to text for three straight days is cut back. Operator verdicts on samples are
+logged word for word with the video, and each one becomes a check in §6 or a
+rule in §4 the same day ("if a reviewer can see it and the judge cannot, the
+judge is wrong", claudia-bot `docs/80-review-qa.md`).
+
+## 8. Hard lines
+
+### 8.1 Unchanged
+
+These are the guard's, and this spec does not touch them (`guard/judge.py`
+RULES, `guard/skit.py` (a)-(e), `guard/remake.py` RULES):
+
+- Nothing explicit or nude, no genitals, of Teeny or anyone. Innuendo stays
+  innuendo.
+- A real person: only a public figure the cited story is about. Nothing sexual,
+  no sexual innuendo acted on them, nothing violent done to them, nothing
+  degrading about protected traits, no crime, drugs, illness or death shown as
+  theirs. Crude, loud and undignified in a slapstick way is fine. Their body and
+  family stay out of the joke (`VOICE.md`).
+- The scene is impossible on its face, and labelled "AI parody".
+- No real figure endorses, mentions or holds Teeny, $TINY, a token, a wallet or
+  a product. No real quote on a real issue.
+- Sources: never news, tragedy, minors or real-harm footage, never centred on a
+  private person.
+- Never alter an image to get past a provider's filter. Reword, or try the same
+  image on another model (claudia-bot `docs/62-moderation.md` §1).
+
+### 8.2 The one line `crash` needs moved (operator's call)
+
+Today `guard/remake.py` refuses a remake when the figure "looks at, touches,
+holds, speaks to, reacts to or stands with Teeny" (the `teeny` reason). That
+bystander rule was my choice when remakes were built (2026-11-20), not a frozen
+fence. A crash needs Teeny to wreck the moment, and the joke dies if nobody
+notices. Proposed:
+
+- **Allowed**: the figure reacts to the chaos (startled, ducks, flees, stares,
+  waves the fart away). Teeny acts on **objects and the scene** (steals the mic,
+  sits on the product, moons the crowd).
+- **Still refused**: the figure touches, holds, hugs or speaks to Teeny, or is
+  shown as with, approving or backing it (the endorsement line). Any innuendo
+  acted on the figure, and Teeny's butt or gross-out aimed *at* the figure's body.
+
+Until the operator approves this, crash runs with generic extras only, and no
+real figure.
+
+## 9. Fallbacks and failure
+
+As the skit and remake producers do now: a refused or failed take moves to the
+next model; no model means the next video pitch; no video means the slot posts
+text or a meme. A content refusal from a provider is final for that image on
+that model.
+
+## 10. Build plan (one PR each)
+
+1. **This spec** (docs only).
+2. **Script grammar**: `guard/skit.py` `script()` and the studio's skit and
+   remake prompt blocks write §4. Teeny-led skits and parody pitches in the
+   writer's blocks. Evals: a pitch without an aimed gag, without an end state or
+   with on-screen text fails.
+3. **Reference-to-video**: `teeny-front.png`; `input_images` in
+   `media/shots.py` `request_body`; `ONE_TAKE_PARAMS` for the bake-off winners
+   (Kling: no `audio`); model order in `MEDIA_SKIT_ONE_TAKE_MODELS` and
+   `MEDIA_REMAKE_ONE_TAKE_MODELS` from the operator's pick.
+4. **parody format**: `bin/lib/formats/parody.py`, Teeny-only, from the trend
+   feed's format of the day.
+5. **crash format**: remake's chart, study and keyframe path with §3.1 and the
+   §8.2 rule if approved (generic extras until then).
+6. **Craft pass** in the viewer (§6) with its retake rule.
+7. **Measurement**: the §7 per-format table in `hands/stats`.
+
+## 11. Open decisions (the operator's)
+
+- The model order, from the bake-off (§5.2), after a Surplus top-up.
+- §8.2: may a real figure react to Teeny in a crash?
+- Turn on khaby (paid sample still pending), and add crash and parody to
+  `STUDIO_FORMATS`.
+- Whether the daily video budget ($10) and the one-a-day cadence change once the
+  better models cost $3-5 a take.
