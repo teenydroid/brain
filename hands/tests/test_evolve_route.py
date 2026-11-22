@@ -54,6 +54,7 @@ class Routed(EvolveCase):
     def setUp(self):
         super().setUp()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, WANTS=1)
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m36] check before retrying.\n")
         self.ledger = Ledger(evolve.state_dir())
         with sqlite3.connect(self.ledger.db) as conn:
             conn.executescript(BUILD_TABLES)
@@ -79,9 +80,9 @@ class Routed(EvolveCase):
                        "check": ref["check"], "title": f"prompt rule {gen}: never do it twice",
                        "at": evolve.iso(T0 - (10 - gen) * DAY), **kw})
 
-    def tried_twice(self, fid, events=(5, 6)):
-        self.attempt(fid, 1, "parked", events[0])
-        self.attempt(fid, 2, "opened", events[1], pr_number=7, merged_at=evolve.iso(T0 - 5 * DAY),
+    def tried_twice(self, fid, events=(5, 6), gen=1):
+        self.attempt(fid, gen, "parked", events[0])
+        self.attempt(fid, gen + 1, "opened", events[1], pr_number=7, merged_at=evolve.iso(T0 - 5 * DAY),
                      outcome_2d={"verdict": "no-effect", "before": 6, "after": 6})
 
     def fake_hand(self, name, args, body):
@@ -139,7 +140,7 @@ class Routed(EvolveCase):
         self.refusals("brief", 6)
         self.attempt(fid, 1, "parked", 5)
         self.assertEqual(self.state(fid), "open")
-        self.attempt(fid, 2, "regressed", 30)
+        self.attempt(fid, 2, "parked", 30)
         self.attempt(fid, 3, "parked", 40)
         self.assertEqual(self.state(fid), "open")  # 6 now, under the 30 and 40 it stood at: something helped
         self.assertEqual(wants.finding_wants(), [])
@@ -211,7 +212,7 @@ class Routed(EvolveCase):
         self.refusals("brief", 6)
         self.tried_twice("f:refusals:brief:duplicate")
         self.refusals("moltbook-curate", 6)
-        self.tried_twice("f:refusals:moltbook-curate:duplicate", events=(4, 5))
+        self.tried_twice("f:refusals:moltbook-curate:duplicate", events=(4, 5), gen=3)
         cfg = evolve.load_config()
         routes = evolve.finding_routes(self.entries(), evolve.read_findings(cfg), cfg)
         self.assertEqual(sorted(r["to"] for r in routes), ["builder", "issue"])
