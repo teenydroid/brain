@@ -112,6 +112,12 @@ cp -R "$root" "$other"
 rm "$other/brain/SOUL.md"
 if "$root/bin/doctor" --root "$other" >/dev/null 2>&1; then fail "--root checks the other checkout"; else pass "--root checks the other checkout"; fi
 check "--root writes the report into that checkout" test "$(jq -r .ok "$other/state/doctor.json")" = false
+# The box check reads that checkout too: its tools, not this one's.
+mkdir -p "$other/home/tools/zed-of-the-other"
+echo 'print(1)' >"$other/home/tools/zed-of-the-other/run.py"
+"$root/bin/doctor" --root "$other" >/dev/null 2>&1 || true
+check "--root lists the other checkout's tools" \
+  test "$(jq -r '.checks[] | select(.check == "box") | .detail | contains("zed-of-the-other")' "$other/state/doctor.json")" = true
 
 # --- each thing a brain edit could break ---------------------------------------------
 fresh; rm "$root/brain/SOUL.md"
