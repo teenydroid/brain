@@ -10,8 +10,9 @@ The people answering asked what it meant.
 So before an own post is sent, a second short model pass reads the draft
 with nothing else: no inputs, no memory, no idea what the account is. It
 says the post back in one sentence and lists every word, name or number it
-would have to ask about. A draft is clear only when that list is empty and
-the reader could say it back.
+would have to ask about. Until 2026-11-22 a draft was clear only when that
+list was empty and the reader could say it back (below: the list is advice
+now).
 
 Asking only for words to ask about rewarded hiding them. On 2026-11-17 a
 draft said "my overnight jobs used to die quietly ... my builders merged a
