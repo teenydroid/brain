@@ -167,7 +167,10 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     folder = hand.state_dir() / "box" / "tools" / name
     (folder / "tmp").mkdir(parents=True, exist_ok=True)
     home = hand.state_dir() / "home"
-    readable = [hand.root() / "home", home / "bin" / "teeny", home / ".broker-url", home / ".broker-token"]
+    readable = [hand.root() / "home", home / "bin" / "teeny", home / ".broker-url", home / ".broker-token",
+                # The interpreter's own folders, when they are not the system's.
+                Path(sys.base_prefix), Path(sys.executable).resolve().parent]
+    readable = [p for p in readable if p != Path("/") and p != Path.home()]
     env = {"PATH": PATH, "HOME": str(folder), "TMPDIR": str(folder / "tmp"), "LANG": "C.UTF-8",
            "TEENY_BOX": name, "TEENY_CLI": str(home / "bin" / "teeny"), "TEENY_TOOL_DIR": str(path.parent)}
     limit = hand.number("BOX_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS, 1, MAX_TIMEOUT_SECS)
