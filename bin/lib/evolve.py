@@ -1974,6 +1974,9 @@ def render_evolver_request(request: Json) -> str:
     if request.get("siblings"):
         parts.append("## already proposed in this generation\n\n" + "\n".join(f"- {s}" for s in request["siblings"]))
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
+    cut = cut_text(request)
+    if cut:
+        parts.append(cut)
     parts.append(_answer(with_edits=False))
     return "\n\n".join(parts)
 
