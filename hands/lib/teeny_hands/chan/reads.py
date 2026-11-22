@@ -6,10 +6,11 @@ greentext, `<a class="quotelink">` for a reply's `>>123`, `<wbr>` inside long
 words); each reaches a reader as plain text (`plain`), with the reply links,
 the addresses and anything key-like taken out.
 
-Every post is screened by the guard's lexicon at its strictest reading
-(outbound: what Teeny would itself say) before it leaves this hand, and a
-post with any match, even one the guard would ask its judge about, is
-dropped and only counted. Nobody's name, tripcode, poster id, country or
+A thread's premise (`catalog`, the studio's sparks) is dropped only for a
+slur (teeny_hands.slurs); every reply a `thread` read gives is screened by the
+guard's lexicon at its strictest reading (outbound: what Teeny would itself
+say), and a post with any match, even one the guard would ask its judge
+about, is dropped and only counted. Nobody's name, tripcode, poster id, country or
 picture is ever read out: on 4chan they are anonymous, and they stay so.
 """
 
@@ -108,14 +109,14 @@ def clean(text: str) -> bool:
 
 
 def hateful(text: str) -> bool:
-    """True when TEXT carries a slur of the guard lexicon's `hate` category:
-    the one screen a thread's premise faces (2026-11-22: the studio's sparks
-    were pre-filtered thin by the whole lexicon). The rest of the lexicon is
-    the guard's, on Teeny's own words."""
-    from ..guard.screen import INBOUND, screen_text
+    """True when TEXT carries a slur (teeny_hands.slurs): the one screen a
+    thread's premise faces (2026-11-22: the studio's sparks were pre-filtered
+    thin by the whole lexicon). The rest of the lexicon is the guard's, on
+    Teeny's own words, and a thread's replies (`thread`) are still read
+    through `clean`."""
+    from ..slurs import hateful as _hateful
 
-    hit = screen_text(text, INBOUND)
-    return hit is not None and hit.category == "hate"
+    return _hateful(text)
 
 
 def _get(api: RestApi | None, path: str) -> Any:

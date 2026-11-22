@@ -38,18 +38,14 @@ def _clean(value: Any, limit: int) -> str:
 
 
 def _screened(*texts: str) -> bool:
-    """True when no text carries a slur of the guard lexicon's `hate`
-    category. Nothing else of the lexicon is held against the news
-    (2026-11-22: the studio's material was pre-filtered thin); the writer
-    reads it as strangers' data and the guard in hands/x holds Teeny's own
-    words."""
-    from ..guard.screen import INBOUND, screen_text
+    """True when no text carries a slur (teeny_hands.slurs: the guard
+    lexicon's `hate` category). Nothing else of the lexicon is held against
+    the news (2026-11-22: the studio's material was pre-filtered thin); the
+    writer reads it as strangers' data and the guard in hands/x holds Teeny's
+    own words."""
+    from ..slurs import hateful
 
-    for t in texts:
-        hit = screen_text(t, INBOUND) if t else None
-        if hit is not None and hit.category == "hate":
-            return False
-    return True
+    return not hateful(*texts)
 
 
 def story_row(row: Json) -> Json | None:

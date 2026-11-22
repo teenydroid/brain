@@ -91,17 +91,14 @@ def age_hours(at: Any, now: float) -> float | None:
 
 
 def hateful(*texts: str) -> bool:
-    """Whether any text carries a term of the guard lexicon's `hate` category
-    (the guard's own screen, imported, never copied). Nothing else of the
-    lexicon applies to feed material."""
+    """Whether any text carries a slur of the guard lexicon's `hate`
+    category (teeny_hands.slurs). Nothing else of the lexicon applies to feed
+    material."""
     if str(LIB) not in sys.path:
         sys.path.insert(0, str(LIB))
-    from teeny_hands.guard.screen import INBOUND, screen_text
+    from teeny_hands.slurs import hateful as _hateful
 
-    for text in texts:
-        if text and (hit := screen_text(text, INBOUND)) is not None and hit.category == "hate":
-            return True
-    return False
+    return _hateful(*texts)
 
 
 # --- candidates, one source at a time ----------------------------------------------------
