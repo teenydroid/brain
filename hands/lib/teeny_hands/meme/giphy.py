@@ -98,9 +98,9 @@ def _clean(gif: Any) -> dict[str, str] | None:
         return None
     title = _title(gif.get("title"))
     if title:
-        from ..guard.screen import OUTBOUND, screen_text
+        from ..guard.screen import INBOUND, screen_text
 
-        if screen_text(title, OUTBOUND) is not None:
+        if screen_text(title, INBOUND) is not None:
             return None
     return {"id": gif_id, "title": title, "url": url, "rating": rating.strip().lower()}
 
