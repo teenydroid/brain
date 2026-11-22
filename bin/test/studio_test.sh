@@ -600,6 +600,7 @@ check "a scene the guard holds is no picture: nothing bought, the next post goes
 # posted a chan card's words with no gate of the studio's own: no `gates`)
 reset
 out="$(FAKE_FORMATS=post,post FAKE_WORDS_HELD='post 1:' live)"
+cp "$FAKE_HANDS" /dev/shm/dbg-hands.log 2>/dev/null; last_record > /dev/shm/dbg-rec.json
 rec="$(last_record)"
 check "words the guard holds never reach hands/x: the next post goes out" \
   bash -c "jq -e '.outcome == \"published\" and .final.label != .publish.attempts[0].label' <<<\"\$1\" >/dev/null &&
