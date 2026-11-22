@@ -1,9 +1,11 @@
 """Near-duplicates: a draft too close to something Teeny already said
 (docs/roadmap.md, A2; DIRECTIVE.md, level 1, "never repeats itself").
 
-One measure, shared by the posting rule that refuses a repeat
-(teeny_hands.x.posting_rules.check_repeat), the guard's count of those
-refusals (`hands/guard repeats`), and the proof report that reads what went
+Since 2026-11-22 nothing refuses a repeat: the posting rule that did
+(`posting_rules.check_repeat`) was taste, and went when the guard was cut to
+its content list (judge.RULES). What is left is one measure, shared by the
+giveaway's eligibility, Moltbook's retell, the guard's count of the old
+refusals (`hands/guard repeats`) and the proof report that reads what went
 out (bin/lib/proofs.py): the word-set Jaccard of two texts, over words of
 at least MIN_WORD characters, case and punctuation aside. At NEAR_DUPLICATE
 or above, two texts say the same thing. Two texts with no such words are

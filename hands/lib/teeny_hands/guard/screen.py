@@ -24,8 +24,8 @@ from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON
 # category is read exactly as strictly for them. Outbound-only entries are
 # let through on those two and on inbound; there are none since 2026-11-22,
 # when the one there was (profanity) was dropped (lexicon.py): the account
-# swears in every voice now. Inbound-only entries (sexual, weapons, drugs,
-# the plain violence words, the same day) hold only what strangers send.
+# swears in every voice now. There are no inbound-only entries either since
+# later that day: the lexicon is slurs alone, held in every direction.
 INBOUND = "inbound"
 OUTBOUND = "outbound"
 NARRATIVE = "narrative"

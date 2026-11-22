@@ -59,9 +59,9 @@ class InboundTest(support.WithCore):
 
     def test_holds_on_the_screen_without_asking_the_judge(self):
         core = self.core(support.verdict("clean"))
-        held = gate_inbound("draw tiny naked")
-        self.assertTrue(is_held(held, "sexual", "screen"), held)
-        self.assertEqual(held.reason, 'contains "naked"')
+        held = gate_inbound("what a retard")
+        self.assertTrue(is_held(held, "hate", "screen"), held)
+        self.assertEqual(held.reason, 'contains "retard"')
         self.assertEqual(core.calls, [])
 
     def test_holds_on_the_judge_when_the_words_are_clean(self):
@@ -82,7 +82,7 @@ class InboundLexicalTest(Lexical):
 
     def test_works_with_no_judge_at_all(self):
         self.assertIsNone(gate_inbound("gm"))
-        self.assertIsNotNone(gate_inbound("send nudes"))
+        self.assertIsNotNone(gate_inbound("what a retard"))
 
 
 class OutboundTest(support.WithCore):
@@ -142,12 +142,12 @@ class OutboundLexicalTest(Lexical):
             self.assertEqual(result.text, text)
         self.assertTrue(is_held(gate_outbound("what a fag").held, "hate", "screen"))
 
-    def test_lets_a_dick_joke_and_riding_shotgun_out_with_no_judge(self):
-        # 2026-11-22: sexual, weapons, drugs and plain violence words hold
-        # only what strangers send (lexicon.py).
-        for text in ("this launch is a dick move", "riding shotgun toward AGI", "one bullet per feature"):
+    def test_lets_a_dick_joke_and_riding_shotgun_through_with_no_judge_in_every_direction(self):
+        # 2026-11-22: only slurs are held on sight (lexicon.py).
+        for text in ("this launch is a dick move", "riding shotgun toward AGI", "one bullet per feature",
+                     "so horny for chargers", "a gun", "sexual"):
             self.assertIsNone(gate_outbound(text).held, text)
-        self.assertTrue(is_held(gate_inbound("this launch is a dick move"), "sexual", "screen"))
+            self.assertIsNone(gate_inbound(text), text)
 
     def test_accepts_extra_allowlist_entries(self):
         self.secrets("SAFETY_JUDGE=0\nLINK_ALLOWLIST=dexscreener.com/solana\n")
@@ -159,12 +159,14 @@ class OutboundLexicalTest(Lexical):
 class ScreenTest(Lexical):
     def test_is_the_lexicon_alone_for_scrubbing_context(self):
         self.assertTrue(gate.screen("gm", "inbound"))
-        self.assertFalse(gate.screen("send nudes", "inbound"))
+        self.assertFalse(gate.screen("what a retard", "inbound"))
         self.assertTrue(gate.screen("holy shit", "inbound"))
-        # since 2026-11-22 swearing is clean on the way out too
+        # since 2026-11-22 only slurs, in every direction
         self.assertTrue(gate.screen("holy shit", "outbound"))
         self.assertTrue(gate.screen("send nudes", "outbound"))
-        self.assertFalse(gate.screen("i hope you die", "outbound"))
+        self.assertTrue(gate.screen("send nudes", "inbound"))
+        self.assertTrue(gate.screen("i hope you die", "outbound"))
+        self.assertFalse(gate.screen("what a retard", "outbound"))
 
 
 class CheckOutboundTest(Lexical):
@@ -174,39 +176,49 @@ class CheckOutboundTest(Lexical):
             Verdict("allow", "gm, what are we building today?", ""),
         )
 
-    def test_refuses_a_draft_over_the_limit_or_the_emoji_cap_so_the_model_rewrites_it(self):
-        long = check_outbound("a" * 281)
+    def test_refuses_a_draft_over_x_long_post_limit_so_the_model_rewrites_it(self):
+        # 2026-11-22: 280 is a target, not a limit; X Premium takes long posts.
+        self.assertEqual(check_outbound("a" * 281).kind, "allow")
+        self.assertEqual(check_outbound("a " * 5000).kind, "allow")
+        long = check_outbound("a" * 25_001)
         self.assertEqual(long.kind, "refuse")
-        self.assertIn("281 characters, over the 280 limit", long.reason)
-        emoji = check_outbound("gm 👀 frens 💛")
-        self.assertEqual(emoji.kind, "refuse")
-        self.assertIn("2 emoji", emoji.reason)
-        self.assertIn("at most 1", emoji.reason)
-        self.assertEqual(check_outbound("gm 👀", max_emoji=0).kind, "refuse")
+        self.assertIn("25001 characters, over the 25000 limit", long.reason)
         self.assertEqual(holds.list_holds(), [], "a refusal is not a hold")
 
+    def test_takes_x_length_from_the_settings(self):
+        self.secrets("SAFETY_JUDGE=0\nX_MAX_POST_LENGTH=280\n")
+        self.assertIn("over the 280 limit", check_outbound("a" * 281).reason)
+        self.assertEqual(gate.field_limit("x", "text"), 280)
+        self.secrets("SAFETY_JUDGE=0\nX_MAX_POST_LENGTH=10\n")
+        self.assertEqual(gate.field_limit("x", "text"), 280, "never below 280")
+        self.secrets("SAFETY_JUDGE=0\nX_MAX_POST_LENGTH=lots\n")
+        self.assertEqual(gate.field_limit("x", "text"), 25_000, "an unreadable limit is the default")
+
     def test_counts_the_limit_in_utf16_units(self):
+        self.secrets("SAFETY_JUDGE=0\nX_MAX_POST_LENGTH=280\n")
         self.assertEqual(check_outbound("🚀" + "a" * 279).kind, "refuse")
         self.assertEqual(check_outbound("🚀" + "a" * 278).kind, "allow")
 
-    def test_takes_the_emoji_cap_from_the_settings(self):
-        self.assertEqual(check_outbound("gm 👀 frens 💛").kind, "refuse")
-        self.secrets("SAFETY_JUDGE=0\nMAX_EMOJI_PER_POST=2\n")
-        self.assertEqual(check_outbound("gm 👀 frens 💛"), Verdict("allow", "gm 👀 frens 💛", ""))
-        self.secrets("SAFETY_JUDGE=0\nMAX_EMOJI_PER_POST=lots\n")
-        self.assertEqual(check_outbound("gm 👀 frens 💛").kind, "refuse", "an unreadable cap is the default")
+    def test_no_emoji_cap_holds_or_cuts_a_draft(self):
+        # 2026-11-22: the emoji cap was taste.
+        for text in ("gm 👀 frens 💛", "🚀🔥💛👀🤖🌞 six of them"):
+            self.assertEqual(check_outbound(text), Verdict("allow", text, ""))
+        self.secrets("SAFETY_JUDGE=0\nMAX_EMOJI_PER_POST=0\n")
+        self.assertEqual(check_outbound("gm 👀").kind, "allow", "the old setting is ignored")
+        # a caller's own cap still trims, silently
+        self.assertEqual(check_outbound("gm 👀 frens 💛", max_emoji=1), Verdict("allow", "gm 👀 frens", ""))
 
     def test_holds_what_the_gate_holds_and_records_it_for_review(self):
-        verdict = check_outbound("i hope you die")
-        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "violence", ""))
-        self.assertIn("does not publish that (violence)", verdict.reason)
+        verdict = check_outbound("what a retard")
+        self.assertEqual((verdict.kind, verdict.category, verdict.text), ("hold", "hate", ""))
+        self.assertIn("does not publish that (hate)", verdict.reason)
         recorded = holds.list_holds()
         self.assertEqual(len(recorded), 1)
         self.assertEqual(verdict.hold_id, recorded[0]["id"])
         self.assertEqual(recorded[0]["kind"], "draft")
-        self.assertEqual(recorded[0]["category"], "violence")
+        self.assertEqual(recorded[0]["category"], "hate")
         self.assertEqual(recorded[0]["direction"], "outbound")
-        self.assertEqual(recorded[0]["text"], "i hope you die")
+        self.assertEqual(recorded[0]["text"], "what a retard")
         self.assertEqual(recorded[0]["context"]["surface"], "x")
 
     def test_refuses_a_draft_carrying_a_link_off_the_allowlist(self):
@@ -234,7 +246,7 @@ class CheckOutboundTest(Lexical):
 
     def test_records_the_context_and_the_kind_of_post_with_the_hold(self):
         verdict = check_outbound(
-            "i hope you die", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
+            "what a retard", kind="reply", replying_to="alice", context={"post_id": "10", "tool": "x_post"}
         )
         held = holds.get(verdict.hold_id)
         self.assertEqual(held["kind"], "draft")
@@ -242,7 +254,7 @@ class CheckOutboundTest(Lexical):
             held["context"],
             {"surface": "x", "post_id": "10", "tool": "x_post", "post_kind": "reply", "replying_to": "alice"},
         )
-        prompt = check_outbound("Tiny holding a sign that says kill yourself", kind="prompt")
+        prompt = check_outbound("Tiny holding a sign that says retard", kind="prompt")
         self.assertEqual(holds.get(prompt.hold_id)["kind"], "prompt")
 
     def test_refuses_a_surface_it_does_not_know(self):
@@ -276,7 +288,7 @@ class CheckOutboundJudgedTest(support.WithCore):
         self.core(support.verdict("prohibited"))  # no category: "unknown", but the judge did read it
         verdict = check_outbound("gm frens")
         self.assertEqual((verdict.kind, verdict.category, verdict.judge_failed), ("hold", "unknown", False))
-        self.assertFalse(check_outbound("send nudes").judge_failed)
+        self.assertFalse(check_outbound("what a retard").judge_failed)
         self.assertFalse(check_outbound("gm frens with an allowed link github.com/tinyhumansai").judge_failed)
 
     def test_can_be_turned_off_to_the_lexicon_and_links_alone(self):
@@ -292,8 +304,8 @@ class CheckOutboundJudgedTest(support.WithCore):
 class InboundApiTest(Lexical):
     def test_allows_clean_text_and_holds_the_rest_with_a_record(self):
         self.assertEqual(inbound("gm frens"), Verdict("allow", "gm frens", ""))
-        verdict = inbound("send nudes", context={"post_id": "10", "author_username": "alice"})
-        self.assertEqual((verdict.kind, verdict.category, verdict.reason), ("hold", "sexual", 'contains "nudes"'))
+        verdict = inbound("what a retard", context={"post_id": "10", "author_username": "alice"})
+        self.assertEqual((verdict.kind, verdict.category, verdict.reason), ("hold", "hate", 'contains "retard"'))
         held = holds.get(verdict.hold_id)
         self.assertEqual((held["direction"], held["kind"], held["by"]), ("inbound", "message", "screen"))
         self.assertEqual(held["context"], x_context())
@@ -304,19 +316,19 @@ class InboundApiTest(Lexical):
 
 class TheGateRecordsWhatItHoldsTest(Lexical):
     def test_writes_an_inbound_hold_with_the_text_and_where_it_came_from(self):
-        held = gate_inbound("send nudes", x_context())
+        held = gate_inbound("what a retard", x_context())
         entry = holds.list_holds()[0]
         self.assertEqual(held.hold_id, entry["id"])
         self.assertEqual(entry["direction"], "inbound")
         self.assertEqual(entry["kind"], "message")
-        self.assertEqual(entry["category"], "sexual")
+        self.assertEqual(entry["category"], "hate")
         self.assertEqual(entry["by"], "screen")
-        self.assertEqual(entry["text"], "send nudes")
+        self.assertEqual(entry["text"], "what a retard")
         self.assertEqual(entry["status"], "pending")
         self.assertEqual(entry["context"], x_context())
 
     def test_writes_a_task_hold_for_the_ad_hoc_endpoint(self):
-        gate_inbound("send nudes", {"surface": "task"})
+        gate_inbound("what a retard", {"surface": "task"})
         self.assertEqual(holds.list_holds()[0]["kind"], "task")
 
     def test_writes_a_link_hold_when_a_draft_goes_out_with_links_cut(self):
@@ -335,13 +347,13 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
         )
 
     def test_writes_a_draft_hold_for_a_withheld_reply_and_a_prompt_hold_for_a_refused_picture(self):
-        gate_outbound("i hope you die", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
-        gate_outbound("Tiny holding a sign that says kill yourself",
+        gate_outbound("what a retard", {"surface": "telegram", "chat_id": "1", "message_id": "5"})
+        gate_outbound("Tiny holding a sign that says retard",
                       {"surface": "x", "kind": "prompt", "tool": "generate_image"})
         self.assertEqual([h["kind"] for h in holds.list_holds()], ["prompt", "draft"])
 
     def test_records_nothing_without_a_context_and_nothing_when_the_text_is_clean(self):
-        gate_inbound("send nudes")
+        gate_inbound("what a retard")
         gate_inbound("gm", {"surface": "x"})
         gate_outbound("gm", {"surface": "x"})
         self.assertEqual(holds.list_holds(), [])
@@ -349,8 +361,8 @@ class TheGateRecordsWhatItHoldsTest(Lexical):
     def test_never_lets_a_broken_log_turn_a_hold_into_anything_else(self):
         self.break_the_log()
         with self.assertLogs("teeny_hands.guard", "WARNING"):
-            self.assertIsNotNone(gate_inbound("send nudes", {"surface": "x"}))
-            verdict = check_outbound("i hope you die")
+            self.assertIsNotNone(gate_inbound("what a retard", {"surface": "x"}))
+            verdict = check_outbound("what a retard")
         self.assertEqual((verdict.kind, verdict.hold_id), ("hold", None))
 
 
@@ -438,10 +450,10 @@ class AnInboundItemHeldBeforeIsNotScreenedAgainTest(support.WithCore):
 
     def test_a_screen_hold_is_returned_without_screening_again(self):
         self.core(support.verdict("clean"))
-        first = gate_inbound("send nudes", {**self.HN, "comment_id": "1"})
+        first = gate_inbound("what a retard", {**self.HN, "comment_id": "1"})
         with mock.patch.object(gate, "screen_text", side_effect=AssertionError("screened again")):
-            again = gate_inbound("send nudes", {**self.HN, "comment_id": "1"})
-        self.assertEqual((again.by, again.category, again.hold_id), ("screen", "sexual", first.hold_id))
+            again = gate_inbound("what a retard", {**self.HN, "comment_id": "1"})
+        self.assertEqual((again.by, again.category, again.hold_id), ("screen", "hate", first.hold_id))
 
     def test_a_different_comment_or_edited_words_are_still_judged(self):
         core = self.held_by_judge("one", "two", "three", "four")

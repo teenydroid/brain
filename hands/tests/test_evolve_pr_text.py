@@ -43,16 +43,20 @@ CHANGE_363 = paragraphs(363)[6]
 PLAN_363 = paragraphs(363)[10].removeprefix("> ")
 #: Words the guard holds on sight (not judged): what still reaches the
 #: operator after #365, and what a reword is for.
-HARD_HYP = "the change: hold a pistol to the stale job's head, so a refused comment says why."
-HARD_PLAN = "add one line to the playbook: a firearm-free way to say the cap refused it."
+#: Since 2026-11-22 the lexicon holds slurs alone (guard/lexicon.py), so a
+#: slur stands in for "a term held on sight".
+HARD_HYP = "the change: stop the retard stale job, so a refused comment says why."
+HARD_PLAN = "add one line to the playbook: a retard-free way to say the cap refused it."
 
 
 class TheRealBodies(unittest.TestCase):
-    def test_the_two_gen16_bodies_match_only_as_judged(self):
-        for n, category, term in ((362, "violence", "kills"), (363, "weapons", "bullet")):
-            got = evolve.pr_screen((BODIES / f"pr-{n}.md").read_text(encoding="utf-8"))
-            self.assertEqual((got.category, got.term, got.judged), (category, term, True), n)
-            self.assertIsNone(evolve.pr_held((BODIES / f"pr-{n}.md").read_text(encoding="utf-8")), n)
+    def test_the_two_gen16_bodies_match_nothing_now(self):
+        # "kills" and "bullet" were judged terms; since 2026-11-22 they are
+        # not on the lexicon at all.
+        for n in (362, 363):
+            body = (BODIES / f"pr-{n}.md").read_text(encoding="utf-8")
+            self.assertIsNone(evolve.pr_screen(body), n)
+            self.assertIsNone(evolve.pr_held(body), n)
 
     def test_a_term_held_on_sight_is_held(self):
         for text in (HARD_HYP, HARD_PLAN):
@@ -128,7 +132,7 @@ class Reworded(EvolveCase):
         self.assertEqual(entry["component"], "attention")  # never asked, never taken
         self.assertEqual(entry["verdict"], "opened")
         self.assertEqual(entry["reworded"][0]["fields"], ["hypothesis", "research_plan"])
-        self.assertEqual(entry["reworded"][0]["category"], "weapons")
+        self.assertEqual(entry["reworded"][0]["category"], "hate")
         self.assertNotIn("pr_screen", entry)
 
     def test_the_rewording_is_capped_and_then_it_publishes_as_now(self):
@@ -139,7 +143,7 @@ class Reworded(EvolveCase):
         self.assertIsNotNone(evolve.pr_held(pub.prs[0]["body"]))
         entry = self.entries()["g1c1"]
         self.assertEqual(entry["verdict"], "opened")
-        self.assertEqual(entry["pr_screen"]["category"], "weapons")
+        self.assertEqual(entry["pr_screen"]["category"], "hate")
         self.assertNotIn("text", entry["pr_screen"])
 
     def test_the_gen16_wording_judged_only_publishes_as_is_with_no_reword(self):
@@ -151,7 +155,7 @@ class Reworded(EvolveCase):
         out, pub, _ = self.run_it(proposer)
         self.assertEqual(len(pub.prs), 1)
         self.assertIn("one bullet in SOUL.md", pub.prs[0]["body"])  # published as it was
-        self.assertTrue(evolve.pr_screen(pub.prs[0]["body"]).judged)
+        self.assertIsNone(evolve.pr_screen(pub.prs[0]["body"]))
         entry = self.entries()["g1c1"]
         self.assertNotIn("reworded", entry)
         self.assertNotIn("pr_screen", entry)

@@ -145,7 +145,7 @@ class AccountsTest(Scratch):
 
     def test_a_memo_is_kept_only_when_the_guard_allows_it(self):
         self.deposit(1, T0 - 2 * HOUR, usdc_tx(STRANGER, 1_000_000, memo="for request 12, thanks teeny"))
-        self.deposit(2, T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="kill yourself, bot"))
+        self.deposit(2, T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="retard bot"))
         out = accounts.scan()
         rows = self.rows()
         self.assertEqual((rows[0]["memo"], rows[0]["memo_held"]), ("for request 12, thanks teeny", 0))

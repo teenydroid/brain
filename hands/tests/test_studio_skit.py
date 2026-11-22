@@ -196,12 +196,12 @@ class CastTest(unittest.TestCase):
         self.assertNotIn("musk", CARD["headline"].lower() + CARD["what_happened"].lower())
         self.assertEqual(self.reasons(CARD), [])
 
-    def test_the_guard_still_holds_a_figure_the_card_does_not_have(self):
-        # Without people the same skit is refused: the cast is the card's, not the writer's.
-        reasons = self.reasons({**CARD, "people": []})
-        self.assertTrue(any("Elon Musk is not named in the story" in r for r in reasons), reasons)
-        reasons = self.reasons({**CARD, "people": ["Tesla"]})
-        self.assertTrue(any("is not named in the story" in r for r in reasons), reasons)
+    def test_a_figure_the_card_does_not_name_is_not_refused_for_it(self):
+        # 2026-11-22: "named in the story" was taste; any public figure may be
+        # staged. A minor or a private person still is not (below).
+        for people in ([], ["Tesla"]):
+            reasons = self.reasons({**CARD, "people": people})
+            self.assertFalse(any("is not named in the story" in r for r in reasons), reasons)
 
     def test_a_quoted_posts_author_the_feed_tagged_is_a_skit_figure(self):
         card = {**CARD, "headline": "Tesla says FSD v15 is rolling out",
@@ -736,18 +736,16 @@ class SkitSlotRunTest(SlotRun):
 
 
 class OffCardFigureRunTest(SlotRun):
-    """The same skit on a card that has no people: the guard holds the
-    figure, nothing was spent, and the slot falls to the post."""
+    """The same skit on a card that has no people: since 2026-11-22 the guard
+    no longer holds a figure the story does not name, so the skit is made."""
 
     cards = [{**CARD, "people": []}, POST_CARD]
 
-    def test_a_figure_off_the_card_is_held_by_the_guard_and_the_post_goes_out(self):
+    def test_a_figure_off_the_card_is_not_held_for_it(self):
         code, out, record, calls = self.run_slot()
-        self.assertEqual(out["outcome"], "picked", out)
         attempts = record["publish"]["attempts"]
-        self.assertEqual([a["format"] for a in attempts], ["skit", "post"])
-        self.assertIn("not named in the story", attempts[0]["skit"]["hard_lines"]["reason"])
-        self.assertEqual([b["format"] for b in self.sent()], ["post"])
+        self.assertEqual(attempts[0]["format"], "skit")
+        self.assertNotIn("not named in the story", json.dumps(attempts[0]))
 
 
 class OtherSlotRunTest(SlotRun):

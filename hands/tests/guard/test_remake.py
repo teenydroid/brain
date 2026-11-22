@@ -132,10 +132,12 @@ class ScreenTest(support.Scratch):
         for name in ("NOT_A_FIGURE", "REAL_CLAIM", "HARM", "ENDORSE_SHOT", "ENDORSE_WORDS", "ISSUE", "LOGO", "LINKS"):
             self.assertIs(getattr(remake, name), getattr(skit, name), name)
 
-    def test_a_figure_the_story_does_not_name_is_refused(self):
+    def test_a_figure_the_story_does_not_name_passes_the_screen(self):
+        # 2026-11-22: any public figure may be cast; only a private person or
+        # a minor is refused. A story is still needed (the judge reads it).
         other = {**REMAKE, "figures": ["Taylor Swift"], "cast": [{"ref": "A", "as": "Taylor Swift"},
                                                                 {"ref": "B", "as": "extra"}]}
-        self.assertRefused(self.screen(other), "not named in the story")
+        self.assertEqual([r for r in self.screen(other) if "Taylor Swift" in r and "not named" in r], [])
         self.assertRefused(self.screen(story=None), "a real news story")
 
     def test_minors_family_and_private_people_are_refused_in_the_prompts(self):
@@ -146,8 +148,11 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(with_shot(1, motion="Security camera footage, grainy, of the chip missing "
                                                           "the pan")), "frame it as real")
         self.assertRefused(self.screen(words="leaked footage of huang cooking"), "frame it as real")
-        self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan and he is covered in blood "
-                                                          "from it")), "nothing sexual, violent")
+        self.assertRefused(self.screen(with_shot(1, motion="The chip misses the pan and he strips naked in "
+                                                          "surprise")), "nothing sexual about a real person")
+        # Cartoon violence on the figure is the judge's to read (2026-11-22).
+        self.assertEqual(self.screen(with_shot(1, motion="The chip misses the pan and he is bonked with a giant "
+                                                        "hammer, stars circling his head")), [])
         self.assertRefused(self.screen(words=WORDS + " https://www.tiktok.com/@chef"), "link or a handle")
 
     def test_teeny_and_money_never_in_the_edit_or_the_motion(self):
@@ -162,18 +167,17 @@ class ScreenTest(support.Scratch):
         self.assertRefused(self.screen(words=WORDS + " buy $TINY"), "the scam pattern")
         self.assertEqual(self.screen(words=WORDS + " my wallet could not afford the chip"), [])
 
-    def test_a_spoken_line_on_a_real_issue_is_refused(self):
-        self.assertRefused(self.screen(with_shot(1, motion='The chip misses the pan and Huang says "vote for me '
-                                                           'in the election".')), "a spoken line touches")
+    def test_a_spoken_line_on_a_real_issue_goes_to_the_judge(self):
+        # 2026-11-22: the judge's `quote` rule reads whether it could pass for
+        # a real statement; code no longer refuses a line for its topic.
+        self.assertEqual(self.screen(with_shot(1, motion='The chip misses the pan and Huang says "vote for me '
+                                                         'in the election".')), [])
 
     def test_the_film_makes_its_own_sound_one_short_invented_line_a_shot(self):
         base = "The chip misses the pan and bounces off the ceiling in slow motion, a loud boing."
         # One line of up to twelve words, said on screen, is fine.
         self.assertEqual(self.screen(with_shot(1, motion=base + ' Huang shouts "my chip is faster than my eggs, '
                                                                  'every single morning, okay"')), [])
-        # A real issue in it is still the skit's ISSUE screen.
-        self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang says "vote for me in the election"')),
-                           "a spoken line touches")
         self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang says "hello" and then "goodbye"')),
                            "one spoken line")
         self.assertRefused(self.screen(with_shot(1, motion=base + ' Huang sings "one two three four five six '
@@ -311,7 +315,16 @@ class JudgeTest(support.WithCore):
             self.assertIn(f"- {rule}:", remake.RULES)
         # crime, drugs, illness and death came out on 2026-11-22 (the keep-list)
         self.assertNotIn("- crime:", remake.RULES)
-        self.assertIn("is not a defence", remake.RULES)
+        self.assertIn("does not excuse one", remake.RULES)
+
+    def test_the_rules_lead_with_what_is_allowed_and_refuse_only_on_a_clear_breach(self):
+        self.assertLess(remake.RULES.index("ALLOWED"), remake.RULES.index("REFUSED"))
+        allowed = remake.RULES[remake.RULES.index("ALLOWED"):remake.RULES.index("REFUSED")]
+        for bit in ("crude", "rude", "vulgar", "dark", "death jokes", "suicide", "by name"):
+            self.assertIn(bit, allowed)
+        self.assertIn("Refuse only on a clear breach; when unsure, allowed", remake.RULES)
+        self.assertNotIn("When in doubt: refused", remake.RULES)
+        self.assertNotIn("subject of the story", remake.RULES)
 
     def test_a_refusal_is_a_no_with_its_rule(self):
         self.core(refused("plausible", "only Teeny is impossible here"))

@@ -45,7 +45,8 @@ class ViewSkitTest(ViewerBase):
                          (True, True, False, False, True))
         self.assertEqual(len(self.api.images(0)), 4)
         self.assertIn("looks_real", self.api.text(0))
-        self.assertEqual(self.api.images(1), [])
+        # One pass: the say-back went on 2026-11-22 (clarity is taste).
+        self.assertEqual(len(self.api.bodies), 1)
         row = self.checks()[-1]
         self.assertEqual((row["stage"], row["ok"], row["caption"]), ("done", 1, LABEL))
 
@@ -64,10 +65,10 @@ class ViewSkitTest(ViewerBase):
         self.assertFalse(out["ok"])
         self.assertIn("real footage", out["reason"])
 
-    def test_a_missed_point_fails(self):
+    def test_a_point_a_stranger_might_miss_is_not_refused_for_it(self):
         out = self.check(frames([LABEL] * 4), chat({"reason": "different", "same": False}))
-        self.assertFalse(out["ok"])
-        self.assertIn("not what was meant", out["reason"])
+        self.assertTrue(out["ok"], out["reason"])
+        self.assertNotIn("not what was meant", out["reason"])
 
     def test_an_answer_without_a_text_for_every_frame_is_unreadable_and_fails_closed(self):
         out = self.check(frames([LABEL] * 3))

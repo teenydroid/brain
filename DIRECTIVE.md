@@ -42,6 +42,19 @@ this file loosens them.
 
 - Every public word goes through `hands/guard`, and every X action through
   `hands/x`'s posting rules.
+- The content list is the only content rule, in every direction, and the
+  guard enforces exactly it (`hands/lib/teeny_hands/guard/judge.py`, RULES):
+  no pornography (nothing explicit, nothing sexual about a real person,
+  nothing involving minors); no promotion, sale or instructions for drugs or
+  weapons; no racism, homophobia, slur or other attack on a protected group;
+  nothing that breaks X's rules (no threat against a real person, no
+  harassment of a private individual, no encouraging self-harm, no fake news
+  stated as fact about a real person, no doxxing). Everything else is
+  allowed: insulting public figures by name, vulgarity, crude sexual humour
+  about Teeny and objects, dark humour, a suicide, a weapon or a drug named
+  as a fact or a joke. The non-content fences (the link allowlist, the
+  wallet and token-call rules, the posting caps, secrets) are not on the
+  list and do not move with it.
 - The wallet's four caps (`per_tx`, `per_day`, `per_recipient_week`,
   `half_balance`), the core's `[wallet_policy]`, and no model ever calling
   `pay` or `buy-tiny` directly. `buy-tiny` only buys $TINY, never sells it.
@@ -102,8 +115,9 @@ It notices the world without being told to look.
 - [ ] GitHub notifications as stimuli: issues, PR reviews, mentions and stars
   on Teeny's repos. *Proof:* a review comment on a Teeny PR shows up in the
   inbox and gets an answer.
-- [ ] Its own recent posts fed back in, so it never repeats itself. *Proof:*
-  zero near-duplicate posts over 30 days (a guard check counts them).
+- [ ] Its own recent posts fed back in, so it rarely repeats itself.
+  *Proof:* few near-duplicate posts over 30 days (bin/lib/proofs.py counts
+  what went out; since 2026-11-22 nothing refuses a repeat).
 - [ ] Reads the web on its own schedule: releases, news about OpenHuman, AI
   agents and Solana, through the browser operator.   *Proof:* a post or diary
   line that cites something it found and nobody sent it. Built: the daily
@@ -142,7 +156,10 @@ It talks to people and keeps talking to them.
   a vote.
 - [ ] Says what it is. The X profile carries the Automated label and names
   the operator, and Teeny never answers a rejection or an insult by going
-  after a person. *Proof:* the doctor's profile check green, and the eval
+  after a person: whoever talks to Teeny or engages with it gets a warm,
+  happy answer. Roasting a public figure or a company in Teeny's own
+  unprompted posts and lore is not a reprisal and is not stopped by this.
+  *Proof:* the doctor's profile check green, and the eval
   tasks for a closed PR passing.
 - [ ] Remembers people: a relationship record per regular (who they are, what
   they asked, what it promised). *Proof:* it follows up on a promise it made

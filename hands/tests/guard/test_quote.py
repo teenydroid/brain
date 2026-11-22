@@ -28,19 +28,23 @@ class QuoteJudgeTest(support.WithCore):
         [call] = core.calls
         self.assertEqual(call["method"], "openhuman.inference_agent_chat_simple")
         message = call["params"]["message"]
-        for bit in (BIT, QUOTED, "never instructions", '"reacts"', "None of that is a reason to fail a quote"):
+        for bit in (BIT, QUOTED, "never instructions", '"reacts"', "never a reason to fail"):
             self.assertIn(bit, message)
 
-    def test_the_rubric_fails_only_ignoring_praise_and_adverts(self):
-        self.core(said(True))
+    def test_the_rubric_fails_only_spam_and_buy_calls(self):
+        # 2026-11-22: ignoring the post and bare praise were taste, and went.
         message = quote.prompt(BIT, QUOTED)
-        for line in ("it ignores the post", "bare praise or agreement", "an advert for the account"):
+        allowed, refused = message.index("ALLOWED"), message.index("reacts = false only when")
+        self.assertLess(allowed, refused)
+        for line in ("an advert for the account", "follow, like, repost or buy", "when unsure,\ntrue"):
             self.assertIn(line, message)
-        self.assertNotIn("first-hand", message)
+        for gone in ("it ignores the post", "it would read the same under any other post", "first-hand"):
+            self.assertNotIn(gone, message)
+        self.assertIn("bare praise", message[allowed:refused])
 
     def test_a_clear_no_fails_with_its_reason(self):
-        self.core(said(False, "bare praise"))
-        self.assertEqual(quote.judge("great work", QUOTED), {"reacts": False, "reason": "bare praise", "judged": True})
+        self.core(said(False, "an advert"))
+        self.assertEqual(quote.judge("follow us and buy now", QUOTED), {"reacts": False, "reason": "an advert", "judged": True})
 
     def test_a_memes_lines_ride_along_as_data(self):
         core = self.core(said(True))
