@@ -40,6 +40,11 @@ Json = dict[str, Any]
 LABEL_PREFIX = "babysit:"
 DEFAULT_MERGES_PER_DAY = 3
 DEFAULT_SELF_MERGES_PER_DAY = 2
+#: With BABYSIT_SELF_MERGE_ALL every self-change merges itself, so the caps
+#: are the day's work rather than a trickle, and the same settings lift them.
+ALL_MERGES_PER_DAY = 12
+ALL_SELF_MERGES_PER_DAY = 12
+ALL_MAX_PER_DAY = 48
 MERGE_METHODS = ("merge", "squash", "rebase")
 
 _HEADLINES = {
