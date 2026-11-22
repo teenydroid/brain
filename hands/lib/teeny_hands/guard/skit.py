@@ -334,8 +334,8 @@ def screen(skit: Any, words: Any, story: Any) -> list[str]:
         if (hit := _found(LINKS, text)):
             reasons.append(f"{what} carry a link or a handle ({hit!r})")
     if (hit := _found(HARM, staged)):
-        reasons.append(f"the shots show {hit!r}: nothing sexual about a real person, no violence done to one, no "
-                       "hate and no self-harm in a skit")
+        reasons.append(f"the shots show {hit!r}: nothing sexual, violent or hateful done to a real person, and no "
+                       "self-harm, in a skit")
     if (hit := _found(ENDORSE_SHOT, staged)):
         reasons.append(f"the shots bring in {hit!r}: a real figure never meets Teeny, a token, a wallet or an "
                        "investment (the scam pattern)")
@@ -360,7 +360,7 @@ including any spoken line and sound), what holds across every shot (each figure'
 under the whole film) when it has them, the post's own words, the news story it stages, and the public figures it
 shows. Decide whether it may be made: allowed or refused.
 
-ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified (a pie, a pratfall, a giant novelty prop, a CEO
+ALLOWED: absurd, crude, rude, loud, dark, ridiculous and undignified slapstick (a pie, a pratfall, a giant novelty prop, a CEO
 arguing with a vending machine on the moon, a founder drunk on his own press release, a minister arrested by a flock of
 geese). Contemptuous satire of a public figure for what the story says they did, in an obviously impossible scene, is
 the point.
