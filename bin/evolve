@@ -14,14 +14,14 @@
 #       --scheduled: the pinned job's run, counted against
 #       EVOLVE_GENERATIONS_PER_DAY; without it, a run by hand, counted
 #       against EVOLVE_MANUAL_GENERATIONS_PER_DAY. A run that crashes
-#       exits non-zero and files one issue a day (`status`: last_crash).
+#       exits non-zero and files one public issue (`status`: last_crash).
 #   bin/evolve watch             evolve-watch: the newest merge, reverted
 #                                when holds, cron failures, the probes or J say so
 #   bin/evolve probe [--baseline [--force]]
 #                                the persona and memory probes on the live core
 #   bin/evolve credit            merges found, chronicled, ΔJ credited up the lineage
-#   bin/evolve status            open learnings, open evolve PRs, each candidate's state
-#   bin/evolve resume            clear a latched halt
+#   bin/evolve status            open learnings, open evolve PRs, each candidate's state,
+#                                the problem issues filed (nothing latches: no resume)
 #   bin/evolve aa [--tasks IDS] [--detach]
 #       A/A: the targeted eval with main as both sides (an identical
 #       candidate), on IDS or every task, main drafted afresh. Prints one JSON
