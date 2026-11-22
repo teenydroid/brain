@@ -514,6 +514,7 @@ rec="$(last_record)"
 check "a live run posts the top of the ranking" \
   jqe '.outcome == "published" and .published.outcome == "posted" and .published.post_id == "2123000000000000001" and .dry == false' <<<"$out"
 check "through hands/x post, live (DRY_RUN left to hands/x)" test "$(posts | grep -c '^x post DRY_RUN= ')" = 1
+# shellcheck disable=SC2016 # $p and $c are jq's, not the shell's
 check "with the studio's tags: producer, format, its card as anchor and a pitch_id" \
   jqe --arg p "$id:$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == $c
     and .pitch_id == $p and (.text | startswith("post 1:"))' <<<"$(stdin_of 'x post ')"
@@ -737,6 +738,10 @@ reset
 out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat", "line": "a slur"}' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "the editor's none is a none, with the line it breaks" jqe '.verdict == "none" and .reason == "flat (breaks: a slur)"' <<<"$out"
 check "and kept as vetoed" jqe '.outcome == "vetoed"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
+reset
+out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat"}' veto <<<'{"kind": "brief", "text": "hi"}')"
+check "a none that names no line of the list is taste, no veto: a pick, the editor's words kept" \
+  jqe '.verdict == "pick" and (.reason | test("names no line.*flat"))' <<<"$out"
 reset
 out="$(STUDIO=1 FAKE_ASK_ERROR='HTTP 503 service unavailable' veto <<<'{"kind": "brief", "text": "hi"}')"
 check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "none" and (.reason | test("could not be asked"))' <<<"$out"
