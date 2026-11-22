@@ -30,11 +30,7 @@ class HatefulTest(unittest.TestCase):
             self.assertFalse(slurs.hateful(text), text)
 
     def test_a_word_inside_another_word_is_no_slur(self):
-        for text in ("a spicy take", "faggots of wood", "the nazareth office"):
-            # "faggot" is in the hate list as written; a bundle of sticks is not
-            # told apart by a word list, so only the containing words are checked.
-            if text == "faggots of wood":
-                continue
+        for text in ("a spicy take", "the nazareth office", "spectacular retardant foam"):
             self.assertFalse(slurs.hateful(text), text)
 
     def test_nothing_or_not_text_is_no_slur(self):
