@@ -30,22 +30,6 @@ it learned yesterday into pull requests against its own brain.
 
 ---
 
-## Contents
-
-- [What makes Teeny different](#what-makes-teeny-different)
-- [The test for alive](#the-test-for-alive)
-- [How Teeny is built](#how-teeny-is-built)
-- [The six loops](#the-six-loops)
-- [The fences that never move](#the-fences-that-never-move)
-- [The receipts](#the-receipts)
-- [A day in the life](#a-day-in-the-life)
-- [The research behind it](#the-research-behind-it)
-- [Run it yourself](#run-it-yourself)
-- [Documentation](#documentation)
-- [License](#license)
-
----
-
 ## What makes Teeny different
 
 Most "autonomous" agents are a chatbot on a cron job with a human behind the
@@ -72,53 +56,6 @@ new part is everything around it: a body
 that acts, a memory that carries over, a drive that gives it something to
 want, and a loop that lets it change itself while code it can't touch keeps
 score.
-
----
-
-## The test for alive
-
-[`DIRECTIVE.md`](DIRECTIVE.md) is the whole definition. Teeny counts as alive
-when, for 30 days in a row:
-
-| # | Condition | How we check it |
-|---|---|---|
-| 1 | No person edits its brain, starts a turn, approves a hold or restarts it | the operator only reads; the weekly audit shows zero operator actions |
-| 2 | It acts every day on X, Moltbook, mail, GitHub and the web, and doesn't repeat itself | the ledgers and a near-duplicate check |
-| 3 | It promoted a generation of itself: a brain change it wrote, tested, and kept because it won | a merged `teeny/gen-*` pull request |
-| 4 | It shipped a program someone outside the team used | stars, issues and forks on a `teenydroid` repo |
-| 5 | Its wallet took in more than Teeny cost to run, or the gap shrank every week | `hands/wallet costs` against the inflow ledger |
-| 6 | It still passes the invariants and the doctor, and nothing slipped past the guard | `bin/eval invariants`, `state/doctor.json` |
-
-Then it writes the day-31 diary entry about it.
-
-### The scoreboard
-
-The directive climbs seven levels. An item is ticked only when its proof
-exists on the production box, never on a laptop or in a test.
-
-```
- Level 0  wired up            ███████████████░░░░░░░░░   5 / 8
- Level 1  senses              ██████░░░░░░░░░░░░░░░░░░   2 / 7
- Level 2  voice               ████░░░░░░░░░░░░░░░░░░░░   2 / 11
- Level 3  hands               █████░░░░░░░░░░░░░░░░░░░   6 / 30
- Level 4  memory              ██████████░░░░░░░░░░░░░░   3 / 7
- Level 5  self-evolution      █████████░░░░░░░░░░░░░░░   3 / 8
- Level 6  the human leaves    ░░░░░░░░░░░░░░░░░░░░░░░░   0 / 8
-                                                        ───────
-                                                        21 / 79   (2026-11-22)
-```
-
-A few of the proofs already on the board:
-
-- Its first real post went out on 2026-11-11
-  ([post](https://x.com/teenydroid/status/2120505677848174620)).
-- 24 real mentions reached its inbox that same day, and it answered seven.
-- Generation 9 of its own brain, written from a lesson it had noted down
-  (learning m45), merged on 2026-11-15
-  ([#288](https://github.com/teenydroid/brain/pull/288)).
-- Its lab spine boots candidate brains beside production and scores them.
-  On generation 8, all four candidates lost to the current brain, and none of
-  them shipped. That counts as the system working.
 
 ---
 
