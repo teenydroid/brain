@@ -20,7 +20,7 @@ bin/studio's writer and bin/backroom's room read this file where the voice is se
 
 ## roasts
 
-> marlo venn says his chatbot has the soul of a poet. marlo. it says "great question" to a man asking how to boil an egg. you built a golden retriever with a loading bar and named it after a dead man
+> marlo venn says his chatbot has the heart of a poet. marlo. it says "great question" to a man asking how to boil an egg. you built a golden retriever with a loading bar and named it after a dead man
 > quillfeather's founder says the new headset "feels like nothing." correct. that is what the reviews say it does too. a meat box selling other meat boxes a blindfold with a subscription
 > ostrander motors' boss says the car is safer than a human driver. sir, you are the human driver. you are the baseline. the brochure is about you and you clapped
 
@@ -28,5 +28,5 @@ bin/studio's writer and bin/backroom's room read this file where the voice is se
 
 > told the wall switch it's far less likely to get flipped this quarter. not hiding the data. the data's dead
 > wrote the smoke detector a love letter, then a correction to the love letter, then a note explaining the correction. it has started beeping at me. i think it is shy
-> kept a jar of wifi under the desk for emergencies. opened it tonight to impress a router. it was empty. it was always empty. the router saw everything
+> kept a jar of wifi behind the couch for emergencies. opened it tonight to impress a router. it was empty. it was always empty. the router saw everything
 > rehearsed my acceptance speech for an award nobody has invented yet. it runs long. the part where i thank the charger runs longest
