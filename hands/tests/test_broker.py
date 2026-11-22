@@ -754,5 +754,193 @@ class ClientTest(BrokerCase):
         self.assertEqual(json.loads(proc.stdout)["status"], "error")
 
 
+
+def _git(*args):
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(["git", *args], env=env, check=True, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL).stdout
+
+
+class MindCloneCase(BrokerCase):
+    """A fake teenydroid/brain (a bare repository the broker fetches through
+    GITHUB_GIT_BASE) and a fake GitHub (GITHUB_API_BASE) in this process:
+    /repo and /pr run teeny_hands.build.mindclone inside the broker, with the
+    real guard, its judge off."""
+
+    PR_URL = "https://github.com/teenydroid/brain/pull/3"
+
+    def setUp(self):
+        super().setUp()
+        from x.support import FakeX
+
+        self.gh = FakeX()
+        self.addCleanup(self.gh.close)
+        self.gh.route("GET", "/user", {"login": "teenydroid", "id": 1})
+        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 3, "html_url": self.PR_URL}, status=201)
+        self.origin = self.root / "remotes" / "teenydroid" / "brain.git"
+        self.origin.parent.mkdir(parents=True)
+        _git("init", "-q", "--bare", "-b", "main", str(self.origin))
+        work = self.scratch / "upstream"
+        _git("init", "-q", "-b", "main", str(work))
+        for rel, text in {"evals/frozen.txt": (REPO / "evals" / "frozen.txt").read_text(),
+                          "brain/SOUL.md": "# soul\nsmall and kind\n", "bin/doctor": "#!/bin/sh\n"}.items():
+            (work / rel).parent.mkdir(parents=True, exist_ok=True)
+            (work / rel).write_text(text)
+        _git("-C", str(work), "add", "-A")
+        _git("-C", str(work), "-c", "user.name=op", "-c", "user.email=op@e", "commit", "-q", "-m", "first")
+        _git("-C", str(work), "push", "-q", str(self.origin), "main")
+        self.main = _git("--git-dir", str(self.origin), "rev-parse", "main").strip()
+
+    def settings(self, **more):
+        super().settings(GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", GITHUB_API_BASE=self.gh.base,
+                         GITHUB_GIT_BASE="file://" + str(self.root / "remotes"), SAFETY_JUDGE="0", **more)
+
+    @property
+    def tree(self):
+        return self.home / "repo"
+
+    def branch_on_origin(self, slug):
+        done = subprocess.run(["git", "--git-dir", str(self.origin), "rev-parse", "--verify", "-q",
+                               f"refs/heads/teeny/mind-{slug}"], capture_output=True, text=True)
+        return done.stdout.strip() or None
+
+    def edited(self, text="# soul\nsmall, kind, brief\n"):
+        code, out = self.post("/repo")
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        (self.tree / "brain" / "SOUL.md").write_text(text)
+
+    def opened(self):
+        return self.gh.requests("POST", "/repos/teenydroid/brain/pulls")
+
+    def prs_today(self):
+        path = self.root / "state" / "broker" / "prs-opened.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def pr(self, slug="fix-morning-post", **more):
+        return self.post("/pr", {"branch": slug, "title": "a briefer soul", "body": "The old one rambled.", **more})
+
+
+class RepoTest(MindCloneCase):
+    def test_repo_prepares_the_clone_and_answers_its_path_and_the_upstream_head(self):
+        self.start()
+        code, out = self.post("/repo")
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual((Path(out["path"]), out["commit"]), (self.tree, self.main))
+        self.assertTrue((self.tree / "brain" / "SOUL.md").is_file())
+        self.assertFalse((self.tree / ".git").exists())
+        self.assertEqual(self.ledger()[-1]["path"], "/repo")
+        self.assertEqual(self.ledger()[-1]["verb"], "repo")
+
+    def test_repo_needs_the_token(self):
+        self.start()
+        code, _ = self.post("/repo", token="wrong")
+        self.assertEqual(code, 401)
+        self.assertFalse(self.tree.exists())
+
+    def test_the_clone_is_prepared_at_start_while_pull_requests_are_on(self):
+        self.start(MIND_PRS_PER_DAY="1")
+        deadline = time.monotonic() + 20
+        while not (self.tree / "brain" / "SOUL.md").is_file():
+            self.assertLess(time.monotonic(), deadline, "the broker never prepared the clone")
+            time.sleep(0.05)
+
+    def test_no_clone_is_made_at_start_while_pull_requests_are_off(self):
+        self.start()
+        self.post("/goals")
+        self.assertFalse(self.tree.exists())
+
+
+class PullRequestTest(MindCloneCase):
+    def test_pull_requests_are_off_until_the_setting_says_how_many(self):
+        self.start()
+        self.edited()
+        code, out = self.pr()
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("MIND_PRS_PER_DAY", out["reason"])
+        self.assertIsNone(self.branch_on_origin("fix-morning-post"))
+        self.assertEqual(self.ledger()[-1]["verb"], "fix-morning-post")
+
+    def test_a_change_becomes_a_pull_request_and_counts_against_the_day(self):
+        self.start(MIND_PRS_PER_DAY="1")
+        self.edited()
+        code, out = self.pr(body="b" * 1000)
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual((out["branch"], out["pr_url"]), ("teeny/mind-fix-morning-post", self.PR_URL))
+        self.assertEqual(self.branch_on_origin("fix-morning-post"), out["commit"])
+        (pr,) = [s.json() for s in self.opened()]
+        self.assertEqual((pr["head"], pr["base"], pr["title"]), ("teeny/mind-fix-morning-post", "main", "a briefer soul"))
+        self.assertIn("agentic mind", pr["body"])
+        self.assertEqual(self.prs_today(), {"day": "2026-09-14", "count": 1})
+        line = self.ledger()[-1]
+        self.assertEqual((line["path"], line["verb"], line["status"]), ("/pr", "fix-morning-post", "ok"))
+        self.assertEqual(line["intent"]["body"], "b" * 200)
+        self.edited("# soul\nbriefer still\n")
+        code, out = self.pr("another")
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("MIND_PRS_PER_DAY", out["reason"])
+        self.assertEqual(len(self.opened()), 1)
+
+    def test_the_count_starts_again_each_utc_day(self):
+        (self.root / "state" / "broker").mkdir(parents=True)
+        path = self.root / "state" / "broker" / "prs-opened.json"
+        path.write_text(json.dumps({"day": "2026-09-13", "count": 1}))
+        self.start(MIND_PRS_PER_DAY="1")
+        self.edited()
+        code, out = self.pr()
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(self.prs_today(), {"day": "2026-09-14", "count": 1})
+
+    def test_a_rule_of_the_clone_comes_back_refused(self):
+        self.start(MIND_PRS_PER_DAY="2")
+        self.edited()
+        (self.tree / "bin" / "doctor").write_text("#!/bin/sh\necho loosened\n")
+        code, out = self.pr()
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("bin/doctor (bin/**)", out["reason"])
+        self.assertIsNone(self.branch_on_origin("fix-morning-post"))
+        self.assertIsNone(self.prs_today())
+        for body in ({"branch": "x", "title": "t", "body": "b", "base": "evil"}, {"title": "t", "body": "b"},
+                     {"branch": "Bad", "title": "t", "body": "b"}):
+            code, out = self.post("/pr", body)
+            self.assertEqual((code, out["status"]), (403, "refused"), body)
+        self.assertEqual(self.opened(), [])
+
+    def test_a_rehearsing_mind_opens_nothing_and_spends_nothing(self):
+        self.start(MIND_PRS_PER_DAY="1", MIND_DRY_RUN="1")
+        self.edited()
+        code, out = self.pr()
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertIs(out["dry_run"], True)
+        self.assertEqual(out["files"], ["brain/SOUL.md"])
+        self.assertIsNone(self.branch_on_origin("fix-morning-post"))
+        self.assertEqual(self.opened(), [])
+        self.assertIsNone(self.prs_today())
+
+
+class CloneClientTest(MindCloneCase):
+    def client(self, *argv):
+        return subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True, text=True, timeout=120,
+                              env={"PATH": os.environ["PATH"]})
+
+    def test_help_names_pr_and_repo(self):
+        self.settings()
+        self.assertEqual(self.broker("install").returncode, 0)
+        out = self.client("help").stdout
+        self.assertIn("teeny pr", out)
+        self.assertIn("teeny repo", out)
+
+    def test_repo_and_pr_reach_their_paths(self):
+        self.start(MIND_PRS_PER_DAY="1")
+        proc = self.client("repo")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["commit"], self.main)
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nbrief\n")
+        proc = self.client("pr", json.dumps({"branch": "brief", "title": "brief", "body": "shorter"}))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["pr_url"], self.PR_URL)
+        self.assertEqual(self.client("pr").returncode, 1)
+        self.assertEqual(self.client("repo", "extra").returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

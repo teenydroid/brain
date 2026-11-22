@@ -235,3 +235,21 @@ class SweepTest(RollbackScratch):
         # the sweep audited #7 after the judgement, so it is held already
         (pull,) = [p for p in audit.queue(REPO, 20)["pulls"] if p["number"] == 7]
         self.assertIn("recently_rolled_back", self.rules(pull))
+
+    def test_a_judgement_that_is_refused_does_not_stop_the_sweep(self):
+        self.gh.route("GET", f"/repos/{DIARY}/pulls", [])
+        ledger.record_action("deploy_ff", "someone/else", 3, MERGE, numbers=[3])
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        out = actions.sweep()
+        self.assertIn("error", out["rollback"])
+        self.assertEqual(out["audited"], 1)
+
+    def test_the_sweep_holds_what_it_judged_bad(self):
+        self.gh.route("GET", f"/repos/{DIARY}/pulls", [])
+        self.deployed()
+        self.doctor(60, "cron.toml")
+        self.at(5 * 60)
+        actions.sweep()
+        (pull,) = [p for p in audit.queue(REPO, 20)["pulls"] if p["number"] == 7]
+        self.assertIn("recently_rolled_back", self.rules(pull))
