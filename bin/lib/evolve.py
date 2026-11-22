@@ -6477,7 +6477,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         for k, cand in enumerate(list(cands)):
             if cand["verdict"] != REVISING:
                 continue
-            say(f"candidate {cand['cand']}: " + ("unproven, sent back with why" if cand.get("reason", "").startswith(
+            say(f"candidate {cand['cand']}: " + ("unproven, sent back with why" if str(cand.get("reason") or "").startswith(
                 UNPROVEN) else "regressed, sent back with the pairs it lost"))
             cands[k] = build(cand["cand"], picks[cand["cand"] - 1])
             if cands[k]["verdict"] == "pending":
