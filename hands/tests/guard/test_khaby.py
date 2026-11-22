@@ -203,6 +203,15 @@ class JudgeTest(support.WithCore):
                 continue
             self.assertIn(f"- {rule}:", khaby.RULES)
 
+    def test_the_rules_lead_with_what_is_allowed_and_refuse_only_on_a_clear_breach(self):
+        self.assertLess(khaby.RULES.index("ALLOWED"), khaby.RULES.index("REFUSED"))
+        allowed = khaby.RULES[khaby.RULES.index("ALLOWED"):khaby.RULES.index("REFUSED")]
+        for bit in ("crude", "rude", "vulgar", "dark", "death jokes", "suicide"):
+            self.assertIn(bit, allowed)
+        self.assertIn("Refuse only on a clear breach; when unsure, allowed", khaby.RULES)
+        self.assertNotIn("degrading", khaby.RULES)
+        self.assertNotIn("When in doubt: refused", khaby.RULES)
+
     def test_a_refusal_is_a_no_with_its_rule(self):
         self.core(refused("person", "a real person is drawn"))
         out = khaby.check(KHABY, WORDS, STORY, TIMELINE)

@@ -220,8 +220,8 @@ or Teeny itself, swearing, death jokes, and drugs, weapons or suicide mentioned 
 man's place, looking at the camera, doing the simple fix, opening its hands. The post's words joining a news story
 with the clip as the punchline, rude about a public figure in the news if they like.
 
-The video answers a popular Khaby Lame video: its first part, the setup (a silly, over-complicated clip), is kept
-exactly as it was filmed and credited to the account it came from; his wordless deadpan response is re-made with
+The video answers a popular Khaby Lame video: its first part, the setup (a silly, over-complicated clip), is
+kept exactly as it was filmed and credited to the account it came from; his wordless deadpan response is re-made with
 Teeny, the account's small yellow mascot, standing where he stood and doing the plain, obvious thing. You get the
 news story it joins (if any), the source's timeline (what each segment shows and the beats of his response), and for
 each reaction segment the edit (what an image model is told to change in its first frame) and the motion (what a
