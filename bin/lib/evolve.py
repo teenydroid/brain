@@ -4783,6 +4783,27 @@ class HandsPublisher:
         got = self._actions().open_issue({"repo": repo, "title": title, "body": body}, judge=judge)
         return {"number": got.get("number"), "html_url": got.get("html_url")}
 
+    def comment_issue(self, repo: str, number: int, body: str, judge: bool = False) -> Json:
+        """A problem issue's update (raise_problem), through the guard."""
+        got = self._actions().comment({"repo": repo, "number": number, "body": body}, judge=judge)
+        return {"html_url": got.get("html_url")}
+
+    def _api(self):
+        from teeny_hands.gh import client
+
+        return client, client.GitHubApi.from_settings()
+
+    def label_issue(self, repo: str, number: int, labels: list[str]) -> None:
+        client, api = self._api()
+        owner, name = client.split_repo(repo)
+        api.call("POST", f"/repos/{owner}/{name}/issues/{int(number)}/labels", body={"labels": list(labels)})
+
+    def issue_state(self, repo: str, number: int) -> str | None:
+        client, api = self._api()
+        owner, name = client.split_repo(repo)
+        got = api.call("GET", f"/repos/{owner}/{name}/issues/{int(number)}")
+        return str(got.get("state")) if isinstance(got, Mapping) and got.get("state") else None
+
     def fetch(self) -> None:
         """Teeny's clone up to date with GitHub (selfclone.fetch), so a
         revert starts from the merge it undoes."""
