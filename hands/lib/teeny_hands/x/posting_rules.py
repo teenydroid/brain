@@ -27,9 +27,11 @@ guard and before DRY_RUN; nothing else in the hand posts.
   post of Teeny's, but is no own post and no reply: the gap, the cap, the
   reply pacing and the one-reply rule never see it, and the link budget counts
   a thread once however many of its posts carry a link.
-- Every own post names its anchor (`check_anchor`): the one item from its
-  inputs it is about, kept in the ledger beside it. A quote is anchored on
-  the post it quotes unless it names another. Replies need none.
+- An own post may name its anchor (`check_anchor`): the item from its inputs
+  it is about, kept in the ledger beside it. A quote is anchored on the post
+  it quotes unless it names another. Since 2026-11-22 a post with none is no
+  longer refused: anchoring was a taste rule (the guard's content list,
+  teeny_hands.guard.judge.RULES, is the only content rule).
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
   job nor a retry after a crash can answer it twice.
@@ -41,8 +43,11 @@ guard and before DRY_RUN; nothing else in the hand posts.
   $0.015 without (docs.x.com, pricing), so posts and replies with a link are
   capped at `X_LINK_POSTS_MAX_PER_DAY` a UTC day (1 by default; 0 forbids
   them). A bare domain X would turn into a link counts.
-- A near-duplicate of anything Teeny said in the window is refused, replies
-  included (`check_repeat`).
+- A post is as long as X takes (`check_length`): X Premium's long post,
+  `X_MAX_POST_LENGTH` (25,000 by default, 280 at least). 280 is the length a
+  post is written to, not a limit, since 2026-11-22. Nothing refuses a post
+  for repeating an earlier one since that day either: the near-duplicate
+  rule (`check_repeat`, the guard's repeats.py) was taste.
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
@@ -73,8 +78,11 @@ from .. import hand, tags
 from .client import number_setting
 from .model import utf16_length
 
-#: The hard cap, as X counts it for plain text.
+#: X's classic length: what a post is written to, no longer a cap
+#: (2026-11-22). The hard cap is `max_post_length()`.
 MAX_POST_LENGTH = 280
+#: The longest post X Premium publishes, and X_MAX_POST_LENGTH's default.
+X_LONG_POST_LIMIT = 25_000
 #: Original posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
 #: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
 DEFAULT_POSTS_MAX_PER_DAY = 4
@@ -228,16 +236,26 @@ def is_x_id(value: Any) -> bool:
 # --- the text ------------------------------------------------------------------------------
 
 
+def max_post_length() -> int:
+    """`X_MAX_POST_LENGTH`, held to MAX_POST_LENGTH..X_LONG_POST_LIMIT,
+    default X_LONG_POST_LIMIT (the account is on X Premium, which posts long
+    text as a long post). The guard reads the same setting the same way
+    (teeny_hands.guard.style.x_max_length)."""
+    return int(number_setting("X_MAX_POST_LENGTH", X_LONG_POST_LIMIT, MAX_POST_LENGTH, X_LONG_POST_LIMIT))
+
+
 def check_length(text: str) -> None:
     """Refuse, don't fix (crates/teeny-safety/src/gate.rs:377): what is
-    measured is the guard's rewrite, as X counts it."""
+    measured is the guard's rewrite, as X counts it, against X's long-post
+    limit (`max_post_length`)."""
     length = utf16_length(text)
-    if length > MAX_POST_LENGTH:
+    limit = max_post_length()
+    if length > limit:
         raise hand.Refused(
-            f"the post is {length} characters; X allows {MAX_POST_LENGTH}",
+            f"the post is {length} characters; X allows {limit}",
             rule="length",
             length=length,
-            limit=MAX_POST_LENGTH,
+            limit=limit,
             rewrite=True,
         )
 
@@ -245,13 +263,13 @@ def check_length(text: str) -> None:
 # --- the anchor ------------------------------------------------------------------------------
 
 
-def check_anchor(anchor: Any, quote_of: str | None) -> str:
-    """The anchor an own post is about: the item from its playbook's inputs
-    it names (a listen digest item id or URL, a material receipt id, a PR
-    number, the post it quotes). A quote with none is anchored on the quoted
-    post. A post with none, or a blank one, is refused before the guard is
-    asked or anything is sent: a post about nothing in particular is the
-    filler the slots are not for."""
+def check_anchor(anchor: Any, quote_of: str | None) -> str | None:
+    """The anchor an own post is about, for the ledger: the item from its
+    playbook's inputs it names (a listen digest item id or URL, a material
+    receipt id, a PR number, the post it quotes). A quote with none is
+    anchored on the quoted post; a post with none, or a blank one, has None.
+    Until 2026-11-22 a post with none was refused as filler; that was taste,
+    and the guard keeps only the content list."""
     if anchor is None and quote_of:
         return quote_of
     if isinstance(anchor, int) and not isinstance(anchor, bool):
@@ -260,11 +278,7 @@ def check_anchor(anchor: Any, quote_of: str | None) -> str:
         raise hand.HandError('"anchor" must be a short string naming the item the post is about')
     anchor = (anchor or "").strip()
     if not anchor:
-        raise hand.Refused(
-            "no anchor: an own post must name the one item from its inputs it is about (a listen item, a receipt, "
-            "a PR, the post it quotes) in \"anchor\". Nothing was published; skip when there is nothing to anchor on.",
-            rule="anchor",
-        )
+        return None
     if len(anchor) > MAX_ANCHOR_LENGTH:
         raise hand.HandError(f'"anchor" is at most {MAX_ANCHOR_LENGTH} characters: an id, a URL or a PR number')
     return anchor
@@ -476,33 +490,6 @@ def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
             sent_today=int(sent),
             cap=cap,
         )
-
-
-def check_repeat(conn: sqlite3.Connection, text: str) -> None:
-    """Whether an own post says something Teeny has not already said
-    (docs/roadmap.md, A2): refused when it is a near-duplicate
-    (teeny_hands.guard.repeats) of an own post, quote or reply of the last
-    REPEAT_WINDOW_DAYS. The refusal is counted (`hands/guard repeats`)."""
-    from ..guard import repeats
-
-    since = hand.now() - repeats.window_days() * 86400.0
-    earlier = conn.execute(
-        "SELECT id, text, created_at FROM x_posts WHERE created_at >= ? ORDER BY created_at DESC",
-        (since,),
-    ).fetchall()
-    hit = repeats.closest(text, ((r["id"], r["text"]) for r in earlier))
-    if hit is None:
-        return
-    post_id, score = hit
-    when = next(iso(r["created_at"]) for r in earlier if r["id"] == post_id)
-    repeats.record("x", score, post_id)
-    raise hand.Refused(
-        f"repeat: this says what post {post_id} ({when}) already said. Nothing was published; say something new.",
-        rule="repeat",
-        similar_to=post_id,
-        similar_at=when,
-        score=score,
-    )
 
 
 # --- quotes of somebody else's post ----------------------------------------------------------

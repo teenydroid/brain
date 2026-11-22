@@ -1,6 +1,8 @@
 """The one way to publish. Every write runs, in this order and in this one
-invocation: the guard (`check_outbound`: filter, house style, the emoji cap),
-the 280 cap on what the guard returned, the posting rules, `DRY_RUN`, X, and
+invocation: the guard (`check_outbound`: links, the slur screen, the content
+judge, house style), X's length on what the guard returned (the long-post
+limit, `rules.max_post_length`; 280 is a target since 2026-11-22), the
+posting rules, `DRY_RUN`, X, and
 the record. A job script that forgets a step still cannot post unchecked,
 because there is no step to forget. Ported from
 crates/teeny-x/src/publisher.rs and the host side of
@@ -10,7 +12,11 @@ What goes out is always the guard's text, never the caller's. The one
 exception is `approved=True`, which only `hands/guard holds release` passes:
 the text is a draft the guard held and an operator then approved, so the
 guard is not asked again (it would hold it again); every posting rule,
-the 280 cap and DRY_RUN still apply.
+the length cap and DRY_RUN still apply.
+
+Since 2026-11-22 nothing here refuses a post for having no anchor, for its
+emoji or for repeating an earlier post: those were taste, and the guard's
+content list (teeny_hands.guard.judge.RULES) is the only content rule.
 """
 
 from __future__ import annotations
@@ -43,10 +49,6 @@ else:
 Json = dict[str, Any]
 
 
-def _max_emoji() -> int:
-    return int(number_setting("MAX_EMOJI_PER_POST", 1, 0, 10))
-
-
 def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapping[str, Any] | None = None) -> str:
     """The guard's say on `text`; the text to publish when it allows."""
     verdict = check_outbound(
@@ -54,7 +56,6 @@ def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapp
         surface="x",
         kind=kind,
         replying_to=replying_to,
-        max_emoji=_max_emoji(),
         context=dict(context or {}),
     )
     if verdict.kind == "allow" and isinstance(verdict.text, str) and verdict.text.strip():
@@ -127,10 +128,10 @@ def slot(quote: bool = False) -> Json:
 
 
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
-    """An own post, or a quote: its anchor, guard, 280, attachments, then the
+    """An own post, or a quote: its anchor (for the ledger), guard, length, attachments, then the
     gap of its lane (a quote's own, `rules.check_gap`) under the process-wide posting lock, so two jobs firing in the same
     minute cannot both read the ledger before either is recorded. `approved`:
-    a released hold, which skips the guard only (the anchor still holds).
+    a released hold, which skips the guard only.
     The lab tags and the producer's tags (`rules.studio_tags`) are kept
     beside the post, never published."""
     body, tagged = tags.split(body)
@@ -158,7 +159,6 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
-        rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, kind)
@@ -230,8 +230,8 @@ def _thread_draft(body: Any) -> tuple[list[str], list[str], str | None]:
 
 def thread(body: Any, x: XApi | None = None) -> Json:
     """A thread: the first text an own post, each later one a reply to the one
-    before, so readers see one thread. Every text goes through the anchor
-    check, the guard and the 280 cap before anything is sent; one held or too
+    before, so readers see one thread. Every text goes through the guard and
+    the length cap before anything is sent; one held or too
     long refuses the whole thread. It is one own post for the gap and the day's
     cap (checked once, for the head) and for the link budget, and its
     continuations are not replies, so they skip the reply pacing, the
@@ -252,8 +252,6 @@ def thread(body: Any, x: XApi | None = None) -> Json:
     with hand.lock("posting"):
         rules.check_gap(conn, "post")
         rules.check_daily_cap(conn, "post")
-        rules.check_repeat(conn, "\n".join(texts))
-        rules.check_repeat(conn, texts[0])
         rules.check_link_budget(conn, "\n".join(texts))
         if not live:
             return {"ok": True, "dry_run": True, "would_post": texts, "kind": "thread", "posts": len(texts)}
@@ -297,7 +295,7 @@ def _in_doubt(error: XError) -> bool:
 
 
 def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
-    """A reply to post `to`: guard (told whom it answers), 280, never the
+    """A reply to post `to`: guard (told whom it answers), length, never the
     account's own post, attachments, then under the replying lock one reply
     per post and the pacing. The reply id is recorded the moment X returns
     it, before the ledger or anything else that can fail."""
@@ -367,9 +365,9 @@ def follow_up(to: str, body: Any, x: XApi | None = None) -> Json:
     """Continues one of the account's own posts as a thread: a reply to `to`,
     which must be in the own-post ledger (`x_posts`), so it never answers
     anyone else and reads nothing from X. The rules of `reply` otherwise
-    hold: the guard, 280, one reply per post (so a thread grows one step per
-    call, each on its newest post), the pacing, links, and no repeat of what
-    Teeny already said. Not an own post: no gap, no daily cap. hands/giveaway
+    hold: the guard, the length, one reply per post (so a thread grows one
+    step per call, each on its newest post), the pacing and links. Not an
+    own post: no gap, no daily cap. hands/giveaway
     threads a round's judge pick, countdown and winners under its post."""
     if not rules.is_x_id(to):
         raise hand.HandError("--to must be a numeric X post id")
@@ -391,7 +389,6 @@ def follow_up(to: str, body: Any, x: XApi | None = None) -> Json:
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)
         rules.check_pacing(conn)
-        rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, "reply", in_reply_to=to)

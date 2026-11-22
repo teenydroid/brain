@@ -30,9 +30,9 @@ X_LONG_POST_LIMIT = 25_000
 
 def x_max_length() -> int:
     """The hard limit on one X post, in UTF-16 code units: `X_MAX_POST_LENGTH`,
-    a whole number from MAX_POST_LENGTH to X_LONG_POST_LIMIT, default
-    X_LONG_POST_LIMIT. Set it to 280 for an account without long posts. A
-    value it cannot read is the default."""
+    held to MAX_POST_LENGTH..X_LONG_POST_LIMIT, default X_LONG_POST_LIMIT,
+    as hands/x reads it (posting_rules.max_post_length). Set it to 280 for
+    an account without long posts. A value it cannot read is the default."""
     from .. import hand
 
     raw = hand.setting("X_MAX_POST_LENGTH")
@@ -42,9 +42,9 @@ def x_max_length() -> int:
         value = float(raw.strip())
     except ValueError:
         return X_LONG_POST_LIMIT
-    if not value.is_integer() or not MAX_POST_LENGTH <= value <= X_LONG_POST_LIMIT:
+    if value != value:  # NaN
         return X_LONG_POST_LIMIT
-    return int(value)
+    return int(min(max(value, MAX_POST_LENGTH), X_LONG_POST_LIMIT))
 
 # `\p{Extended_Pictographic}` as the Rust regex crate had it (Unicode 16.0,
 # regex-syntax 0.8.11). Python's `re` has no Unicode properties, and its
