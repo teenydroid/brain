@@ -46,8 +46,10 @@ class ApplyHouseStyleTest(unittest.TestCase):
         self.assertEqual(result.fixes, [])
         self.assertEqual(result.text, "gm tiny humans. what are we building today? 🛠️")
 
-    def test_keeps_the_first_emoji_and_drops_the_rest(self):
-        result = style("gm 👀 frens 💛 building 🛠️")
+    def test_cuts_no_emoji_unless_a_cap_is_given(self):
+        # 2026-11-22: the guard keeps no emoji cap.
+        self.assertEqual(style("gm 👀 frens 💛 building 🛠️").text, "gm 👀 frens 💛 building 🛠️")
+        result = style("gm 👀 frens 💛 building 🛠️", max_emoji=1)
         self.assertEqual(result.text, "gm 👀 frens building")
         self.assertEqual(count_emoji(result.text), 1)
         self.assertIn("cut 2 emoji over the cap of 1", result.fixes)
