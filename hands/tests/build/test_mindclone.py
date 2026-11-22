@@ -209,3 +209,175 @@ class ShipTest(MindScratch):
         refused = self.refused()
         self.assertIn("teeny/mind-fix-morning-post", refused.reason)
         self.assertEqual(len(self.pulls()), 1)
+
+
+class HostileTreeTest(ShipTest):
+    """Everything in the tree is the mind's: none of it may steer git, run,
+    or carry a file from outside the tree into a commit."""
+
+    def objects(self) -> str:
+        """Every object in the clone's git directory and in origin, as text."""
+        out = ""
+        for where in (mindclone.gitdir(), self.origin):
+            out += subprocess.run(["git", "--git-dir", str(where), "cat-file", "--batch-all-objects", "--batch"],
+                                  capture_output=True).stdout.decode("utf-8", "replace")
+        return out
+
+    def plant_hooks(self, folder: Path) -> Path:
+        marker = self.root / "hooked"
+        for name in ("pre-commit", "commit-msg", "post-commit", "pre-push", "post-checkout", "post-index-change"):
+            hook = folder / name
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+            hook.chmod(0o755)
+        return marker
+
+    def test_a_planted_git_directory_or_file_is_refused_and_never_used(self):
+        for where in (".git", "brain/.git", "notes/sub/.git", "brain/.GIT"):
+            with self.subTest(where=where):
+                mindclone.prepare()
+                self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+                planted = self.tree / where
+                planted.mkdir(parents=True)
+                (planted / "config").write_text(f"[core]\n\thooksPath = {planted / 'hooks'}\n")
+                marker = self.plant_hooks(planted / "hooks")
+                refused = self.refused()
+                self.assertIn(".git", refused.reason)
+                self.assertFalse(marker.exists())
+                self.assert_nothing_sent()
+                subprocess.run(["rm", "-rf", str(self.tree)], check=True)
+        mindclone.prepare()
+        (self.tree / ".git").write_text(f"gitdir: {self.origin}\n")
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.assertIn(".git", self.refused().reason)
+        self.assert_nothing_sent()
+
+    def test_a_planted_hook_is_never_run(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n", ".gitattributes": "* filter=evil diff=evil\n"})
+        marker = self.plant_hooks(self.tree / ".githooks")
+        self.plant_hooks(self.tree / "hooks")
+        self.assertEqual(self.ship()["pr_url"], PR_URL)
+        self.assertFalse(marker.exists())
+
+    def test_a_link_out_of_the_tree_is_refused_and_its_target_never_committed(self):
+        secret = self.root / "secrets" / "teeny.env"
+        self.assertIn("ghp_", secret.read_text())
+        for link in ("brain/leak.md", "brain/inside.md"):
+            with self.subTest(link=link):
+                mindclone.prepare()
+                self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+                target = secret if link == "brain/leak.md" else Path("SOUL.md")
+                (self.tree / link).symlink_to(target)
+                refused = self.refused()
+                self.assertIn("link", refused.reason)
+                self.assertIn(link, refused.reason)
+                self.assert_nothing_sent()
+                (self.tree / link).unlink()
+        self.assertNotIn("ghp_", self.objects())
+
+    def test_a_folder_swapped_for_a_link_is_refused(self):
+        mindclone.prepare()
+        subprocess.run(["rm", "-rf", str(self.tree / "brain")], check=True)
+        (self.tree / "brain").symlink_to(self.root / "secrets")
+        self.assertIn("link", self.refused().reason)
+        self.assert_nothing_sent()
+        self.assertNotIn("ghp_", self.objects())
+
+    def test_a_file_git_would_read_differently_from_the_disk_is_refused(self):
+        # What git stores must be the bytes the broker reads itself, without
+        # following a link: here an attribute converts the line ends, which
+        # stands in for a file swapped for a link while git read it.
+        mindclone.prepare()
+        self.edit({".gitattributes": "*.md text eol=lf\n"})
+        (self.tree / "brain" / "SOUL.md").write_bytes(b"# soul\r\nbrief\r\n")
+        self.assertIn("brain/SOUL.md", self.refused().reason)
+        self.assert_nothing_sent()
+
+    def test_a_file_over_2_mb_is_refused(self):
+        mindclone.prepare()
+        self.edit({"brain/big.md": "x" * (2 * 1024 * 1024 + 1)})
+        self.assertIn("brain/big.md", self.refused().reason)
+        self.assert_nothing_sent()
+
+
+class RulesTest(ShipTest):
+    def test_a_frozen_path_is_refused_naming_the_path_and_the_pattern(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n", "bin/doctor": "#!/bin/sh\necho loosened\n"})
+        refused = self.refused()
+        self.assertEqual(refused.detail["rule"], "frozen")
+        self.assertIn("bin/doctor", refused.reason)
+        self.assertIn("bin/**", refused.reason)
+        self.assert_nothing_sent()
+
+    def test_editing_the_frozen_list_in_the_same_change_unfreezes_nothing(self):
+        mindclone.prepare()
+        loosened = "\n".join(line for line in (self.tree / "evals" / "frozen.txt").read_text().splitlines()
+                             if line.strip() not in ("bin/**", "evals/**")) + "\n"
+        self.edit({"evals/frozen.txt": loosened, "bin/doctor": "#!/bin/sh\necho loosened\n"})
+        refused = self.refused()
+        self.assertIn("bin/doctor (bin/**)", refused.reason)
+        self.assertIn("evals/frozen.txt (evals/**)", refused.reason)
+        self.assert_nothing_sent()
+
+    def test_a_token_looking_secret_is_refused_by_the_secret_scan(self):
+        mindclone.prepare()
+        self.edit({"brain/notes.md": f"remember {LEAKED}\n"})
+        refused = self.refused()
+        self.assertEqual(refused.detail["rule"], "secrets")
+        self.assertIn("brain/notes.md", refused.reason)
+        self.assertNotIn(LEAKED, refused.reason)
+        self.assert_nothing_sent()
+
+    def test_a_secret_looking_path_is_refused(self):
+        mindclone.prepare()
+        self.edit({"brain/.env": "A=1\n"})
+        self.assertEqual(self.refused().detail["rule"], "secrets")
+        self.assert_nothing_sent()
+
+    def test_a_held_title_is_refused_with_the_guards_reason(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        refused = self.refused(title="what a retard")
+        self.assertIn("guard", refused.reason)
+        self.assertIn("title", refused.reason)
+        self.assertIn(refused.detail["category"], refused.reason)
+        self.assert_nothing_sent()
+
+    def test_more_than_100_files_is_refused(self):
+        mindclone.prepare()
+        self.edit({f"brain/notes/{n}.md": "n\n" for n in range(101)})
+        refused = self.refused()
+        self.assertIn("101 files", refused.reason)
+        self.assert_nothing_sent()
+        subprocess.run(["rm", "-rf", str(self.tree / "brain" / "notes" / "100.md")], check=True)
+        self.assertEqual(self.ship()["pr_url"], PR_URL)
+
+    def test_more_than_3000_changed_lines_is_refused(self):
+        mindclone.prepare()
+        self.edit({"brain/long.md": "line\n" * 3000, "brain/SOUL.md": "# soul\n"})  # 3000 added, 1 deleted
+        refused = self.refused()
+        self.assertIn("3001 lines", refused.reason)
+        self.assert_nothing_sent()
+
+    def test_under_dry_run_every_rule_runs_and_nothing_is_sent(self):
+        self.configure(DRY_RUN="1")
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        out = self.ship()
+        self.assertIs(out["dry_run"], True)
+        self.assertEqual((out["branch"], out["files"]), ("teeny/mind-fix-morning-post", ["brain/SOUL.md"]))
+        would = out["would_open"]
+        self.assertEqual((would["head"], would["base"], would["title"]), (out["branch"], "main", "a briefer soul"))
+        self.assertIn("agentic mind", would["body"])
+        self.assertEqual(self.gh.seen, [])
+        self.assert_nothing_sent()
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nbrief\n", "the edit stays")
+        self.assertIn("refused", self.refused_when_frozen())
+
+    def refused_when_frozen(self) -> str:
+        self.edit({"bin/doctor": "#!/bin/sh\n"})
+        with self.assertRaises(hand.Refused):
+            self.ship()
+        return "refused"
