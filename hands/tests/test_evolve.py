@@ -43,6 +43,7 @@ def git(*args, cwd=None):
 class FakePublisher:
     def __init__(self):
         self.prs, self.issues, self.states, self.statuses = [], [], {}, []
+        self.comments, self.labels, self.closed = [], [], set()
 
     def open_pr(self, src, tree, branch, base, title, body):
         files = git("-C", str(tree), "show", "--name-only", "--format=", "HEAD").split()
