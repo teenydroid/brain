@@ -271,7 +271,7 @@ class HostileTreeTest(ShipTest):
                 target = secret if link == "brain/leak.md" else Path("SOUL.md")
                 (self.tree / link).symlink_to(target)
                 refused = self.refused()
-                self.assertIn("link", refused.reason)
+                self.assertEqual(refused.detail["rule"], "link")
                 self.assertIn(link, refused.reason)
                 self.assert_nothing_sent()
                 (self.tree / link).unlink()
@@ -281,7 +281,8 @@ class HostileTreeTest(ShipTest):
         mindclone.prepare()
         subprocess.run(["rm", "-rf", str(self.tree / "brain")], check=True)
         (self.tree / "brain").symlink_to(self.root / "secrets")
-        self.assertIn("link", self.refused().reason)
+        refused = self.refused()
+        self.assertEqual((refused.detail["rule"], refused.detail["path"]), ("link", "brain"))
         self.assert_nothing_sent()
         self.assertNotIn("ghp_", self.objects())
 
@@ -292,7 +293,8 @@ class HostileTreeTest(ShipTest):
         mindclone.prepare()
         self.edit({".gitattributes": "*.md text eol=lf\n"})
         (self.tree / "brain" / "SOUL.md").write_bytes(b"# soul\r\nbrief\r\n")
-        self.assertIn("brain/SOUL.md", self.refused().reason)
+        refused = self.refused()
+        self.assertEqual((refused.detail["rule"], refused.detail["path"]), ("changed", "brain/SOUL.md"))
         self.assert_nothing_sent()
 
     def test_a_file_over_2_mb_is_refused(self):
