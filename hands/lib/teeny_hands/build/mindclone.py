@@ -64,10 +64,9 @@ def gitdir() -> Path:
 
 
 def _git(*args: str, check: bool = True, tree: Path | None = None):
-    """git on the clone, naming the git directory and (when it needs one)
-    the working tree, so nothing in the tree is ever read as config."""
-    work = ("--work-tree", str(tree or worktree())) if tree is not False else ()
-    return git.run(scratch(), "--git-dir", str(gitdir()), *work, *args, check=check)
+    """git on the clone, naming the git directory and the working tree, so
+    nothing in the tree is ever read as config. Run from state/mind/."""
+    return git.run(scratch(), "--git-dir", str(gitdir()), "--work-tree", str(tree or worktree()), *args, check=check)
 
 
 def _bare(*args: str, check: bool = True, token: str | None = None):
