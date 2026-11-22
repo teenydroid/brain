@@ -1685,6 +1685,7 @@ class AskProposer:
         """One turn. RETRY (the build turn only): one that failed is asked
         once more, TURN_RETRY_SECS later. The research and query turns are
         not: a failed one costs nothing (the build goes on without it)."""
+        screen_check(message)
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
         for attempt in range(2 if retry else 1):
@@ -1697,6 +1698,8 @@ class AskProposer:
                 raise ProposerTurnFailed(f"the proposer's turn could not start: {exc}"[:300]) from None
             if done.returncode == 0:
                 return done.stdout
+            if SCREEN_REFUSAL.search(done.stderr):
+                raise ScreenHeld(message, done.stderr.strip())
             if retry and attempt == 0:
                 say(f"candidate {request['cand']}: the proposer's turn failed "
                     f"({done.stderr.strip()[-160:]}); asking once more")
