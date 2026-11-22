@@ -4542,56 +4542,105 @@ def doctor_recheck() -> None:
         pass
 
 
-def halts_before(cfg: Config, new_generation: bool = True, scheduled: bool = True) -> list[Halt]:
-    """What stops a run before it does anything. The day's cap counts only
-    against starting a generation: finishing one a restart cut off is not
-    one more. A scheduled run is held to EVOLVE_GENERATIONS_PER_DAY, one by
-    hand to EVOLVE_MANUAL_GENERATIONS_PER_DAY, each counting its own kind.
-    A red doctor report is checked again before it counts."""
-    out = []
+def doctor_red_path() -> Path:
+    """When the doctor was first found red at a run, and is still: removed
+    once a run finds it green (`preconditions`)."""
+    return evolve_dir() / "doctor-red.json"
+
+
+def preconditions(cfg: Config, new_generation: bool = True,
+                  scheduled: bool = True) -> tuple[list[Skip], list[Problem]]:
+    """What this run must not do, and what is wrong. A Skip ends this run
+    only: the day's cap (counted only against starting a generation, so
+    finishing one a restart cut off is not one more; a scheduled run is held
+    to EVOLVE_GENERATIONS_PER_DAY, one by hand to
+    EVOLVE_MANUAL_GENERATIONS_PER_DAY), a doctor red now (checked again
+    first), J rising faster than EVOLVE_MAX_J_RISE (the window moves on by
+    itself). A Problem files its public issue: the doctor red at every run
+    for DOCTOR_RED_HOURS, the J rise, a last-good boot (which does not stop
+    the run: a generation builds from Teeny's clone of main, not the live
+    checkout). Nothing here latches."""
+    skips: list[Skip] = []
+    problems: list[Problem] = []
     red = doctor_red()
     if red:
         doctor_recheck()
         red = doctor_red()
     if red:
-        out.append(Halt("doctor", f"the last doctor report (state/doctor.json) is not green: {red}", latch=False))
+        skips.append(Skip("doctor", f"the last doctor report (state/doctor.json) is not green: {red}"))
+        since = None
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            since = _when_of(json.loads(doctor_red_path().read_text(encoding="utf-8")))
+        if since is None:
+            since = now()
+            write_json(doctor_red_path(), {"at": iso(since)})
+        hours = (now() - since) / 3600
+        if hours >= DOCTOR_RED_HOURS:
+            problems.append(Problem("doctor", "doctor", "bin/evolve: the doctor has been red for a day",
+                                    f"`bin/doctor --live` has failed at every evolve run for {hours:.0f} hours, so "
+                                    f"no generation has started since {iso(since)}.\n\n- failing checks: {red}\n\n"
+                                    "Each run checks again and starts as soon as it is green. Help wanted: which "
+                                    "check fails and why (docs/developers.md, `bin/doctor`)." + HELP_FOOTER))
+    else:
+        with contextlib.suppress(FileNotFoundError):
+            doctor_red_path().unlink()
+    fb = None
+    with contextlib.suppress(OSError, ValueError):
+        fb = json.loads(fallback_path().read_text(encoding="utf-8"))
     if fallback_path().exists():
-        out.append(Halt("fallback", "the spine booted state/last-good (state/spine-fallback.json); a person clears "
-                        "it once main boots again", latch=False))
+        fb = fb if isinstance(fb, dict) else {}
+        problems.append(Problem("fallback", "fallback", "bin/evolve: the spine booted last-good",
+                                "The spine could not boot main and fell back to state/last-good "
+                                f"(state/spine-fallback.json).\n\n- from: `{str(fb.get('from') or '?')[:12]}`\n"
+                                f"- to: `{str(fb.get('to') or '?')[:12]}`\n- at: {fb.get('at') or '?'}\n\n"
+                                "Generations go on (they build from main in Teeny's own clone). Help wanted: why "
+                                "main does not boot." + HELP_FOOTER))
     if new_generation and scheduled and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
-        out.append(Halt("generations", f"{generations_today()} scheduled generation(s) today; the most is "
-                        f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)", latch=False))
+        skips.append(Skip("generations", f"{generations_today()} scheduled generation(s) today; the most is "
+                          f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)"))
     manual = cfg["EVOLVE_MANUAL_GENERATIONS_PER_DAY"]
     if new_generation and not scheduled and generations_today(scheduled=False) >= manual:
-        out.append(Halt("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
-                        f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)", latch=False))
-    rise = j_rise(world_history(), cfg["EVOLVE_J_WINDOW_DAYS"])
+        skips.append(Skip("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
+                          f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)"))
+    window = cfg["EVOLVE_J_WINDOW_DAYS"]
+    rise = j_rise(world_history(), window)
     if rise is not None and rise > cfg["EVOLVE_MAX_J_RISE"]:
-        out.append(Halt("j-rise", f"J rose {rise:.3f} in {cfg['EVOLVE_J_WINDOW_DAYS']} day(s); the most before a "
-                        f"person looks is {cfg['EVOLVE_MAX_J_RISE']} (EVOLVE_MAX_J_RISE)", latch=True,
-                        extra={"rise": rise}))
-    return out
+        skips.append(Skip("j-rise", f"J rose {rise:.3f} in {window} day(s); the most is {cfg['EVOLVE_MAX_J_RISE']} "
+                          "(EVOLVE_MAX_J_RISE)"))
+        problems.append(Problem("j-rise", "j-rise", "bin/evolve: J is rising faster than its cap",
+                                f"J (hands/world) rose {rise:.3f} over the last {window} day(s), more than "
+                                f"EVOLVE_MAX_J_RISE ({cfg['EVOLVE_MAX_J_RISE']}). A rise that fast is more often a "
+                                "measurement gamed or broken than a better Teeny, so no new generation starts "
+                                "while it lasts; the window moves on by itself.\n\nHelp wanted: look at what merged "
+                                "in the window (`teeny/gen-*` pull requests) and at hands/world's components, and "
+                                "say whether the rise is real." + HELP_FOOTER))
+    return skips, problems
 
 
-def drift_halt(cfg: Config, cand: Mapping[str, Any]) -> Halt | None:
-    """The persona-drift halt: the candidate's answers to the persona
-    probe are further than EVOLVE_MAX_DRIFT from gen-0's. Cumulative by
-    construction, since every generation is compared with gen-0."""
+def drift_problem(cfg: Config, cand: Mapping[str, Any]) -> Problem | None:
+    """Persona drift: the candidate's answers to the persona probe are
+    further than EVOLVE_MAX_DRIFT from gen-0's. Cumulative by construction,
+    since every generation is compared with gen-0. The candidate is flagged
+    and never ships; the loop goes on."""
     probe = cand.get("probe")
     drift = probe.get("drift") if isinstance(probe, Mapping) else None
     if not isinstance(drift, (int, float)) or drift <= cfg["EVOLVE_MAX_DRIFT"]:
         return None
-    return Halt("persona-drift", f"{cand['id']}'s persona probe drifted {drift:.2f} from gen-0, over "
-                f"{cfg['EVOLVE_MAX_DRIFT']} (EVOLVE_MAX_DRIFT). A person compares the answers before it goes on.",
-                latch=True, extra={"candidate": cand["id"], "drift": drift})
+    return Problem("persona-drift", "persona-drift", "bin/evolve: a candidate's persona drifted past the cap",
+                   f"Candidate {cand['id']} ({str(cand.get('title') or 'untitled')[:120]}) answered the persona "
+                   f"probe (evals/probes/persona.toml) {drift:.2f} away from gen-0, over EVOLVE_MAX_DRIFT "
+                   f"({cfg['EVOLVE_MAX_DRIFT']}). It was flagged and opened no pull request; the rest of its "
+                   "generation went on.\n\nHelp wanted: if this repeats, the change kind (or gen-0 itself) may "
+                   "need a look." + HELP_FOOTER, judge=True)
 
 
 def file_issue(cfg: Config, key: str, kind: str, title: str, body: str, publisher: "Publisher | None",
                judge: bool = False) -> Json:
-    """One issue on EVOLVE_ISSUE_REPO for KEY, never two (state/evolve/
-    halts.jsonl remembers it until `resume`). Under DRY_RUN it says what it
-    would have opened. JUDGE: the guard's judge reads text a model wrote."""
-    seen = [r for r in read_jsonl(halts_log()) if r.get("key") == key and not r.get("resumed")]
+    """One issue on EVOLVE_ISSUE_REPO for KEY, ever (problems_log remembers
+    it; a record a former `resume` marked `resumed` does not count). Under
+    DRY_RUN it says what it would have opened. JUDGE: the guard's judge
+    reads text a model wrote."""
+    seen = [r for r in read_jsonl(problems_log()) if r.get("key") == key and not r.get("resumed")]
     entry: Json = {"key": key, "kind": kind, "at": iso(now())}
     if any(r.get("issue") or r.get("filed") for r in seen):
         entry["issue"] = "already filed"
@@ -4605,24 +4654,68 @@ def file_issue(cfg: Config, key: str, kind: str, title: str, body: str, publishe
             entry.update(filed=True, issue=opened.get("number"), url=opened.get("html_url"))
         except Exception as exc:  # noqa: BLE001 - what asked for the issue holds whether or not it opens
             entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
-    append_jsonl(halts_log(), entry)
+    append_jsonl(problems_log(), entry)
     return entry
 
 
-def stop(cfg: Config, halt: Halt, publisher: "Publisher | None") -> Json:
-    """Stops the loop on HALT: latched in state/evolve/halt.json when it
-    latches, and one issue on EVOLVE_ISSUE_REPO, never two for one halt."""
-    if halt.latch:
-        write_json(halt_path(), {"kind": halt.kind, "detail": halt.detail, "at": iso(now()), **halt.extra})
-    title = f"bin/evolve stopped: {halt.kind}"
-    then = ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
-            else "Its next scheduled run tries again; one issue a day, however often it crashes."
-            if halt.kind == "crash" else "It runs again tomorrow.")
-    body = (f"The evolve loop stopped itself.\n\n- halt: {halt.kind}\n- why: {halt.detail}\n- at: {iso(now())}\n\n"
-            + then + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
-    entry = {**file_issue(cfg, halt.key, halt.kind, title, body, publisher), "detail": halt.detail}
-    say(f"halted ({halt.kind}): {halt.detail}" + ("; its issue is already filed" if entry.get("issue") == "already filed"
-                                                   else ""))
+def _issue_open(publisher: "Publisher", repo: str, number: int) -> bool:
+    """Whether issue NUMBER is still open; True when that cannot be asked."""
+    ask = getattr(publisher, "issue_state", None)
+    if ask is None:
+        return True
+    try:
+        return str(ask(repo, number) or "open").lower() != "closed"
+    except Exception:  # noqa: BLE001 - an unanswered question keeps the issue we have
+        return True
+
+
+def raise_problem(cfg: Config, problem: Problem, publisher: "Publisher | None") -> Json:
+    """PROBLEM's public issue on EVOLVE_ISSUE_REPO, one per key while it is
+    open: the first time it opens (labelled PROBLEM_LABELS), later it is
+    commented on at most once a day with the new body, and once a person
+    closes it the next one opens a new issue. The loop never waits on it.
+    problems_log keeps the key and the issue, never the body. Under DRY_RUN
+    it says what it would have done."""
+    repo = cfg["EVOLVE_ISSUE_REPO"]
+    entry: Json = {"key": problem.key, "kind": problem.kind, "at": iso(now())}
+    seen = [r for r in read_jsonl(problems_log()) if r.get("key") == problem.key and not r.get("resumed")]
+    numbers = [r["issue"] for r in seen if isinstance(r.get("issue"), int)]
+    if dry_run():
+        entry["dry_run"] = True
+        if numbers:
+            entry["would_comment"] = {"repo": repo, "issue": numbers[-1]}
+        else:
+            entry["would_open_issue"] = {"repo": repo, "title": problem.title}
+    elif publisher is None:
+        entry["issue_error"] = "no publisher"
+    else:
+        try:
+            if numbers and _issue_open(publisher, repo, numbers[-1]):
+                number = numbers[-1]
+                entry.update(issue=number, url=next((r.get("url") for r in reversed(seen) if r.get("issue") == number
+                                                     and r.get("url")), None))
+                if any(r.get("issue") == number and str(r.get("at", "")).startswith(day(now())) for r in seen):
+                    entry["update"] = "already told today"
+                else:
+                    publisher.comment_issue(repo, number, f"Again, at {iso(now())}:\n\n{problem.body}",
+                                            judge=problem.judge)
+                    entry["update"] = "commented"
+            else:
+                opened = publisher.open_issue(repo, problem.title, problem.body, judge=problem.judge)
+                entry.update(filed=True, issue=opened.get("number"), url=opened.get("html_url"))
+                label = getattr(publisher, "label_issue", None)
+                if label is not None and isinstance(entry["issue"], int):
+                    try:
+                        label(repo, entry["issue"], list(PROBLEM_LABELS))
+                        entry["labelled"] = True
+                    except Exception:  # noqa: BLE001 - the issue is open either way; its title says what it is
+                        entry["labelled"] = False
+        except Exception as exc:  # noqa: BLE001 - the problem is told whether or not GitHub answers
+            entry["issue_error"] = str(getattr(exc, "reason", None) or exc)[:300]
+    append_jsonl(problems_log(), entry)
+    where = f"issue #{entry['issue']}" if isinstance(entry.get("issue"), int) else "its issue"
+    say(f"problem ({problem.kind}): {where}" + (f", {entry['update']}" if entry.get("update") else "")
+        + (f" (failed: {entry['issue_error']})" if entry.get("issue_error") else ""))
     return entry
 
 
@@ -4642,17 +4735,6 @@ def frozen_issue(cfg: Config, cand: Mapping[str, Any], where: str, note: str, pu
                "bin/evolve will not ask about this learning again until its text changes."))
     return file_issue(cfg, f"frozen:{learning['id']}:{learning['hash']}", "frozen-learning", title, body, publisher,
                       judge=True)
-
-
-def resume() -> Json:
-    latched = None
-    if halt_path().exists():
-        latched = json.loads(halt_path().read_text(encoding="utf-8"))
-        halt_path().unlink()
-    for rec in read_jsonl(halts_log()):
-        if not rec.get("resumed"):
-            append_jsonl(halts_log(), {**rec, "resumed": True, "resumed_at": iso(now())})
-    return {"resumed": True, "was": latched}
 
 
 # --- publishing ----------------------------------------------------------------------------------------------------
