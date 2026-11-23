@@ -330,7 +330,7 @@ command = "bin/surplus-sweep"
 # the mind's rent_review. Skipped without RENTAHUMAN_API_KEY. Operator-owned:
 # a hire spends money already held for the bounty.
 [jobs.rent-poll]
-schedule = "7-59/15 * * * *"
+schedule = "4-59/15 * * * *"
 command = "bin/rent-poll"
 
 # Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
