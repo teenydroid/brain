@@ -498,7 +498,7 @@ def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
         return
     cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
     sent = conn.execute(
-        "SELECT count(*) FROM x_posts WHERE kind = 'post' AND created_at >= ?", (day_start,)
+        f"SELECT count(*) FROM x_posts WHERE {LANE_ROWS['post']} AND created_at >= ?", (day_start,)
     ).fetchone()[0]
     if sent >= cap:
         raise hand.Refused(
