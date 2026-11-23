@@ -247,6 +247,26 @@ class DreamTest(unittest.TestCase):
             # Only the night may run the lab.
             self.assertEqual('"op": "experiment"' in message, not light)
 
+    def test_a_dream_sees_what_worked_on_x(self):
+        # Until 2026-11-23 a dream saw Moltbook's results by format and
+        # nothing of X's, where most of Teeny's writing goes.
+        from teeny_hands.x import metrics as x_metrics
+        from teeny_hands.x import posting_rules
+
+        conn = x_metrics.db()
+        posting_rules.record_post(conn, "1", "post", "a studio picture", created_at=T0 - 86400, format="image",
+                                  producer="studio")
+        conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes,"
+                     " impressions) VALUES ('1', 24, ?, 20, 1, 1, 0, 300)", (T0,))
+        conn.commit()
+        conn.close()
+        self.answer({"ops": [], "diary": "d"})
+        self.assertTrue(self.dream()["ok"])
+        message = self.message()
+        self.assertIn("## x: what worked and what flopped", message)
+        self.assertIn("X by kind/producer, last 7d: post/studio n=1 avg views 300 eng 22", message)
+        self.assertIn('X best original, last 14d: 22 eng, 300 views', message)
+
     def test_a_dream_hears_what_came_of_the_merged_evolve_changes(self):
         # bin/evolve watch scores each merged change's check after the merge
         # (bin/lib/evolve_outcomes.py); the dream is where Teeny hears it.

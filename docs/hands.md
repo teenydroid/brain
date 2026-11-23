@@ -3532,8 +3532,8 @@ is scored is not Teeny's to change.
 
 | Verb | | Does |
 |---|---|---|
-| `propose [--source S]` | A | `{surface: x\|moltbook, hypothesis, format, metric?, posts, deadline_days \| deadline: YYYY-MM-DD}`. The hypothesis is one line, at most 300 characters. Refused: `too_many_open` at 5 open, `duplicate` while another open experiment tests the same format on the same surface. |
-| `score [--id N]` | J | For each open experiment (or one): its measured writes between the proposal and the deadline (`n`, `avg`) against the surface's other measured writes of the same kinds in the same period (`baseline_n`, `baseline_avg`), from the rows `hands/stats board` reads. Recorded on the row. `due` once the planned posts are measured or the deadline has passed. |
+| `propose [--source S]` | A | `{surface: x\|moltbook, hypothesis, format, metric?, posts, deadline_days \| deadline: YYYY-MM-DD}`. The hypothesis is one line, at most 300 characters. Refused: `too_many_open` at 5 open, `duplicate` while another open experiment tests the same format on the same surface. Expires first (below), in a transaction of its own, so a refusal never undoes it; what it concluded comes back as `expired`. |
+| `score [--id N]` | J | For each open experiment (or one): its measured writes between the proposal and the deadline (`n`, `avg`) against the surface's other measured writes of the same kinds in the same period (`baseline_n`, `baseline_avg`), from the rows `hands/stats board` reads. Recorded on the row. `due` once the planned posts are measured or the deadline has passed. Expires first (below) and returns what it concluded as `expired`. |
 | `conclude` | A | `{id, verdict: works\|fails\|unclear, lesson}`, the lesson one line of at most 200 characters. Scores the experiment once more first. `works` or `fails` is refused (`too_few_posts`) until the planned posts are measured; `unclear` is always allowed. Refused: `concluded`, `unknown`. |
 | `list [--status open\|concluded\|all] [--limit N]` | R | The experiments, newest first, open ones by default, each open one with its numbers as of now (computed, not stored) and `due`. |
 | `lessons [--max N]` | R | The concluded experiments' lessons, newest first (10, at most 20), with verdict and numbers. |
@@ -3544,6 +3544,27 @@ intents (`MIND_EXPERIMENTS_PER_DAY`, default 2, at most 5;
 night dream's `experiment` and `conclude` operations (`--source dream`),
 and the `speculate` playbook's inputs (`list`, `lessons`). `self-improve`
 and the evolve loop's evidence read `lessons`.
+
+**Expiry.** The lab cannot wedge. Before `score`, and before `propose`
+counts the open experiments, every open experiment that can no longer teach
+anything is concluded `unclear` with a lesson starting `auto:` that says
+why: one `STALE_DAYS` (5) old that no post ever carried ("no post carried
+the `<format>` tag in N days"), one past its deadline short of its planned
+posts (posts after the deadline are never counted), and one past its
+deadline by `GRACE_DAYS` (2) that had its posts but got no verdict. On
+2026-11-23 five open experiments with no posts between them had refused
+every proposal for a week (`too_many_open`) and no dream had concluded one.
+
+**Who fills one.** Each writer tags its own posts. The studio owns X's
+originals: every run asks `list` for the oldest open X experiment still
+short of its posts and not due, asks the writer to write about half its
+posts to test it, marked `"experiment": <id>`, and passes the mark to
+`hands/x` on the post it publishes (`bin/lib/studio.py`,
+`open_x_experiment`); the editor ranks blind and never sees the mark. The
+mind tags its own: `reply_x` and `comment_moltbook` carry `format` and
+`experiment` to the hand as `post_x` and `post_moltbook` always did (until
+2026-11-23 the beat dropped them, which is how experiments 2 and 4 died
+with no post tagged).
 
 ## `call`: the key proxy
 

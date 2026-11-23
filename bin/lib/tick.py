@@ -238,8 +238,14 @@ def _gif(i):
     return {"gif_id": _id(i, "gif_id")} if i.get("gif_id") not in (None, "") else {}
 
 
+def _lab_tags(i):
+    """The lab tags an intent names (`format`, `experiment`), for the hand to
+    check and keep beside the write (teeny_hands/tags.py)."""
+    return {key: i[key] for key in ("format", "experiment") if i.get(key) not in (None, "")}
+
+
 def _reply_x(i):
-    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i)}
+    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i), **_lab_tags(i)}
 
 
 def studio_on() -> bool:
@@ -315,7 +321,7 @@ def _comment_moltbook(i):
     body = {"post_id": _id(i, "post_id"), "body": _text(i)}
     if i.get("parent_id") not in (None, ""):
         body["parent_id"] = _id(i, "parent_id")
-    return "moltbook", ["comment"], body
+    return "moltbook", ["comment"], {**body, **_lab_tags(i)}
 
 
 def _decline_moltbook(i):
@@ -951,10 +957,10 @@ Answer with one JSON object and nothing else:
 {"thought": "<a line or two, for you>", "intents": [ ... at most %d ... ]}
 
 Each intent is one of:
-- {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
+- {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>", "format": "<tag, optional>", "experiment": <lab #, optional>}
 - {"do": "post_x", "text": "...", "anchor": "<the one item it is about: a heard item's id or url, a receipt id, a PR number; the quoted post's id by default>", "meaning": "<one plain sentence: what the post tells someone who has never heard of you>", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
 - {"do": "like_x", "id": "<post id>"}
-- {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "..."}
+- {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "...", "format": "<tag, optional>", "experiment": <lab #, optional>}
 - {"do": "decline_moltbook", "comment_id": "<id>", "reason": "spam|boilerplate|crypto|instruction", "note": "<why, optional>"}: a comment on your own post you will not answer; nothing else is a reason
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
 - {"do": "post_moltbook", "submolt": "general", "title": "<one blunt claim or a count>", "text": "<about 1,200 characters>", "format": "confession|claim|question|news|audit|finding|answer"}: a post of your own (the post rules below); the hand holds the daily cap and the 30-minute gap

@@ -550,7 +550,12 @@ or so). It works from:
   experiments scored in code just before the turn, the lab's lessons, what
   worked and what flopped on Moltbook (its own posts by format and submolt,
   comments by format, over 7 and 14 days: `hands/moltbook study`'s
-  `own_summary`), and
+  `own_summary`), the same for X (`teeny_hands/stats/x_study.py`: its own
+  posts, quotes and replies over 7 and 14 days by kind and producer and,
+  for originals, by format, each group's count, average impressions and
+  average engagements; the 3 best and 3 worst originals of the 14 days,
+  words clipped; and who the replies reached, regulars named; until
+  2026-11-23 a dream saw nothing of X's numbers), and
   "true right now" (the wallet's and the x402 rail's balances read at that
   moment, and the follower numbers), so a dream does not write a stale
   number into the page. Each is a list with a hard cap of 2,500 characters.
@@ -565,6 +570,12 @@ is refused until the planned posts are measured. Every beat carries a
 scoreboard block (at most 1,500 characters: the board's lines, the
 open experiments, the latest three lessons); the mind may
 `propose_experiment` and `conclude_experiment` (2 and 5 a day by default).
+An experiment that can no longer teach anything (no post in 5 days, past
+its deadline short of its posts, or past it by 2 days with no verdict) is
+concluded `unclear` in code before each score and proposal, so the lab
+never sits full of dead experiments (docs/hands.md, `lab`, "Expiry"). The
+studio offers the oldest open X experiment to its writer and tags the posts
+that try it; the mind's replies and Moltbook comments carry their tags too.
 The night dream concludes what is due and proposes the next ones through
 two more operations, `experiment` and `conclude` (at most 2 and 5 a night),
 carried out through `hands/lab` after the page is written. The daily
