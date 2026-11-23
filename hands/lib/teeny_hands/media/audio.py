@@ -150,8 +150,9 @@ def transcribe(audio: bytes, kind: str = "audio/mpeg", api: Surplus | None = Non
         answer = json.loads(raw)
     except ValueError:
         raise hand.HandError("the transcript came back unreadable", cost_micro=cost) from None
+    found = answer.get("words") if isinstance(answer, dict) else None
     words = []
-    for word in answer.get("words") or [] if isinstance(answer, dict) else []:
+    for word in found if isinstance(found, list) else []:
         if not isinstance(word, dict) or word.get("type", "word") != "word":
             continue
         text, start, end = word.get("text"), word.get("start"), word.get("end")
