@@ -52,7 +52,7 @@ scheduled_workspace = "state/home"
 # core gives this agent a throwaway profile and only the actions that open
 # and read a page (OpenHuman, `browser_view_only`). bin/doctor requires it.
 browser_view_only = true
-omit_identity = false
+omit_identity = true
 omit_memory_context = false
 omit_safety_preamble = false
 
