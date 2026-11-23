@@ -7,10 +7,12 @@ dream leaves a snapshot of the page for the public diary (bin/lib/diary_memory.p
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -34,6 +36,9 @@ if method == "memory_forget":
 with open(os.environ["FAKE_CALLS"], "a") as fh:
     fh.write(json.dumps(row) + "\n")
 if method == "inference_agent_chat":
+    if os.environ.get("FAKE_TURN_SLEEP"):
+        import time
+        time.sleep(float(os.environ["FAKE_TURN_SLEEP"]))
     with open(os.environ["FAKE_CALLS"]) as fh:
         n = sum(1 for line in fh if '"inference_agent_chat"' in line)
     path = os.environ["FAKE_ANSWER"]
@@ -112,7 +117,7 @@ class DreamTest(unittest.TestCase):
             FAKE_ITEMS=str(self.items),
             CALENDAR_TZ="UTC",
         )
-        for key in ("TEENY_DREAM_THREAD", "TEENY_REFLECT_THREAD"):
+        for key in ("TEENY_DREAM_THREAD", "TEENY_REFLECT_THREAD", "FAKE_TURN_SLEEP"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
 
@@ -442,6 +447,53 @@ class DreamTest(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         self.assertNotIn("## what your memory holds", self.message())
 
+
+    def _stopped_mid_turn(self, sig: int) -> tuple[dict, float]:
+        """A dream stopped by `sig` while its turn is still out: what it said,
+        and how long its turn's processes outlived it."""
+        os.environ["FAKE_TURN_SLEEP"] = "30"
+        self.answer({"ops": [], "diary": "d"})
+        proc = subprocess.Popen([str(REPO / "bin" / "dream")], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=os.environ, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not (self.calls.exists() and "inference_agent_chat" in self.calls.read_text()):
+                time.sleep(0.05)
+            time.sleep(0.3)
+            os.kill(proc.pid, sig)
+            out, _ = proc.communicate(timeout=20)
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        started = time.monotonic()
+        alive = subprocess.run(["pgrep", "-f", str(self.scratch / "fake-oh")], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(alive, "", "the turn outlived the dream")
+        return json.loads(out.strip().splitlines()[-1]), time.monotonic() - started
+
+    def test_a_dream_stopped_mid_turn_still_says_so(self):
+        # 2026-11-23 08:30 UTC: the midday dream started (pid 9914) and its
+        # log never got a result line, so nobody could tell what became of it.
+        got, _ = self._stopped_mid_turn(signal.SIGTERM)
+        self.assertFalse(got["ok"])
+        self.assertIn("SIGTERM", got["error"])
+        with hand.lock("reflect", timeout=1):  # the lock went with it
+            pass
+
+    def test_a_dream_past_its_deadline_says_so_and_ends_its_turn(self):
+        got, _ = self._stopped_mid_turn(signal.SIGALRM)
+        self.assertFalse(got["ok"])
+        self.assertIn("deadline", got["error"])
+
+    def test_an_unexpected_error_in_a_dream_is_still_reported(self):
+        self.answer({"ops": [], "diary": "d"})
+        (self.brain / "MEMORY.md").unlink()
+        (self.brain / "MEMORY.md").mkdir()  # a page that cannot be read: IsADirectoryError
+        proc = subprocess.run([str(REPO / "bin" / "dream")], capture_output=True, text=True, env=os.environ)
+        got = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["error"])
 
 if __name__ == "__main__":
     unittest.main()
