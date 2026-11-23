@@ -62,10 +62,9 @@ broker gives it one read-only view of them, `bin/teeny pulse`
   was read (`read_at`), and where it stood about a day and a week before
   that reading (`day_before`, `week_before`) with the change
   (`change_1d`, `change_7d`), null when no snapshot is that old, whatever
-  the pulse's window. It is the
-  stats board's own reading (`hands/lib/teeny_hands/stats/board.py`),
-  numbers only. With nothing recorded yet it is an empty list and
-  `audience_unread` says why.
+  the pulse's window. It is the stats board's own reading
+  (`hands/lib/teeny_hands/stats/board.py`), numbers only. With nothing
+  recorded yet it is an empty list and `audience_unread` says why.
 
 The window is one day unless the mind asks for up to seven. The call reads
 two local stores, reaches no hand, spends no cap, and leaves one ledger
