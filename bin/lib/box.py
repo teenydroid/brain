@@ -19,11 +19,14 @@ user. What makes that safe is the jail (bin/lib/jail.py):
               the rest of state/; change the mode, owner or times of a
               file by its path; with Landlock 6 or newer, signal a process
               outside the jail
-  network     TCP to the broker's port only (BROKER_PORT) and no other
-              socket: no DNS, UDP, unix socket, listening or io_uring.
-              A Landlock port rule does not name the address, so that
-              one port is reachable on any host. A tool reads the web
-              through the broker: `"$TEENY_CLI" fetch '{"url": ...}'`
+  network     the host's, as the mind's shell has it. With BOX_NETWORK=0
+              in secrets/teeny.env it is closed instead: TCP to the
+              broker's port only (BROKER_PORT) and no other socket (no
+              DNS, UDP, unix socket, listening or io_uring), and a tool
+              then reads the web through the broker:
+              `"$TEENY_CLI" fetch '{"url": ...}'`. A Landlock port rule
+              does not name the address, so even closed, that one port
+              is reachable on any host
 
 A tool acts on the world the way the mind does, through the broker:
 `"$TEENY_CLI" do '{...}'`. The guard, the caps, MIND_DRY_RUN and the box's
@@ -180,12 +183,19 @@ def broker_port() -> int | None:
     return hand.number("BROKER_PORT", DEFAULT_BROKER_PORT, 0, 65535) or None
 
 
-def _jailed(folder: Path, readable: list[Path], port: int | None):
+def network_closed() -> bool:
+    """Whether the operator closed a tool's network (BOX_NETWORK=0). Open
+    is the default: a tool holds no key either way, and what it says as
+    Teeny goes through the broker and the guard."""
+    return not hand.flag("BOX_NETWORK", True)
+
+
+def _jailed(folder: Path, readable: list[Path], ports: tuple[int, ...] | None):
     def enter() -> None:
         os.setsid()
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        jail.enter(ro=readable, rw=[folder], protect=protected(), tcp_connect=() if port is None else (port,))
+        jail.enter(ro=readable, rw=[folder], protect=protected(), tcp_connect=ports)
     return enter
 
 
@@ -280,9 +290,10 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     path = entry(name)
     if path is None:
         return 2, {"ok": False, "error": f"no tool home/tools/{name}/ with a run file"}
-    if not jail.available(network=True):
+    closed = network_closed()
+    if not jail.available(network=closed):
         return 1, {"ok": False, "error": f"no jail on this kernel (landlock version {jail.abi()}, "
-                                         f"needs {jail.NET_ABI}): nothing was run"}
+                                         f"needs {jail.NET_ABI if closed else jail.MIN_ABI}): nothing was run"}
     folder = hand.state_dir() / "box" / "tools" / name
     (folder / "tmp").mkdir(parents=True, exist_ok=True)
     home = hand.state_dir() / "home"
@@ -292,10 +303,11 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     readable = [p for p in readable if p != Path("/") and p != Path.home()]
     try:
         jail.check_grants(jail.grants(readable, [folder]), protected())
-        jail._filter(network=True)
+        jail._filter(network=closed)
     except jail.Unavailable as exc:
         return 1, {"ok": False, "error": f"{exc}: nothing was run"}
     port = broker_port()
+    ports = (() if port is None else (port,)) if closed else None
     env = {"PATH": PATH, "HOME": str(folder), "TMPDIR": str(folder / "tmp"), "LANG": "C.UTF-8",
            "TEENY_BOX": name, "TEENY_CLI": str(home / "bin" / "teeny"), "TEENY_TOOL_DIR": str(path.parent)}
     limit = hand.number("BOX_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS, 1, MAX_TIMEOUT_SECS)
@@ -353,16 +365,19 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
 
 
 def check() -> tuple[int, Json]:
-    """For bin/doctor: with BOX=1, the jail must exist, network rule and all."""
+    """For bin/doctor: with BOX=1, the jail must exist, and with
+    BOX_NETWORK=0 its network rule too."""
     version = jail.abi()
+    closed = network_closed()
+    needs = jail.NET_ABI if closed else jail.MIN_ABI
     try:
-        jail._filter(network=True)
+        jail._filter(network=closed)
         jail.check_grants(jail.grants([hand.root() / "home"]), protected())
-        problem = None if version >= jail.NET_ABI else f"landlock version {version}, needs {jail.NET_ABI}"
+        problem = None if version >= needs else f"landlock version {version}, needs {needs}"
     except jail.Unavailable as exc:
         problem = str(exc)
     ok = not enabled() or problem is None
-    answer: Json = {"ok": ok, "enabled": enabled(), "landlock": version, "needs": jail.NET_ABI,
+    answer: Json = {"ok": ok, "enabled": enabled(), "landlock": version, "needs": needs, "network": "closed" if closed else "open",
                     "signals_scoped": version >= 6, "broker_port": broker_port(), "tools": tools()}
     if problem:
         answer["problem"] = problem
