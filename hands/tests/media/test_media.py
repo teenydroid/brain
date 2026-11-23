@@ -118,7 +118,7 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(reference, (self.root / "brain/assets/teeny-reference.png").read_bytes())
         self.assertIn("Keep Teeny exactly as in the reference", body["prompt"])
         self.assertIn("waving at the desk", body["prompt"])
-        self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
+        self.assertEqual(out["model"], "qwen-edit-uncensored")
         self.assertEqual((self.root / out["path"]).read_bytes(), PNG)
         self.assertTrue(out["path"].startswith("state/media/"))
 
@@ -165,7 +165,7 @@ class MediaTest(unittest.TestCase):
                          (self.root / "brain/assets/teeny-reference.png").read_bytes())
         self.assertEqual(base64.b64decode(body["images"][1].split(",", 1)[1]), PNG)
         self.assertIn("photo 2 is Sam Altman", body["prompt"])
-        self.assertEqual(out["asset"]["model"], "gpt-image-2-5-flare-edit")
+        self.assertEqual(out["asset"]["model"], "qwen-edit-uncensored")
 
     def test_a_private_person_is_never_drawn(self):
         # 2026-11-23: a fan whose post a story quoted was named in a scene.
@@ -203,11 +203,11 @@ class MediaTest(unittest.TestCase):
     def test_a_sellers_content_refusal_falls_to_the_next_model(self):
         # 2026-11-23: the first model's filter turned down three of ten scenes
         # with a famous person in them, and each cost the post its picture.
-        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError(
+        self.api.fail["qwen-edit-uncensored"] = SurplusError(
             "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider.", 400)
         out = self.image()["asset"]
-        self.assertEqual(out["model"], "nano-banana-2-1-edit")
-        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "nano-banana-2-1-edit"])
+        self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"), ["qwen-edit-uncensored", "gpt-image-2-5-flare-edit"])
 
     def test_a_photo_that_could_not_be_fetched_is_tried_again_next_time(self):
         # 2026-11-23: the photo host answered 429 for full-size originals, and
@@ -241,16 +241,16 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(self.api.models("/v1/images/edits"), [])
 
     def test_a_seller_that_cannot_take_it_falls_to_the_next_model(self):
-        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError("Surplus answered 503: no healthy sellers", 503)
+        self.api.fail["qwen-edit-uncensored"] = SurplusError("Surplus answered 503: no healthy sellers", 503)
         out = self.image()["asset"]
-        self.assertEqual(out["model"], "nano-banana-2-1-edit")
-        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "nano-banana-2-1-edit"])
+        self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"), ["qwen-edit-uncensored", "gpt-image-2-5-flare-edit"])
 
     def test_a_bad_request_does_not_burn_through_every_model(self):
-        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError("Surplus answered 402: insufficient credit", 402)
+        self.api.fail["qwen-edit-uncensored"] = SurplusError("Surplus answered 402: insufficient credit", 402)
         with self.assertRaises(hand.HandError):
             self.image()
-        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit"])
+        self.assertEqual(self.api.models("/v1/images/edits"), ["qwen-edit-uncensored"])
 
     def test_images_stop_at_the_daily_count(self):
         self.env(MEDIA_IMAGE_MAX_PER_DAY=2)

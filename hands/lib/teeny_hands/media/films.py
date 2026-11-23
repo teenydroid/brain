@@ -62,11 +62,15 @@ WEEK = 7 * 86400
 TEENY_MODELS = "venice-seedance-2-5-image-to-video-basic,seedance-2-0-mini-image-to-video"
 FIGURE_MODELS = "venice-wan-3-0-image-to-video,venice-kling-v4-image-to-video"
 PLATE_MODELS = "gpt-image-2-edit,nano-banana-pro-edit"
+#: The clip fields sent when FILM_PARAMS is empty: the resolution
+#: (FILM_RESOLUTION, 720p), on the models a paid render showed take it. Sent
+#: nothing, they make 1080p, whose ceiling is over a clip's cap (f65).
+DEFAULT_PARAMS = {m: {"resolution": "{resolution}"} for m in (
+    "venice-wan-3-0-image-to-video", "venice-seedance-2-5-image-to-video-basic", "seedance-2-0-mini-image-to-video")}
 #: What a film's score is told beyond the writer's own line.
 SCORE_TAIL = "comic, cinematic, builds to a big finish"
 #: Each sound effect's length, and how far apart a beat's effects fall.
-SFX_SECONDS = 2.0
-SFX_STEP = 1.0
+SFX_SECONDS = narration.SFX_SECONDS
 PLATE_MAX_BYTES = 20 * 1024 * 1024
 STEPS = ("narration", "score", "effects", "plates", "clips", "cut")
 
@@ -222,10 +226,15 @@ def score(conn, manifest: Json, api: Surplus) -> None:
 def effects(conn, manifest: Json, api: Surplus) -> None:
     placed = []
     windows = {b["id"]: b for b in manifest["clock"]["beats"]}
+    lines = {p["beat"]: p for p in manifest["clock"]["pieces"]}
     for beat in manifest["film"]["beats"]:
         window = windows[beat["id"]]
+        line = lines.get(beat["id"])
+        # In the silence the clock left after the line (or from the top of
+        # a beat with no line), one after another: never over a word.
+        first = line["at"] + line["to"] - line["from"] if line else window["t0"]
         for k, cue in enumerate(beat.get("sfx") or []):
-            at = window["t0"] + min((window["t1"] - window["t0"]) / 2 + k * SFX_STEP, window["t1"] - window["t0"])
+            at = first + k * SFX_SECONDS
             got = _audio_step(conn, manifest, "effect", cue, _usd("FILM_MAX_USD_EFFECT", "0.10"),
                               lambda cue=cue: audio.sound(cue, SFX_SECONDS, api=api), f"sfx-{beat['id']}-{k}.mp3")
             placed.append({**got, "beat": beat["id"], "at": round(at, 3)})
@@ -244,16 +253,26 @@ def plate_prompt(film: Json, beat: Json) -> str:
             "captions, signs or watermarks anywhere.").replace("  ", " ")
 
 
+#: The still's size for each aspect, on the models that take one (the GPT
+#: Image sizes): the clip follows its still, so a still the wrong shape is a
+#: clip cropped to half of it.
+PLATE_SIZES = {"16:9": "1536x1024", "1:1": "1024x1024", "9:16": "1024x1536"}
+
+
 def _plate_body(model: str, film: Json, beat: Json, portraits: list[Json]) -> Json:
     prompt = plate_prompt(film, beat)
     if beat["subject"] == "teeny":
         reference = assets._data_uri(hand.root() / (hand.setting("MEDIA_REFERENCE") or assets.REFERENCE))
-        return assets._edit_body(model, prompt, reference, [])
-    who = "; ".join(f"photo {i + 1} is {p['name']}" for i, p in enumerate(portraits))
-    return {"model": model, "response_format": "b64_json",
-            "prompt": f"{who}. Draw each of them from their photo as an exaggerated editorial caricature, "
-                      f"unmistakably that person. {prompt}",
-            "images": [assets._data_uri(p["path"]) for p in portraits]}
+        body = assets._edit_body(model, prompt, reference, [])
+    else:
+        who = "; ".join(f"photo {i + 1} is {p['name']}" for i, p in enumerate(portraits))
+        body = {"model": model, "response_format": "b64_json",
+                "prompt": f"{who}. Draw each of them from their photo as an exaggerated editorial caricature, "
+                          f"unmistakably that person. {prompt}",
+                "images": [assets._data_uri(p["path"]) for p in portraits]}
+    if model.startswith("gpt-image") and film.get("aspect") in PLATE_SIZES:
+        body["size"] = PLATE_SIZES[film["aspect"]]
+    return body
 
 
 def plates(conn, manifest: Json, api: Surplus) -> None:
@@ -310,7 +329,7 @@ def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monot
     made = manifest.setdefault("clips", {})
     per_clip = min(_usd("FILM_MAX_USD_PER_CLIP", "5.00"), max(0, _left(conn, manifest["id"])))
     plan = _plan(windows, per_clip)
-    job_params = _shots.params("FILM_PARAMS")
+    job_params = _shots.params("FILM_PARAMS") or DEFAULT_PARAMS
     sold = _shots.lengths(api)
     wait = hand.number("FILM_WAIT_SECONDS", 1800, 300, 5400)
     deadline = clock() + wait
@@ -328,11 +347,21 @@ def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monot
             shot = _shots._Shot(n, kept["row"], prompt, seconds, [], name=beat["id"], image=assets._data_uri(plate))
             shot.job, shot.model, shot.cost = kept["job"], kept.get("model"), kept.get("reserved", per_clip)
         else:
-            row = _row(conn, manifest["id"], "shot", prompt, per_clip)
+            cap = min(per_clip, max(0, _left(conn, manifest["id"])))
+            try:
+                row = _row(conn, manifest["id"], "shot", prompt, cap)
+            except hand.Refused as exc:
+                made[beat["id"]] = {"still": True, "why": str(exc)[:300]}
+                save(manifest)
+                continue
             shot = _shots._Shot(n, row, prompt, seconds, models, name=beat["id"], image=assets._data_uri(plate),
-                                cap=per_clip)
+                                cap=cap)
             if not _shots.submit(api, conn, manifest["id"], shot, film["aspect"], plan, job_params, sold):
                 shot.failed = "no model could take it: " + "; ".join(shot.tried)
+                # Its hold goes back now, with why, so the beats after it
+                # still have the film's money (f65: two refused figures held
+                # $10 and the third clip was refused for budget).
+                _shots._end_shots(conn, [shot])
         made[beat["id"]] = {"row": shot.row, "job": shot.job, "model": shot.model, "reserved": shot.cost}
         save(manifest)
         going.append(shot)

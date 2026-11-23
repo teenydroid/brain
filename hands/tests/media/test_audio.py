@@ -60,7 +60,9 @@ class FakeSurplus:
         raise AssertionError(f"unexpected send {path}")
 
 
-class AudioTest(unittest.TestCase):
+class AudioCase(unittest.TestCase):
+    """A box of its own (secrets/teeny.env, not dry) and a fake Surplus."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
@@ -83,6 +85,9 @@ class AudioTest(unittest.TestCase):
         path.write_text(path.read_text() + "".join(f"{k}={v}\n" for k, v in values.items()))
         hand._ENV_CACHE = None
 
+
+
+class AudioTest(AudioCase):
     def test_the_characters_times_become_words(self):
         words = audio.words_of(alignment("big  fart\nnow"))
         self.assertEqual([w["text"] for w in words], ["big", "fart", "now"])
@@ -104,7 +109,8 @@ class AudioTest(unittest.TestCase):
         sent = self.api.sent[0]
         self.assertEqual(sent["path"], f"{audio.ROUTE}/text-to-speech/{audio.VOICE}/with-timestamps"
                                        "?output_format=mp3_44100_128")
-        self.assertEqual(sent["body"], {"text": "i will now unveil the toilet", "model_id": "eleven_v3"})
+        self.assertEqual(sent["body"], {"text": "i will now unveil the toilet", "model_id": "eleven_v3",
+                                        "voice_settings": {"stability": 0.0}})
 
     def test_a_voice_model_refused_for_itself_falls_to_the_next(self):
         self.api.fail["eleven_v3"] = SurplusError("Surplus answered 404: no sellers", 404)
@@ -275,6 +281,79 @@ class SendTest(unittest.TestCase):
         with self.assertRaises(SurplusError) as caught:
             self.api.send("/x", {"x": 1}, limit=10)
         self.assertEqual(caught.exception.cost_micro, 1500)
+
+
+class CutShortTest(unittest.TestCase):
+    """An answer the connection cuts short (http.client.IncompleteRead, not an
+    OSError) is a SurplusError the callers fall back on, never an uncaught
+    error that stops a film (f65, 2026-11-24: a still's answer cut at 56 KB)."""
+
+    def setUp(self):
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def _short(self):
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", "100000")
+                self.end_headers()
+                self.wfile.write(b'{"data": [{"b64_json": "aaaa')
+                self.wfile.flush()
+                self.close_connection = True
+
+            do_GET = do_POST = _short
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.api = Surplus(key="k", base=self.base)
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def test_a_call_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError) as caught:
+            self.api.call("POST", "/v1/images/edits", {"x": 1})
+        self.assertIsNone(caught.exception.status)
+
+    def test_a_send_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError):
+            self.api.send("/v1/resources/elevenlabs/v1/music", {"x": 1})
+
+    def test_a_download_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError):
+            self.api.download(self.base + "/file.png", 1024 * 1024)
+
+
+class ExpressionTest(AudioCase):
+    """f99's narration was flat: no voice settings, and no way to direct the
+    read. v3 is asked for its most expressive read and takes [tags]; the
+    tags are never words, never captions, and never read aloud by a model
+    that does not know them."""
+
+    def test_v3_gets_the_tags_and_an_expressive_read(self):
+        got = audio.speak("[gasps] look at all those cores.", api=self.api)
+        body = self.api.sent[-1]["body"]
+        self.assertEqual(body["text"], "[gasps] look at all those cores.")
+        self.assertEqual(body["voice_settings"]["stability"], 0.0)
+        self.assertNotIn("[gasps]", [w["text"] for w in got["words"]])
+
+    def test_a_model_without_tags_never_reads_them_aloud(self):
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 404: model eleven_v3 has no sellers", 404)
+        audio.speak("[whispers] it is very hot in here.", api=self.api)
+        body = self.api.sent[-1]["body"]
+        self.assertEqual(body["model_id"], "eleven_multilingual_v2")
+        self.assertEqual(body["text"], "it is very hot in here.")
+
+    def test_a_tag_in_the_alignment_is_not_a_word(self):
+        text = "[laughs] welcome back"
+        chars = list(text)
+        words = audio.words_of({"characters": chars,
+                                "character_start_times_seconds": [i * 0.1 for i in range(len(chars))],
+                                "character_end_times_seconds": [(i + 1) * 0.1 for i in range(len(chars))]})
+        self.assertEqual([w["text"] for w in words], ["welcome", "back"])
 
 
 if __name__ == "__main__":
