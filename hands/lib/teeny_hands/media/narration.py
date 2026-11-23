@@ -40,6 +40,10 @@ HOLD = 3.0
 HOLD_RANGE = (1.0, 8.0)
 #: The most a single beat may run: the longest single take any of the film
 #: models sells (Seedance 2.5 and Wan 3 top out at 15 s).
+#: How long each sound effect plays. A beat's effects play one after another
+#: in the silence after its line, which the clock leaves for them, never over
+#: a word (f99: set mid-beat, they landed on the narration).
+SFX_SECONDS = 1.2
 BEAT_MAX = 15.0
 #: How far the first word may be from the start of the audio: TTS answers
 #: with a little silence first, and that is the film's opening.
@@ -112,7 +116,10 @@ def clock(beats: list[Json], words: list[Json], beat_max: float = BEAT_MAX) -> J
             begin, end = cuts[i]
             pieces.append({"beat": name, "from": round(begin, 3), "to": round(end, 3), "at": round(t, 3)})
             length = end - begin
-        length += TAIL if i == len(beats) - 1 else (BREATH if spans[i] else 0.0)
+        room = len(beat.get("sfx") or []) * SFX_SECONDS if spans[i] else 0.0
+        length += max(TAIL, room) if i == len(beats) - 1 else (max(BREATH, room) if spans[i] else 0.0)
+        if spans[i] is None:
+            length = max(length, len(beat.get("sfx") or []) * SFX_SECONDS)
         if length > beat_max + 1e-9:
             raise hand.Refused(f"beat {name!r} runs {length:.1f} s, over the {beat_max:g} s a clip can be: "
                                "split it or say less", rule="clock", beat=name)

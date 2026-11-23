@@ -70,8 +70,7 @@ DEFAULT_PARAMS = {m: {"resolution": "{resolution}"} for m in (
 #: What a film's score is told beyond the writer's own line.
 SCORE_TAIL = "comic, cinematic, builds to a big finish"
 #: Each sound effect's length, and how far apart a beat's effects fall.
-SFX_SECONDS = 2.0
-SFX_STEP = 1.0
+SFX_SECONDS = narration.SFX_SECONDS
 PLATE_MAX_BYTES = 20 * 1024 * 1024
 STEPS = ("narration", "score", "effects", "plates", "clips", "cut")
 
@@ -227,10 +226,15 @@ def score(conn, manifest: Json, api: Surplus) -> None:
 def effects(conn, manifest: Json, api: Surplus) -> None:
     placed = []
     windows = {b["id"]: b for b in manifest["clock"]["beats"]}
+    lines = {p["beat"]: p for p in manifest["clock"]["pieces"]}
     for beat in manifest["film"]["beats"]:
         window = windows[beat["id"]]
+        line = lines.get(beat["id"])
+        # In the silence the clock left after the line (or from the top of
+        # a beat with no line), one after another: never over a word.
+        first = line["at"] + line["to"] - line["from"] if line else window["t0"]
         for k, cue in enumerate(beat.get("sfx") or []):
-            at = window["t0"] + min((window["t1"] - window["t0"]) / 2 + k * SFX_STEP, window["t1"] - window["t0"])
+            at = first + k * SFX_SECONDS
             got = _audio_step(conn, manifest, "effect", cue, _usd("FILM_MAX_USD_EFFECT", "0.10"),
                               lambda cue=cue: audio.sound(cue, SFX_SECONDS, api=api), f"sfx-{beat['id']}-{k}.mp3")
             placed.append({**got, "beat": beat["id"], "at": round(at, 3)})

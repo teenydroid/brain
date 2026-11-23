@@ -41,7 +41,7 @@ FILM = {
         {"subject": "figure", "action": ACTION.replace("shakes", "kicks"), "narration": "the vault gives a bolt"},
         {"subject": "teeny", "action": "Macro shot: Teeny, the small yellow robot, lowers its newspaper in the "
                                        "same vault and stares into the lens, deadpan.",
-         "narration": "i run on ten dollars a day"},
+         "narration": "i run on ten dollars a day", "sfx": ["a tiny sniff", "a cash register ding"]},
     ],
 }
 
