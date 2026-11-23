@@ -115,7 +115,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` and `bin/*` resolve. |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
 | Model | The core's `local-openai` runtime, which needs no TinyHumans account. `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL`. The core does not ask a `local-openai` endpoint for the model's context window, and budgets an unknown model at a few thousand tokens, so `bin/spine` registers the window with `inference_update_model_settings`, from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models`. |
-| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). |
+| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). Only the agents that speak as Teeny (`teeny`, `act`, `teeny-mentions`, `teeny-mail`) log their turns there; every agent that recalls nothing (`omit_memory_context`) also sets `omit_memory_log = true`, so a helper's turn (the studio's writer and editor, the evals' judge, the querier, the reviewer, the builder, the operator) never reaches memory (`bin/lib/agent_check.py`; on 2026-11-23, 1,236 such turns sat in CortexDB, recalled by nobody and turning up in recall). Embeddings: CortexDB pins its embedding model (`venice-embed-1`, 1024 dims, on Surplus) on the first memory and has no second source (v0.10.4 reads one `CORTEX_EMBEDDING_URL`). A fallback must serve the same model with the same vectors, which no other seller is known to; any other model means a re-embed of everything stored (`CORTEX_EMBEDDING_ALLOW_REPIN=1` with `CORTEX_EMBEDDING_REBUILD_VECTORS=1`), a person's call. So when the seller is down (`503 no_healthy_sellers`, for hours on 2026-11-20..23) the embeddings retry twice, a second and then two apart (`deploy/compose.yaml`), and `bin/health` reads CortexDB's `/v1/admin/ready`: no embedding for 15 minutes, two checks in a row, opens `memory_alarm` (a `health · alarm` stimulus and one issue), closed by the first success. |
 | Keyring | File store: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key`. Every secret OpenHuman holds is a row in `storage.db`, encrypted under that key. Back up `storage.db` and the key file together. |
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
@@ -251,8 +251,10 @@ are built otherwise, §4b):
   each sample on a fresh `eval:<uuid>` thread and stay blind to it.
 - Recall and the memory block: `[memory.recall] budget_tokens = 3000` before
   each turn, and a `memory_block` at each new generation (2000 tokens for
-  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 3000` makes each
-  turn wait up to 3 s for the pack recalled for its own message; unset, a turn
+  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 5000` makes each
+  turn wait up to 5 s for the pack recalled for its own message (at 3 s, 34%
+  of recalls on the box came back after the turn had gone on without them:
+  median 1.7 s, p90 4.2 s, 2026-11-21..23); unset, a turn
   only took the pack an earlier turn left in a cache that lives 60 s, so a
   beat five minutes after the last got none. `build_beliefs_every = 0`: a beat
   logs its whole batch as "the user", and beliefs built from that read "the
