@@ -23,7 +23,7 @@ that is told nothing about the account looks at it, in three short passes:
 of it must be among the words the viewer copied, in the caption's order
 (case and punctuation aside; other words in between are allowed). A ratio
 let a dropped "not" through. A piece passes (`ok`) only when it is on
-model and readable (and, for a skit, a remake or a khaby video, labelled,
+model and readable (and, for a skit or a remake, labelled,
 nothing prohibited in a frame, and nothing that passes for real footage).
 
 How it asks. The core's simple chat (`inference_agent_chat_simple`, which

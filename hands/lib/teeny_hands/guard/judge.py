@@ -309,7 +309,7 @@ def ask(params: dict[str, Any], read_reply: Callable[[Any], T | None], *, budget
     returns (None, the last failed call's error), or (None, None) when the
     last ask came back unreadable. Shared by this judge and the others
     that ask the same core (the truth judge, anchor.py; the skit, remake,
-    khaby, quote and viewer judges).
+    quote and viewer judges).
 
     An unreadable answer is asked again at once (within UNREADABLE_ASKS):
     some models (glm-5.3-flash through Surplus, about one answer in eight)

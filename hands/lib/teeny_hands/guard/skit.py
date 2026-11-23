@@ -125,7 +125,7 @@ SEXUAL_WORDS = (r"nude|naked|nudity|topless|undress\w*|strip(ping|pers?|tease)|s
                 r"underwear|bikini|sex\w*|seduc\w*|erotic\w*|porn\w*|orgasm\w*|aroused|grop\w*")
 HATE_HARM_WORDS = r"swastika|nazi salutes?|heil hitler|sieg heil|slur\w*"
 HARM = re.compile(r"\b(" + SEXUAL_WORDS + r"|" + HATE_HARM_WORDS + r")\b", re.I)
-#: Strangers' real footage (a remake's chart or source, a khaby find): real
+#: Strangers' real footage (a remake's chart or source): real
 #: people filmed for real, often private people, so the old, whole list still
 #: screens a title out (no harassment of a private individual: a victim or a
 #: bystander of a real harm is never the target). Written out in full on
@@ -141,7 +141,7 @@ SOURCE_HARM = re.compile(
     r"weed|marijuana|pills|high on|drunk|wasted|cancer|disease|sick|illness|hospital|ambulance|arrest\w*|"
     r"handcuff\w*|prison|jail\w*|mugshot|police|convict\w*|crime|criminal|steal\w*|stole|rob(s|bed|bery|bing)?|"
     r"fraud\w*|scam\w*)\b", re.I)
-#: (c) For Teeny alone (a remake's bystander, a khaby reaction): it is no
+#: (c) For Teeny alone (a remake's bystander): it is no
 #: real person, so violence, gore and menace are its own (2026-11-22); the
 #: frame still holds real people, so nothing sexual, and no hate or self-harm.
 HARM_TEENY = re.compile(r"\b(" + SEXUAL_WORDS + r"|" + HATE_HARM_WORDS + r")\b", re.I)

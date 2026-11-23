@@ -471,7 +471,7 @@ def _check_on(limit: int, shared: int, fmt: Format | None = None) -> None:
         raise hand.Refused(f"{fmt.noun}s are off: {fmt.named('MAX_PER_DAY')} is 0 (the operator turns them on and sets "
                            "the budget in secrets/teeny.env)", rule="off")
     if shared == 0:
-        raise hand.Refused(f"{fmt.noun}s are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits, remakes and khaby "
+        raise hand.Refused(f"{fmt.noun}s are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits and remakes "
                            "videos share, is 0", rule="off")
 
 
