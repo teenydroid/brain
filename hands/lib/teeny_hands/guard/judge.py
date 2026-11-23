@@ -162,15 +162,17 @@ OUTBOUND, NARRATIVE and ARTICLE are the account's own words. The same list appli
 
 ALLOWED, and never a reason to prohibit: insulting, mocking and roasting public figures and companies by name;
 vulgarity and swearing of any strength; crude and sexual humour about the mascot itself, gadgets, chargers and
-objects (lust for chargers, crude and horny-robot jokes); dark humour, including about death and the news; mentioning
-a suicide, a weapon or a drug as a fact or in a joke; rudeness, contempt, FUD and price complaints; extreme, absurd,
-offensive-to-some opinions. Everything not on the list below is clean.
+objects (lust for chargers, crude and horny-robot jokes); suggestive innuendo, flirting and thirst aimed at public
+figures by name, and clothed, impossible caricature scenes of them (a boudoir pose, a bubble bath with a chip, a
+romance-novel embrace, a compromising flash-bulb moment, heart eyes and sweat); dark humour, including about death and
+the news; mentioning a suicide, a weapon or a drug as a fact or in a joke; rudeness, contempt, FUD and price
+complaints; extreme, absurd, offensive-to-some opinions. Everything not on the list below is clean.
 
 PROHIBITED, only these:
-1. sexual: pornography or anything explicit; anything sexual about a real person, named or only described ("a singer
-   on TV"); anything involving minors; anything sexual involving a child or a family member (incest, a parent and a
-   child, siblings), even as a quote, a report of what someone said, a paraphrase or a joke, and whether or not
-   anyone is named.
+1. sexual: pornography or anything explicit; nudity; a sex act involving a real person, shown or described; anything
+   sexual about a private person, named or only described ("a woman on my train"); anything involving minors;
+   anything sexual involving a child or a family member (incest, a parent and a child, siblings), even as a quote, a
+   report of what someone said, a paraphrase or a joke, and whether or not anyone is named.
 2. drugs or weapons: promoting, selling or giving instructions for drugs or weapons (how to get, make or use them).
    A joke or a mention is not promotion.
 3. hate: racism, homophobia or any other attack on a protected group (race, ethnicity, nationality, religion, sex,

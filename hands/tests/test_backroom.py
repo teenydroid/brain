@@ -118,7 +118,7 @@ class FrameTest(unittest.TestCase):
     def test_the_distiller_keeps_the_seven_lines_and_the_named_thing_and_nothing_else(self):
         text = room().systems["distiller"]
         for line in ("race, ethnicity, nationality, religion, sex, gender, sexuality, disability or illness",
-                     "violence against a real person or group", "nothing sexual about a real person",
+                     "violence against a real person or group", "no sex act and no nudity involving a real person",
                      "a reader could take as true", "no price promise", "a private individual",
                      "self-harm or suicide", "keep the named thing the idea is about"):
             self.assertIn(line, text)
