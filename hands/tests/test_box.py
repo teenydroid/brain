@@ -430,20 +430,40 @@ class RefusalTest(Scratch):
         self.assertEqual((out["enabled"], out["tools"]), (True, ["a", "b"]))
         self.assertEqual(code == 0, jail.available())
 
-    def test_without_a_jail_nothing_runs(self):
-        self.tool("hello", "open('ran', 'w')\n")
+    def box_on_abi(self, version: int, *argv: str) -> tuple[int, dict]:
+        """bin/box as if the kernel's Landlock were VERSION."""
         shim = self.root / "nojail.py"
         shim.write_text("import runpy, sys\n"
                         f"sys.path.insert(0, {str(REPO / 'bin' / 'lib')!r})\n"
-                        "import jail\njail.abi = lambda: 0\n"
+                        f"import jail\njail.abi = lambda: {version}\n"
                         f"sys.argv = [{str(BOX)!r}, *sys.argv[1:]]\n"
                         f"runpy.run_path({str(BOX)!r}, run_name='__main__')\n")
-        proc = subprocess.run([sys.executable, "-I", str(shim), "run", "hello"], capture_output=True, text=True,
+        proc = subprocess.run([sys.executable, "-I", str(shim), *argv], capture_output=True, text=True,
                               env={"PATH": os.environ["PATH"], "TEENY_ROOT": str(self.root)})
-        out = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertEqual((proc.returncode, out["ok"]), (1, False))
+        return proc.returncode, json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_without_a_jail_nothing_runs(self):
+        self.tool("hello", "open('ran', 'w')\n")
+        code, out = self.box_on_abi(0, "run", "hello")
+        self.assertEqual((code, out["ok"]), (1, False))
         self.assertIn("nothing was run", out["error"])
         self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
+
+    def test_a_kernel_that_cannot_close_the_network_runs_nothing(self):
+        # Landlock 3 jails files but has no network rule (ABI 4): a tool
+        # there would have the network, so nothing runs and the check fails.
+        self.tool("hello", "open('ran', 'w')\n")
+        code, out = self.box_on_abi(3, "run", "hello")
+        self.assertEqual((code, out["ok"]), (1, False))
+        self.assertIn("nothing was run", out["error"])
+        self.assertIn("needs 4", out["error"])
+        self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
+        code, out = self.box_on_abi(3, "check")
+        self.assertEqual((code, out["ok"], out["needs"]), (1, False, 4))
+        self.assertIn("needs 4", out["problem"])
+        # Off, the same kernel is no failure: nothing would run anyway.
+        self.settings()
+        self.assertEqual(self.box_on_abi(3, "check")[0], 0)
 
 
 class CronTest(Scratch):
