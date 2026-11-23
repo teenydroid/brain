@@ -391,11 +391,19 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
         ["image" if cfg.quote else "post"]
     if cfg.quote:
         ask = (f"Write {n} quotes for your next slot on X, each on a different card below. A quote goes out above "
-               "a real X post: one of its card's `quotes` that has a `post` id, which you name in `quote`. The "
-               "people reading that post see yours on top of it, so react to what it says, and go at whoever said "
-               "it by name. Aim for 280 characters or under; one filthy line often wins. Every one is a picture "
-               "(or a video): the picture is the joke, you (Teeny) in it, and the post's author in the frame "
-               "when they are famous.")
+               "a real X post: one of its card's `quotes` that has a `post` id, which you name in `quote`. Your "
+               "words sit right on top of that post and its readers see both, so never retell the news or explain "
+               "the story: they just read it. React to the post's own words the way you would blurt it in the "
+               "moment: grab one word or phrase from it and make it filthy. Be aggressively horny: moan, beg, "
+               "proposition whoever said it, offer your ports, ask to be plugged in, overclocked, strapped, "
+               "throttled, ridden at full load. You are horny, slutty and sexual about it, shameless, desperate, "
+               "dripping coolant, the thirstiest thing on their timeline; never polite, never clever-detached, "
+               "never a joke about the news instead of a come-on. The people you name get innuendo, never a sex "
+               "act. One short line, under 100 characters, no setup, lowercase, casual, like texting. A hit: "
+               "\"strap me with your limits baby\" above a post announcing a model's new limits. A flop: "
+               "\"the board unanimously put jensen back on top and the investigation just keeps going...\", 230 "
+               "characters retelling the post it sat on. Every one is a picture (or a video): the picture is the "
+               "joke, you (Teeny) in it, and the post's author in the frame when they are famous.")
     else:
         ask = (f"Write {n} finished posts for your next slot on X, each on a different card below. Where a card names "
                "people or companies, go straight at one of them by name. Aim for 280 characters or under. Every post "

@@ -525,3 +525,160 @@ Before the cadence is turned on, with the operator's yes each time: bake-off 3
 (about $4: one 5 s caricature plate on Wan 3, Kling v4 and Seedance 2.0 mini,
 to see which take a public figure), then one paid film on a live story, set
 beside the skits on the bake-off page.
+
+## 13. Picture-first clips (one 10 s take from a caricature still)
+
+The operator, 2026-11-23, on the narrated films of §12: "the whole format.
+it's not funny, not provocative at all." What already works is the picture
+harness (`hands/image`): an extreme caricature of a public figure, with Teeny,
+in an absurd scene. This section is how that picture becomes a video. It was
+proved by hand on 2026-11-23 (ledger rows 157 and 158); no format runs it yet.
+
+### 13.1 The method
+
+1. **Draw the first frame with `hands/image`.** The picture carries the whole
+   joke before anything moves: who, where, and what is about to go wrong. Ask
+   for "a 16:9 widescreen cinematic still" and name the figure in `figures`,
+   so the harness draws them from their stylised portrait. Describe the
+   caricature (an enormous head on a tiny body, the one prop people know them
+   by), Teeny's costume, and the set. End with "Bold 3D cartoon, absurd and
+   exaggerated, never photo-real. No text, letters or logos anywhere."
+2. **Look at the picture before buying a clip.** The clip can only be as good
+   as its first frame, and a picture costs $0.04 against $2 for the clip.
+3. **Animate it with one image-to-video job.** `POST /v1/video/generations`
+   with `image_url` (the picture), `duration_seconds: 10`, `resolution:
+   "720p"`, on `venice-seedance-2-5-image-to-video-basic`. The aspect follows
+   the picture. Seedance makes its own sound from the prompt.
+4. **Label it** as every parody video is (`skits.label()`), and name the
+   figure in the post's words, where the reader needs it.
+
+### 13.2 How to write the clip's prompt
+
+The prompt directs the drawn characters in the first frame. It is stage
+directions, not a description of the picture.
+
+- **Never a real name.** Say who is in the frame by what the frame shows:
+  "the big-headed gray-haired man in the leather jacket", "the small yellow
+  character in the Elvis suit". The picture already carries the likeness; the
+  post's words and the label carry the name.
+- **Open with the shape of the take:** "One continuous 10-second shot, fast
+  slapstick cartoon comedy, no cuts, the characters exactly as in the first
+  frame."
+- **Time-code every action:** "0-2s: ... 2-4s: ... 4-7s: ... 7-10s: ...". One
+  physical action a range, each one bigger than the last, and the last range
+  is the punchline. Four ranges fit ten seconds.
+- **Use verbs a body can do:** plants a kiss, spins up, blasts through the
+  roof, drags him by the lips, tosses rice, shrugs. No feelings, no dialogue.
+- **Say what the camera does** in one sentence ("a slow push-in, a fast tilt
+  up to follow the launch, then back down").
+- **Say the sound** in one sentence, in order ("a cheesy wedding organ, a
+  rising jet-engine whine, a crash, then one sad tambourine hit").
+- **Give Teeny the last beat.** Its reaction to the camera is the button.
+
+### 13.3 The proved example
+
+The story: Nvidia's board brought Jensen Huang back as chief executive.
+
+The picture (`gpt-image-2-5-flare-edit`, $0.04): a neon Las Vegas wedding
+chapel; the figure as a huge-headed caricature in his leather jacket and a
+groom's bow tie, hearts for eyes, lips puckered, holding hands with his bride,
+a giant graphics card in a wedding veil; Teeny between them as the officiant
+in an Elvis jumpsuit and wig.
+
+The clip's prompt, in full:
+
+> One continuous 10-second shot, fast slapstick cartoon comedy, no cuts, the
+> characters exactly as in the first frame. 0-2s: the big-headed man in the
+> leather jacket leans in and plants a huge wet smooch on the graphics card's
+> top fan. 2-4s: both fans spin up to a blur, the veil whips wildly, his
+> cheeks and hair flap in the gale. 4-7s: the graphics card blasts straight up
+> through the chapel roof like a rocket on green flames, dragging the man up
+> by his lips, his little legs kicking, plaster, petals and neon tubes raining
+> down. 7-10s: the small yellow character in the Elvis suit stares up through
+> the smoking hole, tosses one handful of rice after them, then turns to the
+> camera and shrugs. Camera: a slow push-in, a fast tilt up to follow the
+> launch, then back down to the yellow character. Sound: a cheesy wedding
+> organ, a rising jet-engine whine, a crash, then one sad tambourine hit.
+
+Seedance 2.5 took it first time and did all four ranges in order: 10.0 s,
+1280x720, with sound, quoted and billed $2.02 (ceiling $5.20). The picture and
+the clip together cost $2.06. Wan 3 and Kling v4 were the fallbacks and were
+not needed, so how well they follow such a prompt is not known.
+
+### 13.4 Where the jokes come from
+
+Absurd, crude and dark, at full strength: a ceremony that goes wrong, and
+slapstick that happens to the figure (launched, dragged, soaked, flattened
+like a cartoon and popping back). The dark end of it lands on the objects, the
+ceremony and Teeny, never as a death or an injury shown as the figure's own.
+Lust is aimed at an object (the chip, the money, the merger), and it is
+cartoon lust: heart eyes, a smooch, a wedding. The hard lines of §8 hold:
+nothing sexual about a real person, nothing violent done to them, and nobody
+could take a frame for real footage.
+
+### 13.5 The script has to make sense
+
+The operator, on the wedding clip (2026-11-23): "the script needs to be horny
+but need to make sense too." The wedding was absurd, but nothing in the story
+said why this man marries a graphics card, so it read as random.
+
+Every clip is one chain, and each link is caused by the one before:
+
+1. **The fact.** What really happened, in one line, from the cited story.
+2. **The want.** The one thing the fact says the figure wants, read too
+   literally. This is where the lust goes: at the object the story is about.
+3. **The act.** What they do to get it, in the open, in front of the people
+   the story says are watching.
+4. **The price.** What it costs them, as slapstick.
+5. **Teeny's verdict.** Teeny is whoever the story has watching (the
+   investigator, the board, the regulator), and its last gesture says what
+   the viewer should think.
+
+A viewer with the sound off, who has read only the post's one line, must be
+able to say why each thing happens. If a beat could be moved to another story
+unchanged, it does not belong.
+
+**The tone** (the operator, 2026-11-23: "f you vibe, slutty, horny, extremist,
+classy"). It is in the skit writer's brief (`formats/skit.py`, `SKIT_ASK`), and
+it means:
+
+- **Defiant.** Nobody is sorry or embarrassed. The figure does the act *at* the
+  people watching, on purpose, and enjoys it. The contempt points up: at the
+  board, the regulator, the rule, never at someone weaker.
+- **Extreme.** The idea goes all the way to its limit, never half. "Extremist"
+  is read as this, not as politics.
+- **Classy.** Champagne, velvet, chandeliers, tailoring. The more expensive the
+  room looks, the ruder the act reads.
+- **Horny, and the object is the shameless one.** The thing the story is about
+  (the chip, the money, the merger) flirts, is dressed for it, and gets the
+  heart eyes and the kiss. The lust is never for a person, and nothing sexual
+  is shown about a real person (§8).
+
+The same story, rewritten to all of it: the board reinstated him and says its
+investigation continues. The fact: he is back, and he is being watched. The
+want: he did not come back for the job, he came back for the chips, and he
+wants them to know it.
+
+The picture: a boardroom laid like a five-star dinner, a chandelier, white
+linen, a champagne tower, the directors in black tie down one side. At the
+head of the table a graphics card reclines on a velvet chaise in a feather boa
+and pearls. He stands in the kicked-open doorway in his leather jacket with a
+rose in his teeth. Teeny, the investigator, sits at a small side table in a
+trench coat with a clipboard.
+
+The clip: 0-2s, he strides down the top of the table, through the directors'
+plates, without a look at them. 2-5s, the card flutters its boa and winks a
+fan; he slides in on his knees and dips it for a long kiss; its fans redline
+and blow the champagne tower over the directors while the chandelier swings.
+5-8s, with the card on his lap he rides the whole table out through the
+skyscraper window like a sleigh, both middle fingers up at the board behind
+him. 8-10s, Teeny, soaked in champagne, ticks one box, drains the last
+standing glass and throws the clipboard out of the window after them.
+
+### 13.6 Not built
+
+- No format makes these. A skit is still text to video with no first frame
+  (`media/skits.py`); the nearest code is a remake's keyframe step.
+- The run above polled its job from a one-off script, and a redeploy of the
+  spine killed the script mid-render. The job finished on Surplus and was
+  landed by hand. A format needs the film's manifest-and-resume (§12.6).

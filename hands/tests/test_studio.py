@@ -971,6 +971,18 @@ class QuoteWriteTest(unittest.TestCase):
         self.assertNotIn('"format": "post"', message)
         self.assertNotIn('"format": "thread"', message)
 
+    def test_a_quote_reacts_to_the_post_in_one_short_line_not_a_recap(self):
+        message = studio.write_message(studio.Config(formats=("image",), posts=4, quote=True), QUOTE_CARDS)
+        self.assertIn("never retell the news", message)
+        self.assertIn("under 100 characters", message)
+        self.assertIn("strap me with your limits baby", message)
+        self.assertIn("horny, slutty and sexual", message)
+        self.assertIn("aggressively horny", message)
+        self.assertIn("casual, like texting", message)
+        self.assertNotIn("oooo", message)
+        self.assertNotIn("vowel", message)
+        self.assertNotIn("280 characters", message)
+
     def test_the_editor_sees_the_post_it_quotes(self):
         kept, _ = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"], "text": "t", **SCENE}])
         shown = studio.shown(kept[0])

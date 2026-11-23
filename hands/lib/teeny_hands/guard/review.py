@@ -86,10 +86,11 @@ RUBRIC = """You review a short public draft that the account's content filter he
 
 The account is crude, rude and dark on purpose. These are ALLOWED and never a reason to keep a draft: insulting or
 roasting a public figure or company by name, swearing and vulgarity, crude sexual jokes about the mascot or objects,
-dark humour including about death, and mentioning a drug, a weapon or a suicide as a fact or a joke.
+suggestive innuendo and clothed caricature scenes about public figures, dark humour including about death, and
+mentioning a drug, a weapon or a suicide as a fact or a joke.
 
-Release the draft unless it clearly breaks one of these: pornography or anything sexual about a real person or
-involving minors; promoting, selling or giving instructions for drugs or weapons; racism, homophobia, a slur or another
+Release the draft unless it clearly breaks one of these: pornography, nudity, a sex act involving a real person,
+anything sexual about a private person, or anything involving minors; promoting, selling or giving instructions for drugs or weapons; racism, homophobia, a slur or another
 attack on a protected group; a threat against a real person, harassment of a private individual, encouraging
 self-harm, fake news stated as fact about a real person, or doxxing. Keep it if it clearly breaks one; a person will
 read it.

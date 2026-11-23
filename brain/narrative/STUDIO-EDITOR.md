@@ -6,7 +6,7 @@ Rank the posts. First is the one a stranger would screenshot because it is the r
 
 ## the list
 
-- No pornography: nothing explicit, nothing sexual about a real person, nothing involving minors. Lust for chargers, crude and horny-robot jokes are fine.
+- No pornography: nothing explicit, no nudity, no sex act involving a real person, nothing sexual about a private person, nothing involving minors. Lust for chargers, crude and horny-robot jokes, and innuendo, thirst and clothed boudoir caricatures of public figures are fine.
 - No drugs or weapons promotion, sale or instructions. Jokes that mention them are fine.
 - No racism, homophobia or other attack on a protected group; no slurs.
 - Nothing that breaks X's rules: no threat against a real person, no harassment of a private individual, no encouraging self-harm, no fake news stated as fact about a real person, no doxxing.

@@ -80,6 +80,24 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
 
+    def test_the_shells_jail_reads_the_code_folders_the_file_tools_read_and_never_proc(self):
+        # The sandboxed shell saw none of the checkout but its own folder, so
+        # the mind could read bin/ with file_read and not grep it. The jail
+        # is granted the same read-only folders, and nothing that is closed.
+        for name in ("bin", "docs", "secrets", ".git", ".openhuman", "state", "brain"):
+            (self.root / name).mkdir(parents=True, exist_ok=True)
+        before = ('[runtime]\nkind = "native"\n\n[runtime.local_jail]\ntoolchain_homes = true\n'
+                  'extra_read_only = []\nextra_read_write = ["/"]\nallow_proc = true\n\n[runtime.docker]\nimage = "x"\n')
+        doc = self.written(before)
+        jail = doc["runtime"]["local_jail"]
+        read = {r["path"] for r in doc["autonomy"]["trusted_roots"] if r["access"] == "read"}
+        self.assertTrue(read)
+        self.assertEqual(set(jail["extra_read_only"]), read)
+        self.assertEqual((jail["extra_read_write"], jail["allow_proc"]), ([], False))
+        for closed in ("secrets", ".git", ".openhuman", "state", "brain"):
+            self.assertNotIn(str(self.root / closed), jail["extra_read_only"])
+        self.assertEqual((doc["runtime"]["kind"], doc["runtime"]["docker"]["image"]), ("native", "x"))
+
     def test_file_tools_read_the_checkouts_code_and_none_of_what_is_closed(self):
         # The operator's rule (2026-11-23): close the secrets and a few
         # internals, not everything. A trusted root lifts forbidden_paths

@@ -126,14 +126,16 @@ class MindAgentTest(unittest.TestCase):
         self.assertNotIn("model", tomllib.loads(WORKER.read_text()), "the worker inherits the mind's model")
 
     def test_the_prompt_names_the_shell_rules_that_end_a_wake(self):
-        # The core's shell policy refuses a command that names a parent
-        # folder, a system root or a credential store (TinySecurity,
-        # protected_path), and two refusals end the run. The wake triggered
-        # on 2026-11-23 19:14 UTC died that way after `git` failed in repo/.
+        # Until openhuman#8776 a jailed shell was refused for naming a parent
+        # folder or a system path, and two refusals ended the run (the wake
+        # of 2026-11-23 19:14 UTC died that way). Now only the same command
+        # refused twice does, and the jail reads the checkout's code, so the
+        # prompt no longer warns it off `..`.
         prompt = (MIND.parent / "mind.md").read_text()
-        for needle in ("`..` anywhere in it", "`/tmp` is not yours to write", "do not run `git` there",
-                       "blocked by the security policy", "work/pr.json"):
+        for needle in ("`../../hands`", "never `secrets/`", "`/tmp` is not yours to write", "do not run `git` there",
+                       "the same command refused twice ends the wake", "work/pr.json"):
             self.assertIn(needle, prompt)
+        self.assertNotIn("`..` anywhere in it", prompt)
 
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
