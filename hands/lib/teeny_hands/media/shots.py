@@ -456,7 +456,8 @@ def keep_cut(reel: Any, cut_job: Json, name: str, the_label: str, timeout: int,
     `cuts` as soon as it is known, for drop_cuts. A cut not reported
     labelled with exactly `the_label`, a render that is not a sound mp4, a
     frame that is not a JPEG, or no frames at all is never kept: ReelError,
-    and whatever was written is removed."""
+    and whatever was written is removed. `make` is the service call that
+    makes it: reel.cut, or reel.film for a story film."""
     from ..reel import reels
     from ..reel.service import ReelError
 
