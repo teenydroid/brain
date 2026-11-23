@@ -6,7 +6,9 @@ import os
 import shutil
 import sys
 import tempfile
+import json
 import unittest
+import urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -119,6 +121,118 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
         self.assertEqual((self.root / out["path"]).read_bytes(), PNG)
         self.assertTrue(out["path"].startswith("state/media/"))
+
+    # --- public figures in a picture --------------------------------------------
+
+    def wiki(self, pages):
+        """Stand in for Wikipedia and Wikidata: PAGES is {name: (item, kinds, has_photo)}."""
+        from teeny_hands.media import figures
+        import urllib.error
+        seen = []
+
+        def get(url, limit, timeout=30.0):
+            seen.append(url)
+            if url.startswith(figures.SUMMARY):
+                name = urllib.parse.unquote(url[len(figures.SUMMARY):].split("?")[0]).replace("_", " ")
+                if name not in pages:
+                    raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+                item, _, photo = pages[name]
+                page = {"type": "standard", "title": name, "wikibase_item": item}
+                if photo:
+                    page["originalimage"] = {"source": f"https://upload.wikimedia.org/{item}.png"}
+                return json.dumps(page).encode()
+            if url.startswith(figures.ENTITY):
+                item = url[len(figures.ENTITY):].split(".")[0]
+                kinds = next(k for i, k, _ in pages.values() if i == item)
+                claims = [{"mainsnak": {"datavalue": {"value": {"id": k}}}} for k in kinds]
+                return json.dumps({"entities": {item: {"claims": {"P31": claims}}}}).encode()
+            if url.startswith("https://upload.wikimedia.org/"):
+                return PNG
+            raise AssertionError(f"unexpected url {url}")
+
+        self._get = figures._get
+        figures._get = get
+        self.addCleanup(lambda: setattr(figures, "_get", self._get))
+        return seen
+
+    def test_a_public_figure_in_a_picture_is_drawn_from_their_photo(self):
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        out = assets.generate_image({"prompt": "the boss grins in the doorway", "figures": ["Sam Altman"]}, api=self.api)
+        _, _, body = next(c for c in self.api.calls if c[1] == "/v1/images/edits")
+        self.assertNotIn("image", body)
+        self.assertEqual(len(body["images"]), 2)
+        self.assertEqual(base64.b64decode(body["images"][0].split(",", 1)[1]),
+                         (self.root / "brain/assets/teeny-reference.png").read_bytes())
+        self.assertEqual(base64.b64decode(body["images"][1].split(",", 1)[1]), PNG)
+        self.assertIn("photo 2 is Sam Altman", body["prompt"])
+        self.assertEqual(out["asset"]["model"], "gpt-image-2-5-flare-edit")
+
+    def test_a_private_person_is_never_drawn(self):
+        # 2026-11-23: a fan whose post a story quoted was named in a scene.
+        # Someone with no Wikipedia article is not a public figure: no picture.
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        with self.assertRaises(hand.Refused) as caught:
+            assets.generate_image({"prompt": "a fan cheers", "figures": ["Sam Altman", "Teeyah"]}, api=self.api)
+        self.assertEqual(caught.exception.detail.get("rule"), "figure")
+        self.assertIn("Teeyah has no Wikipedia article", str(caught.exception))
+        self.assertEqual(self.api.models("/v1/images/edits"), [])
+
+    def test_a_company_or_a_person_with_no_photo_is_not_a_figure(self):
+        self.wiki({"Lionsgate": ("Q2", ["Q4830453"], True), "Jane Roe": ("Q3", ["Q5"], False)})
+        for name, why in (("Lionsgate", "is not a person"), ("Jane Roe", "has no photo on Wikipedia")):
+            with self.assertRaises(hand.Refused) as caught:
+                assets.generate_image({"prompt": "x", "figures": [name]}, api=self.api)
+            self.assertIn(f"{name} {why}", str(caught.exception))
+
+    def test_a_figure_is_looked_up_once(self):
+        seen = self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
+        after_first = len(seen)
+        self.assertGreater(after_first, 0)
+        assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
+        self.assertEqual(len(seen), after_first)
+
+    def test_at_most_two_figures_are_drawn_even_when_all_are_famous(self):
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True), "Ann Lee": ("Q6", ["Q5"], True), "Bo Chen": ("Q7", ["Q5"], True)})
+        with self.assertRaises(hand.Refused) as caught:
+            assets.generate_image({"prompt": "x", "figures": ["Sam Altman", "Ann Lee", "Bo Chen"]}, api=self.api)
+        self.assertEqual(caught.exception.detail.get("rule"), "body")
+        self.assertIn("at most 2", str(caught.exception))
+        self.assertEqual(self.api.models("/v1/images/edits"), [])
+
+    def test_a_sellers_content_refusal_falls_to_the_next_model(self):
+        # 2026-11-23: the first model's filter turned down three of ten scenes
+        # with a famous person in them, and each cost the post its picture.
+        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError(
+            "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider.", 400)
+        out = self.image()["asset"]
+        self.assertEqual(out["model"], "nano-banana-2-1-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "nano-banana-2-1-edit"])
+
+    def test_a_photo_that_could_not_be_fetched_is_tried_again_next_time(self):
+        # 2026-11-23: the photo host answered 429 for full-size originals, and
+        # the miss was kept for a month as "has no photo".
+        from teeny_hands.media import figures
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        working = figures._get
+
+        def flaky(url, limit, timeout=30.0):
+            if url.startswith("https://upload.wikimedia.org/"):
+                raise OSError("429")
+            return working(url, limit, timeout)
+
+        figures._get = flaky
+        self.addCleanup(lambda: setattr(figures, "_get", working))
+        self.assertEqual(figures.portrait("Sam Altman")["why"], "has a photo that could not be fetched")
+        self.assertEqual(list(figures._folder().iterdir()), [])
+        figures._get = working
+        self.assertIn("path", figures.portrait("Sam Altman"))
+
+    def test_a_picture_with_nobody_real_in_it_is_asked_for_as_before(self):
+        self.image()
+        _, _, body = next(c for c in self.api.calls if c[1] == "/v1/images/edits")
+        self.assertIn("image", body)
+        self.assertNotIn("images", body)
 
     def test_no_reference_no_image(self):
         (self.root / "brain/assets/teeny-reference.png").unlink()

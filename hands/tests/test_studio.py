@@ -309,6 +309,26 @@ class TagTest(unittest.TestCase):
         self.assertEqual(studio_feed.read_tags(answer, {"digg:a"}),
                          {"digg:a": {"people": ["A", "B", "C", "D"], "what_happened": "w"}})
 
+    def test_an_account_that_only_posted_about_the_story_is_not_one_of_its_people(self):
+        # 2026-11-23: on "'The Hunger Games' reaps $120M", the tagger named two
+        # fans whose posts the card quoted ("Teeyah", "zoë rose bryant") as its
+        # people, and the writer put caricatures of them in a picture. Someone
+        # who is only a quote's author is a stranger, not the story's subject.
+        candidates = [{"id": "digg:a", "headline": "The Hunger Games reaps $120M, Lionsgate says",
+                       "text": "Lionsgate's biggest weekend in a decade.",
+                       "quotes": [{"by": "Teeyah", "said": "$56M ON OPENING DAY"},
+                                  {"by": "zoë rose bryant", "said": "how we're pulling up"},
+                                  {"by": "Lionsgate", "said": "thank you"}]}]
+        tags = {"digg:a": {"people": ["Teeyah", "Zoë Rose Bryant", "Lionsgate"], "what_happened": "it opened big"}}
+        self.assertEqual(studio_feed.subjects_only(candidates, tags)["digg:a"]["people"], ["Lionsgate"])
+
+    def test_a_quote_author_counts_as_named_only_by_a_whole_name(self):
+        # "Ann" is not named by "announces"; "Tesla's" does name Tesla.
+        candidates = [{"id": "digg:a", "headline": "Nvidia announces a chip; Tesla's stock moves",
+                       "quotes": [{"by": "Ann", "said": "wow"}, {"by": "Tesla", "said": "we are pleased"}]}]
+        tags = {"digg:a": {"people": ["Ann", "Tesla", "Nvidia"], "what_happened": "a chip"}}
+        self.assertEqual(studio_feed.subjects_only(candidates, tags)["digg:a"]["people"], ["Tesla", "Nvidia"])
+
     def test_teenys_own_events_are_never_sent_to_be_tagged(self):
         message = studio_feed.tag_message([cand("digg:a"), cand("own:1", "own", mine=True)])
         self.assertIn('"id":"digg:a"', message)
@@ -590,6 +610,15 @@ class ValidatePostsTest(unittest.TestCase):
         self.assertEqual(kept[0]["image"], scene.strip())
         from teeny_hands.media import assets
         self.assertLess(studio.SCENE_MAX, assets.MAX_PROMPT)
+
+    def test_an_image_lists_the_famous_people_it_draws_at_most_two(self):
+        kept, dropped = self.validate([
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene",
+             "people": ["Sam Altman", " Jakub  Pachocki ", "Sam Altman", 7]},
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene"},
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene", "people": ["A B", "C D", "E F"]}])
+        self.assertEqual([p["people"] for p in kept], [["Sam Altman", "Jakub Pachocki"], []])
+        self.assertEqual(dropped[0]["why"], "a picture draws at most 2 people")
 
     def test_a_meme_keeps_its_template_lines_and_picture(self):
         kept, dropped = self.validate([{"card": "hn:101", "format": "meme", "text": "t", "meme": MEME}])
