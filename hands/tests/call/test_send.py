@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.error
 from unittest import mock
 
 import json
