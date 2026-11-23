@@ -149,6 +149,8 @@ def check(path: Path) -> str:
             raise SystemExit(f"the {agent} agent must set scheduled_workspace = {WORKSPACE[agent]!r} "
                              "(its sandboxed shell is granted that folder, never the checkout)")
         raise SystemExit(f"only {', '.join(WORKSPACE)} may set scheduled_workspace, not {agent}")
+    if agent not in VIEW_ONLY and "browser_view_only" in doc:
+        raise SystemExit(f"only {', '.join(VIEW_ONLY)} set browser_view_only, not {agent}")
     if agent in NO_TOOLS:
         if named != []:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
@@ -215,8 +217,6 @@ def check(path: Path) -> str:
     if agent in VIEW_ONLY and doc.get("browser_view_only") is not True:
         raise SystemExit(f"the {agent} agent must set browser_view_only = true (the core's browser is signed in as "
                          "Teeny; this agent's is for reading, on a throwaway profile)")
-    if agent not in VIEW_ONLY and "browser_view_only" in doc:
-        raise SystemExit(f"only {', '.join(VIEW_ONLY)} set browser_view_only, not {agent}")
     if agent not in NOTHING_TO_DO:
         return agent
     prompt = source.get("inline", "") if isinstance(source, dict) else ""
