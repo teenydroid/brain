@@ -62,7 +62,8 @@ case "$(head -n 1 <<<"$msg")" in
     [ -z "${FAKE_WRITE:-}" ] || { say "$FAKE_WRITE"; exit 0; }
     # $FAKE_ALONE: image and meme words stand alone; $FAKE_SAME_SCENE: one scene for every image.
     say "$(block | jq -c --arg fmts "${FAKE_FORMATS:-post,post,thread,image,post,post}" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
-      . as $cards | $fmts | split(",") | to_entries | map((.key + 1) as $n | .value as $f | $cards[.key % ($cards | length)].id as $c |
+      . as $cards | $fmts | split(",") | to_entries | map((.key + 1) as $n | .value as $f | $cards[.key % ($cards | length)] as $card | $card.id as $c |
+        ([$card.quotes[]? | select(.post) | .post][0]) as $q |
         if $f == "post" then {card: $c, format: "post", text: "post \($n): the robot read the news and is furious"}
         elif $f == "long" then {card: $c, format: "post", text: ("long \($n) " + ("x" * 293))}
         elif $f == "thread" then {card: $c, format: "thread", posts: ["thread \($n) opens", "thread \($n) closes"]}
@@ -72,7 +73,8 @@ case "$(head -n 1 <<<"$msg")" in
           meme: {template: "drake", lines: ["asking first \($n)", "asking after"], teeny: "brain/assets/tiny/tiny-love.jpg"}}
         elif $f == "link" then {card: $c, format: "post", text: "link \($n): read it at example.com today"}
         elif $f == "ghost" then {card: "ghost:404", format: "post", text: "ghost \($n): a post on no card"}
-        else {card: $c, format: $f, text: "other \($n): words"} end)')" ;;
+        else {card: $c, format: $f, text: "other \($n): words"} end
+        | if $q then . + {quote: $q} else . end)')" ;;
   "# studio: pick")
     [ -z "${FAKE_PICK_GARBLED:-}" ] || { say 'ranking": oops'; exit 0; }
     [ -z "${FAKE_PICK:-}" ] || { say "$FAKE_PICK"; exit 0; }
@@ -181,6 +183,7 @@ case "$1" in
 esac
 case "$1" in
   slot) printf '%s\n' "${FAKE_SLOT:-{\"ok\": true, \"open\": true\}}" ;;
+  peers) printf '%s\n' "${FAKE_QUOTED:-{\"ok\": true, \"days\": 7, \"handles\": []\}}" ;;
   upload) echo '{"ok": true, "media_id": "m-31"}' ;;
   post|post-thread)
     if [ "${DRY_RUN:-}" = 1 ]; then jq -c '{ok: true, dry_run: true, would_post: (.text // .posts)}' <<<"$in"; exit 0; fi
