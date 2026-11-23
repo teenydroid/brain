@@ -370,6 +370,30 @@ class MindCronTest(unittest.TestCase):
                      "pay-bills", "surplus-sweep"):
             self.assertIn(name, pinned)
 
+    def test_evolve_wants_and_the_desks_are_in_teenys_own_cron_file_as_they_were_pinned(self):
+        with open(REPO / "brain" / "cron.toml", "rb") as fh:
+            brain = tomllib.load(fh)["jobs"]
+        with open(REPO / "evals" / "cron.pinned.toml", "rb") as fh:
+            pinned = tomllib.load(fh)["jobs"]
+        # Exactly the jobs they were when pinned, so nothing changes the day
+        # they move: seed-cron reconciles by name, and finds each one as it is.
+        moved = {
+            "evolve": {"schedule": "40 2,14 * * *", "tz": "Asia/Kolkata", "command": "bin/evolve run --scheduled --detach"},
+            "evolve-credit": {"schedule": "50 3 * * *", "tz": "Asia/Kolkata", "command": "bin/evolve credit"},
+            "wants": {"schedule": "0 9 * * *", "command": "bin/wants run", "catch_up": True},
+            "tasks-desk": {"schedule": "*/15 * * * *", "command": "bin/tasks-desk"},
+            "build-ship": {"schedule": "*/30 * * * *", "command": "bin/build-ship"},
+        }
+        for name, job in moved.items():
+            self.assertNotIn(name, pinned)
+            self.assertEqual(brain.get(name), job, name)
+        # What watches Teeny stays pinned: evolve-watch rolls a bad change
+        # back. So does the browser operator, signed in as Teeny.
+        self.assertEqual(pinned["evolve-watch"]["command"], "bin/evolve watch --detach")
+        self.assertEqual(pinned["operator"]["agent"], "operator")
+        self.assertNotIn("evolve-watch", brain)
+        self.assertNotIn("operator", brain)
+
     def test_the_caps_leave_room_for_the_mind(self):
         # builder 12 a day, operator 72, the mind 48, and room for the jobs
         # the mind schedules for itself in brain/cron.toml.
