@@ -115,6 +115,12 @@ CRAFT = (
 #: picks. Their prompts are built from their own sources (see the module
 #: docstring), never from world().
 STUDIO = ("writer", "editor")
+#: Skills (brain/skills/<name>/SKILL.md) an agent's own prompt carries, for
+#: the services it writes to from its own turns. Rules for one service live
+#: in its skill, not in CONTEXT.md, which every turn pays for: the tick
+#: comments and posts on Moltbook, so it carries that skill; act gets it only
+#: in the Moltbook playbooks (`skills = ["moltbook"]`, bin/lib/playbook.py).
+AGENT_SKILLS = {"teeny": ("moltbook",)}
 #: The agents that hold tools (the mind and its worker, docs/mind.md). Their
 #: prompt is their instructions alone: no world, no reader, no craft. They
 #: pay for every byte of it on every model call of a long session, and what
@@ -432,6 +438,18 @@ def render_studio(brain: Path, agent: str, instructions: str) -> str:
     return "\n\n".join(part for part in parts if part) + "\n"
 
 
+def _skill(brain: Path, name: str) -> str:
+    """A skill's text for a prompt, without its `---` front matter."""
+    text = _read(brain / "skills" / name / "SKILL.md")
+    if not text:
+        raise ValueError(f"brain/skills/{name}/SKILL.md is missing or empty")
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
+    return text.strip()
+
+
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
@@ -445,6 +463,8 @@ def render(brain: Path, agent: str) -> str:
         parts.extend([reader(brain), _read(brain / "narrative" / "VOICE.md")])
     if agent in POSTING:
         parts.append(craft(brain))
+    for skill in AGENT_SKILLS.get(agent, ()):
+        parts.append(_skill(brain, skill))
     parts.append(world(brain))
     return "\n\n".join(part for part in parts if part) + "\n"
 
