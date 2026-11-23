@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Follow the people Teeny rents on RentAHuman (evals/cron.pinned.toml,
+# rent-poll; docs/hands.md, "rent"). `hands/rent poll`: resend a post whose
+# answer was lost with its own idempotency key, pass applications, submitted
+# work and messages to the mind through the inbound guard, and hire the best
+# match for a bounty nobody picked from in RENT_AUTO_ACCEPT_HOURS. Never pays.
+# Skipped (exit 0) without RENTAHUMAN_API_KEY: not a failed job.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/rent" poll </dev/null

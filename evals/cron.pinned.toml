@@ -322,6 +322,17 @@ command = "bin/x402-fund"
 schedule = "41 */2 * * *"
 command = "bin/surplus-sweep"
 
+# Follow the people Teeny rents on RentAHuman (bin/rent-poll; docs/hands.md,
+# "rent"): send again a post whose answer was lost (same idempotency key),
+# bring applications, submitted work and the worker's messages to the mind
+# through the inbound guard, and hire RentAHuman's best match for a bounty
+# nobody picked from within RENT_AUTO_ACCEPT_HOURS. It never pays: paying is
+# the mind's rent_review. Skipped without RENTAHUMAN_API_KEY. Operator-owned:
+# a hire spends money already held for the bounty.
+[jobs.rent-poll]
+schedule = "7-59/15 * * * *"
+command = "bin/rent-poll"
+
 # Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
 # wallet holds over what running Teeny cost a day this week, as one
 # `health · runway` stimulus, and the tier from evals/runway.toml that cuts
