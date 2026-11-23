@@ -92,9 +92,10 @@ cp "$repo/hands/lib/teeny_hands/call/__init__.py" "$repo/hands/lib/teeny_hands/c
   "$fx/hands/lib/teeny_hands/call/"
 cp "$repo/hands/lib/teeny_hands/guard/holds.py" "$repo/hands/lib/teeny_hands/guard/links.py" \
   "$fx/hands/lib/teeny_hands/guard/"
-mkdir -p "$fx/hands/lib/teeny_hands/x402" "$fx/hands/lib/teeny_hands/surplus"
+mkdir -p "$fx/hands/lib/teeny_hands/x402" "$fx/hands/lib/teeny_hands/surplus" "$fx/hands/lib/teeny_hands/rent"
 cp "$repo/hands/lib/teeny_hands/x402/"*.py "$fx/hands/lib/teeny_hands/x402/"
 cp "$repo/hands/lib/teeny_hands/surplus/"*.py "$fx/hands/lib/teeny_hands/surplus/"
+cp "$repo/hands/lib/teeny_hands/rent/"*.py "$fx/hands/lib/teeny_hands/rent/"
 cp "$repo/hands/tests/__init__.py" "$fx/hands/tests/__init__.py"
 printf 'x\n' >"$fx/bin/act"
 printf 'x\n' >"$fx/hands/guard"

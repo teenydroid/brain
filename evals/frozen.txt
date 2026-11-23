@@ -122,6 +122,11 @@ hands/x402
 hands/surplus
 hands/lib/teeny_hands/surplus/
 hands/tests/surplus/
+# Renting people spends the RentAHuman wallet: the hand where its caps and its
+# pay-once rule live, and the tests that pin them, are the operator's.
+hands/rent
+hands/lib/teeny_hands/rent/
+hands/tests/rent/
 # Tiny Drops pay $TINY from the giveaway pool (the giveaway-pool fence).
 hands/giveaway
 # The request list decides which paid request is built first (S3).

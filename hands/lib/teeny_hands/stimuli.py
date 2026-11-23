@@ -40,7 +40,7 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host", "studio")
+SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host", "studio", "rent")
 #: `filed`: a stimulus for another reader than the mind (FILED_SURFACES),
 #: never taken into a batch.
 STATUSES = ("pending", "taken", "done", "filed")
