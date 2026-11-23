@@ -183,7 +183,7 @@ def job_of(body: Any) -> Json:
     if not isinstance(body, dict):
         raise hand.Refused("skit takes a JSON object", rule="body")
     unknown = sorted(set(body) - {"shots", "aspect", "story", "figures", "logline", "wait_seconds", "bed", "look",
-                                  "setting", "score"})
+                                  "setting", "score", "teeny"})
     if unknown:
         raise hand.Refused(f"not taken here: {', '.join(unknown)}", rule="body")
     shots = body.get("shots")
@@ -232,7 +232,8 @@ def job_of(body: Any) -> Json:
     return {"shots": kept, "aspect": aspect, "story": _text(body, "story", 80), "figures": figures,
             "logline": _text(body, "logline", MAX_LOGLINE), "wait": wait, "bed": bed, "look": looks,
             "setting": _text(body, "setting", MAX_SETTING, required=False),
-            "score": _text(body, "score", MAX_SCORE, required=False)}
+            "score": _text(body, "score", MAX_SCORE, required=False),
+            "teeny": _text(body, "teeny", MAX_TEENY, required=False)}
 
 
 def _held(job: Json) -> Json:
@@ -240,7 +241,7 @@ def _held(job: Json) -> Json:
     and `shot_prompt`): the same function the guard's screen runs, so what
     is screened is what is sent."""
     out: Json = {"figures": job["figures"], "shots": job["shots"]}
-    for key in ("look", "setting", "score"):
+    for key in ("look", "setting", "score", "teeny"):
         if job.get(key):
             out[key] = job[key]
     return out
