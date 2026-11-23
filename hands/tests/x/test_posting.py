@@ -447,7 +447,7 @@ class QuoteLaneTest(Posting):
             self.original("a fourth original about kettles")
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
         self.assertEqual([r["kind"] for r in self.ledger()].count("quote"), 2)
-        self.assertEqual([r["kind"] for r in self.ledger()].count("post"), 4)
+        self.assertEqual([r["kind"] for r in self.ledger()].count("post"), 3)
 
     def test_the_quote_lane_is_settings(self):
         self.configure(QUOTE_MIN_GAP_HOURS="1", QUOTE_AFTER_POST_MINUTES="10", X_QUOTES_MAX_PER_DAY="1")
