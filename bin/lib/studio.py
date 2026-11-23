@@ -1354,6 +1354,9 @@ def sample_text(summary: Json) -> str:
     for p in s.get("posts") or []:
         words = " / ".join(p["posts"]) if "posts" in p else p.get("text")
         lines.append(f"- {p.get('label')} [{p['format']} on {p['card']}] {words}")
+        if p.get("quoted"):
+            q = p["quoted"]
+            lines.append(f"    quotes: @{q.get('handle') or q.get('by')}: {q.get('said')}")
         if p.get("image"):
             lines.append(f"    scene: {p['image']}")
             if p.get("people"):

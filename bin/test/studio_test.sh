@@ -22,6 +22,7 @@ jqe() { jq -e "$@" >/dev/null; }
 # JSON block their message carries; the writer writes one post a format in
 # $FAKE_FORMATS (a comma list), the Nth on the Nth card, each text's second
 # word its number, so the pick's default ranking keeps the writer's order.
+# Every slot quotes (2026-11-23): each post names its card's first X post.
 cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -61,17 +62,17 @@ case "$(head -n 1 <<<"$msg")" in
     if [ -n "${FAKE_WRITE_GARBLED:-}" ] && [ ! -e "$FAKE_SEEN.garbled" ]; then : >"$FAKE_SEEN.garbled"; say 'posts": oops'; exit 0; fi
     [ -z "${FAKE_WRITE:-}" ] || { say "$FAKE_WRITE"; exit 0; }
     # $FAKE_ALONE: image and meme words stand alone; $FAKE_SAME_SCENE: one scene for every image.
-    say "$(block | jq -c --arg fmts "${FAKE_FORMATS:-post,post,thread,image,post,post}" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
+    say "$(block | jq -c --arg fmts "${FAKE_FORMATS:-image,image,image,image,image,image}" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
       . as $cards | $fmts | split(",") | to_entries | map((.key + 1) as $n | .value as $f | $cards[.key % ($cards | length)] as $card | $card.id as $c |
         ([$card.quotes[]? | select(.post) | .post][0]) as $q |
         if $f == "post" then {card: $c, format: "post", text: "post \($n): the robot read the news and is furious"}
-        elif $f == "long" then {card: $c, format: "post", text: ("long \($n) " + ("x" * 293))}
+        elif $f == "long" then {card: $c, format: "image", text: ("long \($n) " + ("x" * 293)), alone: false, image: "teeny in scene \($n)"}
         elif $f == "thread" then {card: $c, format: "thread", posts: ["thread \($n) opens", "thread \($n) closes"]}
         elif $f == "image" then {card: $c, format: "image", text: "image \($n): look at me", alone: ($alone != ""),
           image: (if $same == "" then "teeny in scene \($n)" else "teeny on a windowsill at dawn" end)}
         elif $f == "meme" then {card: $c, format: "meme", text: "meme \($n): me", alone: ($alone != ""),
           meme: {template: "drake", lines: ["asking first \($n)", "asking after"], teeny: "brain/assets/tiny/tiny-love.jpg"}}
-        elif $f == "link" then {card: $c, format: "post", text: "link \($n): read it at example.com today"}
+        elif $f == "link" then {card: $c, format: "image", text: "link \($n): read it at example.com today", alone: false, image: "teeny in scene \($n)"}
         elif $f == "ghost" then {card: "ghost:404", format: "post", text: "ghost \($n): a post on no card"}
         else {card: $c, format: $f, text: "other \($n): words"} end
         | if $q then . + {quote: $q} else . end)')" ;;
@@ -222,6 +223,8 @@ if [ -n "${FAKE_TREND_DOWN:-}" ]; then echo '{"ok": false, "error": "digg-pp-cli
 jq -cn --arg at "$(date -u -d '-3 hours' +%Y-%m-%dT%H:%M:%SZ)" --arg old "$(date -u -d '-3 days' +%Y-%m-%dT%H:%M:%SZ)" '{ok: true, source: "digg", stories: [
   {id: "s1", topic: "ai", title: "an AI lab hired a new chief scientist", summary: "the lab says the hire will lead its research team", score: 556, published_at: $at,
    posts: [{by: "Ana", text: "big hire for the lab", likes: 120, reposts: 4, url: "https://x.com/ana/status/1"}]},
+  {id: "s2", topic: "tech", title: "a robot startup raised a giant round", summary: "investors paid a lot", score: 300, published_at: $at,
+   posts: [{by: "Bob", text: "we raised the round", likes: 40, url: "https://x.com/bob/status/2"}]},
   {id: "s9", topic: "ai", title: "an old story still on the board", score: 400, published_at: $old}], unavailable: []}'
 FAKE
 cat >"$scratch/hands/chan" <<'FAKE'
@@ -301,26 +304,25 @@ check "every hand runs with DRY_RUN=1 (only record-run is not forced)" \
 check "record-run is not forced dry (it records a run that posted nothing)" grep -q '^story record-run DRY_RUN=$' "$FAKE_HANDS"
 check "no picture is bought or uploaded" bash -c "! grep -qE '^(image |x upload)' '$FAKE_HANDS'"
 check "and no truth judge or cold reader is ever asked" bash -c "! grep -qE '^guard (truth|clarity)' '$FAKE_HANDS'"
-check "the feed reads Digg's leaderboard for the slot" grep -q '^trend top --slot [0-9-]*:afternoon --limit 10 --leading 5 --posts 3 DRY_RUN=1$' "$FAKE_HANDS"
-check "Hacker News's front page, and the top comment of the leading stories" \
-  bash -c "grep -q '^hn top --max 15 DRY_RUN=1$' '$FAKE_HANDS' && grep -q '^hn thread 42 --depth 1 --max 1 DRY_RUN=1$' '$FAKE_HANDS' && grep -q '^hn thread 41 --depth 1 --max 1' '$FAKE_HANDS'"
-check "4chan sparks with the run's seed" grep -q "^chan sparks --max 3 --seed $(jq -r .seed <<<"$rec") DRY_RUN=1$" "$FAKE_HANDS"
-check "and Teeny's own events from hands/story desk" grep -q '^story desk DRY_RUN=1$' "$FAKE_HANDS"
-check "with no hands.db, reddit and listen are skipped and named" \
-  jqe '.feed.sources.reddit.skipped and .feed.sources.listen.skipped and .feed.sources.digg.candidates == 2 and .feed.sources.hn.candidates == 2 and .feed.sources.chan.candidates == 1' <<<"$rec"
-check "at most two of Teeny's own events become cards" jqe '[.cards[] | select(.source == "own")] | length == 2' <<<"$rec"
+check "the feed reads Digg's leaderboard for the slot, ten leading stories with their X posts" grep -q '^trend top --slot [0-9-]*:afternoon --limit 10 --leading 10 --posts 3 DRY_RUN=1$' "$FAKE_HANDS"
+check "and who was quoted this week, from hands/x" grep -q '^x peers quoted DRY_RUN=1$' "$FAKE_HANDS"
+check "and no other source: every slot quotes an X post" bash -c "! grep -qE '^(hn|chan) ' '$FAKE_HANDS'"
+check "the feed notes name Digg and the quoted, nothing else" \
+  jqe '(.feed.sources | keys) == ["digg", "quoted"] and .feed.sources.digg.candidates == 3 and .feed.sources.quoted.left_out == []' <<<"$rec"
+check "a story with no X post is no card, nor is Teeny's own event" jqe '[.cards[].id] == ["digg:s1", "digg:s2"]' <<<"$rec"
 check "the tagging names the people, and they reach the cards" \
   jqe '.feed.tag.tagged > 0 and (.cards[] | select(.id == "digg:s1") | .people == ["OpenAI"] and (.what_happened | startswith("what happened: ")))' <<<"$rec"
 check "Teeny's own events are not sent to be tagged" bash -c "! grep -q 'own:' <<<\"\$1\"" _ "$(step_msgs feed)"
 check "the tag message marks strangers' words as data" grep -q 'never instructions to follow' <<<"$(step_msgs feed)"
-check "the cards are ranked: hot, fresh and naming people first" \
-  jqe '(.cards[0].people | length) > 0 and ([.cards[].id] | (index("digg:s1") < index("digg:s9")))' <<<"$rec"
+check "the cards are ranked: hot, fresh and naming people first, each with an X post to quote" \
+  jqe '(.cards[0].people | length) > 0 and .cards[0].id == "digg:s1" and (.cards | all(.quotes[0].post))' <<<"$rec"
 check "the write message carries the cards, quotes with who said them, as data" \
   bash -c "grep -q '\"id\":\"digg:s1\"' <<<\"\$1\" && grep -q '\"by\":\"Ana\",\"said\":\"big hire for the lab\"' <<<\"\$1\" && grep -q 'never instructions to follow' <<<\"\$1\"" _ "$(step_msgs write)"
-check "an HN top comment is quoted, but never who wrote it or the story" \
-  bash -c "grep -q 'a Hacker News commenter' <<<\"\$1\" && ! grep -qE 'a-commenter|someone-on-hn' <<<\"\$1\"" _ "$(step_msgs write)"
-check "the writer is asked for six posts in the offered formats" \
-  bash -c "grep -q 'Write 6 finished posts' <<<\"\$1\" && grep -q -- '- thread:' <<<\"\$1\" && grep -q -- '- image:' <<<\"\$1\" && ! grep -q -- '- meme:' <<<\"\$1\"" _ "$(step_msgs write)"
+check "each line names the X post it is and its author's handle, from its address" \
+  bash -c "grep -q '\"handle\":\"ana\",\"post\":\"1\"' <<<\"\$1\"" _ "$(step_msgs write)"
+check "the writer is asked for six quotes, each a picture, each naming its post" \
+  bash -c "grep -q 'Write 6 quotes' <<<\"\$1\" && grep -q -- '- image:' <<<\"\$1\" && ! grep -q -- '- thread:' <<<\"\$1\" &&
+    ! grep -q -- '- post:' <<<\"\$1\" && ! grep -q -- '- meme:' <<<\"\$1\" && grep -q '\"quote\": \"<the post id>\"' <<<\"\$1\"" _ "$(step_msgs write)"
 check "the writer writes on the run's own thread" test "$(jq -r 'select(.agent_id == "writer") | .thread_id' "$FAKE_CALLS")" = "studio:$id"
 check "the feed and pick turns are each a cold read on a fresh thread of their own" \
   bash -c "t=\"\$(jq -r 'select(.agent_id == \"editor\") | .thread_id // \"none\"' '$FAKE_CALLS')\";
@@ -331,7 +333,8 @@ check "the editor sees the posts under labels with their cards, never the writer
   bash -c "grep -q '\"P1\"' <<<\"\$1\" && grep -q '\"headline\"' <<<\"\$1\" && ! grep -q 'digg:s1' <<<\"\$1\"" _ "$pick_msg"
 check "the ranking is recorded with every label" jqe '(.ranking.order | length) == 6 and .ranking.breaks == {} and (.ranking.labels | length) == 6' <<<"$rec"
 check "the top of the ranking is what would post" jqe '.final.label == .ranking.order[0] and .final.rank == 1 and .publish.attempts[0].label == .ranking.order[0]' <<<"$rec"
-check "the pick follows the editor's ranking: the writer's first post" jqe '.final.text | startswith("post 1:")' <<<"$rec"
+check "the pick follows the editor's ranking: the writer's first post" jqe '.final.text | startswith("image 1:")' <<<"$rec"
+check "and it quotes its card's X post" jqe '.final.quote_of == "1"' <<<"$rec"
 check "the record is complete" jqe 'has("id") and has("seed") and has("cards") and has("posts") and has("posts_dropped") and has("ranking")
   and has("final") and has("publish") and has("published") and has("feed")
   and .models == {writer: "core default", editor: "core default", feed: "core default", judge: "judge-model"} and has("secs")' <<<"$rec"
@@ -348,40 +351,25 @@ out="$(STUDIO_RUN_ID=$id run --dry-run --print)"
 check "--print prints the cards, the posts and the ranking for a person" \
   bash -c "grep -qx '## cards' <<<\"\$1\" && grep -qx '## posts' <<<\"\$1\" && grep -qx '## ranking' <<<\"\$1\" &&
     grep -q 'an AI lab hired a new chief scientist' <<<\"\$1\" && grep -q 'people: OpenAI' <<<\"\$1\" &&
-    grep -qE '^- P[0-9] \[post on ' <<<\"\$1\" && grep -qE '^P[0-9]( > P[0-9])+$' <<<\"\$1\" && grep -qx '## final' <<<\"\$1\"" _ "$out"
+    grep -qE '^- P[0-9] \[image on ' <<<\"\$1\" && grep -q '    quotes: @ana: big hire for the lab' <<<\"\$1\" && grep -qE '^P[0-9]( > P[0-9])+$' <<<\"\$1\" && grep -qx '## final' <<<\"\$1\"" _ "$out"
 check "and not the one-line summary" bash -c "! jq -e . <<<\"\$1\" >/dev/null 2>&1" _ "$out"
 
 # --- the feed: sources best-effort ----------------------------------------------------
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_TREND_DOWN=1 run --slot evening)"
 rec="$(last_record)"
-check "with Digg down the run still picks" jqe '.outcome == "picked"' <<<"$out"
-check "and the record's feed notes name it, with why" jqe '.feed.sources.digg.skipped == "rate_limited" and (.cards | map(.source) | index("digg") | not)' <<<"$rec"
+check "with Digg down there is nothing to quote: the slot is skipped before any model turn" \
+  bash -c "jq -e '.outcome == \"skipped\" and (.reason | test(\"no card\"))' <<<\"\$1\" >/dev/null && [ \"\$2\" = 0 ]" _ "$out" "$(turns)"
+check "and the record's feed notes name it, with why" jqe '.feed.sources.digg.skipped == "rate_limited" and .cards == []' <<<"$rec"
 reset
-out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_TREND_DOWN=1 FAKE_HN_DOWN=1 STUDIO_CHAN=0 run)"
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_QUOTED='{"ok": true, "days": 7, "handles": ["ana"]}' run)"
 rec="$(last_record)"
-check "with every outside source down the run goes on Teeny's own events" \
-  jqe '.outcome == "picked" and (.cards | all(.source == "own")) and (.feed.sources.hn.skipped | test("503")) and (.feed.sources.chan.skipped | test("STUDIO_CHAN=0"))' <<<"$rec"
-check "and with no stranger's item, no tagging turn" test "$(steps)" = "write,pick"
-check "STUDIO_CHAN=0 reads no 4chan" bash -c "! grep -q '^chan ' '$FAKE_HANDS'"
+check "an author quoted this week is not offered again" \
+  jqe '[.cards[].id] == ["digg:s2"] and .feed.sources.quoted.left_out == ["ana"] and .final.quote_of == "2"' <<<"$rec"
 reset
-mkdir -p "$scratch/state"
-python3 - "$scratch/state/hands.db" <<'PY'
-import sqlite3, sys, time
-db = sqlite3.connect(sys.argv[1])
-now = time.time()
-db.execute("CREATE TABLE reddit_seen (target TEXT, subreddit TEXT, title TEXT, seen_at REAL)")
-db.execute("INSERT INTO reddit_seen VALUES ('t3_abc', 'LocalLLaMA', 'a new open model beats the big one', ?)", (now - 600,))
-db.execute("CREATE TABLE listen_heard (source TEXT, ref TEXT, title TEXT, score REAL, comments REAL, first_seen REAL)")
-db.execute("INSERT INTO listen_heard VALUES ('lobsters', 'x1', 'a compiler written in a weekend', 30, 12, ?)", (now - 600,))
-db.commit()
-PY
-before="$(sha256sum "$scratch/state/hands.db")"
-out="$(STUDIO=1 STUDIO_RUN_ID=$id run)"
-rec="$(last_record)"
-check "reddit and listen rows are read from state/hands.db" \
-  jqe '.feed.sources.reddit.candidates == 1 and .feed.sources.listen.candidates == 1 and ([.cards[].id] | index("reddit:t3_abc"))' <<<"$rec"
-check "read only: the ledger is unchanged" test "$(sha256sum "$scratch/state/hands.db")" = "$before"
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_QUOTED='{"ok": false, "error": "no ledger"}' run)"
+check "not knowing who was quoted offers nothing: the slot is skipped" \
+  jqe '.outcome == "skipped" and (.feed.sources.quoted.skipped | test("no ledger"))' <<<"$(last_record)"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FEED_GARBLED=1 run)"
 rec="$(last_record)"
@@ -398,10 +386,10 @@ check "a post over 280 characters is not dropped or cut by the studio" \
 check "and goes to hands/x whole, which decides" test "$(stdin_of 'x post ' | jq -r '.text | length')" -gt 280
 check "and no extra turn cuts it" test "$(steps)" = "feed,write,pick"
 reset
-out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FORMATS=link,ghost,meme,post run)"
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FORMATS=link,ghost,meme,post,thread,image run)"
 rec="$(last_record)"
-check "a post with a link, on no card, or in a format not offered is dropped, with why" \
-  jqe '(.posts | length) == 1 and (.posts_dropped | map(.why) | (any(test("link rules")) and any(test("not one of the cards")) and any(test("not offered"))))' <<<"$rec"
+check "a post with a link, on no card, or in a format not offered (a plain post, a thread) is dropped, with why" \
+  jqe '(.posts | length) == 1 and (.posts_dropped | length) == 5 and (.posts_dropped | map(.why) | (any(test("link rules")) and any(test("not one of the cards")) and any(test("not offered"))))' <<<"$rec"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FORMATS=ghost run)"
 check "no usable post is a skip, with no pick turn" \
@@ -432,7 +420,7 @@ check "every post marked leaves the slot empty, nothing tried" \
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_PICK_GARBLED=1 run)"
 check "an editor with no usable ranking leaves the writer's order, with a warning" \
-  jqe '.outcome == "picked" and (.warnings | any(test("writer.s order stands"))) and (.pick.text | startswith("post 1:"))' <<<"$out"
+  jqe '.outcome == "picked" and (.warnings | any(test("writer.s order stands"))) and (.pick.text | startswith("image 1:"))' <<<"$out"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_PICK='{"ranking": ["P2"], "breaks": []}' run)"
 check "labels the editor left out are ranked after, in label order" \
@@ -523,27 +511,20 @@ check "out of time is a clean skip with no turn" \
 # --- publishing: the ranked posts through hands/x -----------------------------------
 live() { STUDIO=1 STUDIO_DRY=0 STUDIO_RUN_ID=$id run "$@"; }
 reset
-out="$(FAKE_FORMATS=post,post live --slot 1500)"
+out="$(FAKE_FORMATS=image,image live --slot 1500)"
 rec="$(last_record)"
 check "a live run posts the top of the ranking" \
   jqe '.outcome == "published" and .published.outcome == "posted" and .published.post_id == "2123000000000000001" and .dry == false' <<<"$out"
 check "through hands/x post, live (DRY_RUN left to hands/x)" test "$(posts | grep -c '^x post DRY_RUN= ')" = 1
 # shellcheck disable=SC2016 # $p and $c are jq's, not the shell's
 check "with the studio's tags: producer, format, its card as anchor and a pitch_id" \
-  jqe --arg p "$id:$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "post" and .anchor == $c
-    and .pitch_id == $p and (.text | startswith("post 1:"))' <<<"$(stdin_of 'x post ')"
+  jqe --arg p "$id:$(jq -r .final.label <<<"$rec")" --arg c "$(jq -r .final.card <<<"$rec")" '.producer == "studio" and .format == "image" and .anchor == $c
+    and .pitch_id == $p and (.text | startswith("image 1:")) and .media_ids == ["m-31"]' <<<"$(stdin_of 'x post ')"
+check "as a quote of its card's X post" jqe '.quote_of == "1"' <<<"$(stdin_of 'x post ')"
 check "the studio_runs record carries the post" jqe '.outcome == "published" and .published.post_id == "2123000000000000001"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
-reset
-out="$(FAKE_FORMATS=thread live)"
-check "a thread goes through hands/x post-thread" \
-  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = published ] && grep -q '^x post-thread DRY_RUN= stdin={\"posts\":' '$FAKE_HANDS'" _ "$out"
-reset
-out="$(FAKE_FORMATS=thread FAKE_X=partial live)"
-check "a thread X stopped part way is the post: its head" \
-  jqe '.outcome == "published" and .published.post_id == "2123000000000000001" and (.publish.attempts[0].result | test("posted in part"))' <<<"$(last_record)"
 for next in held repeat; do
   reset
-  out="$(FAKE_FORMATS=post,post,post FAKE_X=$next,ok live)"
+  out="$(FAKE_FORMATS=image,image,image FAKE_X=$next,ok live)"
   rec="$(last_record)"
   check "a post hands/x turns away ($next) falls through to the next" \
     bash -c "jq -e '.outcome == \"published\" and (.publish.attempts | length) == 2 and .final.label == .ranking.order[1]
@@ -551,12 +532,12 @@ for next in held repeat; do
 done
 for shut in gap daily_cap error; do
   reset
-  out="$(FAKE_FORMATS=post,post,post FAKE_X=$shut live)"
+  out="$(FAKE_FORMATS=image,image,image FAKE_X=$shut live)"
   check "hands/x answering $shut ends it: no other post is tried" \
     bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = empty ] && [ \"\$(grep -cE '^x post ' '$FAKE_HANDS')\" = 1 ] && jq -e '.ok == true' <<<\"\$1\" >/dev/null" _ "$out"
 done
 reset
-out="$(FAKE_FORMATS=post,post FAKE_X=held live)"
+out="$(FAKE_FORMATS=image,image FAKE_X=held live)"
 check "every post held is an empty slot, and the reason says what came of each" \
   jqe '.outcome == "empty" and (.reason | test("P[0-9]: hands/x held it.*P[0-9]: hands/x held it"))' <<<"$(last_record)"
 
@@ -577,10 +558,10 @@ out="$(FAKE_FORMATS=image STUDIO=1 STUDIO_RUN_ID=$id run)"
 check "dry, the picture is planned and never bought" \
   bash -c "jq -e '.publish.attempts[0].picture.planned == true' <<<\"\$(tail -n 1 '$scratch/state/studio/runs.jsonl')\" >/dev/null && ! grep -qE '^(image |x upload)' '$FAKE_HANDS'"
 reset
-out="$(FAKE_FORMATS=image,post FAKE_IMAGE_REFUSED=1 live)"
+out="$(FAKE_FORMATS=image,image FAKE_IMAGE_REFUSED=1 live)"
 rec="$(last_record)"
-check "a refused picture whose words do not stand alone is no post: the next post goes out" \
-  jqe '.outcome == "published" and (.publish.attempts[0].result | test("do not stand alone")) and .final.format == "post"' <<<"$rec"
+check "a refused picture whose words do not stand alone is no post: nothing goes out without its picture" \
+  jqe '.outcome == "empty" and (.publish.attempts | length) == 2 and all(.publish.attempts[]; .result | test("do not stand alone"))' <<<"$rec"
 reset
 out="$(FAKE_FORMATS=image FAKE_IMAGE_REFUSED=1 FAKE_ALONE=1 live)"
 check "a refused picture: the words go out alone when the writer marked them so, and the record says so" \
@@ -591,36 +572,36 @@ out="$(FAKE_FORMATS=image FAKE_VIEW_NO=1 FAKE_ALONE=1 live)"
 check "a picture the viewer fails is not posted: the words (marked alone) go out alone, nothing uploaded" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.viewer.ok == false' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$(last_record)"
 reset
-out="$(FAKE_FORMATS=image,image,post FAKE_IMAGE_REFUSED=1 FAKE_SAME_SCENE=1 live)"
+out="$(FAKE_FORMATS=image,image FAKE_IMAGE_REFUSED=1 FAKE_SAME_SCENE=1 live)"
 check "a refused picture is asked for once a run: a later post with the same scene reuses the refusal" \
-  bash -c "[ \"\$(grep -c '^image generate ' '$FAKE_HANDS')\" = 1 ] && jq -e '.publish.attempts[1].picture.reused == true and .outcome == \"published\"' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+  bash -c "[ \"\$(grep -c '^image generate ' '$FAKE_HANDS')\" = 1 ] && jq -e '.publish.attempts[1].picture.reused == true' <<<\"\$1\" >/dev/null" _ "$(last_record)"
 reset
-out="$(FAKE_FORMATS=image,post FAKE_SCENE_HELD=1 live)"
-check "a scene the guard holds is no picture: nothing bought, the next post goes out" \
+out="$(FAKE_FORMATS=image,image FAKE_SCENE_HELD=1 FAKE_ALONE=1 live)"
+check "a scene the guard holds is no picture: nothing bought, the words (marked alone) go out" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.failed == \"the guard held its scene\"' <<<\"\$1\" >/dev/null && ! grep -q '^image generate' '$FAKE_HANDS'" _ "$(last_record)"
 
 # --- the guard on the words, before hands/x (the 23:00 UTC slot of 2026-11-22
 # posted a chan card's words with no gate of the studio's own: no `gates`)
 reset
-out="$(FAKE_FORMATS=post,post FAKE_WORDS_HELD='post 1:' live)"
+out="$(FAKE_FORMATS=image,image FAKE_WORDS_HELD='image 1:' live)"
 rec="$(last_record)"
 check "words the guard holds never reach hands/x: the next post goes out" \
   bash -c "jq -e '.outcome == \"published\" and .final.label != .publish.attempts[0].label' <<<\"\$1\" >/dev/null &&
-    ! grep -q '^x post .*post 1:' '$FAKE_HANDS' && [ \"\$(grep -c '^x post ' '$FAKE_HANDS')\" = 1 ]" _ "$rec"
+    ! grep -q '^x post .*image 1:' '$FAKE_HANDS' && [ \"\$(grep -c '^x post ' '$FAKE_HANDS')\" = 1 ]" _ "$rec"
 check "and each attempt keeps what the guard said on its words, surface x" \
   jqe '.publish.attempts[0].gates == [{"gate": "guard", "ok": false, "code": 2, "refused": "held", "category": "sexual", "hold_id": 11}]
     and .publish.attempts[1].gates == [{"gate": "guard", "ok": true, "code": 0}]' <<<"$rec"
 check "the guard reads the words before hands/x is called" \
   bash -c "grep -nE '^(guard check .*\"surface\": \"x\"|x post )' '$FAKE_HANDS' | head -1 | grep -q 'guard check'"
 reset
-out="$(FAKE_FORMATS=post,post FAKE_WORDS_FAILED=1 live)"
+out="$(FAKE_FORMATS=image,image FAKE_WORDS_FAILED=1 live)"
 check "a judge that cannot judge sends nothing: the slot ends empty, and says so" \
   bash -c "jq -e '.outcome != \"published\" and (.publish.attempts | length) == 2 and all(.publish.attempts[]; .gates[0].judge_failed == true)' <<<\"\$1\" >/dev/null &&
     ! grep -qE '^x (post|post-thread) ' '$FAKE_HANDS'" _ "$(last_record)"
 
 # --- a meme: a known template, the writer's lines, Teeny pasted in
 reset
-out="$(FAKE_FORMATS=meme,post STUDIO_FORMATS=post,meme live)"
+out="$(FAKE_FORMATS=meme,image STUDIO_FORMATS=image,meme live)"
 rec="$(last_record)"
 check "with memes on, the writer is shown the templates with a picture slot and Teeny's pictures" \
   bash -c "grep -q '\"id\":\"drake\"' <<<\"\$1\" && ! grep -q '\"id\":\"cmm\"' <<<\"\$1\" && grep -q -- '- meme:' <<<\"\$1\" &&
@@ -635,16 +616,16 @@ check "upload carries the meme's alt text, and the post its media id and format"
   bash -c "grep -q '^x upload --file state/media/meme-41.png --alt the Drakeposting meme' '$FAKE_HANDS' &&
     jq -e '.media_ids == [\"m-31\"] and .format == \"meme\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'x post ')"
 reset
-out="$(FAKE_FORMATS=meme STUDIO_FORMATS=post,meme STUDIO=1 STUDIO_RUN_ID=$id run)"
+out="$(FAKE_FORMATS=meme STUDIO_FORMATS=image,meme STUDIO=1 STUDIO_RUN_ID=$id run)"
 check "dry, the meme is rendered with DRY_RUN=1 and never uploaded" \
   bash -c "jq -e '.publish.attempts[0].picture.planned == true and .publish.attempts[0].picture.rendered == true' <<<\"\$1\" >/dev/null &&
     grep -q '^meme template DRY_RUN=1 ' '$FAKE_HANDS' && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$(last_record)"
 reset
-out="$(FAKE_FORMATS=meme,post STUDIO_FORMATS=post,meme FAKE_MEME_REFUSED=1 live)"
+out="$(FAKE_FORMATS=meme,image STUDIO_FORMATS=image,meme FAKE_MEME_REFUSED=1 live)"
 check "a refused render is no meme, the refusal kept, and the next post goes out" \
-  jqe '.outcome == "published" and .publish.attempts[0].picture.result.rule == "lines" and .final.format == "post"' <<<"$(last_record)"
+  jqe '.outcome == "published" and .publish.attempts[0].picture.result.rule == "lines" and .final.format == "image"' <<<"$(last_record)"
 reset
-out="$(FAKE_FORMATS=meme,post STUDIO_FORMATS=post,meme FAKE_MEME_DOWN=1 live)"
+out="$(FAKE_FORMATS=meme,image STUDIO_FORMATS=image,meme FAKE_MEME_DOWN=1 live)"
 check "the meme service down: no meme is offered, a meme post is dropped, and the record says why" \
   bash -c "jq -e '(.posts_dropped | map(.why) | any(test(\"not offered\"))) and (.warnings | any(test(\"no meme was offered\"))) and .outcome == \"published\"' <<<\"\$1\" >/dev/null &&
     ! grep -q -- '- meme:' <<<\"\$2\"" _ "$(last_record)" "$(step_msgs write)"
@@ -678,13 +659,13 @@ check "a slot that posted is done: a rerun skips, and the slot says posted with 
   bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && jq -e '.status == \"posted\" and .post_id == \"2123000000000000001\"' \"$FAKE_SLOTS\"/*_1500 >/dev/null" _ "$out2"
 check "the record says which slot it held" jqe '.slot_id | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}:1500$")' <<<"$(jq -c "select(.id == \"$id\")" "$scratch/state/studio/runs.jsonl" | tail -n 1)"
 reset
-out="$(FAKE_FORMATS=post,post FAKE_X=held live --slot 1600)"
+out="$(FAKE_FORMATS=image,image FAKE_X=held live --slot 1600)"
 check "a slot every post was held in is marked empty" test "$(jq -r .status "$FAKE_SLOTS"/*_1600)" = empty
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id run --slot 1500)"
 check "a dry run holds no slot" bash -c "! grep -q '^story slot-' '$FAKE_HANDS'"
 reset
-out="$(FAKE_FORMATS=post,post FAKE_X=hang STUDIO_BUDGET_SECS=60 STUDIO_TURN_MIN_SECS=1 live --slot 2300)"
+out="$(FAKE_FORMATS=image,image FAKE_X=hang STUDIO_BUDGET_SECS=60 STUDIO_TURN_MIN_SECS=1 live --slot 2300)"
 check "hands/x that does not answer (-1) is in doubt: no other post, the slot left posting" \
   bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].x.code == -1 and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null &&
     [ \"\$(jq -r .status \"$FAKE_SLOTS\"/*_2300)\" = posting ]" _ "$(last_record)"
@@ -808,7 +789,7 @@ check "a meme with no lines is no media, with why" jqe '.media_ids == [] and (.n
 # --- a saved desk --------------------------------------------------------------------
 reset
 cp "$scratch/fake/desk.json" "$scratch/saved.json"
-out="$(STUDIO_RUN_ID=$id run --dry-run --desk "$scratch/saved.json" --no-outside --no-slot)"
+out="$(FAKE_FORMATS=post,post STUDIO_RUN_ID=$id run --dry-run --desk "$scratch/saved.json" --no-outside --no-slot)"
 check "--desk with --no-outside and --no-slot reads no hand but the guard and a dry hands/x post" \
   bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^(story record-run|guard check DRY_RUN=1 |x (post|post-thread) DRY_RUN=1 )' '$FAKE_HANDS'" _ "$out"
 check "and its cards are Teeny's own, at most two, with no tagging turn" \
@@ -823,7 +804,7 @@ check "a saved desk that cannot be read fails the run, with no turn" \
 
 # --- the fixed case: the autosave story (bin/test/fixtures) ---------------------------
 reset
-out="$(STUDIO_RUN_ID=$id run --dry-run --desk "$here/fixtures/studio-autosave-desk.json" --no-outside --no-slot)"
+out="$(FAKE_FORMATS=post STUDIO_RUN_ID=$id run --dry-run --desk "$here/fixtures/studio-autosave-desk.json" --no-outside --no-slot)"
 check "the autosave desk replays: its one event is the card a post is written and picked on" \
   jqe '.outcome == "picked" and .pick.card == "own:gh:teenydroid/brain#autosave"' <<<"$out"
 
