@@ -40,16 +40,16 @@ POST_CARD = {"id": "hn:2", "headline": "OpenAI ships an agent that books dinner 
              "quotes": [], "heat": 0.8, "age_hours": 5.0, "source": "hn", "untrusted": True}
 CARDS = [CARD, POST_CARD]
 SHOTS = [
-    {"prompt": "Wide anamorphic shot, golden hour on a marble showroom built on the moon, Earth in a black sky. "
-               "Elon Musk in a silver tuxedo pulls a velvet sheet off a chrome robotaxi; its headlights blink."},
-    {"prompt": "Low-angle close-up, cool rim light: Musk plays chess against the robotaxi's robotic arm and the "
-               "board grows to the size of a planet. He mutters: \"best of three.\" Comic timpani."},
+    {"prompt": "Wide anamorphic shot of the moon showroom. Elon Musk pulls a velvet sheet off a chrome robotaxi; "
+               "its headlights blink."},
+    {"prompt": "Low-angle close-up: Musk plays chess against the robotaxi's arm and the board grows to the size "
+               "of a planet. He mutters: \"best of three.\""},
 ]
 PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
 LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
 SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour"
 SCORE = "one swelling orchestral score with comic timpani"
-TEENY = "it eats a chess pawn, faces the camera and shrugs"
+TEENY = "it eats a chess pawn and shrugs at the camera"
 RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
        "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "look": LOOK, "setting": SETTING, "score": SCORE, "teeny": TEENY, "shots": SHOTS, "aspect": "16:9"}
