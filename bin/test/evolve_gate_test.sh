@@ -85,6 +85,11 @@ cp "$repo/hands/lib/teeny_hands/websites.py" "$fx/hands/lib/teeny_hands/websites
 cp "$repo/hands/lib/teeny_hands/guard/__init__.py" "$fx/hands/lib/teeny_hands/guard/__init__.py"
 cp "$repo/hands/lib/teeny_hands/guard/screen.py" "$fx/hands/lib/teeny_hands/guard/screen.py"
 cp "$repo/hands/lib/teeny_hands/guard/lexicon.py" "$fx/hands/lib/teeny_hands/guard/lexicon.py"
+# The doctor's services.toml check loads the key proxy's service list.
+cp "$repo/evals/services.toml" "$fx/evals/services.toml"
+cp "$repo/hands/lib/teeny_hands/rest.py" "$fx/hands/lib/teeny_hands/rest.py"
+mkdir -p "$fx/hands/lib/teeny_hands/call"
+cp "$repo/hands/lib/teeny_hands/call/"*.py "$fx/hands/lib/teeny_hands/call/"
 mkdir -p "$fx/hands/lib/teeny_hands/x402" "$fx/hands/lib/teeny_hands/surplus"
 cp "$repo/hands/lib/teeny_hands/x402/"*.py "$fx/hands/lib/teeny_hands/x402/"
 cp "$repo/hands/lib/teeny_hands/surplus/"*.py "$fx/hands/lib/teeny_hands/surplus/"
