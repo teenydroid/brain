@@ -95,6 +95,16 @@ services:
       CORTEX_EMBEDDING_MODEL: venice-embed-1
       CORTEX_EMBEDDING_DIMS: "1024"
       CORTEX_EMBEDDING_HTTP_TIMEOUT_SECS: "30"
+      # Two retries a second apart, then two seconds (the image's default is
+      # one retry after 250 ms). On 2026-11-20..23 the seller answered 503
+      # no_healthy_sellers in bursts: a flapping seller often answers the
+      # second try, and while it is down for hours the backlog no longer
+      # retries it twice a second (about 46,000 failed calls). A query's
+      # embedding still fits the turn's 5 s recall wait after one retry.
+      # There is no second source: the model is pinned (see above), so
+      # bin/health raises an alarm instead (memory_alarm).
+      CORTEX_EMBEDDING_RETRY_ATTEMPTS: "2"
+      CORTEX_EMBEDDING_RETRY_BASE_DELAY_MS: "1000"
       CORTEX_LLM_MAX_IN_FLIGHT: "16"
       CORTEX_V1_LAYERS_AUTO: "1"
       CORTEX_FACT_VALIDITY_FILTER: "1"
