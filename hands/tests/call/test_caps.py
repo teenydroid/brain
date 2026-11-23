@@ -95,7 +95,7 @@ class LogTest(Scratch):
         self.svc.route("GET", "/api/v1/posts", {"posts": []})
         self.svc.route("POST", "/api/v1/notes", {"id": 1})
         self.get("/posts", query={"q": "find me"})
-        self.write(body={"text": "a note about lobsters " * 20})
+        self.write(body={"text": " ".join(["a note about lobsters"] * 20)})
         self.write("POST", "/posts")
         self.call({"service": "nowhere", "method": "GET", "path": "/x"})
         rows = self.log()

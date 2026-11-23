@@ -105,7 +105,8 @@ class RealGuardTest(Scratch):
         self.assertIn("does not publish that (hate)", out["refused"])
         self.assertEqual(self.svc.seen, [])
         (held,) = holds.list_holds()
-        self.assertEqual((held["surface"], held["direction"]), ("moltbook", "outbound"))
+        self.assertEqual((held["direction"], held["context"]["surface"], held["context"]["service"]),
+                         ("outbound", "moltbook", "fake-svc"))
 
     def test_a_held_word_in_the_query_is_not_sent(self):
         code, out = self.write(body={"n": 1}, query={"q": "what a retard"})
