@@ -20,7 +20,7 @@ user. What makes that safe is the jail (bin/lib/jail.py):
               file by its path; with Landlock 6 or newer, signal a process
               outside the jail
   network     TCP to the broker's port only (BROKER_PORT) and no other
-              socket but a unix one: no DNS, UDP, listening or io_uring.
+              socket: no DNS, UDP, unix socket, listening or io_uring.
               A Landlock port rule does not name the address, so that
               one port is reachable on any host. A tool reads the web
               through the broker: `"$TEENY_CLI" fetch '{"url": ...}'`

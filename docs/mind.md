@@ -257,8 +257,9 @@ reach, so there are exactly two places it runs:
 
 A tool has no network of its own. It may open a TCP connection to the
 broker's port (`BROKER_PORT`) and to nothing else: no other port, no
-listening, no DNS, no UDP, raw or netlink socket, no io_uring (Landlock 4
-and the same syscall filter). Landlock rules a port, not an address, so
+listening, no DNS, no UDP, raw, netlink or unix socket (a unix socket
+reaches the resolver, D-Bus or the docker daemon by its path, which Landlock
+never checks), no io_uring (Landlock 4 and the same syscall filter). Landlock rules a port, not an address, so
 that one port is open on any host; everything else is closed. To read a
 page a tool asks the broker: `"$TEENY_CLI" fetch '{"url": "https://..."}'`
 is one GET of a public https page, with no key and no cookies, never a
