@@ -117,6 +117,18 @@ class ConfigTest(unittest.TestCase):
         cfg = self.load({"STUDIO_POSTS": "99", "STUDIO_FEED_CARDS": "0", "STUDIO_BUDGET_SECS": "nope"})
         self.assertEqual((cfg.posts, cfg.feed_cards, cfg.budget_secs), (10, 1, 2400))
 
+    def test_quote_slots_are_on_unless_studio_quote_is_off(self):
+        # 2026-11-23: every slot quotes a trending X post with a picture or video.
+        self.assertTrue(self.load({}).quote)
+        self.assertFalse(self.load({"STUDIO_QUOTE": "0"}).quote)
+        self.assertFalse(self.load({}, "STUDIO_QUOTE=off\n").quote)
+
+    def test_a_quote_slot_offers_no_plain_post_or_thread(self):
+        self.assertEqual(studio.word_formats(self.load({})), ("image",))
+        self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post,thread,image,meme"})), ("image", "meme"))
+        self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post"})), ("image",))
+        self.assertEqual(studio.word_formats(self.load({"STUDIO_QUOTE": "0"})), ("post", "thread", "image"))
+
     def test_the_environment_cannot_set_the_judges_model(self):
         self.assertEqual(self.load({"SAFETY_JUDGE_MODEL": "j"}).judge_model, "")
         self.assertEqual(self.load({}, "SAFETY_JUDGE_MODEL=j\n").judge_model, "j")
@@ -752,6 +764,68 @@ class WriteMessageTest(unittest.TestCase):
         self.assertNotIn(studio.MEME_ASK, off)
 
 
+SAMA = {"by": "Sam Altman", "handle": "sama", "post": "2124551594691932405",
+        "said": "This is the most important thing OpenAI has published in awhile."}
+QUOTE_CARDS = [card("digg:s1", ["Sam Altman", "OpenAI"], "OpenAI will publish its pretraining limits",
+                    quotes=[SAMA, {"by": "a blog", "said": "the post"}]),
+               card("digg:s2", ["Perplexity"], "Perplexity ships a browser",
+                    quotes=[{"by": "Aravind Srinivas", "handle": "AravSrinivas", "post": "803", "said": "Comet is out."}])]
+SCENE = {"image": "Teeny strapped to a server rack, Sam Altman holding a speed dial", "people": ["Sam Altman"]}
+
+
+class QuoteWriteTest(unittest.TestCase):
+    """A quote slot: each post names the X post it quotes (`quote`, one of
+    its card's posts), and goes out above it."""
+
+    def validate(self, answer, allowed=("image", "meme")):
+        return studio.validate_posts(answer, QUOTE_CARDS, allowed, quote=True)
+
+    def test_a_quote_keeps_the_post_it_quotes(self):
+        kept, dropped = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"],
+                                        "text": "oooooooo strap me with your limits baby", **SCENE}])
+        self.assertEqual(dropped, [])
+        self.assertEqual(kept[0]["quote_of"], SAMA["post"])
+        self.assertEqual(kept[0]["quoted"], {"by": "Sam Altman", "handle": "sama", "said": SAMA["said"]})
+
+    def test_a_quote_of_a_post_not_on_its_card_is_dropped_with_why(self):
+        bad = [{"card": "digg:s1", "format": "image", "text": "t", **SCENE},
+               {"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
+               {"card": "digg:s1", "format": "image", "quote": "a blog", "text": "t", **SCENE}]
+        kept, dropped = self.validate(bad)
+        self.assertEqual(kept, [])
+        self.assertEqual(len(dropped), 3)
+        self.assertTrue(all("quotes" in d["why"] for d in dropped), dropped)
+
+    def test_a_card_with_one_post_to_quote_needs_no_quote_named(self):
+        kept, dropped = self.validate([{"card": "digg:s2", "format": "image", "text": "t", **SCENE}])
+        self.assertEqual((dropped, kept[0]["quote_of"]), ([], "803"))
+
+    def test_a_plain_post_is_not_offered_in_a_quote_slot(self):
+        _, dropped = self.validate([{"card": "digg:s1", "format": "post", "quote": SAMA["post"], "text": "t"}])
+        self.assertIn("not offered", dropped[0]["why"])
+
+    def test_the_writer_is_asked_for_quotes_with_pictures(self):
+        cfg = studio.Config(formats=("image",), posts=4, quote=True)
+        message = studio.write_message(cfg, QUOTE_CARDS)
+        self.assertIn("Write 4 quotes", message)
+        self.assertIn("`post`", message)
+        self.assertIn('"quote": "<the post id>"', message)
+        self.assertIn("Every one is a picture", message)
+        self.assertNotIn('"format": "post"', message)
+        self.assertNotIn('"format": "thread"', message)
+
+    def test_the_editor_sees_the_post_it_quotes(self):
+        kept, _ = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"], "text": "t", **SCENE}])
+        shown = studio.shown(kept[0])
+        self.assertEqual(shown["quotes"], {"by": "Sam Altman", "said": SAMA["said"]})
+
+    def test_hands_x_is_asked_to_quote_it(self):
+        kept, _ = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"], "text": "t", **SCENE}])
+        verb, body = studio.post_body(XRoom(), "P1", kept[0], ["m1"])
+        self.assertEqual((verb, body["quote_of"], body["producer"], body["media_ids"]),
+                         ("post", SAMA["post"], "studio", ["m1"]))
+
+
 # --- step 3: the pick ------------------------------------------------------------------------
 
 
@@ -1112,7 +1186,7 @@ class RunTest(unittest.TestCase):
         self.env = {"TEENY_ROOT": str(REPO), "TEENY_STATE": str(root / "state"), "TEENY_HANDS": str(root / "hands"),
                     "TEENY_SECRETS": str(root / "secrets"), "TEENY_BRAIN": str(REPO / "brain"),
                     "TEENY_NOW": str(NOW), "STUDIO_RUN_ID": "run-1", "STUDIO_WRITER_MODEL": "w",
-                    "STUDIO_EDITOR_MODEL": "e"}
+                    "STUDIO_EDITOR_MODEL": "e", "STUDIO_QUOTE": "0"}
         self.args = argparse.Namespace(dry_run=True, slot=None, desk=str(root / "desk.json"), force_slot=False,
                                        no_outside=False, no_slot=True, legacy=None, print=False)
         self.steps: list[tuple[str, str]] = []
@@ -1179,6 +1253,31 @@ class RunTest(unittest.TestCase):
         # Every hand ran dry; x was asked once.
         self.assertTrue(all(c["dry"] for c in self.calls() if c["hand"] != "story"))
         self.assertEqual(len([c for c in self.calls() if c["hand"] == "x"]), 1)
+
+    def test_a_quote_slot_quotes_a_trending_post_with_its_picture(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
+        tags = {"items": [{"id": "digg:s1", "people": ["Sam Altman"], "what_happened": "openai pledges limits"}]}
+        posts = [{"card": "digg:s1", "format": "image", "quote": "2124551594691932405",
+                  "text": "oooooooo strap me with your limits baby", **SCENE},
+                 {"card": "digg:s1", "format": "post", "text": "a plain post"}]
+        code, out = self.go(self.ask(tag=tags, posts=posts), STUDIO_QUOTE="1")
+        rec = self.record()
+        self.assertEqual((code, rec["outcome"]), (0, "picked"))
+        self.assertEqual([c["id"] for c in rec["cards"]], ["digg:s1", "digg:s2"])  # no hn, no chan, no own
+        self.assertIn("not offered", rec["posts_dropped"][0]["why"])
+        [sent] = [c for c in self.calls() if c["hand"] == "x" and c["argv"][0] == "post"]
+        body = json.loads(sent["body"])
+        self.assertEqual((body["quote_of"], body["producer"]), ("2124551594691932405", "studio"))
+        self.assertEqual(rec["final"]["quote_of"], "2124551594691932405")
+        self.assertFalse([c for c in self.calls() if c["hand"] in ("hn", "chan")])
+
+    def test_a_quote_slot_with_nothing_to_quote_skips_before_the_writer(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": ["sama", "aravsrinivas"]}}]})
+        code, out = self.go(self.ask(), STUDIO_QUOTE="1")
+        self.assertEqual((code, out["outcome"]), (0, "skipped"))
+        self.assertNotIn(("w", "# studio: write"), self.steps)
 
     def test_the_writer_keeps_the_runs_thread_and_the_editor_reads_cold(self):
         threads: list[tuple[str, str]] = []
