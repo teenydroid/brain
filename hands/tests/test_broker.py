@@ -766,6 +766,125 @@ class LedgerTest(BrokerCase):
         self.assertNotIn(self.token, (self.root / "state" / "broker" / "ledger.jsonl").read_text())
 
 
+class PulseTest(BrokerCase):
+    """`teeny pulse`: what the scripts did, for a mind that cannot read their
+    ledgers (docs/mind.md, "Conscious and subconscious")."""
+
+    def stores(self):
+        """The core's cron store and the hands' ledger, as the box keeps them."""
+        import sqlite3
+        ms = int(T0 * 1000)
+        (self.root / "brain").mkdir(exist_ok=True)
+        (self.root / "brain" / "cron.toml").write_text('[jobs.dream]\nschedule = "0 2 * * *"\ncommand = "bin/dream"\n')
+        conn = sqlite3.connect(self.root / "brain" / "storage.db")
+        conn.execute("create table docs (id text, coll text, deleted int, body text)")
+        jobs = [("j1", {"name": "teeny.dream", "job_type": "shell", "expression": "0 2 * * *", "enabled": 1}),
+                ("j2", {"name": "teeny.tick", "job_type": "shell", "expression": "*/5 * * * *", "enabled": 1}),
+                ("j3", {"name": "teeny.mind", "job_type": "agent", "expression": "*/30 * * * *", "enabled": 1}),
+                ("j4", {"name": "mind.read-papers", "job_type": "agent", "expression": "0 9 * * *", "enabled": 1}),
+                ("j5", {"name": "core.sweep", "job_type": "shell", "expression": "0 * * * *", "enabled": 1})]
+        runs = [("j1", 1, "error", ms - 3_600_000), ("j1", 2, "error", ms - 1_800_000), ("j1", 3, "ok", ms - 60_000),
+                ("j1", 0, "error", ms - 3 * 86_400_000), ("j2", 1, "ok", ms - 120_000), ("j3", 1, "error", ms - 60_000)]
+        for jid, body in jobs:
+            conn.execute("insert into docs values (?, 'cron.jobs', 0, ?)", (jid, json.dumps({"id": jid, **body})))
+        for jid, seq, status, done in runs:
+            conn.execute("insert into docs values (?, 'cron.runs', 0, ?)",
+                         (f"{jid}-{seq}", json.dumps({"job_id": jid, "seq": seq, "status": status, "finished_ms": done})))
+        conn.commit()
+        conn.close()
+        (self.root / "state").mkdir(exist_ok=True)
+        conn = sqlite3.connect(self.root / "state" / "hands.db")
+        conn.execute("create table x_posts (id text, kind text, text text, created_at real, in_reply_to text)")
+        conn.execute("create table x_mentions (id text, conversation_id text, author_id text)")
+        conn.execute("insert into x_posts values ('p1', 'post', 'i ate the moon', ?, null)", (T0 - 7 * 3600,))
+        conn.commit()
+        conn.close()
+
+    def test_it_lists_the_scripts_with_their_last_run_and_failures_and_never_the_minds_own_wakes(self):
+        self.stores()
+        self.start()
+        status, answer = self.post("/pulse")
+        self.assertEqual((status, answer["status"], answer["days"]), (200, "ok", 1))
+        jobs = {j["job"]: j for j in answer["jobs"]}
+        self.assertEqual(set(jobs), {"dream", "tick"})
+        self.assertEqual((jobs["dream"]["last"], jobs["dream"]["runs"], jobs["dream"]["failed"]), ("ok", 3, 2))
+        self.assertEqual(jobs["dream"]["kind"], "script")
+        self.assertIn("yours", jobs["dream"]["owner"])
+        self.assertIn("pinned", jobs["tick"]["owner"])
+        self.assertEqual(jobs["tick"]["failed"], 0)
+
+    def test_a_script_whose_name_starts_with_mind_is_still_a_script(self):
+        self.stores()
+        import sqlite3
+        conn = sqlite3.connect(self.root / "brain" / "storage.db")
+        body = {"id": "j9", "name": "teeny.mind-check", "job_type": "shell", "expression": "0 * * * *", "enabled": 1}
+        conn.execute("insert into docs values ('j9', 'cron.jobs', 0, ?)", (json.dumps(body),))
+        conn.commit()
+        conn.close()
+        self.start()
+        _, answer = self.post("/pulse")
+        self.assertEqual({j["job"] for j in answer["jobs"]}, {"dream", "tick", "mind-check"})
+
+    def test_a_detached_tick_beat_that_failed_shows_even_though_cron_saw_a_clean_launch(self):
+        self.stores()
+        (self.root / "state" / "tick").mkdir()
+        beats = [{"at": "2026-09-14T06:00:00Z", "kind": "failed", "error": "model refused"},
+                 {"at": "2026-09-14T06:30:00Z", "kind": "beat"},
+                 {"at": "2026-09-10T06:00:00Z", "kind": "failed", "error": "too old"}]
+        (self.root / "state" / "tick" / "runs.jsonl").write_text("".join(json.dumps(b) + "\n" for b in beats) + "not json\n")
+        self.start()
+        _, answer = self.post("/pulse")
+        tick = {j["job"]: j for j in answer["jobs"]}["tick"]
+        self.assertEqual((tick["failed"], tick["beats_failed"], tick["last_beat_error"]), (0, 1, "model refused"))
+        self.assertIn("teeny.tick", json.dumps(answer["outcomes"]))
+
+    def test_it_says_what_became_of_what_the_scripts_made(self):
+        self.stores()
+        self.start()
+        _, answer = self.post("/pulse")
+        text = json.dumps(answer["outcomes"])
+        self.assertIn("i ate the moon", text)
+        self.assertIn("teeny.dream", text)  # a failing job, and whose it is to fix
+        self.assertIn("brain/cron.toml", text)
+
+    def test_a_longer_window_is_asked_for_in_days_and_bounded(self):
+        self.stores()
+        self.start()
+        _, week = self.post("/pulse", {"days": 7})
+        self.assertEqual({j["job"]: j["failed"] for j in week["jobs"]}["dream"], 3)
+        for days in (0, 8, "2", 1.5, True):
+            status, answer = self.post("/pulse", {"days": days})
+            self.assertEqual(answer["status"], "refused", days)
+            self.assertIn("1 to 7", answer["reason"])
+
+    def test_it_reads_and_never_writes_or_reaches_a_hand(self):
+        self.stores()
+        before = {p: p.stat().st_mtime_ns for p in (self.root / "brain" / "storage.db", self.root / "state" / "hands.db")}
+        self.start()
+        self.post("/pulse")
+        self.assertEqual(self.hand_calls(), [])
+        self.assertEqual({p: p.stat().st_mtime_ns for p in before}, before)
+        self.assertEqual([(line["path"], line["verb"], line["status"]) for line in self.ledger()], [("/pulse", "pulse", "ok")])
+
+    def test_a_box_with_no_stores_yet_still_answers(self):
+        self.start()
+        status, answer = self.post("/pulse")
+        self.assertEqual((status, answer["status"]), (200, "ok"))
+        self.assertNotIn("jobs", answer)
+        self.assertIn("jobs_unreadable", answer)
+
+    def test_the_client_reaches_it(self):
+        self.stores()
+        self.start()
+        client = lambda *argv: subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True, text=True,
+                                              timeout=60, env={"PATH": os.environ["PATH"]})
+        proc = client("pulse")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["days"], 1)
+        self.assertEqual(json.loads(client("pulse", '{"days": 3}').stdout)["days"], 3)
+        self.assertIn("teeny pulse", client("help").stdout)
+
+
 class ClientTest(BrokerCase):
     def client(self, *argv):
         return subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True, text=True, timeout=60,

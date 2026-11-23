@@ -98,6 +98,21 @@ class MindAgentTest(unittest.TestCase):
                        "A refusal from the broker is an answer"):
             self.assertIn(needle, spend)
 
+    def test_the_prompt_splits_the_conscious_mind_from_the_scripts(self):
+        # docs/mind.md, "Conscious and subconscious": the scripts stay (they
+        # are cheap), and the mind watches and steers them through the pulse.
+        prompt = (MIND.parent / "mind.md").read_text()
+        split = prompt[prompt.index("## Conscious and subconscious"):prompt.index("## Changing yourself")]
+        for needle in ("bin/teeny pulse", "repo/brain/cron.toml", "repo/brain/playbooks/", "`pinned` is the operator's",
+                       "let the script do it"):
+            self.assertIn(needle, split)
+
+    def test_the_prompt_keeps_checks_learnings_and_a_distilled_memory(self):
+        prompt = (MIND.parent / "mind.md").read_text()
+        for needle in ("notes/CHECKS.md", "notes/LEARNINGS.md", "notes/MEMORY.md", "nothing to do: <what you are waiting on>",
+                       "When a line reaches three", "Every few days, distil", "Check a thing before you call it done"):
+            self.assertIn(needle, prompt)
+
     def test_it_runs_on_a_model_of_its_own_whose_window_the_boot_registers(self):
         # On the scripts' small model its first live wakes looped and wrote
         # nothing. A pinned model needs a window registered at boot, or its
