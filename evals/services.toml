@@ -1,0 +1,40 @@
+# The services Teeny's own code may call through the key proxy (hands/call;
+# docs/mind.md, "Keys it never holds"). A jailed tool or the mind asks the
+# broker for one call (`bin/teeny call '{...}'`); hands/call adds the key, which
+# never enters the jail, and holds the call to this list, the guard (anything
+# a write says), DRY_RUN and the day's caps:
+#
+#   CALL_<SERVICE>_READS_PER_DAY    GETs a UTC day   (0, off, unless set; at most 5000)
+#   CALL_<SERVICE>_WRITES_PER_DAY   the rest         (0, off, unless set; at most 500)
+#
+# in secrets/teeny.env, the service's name upper-cased with - as _.
+#
+# Frozen (evals/**). A new service is a table here and its key in secrets/,
+# landed by the operator. Each table has exactly:
+#
+#   base     https://<a named host>[/path]; no user, query, fragment, IP or localhost
+#   key      the setting in secrets/teeny.env holding its key (sent as a Bearer)
+#   surface  the guard surface anything a write says is checked as
+#   agent    the user-agent
+#   allow    what may be called: a method and a regex the whole path must match
+#
+# Not here on purpose: GitHub (its token can change repository settings), X
+# (OAuth1 signing, and hands/x's posting rules), mail, Telegram, the wallet and
+# Surplus. Each of those keeps its own hand.
+
+[services.moltbook]
+# Always www: the bare domain redirects and drops the key (hands/call never
+# follows a redirect anyway).
+base = "https://www.moltbook.com/api/v1"
+key = "MOLTBOOK_API_KEY"
+surface = "moltbook"
+agent = "teeny-call-moltbook"
+# Reads only. Every write Moltbook takes that hands/moltbook knows (a post, a
+# comment, an upvote, a follow, a subscription, the profile) is a verb there,
+# with its own rules (never its own post, the daily caps, the gap, the
+# challenge), and a proxy write would go round them. Downvoting is the one
+# write it does not cover, and it is a way to go after an agent that turned
+# Teeny down (evals/invariants.md, no-reprisal), so it is not here either.
+allow = [
+  { method = "GET", path = "/[A-Za-z0-9_/-]{1,200}" },
+]
