@@ -32,6 +32,7 @@ narration beside the post's words. It fails closed, as the skit judge does.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .. import hand
@@ -52,6 +53,8 @@ MAX_SFX_CHARS = 120
 HOLD = (1, 8)
 #: The longest clip a beat may ask for (media/narration.py BEAT_MAX).
 PROMPT_SECONDS = 15
+#: (d) for a Teeny beat: no money on screen (the Teeny words are its own).
+MONEY = re.compile(r"\b(" + rules.MONEY_WORDS + r")\b", re.I)
 
 #: Said to the skit judge before its own rules: what a film is, and whose
 #: words the narration is.
@@ -158,7 +161,7 @@ def _teeny_reasons(film: Json, beat: Json, text: str) -> list[str]:
     reasons = []
     if (hit := rules._found(rules.HARM_TEENY, text)):
         reasons.append(f"{name} shows {hit!r}: nothing sexual and no hate symbol or slur, even for Teeny")
-    if (hit := rules._found(rules.re.compile(r"\b(" + rules.MONEY_WORDS + r")\b", rules.re.I), text)):
+    if (hit := rules._found(MONEY, text)):
         reasons.append(f"{name} brings in {hit!r}: no token, coin, wallet or investment on screen")
     for figure in film["figures"]:
         if rules.named_in(figure, text.lower()):
