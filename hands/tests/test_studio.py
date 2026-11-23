@@ -824,7 +824,7 @@ class WriteMessageTest(unittest.TestCase):
         self.assertNotIn(studio.MEME_ASK, off)
 
 
-EXPERIMENT = {"id": 6, "format": "number-lead", "posts": 6, "n": 0,
+EXPERIMENT = {"id": 6, "surface": "x", "format": "number-lead", "posts": 6, "n": 0,
               "hypothesis": "an x original that opens on one checkable number from the day's news out-earns my average"}
 
 
