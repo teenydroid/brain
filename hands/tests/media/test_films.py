@@ -248,6 +248,14 @@ class FilmTest(unittest.TestCase):
             self.assertLessEqual(a1, b0 + 1e-6)
         self.assertLessEqual(played[-1][1], manifest["clock"]["length"] + 1e-6)
 
+    def test_a_landscape_film_asks_for_landscape_stills(self):
+        """f99's stills came back portrait whatever the film's aspect: the
+        edit was never told a size."""
+        self.make({**FILM, "aspect": "16:9"})
+        edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertTrue(edits)
+        self.assertTrue(all(b.get("size") == "1536x1024" for b in edits if b["model"].startswith("gpt-image")))
+
     def test_captions_are_the_words_moved_onto_the_films_timeline(self):
         out = self.make()
         manifest = films.load(out["id"])

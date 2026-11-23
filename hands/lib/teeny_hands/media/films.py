@@ -253,16 +253,26 @@ def plate_prompt(film: Json, beat: Json) -> str:
             "captions, signs or watermarks anywhere.").replace("  ", " ")
 
 
+#: The still's size for each aspect, on the models that take one (the GPT
+#: Image sizes): the clip follows its still, so a still the wrong shape is a
+#: clip cropped to half of it.
+PLATE_SIZES = {"16:9": "1536x1024", "1:1": "1024x1024", "9:16": "1024x1536"}
+
+
 def _plate_body(model: str, film: Json, beat: Json, portraits: list[Json]) -> Json:
     prompt = plate_prompt(film, beat)
     if beat["subject"] == "teeny":
         reference = assets._data_uri(hand.root() / (hand.setting("MEDIA_REFERENCE") or assets.REFERENCE))
-        return assets._edit_body(model, prompt, reference, [])
-    who = "; ".join(f"photo {i + 1} is {p['name']}" for i, p in enumerate(portraits))
-    return {"model": model, "response_format": "b64_json",
-            "prompt": f"{who}. Draw each of them from their photo as an exaggerated editorial caricature, "
-                      f"unmistakably that person. {prompt}",
-            "images": [assets._data_uri(p["path"]) for p in portraits]}
+        body = assets._edit_body(model, prompt, reference, [])
+    else:
+        who = "; ".join(f"photo {i + 1} is {p['name']}" for i, p in enumerate(portraits))
+        body = {"model": model, "response_format": "b64_json",
+                "prompt": f"{who}. Draw each of them from their photo as an exaggerated editorial caricature, "
+                          f"unmistakably that person. {prompt}",
+                "images": [assets._data_uri(p["path"]) for p in portraits]}
+    if model.startswith("gpt-image") and film.get("aspect") in PLATE_SIZES:
+        body["size"] = PLATE_SIZES[film["aspect"]]
+    return body
 
 
 def plates(conn, manifest: Json, api: Surplus) -> None:
