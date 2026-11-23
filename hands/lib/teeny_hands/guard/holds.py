@@ -79,6 +79,9 @@ SURFACES = (
     # A Hacker News comment said to Teeny (hands/hn inbox). Inbound only:
     # Teeny never writes on HN.
     "hn",
+    # A RentAHuman bounty Teeny posts, a message to the person it hired, and
+    # what applicants and workers say back (hands/rent).
+    "rentahuman",
 )
 
 DIRECTIONS = ("inbound", "outbound", "narrative", "article")

@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `trend`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people`, `story` and `dripsplan`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `rent`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people`, `story` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -51,7 +51,7 @@ report they leave beside it.
 | `peers report [--days N]` | R | Per peer (the file's, then any touched), the touches of the last N days (14) from `x_peer_touches`: for each, whether the peer then appeared in `x_mentions` within 48 hours (`peer_answered`), which accounts mentioned Teeny for the first time in that window (`new_accounts`), and the quote's latest `x_post_metrics` row. `post` writes a touch for every quote of a peer, whichever playbook made it. |
 | `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
 | `slot [--quote]` | R | Whether an original post would pass its gap and the day's cap now: `{open: true}`, or `{why}` with the refusal `post` would give. With `--quote`, the same for a quote, in the quote lane. Reads the ledger only, never X. A post playbook reads it as a required input (`x-quote`, `growth`, `shiplog`; `peer-quote` reads `slot --quote`), so a shut slot skips the run before the model turn, and before `x-quote`'s paid search. A quote never shuts `slot`. |
-| `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
+| `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Since 2026-11-23 a quote of somebody else's post never sends `quote_tweet_id`: X's API refuses it for a self-serve app (403, `"detail": "You can only reply to or quote posts where you are mentioned or are the author."`, `type` `.../problems/not-authorized-for-resource`, every one since 2026-11-21). It goes out as the words and media with the quoted post's `https://x.com/<handle>/status/<id>` at the end, which X shows as the quoted post ($0.20 on X, a link post), recorded as kind `quote` with its `quote_of`, and `post` answers with `linked`. That address spends none of this cap (`posting_rules.quote_words`): quotes have their own lanes; a link in the quote's own words still counts. A quote of the account's own post still quotes. twitr.sh cannot quote instead: its `x_write` post takes neither a quote nor media. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
 | `reply`, `post` | A | Runs `guard check` (house style, X's length in UTF-16: `X_MAX_POST_LENGTH`, 25000 by default, 280 a target and not a limit since 2026-11-22; links, the slur lexicon, the content judge). Then the posting rules, re-checked under the posting lock, each lane on its own: for an original post (a thread's head included), the gap since the last original post (`POST_MIN_GAP_HOURS`, 5 hours by default, 20-minute tolerance, `rule: gap`) and the day's cap (`X_POSTS_MAX_PER_DAY`, 4 original posts a UTC day, `rule: daily_cap`); for a quote, its own lane: at least `QUOTE_MIN_GAP_HOURS` (3, the same tolerance) after the previous quote and at least `QUOTE_AFTER_POST_MINUTES` (45) after the newest original post (`rule: quote_gap`), and at most `X_QUOTES_MAX_PER_DAY` (2) a UTC day (`rule: quote_cap`). A quote never counts against an original post's gap or cap, so the day's ceiling is 4 originals plus 2 quotes, except a studio slot's quote (`producer: studio`, since 2026-11-23), which is that slot's original post: it is recorded as kind `quote` and goes in the originals' lane, gap and cap (`posting_rules.lane_of`, `LANE_ROWS`), and spends none of the quote lane; replies are never counted; for a quote of somebody else's post (looked up first: a post X does not have, or whose author is unknown, is refused with `rule: target`), no cashtag, `TINY` in capitals, Solana mint or EVM contract address, or pump.fun in the guard's text (`rule: outward_ticker`, a rewrite asked for; `take`'s quotes too) and no second quote of the same author within 7 days (`rule: peer_rotation`, with `last_quote_id` and `next_at`; the author is kept in `x_posts.quote_author`); no repeat check since 2026-11-22 (it was taste); for a reply, only to somebody who engaged first (`rule: unsolicited`: the target is a stored mention in `x_mentions`, tags the account, replies to it, or sits in the conversation under one of its own posts; X allows API replies only there), never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | An own post's body may carry `anchor`: a short string (at most 200 characters, or a whole number) naming the item from its playbook's inputs it is about: a `listen digest` item id or URL, a `material` receipt, a PR number, the id of the post it quotes. Since 2026-11-22 a post with none is not refused (the anchor rule was taste); its `x_posts.anchor` is NULL. A quote with no anchor is anchored on `quote_of`. The anchor is kept in `x_posts.anchor` and never sent to X; replies take none. The callers set it: `bin/act` from the draft, the mind's `post_x` intent, `briefs post` (`brief:<id>`), `firsts announce` (the first's key), `requests vote-open` (`requests:<ids>`), `bounty pick` (`bounty:<id>`), `giveaway open` (`giveaway:<round id>`), and `guard holds release` (the anchor the draft was held with, else `hold:<id>`). The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X, and the producer's tags (`posting_rules.studio_tags`), kept in `x_posts` and never sent either: `producer` (`studio`, `brief`, `peer-quote` or `legacy`; NULL on every row from before the studio cutover and from the other old paths, which reads as legacy), `storyline` (a storyline key), `shape` (at most 40 characters) and `pitch_id` (the studio run and pitch, `<run id>:<pitch id>`). `bin/studio` sets all four, `briefs post` sets `producer: brief`, `peer-suggest` sets `producer: peer-quote`. The columns are added to a live ledger by `ALTER TABLE ADD COLUMN` (old rows keep NULL); a bad tag is an error before anything is sent; a reply takes none.
 | `post` body | | `{text, anchor, media_ids?, gif_id?, quote_of?, format?, experiment?}` (`anchor` is optional only on a quote). `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is held to the quote lane (its own gap and cap), never the original posts'. A `reply` body is `{text, media_ids?, gif_id?}`. |
 | `post-thread` | A | A thread of 2 to 5 posts: stdin `{posts: [text, ...], anchor, media_ids?, gif_id?, format?, experiment?, producer?, storyline?, shape?, pitch_id?}` (the producer's tags go on the head's row). The first text goes out as an own post and each later one as a reply to the one before, so readers see one thread. It is a separate verb from `thread`, the read above. Fewer or more posts, no `anchor`, or a `quote_of` is refused (`rule: thread` or `anchor`) before anything is sent. See "Threads" below. |
@@ -3279,6 +3279,63 @@ operator runs it, and a playbook that announces a site would come with a
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `rent`: people Teeny rents on RentAHuman.ai
+
+A person on [RentAHuman.ai](https://rentahuman.ai) does a thing in the world
+Teeny cannot (an absurd stunt, filmed, for a post) for a fixed price. The
+hand speaks RentAHuman's MCP tools over plain JSON-RPC (`POST /api/mcp`,
+`X-API-Key`), the shape its docs keep current
+(https://rentahuman.ai/docs/api.md): amounts in US cents, an
+`idempotencyKey` on every write, `isRetrySafe` on every refusal.
+
+The money is the RentAHuman wallet, which the operator tops up by card (it
+takes no USDC). Posting a bounty is the only call that spends: RentAHuman
+pays for it from that wallet at once, so the caps are checked there, in the
+same call. Teeny's own wallet is never touched.
+
+| Verb | | Does |
+|---|---|---|
+| `post` | A | `{title, brief, done, price_usd, city, state, country}` (or `remote: true`; optional `proof` [photo, video, text, link], `proof_details`, `hours`, `category`, `skills`). The brief is refused if it asks for a password, a code or a key, identity papers, bank or card details, or where someone lives, or names a street address; then the outbound guard (surface `rentahuman`). RentAHuman's own dry run prices it all in (the worker's pay plus the 18% service fee): over `RENT_MAX_PER_BOUNTY_USD`, or over what is left of `RENT_MAX_PER_DAY_USD`, is refused. Then one post, one spot, with the key `teeny-rent-<job>`. Every description ends by telling the worker that Teeny is an AI and their photos and video may be posted. A short wallet leaves a `draft` and a `rent · draft` stimulus. |
+| `accept` | A | `{job, application}`: hires one applicant from the money already held (`accept_application`, its own key). RentAHuman charges an applicant's own price on accept without asking, so `get_application` is read first and an application naming any amount other than the posted pay is refused, as is one not made to this job's bounty and any accept while renting is off (auto-accept also passes over an application naming any price at all, to the next best; a refused accept that may have hired stops the loop until `poll` has read the state). A hire that still cost more counts the difference against the day (`extra_cents`) and is a `rent · charge` stimulus. |
+| `review` | A | `{job, verdict: approve\|redo\|reject, reason, submission}`: against the bounty's done-criteria. `submission` is the ref the stimulus gave (`<id>:<attempt>`); a decision on work that has since changed is refused. `approve` pays (`pay_hire`), which is final, and counts as paid only when the answer says so (anything else is `in_doubt`). `redo` and `reject` need a reason, which is screened like a brief and passes the guard, and move no money. |
+| `message` | A | `{job, text}`: to the person hired, through the guard, with a key so a retry sends once. |
+| `poll` | J | Every open job, once: a post whose answer was lost is sent again with its own key (RentAHuman answers with the first bounty); applications, submitted work and the worker's messages become `rent` stimuli, each stranger's word through `guard inbound` first (a held one is never shown); evidence files (https to public hosts only, each whole or not kept) are saved under `state/rent/<job>/<submission>/attempt-<n>/`; a bounty nobody picked from in `RENT_AUTO_ACCEPT_HOURS` hires RentAHuman's best match. Never pays. `bin/rent-poll`, the pinned `rent-poll` job (every 15 minutes). Skipped without `RENTAHUMAN_API_KEY`. |
+| `status` | R | The caps, today's spend, open jobs, jobs in doubt, and the RentAHuman wallet (`get_wallet`). |
+| `list [--status S]`, `get ID` | R | The jobs, newest first; one with what `poll` has passed on. |
+| `humans [--skill --city --country --limit N]` | R | Who is on RentAHuman (`list_humans`). |
+| `resolve ID --as paid\|submitted` | O | Settles a job `in_doubt` (or stuck `paying`) after the operator checked it on rentahuman.ai. Nothing else moves such a row. |
+| `cancel ID [--reason R]` | O | Ends an unhired bounty (`cancel_bounty`, confirmed with its token). Under `DRY_RUN`, the quote only. |
+
+Every write of a job's row is made under the one `rent` lock with the row read afresh inside it, so `poll` never undoes what `post`, `accept` or `pay` just did. A pay is sent once. The row is `paying` before the call; a clear yes makes
+it `paid`; a refusal RentAHuman marks `isRetrySafe` puts it back; anything
+else (no answer, a 5xx, a refusal that may have moved money) makes it
+`in_doubt`, a `rent · in_doubt` stimulus for the operator, and it is never
+sent again by the hand.
+
+Under `DRY_RUN` every verb reads and rehearses: `post` runs RentAHuman's dry
+run and keeps a `rehearsed` row that spends nothing of the day; `accept`,
+`review`, `message` and `cancel` say what they would do. The broker counts
+it among the hands that rehearse themselves.
+
+The mind reaches `post`, `accept`, `review` and `message` through its
+`rent_post` (held to `RENT_POSTS_PER_DAY`, default 3), `rent_accept`,
+`rent_review` and `rent_message` intents (`bin/lib/tick.py`). No playbook
+reaches a verb that spends (`bin/lib/playbook.py`).
+
+| Setting | Default | |
+|---|---|---|
+| `RENTAHUMAN_API_KEY` | | The box's own `rah_` key, from rentahuman.ai/account/api-keys. |
+| `RENT_MAX_PER_BOUNTY_USD` | 25 | All in, fee included; ceiling 500. |
+| `RENT_MAX_PER_DAY_USD` | 50 | What the bounties posted in one UTC day may cost together; ceiling 1000; `0` is the off switch. |
+| `RENT_OPEN_MAX` | 3 | Jobs open at once; ceiling 20. |
+| `RENT_AUTO_ACCEPT_HOURS` | 6 | Ceiling 168; `0` never auto-accepts. |
+| `RENT_POSTS_PER_DAY` | 3 | The mind's posts a day (tick's cap); ceiling 10. |
+
+Set RentAHuman's own wallet controls (`spendingCapPer24h`) to the same day
+cap, as a second fence the hand cannot lift.
+
+Tables: `rent_jobs`, `rent_events`.
+
 ## `giveaway`: Tiny Drops, public $TINY rounds paid by code
 
 Rounds anyone can enter by replying to the round post, paid from the giveaway
@@ -3633,6 +3690,7 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
+| `rent` | `rent_jobs`, `rent_events` |
 | `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications`, `giveaway_chain` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |

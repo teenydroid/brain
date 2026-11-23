@@ -211,7 +211,8 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
 #: would send and send nothing. Every other hand a route reaches writes for
 #: real whatever DRY_RUN says (hands/tasks, hands/build, hands/lab, ...), so
 #: in a rehearsal the broker does not run it.
-REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit"})
+#: hands/rent rehearses through RentAHuman's own dry run and spends nothing.
+REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit", "rent"})
 
 
 def do(body: Json, entry: Json) -> Json:

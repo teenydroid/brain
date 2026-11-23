@@ -404,6 +404,23 @@ except settings.SettingsError as exc:
     sys.exit(f"surplus keys are set but not usable: {exc}")
 ' "$root/hands/lib" "$secrets/teeny.env"
 
+# --- the rent hand: its caps are sane ---------------------------------------------------
+# RENT_* (hands/rent, the pinned rent-poll job), checked by the hand's own code
+# (teeny_hands/rent/settings.py): a cap over its ceiling, unreadable, or a
+# per-bounty cap above the day's, never boots.
+run "rent settings" python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.rent import settings
+env = Path(sys.argv[2])
+try:
+    print(settings.check(_parse_env_file(env.read_text()) if env.is_file() else {}))
+except settings.SettingsError as exc:
+    sys.exit(f"rent keys are set but not usable: {exc}")
+' "$root/hands/lib" "$secrets/teeny.env"
+
 # --- secrets and storage ------------------------------------------------------------
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 if [ -e "$storage" ]; then

@@ -200,6 +200,7 @@ environment forces a rehearsal.
 | `POST_MIN_GAP_HOURS`, `X_QUOTES_MAX_PER_DAY`, `QUOTE_MIN_GAP_HOURS`, `QUOTE_AFTER_POST_MINUTES`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules (quotes have their own lane: docs/hands.md, "x"). |
 | `SAFETY_JUDGE`, `LINK_ALLOWLIST`, `X_MAX_POST_LENGTH` | The guard (and hands/x, for the length). |
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
+| `RENTAHUMAN_API_KEY`, `RENT_*` | `hands/rent`: the box's own RentAHuman key and the caps on what renting people may cost (docs/hands.md, "rent"). |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
 | `HN_USERNAME` | `hands/hn`: Teeny's Hacker News account, whose replies `hn inbox` files. No key: HN is read only. With it (or a watched thread) `bin/tick` reads HN every 15 minutes. `MIND_HN_WATCH_PER_DAY` (0, off; at most 10) lets the mind follow threads (`watch_hn`). |

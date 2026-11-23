@@ -102,13 +102,16 @@ MEDIA_KINDS = ("image", "video", "meme")
 # against every GIVEAWAY_* cap by the hand, and `judge`, the best-reply pick
 # of a tool-less turn (like `bounty pick`); who entered, the draw, the payout
 # and the clawback are code's alone.
-MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",), "x402": (), "surplus": (), "giveaway": ("open", "judge")}
+#: hands/rent spends only from the mind's rent_* intents (bin/lib/tick.py), never a draft's.
+MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",), "x402": (), "surplus": (), "giveaway": ("open", "judge"),
+                 "rent": ()}
 MONEY_READS = {
     "wallet": ("address", "balance", "tiny", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
     "x402": ("log",),
     "surplus": ("status", "log"),
     "giveaway": ("status", "announcements"),
+    "rent": ("status", "list", "get", "humans"),
 }
 #: The verbs that move money, named so a change to MONEY_OUTPUTS above can
 #: never let one through: `pay`, `swap`, `bridge`, `x402` (fetch), and
@@ -121,7 +124,8 @@ MONEY_READS = {
 #: `web_search` and `read_page` intents (bin/lib/tick.py).
 NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due"),
                  "x402": ("search", "contents", "crawl", "fund"), "surplus": ("sweep",),
-                 "giveaway": ("entries", "draw", "settle", "clawback")}
+                 "giveaway": ("entries", "draw", "settle", "clawback"),
+                 "rent": ("post", "accept", "review", "message", "poll", "cancel")}
 #: Hands that hold secrets: an input runs only these verbs of theirs, so no
 #: playbook (which Teeny writes) can pull a password into a model's prompt.
 SECRET_READS = {"keychain": ("list",)}

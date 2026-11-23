@@ -151,8 +151,18 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     if quote_of:
         x = x or twitr.client()
         quoted = _quoted(cache.reads(x), quote_of)
+    linked = None
     if quoted is not None:
         rules.check_outward(text)
+        # X's API refuses a self-serve app's quote of a post it is not
+        # mentioned in ("You can only reply to or quote posts where you are
+        # mentioned or are the author", 403, every one since 2026-11-21). So a
+        # quote of somebody else's post goes out as the words with the post's
+        # address at the end, which X shows as the quoted post. A quote of the
+        # account's own post still quotes.
+        linked = status_url(quoted)
+        text = f"{text} {linked}"
+        rules.check_length(text)
     live = not hand.dry_run()
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
@@ -165,7 +175,9 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
-        rules.check_link_budget(conn, text)
+        # The quoted post's address is how a quote goes out, not a link post;
+        # a link in the words themselves still counts.
+        rules.check_link_budget(conn, rules.quote_words(text, quote_of) if linked else text)
         if not live:
             return _dry(text, kind)
         x = x or twitr.client()
@@ -173,7 +185,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # rehearsed one uploads nothing.
         if gif_id:
             media_ids = [media.attach_gif(x, gif_id)]
-        post_id = x.create_post(text, quote=quote_of, media_ids=media_ids)
+        post_id = x.create_post(text, quote=None if linked else quote_of, media_ids=media_ids)
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
@@ -189,7 +201,13 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
             except Exception as exc:  # noqa: BLE001
                 print(f"hands/x: published {post_id} but could not record the peer touch: {type(exc).__name__}",
                       file=sys.stderr)
-    return {"id": post_id, "kind": kind, "text": text}
+    return {"id": post_id, "kind": kind, "text": text, **({"linked": linked} if linked else {})}
+
+
+def status_url(post: Mapping[str, Any]) -> str:
+    """A post's address on X, by its author's handle when known."""
+    handle = str(post.get("authorUsername") or "i")
+    return f"https://x.com/{handle}/status/{post['id']}"
 
 
 def _quoted(reads: Any, quote_of: str) -> Json | None:
