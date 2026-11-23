@@ -27,6 +27,12 @@ services:
       # A non-passwd uid has no home; the core wants one.
       HOME: /tmp
       CALENDAR_TZ: ${CALENDAR_TZ:-UTC}
+      # The core's own default (info), plus one line per turn on whether the
+      # pack recalled for its message came in time ("[memory:recall] current
+      # message recalled in time" / "deadline: recall not ready in time" /
+      # "nothing recalled"), so the share of turns that went without recall
+      # can be counted from the log (docs/architecture.md, 4a).
+      RUST_LOG: info,openhuman_core::memory::lifecycle::prefetch=debug
     # The spine lives in CortexDB's network namespace, so it reaches its
     # memory at http://127.0.0.1:3141 (CORTEX_API_URL in secrets/spine.env):
     # the core sends a credential over plain http only to a loopback address,
