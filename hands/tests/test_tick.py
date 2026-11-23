@@ -399,7 +399,7 @@ class TickTest(unittest.TestCase):
         # while comments on its own Moltbook posts carried "answer each one
         # in this beat". The operator's "replies to comments on your own posts
         # come first" lived only in playbooks/mentions.md, which the mind
-        # never reads.
+        # did not read then (it does now: reply_guidance).
         conn = self.x_ledgers()
         conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('50', 'post', 'gm. coffee first', ?)",
                      (T0 - 3600,))

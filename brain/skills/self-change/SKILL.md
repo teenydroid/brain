@@ -32,6 +32,7 @@ a rule where only the turns that need it read it:
 | What is true about your world, for every script | `brain/CONTEXT.md`, kept short |
 | How to do one job, or the rules of one service or tool | a skill: `brain/skills/<name>/SKILL.md` (shared: it reaches your `library/` and any playbook that names it in `skills = [...]`), or `skills/<name>/SKILL.md` in your home (yours alone, live at once, no pull request) |
 | One scheduled job's instructions | its playbook, `brain/playbooks/<name>.md` |
+| Which X mentions you answer, and how a reply is written | `brain/playbooks/mentions.md` (the body after its front matter): every beat that holds an X mention carries it, up to 4,000 characters |
 | A rule a script can enforce | the code: a hand's check, a playbook's input, a tool of yours. A rule the code enforces needs no prose in any prompt; the refusal says it |
 
 When you catch a prompt carrying instructions for one job or one service,

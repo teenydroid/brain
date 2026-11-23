@@ -1,4 +1,9 @@
 +++
+# The body below (not this front matter) is how Teeny answers on X, on both
+# paths: every bin/tick beat that holds an X mention carries it (up to 4,000
+# characters, bin/lib/tick.py reply_guidance), and with TEENY_INBOX=core the
+# core's queue drafts from it (bin/lib/inbound_config.py). Edit it to change
+# how live replies are chosen and written; caps and the guard stay in code.
 description = "answer the people who mentioned @teenydroid"
 output = "reply"
 max_per_day = 40

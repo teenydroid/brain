@@ -1386,9 +1386,15 @@ its request is marked `failed`.
    offers every `pending` row to the mind's inbox (`hands/stimuli`). Then `hands/x requests` notes any ask to
    build something.
 3. Two minutes later `bin/tick` takes a batch from the inbox and sends it to
-   the tool-less `teeny` agent on the `teeny:mind` thread (§4a). The answer is
-   a `thought` and intents, such as `{"do": "reply_x", "to": "<id>", "text":
-   "..."}`.
+   the tool-less `teeny` agent on the `teeny:mind` thread (§4a). A batch that
+   holds an X mention carries the body of `brain/playbooks/mentions.md` (its
+   front matter left out, up to 4,000 characters, a built-in fallback when the
+   page is missing or empty: `reply_guidance` in `bin/lib/tick.py`), so that
+   page, Teeny's own, is what steers which mentions get answered and how. Which
+   mentions reach the batch and in what order (`stimuli.take`: oldest first,
+   what the hands did ahead of all), the per-person reply counts and every cap
+   and guard stay in code. The answer is a `thought` and intents, such as
+   `{"do": "reply_x", "to": "<id>", "text": "..."}`.
 4. Each intent goes to the one hand verb it names, here `hands/x reply
    --to <id>`. Inside the hand, in order: `guard check`, house style, the 280
    and emoji checks, one reply per post, never to Teeny's own post, the
@@ -1397,7 +1403,10 @@ its request is marked `failed`.
 
 With `TEENY_INBOX=core`, step 2 offers the mentions to the core's inbound
 queue instead, the core drafts each batch with `teeny-mentions`, and
-`bin/inbound-consume` sends the drafts through `hands/x reply`.
+`bin/inbound-consume` sends the drafts through `hands/x reply`. That path
+drafts from the same `brain/playbooks/mentions.md` body (written into the
+core's config at boot by `bin/lib/inbound_config.py`), so one edit steers
+both.
 
 **The morning post.**
 1. The `morning` job runs `bin/act morning` at 09:30 IST. `bin/act` checks the
