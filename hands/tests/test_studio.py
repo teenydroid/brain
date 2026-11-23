@@ -515,6 +515,82 @@ class FeedTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in cards], ["own:1"])
 
 
+TREND_X = {"stories": [
+    {"id": "s1", "title": "OpenAI says it will publish its pretraining limits", "summary": "a pledge on limits",
+     "score": 900, "published_at": "2026-11-18T09:00:00Z",
+     "posts": [{"by": "Sam Altman", "text": "This is the most important thing OpenAI has published in awhile.",
+                "likes": 9000, "url": "https://x.com/sama/status/2124551594691932405"},
+               {"by": "Teeny", "text": "an own post", "url": "https://x.com/teenydroid/status/801"},
+               {"by": "a page", "text": "the blog post", "url": "https://openai.com/limits"}]},
+    {"id": "s2", "title": "Perplexity ships a browser", "summary": "a browser", "score": 600,
+     "published_at": "2026-11-18T08:00:00Z",
+     "posts": [{"by": "Aravind Srinivas", "text": "Comet is out for everyone.",
+                "url": "https://twitter.com/AravSrinivas/status/803?s=20"}]},
+    {"id": "s3", "title": "a chip maker had a big quarter", "summary": "revenue doubled", "score": 300,
+     "published_at": "2026-11-18T06:00:00Z", "posts": [{"by": "a blog", "text": "numbers", "url": "https://b.example"}]},
+]}
+
+
+class QuoteFeedTest(unittest.TestCase):
+    """STUDIO_QUOTE (2026-11-23): every slot quotes a real X post behind one
+    of today's trending stories, so the feed is the X posts Digg ranks, each
+    with the id it would quote. An author quoted in the last 7 days (`hands/x
+    peers quoted`) or Teeny itself is not offered: hands/x would refuse the
+    quote after its picture was paid for."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def room(self, quoted=(0, {"days": 7, "handles": []}), **over):
+        return FeedRoom(self.state, answers(**{"trend top": (0, TREND_X), "x peers": quoted, **over}))
+
+    def test_a_digg_post_keeps_the_id_and_handle_of_its_x_address(self):
+        found = studio_feed.digg_candidates(TREND_X, NOW)
+        sama = found[0]["quotes"][0]
+        self.assertEqual((sama["post"], sama["handle"], sama["by"]), ("2124551594691932405", "sama", "Sam Altman"))
+        self.assertNotIn("post", found[0]["quotes"][2])  # a page is no X post
+        self.assertEqual(found[1]["quotes"][0]["post"], "803")
+
+    def test_the_quote_feed_reads_only_the_trending_x_posts(self):
+        room = self.room()
+        found, notes = studio_feed.gather(room, None, 7, {"items": [{"id": "e1", "what": "mine", "at": NOW}]}, NOW,
+                                          quote=True)
+        self.assertEqual([c["id"] for c in found], ["digg:s1", "digg:s2"])
+        self.assertEqual(sorted(notes), ["digg", "quoted"])
+        self.assertEqual({tuple(a[:2]) for a in room.calls}, {("trend", "top"), ("x", "peers")})
+        self.assertIn(["x", "peers", "quoted"], room.calls)
+        self.assertEqual([q.get("post") for q in found[0]["quotes"]], ["2124551594691932405"])
+
+    def test_teeny_and_whoever_was_quoted_this_week_are_not_offered(self):
+        room = self.room(quoted=(0, {"days": 7, "handles": ["aravsrinivas"]}))
+        found, notes = studio_feed.gather(room, None, 7, None, NOW, quote=True)
+        self.assertEqual([c["id"] for c in found], ["digg:s1"])
+        self.assertEqual(notes["quoted"], {"left_out": ["aravsrinivas"]})
+
+    def test_not_knowing_who_was_quoted_offers_nothing(self):
+        room = self.room(quoted=(1, {"ok": False, "error": "no ledger"}))
+        found, notes = studio_feed.gather(room, None, 7, None, NOW, quote=True)
+        self.assertEqual(found, [])
+        self.assertIn("no ledger", notes["quoted"]["skipped"])
+
+    def test_the_quote_feed_asks_digg_for_more_leading_stories(self):
+        room = self.room()
+        studio_feed.gather(room, "0430", 7, None, NOW, quote=True)
+        trend = next(a for a in room.calls if a[:2] == ["trend", "top"])
+        self.assertEqual(trend[trend.index("--leading") + 1], str(studio_feed.QUOTE_LEADING))
+
+    def test_a_card_shows_its_quotable_posts_first(self):
+        found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
+            {"by": "a blog", "text": "words", "url": "https://b.example"},
+            {"by": "Sam Altman", "text": "hello", "url": "https://x.com/sama/status/9"}]}]}, NOW)
+        [c] = studio_feed.rank(found, {})
+        self.assertEqual(c["quotes"][0]["post"], "9")
+
+
 # --- step 2: the write -----------------------------------------------------------------------
 
 CARDS = [card("digg:s1", ["Tesla", "Elon Musk"], "Tesla says FSD v15 is rolling out",
