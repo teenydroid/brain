@@ -71,7 +71,8 @@ LIMITS: dict[str, dict[str, int]] = {
     # A RentAHuman bounty (hands/rent): its title, description, done-criteria
     # and evidence details are public to every worker; a message goes to the
     # person hired.
-    "rentahuman": {"title": 200, "description": 5000, "criteria": 2000, "details": 2000, "message": 2000},
+    "rentahuman": {"title": 200, "description": 5000, "criteria": 2000, "details": 2000, "message": 2000,
+                    "location": 300, "skills": 700},
 }
 
 # Where a title, a body or a subject is written rather than a post: a leading

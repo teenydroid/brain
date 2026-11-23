@@ -37,9 +37,13 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import ipaddress
+import os
 import re
+import socket
 import sqlite3
 import sys
+import time
 import urllib.parse
 import urllib.request
 from decimal import Decimal, InvalidOperation
@@ -65,6 +69,8 @@ REQUIREMENT = "Willing to be filmed or photographed for a public post"
 #: Evidence files: at most this many per submission, each at most this big.
 MAX_FILES = 10
 MAX_FILE_BYTES = 200 * 1024 * 1024
+#: One evidence file's whole transfer, not just each read: the poll holds the `rent` lock meanwhile.
+DOWNLOAD_SECONDS = 300
 _EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic",
                "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}
 #: A hire RentAHuman says is over without pay: the bounty takes applicants again.
@@ -248,8 +254,16 @@ def _request(body: Mapping[str, Any]) -> tuple[str, Json, int]:
     skills = body.get("skills") or []
     if not isinstance(skills, list) or len(skills) > 10 or any(not isinstance(s, str) or len(s) > 60 for s in skills):
         raise hand.Refused("skills is at most 10 short words")
+    # Everything caller-written that goes public is screened, not just the brief.
+    place = ", ".join(str(body[k])[:100] for k in ("city", "state", "country") if body.get(k))
+    public = dict(fields)
+    if place:
+        public["location"] = place
+    if skills:
+        public["skills"] = ", ".join(skills)
+    _screen_brief({k: v for k, v in public.items() if k not in fields})
 
-    styled = _guard(fields, "post")
+    styled = _guard(public, "post")
     args: Json = {
         "title": styled["title"],
         "description": f"{styled['description']}\n\n{CONSENT}",
@@ -312,9 +326,13 @@ def _land(conn, job: Mapping[str, Any], reply: Any) -> Json:
     status = "posted" if funded else "draft"
     extra = max(0, (found["total"] or 0) - job["total_cents"])
     with hand.transaction(conn):
+        # A post sent again on a later day spends on that day: it is counted from now.
+        moved = {"at": hand.now()} if job["at"] < hand.day_start() else {}
         store.update(conn, job["id"], status=status, bounty_id=str(found["id"]), url=found["url"],
                      pay_url=found["pay_url"], posted_at=hand.now() if funded else None,
-                     extra_cents=job["extra_cents"] + extra)
+                     extra_cents=job["extra_cents"] + extra, **moved)
+        if extra:
+            store.charge(conn, job["id"], "post", extra)
     if extra:
         _tell("charge", f"{job['id']}:post",
               f"rent job #{job['id']} ({job['title']}) cost ${(job['total_cents'] + extra) / 100:.2f} to post, more"
@@ -370,7 +388,7 @@ def _send_post(conn, job: Mapping[str, Any]) -> Json:
     try:
         reply = api.tool("create_bounty", {**args, "idempotencyKey": job["idem"]}, write=True)
     except api.ToolError as exc:
-        if exc.code == "duplicate_listing" and exc.details.get("existingBountyId"):
+        if exc.code == "duplicate_listing" and exc.details.get("existingBountyId") and exc.retry_safe is True:
             with hand.transaction(conn):
                 store.update(conn, job["id"], status="failed", note=f"{exc.code}: {exc}")
             raise hand.Refused(f"RentAHuman already has this listing (bounty {exc.details['existingBountyId']});"

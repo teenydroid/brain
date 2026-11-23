@@ -115,13 +115,29 @@ def insert(conn: sqlite3.Connection, status: str, title: str, request: Mapping[s
     return int(cur.lastrowid)
 
 
+def charge(conn: sqlite3.Connection, job_id: int, ref: str, cents: int) -> None:
+    """Counts CENTS beyond a job's posted total against the day they were
+    charged (not the day the job was made), once per REF. Call it in the
+    transaction that updates `extra_cents`."""
+    seen(conn, job_id, "charge", ref, {"cents": int(cents)})
+
+
 def spent_today(conn: sqlite3.Connection) -> int:
+    """What today's cap has used: each job's posted total on the day it was
+    made, a `posting` job (sent, answer unseen) on every day until it is
+    settled, and every extra charge on the day it was charged."""
     marks = ",".join("?" for _ in SPENT)
-    found = conn.execute(
-        f"SELECT COALESCE(SUM(total_cents + extra_cents), 0) FROM rent_jobs WHERE status IN ({marks}) AND at >= ?",
-        (*SPENT, hand.day_start()),
+    start = hand.day_start()
+    jobs = conn.execute(
+        f"SELECT COALESCE(SUM(total_cents), 0) FROM rent_jobs WHERE status IN ({marks})"
+        " AND (at >= ? OR status = 'posting')",
+        (*SPENT, start),
     ).fetchone()
-    return int(found[0])
+    extra = conn.execute(
+        "SELECT COALESCE(SUM(json_extract(detail, '$.cents')), 0) FROM rent_events WHERE kind = 'charge' AND at >= ?",
+        (start,),
+    ).fetchone()
+    return int(jobs[0]) + int(extra[0])
 
 
 def open_jobs(conn: sqlite3.Connection, statuses: Iterable[str] = OPEN) -> list[dict[str, Any]]:
