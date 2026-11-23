@@ -333,14 +333,15 @@ def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monot
             shot = _shots._Shot(n, kept["row"], prompt, seconds, [], name=beat["id"], image=assets._data_uri(plate))
             shot.job, shot.model, shot.cost = kept["job"], kept.get("model"), kept.get("reserved", per_clip)
         else:
+            cap = min(per_clip, max(0, _left(conn, manifest["id"])))
             try:
-                row = _row(conn, manifest["id"], "shot", prompt, min(per_clip, max(0, _left(conn, manifest["id"]))))
+                row = _row(conn, manifest["id"], "shot", prompt, cap)
             except hand.Refused as exc:
                 made[beat["id"]] = {"still": True, "why": str(exc)[:300]}
                 save(manifest)
                 continue
             shot = _shots._Shot(n, row, prompt, seconds, models, name=beat["id"], image=assets._data_uri(plate),
-                                cap=per_clip)
+                                cap=cap)
             if not _shots.submit(api, conn, manifest["id"], shot, film["aspect"], plan, job_params, sold):
                 shot.failed = "no model could take it: " + "; ".join(shot.tried)
                 # Its hold goes back now, with why, so the beats after it
