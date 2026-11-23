@@ -354,3 +354,153 @@ that model.
   `STUDIO_FORMATS`.
 - Whether the daily video budget ($10) and the one-a-day cadence change once the
   better models cost $3-5 a take.
+- Story films (§12): `FILM_FIGURE_MODELS` after bake-off 3, and the first paid
+  film before `FILM_EVERY_DAYS` is turned on.
+
+## 12. Story films (60-90 s, audio first)
+
+Operator, 2026-11-22: longer videos that tell a real story. A trending news
+story's public figure, their real claim pushed to an impossible end, told in
+three acts over 60 to 90 seconds, with Teeny as the narrator. One every other
+day, beside the daily skit.
+
+### 12.1 Why audio first
+
+Stitching 15 s clips that each bring their own sound gives a new voice, a new
+room tone and a clipped word at every seam. So a film is built the other way
+round, as claudia-bot builds its music videos: one master track is the only
+clock, every shot is timed to it, the video models' own sound never reaches the
+mix, and the master is laid back on at the end.
+
+### 12.2 What Surplus can and cannot do (checked 2026-11-22)
+
+- It sells speech (ElevenLabs TTS v3 and v4, MiniMax Speech 02 HD), music
+  (MiniMax Music 2.6, ElevenLabs Music 2.5), sound effects (ElevenLabs SFX v2),
+  speech to text with word times (ElevenLabs Scribe v2) and a model that hears
+  and watches (Qwen3.8 Omni Flash).
+- No video model takes audio in (every one takes text or images), and there is
+  no lip-sync model. Claudia's lip-sync (Seedance reference mode copying an
+  `audio_url`, over OpenRouter and Higgsfield) cannot be done here. A narrated
+  film does not need it: nobody on screen speaks the master track.
+- Seedance 2.5 refuses a real face. A Musk skit that passed the code screen and
+  the judge got a photo-real keyframe from gpt-image-2, and Seedance refused the
+  job under its content policy. A public figure is therefore drawn the way
+  pictures already draw them (`media/figures.py`, `assets._edit_body`): from
+  their Wikipedia photo, as an exaggerated editorial caricature. That keeps the
+  plate obviously not footage, and the shot goes to a model that takes it.
+
+### 12.3 The manifest
+
+One file per film, `state/film/<id>/manifest.json`. Every stage writes its
+outputs and its cost back into it, so a film survives a restart and no paid
+clip is bought twice.
+
+```json
+{"id": "...", "story": {"...the trend item..."}, "figures": ["Elon Musk"],
+ "logline": "...", "acts": ["set-up", "escalation", "payoff"],
+ "voice": {"model": "...", "voice_id": "..."}, "narration": {"file": "...", "words": []},
+ "music": {"prompt": "...", "file": "..."},
+ "beats": [{"id": "b1", "act": 1, "narration": "...", "action": "...",
+            "subject": "teeny | figure | both", "sfx": ["a wet fart as the lid opens"],
+            "t0": 0.0, "t1": 11.4, "seconds": 12,
+            "plate": {"prompt": "...", "file": "..."},
+            "clip": {"model": "...", "job": "...", "file": "...", "takes": []},
+            "qa": {"verdict": "keep | retake | reject", "why": "..."}}],
+ "cost": {"reserved": 0, "spent": 0}, "status": "written"}
+```
+
+### 12.4 The story
+
+- Three acts, five to seven beats, 60 to 90 seconds.
+- The hook lands by 3 s, and the premise reads with the sound off.
+- Each beat is one escalation that follows from the last; the last pays off
+  the first. A loop ending (the last frame is the first) is welcome.
+- Teeny narrates, in its own voice, in the first person: crude, deadpan, short
+  lines. The figure never says a line that could pass for a real quote.
+- The filth is on the ceremony, the props and the sound, never on the figure's
+  body (§2.3, §8). Every skit rule (§8, `guard/skit.py`) holds for every beat.
+
+### 12.5 The stages
+
+1. **Write and screen.** The writer drafts the manifest in a slot.
+   `guard/film.py` runs the skit screen on every beat, the narration (as the
+   post's words) and the logline, and each beat's video prompt must fit the
+   guard's 1000-character `task` cap on its own (the cap is per clip, not per
+   film). Then the judge reads the whole film once.
+2. **Narration: the clock.** One speech call for the whole narration in
+   Teeny's fixed voice, then Scribe for word times. A beat's window runs from
+   its first word, less 0.3 s, to its last word plus a pad; a pure action beat
+   gets a written pause. Each window is bought at the shortest length on sale
+   that covers it, and trimmed (`shots.snap`, `shots.at_least`): never
+   stretched.
+3. **Score and effects.** One music bed for the whole film, and one effect per
+   cue, placed at its beat's time.
+4. **Plates.** One still per beat: Teeny from its sheet, a figure from its
+   photo as a caricature. A beat that continues the last starts from that
+   clip's last frame. The viewer passes every plate (on model, obviously
+   impossible, no lettering) before any video is bought.
+5. **Clips.** One image-to-video job per beat, through `shots.submit`, `poll`
+   and `land` with their ceilings. Teeny alone goes to `FILM_TEENY_MODELS`
+   (Seedance 2.5, then 2.0 mini); a figure to `FILM_FIGURE_MODELS` (decided by
+   bake-off 3, §12.8). A refusal goes to the next model.
+6. **Check each clip.** Frames at 8, 25, 42, 58, 75 and 92 % of its length: on
+   model, the beat's action happens, nothing prohibited, nothing that looks
+   real. Keep, retake once on the next model, or reject; a rejected beat plays
+   its plate with a slow push-in, and the film still ships.
+7. **Cut** (`deploy/reel/filmcut.py`, `POST /teeny/v1/films`). Video: each
+   clip probed, trimmed to its window, scaled, joined with no sound. Audio:
+   the narration untouched; the music bed looped to length and ducked under the
+   voice (`sidechaincompress`); effects at their cues (`adelay`); everything
+   mixed and brought to -16 LUFS, -1 dBTP in two passes. Captions burned from
+   the word times, the "AI parody" label throughout, and the film ends on the
+   held still after the last word.
+8. **Post.** One upload; the post's words are the film's hook. The finished
+   cut gets the skit viewer's frame check, label included.
+
+### 12.6 Running long
+
+A film is about six clips at four to five minutes of render each: longer than
+one studio run (at most an hour). The slot writes and screens the manifest,
+then starts `hands/film run <id>` in the background. The job resumes from the
+manifest after a restart and posts when the cut passes. Cadence:
+`FILM_EVERY_DAYS=2`. Money: `FILM_MAX_USD` a film (default $15) out of its own
+`FILM_MAX_USD_PER_WEEK`, with every job's reserved ceiling counted, so the
+skit's daily budget is untouched.
+
+### 12.7 Cost of a 75 s film
+
+| Item | Cost |
+|---|---|
+| Narration, about 900 characters | $0.10 |
+| Word times | $0.02 |
+| Music bed | $0.24 |
+| Effects | $0.10 |
+| Six plates | $0.60 |
+| Six clips of about 12 s | $15 |
+| One retake | $2.50 |
+| **About** | **$15-18** |
+
+About $6 on Seedance 2.0 mini.
+
+### 12.8 Build (one PR each)
+
+1. This section.
+2. `media/audio.py`: speech, music, effects and word times on the Surplus
+   client, with ledger rows and per-job caps. Request shapes from Surplus's
+   docs and its free model list, never a paid probe.
+3. `media/narration.py`: words to beat windows. Pure functions.
+4. `guard/film.py`: the skit screen per beat and the per-clip cap.
+5. `media/films.py`: `teeny-front.png`, `input_images` in
+   `shots.request_body` (§10 step 3), plates with figure caricatures, routing,
+   last-frame chaining, the resumable manifest.
+6. `deploy/reel/filmcut.py` and its route. Tests on synthetic clips: length
+   within 0.1 s of the narration, no gap over 0.3 s at a seam, -16 ± 1 LUFS,
+   music ducked under speech.
+7. `bin/lib/formats/film.py`, the writer's brief, `hands/film run`, and the
+   cadence and budget settings.
+8. Per-beat checks with retake and plate fallback; a stats row per film.
+
+Before the cadence is turned on, with the operator's yes each time: bake-off 3
+(about $4: one 5 s caricature plate on Wan 3, Kling v4 and Seedance 2.0 mini,
+to see which take a public figure), then one paid film on a live story, set
+beside the skits on the bake-off page.
