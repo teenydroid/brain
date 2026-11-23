@@ -207,6 +207,15 @@ def _quoted_recently(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
     return ids, touched
 
 
+def quoted() -> Json:
+    """Who was quoted in the last QUOTED_DAYS, by handle (lowercase): the
+    studio leaves their posts out of what it may quote, since a quote of
+    them would be skipped here or refused by `check_peer_rotation`. A read
+    of the ledger: it writes nothing and calls no one."""
+    _, handles = _quoted_recently(_db())
+    return {"days": QUOTED_DAYS, "handles": sorted(handles)}
+
+
 def _reused(conn: sqlite3.Connection, reuse_hours: float, max_age_hours: float, skip_quoted: bool) -> list[Json] | None:
     """The posts of a peers search younger than `reuse_hours`, from the kept
     reads, or None when there is none (then `read` searches). X bills a search
