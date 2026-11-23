@@ -150,6 +150,14 @@ class LabTest(unittest.TestCase):
         self.assertEqual(lesson["verdict"], "unclear")
         self.assertIn("no post carried the take tag", lesson["lesson"])
 
+    def test_an_expiry_stands_when_the_proposal_is_refused(self):
+        ledger.propose(body(format="take", deadline_days=20))
+        self.at(T0 + ledger.STALE_DAYS * DAY)
+        for fmt in ("gm", "proof", "quote", "vote", "clip"):
+            ledger.propose(body(format=fmt, deadline_days=20))
+        self.refused(ledger.propose, body(format="ask"), rule="too_many_open")
+        self.assertEqual(ledger.lessons()["lessons"][0]["format"], "take")
+
     def test_a_past_deadline_experiment_is_concluded_unclear_when_scored(self):
         ledger.propose(body(posts=3, deadline_days=2))
         self.x_post("1", 4, T0 + 1000, fmt="take")
