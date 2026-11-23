@@ -239,9 +239,6 @@ unset DRY_RUN STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL STUDIO_F
 # DRY_RUN=1, nothing is posted. "publishing" below runs live (STUDIO_DRY=0)
 # against the stand-in hands/x.
 export STUDIO_DRY=1
-# Every source, plain posts: a quote slot's feed and write are
-# hands/tests/test_studio.py's (QuoteFeedTest, QuoteWriteTest).
-export STUDIO_QUOTE=0
 
 # SAFETY_JUDGE_MODEL is read from the file only, as the hands read it: recorded.
 mkdir -p "$scratch/secrets"
