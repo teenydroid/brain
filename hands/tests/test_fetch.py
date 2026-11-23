@@ -7,6 +7,7 @@ on 127.0.0.1 that stands in for any host."""
 from __future__ import annotations
 
 import http.server
+import os
 import socket
 import sys
 import threading
