@@ -510,7 +510,6 @@ class ReflectTest(unittest.TestCase):
         self.assertNotIn("teenydroid/old", message)
         self.assertIn("nyna", message)
         self.assertIn("1 repl", message)
-        self.assertIn("what i have shipped", message)
 
     # --- midday: bin/reflect --light ---------------------------------------
 
@@ -712,6 +711,77 @@ class ReflectTest(unittest.TestCase):
         self.assertIn("Retire", again)
         self.assertIn("x" * 100 + "\n", self.page())
         self.assertNotIn("x" * 101, self.page())
+
+    def test_a_page_still_too_long_after_the_retry_is_asked_once_more_with_how_much_to_cut(self):
+        # 2026-11-21: both dreams answered the cap refusal with edits that
+        # still left the page over it (12,054 and 12,416 characters), and
+        # the whole day was lost. The answer that still does not fit is
+        # told how far over it is and asked once more.
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        long = {"op": "add", "section": "people", "text": "x" * 9_000}
+        longer = {"op": "add", "section": "people", "text": "y" * 8_500}
+        self.answers({"ops": [long], "diary": "d"}, {"ops": [longer], "diary": "d"},
+                     {"ops": [{"op": "add", "section": "people", "text": "z" * 100}], "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        chats = self.chats()
+        self.assertEqual(len(chats), 3)
+        self.assertIn("characters over", chats[2]["message"])
+        self.assertIn("z" * 100 + "\n", self.page())
+
+    def test_a_page_over_the_limit_may_shrink_to_it_in_one_sitting(self):
+        # The limit fell from 12,000 to 8,000 characters: a full page must
+        # be able to come down to it, though that is more than MAX_SHRINK.
+        page = big_page(110)
+        self.assertGreater(len(page), 11_000)
+        (self.brain / "MEMORY.md").write_text(page)
+        ops = [{"op": "edit", "id": f"m{i}", "text": f"person{i} (x): likes crabs, met them in the replies."}
+               for i in range(1, 111)]
+        self.answer({"ops": ops, "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertLess(len(self.page()), 8_000)
+
+    def test_a_page_over_the_limit_may_retire_twice_the_items(self):
+        # The live page of 2026-11-23 carried eleven shipped builds to retire.
+        page = big_page(110)
+        (self.brain / "MEMORY.md").write_text(page)
+        self.answer({"ops": [{"op": "retire", "id": f"m{i}", "reason": "the ledgers carry it"} for i in range(1, 12)],
+                     "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(len(self.retired()), 11)
+
+    def test_a_page_over_the_limit_still_may_not_collapse_below_it(self):
+        page = big_page(100)
+        (self.brain / "MEMORY.md").write_text(page)
+        ops = [{"op": "edit", "id": f"m{i}", "text": f"p{i}"} for i in range(1, 101)]
+        self.answer({"ops": ops, "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got.get("refused"), got)
+        self.assertEqual(self.page(), page)
+
+    def test_the_page_no_longer_keeps_what_shipped(self):
+        # The ledgers and "what you did last week" carry every build: on
+        # 2026-11-23 the shipped list was 11 of the page's 42 items.
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answer({"ops": [], "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("retire every item under what i have shipped", message)
+        self.assertNotIn("keep each build there", message)
+        self.assertIn("x", message)
+        seed = (REPO / "brain" / "MEMORY.seed.md").read_text()
+        self.assertNotIn("## what i have shipped", seed)
+
+    def test_an_add_under_what_i_have_shipped_is_asked_about_again(self):
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answers({"ops": [{"op": "add", "section": "what i have shipped", "text": "csvstat"}], "diary": "d"},
+                     {"ops": [], "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertIn("no longer keeps", self.chats()[1]["message"])
+        self.assertNotIn("csvstat", self.page())
 
     def test_a_crowded_page_is_told_to_merge_in_the_message(self):
         (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n" + "- a long one " * 900 + "\n")

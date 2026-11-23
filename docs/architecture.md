@@ -238,7 +238,10 @@ are built otherwise, §4b):
   The agents set `refresh_prompt_on_resume`, so a rebuilt prompt reaches a
   thread already under way.
 - `MEMORY.md`, Teeny's own page of things to keep in mind (people, promises,
-  what it is in the middle of, what it decided), capped at 12k characters.
+  what it is in the middle of, what it decided), capped at 8,000 characters
+  (about 2,000 tokens; 12,000 until 2026-11-23, when the page had sat at the
+  limit for a week). What it shipped is not on it: the ledgers and "what you
+  did last week" carry every build.
   It is the persistence that survives anything, and no agent's file tool can
   write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/dream`
   rewrites it there, so it is gitignored, and the repository keeps where it
@@ -295,7 +298,13 @@ change to Teeny itself through `hands/build self` (one a day by default,
 operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
-teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+teaches the core's memory (`memory_learn`). A `reply_x` that went out to an X regular
+(someone who wrote on two days or more, `hands/people`) also teaches the
+core one dated learning about them, what they said and what Teeny answered
+(`_learn_x_regular`, at most one a person a day, `state/tick/x-learned.json`),
+so recall finds X people by name and the dream sees them among its
+learnings: of 48 accounts replied to on 2026-11-19..23, 21 were regulars
+and recall knew none of them. `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
 
 **People in a beat.** `promise` (`{surface, who, what, due_in_hours, ref?}`)
@@ -593,8 +602,11 @@ earliest beats (never below 20), then each of the day's notes shortened to
 notes alone came to 39 KB. Each cut is said in the message, so Teeny knows
 what it did not see.
 
-The page keeps a `what i have shipped` section, and no raw ids or retry
-counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
+The page keeps people (X regulars as much as Moltbook ones), promises, what
+Teeny is in the middle of and what it decided, and no raw ids or retry
+counts. It no longer keeps a `what i have shipped` section: every dream is
+told to retire its items, and an `add` under it is asked about again
+(`RETIRED_SECTIONS`). The dream is the reflection's engine (`bin/lib/reflect.py`, below)
 with one more operation, `forget`, and a snapshot at the end
 (`bin/lib/dream.py`). `bin/reflect` still runs a plain reflection by hand.
 
@@ -631,11 +643,16 @@ text, reason) before the core is asked (`memory_forget`).
 
 The shrink check in `bin/lib/reflect.py` then refuses a result that retires
 more than 8 items, or that takes more than 30% off the page (a loss under
-500 characters is spared, so a young page can still close a thread). Every
-retire needs a reason. A refused reflection is logged to
+500 characters is spared, so a young page can still close a thread). A page
+already over the limit may retire 16, and may come down as far as 70% of the
+limit in one sitting, so a full page can reach it but never collapses
+(`may_lose`). Every retire needs a reason. A refused reflection is logged to
 `state/reflect/refused.jsonl`, keeps the old page and returns
-`refused: true`. A page past the 12k-character limit (and longer than
-before) is not cut: the mind is asked to retire or merge items instead.
+`refused: true`. A page past the 8,000-character limit (and longer than
+before) is not cut: the mind is asked to retire or merge items instead, and
+when its second answer still leaves the page too long it is asked a third
+time, told how many characters over it is (both dreams of 2026-11-21 were
+lost there).
 
 The old page is kept in `state/reflect/`, and the diary entry goes to
 `state/diary/<date>.md` and to the core's memory. On Mondays, the goals
@@ -655,6 +672,16 @@ Anything else changes nothing. Like the beat, the pinned jobs run it
 detached (`bin/dream --detach`, log in `state/dream/dream.log`) under the
 `reflect` lock: one long turn can outlast the core's 300 s, and a second
 dream (or a reflection by hand) never starts while one is running.
+
+A dream always says how it ended (2026-11-23's midday dream left only its
+start line). Each turn runs in a process group of its own and a timeout
+ends the whole group (`reflect.ask`); the whole dream has a deadline of an
+hour (`DEADLINE_SECS`), and SIGTERM, SIGHUP, SIGINT or the deadline end the
+turn and write `{"ok": false, "error": ...}`, as does any unexpected error.
+The lock is an flock, so it goes with the process. A run killed outright
+(SIGKILL, the container recreated) cannot write; the next detached start
+then writes a line saying the earlier run left no result before its own
+(`bin/lib/detach.py`).
 
 At midday (`dream-midday`, `bin/dream --light`) it does the same for the
 page alone, so the afternoon's prompts carry the morning. It writes no diary
@@ -695,7 +722,7 @@ How the day's beats become the page every prompt carries:
                                               │
                                               ▼
                      ops (add / edit / retire by [mN] id, forget by [cN]), then the shrink check
-                     new brain/MEMORY.md (at most 12k chars, never committed); old page in state/reflect/
+                     new brain/MEMORY.md (at most 8k chars, never committed); old page in state/reflect/
                      retired items to state/reflect/retired.jsonl
                      forgotten learnings to state/dream/forgotten.jsonl, then memory_forget
                      night only: diary to state/diary/<date>.md and memory_learn

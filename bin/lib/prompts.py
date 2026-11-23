@@ -111,8 +111,11 @@ STUDIO = ("writer", "editor")
 #: The editor's rubric and taste.
 STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
-#: prompt, and the nightly reflection is meant to keep it short.
-MEMORY_MAX_CHARS = 12_000
+#: prompt, and the nightly reflection is meant to keep it short. About 2,000
+#: tokens: at 12,000 the page sat within 300 characters of the limit from
+#: 2026-11-15 on, every dream spent its operations making room, and two in a
+#: row (2026-11-21) were lost to it; the long tail belongs in recall.
+MEMORY_MAX_CHARS = 8_000
 #: The live page (Teeny's, never committed) and the committed page it starts
 #: from.
 MEMORY = "MEMORY.md"

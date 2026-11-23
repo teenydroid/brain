@@ -114,6 +114,28 @@ class DetachTmpdirTest(unittest.TestCase):
         self.child_result()
         self.assertTrue((own / "in-use").exists())
 
+    def test_a_locked_run_that_left_no_result_is_said_in_the_log_before_the_next(self):
+        # 2026-11-23: the midday dream's log ended on its start line, and the
+        # next run's line went straight after it.
+        log = self.root / "state" / "job" / "run.log"
+        log.parent.mkdir(parents=True)
+        log.write_text('--- 2026-11-23T08:30:11Z bin/dream --light\n')
+        self.detach(Path(self.tmp.name) / "scratch", "--lock", "job")
+        self.child_result()
+        lines = log.read_text().splitlines()
+        note = json.loads(lines[1])
+        self.assertFalse(note["ok"])
+        self.assertIn("2026-11-23T08:30:11Z", note["error"])
+        self.assertTrue(lines[2].startswith("--- "))
+
+    def test_a_run_that_said_how_it_ended_gets_no_note(self):
+        log = self.root / "state" / "job" / "run.log"
+        log.parent.mkdir(parents=True)
+        log.write_text('--- 2026-11-22T20:30:03Z bin/dream\n{"ok": true}\n')
+        self.detach(Path(self.tmp.name) / "scratch", "--lock", "job")
+        self.child_result()
+        lines = log.read_text().splitlines()
+        self.assertTrue(lines[2].startswith("--- "), lines)
 
 if __name__ == "__main__":
     unittest.main()
