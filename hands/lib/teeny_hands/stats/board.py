@@ -241,6 +241,30 @@ def moltbook_writes(conn: sqlite3.Connection, since: float, until: float | None 
     ]
 
 
+def written(conn: sqlite3.Connection, surface: str, since: float, until: float) -> list[Json]:
+    """Own writes on `surface` in [since, until) with their tags, measured or
+    not. The lab needs these: a post is written before its first metrics
+    checkpoint lands, and one still waiting for it must not count as no post."""
+    tables = _tables(conn)
+    parts: list[tuple[str, str, str, str]] = []
+    if surface == "x" and "x_posts" in tables:
+        parts.append(("SELECT p.kind AS kind, p.created_at AS at", "x_posts", "p", "created_at >= ? AND created_at < ?"))
+    if surface == "moltbook":
+        if "moltbook_posts" in tables:
+            parts.append(("SELECT 'post' AS kind, p.at AS at", "moltbook_posts", "p",
+                          "post_id IS NOT NULL AND at >= ? AND at < ?"))
+        if "moltbook_comments" in tables:
+            parts.append(("SELECT 'comment' AS kind, c.at AS at", "moltbook_comments", "c",
+                          "comment_id IS NOT NULL AND at >= ? AND at < ?"))
+    out: list[Json] = []
+    for head, table, alias, where in parts:
+        sql = (f"{head}, {_column(conn, table, 'format', alias)} AS format,"
+               f" {_column(conn, table, 'experiment', alias)} AS experiment FROM {table} {alias} WHERE {where}")
+        for r in conn.execute(sql, (since, until)).fetchall():
+            out.append({"kind": r["kind"], "at": r["at"], "format": r["format"], "experiment": r["experiment"]})
+    return out
+
+
 def _cut(text: Any) -> str:
     text = " ".join(str(text or "").split())
     return text if len(text) <= TEXT_CHARS else text[: TEXT_CHARS - 3] + "..."

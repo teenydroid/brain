@@ -458,7 +458,7 @@ def whole_page(old: Page, memory: str, start: int) -> tuple[Page, list[Json]]:
         new.preamble = old.preamble
     by_id = {item.id: item for _, item in old.items()}
     claimed: set[str] = set()
-    for _, item in new.items():
+    for section, item in new.items():
         if item.id in by_id and item.id not in claimed:
             claimed.add(item.id)
             continue
@@ -467,6 +467,10 @@ def whole_page(old: Page, memory: str, start: int) -> tuple[Page, list[Json]]:
         if match:
             item.id = match
             claimed.add(match)
+        elif section.name.strip().lstrip("#").strip().lower() in RETIRED_SECTIONS:
+            # Same rule as an `add` operation: unchanged legacy items may stay, new ones may not.
+            raise Unusable(f"a new item goes under {section.name.strip()!r}, which the page no longer keeps:"
+                           " put it in another section, or leave that section out")
     assign_ids(new, start)
     retired = [{"id": item.id, "section": section.name, "text": item.text, "reason": "left off a whole-page answer"}
                for section, item in old.items() if item.id not in claimed]
@@ -486,9 +490,15 @@ def may_lose(before: int) -> float:
     return allowed
 
 
+def retire_limit(chars: int) -> int:
+    """The most items one reflection may retire from a page of `chars`: twice
+    MAX_RETIRES over the limit, where the page has to come down."""
+    return MAX_RETIRES * 2 if chars > prompts.MEMORY_MAX_CHARS else MAX_RETIRES
+
+
 def check(before: str, after: str, retired: int) -> None:
     """The shrink check, and the page's limit."""
-    most_retires = MAX_RETIRES * 2 if len(before) > prompts.MEMORY_MAX_CHARS else MAX_RETIRES
+    most_retires = retire_limit(len(before))
     if retired > most_retires:
         raise Refused(f"it retires {retired} items; the most one reflection may retire is {most_retires}")
     lost = len(before) - len(after)
@@ -588,7 +598,7 @@ _HOW = """You do not rewrite the page: you change it item by item, and whatever 
 
 Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have decided). The page is for the people you know, what you promised them, what you are in the middle of and what you decided; nothing else. What you shipped is not kept on it: your ledgers and "what you did last week" carry every build with its link into every prompt, so retire every item under what i have shipped (reason: "the ledgers carry it") and never add one again. Your regulars on X belong under people as much as the ones on Moltbook: someone who keeps coming back to your replies gets a line, what they care about and what you owe them. The page is what you carry into every conversation, so it holds what you would need tomorrow, not the mechanics of today: no raw ids, retry counts or fuse numbers (a follow-up keeps those), and one line per person wherever you know them from. When the beats and the ledgers disagree, the ledgers are right: a send marked "not sent" did not happen, whatever the thought beside it says. Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
 
-_LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {shrink:.0%} off the page. An answer past either is refused, and the page stays as it was."""
+_LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {take} off the page. An answer past either is refused, and the page stays as it was."""
 
 _CROWDED = (" That is close: retire what no longer matters, and merge items that say the same thing"
             " (edit one, retire the others with the reason \"merged into mN\").")
@@ -608,8 +618,16 @@ def _ops(forget: bool, lab: bool = False) -> str:
     return ops[:-1] + ", " + _LAB_OPS + "]" if lab else ops
 
 
+def _take(chars: int) -> str:
+    """How much one reflection may take off a page of `chars`, as the checker
+    allows it (may_lose): a share, or on an oversized page a number of characters."""
+    if chars > prompts.MEMORY_MAX_CHARS:
+        return f"{may_lose(chars):.0f} characters"
+    return f"{MAX_SHRINK:.0%}"
+
+
 def shape(light: bool, chars: int, forget: bool = False, lab: bool = False) -> str:
-    limits = _LIMITS.format(chars=chars, most=prompts.MEMORY_MAX_CHARS, retires=MAX_RETIRES, shrink=MAX_SHRINK,
+    limits = _LIMITS.format(chars=chars, most=prompts.MEMORY_MAX_CHARS, retires=retire_limit(chars), take=_take(chars),
                             crowded=_CROWDED if chars > prompts.MEMORY_MAX_CHARS * CROWDED_AT else "")
     how = [_HOW, _FORGET.format(most=MAX_FORGETS)] if forget else [_HOW]
     if lab:
@@ -921,6 +939,20 @@ def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | Non
         # reminder of the shape costs far less than losing the night.
         ops = _ops(forgettable is not None, lab)
         shape_again = '{"ops": %s}' % ops if light else '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % ops
+
+        def over(exc: TooLong, answer_before: str) -> Outcome | Json:
+            # Still over the limit (both dreams of 2026-11-21 were lost here):
+            # once more, told how much has to come off.
+            try:
+                last = ask(OVER.format(chars=exc.chars, over=exc.over, most=prompts.MEMORY_MAX_CHARS,
+                                       shape=shape_again), thread)
+            except (RuntimeError, OSError, subprocess.SubprocessError) as failed:
+                return {"ok": False, "error": f"the turn failed: {failed}", "answer": answer_before[:500]}
+            try:
+                return interpret(last, page, start, forgettable, lab)
+            except Unusable as final:
+                return _fail(final, last, light)
+
         try:
             again = ask(AGAIN.format(error=first, shape=shape_again), thread)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
@@ -934,23 +966,16 @@ def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | Non
             for answer in (again, said):
                 try:
                     return interpret_page(answer, page, start)
+                except TooLong as long_page:
+                    # An oversized markdown page is the same case as an oversized JSON answer.
+                    return over(long_page, again)
                 except Refused as refused:
                     failures.append(refused)
                 except Unusable:
                     continue
             return _fail(next((f for f in failures if isinstance(f, Refused)), exc), again, light)
         except TooLong as exc:
-            # Still over the limit (both dreams of 2026-11-21 were lost here):
-            # once more, told how much has to come off.
-            try:
-                last = ask(OVER.format(chars=exc.chars, over=exc.over, most=prompts.MEMORY_MAX_CHARS,
-                                       shape=shape_again), thread)
-            except (RuntimeError, OSError, subprocess.SubprocessError) as failed:
-                return {"ok": False, "error": f"the turn failed: {failed}", "answer": again[:500]}
-            try:
-                return interpret(last, page, start, forgettable, lab)
-            except Unusable as final:
-                return _fail(final, last, light)
+            return over(exc, again)
         except Unusable as exc:
             return _fail(exc, again, light)
 

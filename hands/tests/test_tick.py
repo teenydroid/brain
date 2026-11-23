@@ -1807,6 +1807,18 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(len([p for p in self.learned() if "about @ana (X" in p["text"]]), 1)
 
+    def test_an_unwritable_regular_marker_does_not_stop_the_reply_completing(self):
+        # Live shape: an OSError writing the once-a-day marker escaped _landed, so the
+        # reply's waiting follow-ups were never resolved. The learning itself was kept.
+        (self.root / "state" / "tick" / "x-learned.json").mkdir(parents=True)
+        stimuli.add("x", "mention", "100", "first gm", who="ana", at=T0 - 86400)
+        stimuli.add("x", "mention", "111", "you shipped the chart yet?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "not yet, friday"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "done", got)
+        self.assertEqual(len([p for p in self.learned() if "about @ana (X" in p["text"]]), 1)
+        self.assertNotIn("111", [s.get("ref") for s in stimuli.pending()])
+
     def test_remember_keeps_a_note_and_teaches_the_core(self):
         stimuli.add("x", "mention", "111", "i'm building a cli for crabs", who="ana")
         self.answer({"thought": "", "intents": [{"do": "remember", "who": "ana", "note": "builds a cli for crabs"}]})

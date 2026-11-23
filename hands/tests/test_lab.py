@@ -180,6 +180,38 @@ class LabTest(unittest.TestCase):
         self.assertEqual([e["id"] for e in ledger.score()["expired"]], [1])
         self.assertIn("no verdict came", ledger.lessons()["lessons"][0]["lesson"])
 
+    def x_written(self, post_id, at, fmt):
+        # Written, its first metrics checkpoint not yet taken.
+        posting_rules.record_post(x_metrics.db(), post_id, "post", f"post {post_id}", created_at=at, format=fmt)
+
+    def x_measured(self, post_id, likes):
+        conn = x_metrics.db()
+        conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes, impressions)"
+                     " VALUES (?, 24, ?, ?, 0, 0, 0, ?)", (post_id, T0 + 3 * DAY, likes, likes * 10))
+        conn.commit()
+
+    def test_a_post_still_awaiting_its_first_metrics_keeps_a_short_experiment_open(self):
+        # Live shape: X measures a post an hour or more after it is written, so a
+        # post written minutes before the deadline counted as none at all.
+        ledger.propose(body(posts=3, deadline_days=2))
+        self.x_post("1", 4, T0 + 1000, fmt="take")
+        self.x_written("2", T0 + 2 * DAY - 1800, "take")
+        self.at(T0 + 2 * DAY + 60)
+        self.assertEqual(ledger.score()["expired"], [])
+        self.assertEqual([(s["n"], s["written"], s["pending"]) for s in ledger.score()["scored"]], [(1, 2, 1)])
+        self.x_measured("2", 6)
+        self.at(T0 + 3 * DAY)
+        self.assertEqual([(e["id"], e["n"]) for e in ledger.score()["expired"]], [(1, 2)])
+        self.assertIn("2 of 3 planned posts", ledger.lessons()["lessons"][0]["lesson"])
+
+    def test_a_tagged_post_not_yet_measured_is_not_a_stale_experiment(self):
+        # The stale rule asks whether any post carried the format, not whether one has numbers.
+        ledger.propose(body(posts=1, deadline_days=20))
+        self.x_written("1", T0 + DAY, "take")
+        self.at(T0 + ledger.STALE_DAYS * DAY)
+        self.assertEqual(ledger.score()["expired"], [])
+        self.assertEqual([(i["id"], i["status"]) for i in ledger.listing()["experiments"]], [(1, "open")])
+
     def test_cli(self):
         def run(*argv, stdin=None):
             done = subprocess.run([sys.executable, "-I", "-B", str(LAB), *argv], input=stdin, capture_output=True,
