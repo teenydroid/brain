@@ -405,9 +405,26 @@ def _lane(kind: str) -> str:
     return LANES[kind]
 
 
-def _last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+def lane_of(kind: str, producer: str | None = None) -> str:
+    """The lane an own post of `kind` goes out in. A studio slot's quote
+    (producer `studio`, 2026-11-23) is the slot's original post: it is in
+    the originals' lane, not the outward quote's."""
+    if kind == "quote" and producer == "studio":
+        return "post"
+    return _lane(kind)
+
+
+#: The ledger rows of each lane: the originals with the studio's quotes, and
+#: every other quote.
+LANE_ROWS = {
+    "post": "(kind = 'post' OR (kind = 'quote' AND producer = 'studio'))",
+    "quote": "(kind = 'quote' AND producer IS NOT 'studio')",
+}
+
+
+def _last(conn: sqlite3.Connection, lane: str) -> sqlite3.Row | None:
     return conn.execute(
-        "SELECT id, created_at FROM x_posts WHERE kind = ? ORDER BY created_at DESC LIMIT 1", (kind,)
+        f"SELECT id, created_at FROM x_posts WHERE {LANE_ROWS[_lane(lane)]} ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
 
 
