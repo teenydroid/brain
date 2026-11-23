@@ -10,8 +10,8 @@ timeline, and where each piece of the narration goes on it:
   one beat's last word and the next one's first, so no word loses its tail.
 - A beat of pure action is a silence of its own `hold` seconds, laid between
   the pieces; the narration around it is not stretched or sped.
-- Every spoken beat gets a short breath after its piece, and the last beat a
-  longer one, for the held still the film ends on.
+- Every spoken beat gets a short breath after its piece, and the film's last
+  beat a longer hold, for the held still it ends on.
 
 Nothing is stretched anywhere: a clip is bought at the shortest length on
 sale that covers its beat (`shots.at_least`) and trimmed, and the voice is
@@ -29,8 +29,10 @@ from .shots import at_least
 
 Json = dict[str, Any]
 
-#: Seconds of silence after a spoken beat's last word, and after the film's
-#: last word (the held still).
+#: The release kept after the narration's very last word; the silence after
+#: each spoken beat's piece; and the hold on the film's last beat (the held
+#: still it ends on).
+RELEASE = 0.2
 BREATH = 0.4
 TAIL = 1.5
 #: A beat of pure action: its default length and the most it may ask.
@@ -94,9 +96,10 @@ def clock(beats: list[Json], words: list[Json], beat_max: float = BEAT_MAX) -> J
     cuts: dict[int, tuple[float, float]] = {}
     for n, i in enumerate(spoken):
         begin = 0.0 if n == 0 else (spans[spoken[n - 1]][1] + spans[i][0]) / 2
-        end = spans[i][1] + (TAIL if n == len(spoken) - 1 else 0.0)
         if n < len(spoken) - 1:
             end = (spans[i][1] + spans[spoken[n + 1]][0]) / 2
+        else:
+            end = spans[i][1] + RELEASE
         cuts[i] = (begin, end)
     out_beats: list[Json] = []
     pieces: list[Json] = []
@@ -108,9 +111,8 @@ def clock(beats: list[Json], words: list[Json], beat_max: float = BEAT_MAX) -> J
         else:
             begin, end = cuts[i]
             pieces.append({"beat": name, "from": round(begin, 3), "to": round(end, 3), "at": round(t, 3)})
-            length = (end - begin) + (BREATH if i != spoken[-1] else 0.0)
-        if i == len(beats) - 1 and spans[i] is None:
-            length += TAIL
+            length = end - begin
+        length += TAIL if i == len(beats) - 1 else (BREATH if spans[i] else 0.0)
         if length > beat_max + 1e-9:
             raise hand.Refused(f"beat {name!r} runs {length:.1f} s, over the {beat_max:g} s a clip can be: "
                                "split it or say less", rule="clock", beat=name)
