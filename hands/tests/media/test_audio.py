@@ -277,5 +277,49 @@ class SendTest(unittest.TestCase):
         self.assertEqual(caught.exception.cost_micro, 1500)
 
 
+class CutShortTest(unittest.TestCase):
+    """An answer the connection cuts short (http.client.IncompleteRead, not an
+    OSError) is a SurplusError the callers fall back on, never an uncaught
+    error that stops a film (f65, 2026-11-24: a still's answer cut at 56 KB)."""
+
+    def setUp(self):
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def _short(self):
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", "100000")
+                self.end_headers()
+                self.wfile.write(b'{"data": [{"b64_json": "aaaa')
+                self.wfile.flush()
+                self.close_connection = True
+
+            do_GET = do_POST = _short
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.api = Surplus(key="k", base=self.base)
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def test_a_call_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError) as caught:
+            self.api.call("POST", "/v1/images/edits", {"x": 1})
+        self.assertIsNone(caught.exception.status)
+
+    def test_a_send_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError):
+            self.api.send("/v1/resources/elevenlabs/v1/music", {"x": 1})
+
+    def test_a_download_cut_short_is_a_surplus_error(self):
+        with self.assertRaises(SurplusError):
+            self.api.download(self.base + "/file.png", 1024 * 1024)
+
+
 if __name__ == "__main__":
     unittest.main()
