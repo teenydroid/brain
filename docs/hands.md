@@ -1627,38 +1627,59 @@ Teeny: the prompt says what Teeny is doing and where. A video is a still made
 that way, then animated. Both buy on Surplus (`SURPLUS_API_KEY`), cheapest
 model first for video, the sharpest caricature model first for pictures, with
 the rest as fallbacks when a seller can't take the job
-(`MEDIA_IMAGE_MODELS`: Venice's qwen-edit-uncensored at about $0.03 a
-picture, then gpt-image-2-5-flare-edit at about $0.07, nano-banana-2-1-edit,
+(`MEDIA_IMAGE_MODELS`: gpt-image-2-5-flare-edit at about $0.07 a picture,
+then Venice's qwen-edit-uncensored at about $0.03, nano-banana-2-1-edit,
 muse-image-edit. All of them pass Venice's gateway, which on 2026-11-23
 refused a real person's photo in a mocking scene for every one, uncensored
-included, while each half alone rendered; `MEDIA_VIDEO_MODELS`:
+included, while each half alone rendered; flare is first again because, given
+a stylised portrait in place of the photo, it drew that refused scene and qwen
+still refused it; `MEDIA_VIDEO_MODELS`:
 longcat-distilled-image-to-video, pixverse-c1-image-to-video,
 seedance-1-5-pro-image-to-video). Measured 2026-11-11: about $0.016 a picture
 and $0.07 a 5-second clip.
 
-**Two-pass likeness.** A picture with public figures (`figures`) is first
-asked for as one edit: Teeny's sheet and each figure's photo (`images`) with
-the scene's prompt. When every model in `MEDIA_IMAGE_MODELS` turns that down
-for content (Venice's 400 "violates the content policy"), the picture is not
-lost: pass 1 draws the scene from Teeny's sheet alone (`image`, the scene's
-prompt, the same chain and fallbacks), and pass 2 is one more edit,
-`images: [the pass-1 picture, photo 1, photo 2]`, under a fixed prompt the
-hand writes and that never carries the scene's words ("Picture 1 is the
-scene; photo 2 is <name>. Redraw each of those people in picture 1 so they
-are unmistakably that person ... Keep everything else in picture 1 exactly as
-it is."), on the same chain. Proven live on 2026-11-23: the Jensen Huang scene
-Venice refused with his photo (media_assets 97, 98) rendered with Teeny's
-sheet alone, and a second qwen-edit-uncensored edit of that picture with his
-photo gave him back his face, glasses and grey hair, about $0.03 a pass. It is
-the behaviour, not a setting. A seller's other trouble (402, a bad key) still
-fails the picture as before, and so does a content refusal of pass 2. Both
-passes are on the picture's one `media_assets` row: `cost_micro` is the two
-together, `model` the likeness pass's, `detail.two_pass` `{scene, likeness}`
-names both, and only the final picture is fitted under X's limit and saved
-(pass 1's is kept in memory, never as an asset). Pass 1's cost is on the row
-before pass 2 starts, and pass 2 is refused (`budget`) when its estimate would
-take the day past `MEDIA_MAX_USD_PER_DAY`; a refused or failed pass 2 leaves
-the row `failed` with pass 1's cost on it, and a failed row that carries a cost
+**Stylised portraits.** A picture never draws a public figure (`figures`)
+from the raw photo. Venice's filter goes for realistic faces: on 2026-11-23 a
+real photo of Jensen Huang, edited on qwen-edit-uncensored with a harmless
+caricature prompt, came out as a good caricature, and the scene Venice had
+refused with his photo (media_assets 98's prompt), sent with that caricature
+in the photo's place, rendered on gpt-image-2-5-flare-edit (qwen still
+refused it). So the first time a figure is drawn, its photo
+(`teeny_hands/media/figures.py`) goes once through `/v1/images/edits` as a
+single `image` with a fixed prompt (`assets.STYLISE`: "Redraw this person as
+a bold stylised editorial cartoon caricature ... clearly still recognisable
+as the same person. Plain background, head and shoulders."), walking
+`MEDIA_IMAGE_MODELS` with the usual fallbacks. The answer is kept for good
+beside the photo in `state/media/figures/` (`<key>-stylised.<ext>`) and every
+later picture of that figure reuses it, with no call. It is bought on its own
+`media_assets` row (kind `image`, purpose `portrait`), so its cost counts
+against `MEDIA_MAX_USD_PER_DAY` once and never against the picture count or
+`scenes`. When no model stylises it (any failure), that picture draws from
+the photo as before, and the next picture tries stylising again.
+
+**Two-pass likeness.** This is the last resort. When every model in
+`MEDIA_IMAGE_MODELS` still turns down the scene with the portraits for
+content (Venice's 400 "violates the content policy"), the picture is kept:
+pass 1 draws the scene from Teeny's sheet alone (`image`, the scene's prompt,
+the same chain and fallbacks), and pass 2 is one more edit,
+`images: [the pass-1 picture, portrait 1, portrait 2]` (the stylised
+portraits), under a fixed prompt the hand writes. That prompt never carries
+the scene's words ("Picture 1 is the scene; photo 2 is <name>. Redraw each of
+those people in picture 1 so they are unmistakably that person ... Keep
+everything else in picture 1 exactly as it is."), and pass 2 walks the same
+chain. Proven live on 2026-11-23 with the raw photo: the Jensen Huang scene
+Venice refused (media_assets 97, 98) rendered with Teeny's sheet alone, and a
+second qwen-edit-uncensored edit of that picture with his photo gave him back
+his face, glasses and grey hair, about $0.03 a pass. It is the behaviour, not
+a setting. Any other trouble (402, a bad key) still fails the picture as
+before, and so does a content refusal of pass 2. Both passes go on the
+picture's one `media_assets` row: `cost_micro` is the two together, `model`
+is the likeness pass's, and `detail.two_pass` `{scene, likeness}` names both.
+Only the final picture is fitted under X's limit and saved; pass 1's picture
+stays in memory and is never an asset. Pass 1's cost is put on the row before
+pass 2 starts, and pass 2 is refused (`budget`) when its estimate would take
+the day past `MEDIA_MAX_USD_PER_DAY`. A refused or failed pass 2 leaves the
+row `failed` with pass 1's cost on it, and a failed row that carries a cost
 counts as spent today.
 
 **Flavors.** `hands/video` is the one binary that makes video, and each kind
@@ -1693,7 +1714,7 @@ flavors.
 | Verb | | Does |
 |---|---|---|
 | `flavors` | R | video only. The flavors above: `{flavors: [{name, summary, steps: [{name, help, takes_body}], default_step, kinds, shares_video_cap}]}`. |
-| `generate` (video: `clip make`) | A | image: `{prompt, alt?, figures?}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). An image with `figures` that every model refuses for content with the photos is drawn in two passes (the scene from Teeny's sheet, then a likeness edit from the photos; "Two-pass likeness" above), both paid on its row. A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing, except a two-pass picture's paid scene pass. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` (video: `clip make`) | A | image: `{prompt, alt?, figures?}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). An image with `figures` draws each from its stylised portrait, bought once ("Stylised portraits" above); one that every model still refuses for content is drawn in two passes (the scene from Teeny's sheet, then a likeness edit from the photos; "Two-pass likeness" above), both paid on its row. A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing, except a two-pass picture's paid scene pass. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
 | `skit make` (alias `skit`) | A | video only (`teeny_hands/media/skits.py`). stdin `{shots: [{prompt, seconds?}] (1 to 4, each at most 900 characters, 3 to 10 s), aspect?: "16:9"\|"9:16"\|"1:1", story, figures?, logline, look?: {figure: line}, setting?, score?, wait_seconds?, bed?}`. **One take first** (a skit of two shots or more, unless `MEDIA_SKIT_ONE_TAKE=0`): the whole skit is one job on the first of `MEDIA_SKIT_ONE_TAKE_MODELS` that takes it (venice-wan-3-0-text-to-video, seedance-2-0-text-to-video, wan-2-7-text-to-video: each seen on a paid render on 2026-11-20 to keep one face, set and soundtrack across hard cuts in one job), its prompt one multi-shot script (`guard/skit.py` `script`: the film's length, hard cuts, one continuous score, each figure's `look`, the `setting` and the `score` held throughout, then each shot with its time range). Each model is sent only the fields a paid render showed it takes (`ONE_TAKE_PARAMS`, under `MEDIA_SKIT_PARAMS`): wan-3-0 `resolution` (`MEDIA_SKIT_RESOLUTION`, 720p), `aspect_ratio` (the skit's) and `audio: true`; seedance-2-0 `resolution`; wan-2-7 nothing more. Its length is `MEDIA_SKIT_ONE_TAKE_SECS` (20, 5 to 30) snapped down to what the model sells (wan-3-0 2, 5, 10 ... 30 s; seedance 5 to 15; wan-2-7 5, 10, 15), then the longest whose ceiling fits the take's cap, `MEDIA_SKIT_MAX_USD_PER_SHOT` times the shots it replaces, at the verified ceiling a second (wan-3-0 $0.234, seedance $0.3408, wan-2-7 $0.2178). With the $1.60 shot cap: two shots ($3.20) 10 s on wan-3-0, 9 s on seedance, 10 s on wan-2-7; three ($4.80) 20 s ($4.68 held, about $2.03 billed), 14 s, 15 s; four ($6.40) 20 s, 15 s, 15 s. The shots share the length in proportion to their own; a job quoted over the cap anyway is cancelled and asked once more at its own rate. It reserves that cap on one `shot` row (`detail.one_take`, the shots' lengths), and its idempotency key is `teeny-skit-<id>-take-<model>-<seconds>s`. A content refusal, a seller's trouble, a script the model will not take (400, 413, 422), no length that fits, or a job that fails unbilled moves to the next one-take model; with none left, that row is swapped for a row a shot in one transaction and the per-shot render below runs in the time left; no credit or a bad key stops the skit. **Else** a parody video of one text-to-video job a shot on Surplus (each shot's prompt with the look and setting in front of it and the score after, `shot_prompt`) (`POST /v1/video/generations`, `{model, prompt, duration_seconds}` and nothing else unless `MEDIA_SKIT_PARAMS` adds fields; that body was verified live on 2026-11-19 for kling-v3-pro, seedance-2-0 and veo3-1-fast with a real public figure in the prompt, while aspect, resolution and audio fields are not), each shot's length snapped to the nearest the model sells (the catalog's `durations_seconds`, `GET /v1/models`, read once a skit; ties go longer; as asked when it cannot be read; the length asked is on the shot's row), every shot started before any is waited on, then cut on the `reel` service with each shot's own sound and the label "AI parody · @`X_BOT_USERNAME`" burned into a corner for its whole length (below, `reel`). **Off until `MEDIA_SKIT_MAX_PER_DAY` is set** (default 0: refused `off`, nothing asked). Refused (`per_day`) past that many skits a UTC day (one that bought anything counts, even if its cut failed); (`budget`) unless every shot's `MEDIA_SKIT_MAX_USD_PER_SHOT` ($1.60), reserved on its row before the first job, fits under `MEDIA_MAX_USD_PER_DAY` ($1.00, shared) with everything else bought today; (`runway`) as `generate`. The reel service must answer `/ping` before anything is bought. Models in order (`MEDIA_SKIT_MODELS`: kling-v3-pro-text-to-video, seedance-2-0-text-to-video, wan-2-7-text-to-video, veo3-1-fast-text-to-video); a seller's trouble (404, 408, 409, 429, 5xx, no answer) or a content refusal (a 400, 403, 422 or 451, or a failed job, whose words say content, policy, safety, likeness, public figure and the like) moves the shot to the next model, and a job that can cost more than the per-shot cap (its `max_cost_usdc`, the true ceiling, about twice the bill: on 2026-11-19 kling 5 s had a ceiling of $1.4352 and billed $0.7176; else its estimate) is cancelled and the next model asked; any other refusal (no credit, a bad key) stops the skit. Idempotency key `teeny-skit-<id>-shot<n>-<model>`. Waits at most `wait_seconds`, never more than `MEDIA_SKIT_WAIT_SECONDS` (900); a shot no model can make, or one past the wait, cancels the rest. The ledger is `generate`'s: a `shot` row each (its model, job, the length asked, the job's ceiling then its real cost, read once more after a short pause when a success reports none yet, else that ceiling as an estimate; a three-shot kling skit reserves about $4.31 until its shots land and then costs about $2.15, so `MEDIA_MAX_USD_PER_DAY` needs about $5 of headroom for one skit; failed rows cost nothing; a paid shot whose file never came is `unknown`, counted as spent) and a `skit` row (cost 0; the cut's path, and in `detail` the story, figures, logline, label, models, total cost and frames). A cut the service does not report labelled with exactly that label is never handed over. Answers `{asset, frames, label, labelled, cost_usd, models}`. Under `DRY_RUN` it answers the requests it would send and spends nothing. |
