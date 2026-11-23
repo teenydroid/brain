@@ -148,6 +148,8 @@ class PollTest(Scratch):
         self.rah.files["/f/a.mp4"] = b"abc"
 
         class Broken:
+            headers: dict = {}
+
             def __enter__(self):
                 return self
 
@@ -172,7 +174,6 @@ class PollTest(Scratch):
 
     def test_a_short_body_is_not_published_as_a_whole_file(self) -> None:
         from pathlib import Path
-        from types import SimpleNamespace
 
         class Short:
             headers = {"Content-Length": "10"}
