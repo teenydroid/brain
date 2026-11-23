@@ -97,7 +97,7 @@ command = "bin/heartbeat"
 # The rollback is STUDIO=0 in secrets/teeny.env, and nothing here changes for
 # it: each studio job names the old playbook of its slot (`--legacy`), and
 # with STUDIO=0 bin/studio runs that playbook through bin/act instead, as
-# cron did before (x-quote, morning, take Monday to Saturday, growth on
+# cron did before (x-quote, take Monday to Saturday, growth on
 # Sunday, show). `shiplog` keeps its own job at 23:10 and runs only with
 # STUDIO=0: bin/act skips every replaced playbook while STUDIO=1
 # (bin/lib/studio_switch.py). No studio slot catches up or makes up: a late
