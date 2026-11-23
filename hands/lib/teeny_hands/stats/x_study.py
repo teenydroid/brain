@@ -119,7 +119,7 @@ def summary_lines(got: Json | None = None) -> list[str]:
         originals = [w for w in writes if w["kind"] in ORIGINALS]
         if originals:
             formats = _spread(_groups(originals, lambda w: w["format"] or "untagged"))
-            lines += [f"X original format, last {days}d: {k}: {_group_line(k, ws)}" for k, ws in formats]
+            lines += [f"X originals by format, last {days}d: {_group_line(k, ws)}" for k, ws in formats]
     replies = [w for w in (windows.get(min(WINDOWS)) or []) if w["kind"] == "reply"]
     if replies:
         days_of: dict[str, set[str]] = {}
