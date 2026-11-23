@@ -108,12 +108,10 @@ class WorkerAgentTest(unittest.TestCase):
         with open(MIND, "rb") as fh:
             doc = tomllib.load(fh)
         self.assertIn(doc["agent_tier"], ("chat", "reasoning"))
-        for old in ('agent_tier = "reasoning"\n', ""):
-            path = self._variant(MIND, lambda t: t.replace('agent_tier = "reasoning"\n', "", 1))
-            self.assertNotIn("agent_tier", path.read_text())
-            with self.assertRaises(SystemExit):
-                agent_check.check(path)
-            break
+        path = self._variant(MIND, lambda t: t.replace('agent_tier = "reasoning"\n', "", 1))
+        self.assertNotIn("agent_tier", path.read_text())
+        with self.assertRaises(SystemExit):
+            agent_check.check(path)
 
     def test_it_is_jailed_like_the_mind_and_has_no_workspace_of_its_own(self):
         with open(WORKER, "rb") as fh:
