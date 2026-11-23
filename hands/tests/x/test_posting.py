@@ -441,11 +441,10 @@ class QuoteLaneTest(Posting):
         with self.assertRaises(hand.Refused) as caught:
             self.quote(2, "557")
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"]), ("quote_cap", 2))
-        for text in ("a lighthouse with opinions", "the moss filed a complaint", "wifi on the beach is a myth",
-                     "crabs run the night shift"):
+        for text in ("a lighthouse with opinions", "the moss filed a complaint", "wifi on the beach is a myth"):
             self.original(text)
         with self.assertRaises(hand.Refused) as caught:
-            self.original("a fifth original about kettles")
+            self.original("a fourth original about kettles")
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
         self.assertEqual([r["kind"] for r in self.ledger()].count("quote"), 2)
         self.assertEqual([r["kind"] for r in self.ledger()].count("post"), 4)
@@ -509,15 +508,15 @@ class StudioQuoteTest(QuoteLaneTest):
         self.studio_quote(2, "557")
         self.assertEqual([r["producer"] for r in self.ledger()], ["studio", None, "studio"])
 
-    def test_studio_quotes_count_against_the_four_originals_a_day(self):
+    def test_studio_quotes_count_against_the_three_originals_a_day(self):
         self.configure(POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0", QUOTE_MIN_GAP_HOURS="0",
                        QUOTE_AFTER_POST_MINUTES="0")
-        for n, post_id in enumerate(("555", "556", "557")):
+        for n, post_id in enumerate(("555", "556")):
             self.studio_quote(n, post_id)
         self.original()
         with self.assertRaises(hand.Refused) as caught:
-            self.original("a fifth original about kettles")
-        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["sent_today"]), ("daily_cap", 4))
+            self.original("a fourth original about kettles")
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["sent_today"]), ("daily_cap", 3))
 
 
 class QuoteAsLinkTest(Posting):
@@ -613,11 +612,11 @@ class DailyCapTest(Posting):
         posting_rules.ensure_schema(conn)
         for n in range(5):
             posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
-        self.earlier(kinds=("post", "quote", "post", "post"))
+        self.earlier(kinds=("post", "quote", "post"))
         publish.post({"anchor": "hn:1", "text": "one more about lighthouses and moss"})
         self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"anchor": "hn:1", "text": "and the fifth original of the day"})
+            publish.post({"anchor": "hn:1", "text": "and the fourth original of the day"})
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
 
     def test_the_cap_is_a_setting(self):
