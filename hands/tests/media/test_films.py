@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE.parent.parent / "lib"))
 sys.path.insert(0, str(HERE))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.guard import viewer  # noqa: E402
 from teeny_hands.media import assets, films  # noqa: E402
 from teeny_hands.media.surplus import SurplusError  # noqa: E402
 
@@ -148,6 +149,14 @@ class FilmTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def looked_at(self):
+        """The stills are pictures the viewer can look at (its scaling needs
+        Pillow, so that one step is stood in for)."""
+        self.api.picture = (REPO / "brain" / "assets" / "teeny-reference.png").read_bytes()
+        encode = mock.patch.object(viewer, "data_uri", lambda data: "data:image/jpeg;base64," + data[:16].hex())
+        encode.start()
+        self.addCleanup(encode.stop)
+
     def tearDown(self):
         os.environ.clear()
         os.environ.update(self._env)
@@ -235,7 +244,7 @@ class FilmTest(unittest.TestCase):
     def test_a_still_with_writing_in_it_is_drawn_once_more_and_told_why(self):
         """f123: a prop came back with a word lettered on it, though every
         still was told to have none."""
-        self.api.picture = (REPO / "brain" / "assets" / "teeny-reference.png").read_bytes()
+        self.looked_at()
         self.api.reads = ["", "HYMN"]  # the second still has a word on it
         out = self.make()
         edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
@@ -246,11 +255,12 @@ class FilmTest(unittest.TestCase):
         self.assertEqual(plates["b2"]["faults"], ["writing"])
         self.assertTrue(plates["b2"]["redrawn"])
         self.assertTrue(plates["b2"]["file"].startswith("b2-2."))
-        self.assertIn(plates["b2"]["file"], self.reel.jobs[0]["beats"][1]["clip"] + str(self.api.videos()[1]) or "")
+        self.assertFalse(list(films.folder(out["id"]).glob("b2.p*")))  # the first try is gone
+        self.assertEqual(self.api.videos()[1]["image_url"], assets._data_uri(films.folder(out["id"]) / plates["b2"]["file"]))
         self.assertNotIn("faults", plates["b1"])
 
     def test_teeny_off_model_is_drawn_once_more_and_a_second_miss_is_kept(self):
-        self.api.picture = (REPO / "brain" / "assets" / "teeny-reference.png").read_bytes()
+        self.looked_at()
         self.api.off_model = [False, False, True, True]  # the Teeny beat, and its redraw
         out = self.make()
         self.assertEqual(out["status"], "done")
