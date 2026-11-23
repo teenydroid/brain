@@ -138,7 +138,7 @@ def results() -> dict:
 
 class RegistryTest(unittest.TestCase):
     def test_the_registry_holds_skit_remake_and_khaby_and_drives_the_video_formats(self):
-        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby"])
+        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby", "film"])
         for name, fmt in formats.REGISTRY.items():
             self.assertIsInstance(fmt, formats.Format)
             self.assertEqual(fmt.name, name)
@@ -156,7 +156,8 @@ class RegistryTest(unittest.TestCase):
     def test_the_format_is_slim(self):
         self.assertEqual([f.name for f in dataclasses.fields(formats.Format)],
                          ["name", "ask", "draft_shape", "rules", "shape", "shown", "make", "outcome", "time",
-                          "min_secs", "spent", "sources", "sources_name", "prepare", "prepare_max", "study_part"])
+                          "min_secs", "spent", "sources", "sources_name", "prepare", "prepare_max", "study_part",
+                          "offered"])
 
     def test_the_room_is_one_class_whichever_module_names_it(self):
         import studio_room
