@@ -148,6 +148,12 @@ def public(job: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+def conn_seen(conn: sqlite3.Connection, job_id: int, kind: str, ref: str) -> bool:
+    """Whether this event was already passed on."""
+    return conn.execute("SELECT 1 FROM rent_events WHERE job_id = ? AND kind = ? AND ref = ?",
+                        (job_id, kind, ref)).fetchone() is not None
+
+
 def seen(conn: sqlite3.Connection, job_id: int, kind: str, ref: str, detail: Mapping[str, Any] | None = None) -> bool:
     """Records an event; False when it was already there."""
     cur = conn.execute(
