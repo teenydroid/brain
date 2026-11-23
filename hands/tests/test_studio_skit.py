@@ -671,7 +671,9 @@ class SlotRun(unittest.TestCase):
         self.env = {"TEENY_ROOT": str(REPO), "TEENY_STATE": str(root / "state"), "TEENY_HANDS": str(root / "hands"),
                     "TEENY_SECRETS": str(root / "secrets"), "TEENY_BRAIN": str(REPO / "brain"),
                     "STUDIO_RUN_ID": self.run_id, "STUDIO_WRITER_MODEL": "w", "STUDIO_EDITOR_MODEL": "e",
-                    "STUDIO_FORMATS": self.formats, "STUDIO_SKIT_SLOTS": "evening", "TEENY_NOW": str(NOW)}
+                    "STUDIO_FORMATS": self.formats, "STUDIO_SKIT_SLOTS": "evening", "TEENY_NOW": str(NOW),
+                    # The video mechanics, on plain cards; a quote slot's feed is test_studio.py's.
+                    "STUDIO_QUOTE": "0"}
         self.args = argparse.Namespace(dry_run=True, slot=self.slot, desk=str(root / "desk.json"), force_slot=False,
                                        no_outside=False, no_slot=True, print=False, legacy=None)
         self.messages: list[str] = []
