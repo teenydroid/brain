@@ -228,5 +228,31 @@ class PollTest(Scratch):
         self.assertIn("skipped", actions.poll())
 
 
+class ShapeTest(Scratch):
+    """The mind's answer shape (bin/lib/tick.py): a hire, a review and a message are offered while a rent job
+    is open, whatever rent_post's cap."""
+
+    def shape(self) -> str:
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin" / "lib"))
+        import tick
+
+        return tick.shape()
+
+    def test_follow_up_intents_do_not_depend_on_the_posting_cap(self) -> None:
+        self.configure(RENT_POSTS_PER_DAY="0")
+        self.assertNotIn('"rent_accept"', self.shape())
+        self.rah.on("create_bounty", create_bounty(2000))
+        actions.post(dict(GOOD))
+        shape = self.shape()
+        self.assertNotIn('"do": "rent_post"', shape)
+        for intent in ("rent_accept", "rent_review", "rent_message"):
+            self.assertIn(f'"do": "{intent}"', shape)
+        self.configure(RENT_POSTS_PER_DAY="3")
+        self.assertIn('"do": "rent_post"', self.shape())
+
+
 if __name__ == "__main__":
     unittest.main()
