@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
 import socket
 from teeny_hands import websites  # noqa
 MAX_BYTES = 2 * 1024 * 1024
