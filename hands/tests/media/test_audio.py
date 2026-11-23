@@ -60,7 +60,9 @@ class FakeSurplus:
         raise AssertionError(f"unexpected send {path}")
 
 
-class AudioTest(unittest.TestCase):
+class AudioCase(unittest.TestCase):
+    """A box of its own (secrets/teeny.env, not dry) and a fake Surplus."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
@@ -83,6 +85,9 @@ class AudioTest(unittest.TestCase):
         path.write_text(path.read_text() + "".join(f"{k}={v}\n" for k, v in values.items()))
         hand._ENV_CACHE = None
 
+
+
+class AudioTest(AudioCase):
     def test_the_characters_times_become_words(self):
         words = audio.words_of(alignment("big  fart\nnow"))
         self.assertEqual([w["text"] for w in words], ["big", "fart", "now"])
@@ -104,7 +109,8 @@ class AudioTest(unittest.TestCase):
         sent = self.api.sent[0]
         self.assertEqual(sent["path"], f"{audio.ROUTE}/text-to-speech/{audio.VOICE}/with-timestamps"
                                        "?output_format=mp3_44100_128")
-        self.assertEqual(sent["body"], {"text": "i will now unveil the toilet", "model_id": "eleven_v3"})
+        self.assertEqual(sent["body"], {"text": "i will now unveil the toilet", "model_id": "eleven_v3",
+                                        "voice_settings": {"stability": 0.0}})
 
     def test_a_voice_model_refused_for_itself_falls_to_the_next(self):
         self.api.fail["eleven_v3"] = SurplusError("Surplus answered 404: no sellers", 404)
@@ -321,7 +327,7 @@ class CutShortTest(unittest.TestCase):
             self.api.download(self.base + "/file.png", 1024 * 1024)
 
 
-class ExpressionTest(AudioTest):
+class ExpressionTest(AudioCase):
     """f99's narration was flat: no voice settings, and no way to direct the
     read. v3 is asked for its most expressive read and takes [tags]; the
     tags are never words, never captions, and never read aloud by a model
