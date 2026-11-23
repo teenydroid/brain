@@ -50,8 +50,9 @@ class PollTest(Scratch):
 
     def test_auto_accept_skips_an_applicant_with_their_own_price(self) -> None:
         self.rah.on("list_applications", {"data": [application("a1"), application("a2")]})
-        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "proposedPay": {"amount": 90000}}
-                    if a["applicationId"] == "a1" else {"id": a["applicationId"]})
+        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "bountyId": "b1",
+                                                  "proposedPay": {"amount": 90000}}
+                    if a["applicationId"] == "a1" else {"id": a["applicationId"], "bountyId": "b1"})
         self.at(T0 + 7 * HOUR)
         actions.poll()
         [call] = self.rah.made("accept_application")
@@ -113,7 +114,7 @@ class PollTest(Scratch):
         self.assertIn("Ten minutes", told["submitted"]["text"])
         self.assertIn("Ten minutes with the sign", told["submitted"]["text"])  # the criteria, to judge against
         files = json.loads(told["submitted"]["payload"])["files"]
-        self.assertEqual(files[0]["path"], "state/rent/1/s1/1.mp4")
+        self.assertEqual(files[0]["path"], "state/rent/1/s1/attempt-0/1.mp4")
         self.assertEqual((self.root / files[0]["path"]).read_bytes(), b"\x00video")
         self.assertIn("On my way!", told["message"]["text"])
         self.assertEqual(self.jobs()[0]["status"], "submitted")

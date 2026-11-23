@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import unittest
 
-from rent.support import GOOD, Crash, Scratch, create_bounty, error
+from rent.support import GOOD, HOUR, T0, Crash, Scratch, create_bounty, error
 from teeny_hands import hand
-from teeny_hands.rent import actions
+from teeny_hands.rent import actions, api
 
 
 def hire(status: str = "submitted", submission: str = "s1", sub_status: str = "pending_review", **more):
@@ -36,9 +36,9 @@ class AcceptTest(Hired):
         self.assertEqual((job["status"], job["hire_id"], job["conversation_id"]), ("hired", "h1", "c1"))
 
     def test_an_application_with_its_own_price_is_never_hired(self) -> None:
-        for application in ({"id": "a7", "proposedPay": {"amount": 40000, "currency": "usd"}},
-                            {"id": "a7", "offer": {"price": {"amount": 40000}}},
-                            {"id": "a7", "proposedPriceCents": 40000}):
+        for application in ({"id": "a7", "bountyId": "b1", "proposedPay": {"amount": 40000, "currency": "usd"}},
+                            {"id": "a7", "bountyId": "b1", "offer": {"price": {"amount": 40000}}},
+                            {"id": "a7", "bountyId": "b1", "proposedPriceCents": 40000}):
             with self.subTest(application=application):
                 self.rah.on("get_application", application)
                 with self.assertRaises(hand.Refused) as caught:
@@ -56,6 +56,42 @@ class AcceptTest(Hired):
         with self.assertRaises(hand.Refused) as caught:
             actions.post(dict(GOOD, title="Hold a second sign about robots"))
         self.assertIn("RENT_MAX_PER_DAY_USD", caught.exception.reason)
+
+    def test_an_application_to_another_bounty_is_never_hired(self) -> None:
+        for application in ({"id": "a7", "bountyId": "b2"}, {"id": "a7", "bounty": {"id": "b2"}}, {"id": "a7"}):
+            with self.subTest(application=application):
+                self.rah.on("get_application", application)
+                with self.assertRaises(hand.Refused) as caught:
+                    actions.accept({"job": 1, "application": "a7"})
+                self.assertIn("not to rent job #1's bounty", caught.exception.reason)
+        self.assertEqual(self.rah.made("accept_application"), [])
+        self.assertEqual(self.jobs()[0]["status"], "posted")
+
+    def test_a_hire_while_renting_is_off_is_refused(self) -> None:
+        self.configure(RENT_MAX_PER_DAY_USD="0")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.accept({"job": 1, "application": "a7"})
+        self.assertIn("renting is off", caught.exception.reason)
+        self.assertEqual(self.rah.made("accept_application"), [])
+
+    def test_a_refusal_that_may_have_hired_is_uncertain_not_a_skip(self) -> None:
+        self.rah.on("accept_application", error("server_error", "hm", retry_safe=False))
+        with self.assertRaises(api.Uncertain):
+            actions.accept({"job": 1, "application": "a7"})
+        self.assertEqual(self.jobs()[0]["status"], "posted")
+
+    def test_a_refusal_that_changed_nothing_is_a_plain_refusal(self) -> None:
+        self.rah.on("accept_application", error("application_not_pending", "gone", retry_safe=True))
+        with self.assertRaises(hand.Refused):
+            actions.accept({"job": 1, "application": "a7"})
+
+    def test_an_extra_charge_counts_on_the_day_it_was_charged(self) -> None:
+        from teeny_hands.rent import store
+
+        self.rah.on("accept_application", {"hireId": "h1", "cost": {"amount": 4000, "currency": "usd"}})
+        self.at(T0 + 30 * HOUR)  # the next day: the bounty was made yesterday
+        actions.accept({"job": 1, "application": "a7"})
+        self.assertEqual(store.spent_today(store.db()), 4000 - 2360)
 
     def test_only_an_open_bounty_hires(self) -> None:
         actions.accept({"job": 1, "application": "a7"})
