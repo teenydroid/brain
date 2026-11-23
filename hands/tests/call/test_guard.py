@@ -57,6 +57,37 @@ class FakeGuardTest(Scratch):
         self.guarded(Recorder())
         self.assertEqual(self.write(body={"text": "something"})[0], 0)
 
+    def test_the_words_of_a_write_path_are_read_by_the_guard_too(self):
+        # A path can carry a slug, and a slug can say something. Its words
+        # go to the guard's core check (links, lexicon, judge) on their own.
+        self.guarded(Recorder())
+        self.svc.route("POST", "/api/v1/notes/some-person_is-bad", {"id": 1})
+        asked: list[str] = []
+
+        def held(text, context=None):
+            asked.append(text)
+            return gate.OutboundResult(gate.Held("hate", "the guard held the path", "screen", 7), text)
+
+        with mock.patch.object(gate, "gate_outbound", held):
+            code, out = self.write(path="/notes/some-person_is-bad", body={"text": "fine"})
+        self.assertEqual((code, out["rule"]), (2, "guard"), out)
+        self.assertEqual(asked, ["notes some person is bad"])
+        self.assertEqual(self.svc.seen, [])
+
+        def clean(text, context=None):
+            asked.append(text)
+            return gate.OutboundResult(None, text)
+
+        with mock.patch.object(gate, "gate_outbound", clean):
+            code, out = self.write(path="/notes/some-person_is-bad")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(self.svc.seen), 1)
+
+    def test_a_read_path_is_not_sent_to_the_guard(self):
+        self.svc.route("GET", "/api/v1/posts", {"posts": []})
+        with mock.patch.object(gate, "gate_outbound", side_effect=AssertionError("a read says nothing")):
+            self.assertEqual(self.get()[0], 0)
+
     def test_a_text_the_guard_would_change_is_not_sent(self):
         self.guarded(Recorder(text="a, b"))
         self.svc.route("POST", "/api/v1/notes", {"id": 1})
