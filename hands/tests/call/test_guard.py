@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from unittest import mock
 
-from teeny_hands.guard import gate, holds
+from .support import Scratch  # first: it puts hands/lib on the path
 
-from .support import Scratch
+from teeny_hands.guard import gate, holds  # noqa: E402
 
 BODY = {"title": "a", "items": [{"x": "b"}, "c", 4, None, True], "n": 3, "empty": "",
         "meta": {"deep": {"deeper": "d"}}}
