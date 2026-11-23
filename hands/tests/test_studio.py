@@ -609,6 +609,23 @@ class QuoteFeedTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in found], ["digg:s1", "digg:s2"])
         self.assertEqual(notes["digg"]["dropped_death"], 2)
 
+    def test_the_common_ways_a_headline_says_somebody_died(self):
+        for headline in ("Broadcaster found dead aged 75", "Former broadcaster's death confirmed by family",
+                         "Actor dead at 80", "Singer has passed away", "Star dies after short illness",
+                         "Fans mourn the coach", "RIP to a legend", "The obituary of a pitcher"):
+            self.assertTrue(studio_feed.deathly(headline), headline)
+        for headline in ("OpenAI ships a faster model", "Nvidia brings Jensen Huang back"):
+            self.assertFalse(studio_feed.deathly(headline), headline)
+
+    def test_a_death_late_in_a_long_post_is_seen_before_the_post_is_cut(self):
+        long = "A long tribute to a career in broadcasting. " * 8 + "Rest in peace."
+        trend = {"stories": [{"id": "s7", "title": "a broadcaster's career", "summary": "a career", "score": 950,
+                              "posts": [{"by": "ESPN", "text": long, "url": "https://x.com/espn/status/71"}]}]}
+        self.assertGreater(len(long), studio_feed.QUOTE_MAX)
+        found, notes = studio_feed.gather(self.room(**{"trend top": (0, trend)}), None, 7, None, NOW, quote=True)
+        self.assertEqual(found, [])
+        self.assertEqual(notes["digg"]["dropped_death"], 1)
+
     def test_a_reply_is_never_quoted(self):
         # The 2026-11-23 dry run quoted a private person's reply to Mustafa Suleyman.
         found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
