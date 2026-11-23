@@ -94,6 +94,8 @@ class WorkerAgentTest(unittest.TestCase):
         for other in (MIND, WORKER):
             (tmp / other.name).write_text(other.read_text())
             (tmp / other.with_suffix(".md").name).write_text(other.with_suffix(".md").read_text())
+        if source.with_suffix(".md").is_file():
+            (tmp / source.with_suffix(".md").name).write_text(source.with_suffix(".md").read_text())
         target = tmp / (name or source.name)
         target.write_text(change(source.read_text()))
         return target
@@ -179,6 +181,14 @@ class WorkerAgentTest(unittest.TestCase):
         self.assertNotEqual(path.read_text(), builder.read_text())
         with self.assertRaises(SystemExit):
             agent_check.check(path)
+
+    def test_it_must_not_be_shown_the_minds_memory(self):
+        for old, new in (("omit_memory_context = true", "omit_memory_context = false"),
+                         ("omit_memory_context = true\n", "")):
+            path = self._variant(WORKER, lambda t, old=old, new=new: t.replace(old, new, 1))
+            self.assertNotIn("omit_memory_context = true", path.read_text())
+            with self.assertRaises(SystemExit, msg=new):
+                agent_check.check(path)
 
     def test_it_cannot_have_helpers_of_its_own(self):
         path = self._variant(WORKER, lambda t: t + '\n[subagents]\nallowlist = ["worker"]\n')

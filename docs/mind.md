@@ -180,7 +180,10 @@ The mind can hand a piece of work to a helper and carry on: `spawn_subagent`
 with `agent_id` `worker` and a prompt. The worker
 (`brain/agents/worker.toml`, prompt `worker.md`) has the mind's shell and
 file tools and its view-only browser, and nothing else: no memory, no
-helpers of its own, nothing that schedules or spends. The mind's run waits for its workers before
+helpers of its own, and no tool that schedules or spends. Like the mind, it
+can run `bin/teeny` from its shell, so it reaches the broker exactly as the
+mind does, under the same guard, caps and rehearsal; it holds no key and no
+token of its own. The mind's run waits for its workers before
 it ends, and the run's 30 minutes cover all of them.
 
 It is held exactly as the mind is. The core runs a spawned agent in its
