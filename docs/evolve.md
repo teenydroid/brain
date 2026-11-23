@@ -157,7 +157,7 @@ tools reach. Its git directory, `state/self/brain.git`, is out of their reach,
 and every git command names both paths, so nothing the builder writes can
 redirect a push or its token.
 
-The pinned `build-ship` job (every 30 minutes) keeps the clone current by
+The `build-ship` job (every 30 minutes, in `brain/cron.toml`) keeps the clone current by
 running `hands/build self-sync` first. It fetches `main` and `teeny/*` and
 fast-forwards a clean `main` to `origin/main`. It never touches unshipped work
 (edits, or a branch whose job is still open). It parks a branch whose pull
@@ -296,9 +296,16 @@ runs when its playbook runs, so on that playbook's cron schedule.
 - At most 60 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
-  take a pinned name, so Teeny can't switch off what watches it (`evolve`,
-  `evolve-credit` and `evolve-watch` are pinned there). A pinned job may run
-  any `bin/` script.
+  take a pinned name, so Teeny can't switch off what watches it
+  (`evolve-watch` is pinned there). A pinned job may run any `bin/` script.
+  A brain job runs a playbook, a studio slot, the heartbeat, one of its own
+  tools, or one of its pipelines exactly as `BRAIN_SCRIPTS` in
+  `bin/lib/cron_policy.py` lists them: since 2026-11-23 these include
+  `evolve` (`bin/evolve run --scheduled --detach`), `evolve-credit`
+  (`bin/evolve credit`), `wants` (`bin/wants run`), `build-ship` and
+  `tasks-desk`, which Teeny may reschedule, pause or drop. Each script
+  still checks its own switch in `secrets/` (`EVOLVE`, `WANTS`), so a
+  schedule never turns one on.
 
 `bin/seed-cron --check` validates a candidate `cron.toml` without a core.
 
@@ -816,7 +823,7 @@ that passes opens its own pull request.
                      and J; a revert PR for a person when one says so
 ```
 
-The pinned `evolve` job (`evals/cron.pinned.toml`) runs `bin/evolve run
+The `evolve` job (`brain/cron.toml`, Teeny's to move since 2026-11-23) runs `bin/evolve run
 --scheduled --detach` at 02:40 and 14:40 India time, forty minutes after the
 night dream (02:00) and the midday one (14:00), so what the dream wrote down
 is acted on the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for
@@ -826,7 +833,8 @@ manual` and counts against `EVOLVE_MANUAL_GENERATIONS_PER_DAY` (6) instead,
 so the operator's runs never spend the schedule's: on 2026-11-16 three runs
 by hand spent the day's three and the 21:10 scheduled run was held. Without
 the flag a run counts as by hand, so the operator need not remember one; the
-pinned command carries it. A generation from before the trigger was recorded
+job's command carries it, and the brain may schedule `bin/evolve run` only
+with it (`BRAIN_SCRIPTS`), so moving or adding slots never lifts the cap. A generation from before the trigger was recorded
 counts as scheduled, and neither cap counts one a restart cut off or one
 that crashed. A run
 waits up to 30 minutes for a dream that still holds the reflection's lock.
@@ -834,8 +842,9 @@ It is a no-op until `secrets/evolve.env` sets `EVOLVE=1`, so seeding it is
 safe. A generation outlasts the 300 s TinyBox gives a cron shell call
 ([`oh-gaps.md`](oh-gaps.md), G12), so it detaches (`bin/lib/detach.py`),
 logs to `state/evolve/evolve.log`, and a second call while one runs says
-`busy`. The pinned `evolve-credit` job runs `bin/evolve credit` at 03:50,
-and the pinned `evolve-watch` runs `bin/evolve watch --detach` at twenty
+`busy`. The `evolve-credit` job (`brain/cron.toml`) runs `bin/evolve credit` at 03:50,
+and the pinned `evolve-watch` (`evals/cron.pinned.toml`, so the brain cannot
+move or silence the watcher that rolls a bad change back) runs `bin/evolve watch --detach` at twenty
 past every hour, with a lock and a log (`state/evolve/watch.log`) of its
 own.
 
@@ -1454,13 +1463,15 @@ these keys). A value that does not parse or is out of range refuses the run
 | `WANTS_MIN_USES` | 4 | 1..100 | playbook runs calling the hand, in that span, for `used` |
 
 **The verbs.** `bin/wants draw` (read only: the wants and each one's
-standing), `file`, `watch`, `run` (`watch`, then `file`: the pinned job
-`wants`, `0 9 * * *`, with `catch_up`; one step failing does not stop the
+standing), `file`, `watch`, `run` (`watch`, then `file`: the job
+`wants` in `brain/cron.toml`, `0 9 * * *`, with `catch_up`; one step failing does not stop the
 other, but the run is then not ok) and `status` (the wants, their standing,
 `enabled` and the last run, `state/wants/last.json`). Each prints one JSON
 line; exit 0 is ok, 1 is an error. `bin/wants`, `bin/lib/wants.py` and
-`bin/lib/wants_rules.py` are frozen with `bin/`, and the pinned job with
-`evals/`: a candidate cannot redefine a want or switch the feed on.
+`bin/lib/wants_rules.py` are frozen with `bin/`, and `WANTS` is in
+`secrets/evolve.env`: a candidate cannot redefine a want or switch the feed
+on. Since 2026-11-23 the job is Teeny's to reschedule, pause or drop, and
+`bin/wants run` is the only form a brain job may run.
 
 **Not built here.** No want comes from anything but the memory page and
 routed findings. The code
@@ -2379,7 +2390,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_GROWTH_SLOTS` | `1` | of the finding slots, at least this many go to growth findings (1b) when there are any, 0 to 8 |
 | `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b), 0 (never) to 10 |
 | `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
-| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more skips that run (`generations`), quietly: no issue. Crashed and cut-off ones don't count |
+| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the `evolve` job) a day; one more skips that run (`generations`), quietly: no issue. Crashed and cut-off ones don't count |
 | `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more skips that run (`manual-generations`), quietly |
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
 | `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster skips each run while it lasts (the window moves on by itself) and files one public issue |
