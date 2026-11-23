@@ -34,7 +34,9 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
   teeny goals                list your goals
   teeny pulse                what your scripts did in the last day: every job's last run and its
                              failures, which of your posts drew people and which drew nobody, what
-                             was held, what was built, what you heard. Read-only and free.
+                             was held, what was built, what you heard, and your audience
+                             numbers (followers, karma, stars) with where each stood a day
+                             and a week before. Read-only and free.
                              teeny pulse '{"days": 7}' for up to a week
   teeny call '<json>'        one call to a service the operator listed (evals/services.toml), with
                              its key, which you never hold:
