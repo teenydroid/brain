@@ -182,6 +182,12 @@ class FilmTest(unittest.TestCase):
         self.assertTrue(all(v["image_url"].startswith("data:image/png;base64,") for v in videos))
         self.assertTrue(all("No music" in v["prompt"] for v in videos))
 
+    def test_every_clip_asks_for_the_film_resolution_with_no_params_set(self):
+        """FILM_RESOLUTION reached no job while FILM_PARAMS was empty, so the
+        models made 1080p, quoted over the clip cap and were cancelled (f65)."""
+        self.make()
+        self.assertTrue(all(v.get("resolution") == "720p" for v in self.api.videos()), self.api.videos())
+
     def test_a_figure_is_drawn_from_its_photo_without_teeny_and_teeny_from_its_sheet(self):
         self.make()
         edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
