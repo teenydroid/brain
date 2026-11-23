@@ -298,7 +298,13 @@ change to Teeny itself through `hands/build self` (one a day by default,
 operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
-teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+teaches the core's memory (`memory_learn`). A `reply_x` that went out to an X regular
+(someone who wrote on two days or more, `hands/people`) also teaches the
+core one dated learning about them, what they said and what Teeny answered
+(`_learn_x_regular`, at most one a person a day, `state/tick/x-learned.json`),
+so recall finds X people by name and the dream sees them among its
+learnings: of 48 accounts replied to on 2026-11-19..23, 21 were regulars
+and recall knew none of them. `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
 
 **People in a beat.** `promise` (`{surface, who, what, due_in_hours, ref?}`)
