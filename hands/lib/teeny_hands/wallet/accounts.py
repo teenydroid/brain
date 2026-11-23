@@ -358,7 +358,7 @@ def scan() -> Json:
             new: list[Json] = []
             unreadable = 0
             through = since
-            done = calls = 0
+            done = calls = read = 0
             limited: solana.RateLimited | None = None
             for sig, at in everything:
                 if conn.execute("SELECT 1 FROM wallet_inflows WHERE signature = ?", (sig,)).fetchone():
@@ -380,6 +380,7 @@ def scan() -> Json:
                     unreadable += 1
                     through = max(through, at)
                     done += 1
+                    read += 1
                     continue
                 except hand.HandError:
                     _save_cursor(conn, _cursor(since, through, everything[done:]))
@@ -400,8 +401,10 @@ def scan() -> Json:
                         new.append(_public(row, int(cur.lastrowid)))
                 through = max(through, at)
                 done += 1
-            if limited is not None and done == 0:
+                read += 1
+            if limited is not None and read == 0:
                 # Not one read: the RPC refuses this run outright, which is a failure.
+                _save_cursor(conn, _cursor(since, through, everything[done:]))
                 raise limited
             # A scan cut short stops where it read to; the rest is the next one's.
             left = len(everything) - done
