@@ -104,7 +104,10 @@ class Plan:
     None when the model sells none that will do), the most a shot may cost
     (`per_shot`, micro-USDC), and the verified ceiling a second asked of
     some models (`max_per_second`): a length whose ceiling cannot fit what
-    the shot may cost is never submitted."""
+    the shot may cost is never submitted. `hold`, when set, is how many
+    times a job's quote is reserved for it in place of its ceiling (the
+    ceiling ran 2.5 to 6 times the bill on 2026-11-24 and starved the last
+    clips of a film); the bill, when it comes, is still what is recorded."""
 
     prefix: str
     key: str
@@ -114,6 +117,7 @@ class Plan:
     length: Callable[["_Shot", list[int] | None], int | None]
     per_shot: int
     max_per_second: dict[str, int] | None = None
+    hold: float | None = None
 
 
 def params(name: str) -> dict[str, Json]:
@@ -273,6 +277,8 @@ def submit(api: Surplus, conn, parent_id: int, shot: _Shot, aspect: str, plan: P
         estimate = _micros(job.get("estimated_cost_usdc"))
         most = _micros(job.get("max_cost_usdc"))
         charge = most if most is not None else estimate
+        if plan.hold and estimate is not None:
+            charge = min(charge, int(estimate * plan.hold)) if charge is not None else int(estimate * plan.hold)
         if charge is not None and charge > cap:
             _cancel(api, job_id)
             shot.tried.append(f"{model}: up to ${charge / 1e6:.3f} (quoted ${(estimate or 0) / 1e6:.3f}), over the "
