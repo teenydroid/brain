@@ -449,20 +449,21 @@ def abandon(api: Surplus, conn, parent_id: int, shots: list[_Shot]) -> None:
 
 
 def keep_cut(reel: Any, cut_job: Json, name: str, the_label: str, timeout: int,
-             cuts: list[str]) -> tuple[Json, Json, Any, list[str]]:
+             cuts: list[str], make: Callable[..., Json] | None = None) -> tuple[Json, Json, Any, list[str]]:
     """The cut made on the reel service and kept: (what the service
     answered, reels.verify's info, the mp4's path, the frames' paths), as
     state/media/<name>.mp4 and <name>-frame-N.jpg. The cut's id goes into
     `cuts` as soon as it is known, for drop_cuts. A cut not reported
     labelled with exactly `the_label`, a render that is not a sound mp4, a
     frame that is not a JPEG, or no frames at all is never kept: ReelError,
-    and whatever was written is removed."""
+    and whatever was written is removed. `make` is the service call that
+    makes it: reel.cut, or reel.film for a story film."""
     from ..reel import reels
     from ..reel.service import ReelError
 
     written: list[Any] = []
     try:
-        made = reel.cut(cut_job, timeout=timeout)
+        made = (make or reel.cut)(cut_job, timeout=timeout)
         cut_id = made["cut_id"]
         cuts.append(cut_id)
         if made.get("labelled") is not True or made.get("label") != the_label:

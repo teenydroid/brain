@@ -115,7 +115,7 @@ class FormatTest(unittest.TestCase):
 
     def test_remake_is_known_off_by_default_and_a_video_format(self):
         self.assertIn("remake", studio.KNOWN_FORMATS)
-        self.assertEqual(studio.VIDEO_FORMATS, ("skit", "remake", "khaby"))
+        self.assertEqual(studio.VIDEO_FORMATS, ("skit", "remake", "khaby", "film"))
         self.assertNotIn("remake", self.load({}).formats)
         cfg = self.load({"STUDIO_FORMATS": "post,remake", "STUDIO_SKIT_SLOTS": "2300"})
         self.assertEqual((cfg.formats, cfg.video_budget_secs, cfg.remake_secs), (("post", "remake"), 3600, 1200))

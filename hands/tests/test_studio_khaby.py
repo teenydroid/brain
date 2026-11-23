@@ -142,7 +142,7 @@ class FormatTest(unittest.TestCase):
             return studio.Config.load(env, Path(tmp) / "none.env")
 
     def test_khaby_is_registered_after_remake_known_and_off_by_default(self):
-        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby"])
+        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby", "film"])
         self.assertIs(formats.REGISTRY["khaby"], kf.FORMAT)
         self.assertIn("khaby", studio.known_formats())
         self.assertNotIn("khaby", self.load({}).formats)
