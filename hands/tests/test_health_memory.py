@@ -115,8 +115,8 @@ class MemoryAlarmTest(unittest.TestCase):
         for malformed in ({"checks": {"embeddings": [1]}}, {"checks": {"embeddings": "ok"}}, ["not", "an", "object"]):
             self.answer(malformed)
             self.assertEqual(health.check()["memory"]["embeddings"], "unreachable", malformed)
-        self.at(QUARTER)
-        self.assertEqual(health.check()["memory_alarm"], "raised")
+        # Three malformed checks in a row are the outage the alarm exists for: raised on the second, open on the third.
+        self.assertEqual((len(self.alarms()), self.state()["memory_down"]), (1, 3))
 
     def test_a_failed_close_is_retried_and_the_recovery_is_told_once(self):
         # Live shape: a refused close dropped the alarm and its issue number, so the
