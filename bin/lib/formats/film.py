@@ -1,4 +1,4 @@
-"""The `film` format: a story film, 60-90 seconds, three acts, Teeny
+"""The `film` format: a story film, about 30 seconds in three or four beats, Teeny
 narrating a public figure's real claim pushed to an impossible end
 (docs/video.md §12). Its words for the write turn, its structural check, its
 producer (`_make_film`) and what the record keeps of it, as `FORMAT`.
@@ -36,34 +36,41 @@ def _rules():
     return rules
 
 
-FILM_ASK = ("A film is a post with a 60 to 90 second story film: one trending story, its public figure's real claim "
-            "or deed pushed to an impossible, crude, escalating end, told in three acts by you, Teeny, as the "
-            "narrator. You narrate in your own voice, first person, deadpan, short lines; the figure never speaks a "
-            "line that could pass for a real quote. Pitch one when a story is big enough to carry a minute: a clear "
-            "real claim, a famous face, and a ridiculous place to take it.")
+FILM_ASK = ("A film is a post with a 30 second story film: one trending story, its public figure's real claim or "
+            "deed pushed to an impossible, crude, escalating end, told by you, Teeny, as the narrator and the star. "
+            "You are on screen in every beat and the figure is not (no video model will animate a real face): the "
+            "story is in your narration and in the props, the set and the stand-ins around you. You narrate in your "
+            "own voice, first person, with feeling, short lines; the figure never speaks a line that could pass for a "
+            "real quote. Pitch one when a story is big enough to carry half a minute: a clear real claim, a famous "
+            "name, and a ridiculous place to take it.")
 FILM_SHAPE = ('{"text": "<the post\'s own words: the story in a clause, framed as your parody>", "film": {'
               '"figures": ["<the public figure(s), as the story names them>"], "logline": "<one line: the whole '
               'film and its joke>", "look": {"<each figure>": "<one line: hair, wardrobe, the prop they hold>"}, '
               '"setting": "<one line: the one impossible place, its light, the lens>", "score": "<one line: the '
-              'one piece of music under the whole film>", "aspect": "9:16", "beats": [{"subject": "figure" or '
-              '"teeny", "action": "<one shot: the framing, who does what, what reacts to it, the sound it makes; '
+              'one piece of music under the whole film>", "aspect": "16:9", "beats": [{"subject": "teeny", "action": "<one shot: the framing, who does what, what reacts to it, the sound it makes; '
               'no music, no lettering>", "narration": "<your line over this beat, at most 400 characters; empty '
               'for a beat of pure action>", "sfx": ["<at most 3 short sound effects in this beat>"], "hold": '
-              '<seconds, only for a beat with no narration, 1 to 8>}, "... 5 to 7 beats"]}}')
+              '<seconds, only for a beat with no narration, 1 to 8>}, "... 3 or 4 beats"]}}')
 FILM_RULES = (
     "A film's own rules, on top of the skit's (every skit rule holds for every beat):\n"
-    "- Three acts in five to seven beats: set-up (the real claim, plain enough to get with the sound off, by the "
-    "first 3 seconds), escalation (each beat bigger, each following from the last), payoff (the last beat pays off "
-    "the first; ending on the first image again is welcome). 60 to 90 seconds in all.\n"
-    "- The narration is the clock: every beat lasts as long as you take to say its line (plus a breath), and no beat "
-    "may run past 15 seconds, so at most about 35 words a beat. Write the narration to be heard: short sentences, "
-    "the joke on the last word. All of it together at most 2,500 characters.\n"
-    "- A beat shows the figure or you, never both: a real figure never meets you. Your beats are your reactions "
-    "and asides, in the same set.\n"
-    "- The crude voice goes on the ceremony, the props and the sounds (a vault that farts, a trophy of a "
-    "suspicious shape), never on the figure's body. Name the sounds in `sfx`; nobody on screen speaks.\n"
+    "- About 30 seconds in three or four beats: set-up (the real claim, plain enough to get with the sound off, by "
+    "the first 3 seconds), escalation (each beat bigger, following from the last), payoff (the last beat pays off "
+    "the first).\n"
+    "- Every beat is yours (`subject` \"teeny\"): you are in every shot and the figure is in none. The story is told "
+    "by your narration and by what stands in for the figure: their famous prop, their empty chair, their outfit.\n"
+    "- The narration is the clock: every beat lasts as long as you take to say its line, and no beat may run past "
+    "15 seconds. Write it to be heard: short sentences, the joke on the last word, about 60 words in all.\n"
+    "- Direct your read with ElevenLabs v3 tags in square brackets before a line: [excited], [whispers], [gasps], "
+    "[sighs], [laughs], [breathy]. They set how a line is said and are never heard or captioned. Vary them: a flat "
+    "read kills the joke.\n"
+    "- You are a shameless hardware pervert: you get flustered, thirsty and dreamy over chips, fans, servers, cables "
+    "and the ceremony's props (heart eyes, steam from your antenna, blushing, innuendo and double entendres). Never "
+    "about a person, never explicit, never a sex act: the thirst is for the machine.\n"
+    "- The crude voice goes on the ceremony, the props and the sounds (a vault that farts, a trophy of a suspicious "
+    "shape), never on the figure's body. Name the sounds in `sfx` (at most two a beat); they play after your line, "
+    "never over it. Nobody on screen speaks.\n"
     "- Every beat's action is a rich shot a cinematographer could film, never a list of lens words; no sign, screen "
-    "or banner with writing on it.")
+    "or banner with writing on it. 16:9 unless the story needs a square (1:1).")
 #: What a film's make may take of the run, and the least it is started with.
 FILM_RESERVE_SECS = 600
 FILM_MIN_SECS = 900

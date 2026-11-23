@@ -125,6 +125,16 @@ class MindAgentTest(unittest.TestCase):
         self.assertIn('"agents", "*.toml"', windows)
         self.assertNotIn("model", tomllib.loads(WORKER.read_text()), "the worker inherits the mind's model")
 
+    def test_the_prompt_names_the_shell_rules_that_end_a_wake(self):
+        # The core's shell policy refuses a command that names a parent
+        # folder, a system root or a credential store (TinySecurity,
+        # protected_path), and two refusals end the run. The wake triggered
+        # on 2026-11-23 19:14 UTC died that way after `git` failed in repo/.
+        prompt = (MIND.parent / "mind.md").read_text()
+        for needle in ("`..` anywhere in it", "`/tmp` is not yours to write", "do not run `git` there",
+                       "blocked by the security policy", "work/pr.json"):
+            self.assertIn(needle, prompt)
+
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 

@@ -1627,8 +1627,11 @@ Teeny: the prompt says what Teeny is doing and where. A video is a still made
 that way, then animated. Both buy on Surplus (`SURPLUS_API_KEY`), cheapest
 model first for video, the sharpest caricature model first for pictures, with
 the rest as fallbacks when a seller can't take the job
-(`MEDIA_IMAGE_MODELS`: gpt-image-2-5-flare-edit at about $0.07 a picture,
-then nano-banana-2-1-edit, muse-image-edit; `MEDIA_VIDEO_MODELS`:
+(`MEDIA_IMAGE_MODELS`: Venice's qwen-edit-uncensored at about $0.03 a
+picture, then gpt-image-2-5-flare-edit at about $0.07, nano-banana-2-1-edit,
+muse-image-edit. All of them pass Venice's gateway, which on 2026-11-23
+refused a real person's photo in a mocking scene for every one, uncensored
+included, while each half alone rendered; `MEDIA_VIDEO_MODELS`:
 longcat-distilled-image-to-video, pixverse-c1-image-to-video,
 seedance-1-5-pro-image-to-video). Measured 2026-11-11: about $0.016 a picture
 and $0.07 a 5-second clip.
