@@ -548,6 +548,16 @@ class OneTakeTest(unittest.TestCase):
         self.assertEqual(skits.ONE_TAKE_SECONDS, 20)
         self.assertEqual(skits.MAX_PER_SECOND, {WAN3: WAN3_RATE, SEEDANCE: SEEDANCE_RATE, WAN27: WAN27_RATE})
 
+    def test_teenys_line_reaches_the_one_take_script(self):
+        """A skit's `teeny` is told to the model as the guard composed and
+        screened it: once, after the shots."""
+        skit = {**THREE, "teeny": "it sits on the folded building eating a stapler"}
+        self.skit(skit)
+        [(body, headers)] = self.posts()
+        self.assertEqual(body["prompt"], rules.script(self.kept(skit), [6, 7, 7]))
+        self.assertEqual(body["prompt"].count("eating a stapler"), 1)
+        self.assertIn(rules.TEENY_IS, body["prompt"])
+
     def test_a_skit_is_one_job_with_one_script_at_20_s_720p_with_sound(self):
         out = self.skit(THREE)
         [(body, headers)] = self.posts()
