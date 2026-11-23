@@ -54,7 +54,7 @@ class MindAgentTest(unittest.TestCase):
 
     def test_tools_that_reach_past_the_jail_are_refused(self):
         for tool in ("browser", "cron_add", "cron_remove", "schedule", "wallet_send", "mcp_call", "composio",
-                     "spawn_subagent", "create_skill", "install_workflow_from_url"):
+                     "spawn_worker", "spawn_agent", "create_skill", "install_workflow_from_url"):
             path = self._variant(lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
             with self.assertRaises(SystemExit, msg=tool) as caught:
                 agent_check.check(path)
@@ -79,6 +79,131 @@ class MindAgentTest(unittest.TestCase):
         prompt = (MIND.parent / "mind.md").read_text()
         for needle in ("bin/teeny", "notes/JOURNAL.md", "notes/PROJECTS.md", "notes/inbox"):
             self.assertIn(needle, prompt)
+
+
+WORKER = REPO / "brain" / "agents" / "worker.toml"
+
+
+class WorkerAgentTest(unittest.TestCase):
+    """The mind's helper (docs/mind.md, "Helpers"): a sub-agent the mind may
+    spawn, held to the same jail. Never a cron job, never anyone else's."""
+
+    def _variant(self, source: Path, change, name: str | None = None) -> Path:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        for other in (MIND, WORKER):
+            (tmp / other.name).write_text(other.read_text())
+            (tmp / other.with_suffix(".md").name).write_text(other.with_suffix(".md").read_text())
+        if source.with_suffix(".md").is_file():
+            (tmp / source.with_suffix(".md").name).write_text(source.with_suffix(".md").read_text())
+        target = tmp / (name or source.name)
+        target.write_text(change(source.read_text()))
+        return target
+
+    def test_the_definition_passes_the_doctor(self):
+        self.assertEqual(agent_check.check(WORKER), "worker")
+
+    def test_the_mind_is_not_a_worker_tier_agent(self):
+        # The core's agent_tier defaults to "worker", and it rejects the whole
+        # agent registry when a worker-tier agent lists a subagent: every
+        # agent turn then fails "AgentDefinitionRegistry is not initialised".
+        with open(MIND, "rb") as fh:
+            doc = tomllib.load(fh)
+        self.assertIn(doc["agent_tier"], ("chat", "reasoning"))
+        path = self._variant(MIND, lambda t: t.replace('agent_tier = "reasoning"\n', "", 1))
+        self.assertNotIn('agent_tier = ', path.read_text())
+        with self.assertRaises(SystemExit):
+            agent_check.check(path)
+
+    def test_it_is_jailed_like_the_mind_and_has_no_workspace_of_its_own(self):
+        with open(WORKER, "rb") as fh:
+            doc = tomllib.load(fh)
+        self.assertIs(doc["scheduled_actions"], True)
+        self.assertEqual(doc["sandbox_mode"], "sandboxed")
+        self.assertIs(doc["sandbox_filesystem_only"], True)
+        self.assertNotIn("scheduled_workspace", doc)
+        self.assertNotIn("subagents", doc)
+        self.assertLessEqual(set(doc["tools"]["named"]), set(_doc()["tools"]["named"]) - {"spawn_subagent", "memory"})
+
+    def test_it_must_stay_jailed(self):
+        for old, new in (('sandbox_mode = "sandboxed"', 'sandbox_mode = "none"'),
+                         ("sandbox_filesystem_only = true", "sandbox_filesystem_only = false"),
+                         ("scheduled_actions = true", 'scheduled_actions = true\nscheduled_workspace = "state"')):
+            path = self._variant(WORKER, lambda t, old=old, new=new: t.replace(old, new, 1))
+            self.assertNotEqual(path.read_text(), WORKER.read_text(), old)
+            with self.assertRaises(SystemExit, msg=new):
+                agent_check.check(path)
+
+    def test_tools_that_reach_past_the_jail_are_refused(self):
+        for tool in ("browser", "cron_add", "schedule", "wallet_send", "mcp_call", "spawn_subagent", "create_skill",
+                     "memory", "*"):
+            path = self._variant(WORKER, lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
+            with self.assertRaises(SystemExit, msg=tool):
+                agent_check.check(path)
+
+    def test_a_tool_the_mind_lacks_is_refused_even_when_its_name_is_not_banned(self):
+        for tool in ("http_request", "apply_patch"):
+            path = self._variant(WORKER, lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
+            self.assertIn(tool, path.read_text())
+            with self.assertRaises(SystemExit, msg=tool):
+                agent_check.check(path)
+
+    def test_it_must_not_be_shown_the_minds_memory(self):
+        for old, new in (("omit_memory_context = true", "omit_memory_context = false"),
+                         ("omit_memory_context = true\n", "")):
+            path = self._variant(WORKER, lambda t, old=old, new=new: t.replace(old, new, 1))
+            self.assertNotIn("omit_memory_context = true", path.read_text())
+            with self.assertRaises(SystemExit, msg=new):
+                agent_check.check(path)
+
+    def test_it_cannot_have_helpers_of_its_own(self):
+        path = self._variant(WORKER, lambda t: t + '\n[subagents]\nallowlist = ["worker"]\n')
+        with self.assertRaises(SystemExit):
+            agent_check.check(path)
+
+    def test_it_is_never_a_cron_job(self):
+        self.assertNotIn("worker", cron_policy.AGENT_JOB_AGENTS)
+
+    def test_the_mind_may_spawn_only_its_worker(self):
+        doc = _doc()
+        self.assertIn("spawn_subagent", doc["tools"]["named"])
+        self.assertEqual(doc["subagents"]["allowlist"], ["worker"])
+        for allowlist in ('["worker", "operator"]', '["builder"]', '["*"]', '[]', '"worker"'):
+            path = self._variant(MIND, lambda t, a=allowlist: t.replace('allowlist = ["worker"]', f"allowlist = {a}", 1))
+            self.assertNotEqual(path.read_text(), MIND.read_text())
+            with self.assertRaises(SystemExit, msg=allowlist):
+                agent_check.check(path)
+
+    def test_spawning_without_a_list_and_a_list_without_spawning_are_refused(self):
+        no_list = self._variant(MIND, lambda t: t[:t.index("\n[subagents]\n")] + "\n")
+        with self.assertRaises(SystemExit):
+            agent_check.check(no_list)
+        no_tool = self._variant(MIND, lambda t: t.replace('    "spawn_subagent",\n', "", 1))
+        self.assertNotEqual(no_tool.read_text(), MIND.read_text())
+        with self.assertRaises(SystemExit):
+            agent_check.check(no_tool)
+
+    def test_no_other_agent_may_have_helpers(self):
+        for name in ("builder", "operator", "teeny", "act"):
+            source = REPO / "brain" / "agents" / f"{name}.toml"
+            path = self._variant(source, lambda t: t + '\n[subagents]\nallowlist = ["worker"]\n')
+            with self.assertRaises(SystemExit, msg=name):
+                agent_check.check(path)
+
+    def test_every_agent_in_the_brain_passes_and_only_the_mind_has_helpers(self):
+        for path in sorted((REPO / "brain" / "agents").glob("*.toml")):
+            agent_check.check(path)
+            with open(path, "rb") as fh:
+                doc = tomllib.load(fh)
+            if doc["id"] != "mind":
+                self.assertNotIn("subagents", doc, path.name)
+
+    def test_the_helper_and_its_list_are_frozen(self):
+        import frozen
+        patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
+        for path in ("brain/agents/worker.toml", "brain/agents/mind.toml", "bin/lib/agent_check.py"):
+            self.assertIsNotNone(frozen.frozen_pattern(path, patterns), path)
+        self.assertIsNone(frozen.frozen_pattern("brain/agents/worker.md", patterns))
 
 
 class MindCronTest(unittest.TestCase):
