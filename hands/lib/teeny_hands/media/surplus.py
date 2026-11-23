@@ -14,6 +14,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from typing import Any
 
 from .. import hand
