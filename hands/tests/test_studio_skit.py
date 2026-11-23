@@ -309,11 +309,12 @@ class ProducerTest(unittest.TestCase):
         rules_ = studio._skit_rules()
         # The logline, each constant, each shot, and the two prompts a video
         # model is sent: the one-take script and each per-shot prompt.
-        self.assertEqual(checked, [RAW["logline"], LOOK["Elon Musk"], SETTING, SCORE, SHOTS[0]["prompt"],
+        self.assertEqual(checked, [RAW["logline"], LOOK["Elon Musk"], SETTING, SCORE, TEENY, SHOTS[0]["prompt"],
                                    SHOTS[1]["prompt"], rules_.script(kept), rules_.shot_prompt(kept, 0),
                                    rules_.shot_prompt(kept, 1)])
         video = next(b for a, b, *_ in room.seen if a[:2] == ["video", "skit"])
-        self.assertEqual((video["look"], video["setting"], video["score"]), (LOOK, SETTING, SCORE))
+        self.assertEqual((video["look"], video["setting"], video["score"], video["teeny"]),
+                         (LOOK, SETTING, SCORE, TEENY))
         self.assertTrue(all(b.get("surface") == "task" for a, b, *_ in room.seen if a[:2] == ["guard", "check"]))
 
     def test_a_judge_that_cannot_answer_means_no_skit_and_no_money(self):
@@ -426,7 +427,7 @@ SHORT_SHOTS = [{"prompt": "Wide anamorphic, golden hour: Elon Musk pulls a velve
                           "it honks.", "seconds": 5},
                {"prompt": "Low angle: the robotaxi beats Musk at chess, the board grows to the size of a planet.",
                 "seconds": 5},
-               {"prompt": "Crane up: Musk chases the robotaxi across the moon in his tuxedo; it waves goodbye.",
+               {"prompt": "Crane up: Musk chases the robotaxi across the moon; it waves goodbye.",
                 "seconds": 5}]
 
 
