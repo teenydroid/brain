@@ -10,6 +10,9 @@
 #   command  = "bin/act <playbook>"   brain/playbooks/<playbook>.md
 #            | "bin/studio --slot <name> --legacy <playbook> --detach"   a studio slot
 #            | "bin/heartbeat"
+#            | "bin/box <tool> [words]"   one of your tools (below)
+#            | one of your pipelines, exactly as written in the section
+#              "the pipelines that are yours to move" below
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
 #                          CALENDAR_TZ, else UTC
 #   enabled  = false       optional; keeps the job, does not run it
