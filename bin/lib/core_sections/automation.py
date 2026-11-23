@@ -224,6 +224,46 @@ def code_roots(root: Path, brain: Path) -> list[Path]:
     return out
 
 
+def agent_models(brain: Path) -> dict[str, dict[str, str]]:
+    """The model each agent runs on, where its definition pins one
+    (brain/agents/<id>.toml, `model = "<name>"`; a `hint:` is a workload, not
+    a model), as the core's `[teams]` table: agent id -> its pin.
+
+    A definition's own pin is not enough. bin/spine fixes every workload of
+    the core to SPINE_MODEL, and under a fixed route the core builds a
+    session's model from the workload and only then asks its config for a
+    per-agent pin (`configured_agent_model`): the definition's `model` never
+    reaches the request. The agentic mind, pinned to a stronger model in
+    mind.toml, ran on SPINE_MODEL anyway (2026-11-23). An agent that may
+    spawn helpers is a lead (`lead_model`), and the helpers it lists run on
+    its model too (`agent_model`) unless they pin their own."""
+    import tomllib
+    docs = {}
+    for path in sorted((brain / "agents").glob("*.toml")):
+        try:
+            with open(path, "rb") as fh:
+                doc = tomllib.load(fh)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if isinstance(doc.get("id"), str) and doc["id"]:
+            docs[doc["id"]] = doc
+
+    def pin(doc: dict) -> str:
+        value = doc.get("model")
+        return value.strip() if isinstance(value, str) and value.strip() and not value.startswith("hint:") else ""
+
+    out: dict[str, dict[str, str]] = {}
+    for agent, doc in docs.items():
+        if pin(doc):
+            out[agent] = {"lead_model": pin(doc), "agent_model": pin(doc)}
+    for agent, doc in docs.items():
+        helpers = (doc.get("subagents") or {}).get("allowlist") if isinstance(doc.get("subagents"), dict) else None
+        for helper in helpers if isinstance(helpers, list) and pin(doc) else []:
+            if isinstance(helper, str) and helper not in out:
+                out[helper] = {"agent_model": pin(doc)}
+    return out
+
+
 def tables(root: Path) -> dict[str, str]:
     _hands_lib(root)
     from teeny_hands import websites
@@ -302,6 +342,9 @@ def tables(root: Path) -> dict[str, str]:
         "[browser]": browser,
         "[http_request]": f"allowed_domains = {_list(websites.load(root))}\n",
         "[modules]": f"overrides = [{overrides}]\n",
+        "[teams]": "".join(
+            f"{json.dumps(agent)} = {{ " + ", ".join(f"{k} = {_s(v)}" for k, v in sorted(pins.items())) + " }\n"
+            for agent, pins in sorted(agent_models(brain).items())),
     }
 
 
