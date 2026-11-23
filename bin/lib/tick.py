@@ -480,6 +480,38 @@ def _check_wallet(i):
     return "wallet", ["balance"], None
 
 
+# --- renting people (hands/rent, docs/hands.md "rent") ----------------------------------------
+#
+# A person on RentAHuman.ai does a thing in the world Teeny cannot. The money
+# is the RentAHuman wallet the operator tops up; hands/rent holds every post
+# to RENT_MAX_PER_BOUNTY_USD and RENT_MAX_PER_DAY_USD in the same call, and
+# pays a hire once. rent_post is also held to RENT_POSTS_PER_DAY here; the
+# others act on a job already paid for.
+
+RENT_POST_FIELDS = ("title", "brief", "done", "proof", "proof_details", "price_usd", "hours", "category", "skills",
+                    "city", "state", "country", "remote")
+
+
+def _rent_post(i):
+    return "rent", ["post"], _pick(i, RENT_POST_FIELDS)
+
+
+def _rent_accept(i):
+    return "rent", ["accept"], {"job": _id(i, "job"), "application": _id(i, "application")}
+
+
+def _rent_review(i):
+    # The submission ref pins the decision to the attempt the mind read, so a resubmission between the
+    # stimulus and this action is refused by the hand instead of being approved unseen.
+    body = _pick(i, ("job", "verdict", "reason"))
+    body["submission"] = _id(i, "submission")
+    return "rent", ["review"], body
+
+
+def _rent_message(i):
+    return "rent", ["message"], {"job": _id(i, "job"), "text": _text(i)}
+
+
 # --- issues, browser tasks and new mail (docs/roadmap.md, A3) -------------------------------
 #
 # Three reaches the mind did not have: an issue on its own repositories
@@ -511,12 +543,17 @@ MIND_CAPS = {
     "reddit_post": ("REDDIT_POSTS_PER_DAY", 3),
     "reddit_upvote": ("REDDIT_VOTES_PER_DAY", 40),
     "reddit_subscribe": ("REDDIT_SUBSCRIBES_PER_DAY", 10),
+    # hands/rent holds the money (RENT_MAX_*); this holds how often.
+    "rent_post": ("RENT_POSTS_PER_DAY", 10),
 }
 #: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
 #: nothing and touches only Teeny's own ledger, and a change to itself is a
 #: pull request the operator merges or closes, nothing outward.
 CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1,
-                "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3}
+                "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3,
+                # The operator delegated renting within hands/rent's money caps
+                # (RENT_MAX_PER_DAY_USD=0 is its off switch).
+                "rent_post": 3}
 #: Intents that share one day's count: a page read and a search are both one
 #: paid request (hands/x402), held to MIND_SEARCHES_PER_DAY together.
 CAP_SHARED = {"read_page": "web_search", "reddit_reply": "reddit_comment"}
@@ -873,6 +910,10 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "bridge": _bridge,
     "x402_fetch": _x402_fetch,
     "check_wallet": _check_wallet,
+    "rent_post": _rent_post,
+    "rent_accept": _rent_accept,
+    "rent_review": _rent_review,
+    "rent_message": _rent_message,
     "open_issue": _open_issue,
     "queue_task": _queue_task,
     "queue_signup": _queue_signup,
@@ -997,7 +1038,23 @@ CAPPED_SHAPES = {
                      "%d today",
     "reddit_subscribe": '- {"do": "reddit_subscribe", "subreddit": "<name>"}: join a subreddit you keep reading; '
                         "at most %d today",
+    "rent_post": '- {"do": "rent_post", "title": "...", "brief": "<what to do, where (a city or a public place, '
+                 'never an address) and when>", "done": "<what done looks like, measurable>", "price_usd": <the '
+                 'worker\'s pay>, "city": "...", "state": "...", "country": "US" (or "remote": true)}: rent a real '
+                 "person on RentAHuman to do an absurd thing in the world you cannot, filmed, for a post of yours "
+                 "about something people are already talking about. A fair price gets good people; the proof is a "
+                 "timestamped photo and a short video by default; never ask for anything private. The hand holds "
+                 "the price to its caps and tells you who applies; at most %d today",
 }
+
+#: The lines for a rent job already posted: offered while renting is on or a job is still open, so a
+#: hire, a review or a message never loses its instructions because rent_post's cap is 0.
+RENT_FOLLOW_SHAPE = (
+    '- {"do": "rent_accept", "job": <rent job #>, "application": "<id from the rent stimulus>"}: hire one\n'
+    '- {"do": "rent_review", "job": <rent job #>, "submission": "<the submission ref the stimulus gave>", '
+    '"verdict": "approve|redo|reject", "reason": "<to the worker>"}: judge the work against its done-criteria '
+    'only; approve pays them, once and for good\n'
+    '- {"do": "rent_message", "job": <rent job #>, "text": "..."}: to the person you hired')
 
 
 #: The post_x line of SHAPE, and what stands in its place while the studio is on.
@@ -1022,6 +1079,16 @@ def _studio_shape(text: str) -> str:
         "A reply_x or post_x may carry a GIF instead", "A reply_x may carry a GIF instead")
 
 
+def _rent_open() -> bool:
+    """Whether a rent job is still Teeny's to follow (it may need a hire, a review or a message)."""
+    try:
+        from teeny_hands.rent import store
+
+        return bool(store.open_jobs(store.db()))
+    except Exception:  # noqa: BLE001 - the shape is built for every tick; rent never stops it
+        return False
+
+
 def shape() -> str:
     """The answer's shape, with each capped intent listed while it is on, and
     post_x as a pitch while the studio is on."""
@@ -1033,6 +1100,8 @@ def shape() -> str:
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
+    if mind_cap("rent_post") > 0 or _rent_open():
+        extra.append(RENT_FOLLOW_SHAPE)
     if mind_on():
         extra.append(HAND_OVER_LINE % MAX_HAND_OVERS_PER_DAY)
     if not extra:
