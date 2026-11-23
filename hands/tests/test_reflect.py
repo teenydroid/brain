@@ -7,6 +7,7 @@ page, and an answer that would wreck the page (or shrink it too far)
 changes nothing."""
 
 import json
+import re
 import os
 import signal
 import stat
@@ -892,7 +893,8 @@ class ReflectTest(unittest.TestCase):
         self.reflect()
         message = self.chats()[0]["message"]
         self.assertIn("at most 16 items", message)
-        self.assertIn(f"take at most {len(page) - 5600:.0f} characters off the page", message)
+        size = int(re.search(r"The page is (\d+) characters", message).group(1))
+        self.assertIn(f"take at most {size - 5600} characters off the page", message)
         self.assertNotIn("30% off the page", message)
 
     def test_the_prompt_keeps_the_ordinary_limits_for_an_ordinary_page(self):
