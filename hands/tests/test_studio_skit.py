@@ -49,9 +49,10 @@ PREMISE = "musk said the car drives itself, so on the moon it beats him at chess
 LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
 SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour"
 SCORE = "one swelling orchestral score with comic timpani"
+TEENY = "it sits on a moon rock eating a chess pawn, then faces the camera and shrugs"
 RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
        "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
-       "look": LOOK, "setting": SETTING, "score": SCORE, "shots": SHOTS, "aspect": "16:9"}
+       "look": LOOK, "setting": SETTING, "score": SCORE, "teeny": TEENY, "shots": SHOTS, "aspect": "16:9"}
 WORDS = "musk showed off a car that drives itself, so i gave it a premiere on the moon. parody, obviously"
 POST_WORDS = "openai's agent takes forty steps to book a dinner. i take one: i do not eat"
 
@@ -92,7 +93,7 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(post["skit"], {"figures": ["Elon Musk"], "logline": RAW["logline"],
                                         "shots": [{"prompt": SHOTS[0]["prompt"]}, {"prompt": SHOTS[1]["prompt"]}],
                                         "aspect": "16:9", "story": "digg:t1", "premise": PREMISE,
-                                        "look": LOOK, "setting": SETTING, "score": SCORE})
+                                        "look": LOOK, "setting": SETTING, "score": SCORE, "teeny": TEENY})
         self.assertEqual(post["story"], studio.story_of(CARD))
 
     def test_a_skit_needs_a_look_for_each_figure_a_setting_and_a_score(self):
@@ -152,7 +153,7 @@ class FormatTest(unittest.TestCase):
     def test_the_editor_sees_the_figures_premise_logline_and_shots_never_the_story_id(self):
         shown = studio.shown(skit_post())
         self.assertEqual(shown["skit"], {"figures": ["Elon Musk"], "premise": PREMISE, "logline": RAW["logline"],
-                                         "look": LOOK, "setting": SETTING, "score": SCORE,
+                                         "look": LOOK, "setting": SETTING, "score": SCORE, "teeny": TEENY,
                                          "shots": [SHOTS[0]["prompt"], SHOTS[1]["prompt"]]})
         self.assertEqual(shown["card"]["people"], "Elon Musk, Tesla")
         self.assertNotIn("digg:t1", json.dumps(shown))
@@ -461,9 +462,9 @@ class OneTakeBudgetTest(unittest.TestCase):
         rules_ = studio._skit_rules()
         for figures in (1, 2, 3):
             names = [f"Figure Number{n}" for n in range(figures)]
-            spare = studio.skit_budget(figures) - sum(len(n) for n in names) - 20 * figures - 40
+            spare = studio.skit_budget(figures) - sum(len(n) for n in names) - 20 * figures - 60
             per, extra = divmod(spare - 3 * 4, 4)
-            skit = {"figures": names, "look": {n: "x" * 20 for n in names}, "setting": "s" * 20, "score": "m" * 20,
+            skit = {"figures": names, "look": {n: "x" * 20 for n in names}, "setting": "s" * 20, "score": "m" * 20, "teeny": "t" * 20,
                     "shots": [{"prompt": "p" * (per + (extra if i == 0 else 0)) + "abc",
                                "seconds": studio.SKIT_SHOT_MAX_SECS} for i in range(4)]}
             self.assertEqual(studio.skit_script_length(skit), studio.SKIT_SCRIPT_LIMIT, figures)

@@ -289,8 +289,7 @@ def _held(skit: dict[str, Any]) -> list[str]:
 #: to video: there is no character sheet to show it), and where: the last
 #: shot only, apart from everyone, as a remake's Teeny is (guard/remake.py,
 #: rule g). In the script, so skit_budget counts it.
-TEENY_IS = ("Also in the last shot, apart from everyone and noticed by nobody: a small round bright-yellow cartoon "
-            "character with a ball on top of its head, tiny arms, black dot eyes and pink cheeks.")
+TEENY_IS = "In the last shot, apart and unnoticed, a small round yellow cartoon character with a ball on its head:"
 
 
 def teeny_line(skit: dict[str, Any]) -> list[str]:
