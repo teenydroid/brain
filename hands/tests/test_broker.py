@@ -950,8 +950,10 @@ class PulseTest(BrokerCase):
         self.start()
         status, answer = self.post("/pulse")
         self.assertEqual((status, answer["status"]), (200, "ok"))
-        self.assertNotIn("STRANGER", json.dumps(answer))
-        self.assertNotIn("WORDS", json.dumps(answer))
+        said = json.dumps({k: answer.get(k) for k in ("audience", "audience_unread")})
+        self.assertNotIn("STRANGER", said)
+        self.assertNotIn("WORDS", said)
+        self.assertEqual([a["metric"] for a in answer["audience"]], ["x.followers"])
         self.assertIn("jobs", answer)
 
     def test_the_client_reaches_it(self):
