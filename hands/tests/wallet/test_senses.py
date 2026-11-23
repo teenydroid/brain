@@ -11,9 +11,10 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from unittest import mock
 
-from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Failure, Scratch, token_accounts
-from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, V1_REFUSED, Chain, sig, sol_tx, usdc_tx
+from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Failure, HttpStatus, Scratch, token_accounts
+from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, V1_REFUSED, Chain, limited_after, quiet_sleep, sig, sol_tx, usdc_tx
 from teeny_hands import hand, stimuli
 from teeny_hands.wallet import accounts, senses, solana
 
@@ -40,6 +41,7 @@ class WatchTest(Scratch):
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(0, USDC_MAINNET)
         self.chain.answers["getSignaturesForAddress"] = self.ledger.signatures
         self.chain.answers["getTransaction"] = self.ledger.transaction
+        self.slept = quiet_sleep(self)
 
     def inbox(self) -> list[dict]:
         return [s for s in stimuli.recent()["stimuli"] if s["surface"] == "wallet"]
@@ -121,6 +123,43 @@ class WatchTest(Scratch):
             out = senses.watch()
         self.assertEqual((out["scanned"], out["filed"], out["unreadable"]), (1, 1, 1))
         self.assertEqual([s["ref"] for s in self.inbox()], [f"{sig(2)}:USDC"])
+
+    def test_a_rate_limited_rpc_drains_the_backlog_over_runs_and_files_each_deposit_once(self):
+        # Live, 2026-11-23: 99 transactions since the cursor, getTransaction
+        # answered 429 about 40 reads in, and the run failed with the cursor
+        # unmoved, so the next hour read the same 99 again: 24 failed runs.
+        for n in range(1, 8):
+            self.ledger.add(TOKEN_ACCOUNT, sig(n), T0 - HOUR + n, usdc_tx(STRANGER, n * 1_000_000))
+        self.chain.answers["getTransaction"] = limited_after(self.ledger.transaction, 4)
+        first = senses.watch()
+        self.assertEqual((first["filed"], first["rate_limited"], first["left"]), (4, True, 3))
+        self.chain.answers["getTransaction"] = self.ledger.transaction
+        second = senses.watch()
+        self.assertEqual((second["filed"], second["rate_limited"], second["left"]), (3, False, 0))
+        refs = [s["ref"] for s in self.inbox()]
+        self.assertEqual(sorted(refs), sorted(f"{sig(n)}:USDC" for n in range(1, 8)))
+        self.assertEqual(senses.watch()["filed"], 0)
+        self.assertEqual(len(self.inbox()), 7)
+
+    def test_a_backlog_over_the_per_run_cap_drains_across_two_runs_filing_each_deposit_once(self):
+        for n in range(1, 6):
+            self.ledger.add(TOKEN_ACCOUNT, sig(n), T0 - HOUR + n // 2, usdc_tx(STRANGER, n * 1_000_000))
+        with mock.patch.object(accounts, "MAX_TXS", 3):
+            first = senses.watch()
+            second = senses.watch()
+            third = senses.watch()
+        self.assertEqual((first["filed"], first["truncated"]), (3, True))
+        self.assertEqual((second["filed"], second["truncated"], second["left"]), (2, False, 0))
+        self.assertEqual(third["filed"], 0)
+        self.assertEqual(sorted(s["ref"] for s in self.inbox()), sorted(f"{sig(n)}:USDC" for n in range(1, 6)))
+
+    def test_a_watch_the_rpc_refuses_from_its_first_read_is_a_failed_run(self):
+        self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        self.chain.answers["getTransaction"] = HttpStatus(429)
+        done = self.job()
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("getTransaction answered HTTP 429", json.loads(done.stdout)["error"])
+        self.assertEqual(self.inbox(), [])
 
     def test_a_held_memo_never_reaches_the_mind(self):
         self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="retard bot"))

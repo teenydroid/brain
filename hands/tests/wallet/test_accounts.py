@@ -11,6 +11,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from wallet.support import DAY, HOUR, OWN, STRANGER, T0, USDC_MAINNET, Failure, HttpStatus, Scratch, token_accounts
 from teeny_hands import hand
@@ -62,6 +63,28 @@ def sol_tx(sender: str, lamports: int) -> dict[str, Any]:
     }
 
 
+def quiet_sleep(test) -> list[float]:
+    """The scan's waits (pacing, a 429's backoff), recorded instead of slept."""
+    slept: list[float] = []
+    patcher = mock.patch.object(accounts, "_sleep", slept.append, create=True)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    return slept
+
+
+def limited_after(read, ok: int, retry_after: str | None = None):
+    """getTransaction that answers the first `ok` reads, then HTTP 429 to every one after."""
+    seen = {"n": 0}
+
+    def answer(params: list[Any]) -> Any:
+        seen["n"] += 1
+        if seen["n"] > ok:
+            return HttpStatus(429, {"Retry-After": retry_after} if retry_after else None)
+        return read(params)
+
+    return answer
+
+
 class Chain:
     """Signatures per address and transactions by signature, for the fake RPC."""
 
@@ -89,6 +112,7 @@ class AccountsTest(Scratch):
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(0, USDC_MAINNET)
         self.chain.answers["getSignaturesForAddress"] = self.ledger.signatures
         self.chain.answers["getTransaction"] = self.ledger.transaction
+        self.slept = quiet_sleep(self)
         self.core.answers["openhuman.cost_report"] = {"totals": {"cost_usd": 3.141592, "calls": 120, "charged_usd": 3.0, "estimated_usd": 0.141592}}
         self.core.answers["openhuman.x402_list_payments"] = {"payments": [
             {"id": "p1", "status": "settled", "timestamp": "2026-09-13T10:00:00Z", "asset": USDC_MAINNET, "amountAtomic": "12345"},
@@ -242,6 +266,72 @@ class AccountsTest(Scratch):
             accounts.scan()
         self.chain.answers["getTransaction"] = self.ledger.transaction
         self.assertEqual(accounts.scan()["count"], 1)
+
+    # --- a rate-limited RPC ---------------------------------------------------------------------
+
+    def test_a_passing_429_on_get_transaction_is_waited_out_not_a_failed_scan(self):
+        # Live, 2026-11-23: the public mainnet RPC answered getTransaction
+        # HTTP 429 about 8 s into every hourly run, and the one 429 failed it.
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        read = self.ledger.transaction
+        answers = [HttpStatus(429, {"Retry-After": "3"}), HttpStatus(429)]
+        self.chain.answers["getTransaction"] = lambda params: answers.pop(0) if answers else read(params)
+        out = accounts.scan()
+        self.assertEqual((out["count"], out["rate_limited"]), (1, False))
+        # Retry-After is honoured; with none, the wait backs off.
+        self.assertEqual(self.slept, [3.0, accounts.BACKOFF_SECS * 2])
+
+    def test_get_transaction_reads_are_paced(self):
+        for n in range(1, 5):
+            self.deposit(n, T0 - HOUR + n, usdc_tx(STRANGER, 1_000_000))
+        accounts.scan()
+        self.assertEqual(self.slept, [accounts.PACE_SECS] * 3)
+
+    def test_a_scan_the_rpc_cuts_short_keeps_what_it_read_and_the_next_reads_the_rest(self):
+        for n in range(1, 6):
+            self.deposit(n, T0 - HOUR + n, usdc_tx(STRANGER, n * 1_000_000))
+        self.chain.answers["getTransaction"] = limited_after(self.ledger.transaction, 2)
+        out = accounts.scan()
+        self.assertEqual((out["count"], out["rate_limited"], out["left"]), (2, True, 3))
+        self.assertEqual(out["through"], accounts._iso(T0 - HOUR + 2))
+        self.chain.answers["getTransaction"] = self.ledger.transaction
+        before = len(self.chain.params("getTransaction"))
+        again = accounts.scan()
+        self.assertEqual((again["count"], again["rate_limited"], again["left"]), (3, False, 0))
+        # Only the three it had not read are read again; each deposit is in the ledger once.
+        self.assertEqual(len(self.chain.params("getTransaction")) - before, 3)
+        self.assertEqual([r["signature"] for r in self.rows()], [sig(n) for n in range(1, 6)])
+
+    def test_a_429_on_the_very_first_read_is_still_a_failed_scan(self):
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        self.chain.answers["getTransaction"] = HttpStatus(429)
+        with self.assertRaises(hand.HandError) as caught:
+            accounts.scan()
+        self.assertIn("getTransaction answered HTTP 429", str(caught.exception))
+        self.assertEqual(len(self.chain.params("getTransaction")), accounts.RATE_TRIES)
+        # Nothing moved: the next scan starts where this one did.
+        self.chain.answers["getTransaction"] = self.ledger.transaction
+        self.assertEqual(accounts.scan()["count"], 1)
+
+    def test_a_long_retry_after_is_capped(self):
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        read = self.ledger.transaction
+        answers = [HttpStatus(429, {"Retry-After": "3600"})]
+        self.chain.answers["getTransaction"] = lambda params: answers.pop(0) if answers else read(params)
+        accounts.scan()
+        self.assertEqual(self.slept, [accounts.MAX_WAIT_SECS])
+
+    def test_the_per_run_cap_never_skips_a_transaction_sharing_the_last_ones_second(self):
+        # Three transactions in one block second, the cap at two: the cursor
+        # may not pass that second, or the third is never read.
+        for n in range(1, 4):
+            self.deposit(n, T0 - HOUR, usdc_tx(STRANGER, n * 1_000_000))
+        with mock.patch.object(accounts, "MAX_TXS", 2):
+            first = accounts.scan()
+            self.assertEqual((first["count"], first["truncated"], first["left"]), (2, True, 1))
+            second = accounts.scan()
+        self.assertEqual((second["count"], second["truncated"]), (1, False))
+        self.assertEqual(sorted(r["signature"] for r in self.rows()), sorted(sig(n) for n in range(1, 4)))
 
     # --- the page ------------------------------------------------------------------------------
 
