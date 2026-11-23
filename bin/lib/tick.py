@@ -546,7 +546,10 @@ MIND_CAPS = {
 #: nothing and touches only Teeny's own ledger, and a change to itself is a
 #: pull request the operator merges or closes, nothing outward.
 CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1,
-                "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3}
+                "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3,
+                # The operator delegated renting within hands/rent's money caps
+                # (RENT_MAX_PER_DAY_USD=0 is its off switch).
+                "rent_post": 3}
 #: Intents that share one day's count: a page read and a search are both one
 #: paid request (hands/x402), held to MIND_SEARCHES_PER_DAY together.
 CAP_SHARED = {"read_page": "web_search", "reddit_reply": "reddit_comment"}
