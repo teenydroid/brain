@@ -108,5 +108,5 @@ def send(raw: Any) -> Json:
     except Exception as exc:
         counts.record(row, "error", type(exc).__name__)
         raise
-    counts.record(row, "ok", None, answer["status"])
+    counts.record(row, row.get("outcome", "ok"), None, answer.get("status"))
     return answer
