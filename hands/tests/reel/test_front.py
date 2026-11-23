@@ -312,7 +312,23 @@ class ServeUsesPolicyTest(unittest.TestCase):
         self.assertIn("policy.check_job(", source)
         self.assertIn("sweep(-1)", source)
         self.assertIn("policy.MAX_BODY_BYTES", source)
-        self.assertIn("COPY --from=teeny serve.py policy.py skitcut.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
+        self.assertIn("COPY --from=teeny serve.py policy.py skitcut.py filmcut.py /opt/teeny/", (REPO / "deploy" / "reel.Dockerfile").read_text())
+
+
+class ImageCopiesTheFrontTest(unittest.TestCase):
+    """The reel image copies the front's modules by name: one serve.py imports
+    but the Dockerfile leaves out crash-loops the service (filmcut, #486)."""
+
+    def test_every_module_serve_imports_from_the_front_is_in_the_image(self):
+        import re
+        front = REPO / "deploy" / "reel"
+        local = {p.stem for p in front.glob("*.py")}
+        imported = set(re.findall(r"^import (\w+)", (front / "serve.py").read_text(), re.M)) & local
+        copy = next(l for l in (REPO / "deploy" / "reel.Dockerfile").read_text().splitlines()
+                    if l.startswith("COPY --from=teeny "))
+        copied = {Path(w).stem for w in copy.split()[2:-1]}
+        self.assertTrue(imported)
+        self.assertEqual(imported - copied, set())
 
 
 if __name__ == "__main__":
