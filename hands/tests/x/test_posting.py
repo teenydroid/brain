@@ -520,52 +520,54 @@ class StudioQuoteTest(QuoteLaneTest):
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["sent_today"]), ("daily_cap", 4))
 
 
-class QuoteLinkFallbackTest(Posting):
-    """X's API refuses a quote of somebody else's post (403, since
-    2026-11-21: a self-serve app may quote only a post it is mentioned in or
-    wrote). The quote then goes out as the same words and media with the
-    quoted post's address at the end, which X shows as the quoted post: a
-    link post, so it spends the link budget."""
+class QuoteAsLinkTest(Posting):
+    """X's API refuses a self-serve app's quote of a post it is not
+    mentioned in: {"detail": "You can only reply to or quote posts where you
+    are mentioned or are the author.", "type": ".../not-authorized-for-resource"},
+    403, every one since 2026-11-21. So a quote of somebody else's post goes
+    out as the words (and media) with the quoted post's address at the end,
+    which X shows as the quoted post. It is recorded as the quote it is, and
+    its address spends none of the link budget: quotes have their own lanes."""
 
-    settings = {"X_LINK_POSTS_MAX_PER_DAY": "4"}
     LINK = "https://x.com/builder/status/555"
 
-    def refuse_quotes(self, status: int = 403) -> None:
-        self.x.route("POST", "/2/tweets", {"title": "Forbidden", "detail": "Authorization Error"}, status=status,
-                     when=lambda seen: "quote_tweet_id" in (seen.json() or {}))
-
-    def test_a_refused_quote_goes_out_with_the_quoted_posts_link(self):
-        self.refuse_quotes()
+    def test_a_quote_of_somebody_elses_post_goes_out_with_its_link_never_quote_tweet_id(self):
         out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
-        sent = self.posted()
-        self.assertEqual(sent[0], {"text": "my robot would also pick the wrong paris", "quote_tweet_id": "555"})
-        self.assertEqual(sent[1], {"text": f"my robot would also pick the wrong paris {self.LINK}"})
+        self.assertEqual(self.posted(), [{"text": f"my robot would also pick the wrong paris {self.LINK}"}])
         self.assertEqual((out["id"], out["kind"], out["linked"]), ("100", "quote", self.LINK))
         [row] = self.ledger()
-        self.assertEqual((row["kind"], row["quote_of"], row["producer"], row["quote_handle"]),
-                         ("quote", "555", "studio", "builder"))
-        self.assertTrue(row["text"].endswith(self.LINK))
+        self.assertEqual((row["kind"], row["quote_of"], row["producer"], row["quote_handle"], row["text"]),
+                         ("quote", "555", "studio", "builder", f"my robot would also pick the wrong paris {self.LINK}"))
 
     def test_the_link_keeps_the_media(self):
         self.mint("m1")
-        self.refuse_quotes()
         publish.post({"text": "look at this", "quote_of": "555", "media_ids": ["m1"], "producer": "studio"})
-        self.assertEqual(self.posted()[1], {"text": f"look at this {self.LINK}", "media": {"media_ids": ["m1"]}})
+        self.assertEqual(self.posted(), [{"text": f"look at this {self.LINK}", "media": {"media_ids": ["m1"]}}])
 
-    def test_with_no_link_left_today_the_refusal_stands(self):
+    def test_a_quote_of_the_accounts_own_post_still_quotes(self):
+        self.quotable("777", "1000", "teenydroid")
+        out = publish.post({"text": "as i said", "quote_of": "777"})
+        self.assertEqual(self.posted(), [{"text": "as i said", "quote_tweet_id": "777"}])
+        self.assertNotIn("linked", out)
+
+    def test_the_quoted_posts_address_spends_none_of_the_link_budget(self):
         self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
-        self.refuse_quotes()
-        with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
-        self.assertEqual(caught.exception.detail["rule"], "links")
+        publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
         self.assertEqual(len(self.posted()), 1)
-        self.assertEqual(self.ledger(), [])
+        self.assertEqual(publish.link_budget()["sent_today"], 0)
 
-    def test_only_a_refusal_is_retried_never_an_error_that_may_have_posted(self):
-        self.refuse_quotes(status=503)
-        with self.assertRaises(XError):
-            publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
-        self.assertEqual(len(self.posted()), 1)
+    def test_a_link_in_the_quotes_own_words_still_counts(self):
+        self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "read teeny.enamakel.com first", "quote_of": "555", "producer": "studio"})
+        self.assertEqual(caught.exception.detail["rule"], "links")
+        self.assertEqual(self.posted(), [])
+
+    def test_a_rehearsal_shows_the_words_with_the_link(self):
+        self.configure(DRY_RUN="1")
+        out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
+        self.assertTrue(out["would_post"].endswith(self.LINK), out)
+        self.assertEqual(self.posted(), [])
 
 
 class DailyCapTest(Posting):
