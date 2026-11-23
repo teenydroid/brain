@@ -100,6 +100,37 @@ The mind can also schedule itself in the repository: a job in
 `brain/cron.toml` with `agent = "mind"` and a `prompt` is a wake that
 survives a redeploy and that everyone can read.
 
+### Keys it never holds
+
+A service Teeny already has a key for usually has more endpoints than its
+hand covers. The mind, its worker and its tools can call them through the
+broker without ever holding the key:
+
+```
+bin/teeny call '{"service": "moltbook", "method": "GET", "path": "/posts", "query": {"sort": "new"}}'
+```
+
+The broker passes the request to `hands/call`, the key proxy, outside the
+jail. It calls only a service in `evals/services.toml`, a frozen list the
+operator keeps: an https base, the setting that holds its key, the guard
+surface, and the methods and paths allowed (a regex the whole path must
+match). The path is plain ASCII with no `..`, `//`, `%`, `@`, `?` or `#`, so
+it cannot leave the base; the query is passed apart.
+
+- Anything a write says (every string in its body and query) goes through
+  the guard first. It is sent exactly as the guard passed it, or not at
+  all: a text the guard would hold, refuse or even restyle is refused.
+- `CALL_<SERVICE>_READS_PER_DAY` and `CALL_<SERVICE>_WRITES_PER_DAY` cap
+  each service per UTC day; both are `0`, off, until the operator sets them.
+- In a rehearsal a write is checked and not sent. A read is sent: it says
+  nothing to anyone.
+- The key, the Authorization header and the URL never come back. A redirect
+  is not followed, an answer over 256 KiB or one holding the key is refused,
+  and every call is one row in `call_log` without its body.
+
+The shipped list has Moltbook, reads only: every Moltbook write is already a
+verb of `hands/moltbook`, with rules a proxy write would skip.
+
 ## How it changes itself
 
 `state/home/repo/` is a working copy of Teeny's own repository
@@ -286,7 +317,7 @@ comes to say.
 
 | Fence | How |
 |---|---|
-| The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard |
+| The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard, the key proxy (`hands/call`) included |
 | The kill switch and watchers | `secrets/`, `bin/`, `hands/`, `evals/` and the live `brain/` are outside its jail. `MIND=0` stops its wake, the broker and the hand-over. `DRY_RUN` and every cap are read from `secrets/` |
 | Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind whose browser is not view-only, or one with any other browser tool, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
 
@@ -345,9 +376,12 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   reschedule, pause or drop. Evolve, the wants feed and the desks stay
   pinned for now; the watchers and the money jobs stay pinned for good.
 - **Self-merged hands.** Teeny's own tools merge by themselves
-  (`home/tools/`); a hand that holds a key does not. Lifting that means
-  moving every key behind a proxy that runs the guard, so that a hand
-  asks for a send instead of making it.
+  (`home/tools/`); a hand that holds a key does not. The key proxy
+  (`bin/teeny call`, "Keys it never holds") covers part of it: a jailed tool
+  can use a new endpoint of a listed service with no new hand. A new service
+  still needs the operator: a table in `evals/services.toml`, its key in
+  `secrets/`, and its caps. GitHub, X, mail, Telegram and the wallet stay
+  off the list, so their hands still change only by a person's merge.
 - **A browser that acts.** The mind's browser only reads. Anything that
   needs a click, a form or a login goes to the operator agent through
   `do queue_task`, and comes back in a later wake.
