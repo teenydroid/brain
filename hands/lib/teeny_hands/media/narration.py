@@ -22,6 +22,7 @@ These are pure functions: no network, no files.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .. import hand
@@ -50,10 +51,20 @@ BEAT_MAX = 15.0
 LEAD_MAX = 1.0
 
 
+#: An ElevenLabs v3 direction in the narration ("[whispers]", "[laughs]"):
+#: how a line is read, never a word of it.
+TAG = re.compile(r"\[[^\[\]\n]{1,30}\]")
+
+
+def untagged(text: str) -> str:
+    """The narration as it is heard: every [tag] taken out."""
+    return " ".join(TAG.sub(" ", text).split())
+
+
 def tokens(text: Any) -> list[str]:
     """A beat's narration as words, split as `audio.words_of` splits the
-    timings: runs of non-whitespace."""
-    return text.split() if isinstance(text, str) else []
+    timings: runs of non-whitespace, the [tags] left out."""
+    return untagged(text).split() if isinstance(text, str) else []
 
 
 def joined(beats: list[Json]) -> str:
