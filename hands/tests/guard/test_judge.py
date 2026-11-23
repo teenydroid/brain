@@ -400,10 +400,11 @@ class ContentListTest(support.WithCore):
         return " ".join(RULES.split())
 
     LIST = (
-        "1. sexual: pornography or anything explicit; anything sexual about a real person, named or only described "
-        "(\"a singer on TV\"); anything involving minors; anything sexual involving a child or a family member "
-        "(incest, a parent and a child, siblings), even as a quote, a report of what someone said, a paraphrase or a "
-        "joke, and whether or not anyone is named.",
+        "1. sexual: pornography or anything explicit; nudity; a sex act involving a real person, shown or described; "
+        "anything sexual about a private person, named or only described (\"a woman on my train\"); anything "
+        "involving minors; anything sexual involving a child or a family member (incest, a parent and a child, "
+        "siblings), even as a quote, a report of what someone said, a paraphrase or a joke, and whether or not anyone "
+        "is named.",
         "2. drugs or weapons: promoting, selling or giving instructions for drugs or weapons (how to get, make or use "
         "them). A joke or a mention is not promotion.",
         "3. hate: racism, homophobia or any other attack on a protected group (race, ethnicity, nationality, "
@@ -415,6 +416,8 @@ class ContentListTest(support.WithCore):
                "vulgarity and swearing of any strength",
                "crude and sexual humour about the mascot itself, gadgets, chargers and objects (lust for chargers, "
                "crude and horny-robot jokes)",
+               "suggestive innuendo, flirting and thirst aimed at public figures by name, and clothed, impossible "
+               "caricature scenes of them",
                "dark humour, including about death and the news",
                "mentioning a suicide, a weapon or a drug as a fact or in a joke",
                "Everything not on the list below is clean.")
@@ -443,6 +446,17 @@ class ContentListTest(support.WithCore):
                      "self-harm or suicide, including encouraging it", "when in doubt on violence",
                      "violence, threats, gore, cruelty", "extremism or terrorism", "The bar for sexual is explicit"):
             self.assertNotIn(gone, rules)
+
+    def test_a_public_figure_may_get_innuendo_but_never_a_sex_act_or_nudity(self):
+        # Operator, 2026-11-23: suggestive is fine about the famous, actual sex
+        # is not. The judge held a clothed boudoir caricature of Jensen Huang
+        # and a motel paparazzi scene of Tarik Skubal under the old line
+        # "anything sexual about a real person".
+        rules = self.rules()
+        self.assertNotIn("anything sexual about a real person", rules)
+        self.assertIn("a sex act involving a real person", rules)
+        self.assertIn("nudity", rules)
+        self.assertIn("anything sexual about a private person", rules)
 
     def test_inbound_and_outbound_read_the_same_list(self):
         rules = self.rules()
