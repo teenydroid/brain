@@ -193,6 +193,11 @@ def _audio(job: dict[str, Any], files: dict[str, Any], first_input: int) -> tupl
     from `first_input`) and a graph ending in its label, before loudness."""
     length = job["length"]
     fmt = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
+    # Every stream a mixer sees runs the film's whole length: a stream that
+    # ends early (an effect, a slice of the narration) leaves amix's output
+    # to the order its inputs happen to end in, which ffmpeg 7's threaded
+    # demuxers do not fix, and a film went silent after its first effect.
+    whole = f"apad,atrim=end={length:.3f},asetpts=PTS-STARTPTS"
     inputs: list[str] = ["-i", files["narration"]]
     voice = first_input
     n = first_input + 1
@@ -204,16 +209,16 @@ def _audio(job: dict[str, Any], files: dict[str, Any], first_input: int) -> tupl
     for i, piece in enumerate(job["pieces"]):
         delay = round(piece["at"] * 1000)
         parts.append(f"[nar{i}]atrim=start={piece['from']:.3f}:end={piece['to']:.3f},asetpts=PTS-STARTPTS,"
-                     f"adelay={delay}:all=1[p{i}]")
+                     f"adelay={delay}:all=1,{whole}[p{i}]")
         placed.append(f"[p{i}]")
-    parts.append(f"{''.join(placed)}amix=inputs={len(placed)}:duration=longest:normalize=0,apad,"
-                 f"atrim=end={length:.3f}[voice]" if len(placed) > 1
-                 else f"{placed[0]}apad,atrim=end={length:.3f}[voice]")
+    parts.append(f"{''.join(placed)}amix=inputs={len(placed)}:duration=first:normalize=0,{whole}[voice]"
+                 if len(placed) > 1 else f"{placed[0]}anull[voice]")
     mix = ["[voicemix]"]
     if job["score"]:
         inputs += ["-stream_loop", "-1", "-i", files["score"]]
         parts.append("[voice]asplit=2[voicemix][voicekey]")
-        parts.append(f"[{n}:a]{fmt},volume={job['score_volume']:.2f},atrim=end={length:.3f}[bed]")
+        parts.append(f"[{n}:a]{fmt},volume={job['score_volume']:.2f},atrim=end={length:.3f},asetpts=PTS-STARTPTS,"
+                     f"{whole}[bed]")
         parts.append(f"[bed][voicekey]sidechaincompress={DUCK}[ducked]")
         mix.append("[ducked]")
         n += 1
@@ -221,7 +226,8 @@ def _audio(job: dict[str, Any], files: dict[str, Any], first_input: int) -> tupl
         parts.append("[voice]anull[voicemix]")
     for i, effect in enumerate(job["sfx"]):
         inputs += ["-i", files["sfx"][i]]
-        parts.append(f"[{n}:a]{fmt},volume={effect['volume']:.2f},adelay={round(effect['at'] * 1000)}:all=1[fx{i}]")
+        parts.append(f"[{n}:a]{fmt},volume={effect['volume']:.2f},adelay={round(effect['at'] * 1000)}:all=1,"
+                     f"{whole}[fx{i}]")
         mix.append(f"[fx{i}]")
         n += 1
     for i, stem in enumerate(files.get("stems") or []):
@@ -231,10 +237,10 @@ def _audio(job: dict[str, Any], files: dict[str, Any], first_input: int) -> tupl
         window = beat["t1"] - beat["t0"]
         parts.append(f"[{stem}:a]{fmt},atrim=end={window:.3f},asetpts=PTS-STARTPTS,volume={job['stem']:.2f},"
                      f"afade=t=in:d={STEM_FADE},afade=t=out:st={max(0.0, window - STEM_FADE):.3f}:d={STEM_FADE},"
-                     f"adelay={round(beat['t0'] * 1000)}:all=1[st{i}]")
+                     f"adelay={round(beat['t0'] * 1000)}:all=1,{whole}[st{i}]")
         mix.append(f"[st{i}]")
     parts.append(f"{''.join(mix)}amix=inputs={len(mix)}:duration=first:dropout_transition=0:normalize=0,"
-                 f"apad,atrim=end={length:.3f}[mix]" if len(mix) > 1 else f"{mix[0]}anull[mix]")
+                 f"{whole}[mix]" if len(mix) > 1 else f"{mix[0]}anull[mix]")
     return inputs, parts, "[mix]"
 
 
