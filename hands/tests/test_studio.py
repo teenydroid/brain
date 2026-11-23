@@ -847,6 +847,17 @@ class QuoteWriteTest(unittest.TestCase):
         self.assertEqual(kept[0]["quote_of"], SAMA["post"])
         self.assertEqual(kept[0]["quoted"], {"by": "Sam Altman", "handle": "sama", "said": SAMA["said"]})
 
+    def test_a_surname_in_a_picture_is_drawn_by_the_full_name_on_its_card(self):
+        # 2026-11-23, 23:00 IST: two pictures named "Suleyman" alone, and
+        # hands/image refused both (no Wikipedia article is "Suleyman").
+        cards = [card("digg:s3", ["Mustafa Suleyman", "Microsoft"], "MAI-2 Base is close to GPT-5.6",
+                      quotes=[{"by": "Sam Altman", "handle": "sama", "post": "9", "said": "nice"}])]
+        kept, dropped = studio.validate_posts(
+            [{"card": "digg:s3", "format": "image", "quote": "9", "text": "t", "image": "a lab",
+              "people": ["Suleyman", "altman", "Jensen Huang"]}], cards, ("image",), quote=True)
+        self.assertEqual(dropped, [])
+        self.assertEqual(kept[0]["people"], ["Mustafa Suleyman", "Sam Altman", "Jensen Huang"])
+
     def test_a_quote_of_a_post_not_on_its_card_is_dropped_with_why(self):
         bad = [{"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
                {"card": "digg:s1", "format": "image", "quote": "a blog", "text": "t", **SCENE}]
