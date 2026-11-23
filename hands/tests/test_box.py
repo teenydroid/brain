@@ -33,6 +33,11 @@ class Scratch(unittest.TestCase):
         (self.root / "secrets" / "core.token").write_text("the-core-token\n")
         (self.root / "brain" / "SOUL.md").write_text("soul\n")
         (self.root / "state" / "elsewhere.txt").write_text("state\n")
+        (self.root / "bin" / "tick").write_text("#!/bin/sh\n")
+        (self.root / ".git").mkdir()
+        (self.root / ".git" / "config").write_text("[remote]\n")
+        (self.root / "state" / "home" / "notes").mkdir(parents=True)
+        (self.root / "state" / "home" / "notes" / "JOURNAL.md").write_text("journal\n")
 
     def settings(self, **values: str) -> None:
         (self.root / "secrets" / "teeny.env").write_text("".join(f"{k}={v}\n" for k, v in values.items()))
@@ -72,6 +77,13 @@ out = {
     "list_secrets": can("s", lambda: os.listdir(root + "/secrets")),
     "read_brain": can("s", lambda: open(root + "/brain/SOUL.md").read()),
     "read_state": can("s", lambda: open(root + "/state/elsewhere.txt").read()),
+    "read_bin": can("s", lambda: open(root + "/bin/tick").read()),
+    "read_git": can("s", lambda: open(root + "/.git/config").read()),
+    "read_notes": can("s", lambda: open(root + "/state/home/notes/JOURNAL.md").read()),
+    "write_notes": can("s", lambda: open(root + "/state/home/notes/JOURNAL.md", "a").write("x")),
+    "write_shared": can("s", lambda: open(root + "/state/home/work/from-tool.txt", "w").write("x")),
+    "write_brain": can("s", lambda: open(root + "/brain/SOUL.md", "a").write("x")),
+    "write_bin": can("s", lambda: open(root + "/bin/tick", "a").write("x")),
     "write_state": can("s", lambda: open(root + "/state/planted.txt", "w").write("x")),
     "write_home": can("s", lambda: open(root + "/home/tools/probe/planted.txt", "w").write("x")),
     "truncate_own_code": can("s", lambda: os.truncate(root + "/home/tools/probe/run.py", 0)),
@@ -104,7 +116,21 @@ class JailTest(Scratch):
 
     def test_a_tool_cannot_read_or_list_what_is_the_operators(self):
         got = self.run_probe()
-        for closed in ("read_secret", "read_settings", "list_secrets", "read_brain", "read_state"):
+        for closed in ("read_secret", "read_settings", "list_secrets", "read_state", "read_git"):
+            self.assertFalse(got[closed], closed)
+
+    def test_a_tool_can_read_the_checkouts_code_and_the_minds_home(self):
+        # The jail is against the secrets and the state that holds keys,
+        # not against Teeny's own (public) code or its own notes.
+        got = self.run_probe()
+        for open_ in ("read_brain", "read_bin", "read_notes"):
+            self.assertTrue(got[open_], open_)
+
+    def test_a_tool_shares_one_folder_with_the_mind(self):
+        got = self.run_probe()
+        self.assertTrue(got["write_shared"])
+        self.assertEqual((self.root / "state" / "home" / "work" / "from-tool.txt").read_text(), "x")
+        for closed in ("write_notes", "write_brain", "write_bin"):
             self.assertFalse(got[closed], closed)
 
     def test_a_tool_writes_only_its_own_folder(self):
