@@ -482,7 +482,8 @@ def picture_people(named: Any, card: Json | None) -> list[str]:
     (two pictures of the 23:00 IST slot of 2026-11-23 were refused for it)."""
     names = [p for p in (card or {}).get("people") or [] if isinstance(p, str)]
     names += [q["by"] for q in (card or {}).get("quotes") or [] if isinstance(q, dict) and isinstance(q.get("by"), str)]
-    full = [n for n in dict.fromkeys(" ".join(n.split()) for n in names) if len(n.split()) > 1]
+    full = [n for n in {" ".join(n.split()).casefold(): " ".join(n.split()) for n in reversed(names)}.values()
+            if len(n.split()) > 1][::-1]
     out: list[str] = []
     for raw in named if isinstance(named, list) else []:
         if not (isinstance(raw, str) and raw.strip()):
