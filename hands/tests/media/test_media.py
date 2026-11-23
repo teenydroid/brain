@@ -26,12 +26,14 @@ REPO = HERE.parents[2]
 
 class FakeSurplus:
     """Answers like Surplus. `fail` maps a model to the SurplusError its
-    generation raises; `quotes` a video model to its estimate; `jobs` a video
-    model to the statuses its polls walk through."""
+    generation raises; `fail_if` takes an edit's body and answers the
+    SurplusError that call raises, or None; `quotes` a video model to its
+    estimate; `jobs` a video model to the statuses its polls walk through."""
 
     def __init__(self):
         self.calls = []
         self.fail = {}
+        self.fail_if = lambda body: None
         self.quotes = {}
         self.jobs = {}
         self.usage = {}
@@ -45,6 +47,9 @@ class FakeSurplus:
         if path == "/v1/images/edits":
             if body["model"] in self.fail:
                 raise self.fail[body["model"]]
+            refused = self.fail_if(body)
+            if refused:
+                raise refused
             return {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
         if path == "/v1/video/generations" and method == "POST":
             model = body["model"]
@@ -208,6 +213,95 @@ class MediaTest(unittest.TestCase):
         out = self.image()["asset"]
         self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
         self.assertEqual(self.api.models("/v1/images/edits"), ["qwen-edit-uncensored", "gpt-image-2-5-flare-edit"])
+
+    # --- two-pass likeness -------------------------------------------------------
+    # 2026-11-23: Venice's gateway, in front of every model on Surplus, turns
+    # down a real person's photo together with a mocking scene (the Jensen
+    # Huang picture, media_assets 97 and 98), yet draws the scene with Teeny's
+    # sheet alone and the person's photo with a harmless prompt.
+
+    POLICY = "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider."
+
+    def refuse_photo_with_scene(self, scene):
+        """Venice: a content refusal when a photo comes with the scene's words."""
+        self.api.fail_if = lambda body: (SurplusError(self.POLICY, 400)
+                                         if "images" in body and scene in body["prompt"] else None)
+
+    def edits(self):
+        return [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+
+    def test_a_scene_refused_with_the_photo_is_drawn_then_given_the_likeness(self):
+        self.wiki({"Jensen Huang": ("Q1", ["Q5"], True)})
+        scene = "the man in the leather jacket sobs into a GPU"
+        self.refuse_photo_with_scene(scene)
+        out = assets.generate_image({"prompt": scene, "figures": ["Jensen Huang"]}, api=self.api)["asset"]
+        models = assets.IMAGE_MODELS.split(",")
+        edits = self.edits()
+        self.assertEqual(len(edits), len(models) + 2)
+        scene_pass, likeness = edits[-2], edits[-1]
+        self.assertEqual(base64.b64decode(scene_pass["image"].split(",", 1)[1]),
+                         (self.root / "brain/assets/teeny-reference.png").read_bytes())
+        self.assertNotIn("images", scene_pass)
+        self.assertIn(scene, scene_pass["prompt"])
+        self.assertNotIn("image", likeness)
+        self.assertEqual([base64.b64decode(i.split(",", 1)[1]) for i in likeness["images"]], [PNG, PNG])
+        self.assertIn("photo 2 is Jensen Huang", likeness["prompt"])
+        self.assertIn("Picture 1 is the scene", likeness["prompt"])
+        self.assertNotIn(scene, likeness["prompt"])
+        self.assertEqual(out["status"], "done")
+        self.assertEqual(out["cost_usd"], 0.032)  # both passes, 0.016 each
+        self.assertEqual(assets.listing("image", 5)["spent_today_usd"], 0.032)
+        row = assets._db().execute("SELECT model, detail FROM media_assets WHERE id = ?", (out["id"],)).fetchone()
+        self.assertEqual(json.loads(row["detail"])["two_pass"], {"scene": models[0], "likeness": models[0]})
+        self.assertEqual(row["model"], models[0])
+        self.assertEqual(len(assets.listing("image", 5)["assets"]), 1)
+
+    def test_two_figures_each_get_their_photo_in_the_likeness_pass(self):
+        self.wiki({"Jensen Huang": ("Q1", ["Q5"], True), "Lisa Su": ("Q2", ["Q5"], True)})
+        self.refuse_photo_with_scene("arm wrestle")
+        assets.generate_image({"prompt": "they arm wrestle", "figures": ["Jensen Huang", "Lisa Su"]}, api=self.api)
+        likeness = self.edits()[-1]
+        self.assertEqual(len(likeness["images"]), 3)
+        self.assertIn("photo 2 is Jensen Huang", likeness["prompt"])
+        self.assertIn("photo 3 is Lisa Su", likeness["prompt"])
+
+    def test_a_non_content_failure_does_not_draw_in_two_passes(self):
+        self.wiki({"Jensen Huang": ("Q1", ["Q5"], True)})
+        self.api.fail["qwen-edit-uncensored"] = SurplusError("Surplus answered 402: insufficient credit", 402)
+        with self.assertRaises(hand.HandError):
+            assets.generate_image({"prompt": "x", "figures": ["Jensen Huang"]}, api=self.api)
+        self.assertEqual(self.api.models("/v1/images/edits"), ["qwen-edit-uncensored"])
+
+    def test_a_likeness_pass_refused_fails_the_picture_and_keeps_the_scene_cost(self):
+        self.wiki({"Jensen Huang": ("Q1", ["Q5"], True)})
+        self.api.fail_if = lambda body: SurplusError(self.POLICY, 400) if "images" in body else None
+        with self.assertRaises(hand.HandError) as caught:
+            assets.generate_image({"prompt": "x", "figures": ["Jensen Huang"]}, api=self.api)
+        self.assertIn("likeness pass", str(caught.exception))
+        models = assets.IMAGE_MODELS.split(",")
+        self.assertEqual(len(self.edits()), 2 * len(models) + 1)
+        row = assets.listing("image", 5)["assets"][0]
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(row["cost_usd"], 0.016)  # the scene pass was paid for
+        self.assertEqual(assets.listing("image", 5)["spent_today_usd"], 0.016)
+        self.assertEqual(list((self.root / "state" / "media").glob("image-*")), [])
+
+    def test_the_likeness_pass_stops_at_the_daily_dollar_budget(self):
+        self.env(MEDIA_MAX_USD_PER_DAY="0.02")  # room for the scene pass, not the likeness
+        self.wiki({"Jensen Huang": ("Q1", ["Q5"], True)})
+        self.refuse_photo_with_scene("sobs")
+        with self.assertRaises(hand.Refused) as caught:
+            assets.generate_image({"prompt": "he sobs", "figures": ["Jensen Huang"]}, api=self.api)
+        self.assertEqual(caught.exception.detail["rule"], "budget")
+        self.assertNotIn("images", self.edits()[-1])  # the scene pass was the last call
+        self.assertEqual(assets.listing("image", 5)["spent_today_usd"], 0.016)
+
+    def test_a_picture_with_no_figures_never_draws_in_two_passes(self):
+        for model in assets.IMAGE_MODELS.split(","):
+            self.api.fail[model] = SurplusError(self.POLICY, 400)
+        with self.assertRaises(hand.HandError):
+            self.image()
+        self.assertEqual(self.api.models("/v1/images/edits"), assets.IMAGE_MODELS.split(","))
 
     def test_a_photo_that_could_not_be_fetched_is_tried_again_next_time(self):
         # 2026-11-23: the photo host answered 429 for full-size originals, and
