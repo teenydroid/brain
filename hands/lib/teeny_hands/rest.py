@@ -170,9 +170,14 @@ class RestApi:
                 status = response.status
         except urllib.error.HTTPError as exc:
             try:
-                error_body = exc.read()
+                # With a LIMIT, an error's body is held to it as well.
+                error_body = exc.read() if limit is None else exc.read(limit + 1)
             except OSError:
                 error_body = b""
+            finally:
+                exc.close()
+            if limit is not None and len(error_body) > limit:
+                raise TooLarge(f"{self.name} answered more than {limit} bytes", exc.code) from None
             parsed = _parse(error_body)
             if 300 <= exc.code < 400:
                 failure = RestError(f"{self.name} answered a redirect ({exc.code}); not followed with the key", exc.code)

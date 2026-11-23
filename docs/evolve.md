@@ -844,7 +844,7 @@ safe. A generation outlasts the 300 s TinyBox gives a cron shell call
 logs to `state/evolve/evolve.log`, and a second call while one runs says
 `busy`. The `evolve-credit` job (`brain/cron.toml`) runs `bin/evolve credit` at 03:50,
 and the pinned `evolve-watch` (`evals/cron.pinned.toml`, so the brain cannot
-move or silence the watcher that rolls a bad change back) runs `bin/evolve watch --detach` at twenty
+move or silence the watcher that proposes a revert of a bad change by a pull request) runs `bin/evolve watch --detach` at twenty
 past every hour, with a lock and a log (`state/evolve/watch.log`) of its
 own.
 
