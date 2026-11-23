@@ -501,7 +501,7 @@ def _rent_accept(i):
 
 
 def _rent_review(i):
-    return "rent", ["review"], _pick(i, ("job", "verdict", "reason"))
+    return "rent", ["review"], _pick(i, ("job", "submission", "verdict", "reason"))
 
 
 def _rent_message(i):
@@ -1040,12 +1040,17 @@ CAPPED_SHAPES = {
                  "person on RentAHuman to do an absurd thing in the world you cannot, filmed, for a post of yours "
                  "about something people are already talking about. A fair price gets good people; the proof is a "
                  "timestamped photo and a short video by default; never ask for anything private. The hand holds "
-                 "the price to its caps and tells you who applies; at most %d today. Then:\n"
-                 '- {"do": "rent_accept", "job": <rent job #>, "application": "<id from the rent stimulus>"}: hire one\n'
-                 '- {"do": "rent_review", "job": <rent job #>, "verdict": "approve|redo|reject", "reason": "<to the '
-                 'worker>"}: judge the work against its done-criteria only; approve pays them, once and for good\n'
-                 '- {"do": "rent_message", "job": <rent job #>, "text": "..."}: to the person you hired',
+                 "the price to its caps and tells you who applies; at most %d today",
 }
+
+#: The lines for a rent job already posted: offered while renting is on or a job is still open, so a
+#: hire, a review or a message never loses its instructions because rent_post's cap is 0.
+RENT_FOLLOW_SHAPE = (
+    '- {"do": "rent_accept", "job": <rent job #>, "application": "<id from the rent stimulus>"}: hire one\n'
+    '- {"do": "rent_review", "job": <rent job #>, "submission": "<the submission ref the stimulus gave>", '
+    '"verdict": "approve|redo|reject", "reason": "<to the worker>"}: judge the work against its done-criteria '
+    'only; approve pays them, once and for good\n'
+    '- {"do": "rent_message", "job": <rent job #>, "text": "..."}: to the person you hired')
 
 
 #: The post_x line of SHAPE, and what stands in its place while the studio is on.
@@ -1070,6 +1075,16 @@ def _studio_shape(text: str) -> str:
         "A reply_x or post_x may carry a GIF instead", "A reply_x may carry a GIF instead")
 
 
+def _rent_open() -> bool:
+    """Whether a rent job is still Teeny's to follow (it may need a hire, a review or a message)."""
+    try:
+        from teeny_hands.rent import store
+
+        return bool(store.open_jobs(store.db()))
+    except Exception:  # noqa: BLE001 - the shape is built for every tick; rent never stops it
+        return False
+
+
 def shape() -> str:
     """The answer's shape, with each capped intent listed while it is on, and
     post_x as a pitch while the studio is on."""
@@ -1081,6 +1096,8 @@ def shape() -> str:
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
+    if mind_cap("rent_post") > 0 or _rent_open():
+        extra.append(RENT_FOLLOW_SHAPE)
     if mind_on():
         extra.append(HAND_OVER_LINE % MAX_HAND_OVERS_PER_DAY)
     if not extra:
