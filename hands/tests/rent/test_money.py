@@ -133,6 +133,47 @@ class PayTest(Hired):
         self.assertEqual(self.jobs()[0]["status"], "rejected")
         self.assertEqual(self.rah.made("pay_hire"), [])
 
+    def test_a_rate_limited_pay_is_put_back_not_stuck(self) -> None:
+        self.rah.on("pay_hire", {"__error__": {"code": "rate_limited", "message": "slow",
+                                               "details": {"retryAfterSeconds": 30}}},
+                    {"hireId": "h1", "payStatus": "paid"})
+        with self.assertRaises(hand.Refused):
+            actions.review({"job": 1, "verdict": "approve"})
+        self.assertEqual(self.jobs()[0]["status"], "submitted")
+        actions.review({"job": 1, "verdict": "approve"})
+        self.assertEqual(self.jobs()[0]["status"], "paid")
+
+    def test_after_payment_sent_finishing_any_failure_is_in_doubt(self) -> None:
+        self.rah.on("pay_hire", error("payment_sent_finishing", "finish", retry_safe=False),
+                    error("not_payable", "no", retry_safe=True))
+        with self.assertRaises(hand.HandError):
+            actions.review({"job": 1, "verdict": "approve"})
+        self.assertEqual(self.jobs()[0]["status"], "in_doubt")
+
+    def test_poll_never_moves_a_pay_in_doubt_back(self) -> None:
+        def gone(args):
+            raise Crash()
+
+        self.rah.on("pay_hire", gone)
+        self.rah.on("list_messages", {"data": []})
+        with self.assertRaises(hand.HandError):
+            actions.review({"job": 1, "verdict": "approve"})
+        # get_hire still says pending_review, as RentAHuman might while it settles.
+        actions.poll()
+        self.assertEqual(self.jobs()[0]["status"], "in_doubt")
+        self.assertEqual(self.rah.made("get_hire")[-1:], self.rah.made("get_hire")[-1:])
+        with self.assertRaises(hand.Refused):
+            actions.review({"job": 1, "verdict": "approve"})
+        self.assertEqual(len(self.rah.made("pay_hire")), 1)
+
+    def test_the_operator_settles_a_pay_in_doubt(self) -> None:
+        self.rah.on("pay_hire", error("server_error", "hm", retry_safe=False))
+        with self.assertRaises(hand.HandError):
+            actions.review({"job": 1, "verdict": "approve"})
+        self.assertEqual(actions.resolve(1, "paid")["status"], "paid")
+        with self.assertRaises(hand.Refused):
+            actions.resolve(1, "submitted")
+
     def test_nothing_to_review(self) -> None:
         self.rah.on("get_hire", hire(sub_status="approved"))
         with self.assertRaises(hand.Refused):
