@@ -117,17 +117,16 @@ class ConfigTest(unittest.TestCase):
         cfg = self.load({"STUDIO_POSTS": "99", "STUDIO_FEED_CARDS": "0", "STUDIO_BUDGET_SECS": "nope"})
         self.assertEqual((cfg.posts, cfg.feed_cards, cfg.budget_secs), (10, 1, 2400))
 
-    def test_quote_slots_are_on_unless_studio_quote_is_off(self):
+    def test_every_slot_quotes_and_no_setting_turns_it_off(self):
         # 2026-11-23: every slot quotes a trending X post with a picture or video.
         self.assertTrue(self.load({}).quote)
-        self.assertFalse(self.load({"STUDIO_QUOTE": "0"}).quote)
-        self.assertFalse(self.load({}, "STUDIO_QUOTE=off\n").quote)
+        self.assertTrue(self.load({"STUDIO_QUOTE": "0"}, "STUDIO_QUOTE=off\n").quote)
 
     def test_a_quote_slot_offers_no_plain_post_or_thread(self):
         self.assertEqual(studio.word_formats(self.load({})), ("image",))
         self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post,thread,image,meme"})), ("image", "meme"))
         self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post"})), ("image",))
-        self.assertEqual(studio.word_formats(self.load({"STUDIO_QUOTE": "0"})), ("post", "thread", "image"))
+        self.assertEqual(studio.word_formats(studio.Config()), ("post", "thread", "image"))  # a --no-outside run
 
     def test_the_environment_cannot_set_the_judges_model(self):
         self.assertEqual(self.load({"SAFETY_JUDGE_MODEL": "j"}).judge_model, "")
@@ -544,7 +543,7 @@ TREND_X = {"stories": [
 
 
 class QuoteFeedTest(unittest.TestCase):
-    """STUDIO_QUOTE (2026-11-23): every slot quotes a real X post behind one
+    """Every slot quotes (2026-11-23) a real X post behind one
     of today's trending stories, so the feed is the X posts Digg ranks, each
     with the id it would quote. An author quoted in the last 7 days (`hands/x
     peers quoted`) or Teeny itself is not offered: hands/x would refuse the
@@ -1185,7 +1184,12 @@ class RunTest(unittest.TestCase):
         self.env = {"TEENY_ROOT": str(REPO), "TEENY_STATE": str(root / "state"), "TEENY_HANDS": str(root / "hands"),
                     "TEENY_SECRETS": str(root / "secrets"), "TEENY_BRAIN": str(REPO / "brain"),
                     "TEENY_NOW": str(NOW), "STUDIO_RUN_ID": "run-1", "STUDIO_WRITER_MODEL": "w",
-                    "STUDIO_EDITOR_MODEL": "e", "STUDIO_QUOTE": "0"}
+                    "STUDIO_EDITOR_MODEL": "e"}
+        # The mechanics below run on plain posts from every source; the quote
+        # slot has its own tests (`quoting`).
+        plain = mock.patch.object(studio, "QUOTE_SLOTS", False)
+        plain.start()
+        self.addCleanup(plain.stop)
         self.args = argparse.Namespace(dry_run=True, slot=None, desk=str(root / "desk.json"), force_slot=False,
                                        no_outside=False, no_slot=True, legacy=None, print=False)
         self.steps: list[tuple[str, str]] = []
@@ -1224,6 +1228,10 @@ class RunTest(unittest.TestCase):
             return 1, "", f"unexpected {step}"
         return ask
 
+    def quoting(self):
+        """A live run as the box makes it: a quote slot."""
+        return mock.patch.object(studio, "QUOTE_SLOTS", True)
+
     def go(self, ask, **env):
         return studio.run(self.args, {**self.env, **env}, ask=ask)
 
@@ -1260,7 +1268,8 @@ class RunTest(unittest.TestCase):
         posts = [{"card": "digg:s1", "format": "image", "quote": "2124551594691932405",
                   "text": "oooooooo strap me with your limits baby", **SCENE},
                  {"card": "digg:s1", "format": "post", "text": "a plain post"}]
-        code, out = self.go(self.ask(tag=tags, posts=posts), STUDIO_QUOTE="1")
+        with self.quoting():
+            code, out = self.go(self.ask(tag=tags, posts=posts))
         rec = self.record()
         self.assertEqual((code, rec["outcome"]), (0, "picked"))
         self.assertEqual([c["id"] for c in rec["cards"]], ["digg:s1", "digg:s2"])  # no hn, no chan, no own
@@ -1274,7 +1283,8 @@ class RunTest(unittest.TestCase):
     def test_a_quote_slot_with_nothing_to_quote_skips_before_the_writer(self):
         self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
                    "x peers": [{"out": {"ok": True, "days": 7, "handles": ["sama", "aravsrinivas"]}}]})
-        code, out = self.go(self.ask(), STUDIO_QUOTE="1")
+        with self.quoting():
+            code, out = self.go(self.ask())
         self.assertEqual((code, out["outcome"]), (0, "skipped"))
         self.assertEqual([s for _, s in self.steps], [])  # no feed tag, no writer, no editor
         self.assertIn("no card", out["reason"])
