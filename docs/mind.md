@@ -140,6 +140,19 @@ deploy it also opens the revert itself: a pull request `teeny/revert-N-<sha>`
 that puts back the tree the box ran before. That pull request touches the
 held paths, so it waits for the operator like any other change to them.
 
+## Skills
+
+A skill is a folder the mind writes in its home: `skills/<name>/SKILL.md`,
+whose first line says when to use it, with any script beside it, and one
+line in `skills/INDEX.md`. The prompt has it read the index at each wake and
+follow a skill that fits before working the thing out again. Nothing merges
+and nothing restarts: a skill written in one wake is there in the next.
+
+The core has a `create_skill` tool, and the mind does not hold it. That tool
+writes under the core's own workspace or `~/.openhuman/`, outside the home,
+and only the core's built-in orchestrator is shown what it wrote, so for
+the mind it would be a write outside the jail that it never reads back.
+
 ## Helpers
 
 The mind can hand a piece of work to a helper and carry on: `spawn_subagent`
