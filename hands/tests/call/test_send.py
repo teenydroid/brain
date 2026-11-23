@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import urllib.error
-
-from unittest import mock
-
 import json
+import urllib.error
+from unittest import mock
 
 from teeny_hands import rest
 
