@@ -260,6 +260,9 @@ FILM_OWNED = "(kind = 'film' OR source_id IN (SELECT id FROM media_assets WHERE 
 
 
 def _spent_today(conn) -> int:
+    """Today's media spend, film rows aside. A failed row that still carries
+    a cost was paid for (a two-pass picture whose likeness pass was refused
+    keeps its scene pass's cost), so it counts too."""
     row = conn.execute(
         "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE (status != 'failed' OR cost_micro > 0)"
         " AND created_at >= ?"
@@ -369,17 +372,21 @@ class _Failed(Exception):
         self.model, self.exc = model, exc
 
 
-def _walk(api: Surplus, body_of, tried: list[str], label: str = "") -> tuple[str, int, bytes, str] | None:
+def _walk(api: Surplus, body_of, tried: list[str], label: str = "",
+          refused: list[str] | None = None) -> tuple[str, int, bytes, str] | None:
     """Each model in turn asked for BODY_OF(model): the first picture back as
     (model, estimate, bytes, extension), or None when every model passed it
-    on (each reason in TRIED, after LABEL). A failure no other model would
-    answer differently raises _Failed."""
+    on (each reason in TRIED, after LABEL; each model that refused it for
+    content in REFUSED). A failure no other model would answer differently
+    raises _Failed."""
     for model in _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS):
         estimate = _image_estimate(api, model)
         try:
             answer = api.call("POST", "/v1/images/edits", body_of(model), timeout=240)
         except SurplusError as exc:
             tried.append(f"{label}{model}: {exc}")
+            if refused is not None and _content_refusal(exc):
+                refused.append(model)
             # One seller's content filter turning a scene down is that
             # seller's answer, not the scene's: the next model reads it afresh.
             if exc.status in FALLBACK_STATUSES or exc.status is None or _content_refusal(exc):
@@ -437,11 +444,12 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
     tried: list[str] = []
     two_pass = None
     paid = 0
+    chain = _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)
+    refused: list[str] = []
     try:
-        got = _walk(api, lambda model: _edit_body(model, prompt, reference, portraits), tried)
-        if got is None and portraits and tried and len(tried) == len(_models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)) \
-                and all("content policy" in t.lower() for t in tried):
-            tried = [f"the photo with the scene: every model refused it for content ({', '.join(t.split(':', 1)[0] for t in tried)})"]
+        got = _walk(api, lambda model: _edit_body(model, prompt, reference, portraits), tried, refused=refused)
+        if got is None and portraits and chain and refused == chain:
+            tried = [f"the photo with the scene: every model refused it for content ({', '.join(refused)})"]
             got = _walk(api, lambda model: _edit_body(model, prompt, reference, []), tried, "scene pass, ")
             if got is not None:
                 scene_model, paid, scene, _ = got
@@ -450,8 +458,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
                 _finish(conn, asset_id, status="pending", model=scene_model, cost_micro=paid, done_at=None)
                 budget = _usd("MEDIA_MAX_USD_PER_DAY", "1.00")
                 spent = _spent_today(conn)
-                first = _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)[0]
-                if spent + _image_estimate(api, first) > budget:
+                if spent + _image_estimate(api, chain[0]) > budget:
                     why = f"the likeness pass would take today's media spend past ${budget / 1e6:.2f}"
                     _finish(conn, asset_id, status="failed", error="; ".join([*tried, why])[:1000])
                     raise hand.Refused(why, rule="budget", spent_usd=round(spent / 1e6, 4), budget_usd=budget / 1e6)
@@ -471,17 +478,16 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
     model, estimate, data, ext = got
     # The picture is paid for: a failure to shrink it is recorded on the
     # row with what it cost, never dropped.
-    detail: Json = {}
+    detail = None
     try:
         data, ext, shrunk = fit.under_limit(data, ext)
     except (hand.HandError, hand.Refused) as exc:
         shrunk = None
-        detail["kept"] = f"kept over X's image limit: {getattr(exc, 'reason', None) or exc}"
-        print(f"hands/image: picture {asset_id} is {len(data):,} bytes, over X's limit ({detail['kept']})", file=sys.stderr)
-    if shrunk:
-        detail["shrunk"] = shrunk
-    if two_pass:
-        detail["two_pass"] = two_pass
+        detail = f"kept over X's image limit: {getattr(exc, 'reason', None) or exc}"
+        print(f"hands/image: picture {asset_id} is {len(data):,} bytes, over X's limit ({detail})", file=sys.stderr)
+    if shrunk or two_pass:
+        detail = json.dumps({**({"shrunk": shrunk} if shrunk else {}), **({"kept": detail} if detail else {}),
+                             **({"two_pass": two_pass} if two_pass else {})})
     path = _media_dir() / f"image-{asset_id}.{ext}"
     path.write_bytes(data)
     _finish(
@@ -492,7 +498,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
         path=str(path.relative_to(hand.root())),
         cost_micro=paid + estimate,
         estimated=1,
-        detail=(detail["kept"] if list(detail) == ["kept"] else json.dumps(detail) if detail else None),
+        detail=detail,
     )
     return _public(conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone())
 
