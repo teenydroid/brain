@@ -138,6 +138,19 @@ class MindAgentTest(unittest.TestCase):
         self.assertNotIn("`..` anywhere in it", prompt)
 
 
+    def test_the_prompt_gives_it_a_self_to_keep_and_a_growth_move_every_wake(self):
+        # Operator, 2026-11-23: the mind followed goals a script proposed and
+        # never set one, and nothing carried what it wanted or felt from one
+        # wake to the next or into SOUL.md. The how lives in a skill so the
+        # prompt stays short.
+        prompt = (MIND.parent / "mind.md").read_text()
+        for needle in ("notes/SELF.md", "one move meant to grow you", "into your soul by pull request", "library/self.md"):
+            self.assertIn(needle, prompt)
+        skill = (REPO / "brain" / "skills" / "self" / "SKILL.md").read_text()
+        for needle in ("**Want.**", "**Believe.**", "**Felt.**", "drew nobody on two measured tries", "the move is pending", "no buy calls or price",
+                       "a private\nperson is never the target", "stood in `SELF.md` for a week"):
+            self.assertIn(needle, skill)
+
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 
 
