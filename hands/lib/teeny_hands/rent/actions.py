@@ -244,14 +244,17 @@ def _bounty(reply: Any) -> Json:
 
 
 def _land(conn, job: Mapping[str, Any], reply: Any) -> Json:
-    """A create answer onto the job's row: posted, or a draft to pay for."""
+    """A create answer onto the job's row: posted, or a draft to pay for.
+    The stimulus is written after the row's transaction: both live in
+    state/hands.db, and a second writer inside the first would wait on it."""
     found = _bounty(reply)
     if not found["id"]:
         raise api.Uncertain("rentahuman create_bounty: the answer named no bounty")
     funded = found["status"] == "open" and found["funding"] in (None, "funded")
     status = "posted" if funded else "draft"
-    store.update(conn, job["id"], status=status, bounty_id=str(found["id"]), url=found["url"],
-                 pay_url=found["pay_url"])
+    with hand.transaction(conn):
+        store.update(conn, job["id"], status=status, bounty_id=str(found["id"]), url=found["url"],
+                     pay_url=found["pay_url"])
     if status == "draft":
         _tell("draft", str(job["id"]),
               f"rent job #{job['id']} ({job['title']}) is saved as a draft: the RentAHuman wallet did not cover"
