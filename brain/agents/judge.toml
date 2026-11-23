@@ -22,6 +22,9 @@ max_iterations = 2
 sandbox_mode = "read_only"
 omit_identity = true
 omit_memory_context = true
+# Nor logged: a turn of this agent never reaches the core's memory, where
+# nobody would recall it and it would crowd the mind's recall (agent_check.py).
+omit_memory_log = true
 omit_safety_preamble = false
 
 [system_prompt]

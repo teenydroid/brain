@@ -11,6 +11,11 @@ needs; exits non-zero with the reason otherwise:
 - the drafting agents run read_only, at exactly their count in
   MAX_ITERATIONS, else NO_TOOLS_MAX_ITERATIONS (see there);
 - the judge, reviewer and querier (MEMORYLESS) load no memory and no identity;
+- an agent that recalls no memory (`omit_memory_context`, true unless the
+  definition says otherwise) keeps its turns out of memory too
+  (`omit_memory_log = true`), and an agent that recalls never sets it: a
+  helper's turns in CortexDB are recalled by nobody and crowd the mind's
+  recall (1,236 of them on the box, 2026-11-23);
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
@@ -143,6 +148,14 @@ def check(path: Path) -> str:
                              "defaults to a leaf worker tier and rejects the whole agent registry over a leaf with subagents")
     elif helpers is not None:
         raise SystemExit(f"only {', '.join(SUBAGENTS)} may have [subagents], not {agent}")
+    recalls = doc.get("omit_memory_context", True) is not True
+    logs = doc.get("omit_memory_log", False) is not True
+    if not recalls and logs:
+        raise SystemExit(f"the {agent} agent recalls no memory, so it must set omit_memory_log = true "
+                         "(its turns would sit in memory recalled by nobody, crowding the mind's recall)")
+    if recalls and not logs:
+        raise SystemExit(f"the {agent} agent recalls memory, so it must not set omit_memory_log "
+                         "(without its own turns logged, recall has nothing of its conversations to bring back)")
     root = doc.get("scheduled_workspace")
     if root != WORKSPACE.get(agent):
         if agent in WORKSPACE:

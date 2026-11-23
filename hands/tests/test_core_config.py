@@ -227,14 +227,16 @@ class CoreConfigTest(unittest.TestCase):
     def test_each_turn_waits_for_recall_on_its_own_message(self):
         # Unset, a turn only takes the pack an earlier turn left in a cache
         # that lives 60 s, so a beat every 5 minutes went without one, or got
-        # the pack recalled for the previous batch.
-        self.assertEqual(self.written()["memory"]["recall_each_turn_ms"], 3000)
+        # the pack recalled for the previous batch. At 3 s, 34% of the box's
+        # recalls (p90 4.2 s, 2026-11-21..23) missed the wait and the turn
+        # went without; 5 s covers past the p90.
+        self.assertEqual(self.written()["memory"]["recall_each_turn_ms"], 5000)
 
     def test_the_recall_wait_is_set_inside_the_cores_memory_table(self):
         before = ('[memory]\nengine = "cortexdb"\nrecall_each_turn_ms = 5\n\n'
                   '[memory.engines.cortexdb]\nendpoint = "http://c"\n')
         doc = self.written(before)
-        self.assertEqual(doc["memory"]["recall_each_turn_ms"], 3000)
+        self.assertEqual(doc["memory"]["recall_each_turn_ms"], 5000)
         self.assertEqual(doc["memory"]["engine"], "cortexdb")
         self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
         once = self.config.read_text()

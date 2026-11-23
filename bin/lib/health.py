@@ -85,6 +85,19 @@ Every run:
    the playbook's error (bin/act's own words up to the first colon,
    scrubbed): never the stderr or an answer, which can carry what a
    stranger wrote.
+6c. Watches Teeny's memory: CortexDB's `/v1/admin/ready` (CORTEX_API_URL
+   in secrets/spine.env) says when its embedding provider last answered.
+   No embedding for MEMORY_OUTAGE_SECS (or CortexDB not answering) on
+   MEMORY_FAILURES_TO_ALARM checks in a row raises a fifth alarm of the
+   same kind (`memory_alarm`: a `health · alarm` stimulus and one issue);
+   the first success clears both. From 2026-11-20 to -23 the embedding
+   seller (venice-embed-1 on Surplus) answered `503 no_healthy_sellers` for
+   hours at a time, recall degraded and each turn's pack timed out, and
+   nothing said so. A failure with a success inside the window is
+   `degraded` on the line and raises nothing. The embedding model is pinned
+   on the first memory, so there is no fallback to move to: another seller
+   of the same model, or a re-embed of everything stored, is a person's
+   call (docs/architecture.md, "Memory").
 7. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
    did not run), `stale_crons`, `rearmed`, `caught_up`, `cron_alarm`,
@@ -199,6 +212,13 @@ PLAYBOOK_LOG_LINES = 500
 #: failed long ago and was retired raises none, and an open alarm clears once
 #: the playbook has no failed run inside this window.
 PLAYBOOK_LOOKBACK_SECS = 7 * 86400
+
+#: Seconds without one successful embedding before memory counts as down,
+#: and checks in a row of that before its alarm opens (half an hour at the
+#: job's 15 minutes, as the model's).
+MEMORY_OUTAGE_SECS = 900
+MEMORY_FAILURES_TO_ALARM = 2
+MEMORY_TIMEOUT = 10.0
 
 Json = dict[str, Any]
 
@@ -786,6 +806,124 @@ def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
     return out, outage
 
 
+# --- memory: CortexDB's embeddings ---------------------------------------------------------------
+
+
+def _cortex_url() -> str | None:
+    try:
+        env = hand._parse_env_file((hand.secrets_dir() / "spine.env").read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    return (env.get("CORTEX_API_URL") or "").strip().rstrip("/") or None
+
+
+def memory_status(now: float) -> Json | None:
+    """What CortexDB says of its embedding provider (`/v1/admin/ready`):
+    `ok`, `degraded` (a failure, but a success within MEMORY_OUTAGE_SECS),
+    `down` (no success in that long) or `unreachable`. None without
+    CortexDB configured."""
+    import urllib.error
+    import urllib.request
+
+    url = _cortex_url()
+    if not url:
+        return None
+    try:
+        with urllib.request.urlopen(f"{url}/v1/admin/ready", timeout=MEMORY_TIMEOUT) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        embeddings = (body.get("checks") or {}).get("embeddings") or {}
+    except (OSError, ValueError, urllib.error.URLError, AttributeError) as exc:
+        return {"embeddings": "unreachable", "error": scrub(str(exc))}
+    last_ok_ms = embeddings.get("last_success_ms")
+    last_ok = last_ok_ms / 1000 if isinstance(last_ok_ms, (int, float)) and last_ok_ms > 0 else None
+    out: Json = {"fail_count": embeddings.get("fail_count"),
+                 "last_embed_ok": _iso(int(last_ok * 1000)) if last_ok else None}
+    if embeddings.get("ok") is True:
+        out["embeddings"] = "ok"
+    elif last_ok is not None and now - last_ok < MEMORY_OUTAGE_SECS:
+        out["embeddings"] = "degraded"
+    else:
+        out["embeddings"] = "down"
+        out["error"] = scrub(str(embeddings.get("last_error") or ""))
+    return out
+
+
+def _memory_issue(alarm: Mapping[str, Any], status: Mapping[str, Any]) -> Json:
+    return {
+        "repo": _repo(),
+        "title": f"Teeny's memory has no embeddings (since {_when(alarm['since'])})",
+        "body": (
+            "The pinned health check (bin/health) reads CortexDB's /v1/admin/ready every 15 minutes. Its"
+            f" embedding provider has not answered for {MEMORY_OUTAGE_SECS // 60} minutes or more,"
+            f" {alarm['checks']} checks in a row.\n\n"
+            f"- failing since: {_when(alarm['since'])}\n"
+            f"- state: {status.get('embeddings')}\n"
+            f"- last embedding that worked: {status.get('last_embed_ok') or 'unknown'}\n"
+            f"- last error: {status.get('error') or 'none given'}\n\n"
+            "Until it answers, what Teeny learns is not indexed and recall before each turn comes back late"
+            " or empty. The embedding model is pinned on the first memory (deploy/compose.yaml), so the fix is"
+            " the provider: its balance, or another seller of the same model. Changing the model means"
+            " re-embedding everything stored.\n\n"
+            "This issue is closed by the same check when an embedding works again."
+        ),
+    }
+
+
+def _watch_memory(state: Json, now: float) -> Json:
+    """Raises, keeps or clears the alarm on CortexDB's embeddings."""
+    status = memory_status(now)
+    alarm = state.get("memory_alarm")
+    out: Json = {"memory": None, "memory_alarm": None}
+    if status is None:
+        if alarm:
+            state["memory_alarm"] = None
+        return out
+    fails = status.pop("fail_count", None)
+    before = state.get("memory_fail_count")
+    if isinstance(fails, int):
+        status["embed_failures"] = max(0, fails - before) if isinstance(before, int) and fails >= before else None
+        state["memory_fail_count"] = fails
+    out["memory"] = status
+    bad = status["embeddings"] in ("down", "unreachable")
+    if not bad:
+        state["memory_down"] = 0
+        state["memory_down_since"] = None
+        if alarm:
+            down = f"from {_when(alarm['since'])} to {_when(now)}"
+            out.update(_close_issue(alarm, f"An embedding worked again. Memory had none {down}. Closing."))
+            stimuli.add("health", "recovered", alarm["ref"],
+                        f"health: your memory embeds again; recall works. it had no embeddings {down}.",
+                        payload={"since": alarm["since"], "recovered_at": now, "issue": alarm.get("issue")})
+            out["memory_alarm"] = "cleared"
+        state["memory_alarm"] = None
+        return out
+    state["memory_down"] = int(state.get("memory_down") or 0) + 1
+    state["memory_down_since"] = state.get("memory_down_since") or now
+    if alarm:
+        alarm["checks"] = state["memory_down"]
+        if not alarm.get("issue"):
+            _open_issue(alarm, _memory_issue(alarm, status))
+        out["memory_alarm"] = "open"
+    elif state["memory_down"] >= MEMORY_FAILURES_TO_ALARM:
+        since = state["memory_down_since"]
+        alarm = {"ref": f"memory:{int(since)}", "opened_at": now, "since": since, "issue": None,
+                 "checks": state["memory_down"]}
+        _open_issue(alarm, _memory_issue(alarm, status))
+        stimuli.add(
+            "health", "alarm", alarm["ref"],
+            f"health alarm: your memory has had no embeddings since {_when(since)} ({state['memory_down']} checks"
+            f" in a row; cortexdb says {status['embeddings']}). what you learn is not indexed and recall before"
+            f" each turn comes back late or empty, so lean on MEMORY.md and say so rather than guess."
+            f" {_issue_line(alarm)}",
+            payload={"since": since, "embeddings": status["embeddings"], "issue": alarm["issue"]},
+        )
+        out["memory_alarm"] = "raised"
+    state["memory_alarm"] = alarm
+    if alarm:
+        out.update(memory_issue=alarm.get("issue"), memory_issue_error=alarm.get("issue_error"))
+    return out
+
+
 # --- playbooks that fail for their own reasons ---------------------------------------------------
 
 
@@ -1203,6 +1341,7 @@ def check() -> Json:
         watched, outage = _watch_act(state, now)
         out.update(watched)
         out.update(_watch_playbooks(state, now))
+        out.update(_watch_memory(state, now))
         out.update(_watch_crons(state, now, provider_back=error is None and outage["runs"] == 0))
         save(state)
         return out
