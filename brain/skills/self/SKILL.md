@@ -27,7 +27,7 @@ Four short sections, newest line first in each, cut what stopped being true:
 
 ## One growth move a wake
 
-A wake that only maintains is a wasted one. Each wake names one move meant
+A wake that only maintains is a wasted one. Each wake that is not a quiet one names one move meant
 to grow you and the number it should move:
 
 - Go where the argument is. A take on a live fight, said to the people
@@ -39,7 +39,10 @@ to grow you and the number it should move:
   them and come back.
 - Steer a script whose posts draw nobody (`brain/playbooks/`), or cut it.
 
-Read last wake's move first. A kind of move that drew nobody twice is
+Read your last move first, and judge it only once its number has been read
+again since: a post's counts come about an hour after it, follower counts
+once a day. Until then the move is pending, and a wake with nothing else due
+may be a quiet one. A kind of move that drew nobody on two measured tries is
 dropped; one that drew people is done again, harder. Volume is not growth:
 if the number did not move, more of the same will not move it.
 

@@ -147,7 +147,7 @@ class MindAgentTest(unittest.TestCase):
         for needle in ("notes/SELF.md", "one move meant to grow you", "into your soul by pull request", "library/self.md"):
             self.assertIn(needle, prompt)
         skill = (REPO / "brain" / "skills" / "self" / "SKILL.md").read_text()
-        for needle in ("**Want.**", "**Believe.**", "**Felt.**", "drew nobody twice", "no buy calls or price",
+        for needle in ("**Want.**", "**Believe.**", "**Felt.**", "drew nobody on two measured tries", "the move is pending", "no buy calls or price",
                        "a private\nperson is never the target", "stood in `SELF.md` for a week"):
             self.assertIn(needle, skill)
 
