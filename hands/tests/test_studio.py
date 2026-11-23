@@ -9,7 +9,7 @@
    through hands/x in order until one goes out.
 
 Plus the switches, the slot claim, the lock, the record, --veto and --meme.
-The videos (skit, remake, khaby) have their own test files."""
+The videos (skit, remake) have their own test files."""
 
 from __future__ import annotations
 

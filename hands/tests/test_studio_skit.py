@@ -532,8 +532,8 @@ class OneTakeBudgetTest(unittest.TestCase):
         self.assertIn("shots", attempt["skit"]["shortened"]["why"])
 
     def test_the_other_video_formats_send_no_text_over_the_cap(self):
-        # A remake and a khaby send the guard each field alone, never a
-        # composed script: their own caps keep every one under the limit.
+        # A remake sends the guard each field alone, never a composed
+        # script: its own caps keep every one under the limit.
         from teeny_hands.guard import remake as remake_rules
         caps = [remake_rules.EDIT_CHARS[1], remake_rules.MOTION_CHARS[1], remake_rules.MAX_TEENY,
                 remake_rules.MAX_LOGLINE]

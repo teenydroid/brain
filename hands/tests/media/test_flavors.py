@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent / "lib"))
 
 from teeny_hands import hand  # noqa: E402
-from teeny_hands.media import assets, cli, flavors, khaby, remakes, skits  # noqa: E402
+from teeny_hands.media import assets, cli, flavors, remakes, skits  # noqa: E402
 
 
 def run(argv, body=None, kind="video", registry=None):
@@ -35,7 +35,7 @@ def run(argv, body=None, kind="video", registry=None):
 
 class RegistryTest(unittest.TestCase):
     def test_the_flavors_in_order(self):
-        self.assertEqual(list(flavors.REGISTRY), ["clip", "skit", "remake", "khaby"])
+        self.assertEqual(list(flavors.REGISTRY), ["clip", "skit", "remake"])
 
     def test_each_flavor_s_steps_kinds_and_cap(self):
         clip, skit, remake = (flavors.REGISTRY[n] for n in ("clip", "skit", "remake"))
@@ -48,13 +48,6 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual([f.shares_video_cap for f in (clip, skit, remake)], [False, True, True])
         self.assertEqual([f.default_step for f in (clip, skit, remake)], [None, "make", "render"])
         self.assertTrue(all(s.takes_body for f in (clip, skit, remake) for s in f.steps))
-
-    def test_khaby_has_three_steps_shares_the_cap_and_has_no_default(self):
-        khaby = flavors.REGISTRY["khaby"]
-        self.assertEqual([s.name for s in khaby.steps], ["keys", "render", "drop"])
-        self.assertEqual((khaby.kinds, khaby.shares_video_cap, khaby.default_step), (("khaby", "key", "shot"), True, None))
-        self.assertTrue(all(s.takes_body for s in khaby.steps))
-        self.assertNotIn("khaby", [name for name, _ in cli.ALIASES.values()])
 
     def test_a_flavor_s_kind_is_the_first_it_books(self):
         self.assertEqual(flavors.REGISTRY["remake"].kind, "remake")
@@ -75,8 +68,8 @@ class RegistryTest(unittest.TestCase):
             flavors.REGISTRY["skit"].name = "other"
 
     def test_video_kinds_are_the_registry_s_shared_cap(self):
-        self.assertEqual(flavors.video_kinds(), ("skit", "remake", "khaby"))
-        self.assertEqual(skits.VIDEO_KINDS, ("skit", "remake", "khaby"))
+        self.assertEqual(flavors.video_kinds(), ("skit", "remake"))
+        self.assertEqual(skits.VIDEO_KINDS, ("skit", "remake"))
         self.assertEqual(skits.VIDEO_KINDS, flavors.video_kinds())
 
 
@@ -85,7 +78,7 @@ class FlavorsVerbTest(unittest.TestCase):
         code, out = run(["flavors"])
         self.assertEqual(code, 0)
         self.assertTrue(out["ok"])
-        self.assertEqual([f["name"] for f in out["flavors"]], ["clip", "skit", "remake", "khaby"])
+        self.assertEqual([f["name"] for f in out["flavors"]], ["clip", "skit", "remake"])
         remake = out["flavors"][2]
         self.assertEqual([s["name"] for s in remake["steps"]], ["keys", "render", "drop"])
         self.assertEqual(remake["kinds"], ["remake", "key", "shot"])
@@ -107,12 +100,6 @@ PAIRS = (
     (["remake", "keys"], ["remake-keys"], remakes, "generate_keys"),
     (["remake", "render"], ["remake"], remakes, "generate_remake"),
     (["remake", "drop"], ["remake-drop"], remakes, "drop_remake"),
-)
-#: The khaby flavor's steps: new spellings only, no old verb.
-KHABY_STEPS = (
-    (["khaby", "keys"], khaby, "generate_keys"),
-    (["khaby", "render"], khaby, "generate_khaby"),
-    (["khaby", "drop"], khaby, "drop_khaby"),
 )
 
 
@@ -192,7 +179,7 @@ class NewFlavorTest(unittest.TestCase):
         self.assertEqual(seen, [{"y": 2}])
         self.assertEqual(run(["demo"], registry=registry), (1, {"ok": False, "error": "hands/video needs a verb"}))
         self.assertIn("demo", [f["name"] for f in flavors.describe(registry)["flavors"]])
-        self.assertEqual(flavors.video_kinds(registry), ("skit", "remake", "khaby", "demo"))
+        self.assertEqual(flavors.video_kinds(registry), ("skit", "remake", "demo"))
         self.assertNotIn("demo", flavors.REGISTRY)
         self.assertEqual(run(["demo", "go"]), (1, {"ok": False, "error": "bad arguments to hands/video"}))
 
