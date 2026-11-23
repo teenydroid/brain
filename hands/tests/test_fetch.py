@@ -14,6 +14,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import unquote
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "bin" / "lib"))
@@ -45,7 +46,7 @@ class Site(http.server.BaseHTTPRequestHandler):
         if path == "/ok":
             self.answer(200, b"hello world", [("Content-Type", "text/html; charset=utf-8")])
         elif path == "/type":
-            self.answer(200, b'{"a": 1}', [("Content-Type", query.replace("%2B", "+").replace("%2F", "/"))])
+            self.answer(200, b'{"a": 1}', [("Content-Type", unquote(query))])
         elif path == "/notype":
             self.send_response(200)
             self.send_header("Content-Length", "2")
@@ -256,7 +257,7 @@ class AnswerTest(FetchCase):
 
     def test_text_types_are_read(self):
         for kind in ("text/plain", "text/csv", "application/json", "application/xml", "application/ld%2Bjson",
-                     "application/rss%2Bxml", "application/json; charset=utf-8"):
+                     "application/rss%2Bxml", "application/json;%20charset=utf-8"):
             self.assertEqual(self.fetch(f"https://example.com/type?{kind}")["text"], '{"a": 1}', kind)
 
     def test_a_binary_type_is_refused_by_name(self):
