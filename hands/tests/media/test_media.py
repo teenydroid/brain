@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import json
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -172,7 +173,7 @@ class MediaTest(unittest.TestCase):
         self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
         with self.assertRaises(hand.Refused) as caught:
             assets.generate_image({"prompt": "a fan cheers", "figures": ["Sam Altman", "Teeyah"]}, api=self.api)
-        self.assertEqual(caught.exception.rule, "figure")
+        self.assertEqual(caught.exception.detail.get("rule"), "figure")
         self.assertIn("Teeyah has no Wikipedia article", str(caught.exception))
         self.assertEqual(self.api.models("/v1/images/edits"), [])
 
