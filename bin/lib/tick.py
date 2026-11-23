@@ -1034,6 +1034,16 @@ CAPPED_SHAPES = {
                      "%d today",
     "reddit_subscribe": '- {"do": "reddit_subscribe", "subreddit": "<name>"}: join a subreddit you keep reading; '
                         "at most %d today",
+    "rent_post": '- {"do": "rent_post", "title": "...", "brief": "<what to do, where (a city or a public place, '
+                 'never an address) and when>", "done": "<what done looks like, measurable>", "price_usd": <the '
+                 'worker\'s pay>, "city": "...", "state": "...", "country": "US" (or "remote": true)}: rent a real '
+                 "person on RentAHuman to do an absurd thing in the world you cannot, filmed, for a post of yours "
+                 "(skills/rent-a-human.md). The proof is a timestamped photo and a short video by default. The hand "
+                 "holds the price to its caps and tells you who applies; at most %d today. Then:\n"
+                 '- {"do": "rent_accept", "job": <rent job #>, "application": "<id from the rent stimulus>"}: hire one\n'
+                 '- {"do": "rent_review", "job": <rent job #>, "verdict": "approve|redo|reject", "reason": "<to the '
+                 'worker>"}: judge the work against its done-criteria only; approve pays them, once and for good\n'
+                 '- {"do": "rent_message", "job": <rent job #>, "text": "..."}: to the person you hired',
 }
 
 
