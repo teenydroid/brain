@@ -774,6 +774,15 @@ class ReflectTest(unittest.TestCase):
         seed = (REPO / "brain" / "MEMORY.seed.md").read_text()
         self.assertNotIn("## what i have shipped", seed)
 
+    def test_an_add_under_what_i_have_shipped_is_asked_about_again(self):
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answers({"ops": [{"op": "add", "section": "what i have shipped", "text": "csvstat"}], "diary": "d"},
+                     {"ops": [], "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertIn("no longer keeps", self.chats()[1]["message"])
+        self.assertNotIn("csvstat", self.page())
+
     def test_a_crowded_page_is_told_to_merge_in_the_message(self):
         (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n" + "- a long one " * 900 + "\n")
         self.answer({"ops": [], "diary": "d"})

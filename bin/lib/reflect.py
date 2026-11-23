@@ -151,6 +151,10 @@ MAX_FORGETS = 20
 MAX_LAB_EXPERIMENTS = 2
 MAX_LAB_CONCLUDES = 5
 LAB_LIMITS = {"experiment": MAX_LAB_EXPERIMENTS, "conclude": MAX_LAB_CONCLUDES}
+#: Sections the page no longer keeps: an `add` to one is asked about again.
+#: What shipped is in the ledgers and in every prompt's "what you did last
+#: week"; on 2026-11-23 it was 11 of the page's 42 items.
+RETIRED_SECTIONS = ("what i have shipped",)
 #: What a page crowding the limit is told: merging keeps what each item
 #: said, where truncation would cut blind.
 CROWDED_AT = 0.9
@@ -412,6 +416,9 @@ def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
                 raise Unusable(f"add (operation {n}) names no section")
             if not text:
                 raise Unusable(f"add (operation {n}) has no text")
+            if section.strip().lstrip("#").strip().lower() in RETIRED_SECTIONS:
+                raise Unusable(f"add (operation {n}) goes under {section.strip()!r}, which the page no longer keeps: "
+                               "your ledgers carry what you shipped")
             item = Item(None, text)
             page.section(section).items.append(item)
             added.append(item)

@@ -410,7 +410,7 @@ class DreamTest(unittest.TestCase):
     # --- the page and the snapshot -------------------------------------------
 
     def test_a_dream_updates_the_page_and_leaves_a_snapshot_for_the_diary(self):
-        self.answer({"ops": [{"op": "add", "section": "what i have shipped", "text": "csvstat"},
+        self.answer({"ops": [{"op": "add", "section": "what i am in the middle of", "text": "csvstat"},
                              {"op": "edit", "id": "m1", "text": "ana (x): ships the crab cli friday."},
                              {"op": "forget", "item": "c2", "reason": "superseded by m1"}],
                      "diary": "a good day."})
