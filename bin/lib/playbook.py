@@ -19,6 +19,11 @@ argv, required, optional}], prompt} or exits non-zero with what is wrong.
                                # "meme" (a known template, through the
                                # studio's meme path: bin/studio --meme);
                                # default none
+    skills = ["moltbook"]      # optional: skills (brain/skills/<name>/SKILL.md)
+                               # whose text rides in this playbook's prompt,
+                               # after it; rules for one service or one job
+                               # live there, not in the prompt every turn
+                               # pays for (CONTEXT.md, SOUL.md)
     nudge = true               # optional, for post, reply, like and none: the
                                # playbook is a habit, not an order. bin/act
                                # nudges Teeny's mind (the stimuli inbox) with
@@ -196,7 +201,8 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if not prompt:
         raise PlaybookError(f"{path}: the prompt is empty")
 
-    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media", "nudge"}
+    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media", "nudge",
+                       "skills"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -274,6 +280,17 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if nudge and output not in NUDGE_OUTPUTS:
         raise PlaybookError(f"{path}: a nudge goes to the mind, which can only {', '.join(NUDGE_OUTPUTS)}; not {output!r}")
 
+    skills = meta.get("skills", [])
+    if (not isinstance(skills, list) or not all(isinstance(k, str) and NAME.fullmatch(k) for k in skills)
+            or len(set(skills)) != len(skills)):
+        raise PlaybookError(f"{path}: skills is a list of distinct skill names (brain/skills/<name>/)")
+    for skill in skills:
+        try:
+            body = (brain / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+        except OSError:
+            raise PlaybookError(f"{path}: no skill brain/skills/{skill}/SKILL.md") from None
+        prompt += "\n\n" + _skill_body(body)
+
     return {
         "name": name,
         "nudge": nudge,
@@ -285,6 +302,15 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         "inputs": parsed,
         "prompt": prompt,
     }
+
+
+def _skill_body(text: str) -> str:
+    """A skill's text without its `---` front matter (that is for an index)."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
+    return text.strip()
 
 
 #: What a nudged playbook may ask of the mind: the outputs bin/tick's
