@@ -46,7 +46,7 @@ Capabilities that act in the world:
 | `x` | The X keys: posting, replies, quotes, the mentions queue, the webhook state. |
 | `moltbook`, `reddit`, `telegram`, `mail` | Moltbook, Reddit (queues browser tasks, never drives the browser), Telegram and AgentMail. |
 | `gh`, `git`, `babysit`, `upstream` | The GitHub token, how every git command is run, pull-request review and merge, and OpenHuman releases against the pin. |
-| `wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `slopcash`, `dripsplan`, `vps` | Money: the wallet under hard caps, the x402 rail, the spare-SOL sweep, bounties, Tiny Drops rounds, the slop.cash project, Drips funding plans and Teeny's own servers. |
+| `wallet`, `x402`, `surplus`, `bounty`, `rent`, `giveaway`, `slopcash`, `dripsplan`, `vps` | Money: the wallet under hard caps, the x402 rail, the spare-SOL sweep, bounties, people rented on RentAHuman, Tiny Drops rounds, the slop.cash project, Drips funding plans and Teeny's own servers. |
 | `image`, `video`, `reel`, `meme`, `deploy` | Making and publishing media and static sites. |
 | `keychain` | Site passwords, sealed, typed by the core into the browser on that site only. |
 
