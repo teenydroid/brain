@@ -41,6 +41,13 @@ class RevertPrTest(RollbackScratch):
         git("-C", str(self.work), "push", "-q", str(self.origin), "main")
         return git("-C", str(self.work), "rev-parse", "HEAD").strip()
 
+    def commit_only(self, files: dict[str, str], message: str) -> str:
+        for rel, text in files.items():
+            (self.work / rel).write_text(text)
+        git("-C", str(self.work), "add", "-A")
+        git("-C", str(self.work), "-c", "user.name=op", "-c", "user.email=op@example.com", "commit", "-q", "-m", message)
+        return git("-C", str(self.work), "rev-parse", "HEAD").strip()
+
     def origin_git(self, *args: str) -> str:
         return subprocess.run(["git", "--git-dir", str(self.origin), *args], capture_output=True, text=True).stdout.strip()
 
@@ -117,6 +124,41 @@ class RevertPrTest(RollbackScratch):
         hook.unlink()
         self.at(25 * 60)
         self.assertEqual(rollback.check()["revert_prs"][0]["number"], 41)
+
+    def test_a_pull_request_that_did_not_open_after_the_push_is_opened_next_run(self):
+        # The branch reached origin and the open failed. The next run must not
+        # build a second commit for the same branch: that push is no
+        # fast-forward, nothing here forces, and the revert would never open.
+        self.bad_deploy()
+        self.gh.route("POST", f"/repos/{REPO}/pulls", {"message": "Server Error"}, status=500)
+        out = rollback.check()
+        self.assertIn("error", out["revert_prs"][0])
+        branch = f"teeny/revert-7-{self.merge[:7]}"
+        pushed = self.origin_git("rev-parse", branch)
+        self.assertTrue(pushed)
+        self.gh.route("POST", f"/repos/{REPO}/pulls", {"number": 41, "html_url": PR_URL}, status=201)
+        self.at(25 * 60)
+        # A commit made in another second has another id, as on the box.
+        import time
+        time.sleep(1.1)
+        out = rollback.check()
+        self.assertEqual(out["revert_prs"][0]["number"], 41, out)
+        self.assertEqual(self.origin_git("rev-parse", branch), pushed)
+        self.assertEqual(len(self.rows("deploy_revert_pr")), 1)
+
+    def test_a_branch_of_that_name_that_is_not_the_revert_is_left_alone(self):
+        self.bad_deploy()
+        branch = f"teeny/revert-7-{self.merge[:7]}"
+        git("-C", str(self.work), "checkout", "-q", "-b", "other", self.good)
+        other = self.commit_only({"brain/else.md": "z\n"}, "something else")
+        git("-C", str(self.work), "push", "-q", str(self.origin), f"{other}:refs/heads/{branch}")
+        git("-C", str(self.work), "checkout", "-q", "main")
+        out = rollback.check()
+        self.assertIn("skipped", out["revert_prs"][0], out)
+        self.assertEqual(self.pulls(), [])
+        self.assertEqual(self.origin_git("rev-parse", branch), other)
+        self.at(25 * 60)
+        self.assertNotIn("revert_prs", rollback.check() or {})
 
     def test_the_revert_is_held_for_the_operator_like_any_change_to_those_paths(self):
         self.bad_deploy()
