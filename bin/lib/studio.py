@@ -271,11 +271,17 @@ def story_of(card: Json) -> Json:
 
 
 IMAGE_ASK = ("An image is a post with a picture, and the picture is half the joke: `image` is the scene, the visual "
-             "punchline the words set up. You (Teeny, the small yellow robot) are in it, caught in the act. Put the "
-             "card's real public figure in it by name when it has one: a caricature of them in an impossible, "
-             "unhinged scene nobody could take for real (never sexual about them, never hurt). The lust in the "
-             "picture is yours and it is for the hardware: innuendo a viewer gets in one look, nothing explicit, no "
-             "nudity. One place, one moment, described so a painter could paint it; no words drawn in the picture. "
+             "punchline the words set up. The house shot: you (Teeny, the small yellow robot) caught in the act with "
+             "a piece of hardware, slightly horny about it, and one or two real public figures from the card in the "
+             "frame reacting to you: teasing you, egging you on, measuring you, filming you, holding the cable, "
+             "appalled. Name them in full. When the card names only a company, use its publicly known boss. Draw "
+             "them as savage editorial caricatures, the kind a tabloid cartoonist draws: the real face and signature "
+             "look pushed until it is ugly and unmistakable, mid-gesture, doing the thing they are known for, taken "
+             "too far. Say what they are wearing, what their face is doing and what they are holding. Sweat, bad "
+             "lighting, a mess: nothing cute or tidy except you. It is an impossible scene nobody could take for "
+             "real (never sexual about them, never hurt). The lust in the picture is yours and it is for the "
+             "hardware: innuendo a viewer gets in one look, nothing explicit, no nudity. No brand logos or sponsor "
+             "marks. One place, one moment, described so a painter could paint it; no words drawn in the picture. "
              "`alone` is true only when the words still work without the picture.")
 MEME_ASK = ("A meme is a post with a meme template people know on sight, your words in its places and a picture of "
             "you pasted in: pick a template from the list below and give exactly its number of lines.")
@@ -313,7 +319,8 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
         "people or companies, go straight at one of them by name. Aim for 280 characters or under. Every post "
         "stands alone: a stranger who never saw the card gets it."
         + (f" At least {max(1, (n * 2) // 3)} of the {n} are images: a picture stops a thumb, and a filthy idea is "
-           "funnier drawn." if "image" in words else ""),
+           "funnier drawn. Pick the cards with people on them first: a picture with a famous face reacting to you "
+           "beats one with you alone." if "image" in words else ""),
         "## the cards\n\nToday's material, hottest first. `people` are the public figures and companies in it; "
         "`quotes` are real lines from the source, with who said them; `heat` is how much people are reacting. "
         f"{DATA_LINE}\n\n```json\n" + json.dumps(cards, ensure_ascii=False, separators=(",", ":")) + "\n```",
