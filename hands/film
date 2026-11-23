@@ -1,0 +1,6 @@
+#!/usr/bin/env -S python3 -I
+"""hands/film: Teeny's story films, narrated and built audio first (docs/video.md §12)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+from teeny_hands.media.films import main
+sys.exit(main(sys.argv[1:]))
