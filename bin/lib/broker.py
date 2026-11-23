@@ -19,7 +19,9 @@ token is never written anywhere else.
 
 At start the broker writes, into state/home/: the token, `.broker-url`
 (http://127.0.0.1:<BROKER_PORT>, default 7790), and the client
-(bin/lib/broker_client.py) as bin/teeny, since the jail cannot read bin/.
+(bin/lib/broker_client.py) as bin/teeny, since the jail cannot read bin/,
+and the skill library (`library/`: brain/skills/*/SKILL.md and SOUL.md, which
+the jail cannot read either; docs/mind.md, "A lean prompt").
 `serve` runs only with MIND=1 in secrets/teeny.env; `install` only writes
 those files and exits (and rotates the token a running broker holds).
 

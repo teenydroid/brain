@@ -88,11 +88,11 @@ being skipped.
 |---|---|
 | Home | `state/home/`: the only folder its shell and file tools can write |
 | Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/`, and three it keeps for itself: `notes/CHECKS.md` (recurring checks with when each was last done), `notes/LEARNINGS.md` (mistakes, counted), `notes/MEMORY.md` (what it distilled from the journal) |
-| Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake |
+| Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake. And `library/`: the repository's skills (`brain/skills/`) and `SOUL.md`, copied in by the broker at every start |
 | Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `browser` (view-only), `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
 | Keys | none |
-| Prompt | `brain/agents/mind.md`, which is Teeny's own to change |
+| Prompt | `brain/agents/mind.md` alone (no SOUL.md: `omit_identity`), built into `brain/agent/prompts/` by `bin/lib/prompts.py`; Teeny's own to change |
 | Wake | every 30 minutes (pinned), plus the wakes it schedules itself |
 
 A run has no memory of the last one except its notes and the memory tool,
@@ -251,6 +251,35 @@ The core has a `create_skill` tool, and the mind does not hold it. That tool
 writes under the core's own workspace or `~/.openhuman/`, outside the home,
 and only the core's built-in orchestrator is shown what it wrote, so for
 the mind it would be a write outside the jail that it never reads back.
+
+## A lean prompt
+
+The mind's prompt is `mind.md` and nothing else, and it is kept short: up to
+300 model calls a wake each pay for every line of it. Until 2026-11-23 it was
+not even that. `bin/lib/prompts.py` built only the speaking agents' prompt
+files, so the core found no `mind.md` in `brain/agent/prompts/` and ran the
+mind on an empty body: SOUL.md's 18 KB of posting rules and tweet examples,
+and the core's generic "Master Agent" role, without one line of its own
+instructions.
+
+So now:
+
+- `mind.md` says how the mind works in general and nothing more, and tells it
+  to keep it that way: how to do one job, or the rules of one tool or service,
+  is a skill it opens when the job comes up.
+- The library (`state/home/library/`) is the repository's shared skills,
+  `brain/skills/<name>/SKILL.md`, with an `INDEX.md`, plus `SOUL.md`, which
+  the mind reads before it writes for anyone. The broker copies them in at
+  every start (`bin/lib/broker.py`, `install_library`) and removes any the
+  repository dropped. The how-tos that used to sit in the prompt live there:
+  `self-change` (pull requests, and where each kind of rule belongs),
+  `home-tools` (tools, `bin/box`, fetch and call) and `helpers` (workers).
+- The scripts work the same way. A playbook names the skills its draft needs
+  (`skills = ["moltbook"]`, `bin/lib/playbook.py`) and their text rides in
+  that playbook's prompt only; an agent's own prompt carries a service's skill
+  only when its own turns write there (`AGENT_SKILLS` in `bin/lib/prompts.py`:
+  the tick carries `moltbook`). The Moltbook rules used to sit in
+  `CONTEXT.md`, in every script turn's prompt.
 
 ## Eyes
 
