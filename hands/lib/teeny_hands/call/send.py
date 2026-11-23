@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .. import hand
+from ..guard import gate
 from ..rest import RestApi, RestError
 from . import counts, request, services
 
