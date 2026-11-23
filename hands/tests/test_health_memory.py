@@ -62,9 +62,9 @@ class MemoryAlarmTest(unittest.TestCase):
         self.assertEqual((self.alarms(), self.gh.requests("POST", ISSUES)), ([], []))
 
     def test_a_blip_with_a_recent_success_is_degraded_not_an_alarm(self):
-        self.answer(ready(False, self.now(-20), self.now(-5), fails=12))
         for n in range(3):
             self.at(n * QUARTER)
+            self.answer(ready(False, self.now(n * QUARTER - 20), self.now(n * QUARTER - 5), fails=12 * n))
             out = health.check()
         self.assertEqual(out["memory"]["embeddings"], "degraded")
         self.assertIsNone(out["memory_alarm"])
