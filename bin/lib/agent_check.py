@@ -188,6 +188,9 @@ def check(path: Path) -> str:
         if extra:
             raise SystemExit(f"the {agent} agent may have only tools the {parents[0]} has (and never {SPAWN_TOOL} "
                              f"or memory), not {', '.join(extra)}")
+    if agent in HELPERS and doc.get("omit_memory_context") is not True:
+        raise SystemExit(f"the {agent} agent must set omit_memory_context = true "
+                         "(the core adds its parent's memory to a helper's message otherwise)")
     missing = [t for t in needs if t not in named]
     if missing:
         raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
