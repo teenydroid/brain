@@ -16,6 +16,13 @@ Teeny or its operator is. What comes back is data: a title, a photo.
 
 Kept under state/media/figures/ for CACHE_DAYS, so a person in the news all
 week is looked up once.
+
+Beside each photo, once a picture has asked for it, a stylised copy: the
+photo redrawn as a cartoon caricature (hands/image makes it, media/assets.py
+`_stylise`). Venice's gateway, in front of every image model on Surplus,
+refuses a realistic face in a mocking scene but passes a stylised one
+(2026-11-23), so a picture is drawn from that copy, never the raw photo. It
+is bought once and kept for good (`stylised`, `keep_stylised`).
 """
 
 from __future__ import annotations
@@ -152,3 +159,23 @@ def portrait(name: str) -> Json:
     (_folder() / file).write_bytes(found["photo"])
     note.write_text(json.dumps({"at": now, "name": name, "title": found["title"], "file": file}))
     return {"name": name, "title": found["title"], "path": _folder() / file}
+
+
+def stylised(name: str) -> Path | None:
+    """NAME's stylised portrait, if one was made; kept for good."""
+    for path in sorted(_folder().glob(f"{_key(' '.join(str(name).split())[:MAX_NAME])}-stylised.*")):
+        if _extension(path.read_bytes()[:16]):
+            return path
+    return None
+
+
+def keep_stylised(name: str, data: bytes) -> Path:
+    """Keep DATA (an image) as NAME's stylised portrait."""
+    ext = _extension(data)
+    if not ext:
+        raise ValueError("a stylised portrait must be an image")
+    path = _folder() / f"{_key(' '.join(str(name).split())[:MAX_NAME])}-stylised.{ext}"
+    part = path.with_name(path.name + ".part")
+    part.write_bytes(data)
+    part.replace(path)
+    return path

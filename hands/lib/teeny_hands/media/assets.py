@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
   job_id      TEXT,
   path        TEXT,
   source_id   INTEGER REFERENCES media_assets (id),
-  purpose     TEXT NOT NULL DEFAULT 'post' CHECK (purpose IN ('post', 'video_frame')),
+  purpose     TEXT NOT NULL DEFAULT 'post' CHECK (purpose IN ('post', 'video_frame', 'portrait')),
   cost_micro  INTEGER NOT NULL DEFAULT 0,
   estimated   INTEGER NOT NULL DEFAULT 1,
   error       TEXT,
@@ -105,6 +105,12 @@ def _db():
 
 KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby', 'film', 'audio')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
+#: `portrait`: a public figure's stylised portrait, bought once (_stylise).
+PURPOSE_CHECK = "purpose IN ('post', 'video_frame', 'portrait')"
+
+
+def _current(sql: str) -> bool:
+    return KINDS_CHECK in sql and STATUS_CHECK in sql and PURPOSE_CHECK in sql
 
 
 def allow_reel_kinds(conn) -> None:
@@ -119,7 +125,8 @@ def allow_reel_kinds(conn) -> None:
     keyframe), `khaby` (hands/video khaby's cut), `film` (hands/film's story
     film) and `audio` (a film's bought narration, score or effect) allowed,
     and the status `unknown` (money was
-    committed and the outcome is not known: it counts as spent), as
+    committed and the outcome is not known: it counts as spent), and the
+    purpose `portrait` (a figure's stylised portrait), as
     x/posting_rules.py does for threads.
 
     The rebuild is one transaction: interrupted, nothing changes and the next
@@ -131,11 +138,12 @@ def allow_reel_kinds(conn) -> None:
     as it was, so hands/image and hands/video keep working; only a new kind
     or status is refused, by the check itself."""
     row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
-    if row is None or (KINDS_CHECK in row[0] and STATUS_CHECK in row[0]):
+    if row is None or _current(row[0]):
         return
     rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?media_assets\"?", "CREATE TABLE media_assets_new", row[0], count=1)
     rebuilt = re.sub(r"kind IN \([^)]*\)", KINDS_CHECK, rebuilt, count=1)
     rebuilt = re.sub(r"status IN \([^)]*\)", STATUS_CHECK, rebuilt, count=1)
+    rebuilt = re.sub(r"purpose IN \([^)]*\)", PURPOSE_CHECK, rebuilt, count=1)
     # SQLite's own recipe for a table rebuild: foreign keys off (a video's
     # source_id names a still in the same table, and dropping the old table
     # would count every such row as a violation), checked after, then on.
@@ -145,7 +153,7 @@ def allow_reel_kinds(conn) -> None:
         orphans_before = len(conn.execute("PRAGMA foreign_key_check(media_assets)").fetchall())
         with hand.transaction(conn):
             again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
-            if KINDS_CHECK in again[0] and STATUS_CHECK in again[0]:
+            if _current(again[0]):
                 return
             conn.execute("DROP TABLE IF EXISTS media_assets_new")
             conn.execute(rebuilt)
