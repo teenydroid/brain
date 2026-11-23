@@ -307,7 +307,7 @@ class GapTest(Posting):
         # Quotes have their own lane (QuoteLaneTest): an original post an hour
         # after a quote goes out.
         publish.post({"anchor": "hn:1", "text": "look", "quote_of": "555"})
-        self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
+        self.assertEqual(self.posted(), [{"text": "look https://x.com/builder/status/555"}])  # QuoteAsLinkTest
         self.assertEqual(self.ledger()[0]["kind"], "quote")
         self.assertEqual(self.ledger()[0]["quote_of"], "555")
         self.at(T0 + HOUR)
@@ -841,7 +841,8 @@ class OutwardTest(Posting):
     def test_a_plain_quote_goes_out_and_tiny_in_lowercase_is_a_word(self):
         result = publish.post({"text": "a tiny agent kept the same memory layer for a week, it held", "quote_of": "555"})
         self.assertEqual(result["kind"], "quote")
-        self.assertEqual(self.posted(), [{"text": "a tiny agent kept the same memory layer for a week, it held", "quote_tweet_id": "555"}])
+        self.assertEqual(self.posted(), [{"text": "a tiny agent kept the same memory layer for a week, it held "
+                                                  "https://x.com/builder/status/555"}])
 
     def test_an_own_post_or_a_quote_of_its_own_post_is_not_outward(self):
         self.quotable("556", "1000", "teenydroid")
