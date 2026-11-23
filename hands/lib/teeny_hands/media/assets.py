@@ -343,7 +343,8 @@ def _public(row) -> Json:
     return out
 
 
-def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None) -> Json:
+def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None,
+                portraits: list[Json] | None = None) -> Json:
     """One still: a pending row, each model in turn, the file, under X's
     5 MB limit. Caps checked before the first call; for a video's start frame
     the video's caps hold."""
@@ -360,7 +361,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
             answer = api.call(
                 "POST",
                 "/v1/images/edits",
-                {"model": model, "prompt": f"{CHARACTER} {prompt}", "image": reference, "response_format": "b64_json"},
+                _edit_body(model, prompt, reference, portraits or []),
                 timeout=240,
             )
         except SurplusError as exc:
@@ -409,18 +410,56 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
     raise hand.HandError("no image model could take it: " + ("; ".join(tried)[:500] or "none configured"))
 
 
+MAX_FIGURES = 2
+
+
+def _figure_names(body: Any) -> list[str]:
+    """The famous people a picture draws (`figures`), at most MAX_FIGURES."""
+    names = body.get("figures") if isinstance(body, dict) else None
+    if names in (None, []):
+        return []
+    if not (isinstance(names, list) and len(names) <= MAX_FIGURES
+            and all(isinstance(n, str) and n.strip() and len(n) <= figures.MAX_NAME for n in names)):
+        raise hand.Refused(f"figures lists at most {MAX_FIGURES} names", rule="body")
+    return list(dict.fromkeys(" ".join(n.split()) for n in names))
+
+
+def _portraits(names: list[str]) -> list[Json]:
+    """Each name's photo. A name that is not a public figure with a photo
+    refuses the picture: a private person is never drawn."""
+    found = [figures.portrait(n) for n in names]
+    missing = [f"{f['name']} {f['why']}" for f in found if f.get("why")]
+    if missing:
+        raise hand.Refused("a picture draws only public figures: " + "; ".join(missing), rule="figure")
+    return found
+
+
+def _edit_body(model: str, prompt: str, reference: str, portraits: list[Json]) -> Json:
+    """The edit a model is asked for: Teeny's sheet alone (`image`), or the
+    sheet and one photo per public figure (`images`), named in order."""
+    if not portraits:
+        return {"model": model, "prompt": f"{CHARACTER} {prompt}", "image": reference, "response_format": "b64_json"}
+    who = "; ".join(f"photo {i + 2} is {p['name']}" for i, p in enumerate(portraits))
+    return {"model": model,
+            "prompt": f"{CHARACTER} Reference 1 is Teeny's sheet; {who}. Draw each of them from their photo as an "
+                      f"exaggerated editorial caricature, unmistakably that person. {prompt}",
+            "images": [reference, *[_data_uri(p["path"]) for p in portraits]], "response_format": "b64_json"}
+
+
 def generate_image(body: Any, api: Surplus | None = None) -> Json:
     prompt = _prompt(body)
     alt = alt_text(body)
+    names = _figure_names(body)
     if hand.dry_run():
-        return {"dry_run": True, "would_generate": "image", "prompt": prompt, "alt": alt,
+        return {"dry_run": True, "would_generate": "image", "prompt": prompt, "alt": alt, "figures": names,
                 "models": _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)}
+    portraits = _portraits(names)
     api = api or Surplus()
     with hand.lock("media"):
         conn = _db()
         try:
             _check_caps(conn, "image", 0)
-            return {"asset": _make_image(conn, api, prompt, None, alt)}
+            return {"asset": _make_image(conn, api, prompt, None, alt, portraits)}
         finally:
             conn.close()
 
