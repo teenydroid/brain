@@ -62,6 +62,11 @@ WEEK = 7 * 86400
 TEENY_MODELS = "venice-seedance-2-5-image-to-video-basic,seedance-2-0-mini-image-to-video"
 FIGURE_MODELS = "venice-wan-3-0-image-to-video,venice-kling-v4-image-to-video"
 PLATE_MODELS = "gpt-image-2-edit,nano-banana-pro-edit"
+#: The clip fields sent when FILM_PARAMS is empty: the resolution
+#: (FILM_RESOLUTION, 720p), on the models a paid render showed take it. Sent
+#: nothing, they make 1080p, whose ceiling is over a clip's cap (f65).
+DEFAULT_PARAMS = {m: {"resolution": "{resolution}"} for m in (
+    "venice-wan-3-0-image-to-video", "venice-seedance-2-5-image-to-video-basic", "seedance-2-0-mini-image-to-video")}
 #: What a film's score is told beyond the writer's own line.
 SCORE_TAIL = "comic, cinematic, builds to a big finish"
 #: Each sound effect's length, and how far apart a beat's effects fall.
@@ -310,7 +315,7 @@ def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monot
     made = manifest.setdefault("clips", {})
     per_clip = min(_usd("FILM_MAX_USD_PER_CLIP", "5.00"), max(0, _left(conn, manifest["id"])))
     plan = _plan(windows, per_clip)
-    job_params = _shots.params("FILM_PARAMS")
+    job_params = _shots.params("FILM_PARAMS") or DEFAULT_PARAMS
     sold = _shots.lengths(api)
     wait = hand.number("FILM_WAIT_SECONDS", 1800, 300, 5400)
     deadline = clock() + wait
@@ -328,11 +333,20 @@ def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monot
             shot = _shots._Shot(n, kept["row"], prompt, seconds, [], name=beat["id"], image=assets._data_uri(plate))
             shot.job, shot.model, shot.cost = kept["job"], kept.get("model"), kept.get("reserved", per_clip)
         else:
-            row = _row(conn, manifest["id"], "shot", prompt, per_clip)
+            try:
+                row = _row(conn, manifest["id"], "shot", prompt, min(per_clip, max(0, _left(conn, manifest["id"]))))
+            except hand.Refused as exc:
+                made[beat["id"]] = {"still": True, "why": str(exc)[:300]}
+                save(manifest)
+                continue
             shot = _shots._Shot(n, row, prompt, seconds, models, name=beat["id"], image=assets._data_uri(plate),
                                 cap=per_clip)
             if not _shots.submit(api, conn, manifest["id"], shot, film["aspect"], plan, job_params, sold):
                 shot.failed = "no model could take it: " + "; ".join(shot.tried)
+                # Its hold goes back now, with why, so the beats after it
+                # still have the film's money (f65: two refused figures held
+                # $10 and the third clip was refused for budget).
+                _shots._end_shots(conn, [shot])
         made[beat["id"]] = {"row": shot.row, "job": shot.job, "model": shot.model, "reserved": shot.cost}
         save(manifest)
         going.append(shot)
