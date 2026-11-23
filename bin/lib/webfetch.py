@@ -1,8 +1,9 @@
 """One GET of a public web page, for the broker's /fetch.
 
 Teeny's jailed code (a `home/tools/` tool in bin/box, the mind) reads the
-web through this, outside its jail: the box gives a tool no network but the
-broker's port. It is a read and nothing more, so it can carry nothing of
+web through this, outside its jail. A tool in the box has the host's network
+unless the operator sets BOX_NETWORK=0, which leaves it the broker's port
+only; this is then its way to read the web. It is a read and nothing more, so it can carry nothing of
 Teeny's out:
 
   the request   GET, no body, no cookies, no key, no Referer, a fixed
