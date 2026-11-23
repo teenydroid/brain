@@ -1308,7 +1308,7 @@ class RunTest(unittest.TestCase):
     def test_a_quote_slot_quotes_a_trending_post_with_its_picture(self):
         self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
                    "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
-        tags = {"items": [{"id": "digg:s1", "people": ["Sam Altman"], "what_happened": "openai pledges limits",
+        tags = {"items": [{"id": "digg:s1", "people": ["OpenAI"], "what_happened": "openai pledges limits",
                            "public": ["sama"]},
                           {"id": "digg:s2", "people": ["Perplexity"], "what_happened": "a browser",
                            "public": ["aravsrinivas"]}]}
