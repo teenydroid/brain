@@ -133,6 +133,44 @@ class LabTest(unittest.TestCase):
         self.assertEqual(ledger.listing()["experiments"], [])
         self.assertEqual(len(ledger.listing(None)["experiments"]), 2)
 
+    def test_a_stale_experiment_with_no_posts_frees_its_slot(self):
+        # Live 2026-11-23: five open experiments, none ever carried a post,
+        # so every proposal was refused too_many_open and the lab wedged.
+        for fmt in ("take", "gm", "proof", "quote", "vote"):
+            ledger.propose(body(format=fmt, deadline_days=20))
+        self.at(T0 + 2 * DAY)
+        self.x_post("1", 4, T0 + DAY, fmt="gm")  # gm has a post: it stays open
+        self.at(T0 + ledger.STALE_DAYS * DAY)
+        out = ledger.propose(body(format="clip"))
+        self.assertEqual(out["proposed"], 6)
+        self.assertEqual(sorted(e["format"] for e in out["expired"]), ["proof", "quote", "take", "vote"])
+        left = {e["format"] for e in ledger.listing()["experiments"]}
+        self.assertEqual(left, {"gm", "clip"})
+        lesson = next(item for item in ledger.lessons()["lessons"] if item["format"] == "take")
+        self.assertEqual(lesson["verdict"], "unclear")
+        self.assertIn("no post carried the take tag", lesson["lesson"])
+
+    def test_a_past_deadline_experiment_is_concluded_unclear_when_scored(self):
+        ledger.propose(body(posts=3, deadline_days=2))
+        self.x_post("1", 4, T0 + 1000, fmt="take")
+        self.at(T0 + 3 * DAY)
+        out = ledger.score()
+        self.assertEqual(out["scored"], [])
+        self.assertEqual([(e["id"], e["n"]) for e in out["expired"]], [(1, 1)])
+        got = ledger.lessons()["lessons"][0]
+        self.assertEqual((got["verdict"], got["n"]), ("unclear", 1))
+        self.assertIn("1 of 3 planned posts", got["lesson"])
+
+    def test_a_due_experiment_with_its_posts_waits_for_a_verdict_then_expires(self):
+        ledger.propose(body(posts=1, deadline_days=2))
+        self.x_post("1", 4, T0 + 1000, fmt="take")
+        self.at(T0 + 3 * DAY)
+        scored = ledger.score()["scored"]
+        self.assertEqual([(s["id"], s["due"]) for s in scored], [(1, True)])
+        self.at(T0 + (2 + ledger.GRACE_DAYS) * DAY + 1)
+        self.assertEqual([e["id"] for e in ledger.score()["expired"]], [1])
+        self.assertIn("no verdict came", ledger.lessons()["lessons"][0]["lesson"])
+
     def test_cli(self):
         def run(*argv, stdin=None):
             done = subprocess.run([sys.executable, "-I", "-B", str(LAB), *argv], input=stdin, capture_output=True,
