@@ -35,6 +35,11 @@ plain code in policy.py (no upstream import), which hands/tests/reel tests.
    there. One cut at a time, in a folder of its own on the storage volume, served
    back (`GET /teeny/v1/cuts/{id}/cut.mp4`, `.../frame-N.jpg`) until
    hands/video deletes it (`DELETE /teeny/v1/cuts/{id}`).
+   Story films (filmcut.py; docs/video.md §12): `POST /teeny/v1/films`
+   joins three to eight beats with no sound of their own under Teeny's
+   narration, the score ducked beneath it, effects on cue and the words
+   burned in, every file from media/film/. A film is a cut like any other:
+   the same folder, served and deleted by the same two routes.
 5. Cleanup: a task's staged files go when hands/reel deletes the task; at
    start every leftover of an earlier run is removed (upstream keeps task
    state in memory, so a restart orphans them); and a sweep every
@@ -64,6 +69,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
+import filmcut  # noqa: E402
 import policy  # noqa: E402
 import skitcut  # noqa: E402
 from app.asgi import app  # noqa: E402
@@ -205,6 +211,50 @@ def _cut(cut_id: str, checked: dict) -> dict:
         return skitcut.render(sources, checked["label"], checked["aspect"], folder, os.path.join(FONTS, skitcut.FONT),
                               bed=bed, bed_volume=checked["bed_volume"],
                               starts=checked.get("starts"), trims=checked.get("trims"), sound=sound)
+
+
+def _film(cut_id: str, checked: dict) -> dict:
+    """One story film, in its own folder. Runs in a worker thread. Every file
+    is resolved under media/film/ once symlinks are resolved."""
+    films = os.path.join(TEENY, "media", "film")
+
+    def own(path: str, limit: int = policy.MATERIAL_MAX_BYTES) -> str:
+        real = policy.resolve_source(TEENY, path, limit)
+        if not skitcut.under(real, films):
+            raise policy.JobError("a film's files are under media/film/")
+        return real
+
+    paths = {"clips": [own(b["clip"]) if b.get("clip") else None for b in checked["beats"]],
+             "plates": [own(b["plate"]) if b.get("plate") else None for b in checked["beats"]],
+             "narration": own(checked["narration"], policy.AUDIO_MAX_BYTES),
+             "score": own(checked["score"], policy.AUDIO_MAX_BYTES) if checked["score"] else None,
+             "sfx": [own(e["file"], policy.AUDIO_MAX_BYTES) for e in checked["sfx"]]}
+    folder = os.path.join(CUTS, cut_id)
+    os.makedirs(folder)
+    with CUTTING:
+        return filmcut.render(checked, paths, folder, os.path.join(FONTS, skitcut.FONT))
+
+
+@router.post("/teeny/v1/films")
+async def create_film(request: Request):
+    length = request.headers.get("content-length")
+    if length is None or not length.isdigit() or int(length) > policy.MAX_BODY_BYTES:
+        return _refuse(413, f"a film is at most {policy.MAX_BODY_BYTES} bytes, with a content-length")
+    raw = await request.body()
+    try:
+        checked = filmcut.check_film(json.loads(raw))
+    except ValueError as exc:  # FilmError, or a body that is not JSON
+        return _refuse(400, str(exc) if isinstance(exc, skitcut.CutError) else "the body is not JSON")
+    cut_id = utils.get_uuid()
+    try:
+        made = await run_in_threadpool(_film, cut_id, checked)
+    except (policy.JobError, skitcut.CutError) as exc:
+        shutil.rmtree(os.path.join(CUTS, cut_id), ignore_errors=True)
+        return _refuse(400 if isinstance(exc, policy.JobError) else 422, str(exc))
+    except BaseException:
+        shutil.rmtree(os.path.join(CUTS, cut_id), ignore_errors=True)
+        raise
+    return {"status": 200, "data": {"cut_id": cut_id, **made}}
 
 
 @router.post("/teeny/v1/cuts")
