@@ -27,6 +27,11 @@ max_iterations = 40
 sandbox_mode = "sandboxed"
 sandbox_filesystem_only = true
 scheduled_actions = true
+# Its browser is for reading. The core's one browser profile is signed in as
+# Teeny, and the operator agent may click and type in it; with this the
+# core gives this agent a throwaway profile and only the actions that open
+# and read a page (OpenHuman, `browser_view_only`). bin/doctor requires it.
+browser_view_only = true
 omit_identity = true
 omit_memory_context = true
 omit_safety_preamble = false
@@ -43,4 +48,6 @@ named = [
     "glob",
     "grep",
     "list",
+    # View-only, like the mind's.
+    "browser",
 ]

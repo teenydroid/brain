@@ -14,6 +14,8 @@ needs; exits non-zero with the reason otherwise:
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
+- the mind and its worker (VIEW_ONLY) set `browser_view_only`: their browser
+  opens and reads pages on a throwaway profile and never acts as Teeny;
 - each scheduled agent has the tools its desk needs (it reads its work from
   state/workbench/desk/ and writes its report there) and its role's own;
 - each scheduled agent's prompt says how a run with nothing queued ends:
@@ -65,8 +67,9 @@ SCHEDULED = {
     "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
     # The mind works in its own home with a shell and no key (docs/mind.md).
-    # Nothing that schedules (a cron shell job runs outside any jail), spawns,
-    # installs into the core or browses: each is a way past the jail or the broker.
+    # Nothing that schedules (a cron shell job runs outside any jail), spawns
+    # or installs into the core: each is a way past the jail or the broker.
+    # Its one browser tool is view-only (VIEW_ONLY).
     "mind": (("shell", "file_read", "file_write", "memory"),
              ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
               *NEVER)),
@@ -86,6 +89,16 @@ HELPERS = {
                ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
                 "memory", *NEVER)),
 }
+#: The agents whose browser is for reading only. The core has one browser
+#: profile, signed in as Teeny, and one list of clicks and typing it allows
+#: unattended (the operator's), so a browser in any other agent's hands could
+#: speak as Teeny past the guard. `browser_view_only` gives these agents a
+#: throwaway profile and only the actions that open and read a page. They
+#: must set it whether or not they list the tool, so that adding the tool
+#: later is never the one step that opens the signed-in profile; `browser`
+#: is the only browser tool they may name.
+VIEW_ONLY = ("mind", "worker")
+BROWSER_TOOL = "browser"
 #: The scheduled agents whose shell must stay jailed to files in their workspace.
 JAILED = ("builder", "mind", "worker")
 
@@ -172,6 +185,8 @@ def check(path: Path) -> str:
     for tool in named:
         if tool == SPAWN_TOOL and agent in SUBAGENTS:
             continue
+        if tool == BROWSER_TOOL and agent in VIEW_ONLY:
+            continue
         if any(tool == b or tool.startswith(b) for b in banned):
             raise SystemExit(f"the {agent} agent must not have {tool!r}")
     parents = [p for p, kids in SUBAGENTS.items() if agent in kids]
@@ -194,6 +209,11 @@ def check(path: Path) -> str:
     if agent in JAILED and not (doc.get("sandbox_mode") == "sandboxed" and doc.get("sandbox_filesystem_only") is True):
         raise SystemExit(f'the {agent} agent must set sandbox_mode = "sandboxed" and sandbox_filesystem_only = true '
                          "(its shell is jailed to its workspace)")
+    if agent in VIEW_ONLY and doc.get("browser_view_only") is not True:
+        raise SystemExit(f"the {agent} agent must set browser_view_only = true (the core's browser is signed in as "
+                         "Teeny; this agent's is for reading, on a throwaway profile)")
+    if agent not in VIEW_ONLY and "browser_view_only" in doc:
+        raise SystemExit(f"only {', '.join(VIEW_ONLY)} set browser_view_only, not {agent}")
     if agent not in NOTHING_TO_DO:
         return agent
     prompt = source.get("inline", "") if isinstance(source, dict) else ""

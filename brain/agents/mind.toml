@@ -33,6 +33,11 @@ sandbox_mode = "sandboxed"
 sandbox_filesystem_only = true
 scheduled_actions = true
 scheduled_workspace = "state/home"
+# Its browser is for reading. The core's one browser profile is signed in as
+# Teeny, and the operator agent may click and type in it; with this the
+# core gives this agent a throwaway profile and only the actions that open
+# and read a page (OpenHuman, `browser_view_only`). bin/doctor requires it.
+browser_view_only = true
 omit_identity = false
 omit_memory_context = false
 omit_safety_preamble = false
@@ -48,9 +53,10 @@ agent_tier = "reasoning"
 file = { path = "mind.md" }
 
 [tools]
-# Exactly these. No browser (the operator agent browses, through
-# `teeny do` queue_task), nothing that schedules, spends, connects or
-# spawns: each of those is a way past the jail or the broker.
+# Exactly these. Nothing that schedules, spends or connects: each of those
+# is a way past the jail or the broker. The browser is view-only (above):
+# anything that needs a click or a login still goes to the operator agent
+# through `teeny do` queue_task.
 named = [
     "shell",
     "file_read",
@@ -61,6 +67,8 @@ named = [
     "list",
     "tool_search",
     "memory",
+    # Reading pages that need a real browser to render (view-only).
+    "browser",
     # Its helpers, and only the ones listed below ([subagents]).
     "spawn_subagent",
 ]
