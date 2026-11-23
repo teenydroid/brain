@@ -322,6 +322,13 @@ class TagTest(unittest.TestCase):
         tags = {"digg:a": {"people": ["Teeyah", "Zoë Rose Bryant", "Lionsgate"], "what_happened": "it opened big"}}
         self.assertEqual(studio_feed.subjects_only(candidates, tags)["digg:a"]["people"], ["Lionsgate"])
 
+    def test_a_quote_author_counts_as_named_only_by_a_whole_name(self):
+        # "Ann" is not named by "announces"; "Tesla's" does name Tesla.
+        candidates = [{"id": "digg:a", "headline": "Nvidia announces a chip; Tesla's stock moves",
+                       "quotes": [{"by": "Ann", "said": "wow"}, {"by": "Tesla", "said": "we are pleased"}]}]
+        tags = {"digg:a": {"people": ["Ann", "Tesla", "Nvidia"], "what_happened": "a chip"}}
+        self.assertEqual(studio_feed.subjects_only(candidates, tags)["digg:a"]["people"], ["Tesla", "Nvidia"])
+
     def test_teenys_own_events_are_never_sent_to_be_tagged(self):
         message = studio_feed.tag_message([cand("digg:a"), cand("own:1", "own", mine=True)])
         self.assertIn('"id":"digg:a"', message)

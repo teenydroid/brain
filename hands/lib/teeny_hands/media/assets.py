@@ -343,6 +343,10 @@ def _public(row) -> Json:
     return out
 
 
+def _content_refusal(exc: SurplusError) -> bool:
+    return exc.status == 400 and "content policy" in str(exc).lower()
+
+
 def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None,
                 portraits: list[Json] | None = None) -> Json:
     """One still: a pending row, each model in turn, the file, under X's
@@ -366,7 +370,9 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
             )
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
-            if exc.status in FALLBACK_STATUSES or exc.status is None:
+            # One seller's content filter turning a scene down is that
+            # seller's answer, not the scene's: the next model reads it afresh.
+            if exc.status in FALLBACK_STATUSES or exc.status is None or _content_refusal(exc):
                 continue
             _finish(conn, asset_id, status="failed", model=model, error=str(exc))
             raise hand.HandError(f"image generation failed: {exc}") from None

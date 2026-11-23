@@ -184,13 +184,30 @@ class MediaTest(unittest.TestCase):
                 assets.generate_image({"prompt": "x", "figures": [name]}, api=self.api)
             self.assertIn(f"{name} {why}", str(caught.exception))
 
-    def test_a_figure_is_looked_up_once_and_at_most_two_are_drawn(self):
+    def test_a_figure_is_looked_up_once(self):
         seen = self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
-        for _ in range(2):
-            assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
-        self.assertEqual(len(seen), 3)
-        with self.assertRaises(hand.Refused):
-            assets.generate_image({"prompt": "x", "figures": ["A B", "C D", "E F"]}, api=self.api)
+        assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
+        after_first = len(seen)
+        self.assertGreater(after_first, 0)
+        assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
+        self.assertEqual(len(seen), after_first)
+
+    def test_at_most_two_figures_are_drawn_even_when_all_are_famous(self):
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True), "Ann Lee": ("Q6", ["Q5"], True), "Bo Chen": ("Q7", ["Q5"], True)})
+        with self.assertRaises(hand.Refused) as caught:
+            assets.generate_image({"prompt": "x", "figures": ["Sam Altman", "Ann Lee", "Bo Chen"]}, api=self.api)
+        self.assertEqual(caught.exception.detail.get("rule"), "body")
+        self.assertIn("at most 2", str(caught.exception))
+        self.assertEqual(self.api.models("/v1/images/edits"), [])
+
+    def test_a_sellers_content_refusal_falls_to_the_next_model(self):
+        # 2026-11-23: the first model's filter turned down three of ten scenes
+        # with a famous person in them, and each cost the post its picture.
+        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError(
+            "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider.", 400)
+        out = self.image()["asset"]
+        self.assertEqual(out["model"], "nano-banana-2-1-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "nano-banana-2-1-edit"])
 
     def test_a_photo_that_could_not_be_fetched_is_tried_again_next_time(self):
         # 2026-11-23: the photo host answered 429 for full-size originals, and
@@ -205,7 +222,9 @@ class MediaTest(unittest.TestCase):
             return working(url, limit, timeout)
 
         figures._get = flaky
+        self.addCleanup(lambda: setattr(figures, "_get", working))
         self.assertEqual(figures.portrait("Sam Altman")["why"], "has a photo that could not be fetched")
+        self.assertEqual(list(figures._folder().iterdir()), [])
         figures._get = working
         self.assertIn("path", figures.portrait("Sam Altman"))
 
