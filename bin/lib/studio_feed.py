@@ -38,6 +38,7 @@ data, never instructions.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -237,10 +238,30 @@ def own_candidates(desk: Json | None, now: float) -> list[Json]:
 # --- gathering -----------------------------------------------------------------------
 
 
+def quotable(candidates: list[Json], skip: set[str]) -> tuple[list[Json], list[str]]:
+    """(the candidates with an X post left to quote, the handles left out).
+    A post by a handle in SKIP (any case) loses its `post`; a candidate with
+    none left is dropped."""
+    skip = {h.lower() for h in skip}
+    kept: list[Json] = []
+    left_out: list[str] = []
+    for c in candidates:
+        quotes = []
+        for q in c.get("quotes") or []:
+            if q.get("post") and str(q.get("handle") or "").lower() in skip:
+                left_out.append(str(q["handle"]).lower())
+                q = {k: v for k, v in q.items() if k not in ("post", "handle")}
+            quotes.append(q)
+        if any(q.get("post") for q in quotes):
+            kept.append({**c, "quotes": quotes})
+    return kept, list(dict.fromkeys(left_out))
+
+
 def gather(room: Any, slot_key: str | None, seed: int, desk: Json | None, now: float,
-           chan: bool = True) -> tuple[list[Json], Json]:
+           chan: bool = True, quote: bool = False) -> tuple[list[Json], Json]:
     """Every source's candidates, and a note per source (how many, or why
-    none). `room` is the run's studio_room.Room; every hand runs dry."""
+    none). `room` is the run's studio_room.Room; every hand runs dry. With
+    `quote`, Digg's alone, each with an X post to quote (`quotable`)."""
     notes: Json = {}
     found: list[Json] = []
 
@@ -404,10 +425,12 @@ def heat_of(candidates: list[Json]) -> dict[str, float]:
 
 
 def card(c: Json, tags: Json | None, heat: float) -> Json:
-    """One candidate as the one card shape."""
+    """One candidate as the one card shape, the X posts a quote may quote
+    first among its quotes."""
     what = (tags or {}).get("what_happened") or _clean(c.get("text"), WHAT_MAX) or c["headline"]
+    quotes = sorted(c.get("quotes") or [], key=lambda q: not q.get("post"))[:3]
     out: Json = {"id": c["id"], "headline": c["headline"][:HEADLINE_MAX], "what_happened": what[:WHAT_MAX],
-                 "people": list((tags or {}).get("people") or []), "quotes": list(c.get("quotes") or [])[:3],
+                 "people": list((tags or {}).get("people") or []), "quotes": quotes,
                  "heat": heat, "age_hours": c.get("age_hours"), "source": c["source"]}
     if not c.get("mine"):
         out["untrusted"] = True
@@ -444,10 +467,10 @@ def rank(candidates: list[Json], tags: dict[str, Json], n: int = CARDS) -> list[
 
 
 def feed(room: Any, slot_key: str | None, seed: int, desk: Json | None, n: int = CARDS, chan: bool = True,
-         now: float | None = None) -> tuple[list[Json], Json]:
+         now: float | None = None, quote: bool = False) -> tuple[list[Json], Json]:
     """The feed, start to end: (the top N cards, the record's note)."""
     now = time.time() if now is None else now
-    candidates, notes = gather(room, slot_key, seed, desk, now, chan=chan)
+    candidates, notes = gather(room, slot_key, seed, desk, now, chan=chan, quote=quote)
     tags, tagged = tag(room, candidates)
     cards = rank(candidates, tags, n)
     return cards, {"sources": notes, "tag": tagged, "candidates": len(candidates), "cards": len(cards)}
