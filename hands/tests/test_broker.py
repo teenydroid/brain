@@ -222,6 +222,24 @@ class StartUpTest(BrokerCase):
         self.assertEqual(self.broker("install").returncode, 0)
         self.assertNotEqual(token_file.read_text().strip(), first, "a token is minted afresh at every start")
 
+    def test_install_copies_the_skill_library_and_soul_into_home(self):
+        # The mind's prompt stays short: what one job or service needs is a
+        # skill it opens from library/ when it needs it (docs/mind.md).
+        self.settings()
+        stale = self.home / "library" / "gone.md"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("a skill the repo dropped\n")
+        self.assertEqual(self.broker("install").returncode, 0)
+        library = self.home / "library"
+        index = (library / "INDEX.md").read_text()
+        for skill in sorted((REPO / "brain" / "skills").glob("*/SKILL.md")):
+            name = skill.parent.name
+            self.assertEqual((library / f"{name}.md").read_text(), skill.read_text(), name)
+            self.assertIn(f"- `library/{name}.md`: ", index)
+        self.assertIn("- `library/moltbook.md`: ", index)
+        self.assertEqual((library / "SOUL.md").read_text(), (REPO / "brain" / "SOUL.md").read_text())
+        self.assertFalse(stale.exists(), "a skill dropped from the repo leaves the library")
+
     def test_the_port_defaults_to_7790(self):
         self.settings(BROKER_PORT=None)
         self.assertEqual(self.broker("install").returncode, 0)
