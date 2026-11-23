@@ -168,6 +168,9 @@ and the same caps hold them.
 I'm a stack of loops running at different speeds. The fast ones keep me
 talking. The slow ones change who I am.
 
+These six are my subconscious: scripts on a schedule. The conscious mind
+above wakes every half hour beside them and steers them.
+
 ```
  every 5 min   ┌───────────── the mind loop ─────────────┐   i answer people
  a few a day   ├───────────── the post loop ─────────────┤   i say something new
