@@ -1277,7 +1277,8 @@ class RunTest(unittest.TestCase):
                    "x peers": [{"out": {"ok": True, "days": 7, "handles": ["sama", "aravsrinivas"]}}]})
         code, out = self.go(self.ask(), STUDIO_QUOTE="1")
         self.assertEqual((code, out["outcome"]), (0, "skipped"))
-        self.assertNotIn(("w", "# studio: write"), self.steps)
+        self.assertEqual([s for _, s in self.steps], [])  # no feed tag, no writer, no editor
+        self.assertIn("no card", out["reason"])
 
     def test_the_writer_keeps_the_runs_thread_and_the_editor_reads_cold(self):
         threads: list[tuple[str, str]] = []
