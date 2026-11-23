@@ -107,6 +107,11 @@ MAX_SENTENCE_CHARS = 400
 MAX_READ_CHARS = 600
 TIMEOUT = 60.0
 ASKS = 3
+#: The tokens a picture's pass may answer in: the model's reasoning and its
+#: JSON together. glm-5.3-flash thinks first, and at 400 every ask of the
+#: 23:00 IST slot of 2026-11-23 ended in its reasoning with no answer (the
+#: checks that passed used 250-340); a cap only bounds a runaway answer.
+ANSWER_TOKENS = 2000
 #: Seconds each pass may take, asks and waits together: cold, on model, say-back.
 PASS_SECONDS = {"cold": 60.0, "model": 60.0, "match": 30.0, "frames": 90.0}
 #: A pass does not start an ask with less than this left.
@@ -309,7 +314,7 @@ class Spend:
 
 def _ask(api: Any, name: str, stage: str, text: str, pictures: list[str], read: Callable[[Any], dict | None],
          spend: Spend, clock: Callable[[], float], sleep: Callable[[float], None],
-         max_tokens: int = 400) -> tuple[dict[str, Any] | None, str]:
+         max_tokens: int = ANSWER_TOKENS) -> tuple[dict[str, Any] | None, str]:
     """One pass, inside its own PASS_SECONDS: the verdict as `read` takes
     it, or None and why not."""
     from ..media.surplus import SurplusError

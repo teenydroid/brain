@@ -445,18 +445,14 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
         if fmt == "image":
             post["image"] = _str(raw.get("image"), SCENE_MAX)
             post["alone"] = raw.get("alone") is True
-            people = raw.get("people") if isinstance(raw.get("people"), list) else []
-            post["people"] = list(dict.fromkeys(_str(" ".join(p.split()), 60) for p in people
-                                                 if isinstance(p, str) and p.strip()))
+            post["people"] = picture_people(raw.get("people"), card)
             if len(post["people"]) > PICTURE_PEOPLE:
                 why = why or f"a picture draws at most {PICTURE_PEOPLE} people"
             why = why or ("" if post["image"] else "an image needs its scene")
         if fmt == "meme":
             post["meme"], bad = meme_of(raw.get("meme"))
             post["alone"] = raw.get("alone") is True
-            people = raw.get("people") if isinstance(raw.get("people"), list) else []
-            post["people"] = list(dict.fromkeys(_str(" ".join(p.split()), 60) for p in people
-                                                 if isinstance(p, str) and p.strip()))
+            post["people"] = picture_people(raw.get("people"), card)
             if len(post["people"]) > PICTURE_PEOPLE:
                 why = why or f"a picture draws at most {PICTURE_PEOPLE} people"
             why = why or bad
@@ -476,6 +472,29 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
         post["story"] = story_of(card)
         kept.append(post)
     return kept, dropped
+
+
+def picture_people(named: Any, card: Json | None) -> list[str]:
+    """A picture's people, each once, a name the writer shortened written in
+    full: a surname or a first name that is a whole word of exactly one full
+    name on the card (its people, or who wrote its quotes) becomes that name.
+    hands/image looks each one up, and "Suleyman" is no Wikipedia article
+    (two pictures of the 23:00 IST slot of 2026-11-23 were refused for it)."""
+    names = [p for p in (card or {}).get("people") or [] if isinstance(p, str)]
+    names += [q["by"] for q in (card or {}).get("quotes") or [] if isinstance(q, dict) and isinstance(q.get("by"), str)]
+    full = [n for n in {" ".join(n.split()).casefold(): " ".join(n.split()) for n in reversed(names)}.values()
+            if len(n.split()) > 1][::-1]
+    out: list[str] = []
+    for raw in named if isinstance(named, list) else []:
+        if not (isinstance(raw, str) and raw.strip()):
+            continue
+        name = _str(" ".join(raw.split()), 60)
+        if len(name.split()) == 1:
+            hits = [n for n in full if name.casefold() in (w.casefold() for w in n.split())]
+            if len(hits) == 1:
+                name = hits[0]
+        out.append(name)
+    return list(dict.fromkeys(out))
 
 
 def quoted_post(named: Any, card: Json, post: Json) -> str:

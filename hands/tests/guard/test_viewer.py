@@ -82,6 +82,15 @@ class ViewerBase(support.Scratch):
 
 @needs_pillow
 class ViewerTest(ViewerBase):
+    def test_each_pass_leaves_room_for_the_models_reasoning_and_its_answer(self):
+        # 2026-11-23, the 23:00 IST slot: glm-5.3-flash thinks before it
+        # answers, and every ask of the cold pass spent its whole 400 tokens
+        # (1,200 over three asks, nine asks that night): no answer was left,
+        # three pictures were paid for and none posted.
+        self.view(chat(COLD), chat(ON))
+        self.assertEqual([b["max_tokens"] for b in self.api.bodies], [viewer.ANSWER_TOKENS] * 2)
+        self.assertGreaterEqual(viewer.ANSWER_TOKENS, 2000)
+
     def test_a_picture_on_model_and_readable_passes_with_no_say_back(self):
         out = self.view(chat(COLD), chat(ON))
         self.assertEqual(out, {"ok": True, "sees": COLD["sees"], "on_model": True, "readable": True,
