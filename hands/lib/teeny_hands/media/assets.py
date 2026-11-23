@@ -49,7 +49,7 @@ from .surplus import Surplus, SurplusError
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby', 'film', 'audio')),
   status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'unknown')),
   prompt      TEXT NOT NULL,
   model       TEXT,
@@ -98,7 +98,7 @@ def _db():
     return conn
 
 
-KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby')"
+KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby', 'film', 'audio')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
 
 
@@ -111,7 +111,9 @@ def allow_reel_kinds(conn) -> None:
     words drawn on), `skit` (hands/video skit's cut), `shot` (one of its
     bought text-to-video clips, or a remake's image-to-video clip), `remake`
     (hands/video remake's cut), `key` (a remake's or a khaby video's bought
-    keyframe) and `khaby` (hands/video khaby's cut) allowed, and the status `unknown` (money was
+    keyframe), `khaby` (hands/video khaby's cut), `film` (hands/film's story
+    film) and `audio` (a film's bought narration, score or effect) allowed,
+    and the status `unknown` (money was
     committed and the outcome is not known: it counts as spent), as
     x/posting_rules.py does for threads.
 
@@ -247,9 +249,16 @@ def release_stale(conn) -> None:
         release_remake(conn, row["id"], "expired: its keys were never rendered")
 
 
+#: A story film's own rows, and every row it bought (docs/video.md §12.6):
+#: a film is paid from its own weekly budget (media/films.py), never from
+#: MEDIA_MAX_USD_PER_DAY, so the daily skit is never starved by one.
+FILM_OWNED = "(kind = 'film' OR source_id IN (SELECT id FROM media_assets WHERE kind = 'film'))"
+
+
 def _spent_today(conn) -> int:
     row = conn.execute(
-        "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE status != 'failed' AND created_at >= ?",
+        "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE status != 'failed' AND created_at >= ?"
+        f" AND NOT {FILM_OWNED}",
         (hand.day_start(),),
     ).fetchone()
     return int(row["spent"])
