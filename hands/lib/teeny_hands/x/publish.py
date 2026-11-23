@@ -178,7 +178,8 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # raised: an error here would invite a retry that posts it twice.
         try:
             rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor,
-                              quote_author=quoted["authorId"] if quoted else None, **tagged, **made)
+                              quote_author=quoted["authorId"] if quoted else None,
+                              quote_handle=(quoted.get("authorUsername") or None) if quoted else None, **tagged, **made)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
         # A quote of a peer (brain/x-peers.txt) is a touch, whoever quoted.
