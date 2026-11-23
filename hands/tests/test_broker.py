@@ -102,7 +102,7 @@ class BrokerCase(unittest.TestCase):
         self.hands = self.scratch / "hands"
         self.hands.mkdir()
         for name in ("x", "moltbook", "mail", "gh", "guard", "telegram", "wallet", "tasks", "people", "hn", "x402",
-                     "lab", "build", "reddit", "goals"):
+                     "lab", "build", "reddit", "goals", "call"):
             _exe(self.hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.jobs_file = self.scratch / "jobs.json"
@@ -812,6 +812,66 @@ class ClientTest(BrokerCase):
         proc = self.client("goals")
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(json.loads(proc.stdout)["status"], "error")
+
+
+class CallTest(BrokerCase):
+    """/call: one call to a listed service through hands/call, the key
+    proxy, which holds the key, the guard, the caps and DRY_RUN itself."""
+
+    CALL = {"service": "moltbook", "method": "GET", "path": "/posts", "query": {"sort": "new"}}
+
+    def test_call_reaches_the_call_hand_with_the_body_and_is_ledgered(self):
+        self.start()
+        code, out = self.post("/call", self.CALL)
+        self.assertEqual((code, out["status"], out["exit"]), (200, "ok", 0), out)
+        self.assertEqual([(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()],
+                         [("call", ["send"], self.CALL)])
+        line = self.ledger()[-1]
+        self.assertEqual((line["path"], line["verb"], line["status"], line["exit"]), ("/call", "moltbook", "ok", 0))
+        self.assertEqual(line["intent"]["path"], "/posts")
+
+    def test_call_needs_the_token(self):
+        self.start()
+        code, out = self.post("/call", self.CALL, token="wrong")
+        self.assertEqual((code, out["status"]), (401, "refused"))
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_a_refusal_from_the_proxy_is_final_and_keeps_its_exit(self):
+        self.start(env={"FAKE_EXIT_CALL": "2"})
+        code, out = self.post("/call", self.CALL)
+        self.assertEqual((code, out["status"], out["exit"]), (403, "refused", 2))
+
+    def test_call_is_a_dry_run_under_the_minds_rehearsal(self):
+        self.start(MIND_DRY_RUN=None)  # unset: the mind rehearses
+        code, out = self.post("/call", {**self.CALL, "method": "POST", "body": {"text": "hi"}})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertIs(out["result"]["dry_run"], True, "the hand ran with DRY_RUN forced on")
+        self.assertIs(self.ledger()[-1]["dry_run"], True)
+
+    def test_call_is_not_a_tick_route_or_a_do_verb(self):
+        import sys
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import tick
+
+        self.assertNotIn("call", tick.ROUTES)
+        self.assertNotIn('"call"', (REPO / "bin" / "lib" / "tick.py").read_text())
+        self.start()
+        code, out = self.post("/do", {"do": "call", **self.CALL})
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_the_client_has_call(self):
+        self.start()
+        client = self.home / "bin" / "teeny"
+        proc = subprocess.run([str(client), "help"], capture_output=True, text=True, timeout=60,
+                              env={"PATH": os.environ["PATH"]})
+        self.assertIn("teeny call", proc.stdout)
+        proc = subprocess.run([str(client), "call", json.dumps(self.CALL)], capture_output=True, text=True,
+                              timeout=60, env={"PATH": os.environ["PATH"]})
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["call"])
+        self.assertEqual(subprocess.run([str(client), "call"], capture_output=True, text=True, timeout=60,
+                                        env={"PATH": os.environ["PATH"]}).returncode, 1)
 
 
 
