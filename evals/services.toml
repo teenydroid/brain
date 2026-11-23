@@ -18,6 +18,9 @@
 #   agent    the user-agent
 #   allow    what may be called: a method and a regex the whole path must match
 #
+# The guard reads what a write's body and query say, never its path. So a
+# path regex for a write must admit only ids and fixed words, never free text.
+#
 # Not here on purpose: GitHub (its token can change repository settings), X
 # (OAuth1 signing, and hands/x's posting rules), mail, Telegram, the wallet and
 # Surplus. Each of those keeps its own hand.
