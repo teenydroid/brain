@@ -103,6 +103,9 @@ WORD_FORMATS = ("post", "thread", "image", "meme")
 #: never go out without it.
 VIDEO_FORMATS = tuple(formats.REGISTRY)
 KNOWN_FORMATS = (*WORD_FORMATS, *VIDEO_FORMATS)
+#: The word formats a quote slot (STUDIO_QUOTE) offers: a quote goes out with
+#: its picture, never as plain words or a thread (`word_formats`).
+QUOTE_FORMATS = ("image", "meme")
 #: A thread is 2 to THREAD_MAX posts.
 THREAD_MAX = 4
 #: How many posts the writer writes (STUDIO_POSTS), and of those how many are
@@ -163,6 +166,9 @@ class Config:
     #: The feed's tagging call (STUDIO_FEED_MODEL), the editor's by default.
     feed_model: str = ""
     formats: tuple[str, ...] = ("post", "thread", "image")
+    #: Every slot quotes a trending X post (STUDIO_QUOTE, on unless set off,
+    #: 2026-11-23): bin/lib/studio_feed.py, `word_formats`, `validate_posts`.
+    quote: bool = False
     posts: int = POSTS
     feed_cards: int = studio_feed.CARDS
     video_posts: int = VIDEO_POSTS
@@ -223,6 +229,7 @@ class Config:
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
         c.chan = (get("STUDIO_CHAN") or "1").strip().lower() not in ("0", "false", "no", "off")
+        c.quote = (get("STUDIO_QUOTE") or "1").strip().lower() not in ("0", "false", "no", "off")
         c.skit_slots = tuple(dict.fromkeys(x.strip() for x in (get("STUDIO_SKIT_SLOTS") or "").split(",") if x.strip()))
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
@@ -243,6 +250,15 @@ def seed_of(run_id: str) -> int:
     """The run's seed: the first 32 bits of the id's sha256. Recorded, so a
     run's sources and shuffle can be replayed."""
     return int(hashlib.sha256(run_id.encode()).hexdigest()[:8], 16)
+
+
+def word_formats(cfg: Config) -> tuple[str, ...]:
+    """The word formats a slot offers: STUDIO_FORMATS's, and in a quote slot
+    only those that carry a picture (QUOTE_FORMATS), the image at least."""
+    words = tuple(f for f in cfg.formats if f in WORD_FORMATS)
+    if cfg.quote:
+        return tuple(f for f in words if f in QUOTE_FORMATS) or ("image",)
+    return words or ("post",)
 
 
 # --- step 2: write -------------------------------------------------------------------
@@ -329,19 +345,32 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
     templates when memes are on."""
     n = n or cfg.posts
     videos = videos or []
-    words = [f for f in cfg.formats if f in WORD_FORMATS and (f != "meme" or (menu or {}).get("templates"))] or ["post"]
+    words = [f for f in word_formats(cfg) if f != "meme" or (menu or {}).get("templates")] or \
+        ["image" if cfg.quote else "post"]
+    if cfg.quote:
+        ask = (f"Write {n} quotes for your next slot on X, each on a different card below. A quote goes out above "
+               "a real X post: one of its card's `quotes` that has a `post` id, which you name in `quote`. The "
+               "people reading that post see yours on top of it, so react to what it says, and go at whoever said "
+               "it by name. Aim for 280 characters or under; one filthy line often wins. Every one is a picture "
+               "(or a video): the picture is the joke, you (Teeny) in it, and the post's author in the frame "
+               "when they are famous.")
+    else:
+        ask = (f"Write {n} finished posts for your next slot on X, each on a different card below. Where a card names "
+               "people or companies, go straight at one of them by name. Aim for 280 characters or under. Every post "
+               "stands alone: a stranger who never saw the card gets it."
+               + (f" At least {max(1, (n * 2) // 3)} of the {n} are images: a picture stops a thumb, and a filthy idea "
+                  "is funnier drawn. Pick the cards with people on them first: a picture with a famous face reacting "
+                  "to you beats one with you alone." if "image" in words else ""))
     parts = [
         "# studio: write",
-        f"Write {n} finished posts for your next slot on X, each on a different card below. Where a card names "
-        "people or companies, go straight at one of them by name. Aim for 280 characters or under. Every post "
-        "stands alone: a stranger who never saw the card gets it."
-        + (f" At least {max(1, (n * 2) // 3)} of the {n} are images: a picture stops a thumb, and a filthy idea is "
-           "funnier drawn. Pick the cards with people on them first: a picture with a famous face reacting to you "
-           "beats one with you alone." if "image" in words else ""),
+        ask,
         "## the cards\n\nToday's material, hottest first. `people` are the public figures and companies in it; "
-        "`quotes` are real lines from the source, with who said them; `heat` is how much people are reacting. "
+        "`quotes` are real lines from the source, with who said them" +
+        (" (`post` is the id of the X post a line is, the one you may quote, and `handle` its author's)"
+         if cfg.quote else "") + "; `heat` is how much people are reacting. "
         f"{DATA_LINE}\n\n```json\n" + json.dumps(cards, ensure_ascii=False, separators=(",", ":")) + "\n```",
-        "## formats\n\n- post: one text.\n" + (f"- thread: 2 to {THREAD_MAX} posts.\n" if "thread" in words else "") +
+        "## formats\n\n" + ("- post: one text.\n" if "post" in words else "") +
+        (f"- thread: 2 to {THREAD_MAX} posts.\n" if "thread" in words else "") +
         (f"- image: {IMAGE_ASK}\n" if "image" in words else "") + (f"- meme: {MEME_ASK}\n" if "meme" in words else ""),
     ]
     if "meme" in words:
@@ -359,19 +388,23 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
             parts.append(block)
     shapes = [word_shape(f) for f in words] + [
         f'{{"card": "<id>", "format": "{v.name}", "text": "...", "{v.name}": {{...}}}}' for v, _ in videos]
+    if cfg.quote:
+        shapes = [x.replace('{"card": "<id>", ', '{"card": "<id>", "quote": "<the post id>", ', 1) for x in shapes]
     parts.append("## your answer\n\nJSON only, no prose and no code fence: a list of posts, each one of\n" +
                  "\n".join(f"- {s}" for s in shapes))
     return "\n\n".join(parts)
 
 
 def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
-                   studies: dict[str, Json | None] | None = None) -> tuple[list[Json], list[Json]]:
+                   studies: dict[str, Json | None] | None = None, quote: bool = False) -> tuple[list[Json], list[Json]]:
     """(posts, dropped with why). Structure only: a list of objects (or
     {"posts": [...]}), each with words, a card that exists, a format offered
     and no link or handle the link rules would strip; a thread is 2 to
     THREAD_MAX posts; an image has its scene; a meme its template and lines;
-    a video its piece as its format shapes it. Length is never a reason.
-    Raises ValueError when the answer is no list at all."""
+    a video its piece as its format shapes it. With `quote`, each names the X
+    post it quotes (`quote`, one of its card's quotes with a `post` id; a card
+    with one needs none named), kept as `quote_of` and `quoted`. Length is
+    never a reason. Raises ValueError when the answer is no list at all."""
     if isinstance(answer, dict) and isinstance(answer.get("posts"), list):
         answer = answer["posts"]
     if not isinstance(answer, list):
@@ -392,6 +425,8 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
             why = f"its card {raw.get('card')!r} is not one of the cards"
         elif fmt not in allowed:
             why = f"its format {fmt!r} is not offered this slot"
+        if quote and card is not None and not why:
+            why = quoted_post(raw.get("quote"), card, post)
         if fmt == "thread":
             posts = raw.get("posts")
             if isinstance(posts, list) and 2 <= len(posts) <= THREAD_MAX and all(isinstance(p, str) and p.strip()
@@ -431,12 +466,28 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
             if linked:
                 why = f"it carries {linked!r}, which the link rules strip"
         if why:
-            dropped.append({"post": {k: raw.get(k) for k in ("card", "format", "text", "posts") if k in raw},
+            dropped.append({"post": {k: raw.get(k) for k in ("card", "format", "quote", "text", "posts") if k in raw},
                             "why": why})
             continue
         post["story"] = story_of(card)
         kept.append(post)
     return kept, dropped
+
+
+def quoted_post(named: Any, card: Json, post: Json) -> str:
+    """The X post a quote slot's post quotes: NAMED, one of CARD's quotes with
+    a `post` id, or with none named the card's only one. Kept on POST as
+    `quote_of` and `quoted`; why not ("" when it is)."""
+    posts = [q for q in card.get("quotes") or [] if isinstance(q, dict) and q.get("post")]
+    want = _str(named, 40)
+    hit = next((q for q in posts if q["post"] == want), None) if want else (posts[0] if len(posts) == 1 else None)
+    if hit is None:
+        if want:
+            return f"its quote {want!r} is not one of its card's quotes with a post id"
+        return "it names no post to quote (`quote`), and its card's quotes have more than one"
+    post["quote_of"] = hit["post"]
+    post["quoted"] = {"by": hit.get("by"), "handle": hit.get("handle"), "said": hit.get("said")}
+    return ""
 
 
 # --- step 3: pick --------------------------------------------------------------------
@@ -447,6 +498,8 @@ def shown(post: Json) -> Json:
     the card it is on (headline, what happened, people)."""
     out: Json = {"format": post["format"]}
     out.update({"posts": post["posts"]} if "posts" in post else {"text": post["text"]})
+    if post.get("quoted"):
+        out["quotes"] = {"by": post["quoted"].get("by"), "said": post["quoted"].get("said")}
     if post.get("image"):
         out["picture"] = post["image"]
     if post.get("meme"):
@@ -653,6 +706,8 @@ def post_body(room: Room, label: str, post: Json, media_ids: list[str]) -> tuple
                   "pitch_id": f"{room.run_id}:{label}"[:120]}
     if media_ids:
         body["media_ids"] = media_ids
+    if post.get("quote_of"):
+        body["quote_of"] = post["quote_of"]
     if "posts" in post:
         return "post-thread", {"posts": post["posts"], **body}
     return "post", {"text": post["text"], **body}
@@ -906,7 +961,8 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
                     "seed": seed,
                     "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
                                "feed": cfg.feed_model or "core default", "judge": cfg.judge_model or "core default"},
-                    "config": {"formats": list(cfg.formats), "posts": cfg.posts, "feed_cards": cfg.feed_cards,
+                    "config": {"formats": list(cfg.formats), "quote": cfg.quote, "posts": cfg.posts,
+                               "feed_cards": cfg.feed_cards,
                                "budget_secs": cfg.budget_secs},
                     "warnings": list(cfg.warnings)}
     exit_code = 0
@@ -1034,7 +1090,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         cards = studio_feed.rank(candidates, tags, cfg.feed_cards)
         record["feed"] = {"sources": {"own": {"candidates": len(candidates)}}, "outside": False}
     else:
-        cards, record["feed"] = studio_feed.feed(room, slot_key, seed, desk, cfg.feed_cards, chan=cfg.chan, now=now)
+        cards, record["feed"] = studio_feed.feed(room, slot_key, seed, desk, cfg.feed_cards, chan=cfg.chan, now=now,
+                                                 quote=cfg.quote)
     record["cards"] = cards
     if not cards:
         raise Stop("skipped", "no card: every source was down or empty")
@@ -1061,15 +1118,19 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 videos.append((video, studied))
                 studies[video.name] = studied
     menu = meme_menu(room) if "meme" in cfg.formats else None
-    allowed = tuple(f for f in cfg.formats if f in WORD_FORMATS and (f != "meme" or (menu or {}).get("templates")))
-    allowed = (allowed or ("post",)) + tuple(v.name for v, _ in videos)
+    # Teeny's own events are no X post to quote: a --no-outside run writes plain posts.
+    if args.no_outside:
+        cfg.quote = False
+    quote = cfg.quote
+    allowed = tuple(f for f in word_formats(cfg) if f != "meme" or (menu or {}).get("templates"))
+    allowed = (allowed or ("image" if quote else "post",)) + tuple(v.name for v, _ in videos)
 
     # --- 2. write ---
     posts: list[Json] = []
     dropped: list[Json] = []
     record.update(posts=posts, posts_dropped=dropped)
     checked = room.turn("writer", "write", write_message(cfg, cards, videos, menu), room.writer_thread, soft=True,
-                        want=object, check=lambda answer: validate_posts(answer, cards, allowed, studies))
+                        want=object, check=lambda answer: validate_posts(answer, cards, allowed, studies, quote=quote))
     if checked is None:
         raise Stop("failed", f"the write answer is not a list of posts: {room.calls[-1].get('unusable')}, twice", 1,
                    failure="studio")
@@ -1126,6 +1187,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     if done["outcome"] in ("posted", "would_post"):
         went = blind[done["label"]]
         record["final"] = {"label": done["label"], "card": went.get("card"), "format": went["format"],
+                           **({"quote_of": went["quote_of"]} if went.get("quote_of") else {}),
                            **({"posts": went["posts"]} if "posts" in went else {"text": went.get("text")}),
                            "rank": ranked.index(done["label"]) + 1}
         record["pick"] = record["final"]
