@@ -501,7 +501,11 @@ def _rent_accept(i):
 
 
 def _rent_review(i):
-    return "rent", ["review"], _pick(i, ("job", "submission", "verdict", "reason"))
+    # The submission ref pins the decision to the attempt the mind read, so a resubmission between the
+    # stimulus and this action is refused by the hand instead of being approved unseen.
+    body = _pick(i, ("job", "verdict", "reason"))
+    body["submission"] = _id(i, "submission")
+    return "rent", ["review"], body
 
 
 def _rent_message(i):

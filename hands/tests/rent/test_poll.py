@@ -170,6 +170,45 @@ class PollTest(Scratch):
         self.assertEqual(list(self.root.glob("x.mp4*")), [])
         self.assertEqual(actions._download(f"{self.rah.base}/f/a.mp4", dest), 3)
 
+    def test_a_short_body_is_not_published_as_a_whole_file(self) -> None:
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        class Short:
+            headers = {"Content-Length": "10"}
+            sent = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, n):
+                if self.sent:
+                    return b""
+                self.sent = True
+                return b"abc"
+
+        dest = self.root / "z.mp4"
+        original = actions._FILES.open
+        actions._FILES.open = lambda *a, **k: Short()
+        try:
+            with self.assertRaises(hand.HandError):
+                actions._download(f"{self.rah.base}/f/a.mp4", Path(dest))
+        finally:
+            actions._FILES.open = original
+        self.assertEqual(list(self.root.glob("z.mp4*")), [])
+
+    def test_a_replacement_hire_found_by_poll_counts_its_own_overage(self) -> None:
+        from teeny_hands.rent import store
+
+        self.rah.on("list_hires", {"data": [{"id": "h2", "status": "offered", "cost": {"amount": 4000}}]})
+        actions.poll()
+        self.assertEqual(self.jobs()[0]["status"], "hired")
+        self.assertEqual(store.spent_today(store.db()), 4000)
+        self.assertIn("charge", [s["kind"] for s in self.stimuli()])
+
     def test_evidence_never_comes_from_a_private_address(self) -> None:
         from pathlib import Path
         import urllib.request

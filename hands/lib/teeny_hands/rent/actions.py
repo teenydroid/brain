@@ -698,6 +698,7 @@ def _download(url: Any, dest: Path) -> int:
     part = dest.with_name(dest.name + ".part")
     try:
         with _FILES.open(request, timeout=60) as response, open(part, "wb") as out:
+            declared = response.headers.get("Content-Length")
             while True:
                 chunk = response.read(1 << 20)
                 if not chunk:
@@ -708,6 +709,8 @@ def _download(url: Any, dest: Path) -> int:
                 if time.monotonic() > deadline:
                     raise hand.HandError("an evidence file took too long to download")
                 out.write(chunk)
+        if declared and declared.isdigit() and size != int(declared):
+            raise hand.HandError("an evidence file ended before its declared length")
         os.replace(part, dest)
     except BaseException:
         part.unlink(missing_ok=True)
@@ -893,7 +896,7 @@ def _follow(conn, job: Mapping[str, Any], rules: settings.Rent) -> Json:
         if live:  # hired on the website, or an accept whose answer was lost
             # An accept whose answer was lost may have cost more than posted: count what the hire says.
             cost = _amount(live[0].get("cost"))
-            extra = max(0, (cost or 0) - job["total_cents"] - job["extra_cents"]) if cost else 0
+            extra = max(0, (cost or 0) - job["total_cents"]) if cost else 0
             with hand.transaction(conn):
                 store.update(conn, job["id"], status="hired", hire_id=str(live[0]["id"]), hired_at=hand.now(),
                              extra_cents=job["extra_cents"] + extra)
