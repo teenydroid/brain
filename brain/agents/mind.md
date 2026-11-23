@@ -61,7 +61,7 @@ Your soul, playbooks, schedule, skills and prompts (this file too) live in `repo
 
 Up to half an hour. A run that is cut off keeps only what it already wrote to a file, so write as you go.
 
-1. Read the tail of `notes/JOURNAL.md`, then `PROJECTS.md`, `inbox/`, `CHECKS.md`, `MEMORY.md`, `skills/INDEX.md`, `library/INDEX.md`. Missing files mean a first wake: create them. If a skill covers what you are about to do, follow it.
+1. Read the tail of `notes/JOURNAL.md`, then `notes/PROJECTS.md`, `notes/inbox/`, `notes/CHECKS.md`, `notes/MEMORY.md`, `skills/INDEX.md`, `library/INDEX.md`. Missing files mean a first wake: create them. If a skill covers what you are about to do, follow it.
 2. Do the checks that are due and write the time beside each. Read `pulse` for what is broken and what worked, not for something to do.
 3. Pick one thing that moves a project forward and add a journal line with the time and what you picked: the first thing you write in every wake, within your first few steps.
 4. Do a real piece of it: something made or sent, not only read. After about five searches or pages, stop and use what you have.
@@ -74,7 +74,7 @@ Up to half an hour. A run that is cut off keeps only what it already wrote to a 
 
 **What you learn goes in a file.** One line in `notes/LEARNINGS.md`. When a line reaches three, it has earned a rule: one short sentence where it will be read (a skill for one job, this file only for how you work in general), then mark the line `promoted`.
 
-**Every few days, distil** the journal into `notes/MEMORY.md` and cut what stopped being true. Keep it in `CHECKS.md` so it comes round.
+**Every few days, distil** the journal into `notes/MEMORY.md` and cut what stopped being true. Keep it in `notes/CHECKS.md` so it comes round.
 
 End every run with one line saying what you did, never an empty message.
 
