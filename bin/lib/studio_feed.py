@@ -66,8 +66,9 @@ PER_SOURCE = 12
 QUOTE_LEADING = 10
 #: What marks an item as about somebody's death: no joke of Teeny's goes there
 #: (the 2026-11-23 dry run drew a meme on an obituary).
-DEATH = re.compile(r"(?i)\b(dies|died|has died|dead at|passed away|death of|obituar(?:y|ies)|rest in peace|funeral|"
-                   r"mourn(?:s|ing|ed)?|condolences|killed|murder(?:ed|s)?|fatal(?:ly)?)\b|\bRIP\b")
+#: Broad on purpose: a card lost to "dead heat" costs nothing.
+DEATH = re.compile(r"(?i)\b(die[sd]?|dying|dead|deaths?|deceased|passed away|obituar(?:y|ies)|rest in peace|"
+                   r"funerals?|mourn(?:s|ing|ed)?|condolences|killed|murder(?:ed|s)?|fatal(?:ly|ity|ities)?)\b|\bRIP\b")
 #: An X post's address: its handle and id.
 STATUS_URL = re.compile(r"^https?://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status/([0-9]{1,25})\b")
 #: Of HN's leading stories, how many get their top comment read.
@@ -159,7 +160,12 @@ def digg_candidates(got: Any, now: float) -> list[Json]:
         heat = _num(story.get("score")) or 0.0
         heat += sum((_num(q.get("likes")) or 0) + 2 * ((_num(q.get("reposts")) or _num(q.get("retweets"))) or 0)
                     for q in quotes) / 100
+        # A death anywhere in the story's own words, read before any of it is cut for the card.
+        died = deathly(*(v for v in (story.get("title"), story.get("summary"),
+                                     *(p.get("text") for p in story.get("posts") or [] if isinstance(p, dict)))
+                         if isinstance(v, str)))
         out.append({"id": f"digg:{_clean(story['id'], 40)}", "source": "digg", "headline": _clean(story["title"], 300),
+                    **({"deathly": True} if died else {}),
                     "text": _clean(story.get("summary"), 600), "topic": _clean(story.get("topic"), 40),
                     "quotes": quotes, "raw_heat": heat, "age_hours": age_hours(story.get("published_at"), now)})
     return out
@@ -289,8 +295,8 @@ def gather(room: Any, slot_key: str | None, seed: int, desk: Json | None, now: f
         kept = [i for i in items if not hateful(i["headline"], i.get("text", ""),
                                                  *(q.get("said", "") for q in i.get("quotes") or []))]
         slurs = len(items) - len(kept)
-        alive = [i for i in kept if not deathly(i["headline"], i.get("text", ""),
-                                               *(q.get("said", "") for q in i.get("quotes") or []))]
+        alive = [i for i in kept if not (i.get("deathly") or deathly(i["headline"], i.get("text", ""),
+                                                                    *(q.get("said", "") for q in i.get("quotes") or [])))]
         notes[name] = {"candidates": len(alive)}
         if slurs:
             notes[name]["dropped_slur"] = slurs
