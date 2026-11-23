@@ -318,7 +318,7 @@ class TagTest(unittest.TestCase):
         answer = {"items": [{"id": "digg:a", "people": ["A", "B", "A", "C", "D", "E", 7], "what_happened": "w"},
                             {"id": "ghost", "people": ["X"]}, "junk"]}
         self.assertEqual(studio_feed.read_tags(answer, {"digg:a"}),
-                         {"digg:a": {"people": ["A", "B", "C", "D"], "what_happened": "w"}})
+                         {"digg:a": {"people": ["A", "B", "C", "D"], "what_happened": "w", "public": []}})
 
     def test_an_account_that_only_posted_about_the_story_is_not_one_of_its_people(self):
         # 2026-11-23: on "'The Hunger Games' reaps $120M", the tagger named two
