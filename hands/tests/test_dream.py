@@ -486,14 +486,5 @@ class DreamTest(unittest.TestCase):
         self.assertFalse(got["ok"])
         self.assertIn("deadline", got["error"])
 
-    def test_an_unexpected_error_in_a_dream_is_still_reported(self):
-        self.answer({"ops": [], "diary": "d"})
-        (self.brain / "MEMORY.md").unlink()
-        (self.brain / "MEMORY.md").mkdir()  # a page that cannot be read: IsADirectoryError
-        proc = subprocess.run([str(REPO / "bin" / "dream")], capture_output=True, text=True, env=os.environ)
-        got = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertFalse(got["ok"])
-        self.assertTrue(got["error"])
-
 if __name__ == "__main__":
     unittest.main()

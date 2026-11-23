@@ -47,6 +47,7 @@ import datetime as dt
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -351,10 +352,42 @@ def dream_once(light: bool = False) -> Json:
         raise
 
 
-if __name__ == "__main__":
+#: The most a whole dream may take: three turns of bin/oh's 900 s and the
+#: reads around them. Past it the dream ends its turn and says so.
+DEADLINE_SECS = 3600
+
+
+class Stopped(Exception):
+    """The dream was stopped: a signal, or its deadline."""
+
+
+def _stop(signum: int, _frame: Any) -> None:
+    if signum == signal.SIGALRM:
+        raise Stopped(f"the dream ran past its {DEADLINE_SECS} s deadline and was ended")
+    raise Stopped(f"the dream was stopped by {signal.Signals(signum).name}")
+
+
+def main(argv: list[str]) -> Json:
+    """dream_once with a result whatever happens. 2026-11-23 08:30 UTC: the
+    midday dream started and its log never got a line saying how it ended,
+    so a stuck or stopped dream looked like one still running. A signal or
+    the deadline ends the turn too, and the lock goes with the process."""
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGALRM):
+        signal.signal(sig, _stop)
+    signal.alarm(DEADLINE_SECS)
     try:
-        result = dream_once(light="--light" in sys.argv[1:])
-    except (hand.HandError, OSError, ValueError) as exc:
-        result = {"ok": False, "error": str(exc)}
-    print(json.dumps(result, ensure_ascii=False))
+        return dream_once(light="--light" in argv)
+    except Stopped as exc:
+        reflect.end_turn()
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        reflect.end_turn()
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
+    finally:
+        signal.alarm(0)
+
+
+if __name__ == "__main__":
+    result = main(sys.argv[1:])
+    print(json.dumps(result, ensure_ascii=False), flush=True)
     sys.exit(0 if result.get("ok") else 1)

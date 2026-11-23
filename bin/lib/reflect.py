@@ -87,6 +87,7 @@ import datetime as dt
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -829,13 +830,48 @@ AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 THREAD = "teeny:reflect"
 
 
+#: The most one turn may take. bin/oh gives the core 900 s; this is the
+#: backstop for everything around it.
+ASK_TIMEOUT_SECS = 1800
+#: The process group of the turn now out, so a dream that is stopped can end
+#: it too (end_turn) instead of leaving bin/ask and its curl behind.
+_TURN: subprocess.Popen | None = None
+
+
+def end_turn() -> None:
+    """Ends the turn now out, with everything it started."""
+    proc = _TURN
+    if proc is not None and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def ask(message: str, thread: str | None = None) -> str:
+    """One turn of the teeny agent. It runs in a process group of its own,
+    and a timeout ends the whole group: subprocess.run's timeout kills only
+    bin/ask, and a curl under it still holding the pipes kept the wait going."""
+    global _TURN
     thread = thread or os.environ.get("TEENY_REFLECT_THREAD") or THREAD
-    proc = subprocess.run([str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
-                          input=message, capture_output=True, text=True, timeout=1800)
+    proc = subprocess.Popen([str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True)
+    _TURN = proc
+    try:
+        out, err = proc.communicate(message, timeout=ASK_TIMEOUT_SECS)
+    except subprocess.TimeoutExpired:
+        end_turn()
+        proc.communicate()
+        raise RuntimeError(f"the turn took longer than {ASK_TIMEOUT_SECS} s and was ended")
+    except BaseException:
+        end_turn()
+        raise
+    finally:
+        _TURN = None
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip()[-500:] or "the turn failed")
-    return proc.stdout
+        raise RuntimeError(err.strip()[-500:] or "the turn failed")
+    return out
 
 
 def _learn(text: str) -> bool:
