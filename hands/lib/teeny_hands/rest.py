@@ -63,13 +63,18 @@ def _parse(body: bytes) -> Any:
         return None
 
 
-def _message(parsed: Any) -> str | None:
+def _message(parsed: Any, key: str | None = None) -> str | None:
+    """The service's own error text, clipped. The KEY is cut out first: a
+    key echoed across the clip would leave a piece no later scrub matches."""
     if not isinstance(parsed, Mapping):
         return None
     for key in ("error", "message", "detail"):
         value = parsed.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()[:_MESSAGE_CHARS]
+            text = value.strip()
+            if key:
+                text = text.replace(key, "[the key]")
+            return text[:_MESSAGE_CHARS]
     return None
 
 
@@ -172,7 +177,7 @@ class RestApi:
             if 300 <= exc.code < 400:
                 failure = RestError(f"{self.name} answered a redirect ({exc.code}); not followed with the key", exc.code)
             else:
-                message = _message(parsed)
+                message = _message(parsed, self._key)
                 failure = RestError(
                     f"{self.name} answered {exc.code}: {message}" if message else f"{self.name} answered {exc.code}",
                     exc.code,
