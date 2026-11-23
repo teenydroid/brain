@@ -374,9 +374,13 @@ check "not knowing who was quoted offers nothing: the slot is skipped" \
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FEED_GARBLED=1 run)"
 rec="$(last_record)"
-check "a tagging answer unusable twice costs only the people: the run picks" \
-  jqe '.outcome == "picked" and (.feed.tag.failed | test("twice")) and (.cards | all(.people == []))' <<<"$rec"
-check "and the tagging was asked once more" test "$(steps)" = "feed,feed,write,pick"
+check "a tagging answer unusable twice names no author public: nothing is quoted, the slot is skipped" \
+  jqe '.outcome == "skipped" and (.feed.tag.failed | test("twice")) and .cards == [] and .feed.private.left_out == ["ana", "bob"]' <<<"$rec"
+check "and the tagging was asked once more, and no writer turn taken" test "$(steps)" = "feed,feed"
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_DEATH=1 run)"
+check "a story about a death is no card" \
+  jqe '[.cards[].id] == ["digg:s2"] and .feed.sources.digg.dropped_death == 1' <<<"$(last_record)"
 
 # --- write: structure only ------------------------------------------------------------
 reset
