@@ -117,3 +117,25 @@ def write(parts: tuple[str, ...], name: str, text: str, mode: int = 0o644) -> Pa
     finally:
         os.close(folder)
     return home().joinpath(*parts, name)
+
+
+def prune(parts: tuple[str, ...], keep: set[str], suffix: str) -> list[str]:
+    """Removes from state/home/<parts...> every entry named *SUFFIX that is
+    not in KEEP and is not a folder; never through a link. Answers the names
+    it removed."""
+    folder = _open(parts)
+    removed: list[str] = []
+    try:
+        for name in sorted(os.listdir(folder)):
+            if not name.endswith(suffix) or name in keep:
+                continue
+            found = os.stat(name, dir_fd=folder, follow_symlinks=False)
+            if stat.S_ISDIR(found.st_mode):
+                continue
+            os.unlink(name, dir_fd=folder)
+            removed.append(name)
+    except OSError as exc:
+        raise HomeError(f"could not tidy {'/'.join((HOME, *parts))} ({exc.strerror or exc})") from None
+    finally:
+        os.close(folder)
+    return removed
