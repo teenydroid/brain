@@ -1230,7 +1230,7 @@ REPLY_PLAYBOOK = Path("playbooks") / "mentions.md"
 #: The most of the page a beat carries, so a page that grows cannot crowd
 #: the batch out: it is cut at a paragraph and says so.
 REPLY_GUIDANCE_MAX_CHARS = 4_000
-REPLY_GUIDANCE_CUT = "[...the rest of brain/playbooks/mentions.md was cut: it runs past 4,000 characters]"
+REPLY_GUIDANCE_CUT = f"[...the rest of brain/playbooks/mentions.md was cut: it runs past {REPLY_GUIDANCE_MAX_CHARS:,} characters]"
 #: Said when the page is missing, empty, or its front matter never closes.
 REPLY_GUIDANCE_FALLBACK = ("Answer the mentions that deserve an answer: replies under your own posts first, then real "
                            "questions ahead of greetings and hype. A reply answers what was said, in the words they "
@@ -1309,6 +1309,8 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
            for s in batch):
         lines += [OWN_THREAD, ""]
     people = _x_people(batch)
+    if any((s["surface"], s["kind"]) == ("x", "mention") for s in batch):
+        lines += [REPLY_GUIDANCE_HEAD, "", reply_guidance(), ""]
     if any(_x_own_thread(s) for s in batch if _x_handle(s)):
         lines += [X_OWN_THREAD, ""]
     turned: list[str] = []
