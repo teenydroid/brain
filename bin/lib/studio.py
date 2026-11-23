@@ -808,7 +808,7 @@ def try_post(room: Room, label: str, post: Json, attempt: Json) -> str:
         return "stop"
     code, got = room.budgeted(["x", verb], body, 300, dry=room.dry)
     attempt["x"] = {"verb": verb, "code": code,
-                    **(_brief(got, "id", "ids", "head_id", "sent", "would_post", "dry_run", "refused", "rule", "category",
+                    **(_brief(got, "id", "ids", "head_id", "linked", "sent", "would_post", "dry_run", "refused", "rule", "category",
                               "hold_id", "error", "judge_failed") if isinstance(got, dict) else {"error": str(got)[:300]})}
     if code == 0 and isinstance(got, dict) and got.get("dry_run"):
         attempt["result"] = "would post (dry)"

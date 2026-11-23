@@ -372,12 +372,24 @@ def link_budget(conn: sqlite3.Connection) -> dict[str, Any]:
     # A thread is one link post however many of its posts carry a link: its
     # continuations count under their head.
     head = "COALESCE(thread_of, id)" if _has_column(conn, "x_posts", "thread_of") else "id"
+    quote = "quote_of" if _has_column(conn, "x_posts", "quote_of") else "NULL"
     sent = len({
         row["head"]
-        for row in conn.execute(f"SELECT {head} AS head, text FROM x_posts WHERE created_at >= ?", (day_start,)).fetchall()
-        if has_link(row["text"])
+        for row in conn.execute(f"SELECT {head} AS head, text, {quote} AS quote_of FROM x_posts WHERE created_at >= ?",
+                                (day_start,)).fetchall()
+        if has_link(quote_words(row["text"], row["quote_of"]))
     })
     return {"cap": cap, "sent_today": sent, "left": max(0, cap - sent), "resets_at": iso(day_start + 86400.0)}
+
+
+def quote_words(text: str, quote_of: str | None) -> str:
+    """A quote's words without the quoted post's address at their end: how
+    a quote of somebody else's post goes out since 2026-11-23 (`publish.post`).
+    That address is no link post of the budget's; quotes have their own
+    lanes. Any other text is returned as it is."""
+    if not quote_of or not text:
+        return text or ""
+    return re.sub(r"\s*https://x\.com/[A-Za-z0-9_]+/status/" + re.escape(str(quote_of)) + r"\s*$", "", text)
 
 
 def check_link_budget(conn: sqlite3.Connection, text: str) -> None:

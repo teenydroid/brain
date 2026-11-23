@@ -307,7 +307,7 @@ class GapTest(Posting):
         # Quotes have their own lane (QuoteLaneTest): an original post an hour
         # after a quote goes out.
         publish.post({"anchor": "hn:1", "text": "look", "quote_of": "555"})
-        self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
+        self.assertEqual(self.posted(), [{"text": "look https://x.com/builder/status/555"}])  # QuoteAsLinkTest
         self.assertEqual(self.ledger()[0]["kind"], "quote")
         self.assertEqual(self.ledger()[0]["quote_of"], "555")
         self.at(T0 + HOUR)
@@ -518,6 +518,56 @@ class StudioQuoteTest(QuoteLaneTest):
         with self.assertRaises(hand.Refused) as caught:
             self.original("a fifth original about kettles")
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["sent_today"]), ("daily_cap", 4))
+
+
+class QuoteAsLinkTest(Posting):
+    """X's API refuses a self-serve app's quote of a post it is not
+    mentioned in: {"detail": "You can only reply to or quote posts where you
+    are mentioned or are the author.", "type": ".../not-authorized-for-resource"},
+    403, every one since 2026-11-21. So a quote of somebody else's post goes
+    out as the words (and media) with the quoted post's address at the end,
+    which X shows as the quoted post. It is recorded as the quote it is, and
+    its address spends none of the link budget: quotes have their own lanes."""
+
+    LINK = "https://x.com/builder/status/555"
+
+    def test_a_quote_of_somebody_elses_post_goes_out_with_its_link_never_quote_tweet_id(self):
+        out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
+        self.assertEqual(self.posted(), [{"text": f"my robot would also pick the wrong paris {self.LINK}"}])
+        self.assertEqual((out["id"], out["kind"], out["linked"]), ("100", "quote", self.LINK))
+        [row] = self.ledger()
+        self.assertEqual((row["kind"], row["quote_of"], row["producer"], row["quote_handle"], row["text"]),
+                         ("quote", "555", "studio", "builder", f"my robot would also pick the wrong paris {self.LINK}"))
+
+    def test_the_link_keeps_the_media(self):
+        self.mint("m1")
+        publish.post({"text": "look at this", "quote_of": "555", "media_ids": ["m1"], "producer": "studio"})
+        self.assertEqual(self.posted(), [{"text": f"look at this {self.LINK}", "media": {"media_ids": ["m1"]}}])
+
+    def test_a_quote_of_the_accounts_own_post_still_quotes(self):
+        self.quotable("777", "1000", "teenydroid")
+        out = publish.post({"text": "as i said", "quote_of": "777"})
+        self.assertEqual(self.posted(), [{"text": "as i said", "quote_tweet_id": "777"}])
+        self.assertNotIn("linked", out)
+
+    def test_the_quoted_posts_address_spends_none_of_the_link_budget(self):
+        self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
+        publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
+        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(publish.link_budget()["sent_today"], 0)
+
+    def test_a_link_in_the_quotes_own_words_still_counts(self):
+        self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "read teeny.enamakel.com first", "quote_of": "555", "producer": "studio"})
+        self.assertEqual(caught.exception.detail["rule"], "links")
+        self.assertEqual(self.posted(), [])
+
+    def test_a_rehearsal_shows_the_words_with_the_link(self):
+        self.configure(DRY_RUN="1")
+        out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
+        self.assertTrue(out["would_post"].endswith(self.LINK), out)
+        self.assertEqual(self.posted(), [])
 
 
 class DailyCapTest(Posting):
@@ -791,7 +841,8 @@ class OutwardTest(Posting):
     def test_a_plain_quote_goes_out_and_tiny_in_lowercase_is_a_word(self):
         result = publish.post({"text": "a tiny agent kept the same memory layer for a week, it held", "quote_of": "555"})
         self.assertEqual(result["kind"], "quote")
-        self.assertEqual(self.posted(), [{"text": "a tiny agent kept the same memory layer for a week, it held", "quote_tweet_id": "555"}])
+        self.assertEqual(self.posted(), [{"text": "a tiny agent kept the same memory layer for a week, it held "
+                                                  "https://x.com/builder/status/555"}])
 
     def test_an_own_post_or_a_quote_of_its_own_post_is_not_outward(self):
         self.quotable("556", "1000", "teenydroid")
