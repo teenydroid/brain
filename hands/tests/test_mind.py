@@ -329,6 +329,32 @@ class MindCronTest(unittest.TestCase):
             with self.assertRaises(cron_policy.PolicyError, msg=command):
                 self._load()
 
+    def test_the_brain_schedules_evolve_wants_and_the_desks_as_written_and_in_no_other_form(self):
+        # Since 2026-11-23 these are Teeny's to move too, each with exactly
+        # the arguments its pinned job had: when, never what.
+        self.pinned.write_text("")
+        for command in ("bin/evolve run --scheduled --detach", "bin/evolve credit", "bin/wants run",
+                        "bin/tasks-desk", "bin/build-ship"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            self.assertEqual(self._load()["teeny.x"]["command"], command)
+        for command in ("bin/evolve", "bin/evolve run", "bin/evolve run --detach", "bin/evolve run --scheduled",
+                        "bin/evolve run --scheduled --detach --candidates 8",
+                        "bin/evolve run --candidates 8 --scheduled --detach", "bin/evolve --detach run --scheduled",
+                        "bin/evolve credit --detach", "bin/evolve watch --detach", "bin/evolve watch",
+                        "bin/evolve probe --baseline --force", "bin/evolve aa --detach", "bin/evolve status",
+                        "bin/wants", "bin/wants file", "bin/wants watch", "bin/wants run --force",
+                        "bin/tasks-desk now", "bin/build-ship --push"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            with self.assertRaises(cron_policy.PolicyError, msg=command):
+                self._load()
+
+    def test_the_brain_runs_no_other_operator_script(self):
+        self.assertEqual(
+            {script: set(forms) for script, forms in cron_policy.BRAIN_SCRIPTS.items()},
+            {"bin/dream": {("--detach",), ("--light", "--detach")}, "bin/moltbook-prune": {()},
+             "bin/evolve": {("run", "--scheduled", "--detach"), ("credit",)}, "bin/wants": {("run",)},
+             "bin/tasks-desk": {()}, "bin/build-ship": {()}})
+
     def test_the_first_pipelines_are_in_teenys_own_cron_file(self):
         with open(REPO / "brain" / "cron.toml", "rb") as fh:
             brain = tomllib.load(fh)["jobs"]
