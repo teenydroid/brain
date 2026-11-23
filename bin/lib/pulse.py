@@ -36,7 +36,7 @@ Json = dict[str, Any]
 #: The window a pulse may cover, in days.
 MIN_DAYS, MAX_DAYS, DEFAULT_DAYS = 1, 7, 1
 #: The mind's own wakes are its own doing, not the scripts'.
-MIND_JOBS = ("teeny.mind", "mind.")
+MIND_JOB, MIND_WAKES = "teeny.mind", ("mind.", "teeny.mind.")
 
 JOBS_SQL = """
 with jobs as materialized (
@@ -100,10 +100,11 @@ def jobs(since: float) -> list[Json] | None:
     except sqlite3.Error:
         return None
     yours = _names(hand.root() / "brain" / "cron.toml")
+    beats = _tick_failures(since)
     out = []
     for name, kind, expr, enabled, last, finished_ms, runs, failed in rows:
         name = str(name or "")
-        if not name.startswith("teeny.") or name.startswith(MIND_JOBS):
+        if not name.startswith("teeny.") or name == MIND_JOB or name.startswith(MIND_WAKES):
             continue
         job = name.removeprefix("teeny.")
         row: Json = {"job": job, "kind": "agent" if kind == "agent" else "script", "schedule": expr,
@@ -111,8 +112,30 @@ def jobs(since: float) -> list[Json] | None:
                      "last": last, "last_at": _iso(finished_ms), "runs": int(runs or 0), "failed": int(failed or 0)}
         if enabled == 0:
             row["off"] = True
+        if job == "tick" and beats["failed"]:
+            # `bin/tick --detach` exits at once, so cron saw a launch; the beat's own result is in its ledger
+            row["beats_failed"], row["last_beat_error"] = beats["failed"], beats["last_error"]
         out.append(row)
     return out
+
+
+def _tick_failures(since: float) -> Json:
+    """Beats of the detached tick that ended `failed` since SINCE, from
+    state/tick/runs.jsonl (cron records only that the beat was launched)."""
+    failed, last = 0, None
+    try:
+        with (hand.state_dir() / "tick" / "runs.jsonl").open(encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    beat = json.loads(line)
+                except ValueError:
+                    continue
+                when = evolve_evidence.epoch(beat.get("at")) if isinstance(beat, dict) else None
+                if when is not None and when >= since and beat.get("kind") == "failed":
+                    failed, last = failed + 1, str(beat.get("error") or "")[:200]
+    except (OSError, UnicodeDecodeError):
+        pass
+    return {"failed": failed, "last_error": last}
 
 
 def _act_failures(since: float) -> Json:
@@ -161,7 +184,8 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
     now = hand.now()
     since = now - days * 86400
     listed = jobs(since)
-    failures = None if listed is None else {f"teeny.{j['job']}": j["failed"] for j in listed if j["failed"]}
+    failures = None if listed is None else {f"teeny.{j['job']}": j["failed"] + j.get("beats_failed", 0)
+                                             for j in listed if j["failed"] or j.get("beats_failed")}
     out: Json = {
         "at": _iso(now * 1000), "days": days,
         "outcomes": evolve_evidence.outcomes(hand.state_dir() / "hands.db", since, now, failures, _act_failures(since),
