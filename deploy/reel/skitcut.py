@@ -223,7 +223,7 @@ def argv(ffmpeg: str, clips: list[dict[str, Any]], label_file: str, font: str, o
             audio = f"[{inputs}:a]"
             inputs += 1
         cut = f",apad,atrim=end={seconds:.6f},asetpts=PTS-STARTPTS" if frames else ""
-        parts.append(f"{audio}{askip}aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo{cut}[a{n}]")
+        parts.append(f"{audio}aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo{cut}[a{n}]")
         joined += f"[v{n}][a{n}]"
     size = max(16, round(height * LABEL_SIZE))
     margin = max(8, round(height * LABEL_MARGIN))
