@@ -95,7 +95,7 @@ class ViewerTest(ViewerBase):
         out = self.view(chat(COLD), chat(ON))
         self.assertEqual(out, {"ok": True, "sees": COLD["sees"], "on_model": True, "readable": True,
                                "reason": "a stranger saw Teeny on model and read the words",
-                               "judged": True})
+                               "judged": True, "read": COLD["text"]})
         # Two passes: the say-back (whether a stranger got the point) went
         # with the cold reader on 2026-11-22. Clarity is taste.
         self.assertEqual([len(self.api.images(n)) for n in range(2)], [1, 2])
