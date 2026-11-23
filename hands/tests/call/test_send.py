@@ -106,6 +106,14 @@ class SendTest(Scratch):
         code, out = self.get("/posts")  # self.call asserts the key is in no output
         self.assertEqual((code, out["ok"], out["status"]), (1, False, 401))
 
+    def test_an_error_echoing_the_key_across_the_clip_does_not_leak_a_piece(self):
+        # The service's message is clipped to 200 characters; the key must go
+        # before the clip, or a key straddling it is left as an unmatchable stub.
+        self.svc.route("GET", "/api/v1/posts", {"error": "x" * 190 + KEY}, status=401)
+        code, out = self.get("/posts")
+        self.assertEqual((code, out["ok"], out["status"]), (1, False, 401))
+        self.assertNotIn(KEY[:6], json.dumps(out))
+
     def test_without_the_key_in_secrets_nothing_is_sent(self):
         self.configure(FAKE_SVC_API_KEY=None)
         code, out = self.get("/posts")
