@@ -788,12 +788,11 @@ class QuoteWriteTest(unittest.TestCase):
         self.assertEqual(kept[0]["quoted"], {"by": "Sam Altman", "handle": "sama", "said": SAMA["said"]})
 
     def test_a_quote_of_a_post_not_on_its_card_is_dropped_with_why(self):
-        bad = [{"card": "digg:s1", "format": "image", "text": "t", **SCENE},
-               {"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
+        bad = [{"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
                {"card": "digg:s1", "format": "image", "quote": "a blog", "text": "t", **SCENE}]
         kept, dropped = self.validate(bad)
         self.assertEqual(kept, [])
-        self.assertEqual(len(dropped), 3)
+        self.assertEqual(len(dropped), 2)
         self.assertTrue(all("quotes" in d["why"] for d in dropped), dropped)
 
     def test_a_card_with_one_post_to_quote_needs_no_quote_named(self):
