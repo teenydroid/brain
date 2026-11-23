@@ -735,7 +735,7 @@ class ReflectTest(unittest.TestCase):
         page = big_page(100)
         self.assertGreater(len(page), 11_000)
         (self.brain / "MEMORY.md").write_text(page)
-        ops = [{"op": "edit", "id": f"m{i}", "text": f"person{i} (x): likes crabs, met in the replies."}
+        ops = [{"op": "edit", "id": f"m{i}", "text": f"person{i} (x): likes crabs, met them in the replies."}
                for i in range(1, 101)]
         self.answer({"ops": ops, "diary": "d"})
         got = self.reflect()

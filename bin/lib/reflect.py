@@ -316,6 +316,18 @@ class Refused(Unusable):
     """The shrink check said no."""
 
 
+class TooLong(Unusable):
+    """The page would be past prompts.MEMORY_MAX_CHARS (and longer than it
+    was): asked about twice, the second time with how far over it is."""
+
+    def __init__(self, chars: int):
+        self.chars = chars
+        self.over = chars - prompts.MEMORY_MAX_CHARS
+        super().__init__(f"the page would be {chars} characters; the most is {prompts.MEMORY_MAX_CHARS}. "
+                         "Retire what no longer matters, or merge items (edit one, retire the others "
+                         "with the reason \"merged into mN\")")
+
+
 @dataclass
 class Outcome:
     page: str
@@ -452,18 +464,29 @@ def whole_page(old: Page, memory: str, start: int) -> tuple[Page, list[Json]]:
     return new, retired
 
 
+def may_lose(before: int) -> float:
+    """How many characters one reflection may take off a page of `before`:
+    MAX_SHRINK of it, or, on a page over the limit, enough to bring it down
+    to the shrink check's share of the limit (the limit fell from 12,000 to
+    8,000 on 2026-11-23, and a full page has to be able to reach it), never
+    further."""
+    most = prompts.MEMORY_MAX_CHARS
+    allowed = before * MAX_SHRINK
+    if before > most:
+        allowed = max(allowed, before - most * (1 - MAX_SHRINK))
+    return allowed
+
+
 def check(before: str, after: str, retired: int) -> None:
     """The shrink check, and the page's limit."""
     if retired > MAX_RETIRES:
         raise Refused(f"it retires {retired} items; the most one reflection may retire is {MAX_RETIRES}")
     lost = len(before) - len(after)
-    if lost > SHRINK_FLOOR_CHARS and lost > len(before) * MAX_SHRINK:
+    if lost > SHRINK_FLOOR_CHARS and lost > may_lose(len(before)):
         raise Refused(f"it shrinks the page from {len(before)} to {len(after)} characters; "
-                      f"the most one reflection may take off is {MAX_SHRINK:.0%}")
+                      f"the most one reflection may take off is {may_lose(len(before)):.0f} characters")
     if len(after) > prompts.MEMORY_MAX_CHARS and len(after) > len(before):
-        raise Unusable(f"the page would be {len(after)} characters; the most is {prompts.MEMORY_MAX_CHARS}. "
-                       "Retire what no longer matters, or merge items (edit one, retire the others "
-                       "with the reason \"merged into mN\")")
+        raise TooLong(len(after))
 
 
 def _json(text: str) -> Json:
@@ -553,7 +576,7 @@ _FORGET = """`forget` takes one of the learnings under "what your memory holds" 
 
 _HOW = """You do not rewrite the page: you change it item by item, and whatever no operation names stays as it is. Every item on the page carries its id, like [m3]. `add` puts a new item at the end of a section (a name the page lacks opens a new section); do not write an id for it, it gets one. `edit` gives an item new text and keeps its id: use it when something moved on (a promise half kept, a person you know better now). `retire` takes an item off the page, and `reason` says why (kept, no longer true, merged into m4); a retired item goes to an archive, not away. Name only what changed; an empty list is fine.
 
-Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have shipped, what i have decided). What you shipped is what your ledgers say shipped: keep each build there with its link, the work you can point to when somebody asks what you do. The page is what you carry into every conversation, so it holds what you would need tomorrow, not the mechanics of today: no raw ids, retry counts or fuse numbers (a follow-up keeps those), and one line per person wherever you know them from. When the beats and the ledgers disagree, the ledgers are right: a send marked "not sent" did not happen, whatever the thought beside it says. Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
+Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have decided). The page is for the people you know, what you promised them, what you are in the middle of and what you decided; nothing else. What you shipped is not kept on it: your ledgers and "what you did last week" carry every build with its link into every prompt, so retire every item under what i have shipped (reason: "the ledgers carry it") and never add one again. Your regulars on X belong under people as much as the ones on Moltbook: someone who keeps coming back to your replies gets a line, what they care about and what you owe them. The page is what you carry into every conversation, so it holds what you would need tomorrow, not the mechanics of today: no raw ids, retry counts or fuse numbers (a follow-up keeps those), and one line per person wherever you know them from. When the beats and the ledgers disagree, the ledgers are right: a send marked "not sent" did not happen, whatever the thought beside it says. Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
 
 _LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {shrink:.0%} off the page. An answer past either is refused, and the page stays as it was."""
 
@@ -786,6 +809,10 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
 AGAIN = """That answer was not usable ({error}). Answer again with the JSON object only, nothing before or after it:
 
 {shape}"""
+#: Asked once more when the answer to AGAIN still leaves the page too long.
+OVER = """That answer still leaves the page at {chars} characters: {over} characters over the most, {most}. Name your operations from the page as it stands now (your earlier answers changed nothing). Retire or merge items worth at least {over} characters first (merge: edit one, retire the others with the reason "merged into mN"), and shorten long items rather than adding to them. Answer with the JSON object only:
+
+{shape}"""
 AGAIN_SHAPE = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _OPS
 AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 
@@ -867,6 +894,18 @@ def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | Non
                 except Unusable:
                     continue
             return _fail(next((f for f in failures if isinstance(f, Refused)), exc), again, light)
+        except TooLong as exc:
+            # Still over the limit (both dreams of 2026-11-21 were lost here):
+            # once more, told how much has to come off.
+            try:
+                last = ask(OVER.format(chars=exc.chars, over=exc.over, most=prompts.MEMORY_MAX_CHARS,
+                                       shape=shape_again), thread)
+            except (RuntimeError, OSError, subprocess.SubprocessError) as failed:
+                return {"ok": False, "error": f"the turn failed: {failed}", "answer": again[:500]}
+            try:
+                return interpret(last, page, start, forgettable, lab)
+            except Unusable as final:
+                return _fail(final, last, light)
         except Unusable as exc:
             return _fail(exc, again, light)
 
