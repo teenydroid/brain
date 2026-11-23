@@ -56,7 +56,8 @@ case "$(head -n 1 <<<"$msg")" in
   "# studio: feed")
     [ -z "${FAKE_FEED_GARBLED:-}" ] || { say 'items": oops'; exit 0; }
     say "$(block | jq -c '{items: map({id, people: (if (.id | startswith("digg:")) then ["OpenAI"] elif (.id | startswith("hn:")) then ["Hacker News"] else [] end),
-      what_happened: ("what happened: " + .headline)})}')" ;;
+      what_happened: ("what happened: " + .headline),
+      public: [.quotes[]? | capture("^@(?<h>[A-Za-z0-9_]+)") | .h]})}')" ;;
   "# studio: write")
     # $FAKE_WRITE_GARBLED: the first write answer is not JSON.
     if [ -n "${FAKE_WRITE_GARBLED:-}" ] && [ ! -e "$FAKE_SEEN.garbled" ]; then : >"$FAKE_SEEN.garbled"; say 'posts": oops'; exit 0; fi
