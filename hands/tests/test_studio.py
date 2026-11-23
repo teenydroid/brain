@@ -854,9 +854,12 @@ class QuoteWriteTest(unittest.TestCase):
                       quotes=[{"by": "Sam Altman", "handle": "sama", "post": "9", "said": "nice"}])]
         kept, dropped = studio.validate_posts(
             [{"card": "digg:s3", "format": "image", "quote": "9", "text": "t", "image": "a lab",
-              "people": ["Suleyman", "altman", "Jensen Huang"]}], cards, ("image",), quote=True)
+              "people": ["Suleyman", "altman"]},
+             {"card": "digg:s3", "format": "image", "quote": "9", "text": "t", "image": "a lab",
+              "people": ["Jensen Huang", "Huang"]}], cards, ("image",), quote=True)
         self.assertEqual(dropped, [])
-        self.assertEqual(kept[0]["people"], ["Mustafa Suleyman", "Sam Altman", "Jensen Huang"])
+        self.assertEqual(kept[0]["people"], ["Mustafa Suleyman", "Sam Altman"])
+        self.assertEqual(kept[1]["people"], ["Jensen Huang", "Huang"])  # not on the card: as written
 
     def test_a_quote_of_a_post_not_on_its_card_is_dropped_with_why(self):
         bad = [{"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
