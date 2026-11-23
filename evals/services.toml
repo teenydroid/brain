@@ -4,8 +4,8 @@
 # never enters the jail, and holds the call to this list, the guard (anything
 # a write says), DRY_RUN and the day's caps:
 #
-#   CALL_<SERVICE>_READS_PER_DAY    GETs a UTC day   (0, off, unless set; at most 5000)
-#   CALL_<SERVICE>_WRITES_PER_DAY   the rest         (0, off, unless set; at most 500)
+#   CALL_<SERVICE>_READS_PER_DAY    GETs a UTC day   (default 500; 0 is off; at most 5000)
+#   CALL_<SERVICE>_WRITES_PER_DAY   the rest         (default 50; 0 is off; at most 500)
 #
 # in secrets/teeny.env, the service's name upper-cased with - as _.
 #

@@ -951,8 +951,16 @@ class FetchTest(BrokerCase):
         path = self.root / "state" / "broker" / "fetches.json"
         return json.loads(path.read_text())["count"] if path.exists() else 0
 
-    def test_fetch_is_off_until_the_operator_sets_a_number(self):
+    def test_fetch_works_without_a_setting_and_zero_turns_it_off(self):
+        # Reading a page says nothing to anyone: on by default, 0 is off.
+        self.assertEqual(broker.DEFAULT_FETCHES_PER_DAY, 500)
         self.start_fetching()
+        code, out = self.post("/fetch", {"url": "https://example.com/"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(len(self.seen), 1)
+
+    def test_zero_turns_fetch_off(self):
+        self.start_fetching(FETCHES_PER_DAY="0")
         code, out = self.post("/fetch", {"url": "https://example.com/"})
         self.assertEqual((code, out["status"]), (403, "refused"))
         self.assertIn("FETCHES_PER_DAY", out["reason"])
