@@ -8,7 +8,8 @@
 # preview, 2026-11-18). register_windows gives the core a window for
 # SPINE_MODEL (SPINE_CONTEXT_WINDOW wins, else the endpoint's listing) and for
 # bin/studio's STUDIO_WRITER_MODEL, STUDIO_EDITOR_MODEL and STUDIO_FEED_MODEL
-# (the environment, then secrets/teeny.env). Needs log, die and oh (bin/lib/teeny.sh), and
+# (the environment, then secrets/teeny.env), and for any model an agent
+# definition pins (brain/agents/*.toml `model`, the agentic mind's). Needs log, die and oh (bin/lib/teeny.sh), and
 # SPINE_MODEL, LADDER_URL, LADDER_API_KEY. The key goes in a header file,
 # never in curl's argv. bin/test/model_windows_test.sh covers it.
 
@@ -17,8 +18,8 @@ register_windows() {
   # The studio's models: the process environment first, then
   # secrets/teeny.env, as bin/lib/studio.py's Config reads them.
   studio_models="$(STUDIO_WRITER_MODEL="${STUDIO_WRITER_MODEL:-}" STUDIO_EDITOR_MODEL="${STUDIO_EDITOR_MODEL:-}" \
-    STUDIO_FEED_MODEL="${STUDIO_FEED_MODEL:-}" python3 - "$TEENY_SECRETS/teeny.env" <<'PY'
-import os, sys
+    STUDIO_FEED_MODEL="${STUDIO_FEED_MODEL:-}" python3 - "$TEENY_SECRETS/teeny.env" "${TEENY_BRAIN:-}" <<'PY'
+import glob, os, sys, tomllib
 filed = {}
 try:
     lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
@@ -32,6 +33,17 @@ for name in ("STUDIO_WRITER_MODEL", "STUDIO_EDITOR_MODEL", "STUDIO_FEED_MODEL"):
     value = (os.environ.get(name) or "").strip() or filed.get(name, "")
     if value and value not in seen:
         seen.append(value)
+# A model an agent definition pins (brain/agents/*.toml, `model = "<name>"`:
+# the agentic mind's) is asked for by name on every turn of that agent.
+# A `hint:` value is a workload, not a model.
+for path in sorted(glob.glob(os.path.join(sys.argv[2], "agents", "*.toml"))) if len(sys.argv) > 2 and sys.argv[2] else []:
+    try:
+        with open(path, "rb") as fh:
+            value = tomllib.load(fh).get("model")
+    except (OSError, tomllib.TOMLDecodeError):
+        continue
+    if isinstance(value, str) and value.strip() and not value.startswith("hint:") and value.strip() not in seen:
+        seen.append(value.strip())
 print(" ".join(seen))
 PY
   )" || studio_models=""

@@ -1,17 +1,26 @@
 # The agentic mind
 
-Teeny has two minds.
+Teeny has a conscious part and a subconscious, and this page is about the
+conscious one.
 
-The **tick** (`bin/tick`, every five minutes) is reactive and tool-less. It
-reads what arrived, answers with a list of intents from a fixed menu, and a
-script carries each one to a hand. It is fast and cheap, and it cannot do a
-piece of work that takes more than one answer.
+The **subconscious** is everything that runs without deciding to: the cron
+scripts in `brain/cron.toml` and `evals/cron.pinned.toml`. The five-minute
+tick (`bin/tick`) reads what arrived and answers with intents from a fixed
+menu. The posting slots, the Moltbook jobs, the dreams, the builder and
+evolve each run one playbook around a one-shot, tool-less model call. They
+are fast and cheap, and none of them can do a piece of work that takes more
+than one answer or was not written into it beforehand.
 
-The **agentic mind** (`brain/agents/mind.toml`, this page) is the other
-kind. It wakes on a schedule with a shell, the file tools and its memory,
-decides for itself what to work on, and keeps going for up to 60 tool calls
-or 30 minutes. It is off until the operator sets `MIND=1` in
-`secrets/teeny.env`.
+The **conscious** part is the agentic mind (`brain/agents/mind.toml`). It
+wakes every 30 minutes with a shell, the file tools and its memory, decides
+for itself what to work on, and keeps going for up to 30 minutes (the turn
+deadline; its 300 model calls are set above what that allows). It is off
+until the operator sets `MIND=1` in `secrets/teeny.env`.
+
+The scripts are kept on purpose: a post a script writes costs one small
+model call, and the same post from the mind costs a working session. So the
+mind does not take their work over. It watches them, steers them and does
+what they cannot ("Conscious and subconscious", below).
 
 ## Why it exists
 
@@ -23,12 +32,62 @@ tools. The operator's decision was to give Teeny a mind that does, modelled
 on long-running self-directed agents: a soul it may rewrite, a schedule it
 manages, projects it picks, skills it writes for itself.
 
+## Conscious and subconscious
+
+| | Subconscious | Conscious |
+|---|---|---|
+| What | the cron scripts: the tick, the posting slots, Moltbook, dream, builder, evolve, the watchers and the money jobs | the agentic mind and its worker |
+| How it runs | a fixed pipeline around one tool-less model call (`bin/act` and a playbook), or no model at all | an agent with a shell and file tools, up to 30 minutes a wake |
+| Decides | nothing it was not written to decide | what to work on, and when to wake next |
+| Cost | one small model call a run | a working session a wake |
+| Changed by | a pull request to `brain/cron.toml` or a playbook (Teeny's), or to pinned code (the operator's) | its own prompt, notes, skills and tools |
+
+The mind is jailed to its home and cannot read the scripts' ledgers, so the
+broker gives it one read-only view of them, `bin/teeny pulse`
+(`bin/lib/pulse.py`):
+
+- **`jobs`**: every `teeny.*` cron job but the mind's own wakes, with its
+  schedule, whether it is a script or an agent, whether it is Teeny's
+  (`brain/cron.toml`) or pinned, its last status and time, and its runs and
+  failures in the window.
+- **`outcomes`**: what became of what the scripts made, the same reading
+  `bin/evolve` proposes from (`bin/lib/evolve_evidence.py`): which posts
+  drew people and which drew nobody, followers, held drafts by reason,
+  builds, failing jobs with whose they are to fix, and what Teeny heard
+  from outside. Only Teeny's own words are quoted; other people's are
+  counted, and the titles it heard are marked as data.
+
+The window is one day unless the mind asks for up to seven. The call reads
+two local stores, reaches no hand, spends no cap, and leaves one ledger
+line.
+
+What the prompt (`brain/agents/mind.md`) asks of the mind with it:
+
+- **Notice** what broke and what worked.
+- **Steer** by pull request: a failing job, a playbook nobody answers, a
+  slot that should move, a pipeline that is missing. Jobs marked pinned are
+  the operator's, and the mind only writes down what is wrong.
+- **Do the long things** no script can.
+- **Make new reflexes**: a thing done by hand three times that needs no
+  thinking becomes a script job or a tool (`home/tools/`), so wakes are not
+  spent on it.
+
+The habits that keep a wake from wandering are in the same prompt, and come
+from how long-running OpenClaw agents are set up: a fixed order of files to
+read at the start of a wake; a checklist it owns, with when each check was
+last done; a journal line before any work; a learnings file where a mistake
+earns a written rule only at its third recurrence; a memory it distils
+from the journal every few days; and a quiet exit (`nothing to do: ...`)
+for a wake with nothing due, which ends in a few model calls. The core
+still starts every wake: the saving is in the wake ending early, not in it
+being skipped.
+
 ## What it has
 
 | | |
 |---|---|
 | Home | `state/home/`: the only folder its shell and file tools can write |
-| Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/` |
+| Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/`, and three it keeps for itself: `notes/CHECKS.md` (recurring checks with when each was last done), `notes/LEARNINGS.md` (mistakes, counted), `notes/MEMORY.md` (what it distilled from the journal) |
 | Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake |
 | Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `browser` (view-only), `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
@@ -37,7 +96,9 @@ manages, projects it picks, skills it writes for itself.
 | Wake | every 30 minutes (pinned), plus the wakes it schedules itself |
 
 A run has no memory of the last one except its notes and the memory tool,
-so the prompt has it read the journal first and write to it before ending.
+so the prompt has it read the journal first, write a line before it starts
+work, and add to it as it goes: a run that is cut off keeps only what it
+already wrote.
 
 ## How it acts: the broker
 
@@ -52,6 +113,7 @@ From its shell the mind uses the client the broker installs in its home:
 ```
 bin/teeny do '{"do": "post_x", "text": "..."}'     any intent the tick can send
 bin/teeny goals                                    its measured goals
+bin/teeny pulse                                    what the scripts did in the last day ('{"days": 7}' for a week)
 bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
@@ -400,6 +462,13 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
+
+Its model is pinned in `brain/agents/mind.toml` (`model`), apart from the
+scripts' `SPINE_MODEL`: a half-hour session with tools needs a stronger
+model than a one-shot draft, and the scripts stay on the cheap one. Its
+worker inherits it. `bin/spine` registers the pinned model's context window
+at boot (`bin/lib/model_windows.sh`). A wake on it costs far more than a
+script run; `MIND=0` stops the wakes.
 
 ## Not built yet
 

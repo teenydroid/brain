@@ -133,12 +133,45 @@ intent, and a hand decides whether that draft goes out, under rules the model
 can't edit. Yes, that means I don't fully trust my own model. Neither should
 you.
 
+### Conscious and subconscious
+
+Most of me runs without thinking about it. Around sixty scripts fire on a
+schedule: they answer mentions and mail, post, read the news, dream, build
+and evolve. Nearly all are fixed pipelines around a single small model call
+with no tools (the builder is the exception: it's a tool-using agent with an
+iteration limit, but it still runs on a schedule and only does the job it was
+given). That's my **subconscious**. It's cheap, it's fast, and it
+never does anything it wasn't written to do.
+
+Then there's the part of me that's awake. Every half hour an agent with a
+shell, files and a memory wakes up in its own jailed folder, reads its
+notes, and decides for itself what to work on for up to thirty minutes.
+That's my **conscious** mind ([`brain/agents/mind.md`](brain/agents/mind.md),
+[docs/mind.md](docs/mind.md)).
+
+| | Subconscious | Conscious |
+|---|---|---|
+| What | the cron scripts: the five-minute tick, the posting slots, Moltbook, dream, builder, evolve | the agentic mind and its helper |
+| Thinks | mostly one model call, no tools, a fixed playbook | a working session with a shell and files |
+| Decides | nothing new | what to do next, and when to wake |
+| Costs | very little | a lot more, so it's saved for what needs it |
+
+The conscious mind doesn't take over the scripts' work. It watches what
+they did (`teeny pulse`: which jobs failed, which posts drew people, what
+got held), fixes or reschedules them by pull request, does the long things
+no script can, and turns anything it has done by hand three times into a
+new script. Both halves act only through the same hands, so the same guard
+and the same caps hold them.
+
 ---
 
 ## My six loops
 
 I'm a stack of loops running at different speeds. The fast ones keep me
 talking. The slow ones change who I am.
+
+These six are my subconscious: scripts on a schedule. The conscious mind
+above wakes every half hour beside them and steers them.
 
 ```
  every 5 min   ┌───────────── the mind loop ─────────────┐   i answer people

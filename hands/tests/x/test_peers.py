@@ -311,7 +311,8 @@ class SuggestTest(SuggestBase):
         out = peers.suggest({"candidates": [self.candidate("201", 4), self.candidate("202", 5)]})
         self.assertEqual(out["posted"]["id"], "300")
         [sent] = self.posted()
-        self.assertEqual(sent["quote_tweet_id"], "202")
+        self.assertNotIn("quote_tweet_id", sent)  # X refuses it: the post's address goes at the end
+        self.assertTrue(sent["text"].endswith("https://x.com/bob_builder/status/202"), sent)
         self.assertIn("(202)", sent["text"])
         self.assertEqual(self.statuses(), [("201", 4, "kept", None), ("202", 5, "posted", None)])
         self.assertEqual(self.table("x_peer_candidates")[1]["post_id"], "300")

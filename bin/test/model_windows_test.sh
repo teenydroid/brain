@@ -49,6 +49,23 @@ reset
 register_windows
 check "with no studio model only SPINE_MODEL gets a window" test "$(ids)" = glm-5.3-flash
 
+# A model an agent definition pins is asked for on every turn of that agent
+# (the agentic mind's, brain/agents/mind.toml): without a window its turns go
+# out with no user message.
+reset
+mkdir -p "$scratch/brain/agents"
+printf 'id = "mind"\nmodel = "claude-fable-5.2"\n' >"$scratch/brain/agents/mind.toml"
+printf 'id = "judge"\nmodel = "hint:reasoning"\n' >"$scratch/brain/agents/judge.toml"
+printf 'id = "act"\n' >"$scratch/brain/agents/act.toml"
+printf 'not toml [' >"$scratch/brain/agents/broken.toml"
+TEENY_BRAIN="$scratch/brain" register_windows
+check "a model an agent definition pins gets its window, and a hint or a broken file none" \
+  test "$(ids)" = glm-5.3-flash,claude-fable-5.2
+reset
+printf 'STUDIO_WRITER_MODEL=claude-fable-5.2\n' >"$TEENY_SECRETS/teeny.env"
+TEENY_BRAIN="$scratch/brain" register_windows
+check "a model both the studio and an agent use is written once" test "$(ids)" = glm-5.3-flash,claude-fable-5.2
+
 reset
 printf 'STUDIO_WRITER_MODEL=claude-fable-5.2\nSTUDIO_EDITOR_MODEL="gemini-3.1-pro"\n' >"$TEENY_SECRETS/teeny.env"
 register_windows
