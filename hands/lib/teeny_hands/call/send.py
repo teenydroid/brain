@@ -48,6 +48,27 @@ def _send(svc: services.Service, call: request.Call, key: str) -> Json:
     return {"status": status, "json": parsed}
 
 
+CHANGED = ("the guard would change this text; send it through the verb that publishes it (the proxy sends "
+           "exactly what it was given, or nothing)")
+
+
+def guard(svc: services.Service, call: request.Call) -> None:
+    """What a write says, through the outbound guard as one text: every
+    non-empty string of the body and the query, in order, a line each.
+    Refused unless the guard allows it unchanged: the proxy cannot rewrite
+    an arbitrary body, and sends nothing but what the guard passed."""
+    said = "\n".join(text for text in call.texts if text)
+    if not said:
+        return
+    verdict = gate.check_outbound(said, surface=svc.surface, kind="call",
+                                  context={"service": svc.name, "method": call.method, "path": call.path})
+    if verdict.kind != "allow":
+        raise hand.Refused(verdict.reason or "the guard did not let it through", rule="guard",
+                           category=verdict.category, hold_id=verdict.hold_id)
+    if verdict.text != said:
+        raise hand.Refused(CHANGED, rule="guard")
+
+
 def _carry_out(raw: Any, row: Json) -> Json:
     svc = _service(request.service_of(raw))
     row["service"] = svc.name
