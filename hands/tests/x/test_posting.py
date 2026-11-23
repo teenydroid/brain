@@ -502,8 +502,8 @@ class StudioQuoteTest(QuoteLaneTest):
 
     def test_a_studio_quote_spends_none_of_the_quote_lane(self):
         self.studio_quote(0)
+        self.at(T0 + HOUR)  # the spacing after an original post still holds
         self.assertEqual(publish.slot(quote=True), {"open": True})
-        self.at(T0 + HOUR)
         self.assertEqual(self.quote(1, "556")["kind"], "quote")
         self.at(T0 + 5 * HOUR)
         self.studio_quote(2, "557")
