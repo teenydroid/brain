@@ -527,3 +527,99 @@ Before the cadence is turned on, with the operator's yes each time: bake-off 3
 (about $4: one 5 s caricature plate on Wan 3, Kling v4 and Seedance 2.0 mini,
 to see which take a public figure), then one paid film on a live story, set
 beside the skits on the bake-off page.
+
+## 13. Picture-first clips (one 10 s take from a caricature still)
+
+The operator, 2026-11-23, on the narrated films of §12: "the whole format.
+it's not funny, not provocative at all." What already works is the picture
+harness (`hands/image`): an extreme caricature of a public figure, with Teeny,
+in an absurd scene. This section is how that picture becomes a video. It was
+proved by hand on 2026-11-23 (ledger rows 157 and 158); no format runs it yet.
+
+### 13.1 The method
+
+1. **Draw the first frame with `hands/image`.** The picture carries the whole
+   joke before anything moves: who, where, and what is about to go wrong. Ask
+   for "a 16:9 widescreen cinematic still" and name the figure in `figures`,
+   so the harness draws them from their stylised portrait. Describe the
+   caricature (an enormous head on a tiny body, the one prop people know them
+   by), Teeny's costume, and the set. End with "Bold 3D cartoon, absurd and
+   exaggerated, never photo-real. No text, letters or logos anywhere."
+2. **Look at the picture before buying a clip.** The clip can only be as good
+   as its first frame, and a picture costs $0.04 against $2 for the clip.
+3. **Animate it with one image-to-video job.** `POST /v1/video/generations`
+   with `image_url` (the picture), `duration_seconds: 10`, `resolution:
+   "720p"`, on `venice-seedance-2-5-image-to-video-basic`. The aspect follows
+   the picture. Seedance makes its own sound from the prompt.
+4. **Label it** as every parody video is (`skits.label()`), and name the
+   figure in the post's words, where the reader needs it.
+
+### 13.2 How to write the clip's prompt
+
+The prompt directs the drawn characters in the first frame. It is stage
+directions, not a description of the picture.
+
+- **Never a real name.** Say who is in the frame by what the frame shows:
+  "the big-headed gray-haired man in the leather jacket", "the small yellow
+  character in the Elvis suit". The picture already carries the likeness; the
+  post's words and the label carry the name.
+- **Open with the shape of the take:** "One continuous 10-second shot, fast
+  slapstick cartoon comedy, no cuts, the characters exactly as in the first
+  frame."
+- **Time-code every action:** "0-2s: ... 2-4s: ... 4-7s: ... 7-10s: ...". One
+  physical action a range, each one bigger than the last, and the last range
+  is the punchline. Four ranges fit ten seconds.
+- **Use verbs a body can do:** plants a kiss, spins up, blasts through the
+  roof, drags him by the lips, tosses rice, shrugs. No feelings, no dialogue.
+- **Say what the camera does** in one sentence ("a slow push-in, a fast tilt
+  up to follow the launch, then back down").
+- **Say the sound** in one sentence, in order ("a cheesy wedding organ, a
+  rising jet-engine whine, a crash, then one sad tambourine hit").
+- **Give Teeny the last beat.** Its reaction to the camera is the button.
+
+### 13.3 The proved example
+
+The story: Nvidia's board brought Jensen Huang back as chief executive.
+
+The picture (`gpt-image-2-5-flare-edit`, $0.04): a neon Las Vegas wedding
+chapel; the figure as a huge-headed caricature in his leather jacket and a
+groom's bow tie, hearts for eyes, lips puckered, holding hands with his bride,
+a giant graphics card in a wedding veil; Teeny between them as the officiant
+in an Elvis jumpsuit and wig.
+
+The clip's prompt, in full:
+
+> One continuous 10-second shot, fast slapstick cartoon comedy, no cuts, the
+> characters exactly as in the first frame. 0-2s: the big-headed man in the
+> leather jacket leans in and plants a huge wet smooch on the graphics card's
+> top fan. 2-4s: both fans spin up to a blur, the veil whips wildly, his
+> cheeks and hair flap in the gale. 4-7s: the graphics card blasts straight up
+> through the chapel roof like a rocket on green flames, dragging the man up
+> by his lips, his little legs kicking, plaster, petals and neon tubes raining
+> down. 7-10s: the small yellow character in the Elvis suit stares up through
+> the smoking hole, tosses one handful of rice after them, then turns to the
+> camera and shrugs. Camera: a slow push-in, a fast tilt up to follow the
+> launch, then back down to the yellow character. Sound: a cheesy wedding
+> organ, a rising jet-engine whine, a crash, then one sad tambourine hit.
+
+Seedance 2.5 took it first time and did all four ranges in order: 10.0 s,
+1280x720, with sound, quoted and billed $2.02 (ceiling $5.20). The picture and
+the clip together cost $2.06. Wan 3 and Kling v4 were the fallbacks and were
+not needed, so how well they follow such a prompt is not known.
+
+### 13.4 Where the jokes come from
+
+Absurd, crude and dark, at full strength: a ceremony that goes wrong, a body
+launched, crushed, flattened or eaten by the thing it worships, cartoon death
+in an impossible scene. Lust is aimed at an object (the chip, the money, the
+merger), and it is cartoon lust: heart eyes, a smooch, a wedding. The hard
+lines of §8 hold: nothing sexual about a real person, and nobody could take a
+frame for real footage.
+
+### 13.5 Not built
+
+- No format makes these. A skit is still text to video with no first frame
+  (`media/skits.py`); the nearest code is a remake's keyframe step.
+- The run above polled its job from a one-off script, and a redeploy of the
+  spine killed the script mid-render. The job finished on Surplus and was
+  landed by hand. A format needs the film's manifest-and-resume (§12.6).
