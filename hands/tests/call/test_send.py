@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import json
 
 from .support import KEY, Scratch
@@ -60,6 +62,30 @@ class SendTest(Scratch):
         code, out = self.get("/posts")
         self.assertEqual((code, out["ok"]), (1, False))
         self.assertNotIn("127.0.0.1", json.dumps(out))
+
+    def test_no_more_of_an_answer_is_read_than_may_be_passed_on(self):
+        # A service that answers without end must not fill the hand's memory.
+        from teeny_hands import rest
+        self.svc.route("GET", "/api/v1/posts", {"pad": "x" * (2 * 1024 * 1024)})
+        read: list[int] = []
+        real = rest._OPENER.open
+
+        def watched(request, timeout=None):
+            response = real(request, timeout=timeout)
+            inner = response.read
+
+            def counted(*args):
+                data = inner(*args)
+                read.append(len(data))
+                return data
+
+            response.read = counted
+            return response
+
+        with mock.patch.object(rest._OPENER, "open", watched):
+            code, out = self.get()
+        self.assertEqual((code, out["rule"]), (2, "size"), out)
+        self.assertLessEqual(sum(read), 256 * 1024 + 1)
 
     def test_an_answer_over_256_kib_is_refused(self):
         self.svc.route("GET", "/api/v1/posts", {"posts": ["x" * 1000] * 300})
