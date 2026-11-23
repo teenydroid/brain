@@ -49,8 +49,9 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
               no key, no cookies, no body; public addresses only, the deny
               list, at most 5 redirects, 2 MiB of text, 30 s), the way
               Teeny's jailed tools read the web when a tool's network is
-              closed (BOX_NETWORK=0); the mind may use it too. At most FETCHES_PER_DAY
-              (default 500, 0 is off) requests a UTC day, each redirect one,
+              closed (BOX_NETWORK=0); the mind may use it too. At most
+              FETCHES_PER_DAY (default 500, 0 is off) requests a UTC day,
+              each redirect one,
               counted in state/broker/fetches.json as each is sent. A fetch
               says nothing, so a rehearsal fetches too. Never a tick route
 - /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
