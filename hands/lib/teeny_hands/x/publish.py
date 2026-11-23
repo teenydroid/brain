@@ -161,7 +161,6 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # address at the end, which X shows as the quoted post. A quote of the
         # account's own post still quotes.
         linked = status_url(quoted)
-        rules.check_link_budget(conn := _db(), text)  # a link in the words themselves still counts
         text = f"{text} {linked}"
         rules.check_length(text)
     live = not hand.dry_run()
@@ -176,7 +175,9 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
-        rules.check_link_budget(conn, text)
+        # The quoted post's address is how a quote goes out, not a link post;
+        # a link in the words themselves still counts.
+        rules.check_link_budget(conn, rules.quote_words(text, quote_of) if linked else text)
         if not live:
             return _dry(text, kind)
         x = x or twitr.client()
