@@ -366,6 +366,14 @@ def experiment_part(experiment: Json, n: int) -> str:
             f"{experiment['id']}. The others are your usual posts, the comparison.")
 
 
+def mark_comparisons(posts: list[Json], experiment: Json | None) -> None:
+    """ledger.measure counts an untagged post carrying the experiment's format as one of its
+    posts. A comparison post (no experiment tag) with that format would join the cohort, so it
+    is marked `comparison`: post_body sends it without the format tag and it stays the baseline."""
+    for post in posts:
+        post["comparison"] = bool(experiment) and "experiment" not in post and post["format"] == experiment["format"]
+
+
 def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.Format, Json | None]] | None = None,
                   menu: Json | None = None, n: int | None = None, experiment: Json | None = None) -> str:
     """The one writer turn. `videos` are the video formats this slot offers,
@@ -1204,12 +1212,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                    failure="studio")
     kept, lost = checked
     dropped.extend(lost)
-    if experiment:
-        # ledger.measure counts an untagged post carrying the experiment's format as one of
-        # its posts. A comparison post (untagged) with that format would join the cohort, so
-        # it goes out without the format tag and stays in the baseline.
-        for post in kept:
-            post["comparison"] = "experiment" not in post and post["format"] == experiment["format"]
+    mark_comparisons(kept, experiment)
     posts.extend(kept)
     if not posts:
         raise Stop("skipped", f"no usable post ({len(dropped)} dropped)")

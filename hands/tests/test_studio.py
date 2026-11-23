@@ -857,6 +857,26 @@ class LabExperimentTest(unittest.TestCase):
         self.assertIsNone(studio.open_x_experiment(self.lab_room((False, "lab down"))))
         self.assertIsNone(studio.open_x_experiment(self.lab_room((True, {"experiments": []}))))
 
+    def test_a_comparison_post_in_the_experiments_format_goes_out_untagged(self):
+        # Live shape: an untagged image comparison post counted as one of an image experiment's posts.
+        offered = {"id": 6, "format": "image", "hypothesis": EXPERIMENT["hypothesis"]}
+        kept, _ = studio.validate_posts([
+            {"card": "digg:s1", "format": "image", "text": "a tagged one", "experiment": 6},
+            {"card": "hn:101", "format": "image", "text": "a plain one"},
+            {"card": "hn:101", "format": "post", "text": "another format"},
+        ], CARDS, ("image", "post"), experiment_id=6)
+        studio.mark_comparisons(kept, offered)
+        self.assertEqual([p["comparison"] for p in kept], [False, True, False])
+        _, tagged = studio.post_body(XRoom(), "P1", kept[0], [])
+        _, plain = studio.post_body(XRoom(), "P2", kept[1], [])
+        _, other = studio.post_body(XRoom(), "P3", kept[2], [])
+        self.assertEqual((tagged["experiment"], tagged["format"]), (6, "image"))
+        self.assertNotIn("format", plain)
+        self.assertNotIn("experiment", plain)
+        self.assertEqual(other["format"], "post")
+        studio.mark_comparisons(kept, None)
+        self.assertEqual([p["comparison"] for p in kept], [False, False, False])
+
     def test_the_writer_is_asked_to_try_it_and_the_marked_post_is_tagged(self):
         cfg = studio.Config(formats=("post",), posts=4)
         offered = {"id": 6, "format": "number-lead", "hypothesis": EXPERIMENT["hypothesis"]}
