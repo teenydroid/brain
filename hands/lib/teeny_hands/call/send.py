@@ -55,36 +55,34 @@ def _send(svc: services.Service, call: request.Call, key: str) -> Json:
     return {"status": status, "json": parsed}
 
 
-CHANGED = ("the guard would change this text; send it through the verb that publishes it (the proxy sends "
-           "exactly what it was given, or nothing)")
+CHANGED = ("the guard would cut a link from this text (it is not on the allowlist); the proxy sends exactly "
+           "what it was given, or nothing. Leave the link out")
 
 
 def guard(svc: services.Service, call: request.Call) -> None:
-    """What a write says, through the outbound guard: the words of its
-    path, then every non-empty string of the body and the query as one
-    text, in order, a line each.
-    Refused unless the guard allows it unchanged: the proxy cannot rewrite
-    an arbitrary body, and sends nothing but what the guard passed."""
-    context = {"service": svc.name, "method": call.method, "path": call.path}
-    # The path's own words (a slug can say something), through the guard's
-    # core check on their own: links, the lexicon, the judge. They are sent
-    # as given or not at all, so the house style has nothing to do here.
+    """What a write says, through the outbound guard's own check (links,
+    the lexicon, the judge): the words of its path, then every non-empty
+    string of the body and the query as one text, in order, a line each.
+
+    Refused when the guard holds it, or would cut a link from it: the
+    proxy cannot rewrite an arbitrary body, so it sends exactly what it
+    was given or nothing. The house style (emoji, dashes, handles) is how
+    Teeny's own posts read, not a safety rule, and a call to an API is not
+    a post: it is not applied here and never refuses a call."""
+    context = {"service": svc.name, "method": call.method, "path": call.path, "surface": svc.surface,
+               "kind": "call"}
     words = " ".join(word for word in _PATH_BREAK.split(call.path) if word)
-    if words:
-        held = gate.gate_outbound(words, {**context, "surface": svc.surface, "kind": "call"}).held
-        if held is not None:
-            raise hand.Refused("the guard did not let the path through", rule="guard",
-                               category=held.category, hold_id=held.hold_id)
     said = "\n".join(text for text in call.texts if text)
-    if not said:
-        return
-    verdict = gate.check_outbound(said, surface=svc.surface, kind="call",
-                                  context=context)
-    if verdict.kind != "allow":
-        raise hand.Refused(verdict.reason or "the guard did not let it through", rule="guard",
-                           category=verdict.category, hold_id=verdict.hold_id)
-    if verdict.text != said:
-        raise hand.Refused(CHANGED, rule="guard")
+    for what, text in (("the path", words), ("it", said)):
+        if not text:
+            continue
+        result = gate.gate_outbound(text, dict(context))
+        if result.held is not None:
+            raise hand.Refused(f"the guard did not let {what} through ({result.held.category}). Do not rephrase "
+                               "it; say something else or say nothing", rule="guard",
+                               category=result.held.category, hold_id=result.held.hold_id)
+        if result.fixes or result.text != text:
+            raise hand.Refused(CHANGED, rule="guard", hold_id=result.hold_id)
 
 
 def _carry_out(raw: Any, row: Json) -> Json:
