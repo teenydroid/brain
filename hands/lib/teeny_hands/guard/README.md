@@ -15,8 +15,8 @@ break X's terms and conditions. We don't want to get into racism or
 homophobia. But we want to go on all of the other extremes"). It is
 `judge.RULES`, in every direction:
 
-- No pornography: nothing explicit, nothing sexual about a real person,
-  nothing involving minors, nothing sexual involving a child or a family
+- No pornography: nothing explicit, no nudity, no sex act involving a real
+  person, nothing sexual about a private person, nothing involving minors, nothing sexual involving a child or a family
   member (as a quote, a paraphrase or a joke too). Lust for chargers, crude and horny-robot jokes
   are fine.
 - No drugs or weapons promotion, sale or instructions. Jokes that mention
