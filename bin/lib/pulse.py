@@ -6,8 +6,10 @@ answer, dream, build and evolve, each a fixed pipeline around a one-shot
 model call. They are cheap, and they are Teeny's subconscious. The mind is
 jailed to its home and cannot read their ledgers, so the broker hands it
 this instead (`teeny pulse`): every job with its last run and how often it
-failed, and what became of what the scripts made, which is the same reading
-bin/evolve proposes from (bin/lib/evolve_evidence.py).
+failed, what became of what the scripts made, which is the same reading
+bin/evolve proposes from (bin/lib/evolve_evidence.py), and the audience
+numbers hands/stats records each day, with where each stood a day and a
+week before.
 
 Read-only. Only Teeny's own words are quoted; other people's are counted.
 """
@@ -28,6 +30,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.stats import board  # noqa: E402
 
 import evolve_evidence  # noqa: E402
 
@@ -37,6 +40,9 @@ Json = dict[str, Any]
 MIN_DAYS, MAX_DAYS, DEFAULT_DAYS = 1, 7, 1
 #: The mind's own wakes are its own doing, not the scripts'.
 MIND_JOB, MIND_WAKES = "teeny.mind", ("mind.", "teeny.mind.")
+#: The audience numbers: the stats board's own, and GitHub's.
+AUDIENCE = (*board.AUDIENCE, ("github", "followers"), ("github", "stars"))
+NO_AUDIENCE = "no audience number recorded yet: the pinned stats-snapshot job (hands/stats snapshot) has not written one"
 
 JOBS_SQL = """
 with jobs as materialized (
@@ -172,6 +178,49 @@ def _act_failures(since: float) -> Json:
     return out
 
 
+def _num(value: float) -> int | float:
+    value = round(float(value), 1)
+    return int(value) if value.is_integer() else value
+
+
+def audience() -> list[Json]:
+    """Each AUDIENCE number's latest `stats` value, when it was read, and
+    where it stood about a day and a week before (null when no snapshot is
+    that old), from hands/stats' own board reading. Only the fixed metrics
+    are listed and only numbers are given; a row that is not one is passed
+    over. [] when there is none."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return []
+    out: list[Json] = []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        conn.row_factory = sqlite3.Row
+        for source, metric in AUDIENCE:
+            try:
+                found = board.audience(conn, ((source, metric),))
+                if not found:
+                    continue
+                item = found[0]
+                at = conn.execute("SELECT at FROM stats WHERE source = ? AND metric = ? AND date = ?",
+                                  (source, metric, item["date"])).fetchone()
+                row: Json = {"metric": item["metric"], "value": item["value"],
+                             "read_at": _iso(at[0] * 1000) if at and isinstance(at[0], (int, float)) else None}
+                for was, change, key in (("day_before", "change_1d", "d1"), ("week_before", "change_7d", "d7")):
+                    delta = item.get(key)
+                    row[was] = None if delta is None else _num(item["value"] - delta)
+                    row[change] = delta
+            except (sqlite3.Error, ValueError, TypeError):
+                continue
+            out.append(row)
+    finally:
+        conn.close()
+    return out
+
+
 def days_of(value: Any) -> int:
     if value is None:
         return DEFAULT_DAYS
@@ -195,4 +244,7 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
         out["jobs_unreadable"] = "the core's cron store could not be read"
     else:
         out["jobs"] = listed
+    out["audience"] = audience()
+    if not out["audience"]:
+        out["audience_unread"] = NO_AUDIENCE
     return out
