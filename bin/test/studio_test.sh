@@ -222,7 +222,7 @@ cat >"$scratch/hands/trend" <<'FAKE'
 printf 'trend %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
 if [ -n "${FAKE_TREND_DOWN:-}" ]; then echo '{"ok": false, "error": "digg-pp-cli top exited 1: temporarily unavailable", "reason": "rate_limited"}'; exit 1; fi
 jq -cn --arg at "$(date -u -d '-3 hours' +%Y-%m-%dT%H:%M:%SZ)" --arg old "$(date -u -d '-3 days' +%Y-%m-%dT%H:%M:%SZ)" '{ok: true, source: "digg", stories: [
-  {id: "s1", topic: "ai", title: "an AI lab hired a new chief scientist", summary: "the lab says the hire will lead its research team", score: 556, published_at: $at,
+  {id: "s1", topic: "ai", title: (if ($ENV.FAKE_DEATH // "") != "" then "an AI lab chief scientist dies at 75" else "an AI lab hired a new chief scientist" end), summary: "the lab says the hire will lead its research team", score: 556, published_at: $at,
    posts: [{by: "Ana", text: "big hire for the lab", likes: 120, reposts: 4, url: "https://x.com/ana/status/1"}]},
   {id: "s2", topic: "tech", title: "a robot startup raised a giant round", summary: "investors paid a lot", score: 300, published_at: $at,
    posts: [{by: "Bob", text: "we raised the round", likes: 40, url: "https://x.com/bob/status/2"}]},
