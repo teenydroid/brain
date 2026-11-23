@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import urllib.error
+
 from unittest import mock
 
 import json
+
+from teeny_hands import rest
 
 from .support import KEY, Scratch
 
@@ -65,7 +68,6 @@ class SendTest(Scratch):
         self.assertNotIn("127.0.0.1", json.dumps(out))
 
     def test_no_more_of_an_answer_is_read_than_may_be_passed_on(self):
-        # A service that answers without end must not fill the hand's memory.
         from teeny_hands import rest
         self.svc.route("GET", "/api/v1/posts", {"pad": "x" * (2 * 1024 * 1024)})
         read: list[int] = []
