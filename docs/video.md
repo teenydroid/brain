@@ -618,7 +618,38 @@ cartoon lust: heart eyes, a smooch, a wedding. The hard lines of §8 hold:
 nothing sexual about a real person, nothing violent done to them, and nobody
 could take a frame for real footage.
 
-### 13.5 Not built
+### 13.5 The script has to make sense
+
+The operator, on the wedding clip (2026-11-23): "the script needs to be horny
+but need to make sense too." The wedding was absurd, but nothing in the story
+said why this man marries a graphics card, so it read as random.
+
+Every clip is one chain, and each link is caused by the one before:
+
+1. **The fact.** What really happened, in one line, from the cited story.
+2. **The want.** The one thing the fact says the figure wants, read too
+   literally. This is where the lust goes: at the object the story is about.
+3. **The act.** What they do to get it, in the open, in front of the people
+   the story says are watching.
+4. **The price.** What it costs them, as slapstick.
+5. **Teeny's verdict.** Teeny is whoever the story has watching (the
+   investigator, the board, the regulator), and its last gesture says what
+   the viewer should think.
+
+A viewer with the sound off, who has read only the post's one line, must be
+able to say why each thing happens. If a beat could be moved to another story
+unchanged, it does not belong.
+
+The same story, rewritten to this: the board reinstated him and says its
+investigation continues. The fact: he is back, and he is being watched. The
+want: he did not come back for the job, he came back for the chips. So: he
+bursts through the boardroom doors, runs straight past the directors' open
+arms and into a slow-motion embrace with a graphics card, and dips it for a
+kiss while its fans spin up and steam the windows. The price: the gale blows
+the directors' papers and toupees off. The verdict: Teeny, the investigator
+with the clipboard, watches, ticks one box, and pulls down the blind.
+
+### 13.6 Not built
 
 - No format makes these. A skit is still text to video with no first frame
   (`media/skits.py`); the nearest code is a remake's keyframe step.
