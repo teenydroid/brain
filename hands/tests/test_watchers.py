@@ -67,6 +67,7 @@ ENVIRONMENT = {
     "PATH": "where programs are found; cron gives the box's own",
     "TEENY_ROOT": "the checkout to run over (tests); cron jobs never get TEENY_* (docs/architecture.md, Hands)",
     "TEENY_STATE": "where state/ is (tests)",
+    "TEENY_BRAIN": "the core's workspace the spine boots over (bin/lib/model_windows.sh finds the agent definitions there); the spine sets it, cron jobs never get TEENY_*",
     "TEENY_SECRETS": "where secrets/ is (tests)",
     "TEENY_STORAGE": "where the core's storage.db is (tests); read-only",
     "TEENY_HANDS": "where the hands are (tests)",
