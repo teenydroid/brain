@@ -175,6 +175,17 @@ class WorkerAgentTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             agent_check.check(path)
 
+    def test_no_other_agent_may_set_the_view_only_flag(self):
+        # Agents that return early (no tools, editors, unscheduled, helpers)
+        # must not slip the flag past the doctor either.
+        for name in ("evolver", "judge", "editor", "teeny", "builder", "reviewer"):
+            source = MIND.parent / f"{name}.toml"
+            path = self._variant(source, lambda t: t + "\nbrowser_view_only = true\n")
+            self.assertIn("browser_view_only = true", path.read_text())
+            with self.assertRaises(SystemExit, msg=name) as caught:
+                agent_check.check(path)
+            self.assertIn("browser_view_only", str(caught.exception), name)
+
     def test_the_builder_still_has_no_browser(self):
         builder = MIND.parent / "builder.toml"
         path = self._variant(builder, lambda t: t.replace('    "shell",', '    "shell",\n    "browser",', 1))
