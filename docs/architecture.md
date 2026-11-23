@@ -254,7 +254,11 @@ are built otherwise, §4b):
   `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 5000` makes each
   turn wait up to 5 s for the pack recalled for its own message (at 3 s, 34%
   of recalls on the box came back after the turn had gone on without them:
-  median 1.7 s, p90 4.2 s, 2026-11-21..23); unset, a turn
+  median 1.7 s, p90 4.2 s, 2026-11-21..23). Each turn logs whether its
+  pack came in time (`[memory:recall] current message recalled in time`,
+  `deadline: recall not ready in time`, `nothing recalled`; the spine's
+  `RUST_LOG` in `deploy/compose.yaml`), so `docker logs` counts the turns
+  that went without. Unset, a turn
   only took the pack an earlier turn left in a cache that lives 60 s, so a
   beat five minutes after the last got none. `build_beliefs_every = 0`: a beat
   logs its whole batch as "the user", and beliefs built from that read "the
