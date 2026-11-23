@@ -103,8 +103,12 @@ WORD_FORMATS = ("post", "thread", "image", "meme")
 #: never go out without it.
 VIDEO_FORMATS = tuple(formats.REGISTRY)
 KNOWN_FORMATS = (*WORD_FORMATS, *VIDEO_FORMATS)
-#: The word formats a quote slot (STUDIO_QUOTE) offers: a quote goes out with
-#: its picture, never as plain words or a thread (`word_formats`).
+#: Every slot quotes a trending X post (2026-11-23): not a setting. Only
+#: the tests of the plain-post mechanics set it off, in-process; a run with
+#: --no-outside (Teeny's own events, no X post to quote) writes plain posts.
+QUOTE_SLOTS = True
+#: The word formats a quote slot offers: a quote goes out with its picture,
+#: never as plain words or a thread (`word_formats`).
 QUOTE_FORMATS = ("image", "meme")
 #: A thread is 2 to THREAD_MAX posts.
 THREAD_MAX = 4
@@ -166,8 +170,8 @@ class Config:
     #: The feed's tagging call (STUDIO_FEED_MODEL), the editor's by default.
     feed_model: str = ""
     formats: tuple[str, ...] = ("post", "thread", "image")
-    #: Every slot quotes a trending X post (STUDIO_QUOTE, on unless set off,
-    #: 2026-11-23): bin/lib/studio_feed.py, `word_formats`, `validate_posts`.
+    #: Every slot quotes a trending X post (QUOTE_SLOTS, 2026-11-23):
+    #: bin/lib/studio_feed.py, `word_formats`, `validate_posts`.
     quote: bool = False
     posts: int = POSTS
     feed_cards: int = studio_feed.CARDS
@@ -229,7 +233,7 @@ class Config:
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
         c.chan = (get("STUDIO_CHAN") or "1").strip().lower() not in ("0", "false", "no", "off")
-        c.quote = (get("STUDIO_QUOTE") or "1").strip().lower() not in ("0", "false", "no", "off")
+        c.quote = QUOTE_SLOTS
         c.skit_slots = tuple(dict.fromkeys(x.strip() for x in (get("STUDIO_SKIT_SLOTS") or "").split(",") if x.strip()))
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)

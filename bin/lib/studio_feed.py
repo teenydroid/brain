@@ -13,8 +13,8 @@ is skipped and named in the notes; the run goes on with the rest.
   chan     hands/chan sparks: a few premises strangers posted on 4chan
   own      Teeny's own events (hands/story desk), at most OWN_MAX cards
 
-With `quote` (STUDIO_QUOTE, on by default since 2026-11-23) every slot
-quotes a real X post, so the feed is Digg alone, more of its leading stories
+With `quote` (every studio slot since 2026-11-23) the slot quotes a real
+X post, so the feed is Digg alone, more of its leading stories
 (QUOTE_LEADING), and each X post behind them keeps the id and handle of its
 x.com address (`post`, `handle`). Teeny's own posts and the authors quoted
 in the last 7 days (`hands/x peers quoted`: hands/x would refuse a second

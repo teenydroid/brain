@@ -85,7 +85,7 @@ command = "bin/heartbeat"
 # judge, the cold reader and the guard before hands/x; an empty slot is a
 # normal outcome. Since 2026-11-23 every slot is a quote of a trending X post
 # (one behind Digg's leading stories) with a picture, a meme or a video, never
-# a plain post (STUDIO_QUOTE, docs/architecture.md "4b"); it is the slot's
+# a plain post (docs/architecture.md "4b"); it is the slot's
 # original post, so it spends none of the two quotes below. Sunday's 15:00 is a normal studio slot for now (the weekly
 # plan that will take it arrives in a later change).
 #
