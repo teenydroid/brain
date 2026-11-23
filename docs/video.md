@@ -640,24 +640,42 @@ A viewer with the sound off, who has read only the post's one line, must be
 able to say why each thing happens. If a beat could be moved to another story
 unchanged, it does not belong.
 
-**The attitude is defiance** (the operator, 2026-11-23: "script needs to have
-a f you vibe too"). Nobody in a clip is sorry or embarrassed. The figure does
-the act *at* the people watching, on purpose, and enjoys it. Teeny's verdict
-is contempt for the whole room, never a wink or a shrug. The contempt points
-up: at the board, the regulator, the rule, never at someone weaker.
+**The tone** (the operator, 2026-11-23: "f you vibe, slutty, horny, extremist,
+classy"). It is in the skit writer's brief (`formats/skit.py`, `SKIT_ASK`), and
+it means:
 
-The same story, rewritten to this: the board reinstated him and says its
+- **Defiant.** Nobody is sorry or embarrassed. The figure does the act *at* the
+  people watching, on purpose, and enjoys it. The contempt points up: at the
+  board, the regulator, the rule, never at someone weaker.
+- **Extreme.** The idea goes all the way to its limit, never half. "Extremist"
+  is read as this, not as politics.
+- **Classy.** Champagne, velvet, chandeliers, tailoring. The more expensive the
+  room looks, the ruder the act reads.
+- **Horny, and the object is the shameless one.** The thing the story is about
+  (the chip, the money, the merger) flirts, is dressed for it, and gets the
+  heart eyes and the kiss. The lust is never for a person, and nothing sexual
+  is shown about a real person (§8).
+
+The same story, rewritten to all of it: the board reinstated him and says its
 investigation continues. The fact: he is back, and he is being watched. The
 want: he did not come back for the job, he came back for the chips, and he
-wants them to know it. So: he kicks the boardroom doors open and walks past
-the directors' outstretched hands without a look, dropping their welcome cake
-in the bin. He dips a graphics card for a kiss on the boardroom table while
-its fans spin up and steam the windows. The price is theirs: the gale takes
-the directors' papers and toupees. He drops into the big chair with the card
-on his lap, boots on the table, and gives the board a lazy middle finger
-without turning his head. The verdict: Teeny, the investigator, looks at its
-clipboard, looks at the camera, throws the clipboard over its shoulder and
-takes the cake out of the bin.
+wants them to know it.
+
+The picture: a boardroom laid like a five-star dinner, a chandelier, white
+linen, a champagne tower, the directors in black tie down one side. At the
+head of the table a graphics card reclines on a velvet chaise in a feather boa
+and pearls. He stands in the kicked-open doorway in his leather jacket with a
+rose in his teeth. Teeny, the investigator, sits at a small side table in a
+trench coat with a clipboard.
+
+The clip: 0-2s, he strides down the top of the table, through the directors'
+plates, without a look at them. 2-5s, the card flutters its boa and winks a
+fan; he slides in on his knees and dips it for a long kiss; its fans redline
+and blow the champagne tower over the directors while the chandelier swings.
+5-8s, with the card on his lap he rides the whole table out through the
+skyscraper window like a sleigh, both middle fingers up at the board behind
+him. 8-10s, Teeny, soaked in champagne, ticks one box, drains the last
+standing glass and throws the clipboard out of the window after them.
 
 ### 13.6 Not built
 
