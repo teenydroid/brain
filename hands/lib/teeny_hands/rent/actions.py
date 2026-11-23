@@ -415,15 +415,17 @@ def accept(body: Any) -> Json:
     return _accept(conn, job["id"], application.strip())
 
 
-def _own_price(application: Any, pay_cents: int) -> list[str]:
+def _own_price(application: Any, pay_cents: int, any_amount: bool = False) -> list[str]:
     """Where an application names an amount other than the posted pay
-    (outside its copy of the bounty): RentAHuman would charge it on accept."""
+    (outside its copy of the bounty): RentAHuman would charge it on accept.
+    With ANY_AMOUNT, an amount equal to the posted pay counts too (the
+    timed auto-accept hires only an application that names no price)."""
     found: list[str] = []
 
     def walk(value: Any, path: str) -> None:
         if isinstance(value, Mapping):
             if "amount" in value and _amount(value) is not None and _PRICE_KEY.search(path or "amount"):
-                if _amount(value) != pay_cents:
+                if any_amount or _amount(value) != pay_cents:
                     found.append(path or "amount")
                 return
             for key, inner in value.items():
@@ -431,33 +433,51 @@ def _own_price(application: Any, pay_cents: int) -> list[str]:
                     continue
                 walk(inner, f"{path}.{key}" if path else str(key))
         elif isinstance(value, (int, float)) and not isinstance(value, bool) and _PRICE_KEY.search(path.rsplit(".", 1)[-1]):
-            if int(value) not in (pay_cents, round(pay_cents / 100)):
+            if any_amount or int(value) not in (pay_cents, round(pay_cents / 100)):
                 found.append(path)
 
     walk(application, "")
     return found
 
 
-def _accept(conn, job_id: int, application: str) -> Json:
+def _application_bounty(details: Any) -> str | None:
+    """The bounty an application was made to, as get_application names it."""
+    if not isinstance(details, Mapping):
+        return None
+    inner = details.get("bounty") if isinstance(details.get("bounty"), Mapping) else {}
+    found = details.get("bountyId") or inner.get("id") or inner.get("bountyId")
+    return str(found) if found else None
+
+
+def _accept(conn, job_id: int, application: str, auto: bool = False) -> Json:
     """Hires APPLICATION for the job, holding the `rent` lock. Refused when
-    the application names a price of its own."""
+    the application is not to this job's bounty or names a price of its own
+    (AUTO: names any price at all), and while renting is off."""
     with _money():
         job = _fresh(conn, job_id)
         if job["status"] != "posted":
             raise hand.Refused(f"rent job #{job['id']} is {job['status']}, not open for hiring")
         details = api.tool("get_application", {"applicationId": application})
-        priced = _own_price(details, job["pay_cents"])
+        if _application_bounty(details) != str(job["bounty_id"]):
+            raise hand.Refused(f"application {application} is not to rent job #{job['id']}'s bounty (or does not"
+                               " say which bounty it is to); it is not hired")
+        priced = _own_price(details, job["pay_cents"], any_amount=auto)
         if priced:
             raise hand.Refused(f"application {application} names a price of its own ({', '.join(priced)});"
                                " RentAHuman would charge it on accept, so it is not hired", fields=priced)
         if hand.dry_run():
             return {"dry_run": True, "job": job["id"], "would_accept": application}
         rules = _settings()
+        if not rules.on:
+            raise hand.Refused("renting is off (RENT_MAX_PER_DAY_USD=0); nobody is hired")
         try:
             reply = api.tool("accept_application",
                              {"applicationId": application, "idempotencyKey": _idem(job["id"], "accept", application)},
                              write=True)
         except api.ToolError as exc:
+            if exc.retry_safe is not True:
+                # The hire may exist: read the state (poll does) before any other accept.
+                raise api.Uncertain(str(exc)) from None
             raise hand.Refused(str(exc), code=exc.code) from None
         reply = reply if isinstance(reply, Mapping) else {}
         cost = _amount(reply.get("cost"))
@@ -466,6 +486,8 @@ def _accept(conn, job_id: int, application: str) -> Json:
             store.update(conn, job["id"], status="hired", application_id=application,
                          hire_id=str(reply.get("hireId") or application), conversation_id=reply.get("conversationId"),
                          hired_at=hand.now(), extra_cents=job["extra_cents"] + extra)
+            if extra:
+                store.charge(conn, job["id"], f"accept:{application}", extra)
     if extra:
         over = job["total_cents"] + extra > rules.per_bounty_cents
         _tell("charge", f"{job['id']}:accept",
@@ -489,6 +511,7 @@ def review(body: Any) -> Json:
     reason = None
     if verdict != "approve":
         reason = _text(body, "reason", 5, 1000)
+        _screen_brief({"reason": reason})
         reason = _guard({"message": reason}, "message")["message"]
     with _money():
         job = _fresh(conn, job["id"])
@@ -499,6 +522,10 @@ def review(body: Any) -> Json:
         if not isinstance(submission, Mapping) or submission.get("status") != "pending_review":
             raise hand.Refused(f"rent job #{job['id']} has no work waiting for review")
         submission_id = str(submission.get("id"))
+        seen_ref = body.get("submission")
+        if seen_ref not in (None, "") and str(seen_ref) != _submission_ref(submission):
+            raise hand.Refused(f"rent job #{job['id']}: the work changed since you saw it (now"
+                               f" {_submission_ref(submission)}); read the new submission and judge that")
         if verdict == "approve":
             return pay(conn, job, submission_id)
         if hand.dry_run():
@@ -512,6 +539,13 @@ def review(body: Any) -> Json:
         with hand.transaction(conn):
             store.update(conn, job["id"], status=status, submission_id=submission_id)
     return {"job": job["id"], "status": status}
+
+
+def _submission_ref(submission: Mapping[str, Any]) -> str:
+    """One submission attempt: a worker who redoes the work resubmits under
+    the same id with a higher `attempt.used`."""
+    attempt = submission.get("attempt") if isinstance(submission.get("attempt"), Mapping) else {}
+    return f"{submission.get('id')}:{attempt.get('used', 0)}"
 
 
 def pay(conn, job: Mapping[str, Any], submission_id: str) -> Json:
@@ -552,9 +586,11 @@ def pay(conn, job: Mapping[str, Any], submission_id: str) -> Json:
             raise
         except Exception as exc:  # noqa: BLE001 - whatever it was, the pay may have gone
             return _doubt(conn, job, f"{type(exc).__name__}: {exc}")
+        if not (isinstance(reply, Mapping) and "paid" in (reply.get("payStatus"), reply.get("status"))):
+            return _doubt(conn, job, "the answer did not say the pay went out")
         with hand.transaction(conn):
             store.update(conn, job["id"], status="paid", paid_at=hand.now())
-    return {"job": job["id"], "status": "paid", "pay_status": reply.get("payStatus") if isinstance(reply, Mapping) else None}
+    return {"job": job["id"], "status": "paid", "pay_status": reply.get("payStatus")}
 
 
 def _doubt(conn, job: Mapping[str, Any], why: str) -> Json:
@@ -618,12 +654,27 @@ def _loopback_ok() -> bool:
     return host in ("127.0.0.1", "localhost")
 
 
+def _public(url: str) -> None:
+    """Refuses an evidence URL whose host is (or resolves to) a private,
+    loopback, link-local or otherwise non-public address: the poll runs on
+    the operator's box, and a stranger chose the link."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except (socket.gaierror, UnicodeError):
+        raise hand.HandError("an evidence file on a host that does not resolve") from None
+    if not addresses or any(not ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses):
+        raise hand.HandError("an evidence file on a private address")
+
+
 class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
-    """A storage link may redirect to a signed URL; only ever to https."""
+    """A storage link may redirect to a signed URL; only ever to https, and
+    never to a private address."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401 - urllib's hook
         if urllib.parse.urlsplit(newurl).scheme != "https":
             raise hand.HandError("an evidence file redirected off https")
+        _public(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -631,30 +682,46 @@ _FILES = urllib.request.build_opener(_HttpsRedirects)
 
 
 def _download(url: Any, dest: Path) -> int:
-    """One evidence file into DEST; its size. https only, no key sent,
-    MAX_FILE_BYTES at most."""
+    """One evidence file into DEST; its size. https to a public host only,
+    no key sent, MAX_FILE_BYTES at most, DOWNLOAD_SECONDS in all. It is
+    written beside DEST and moved into place only when whole, so a file that
+    exists is a complete one."""
     parts = urllib.parse.urlsplit(str(url or ""))
     local = parts.scheme == "http" and (parts.hostname or "") in ("127.0.0.1", "localhost") and _loopback_ok()
     if parts.scheme != "https" and not local:
         raise hand.HandError("an evidence file that is not https")
+    if not local:
+        _public(str(url))
     request = urllib.request.Request(str(url), headers={"user-agent": "teeny-hands/rent"})
     size = 0
-    with _FILES.open(request, timeout=120) as response, open(dest, "wb") as out:
-        while True:
-            chunk = response.read(1 << 20)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_FILE_BYTES:
-                out.close()
-                dest.unlink(missing_ok=True)
-                raise hand.HandError("an evidence file over the size limit")
-            out.write(chunk)
+    deadline = time.monotonic() + DOWNLOAD_SECONDS
+    part = dest.with_name(dest.name + ".part")
+    try:
+        with _FILES.open(request, timeout=60) as response, open(part, "wb") as out:
+            while True:
+                chunk = response.read(1 << 20)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_FILE_BYTES:
+                    raise hand.HandError("an evidence file over the size limit")
+                if time.monotonic() > deadline:
+                    raise hand.HandError("an evidence file took too long to download")
+                out.write(chunk)
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     return size
 
 
 def _evidence(job: Mapping[str, Any], submission: Mapping[str, Any]) -> list[Json]:
-    folder = hand.state_dir() / "rent" / str(job["id"]) / re.sub(r"[^A-Za-z0-9_-]", "", str(submission.get("id")))
+    """The submission's files under state/rent/<job>/<submission>/<attempt>/:
+    each attempt has its own folder, so a redo's new files never read as the
+    first attempt's."""
+    attempt = submission.get("attempt") if isinstance(submission.get("attempt"), Mapping) else {}
+    folder = (hand.state_dir() / "rent" / str(job["id"]) / re.sub(r"[^A-Za-z0-9_-]", "", str(submission.get("id")))
+              / f"attempt-{re.sub(r'[^0-9]', '', str(attempt.get('used', 0))) or 0}")
     folder.mkdir(parents=True, exist_ok=True)
     saved: list[Json] = []
     for index, file in enumerate((submission.get("files") or [])[:MAX_FILES], start=1):
@@ -716,10 +783,10 @@ def _applications(conn, job: Mapping[str, Any], rules: settings.Rent) -> Json:
             told += 1
     accepted = None
     since = float(job.get("posted_at") or job["at"])
-    if found and rules.auto_accept_hours and hand.now() - since >= rules.auto_accept_hours * 3600:
+    if found and rules.on and rules.auto_accept_hours and hand.now() - since >= rules.auto_accept_hours * 3600:
         for best in found:
             try:
-                accepted = _accept(conn, job["id"], str(best["id"]))
+                accepted = _accept(conn, job["id"], str(best["id"]), auto=True)
             except hand.Refused:
                 continue  # a price of its own, or no longer pending: the next best
             if not accepted.get("dry_run"):
@@ -754,8 +821,7 @@ def _hire(conn, job: Mapping[str, Any]) -> Json:
             store.update(conn, job["id"], conversation_id=hire["conversationId"])
     submission = hire.get("submission")
     if isinstance(submission, Mapping) and submission.get("status") == "pending_review":
-        attempt = submission.get("attempt") if isinstance(submission.get("attempt"), Mapping) else {}
-        ref = f"{submission.get('id')}:{attempt.get('used', 0)}"
+        ref = _submission_ref(submission)
         with hand.transaction(conn):
             store.update(conn, job["id"], status="submitted", submission_id=str(submission.get("id")))
         if not store.conn_seen(conn, job["id"], "submission", ref):
@@ -770,7 +836,7 @@ def _hire(conn, job: Mapping[str, Any]) -> Json:
             elif words:
                 text += f" They wrote: {words}"
             text += (f' Judge it against the criteria only, then {{"do": "rent_review", "job": {job["id"]},'
-                     ' "verdict": "approve|redo|reject", "reason": "..."}. Approving pays them; it is final.')
+                     f' "submission": "{ref}", "verdict": "approve|redo|reject", "reason": "..."}. Approving pays them; it is final.')
             out["submitted"] = _pass_on(conn, job["id"], "submission", ref, text, _who(hire.get("worker"), job["id"]),
                                         {"job": job["id"], "submission": submission.get("id"), "files": files},
                                         stimulus="submitted")
@@ -806,6 +872,9 @@ def _follow(conn, job: Mapping[str, Any], rules: settings.Rent) -> Json:
     if status == "posting":
         if hand.dry_run():
             return {"would_resend": True}
+        if not _settings().on:
+            # Reserved against the day until it is settled, but nothing new is created while renting is off.
+            return {"held": "renting is off (RENT_MAX_PER_DAY_USD=0)"}
         return _send_post(conn, job)
     if status == "draft":
         found = _bounty(api.tool("get_bounty", {"bountyId": job["bounty_id"]}))
@@ -813,13 +882,28 @@ def _follow(conn, job: Mapping[str, Any], rules: settings.Rent) -> Json:
             with hand.transaction(conn):
                 store.update(conn, job["id"], status="posted", posted_at=hand.now())
             return {"funded": True}
+        if found["status"] in BOUNTY_OVER:
+            with hand.transaction(conn):
+                store.update(conn, job["id"], status="cancelled", note=f"bounty {found['status']}")
+            return {"closed": found["status"]}
         return {}
     if status == "posted":
         live = [h for h in _rows(api.tool("list_hires", {"bountyId": job["bounty_id"], "limit": 5}))
                 if h.get("status") not in HIRE_ENDED]
         if live:  # hired on the website, or an accept whose answer was lost
+            # An accept whose answer was lost may have cost more than posted: count what the hire says.
+            cost = _amount(live[0].get("cost"))
+            extra = max(0, (cost or 0) - job["total_cents"] - job["extra_cents"]) if cost else 0
             with hand.transaction(conn):
-                store.update(conn, job["id"], status="hired", hire_id=str(live[0]["id"]), hired_at=hand.now())
+                store.update(conn, job["id"], status="hired", hire_id=str(live[0]["id"]), hired_at=hand.now(),
+                             extra_cents=job["extra_cents"] + extra)
+                if extra:
+                    store.charge(conn, job["id"], f"hire:{live[0]['id']}", extra)
+            if extra:
+                _tell("charge", f"{job['id']}:hire:{live[0]['id']}",
+                      f"rent job #{job['id']}: a hire found on RentAHuman cost ${cost / 100:.2f}, ${extra / 100:.2f}"
+                      " more than it was posted for. It counts against today; the operator should look.",
+                      payload={"job": job["id"], "cost_cents": cost, "extra_cents": extra})
             return {"hired": live[0]["id"]}
         found = _bounty(api.tool("get_bounty", {"bountyId": job["bounty_id"]}))
         if found["status"] in BOUNTY_OVER:
