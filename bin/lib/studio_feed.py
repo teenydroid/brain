@@ -255,12 +255,23 @@ def gather(room: Any, slot_key: str | None, seed: int, desk: Json | None, now: f
             notes[name]["dropped_slur"] = len(items) - len(kept)
         found.extend(kept[:PER_SOURCE])
 
-    argv = ["trend", "top", "--limit", "10", "--leading", "5", "--posts", "3"]
+    argv = ["trend", "top", "--limit", "10", "--leading", str(QUOTE_LEADING if quote else 5), "--posts", "3"]
     if slot_key:
         argv[2:2] = ["--slot", slot_key]
     code, got = room.hand_code(argv, timeout=200)
     took("digg", digg_candidates(got, now) if code == 0 and isinstance(got, dict) else None,
          (got.get("reason") or got.get("error")) if isinstance(got, dict) else got)
+    if quote:
+        code, got = room.hand_code(["x", "peers", "quoted"], timeout=60)
+        handles = got.get("handles") if code == 0 and isinstance(got, dict) else None
+        if not isinstance(handles, list):
+            why = (got.get("error") or got.get("refused")) if isinstance(got, dict) else got
+            notes["quoted"] = {"skipped": f"who was quoted this week is unknown, so nothing is offered: {why}"[:300]}
+            return [], notes
+        own = (os.environ.get("X_BOT_USERNAME") or "teenydroid").lstrip("@")
+        kept, left_out = quotable(found, {own, *(h for h in handles if isinstance(h, str))})
+        notes["quoted"] = {"left_out": sorted(set(left_out) - {own.lower()})}
+        return kept, notes
 
     code, got = room.hand_code(["hn", "top", "--max", "15"], timeout=90)
     if code == 0 and isinstance(got, dict):
