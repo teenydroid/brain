@@ -640,6 +640,20 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
         self.assertNotIn("SPOILER", writer)
 
+    def test_a_service_skill_rides_only_with_the_agents_that_write_there(self):
+        (self.brain / "skills" / "moltbook").mkdir(parents=True)
+        (self.brain / "skills" / "moltbook" / "SKILL.md").write_text(
+            "---\nname: moltbook\ndescription: d\n---\n\n# Moltbook\n\nids are whole.\n")
+        for agent in ("teeny", "teeny-mail"):
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"{agent} brief.\n")
+        prompts.build(self.brain)
+        built = lambda a: (self.brain / "agent" / "prompts" / f"{a}.md").read_text()
+        self.assertIn("ids are whole.", built("teeny"))  # the tick comments on Moltbook
+        self.assertNotIn("description: d", built("teeny"))
+        self.assertNotIn("ids are whole.", built("teeny-mail"))
+        self.assertNotIn("ids are whole.", built("act"))  # its Moltbook playbooks carry it
+
     def test_every_agent_that_points_at_a_prompt_file_gets_one_built(self):
         # 2026-11-23: mind.toml and worker.toml named mind.md and worker.md,
         # but only the speaking and studio agents were built, so the core
