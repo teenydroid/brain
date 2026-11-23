@@ -479,13 +479,15 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
     one more edit gives its people their likeness from the portraits under a
     harmless prompt. Both passes are paid and counted on the one row; a refusal of the
     second fails the picture."""
+    # A stylised portrait is bought before the picture's row, once per figure
+    # and kept for good, so the picture's row is the newest.
+    portraits = _stylise(conn, api, portraits or [])
     asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post", alt)
     reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
     if not reference_path.is_file():
         _finish(conn, asset_id, status="failed", error=f"no reference image at {reference_path.name}")
         raise hand.HandError(f"Teeny's reference image is missing ({REFERENCE})")
     reference = _data_uri(reference_path)
-    portraits = _stylise(conn, api, portraits or [])
     tried: list[str] = []
     two_pass = None
     paid = 0
