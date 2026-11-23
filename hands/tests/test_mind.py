@@ -101,6 +101,20 @@ class WorkerAgentTest(unittest.TestCase):
     def test_the_definition_passes_the_doctor(self):
         self.assertEqual(agent_check.check(WORKER), "worker")
 
+    def test_the_mind_is_not_a_worker_tier_agent(self):
+        # The core's agent_tier defaults to "worker", and it rejects the whole
+        # agent registry when a worker-tier agent lists a subagent: every
+        # agent turn then fails "AgentDefinitionRegistry is not initialised".
+        with open(MIND, "rb") as fh:
+            doc = tomllib.load(fh)
+        self.assertIn(doc["agent_tier"], ("chat", "reasoning"))
+        for old in ('agent_tier = "reasoning"\n', ""):
+            path = self._variant(MIND, lambda t: t.replace('agent_tier = "reasoning"\n', "", 1))
+            self.assertNotIn("agent_tier", path.read_text())
+            with self.assertRaises(SystemExit):
+                agent_check.check(path)
+            break
+
     def test_it_is_jailed_like_the_mind_and_has_no_workspace_of_its_own(self):
         with open(WORKER, "rb") as fh:
             doc = tomllib.load(fh)
