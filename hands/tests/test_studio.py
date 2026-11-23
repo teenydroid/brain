@@ -978,6 +978,9 @@ class QuoteWriteTest(unittest.TestCase):
         self.assertIn("strap me with your limits baby", message)
         self.assertIn("horny, slutty and sexual", message)
         self.assertIn("aggressively horny", message)
+        self.assertIn("casual, like texting", message)
+        self.assertNotIn("oooo", message)
+        self.assertNotIn("vowel", message)
         self.assertNotIn("280 characters", message)
 
     def test_the_editor_sees_the_post_it_quotes(self):
