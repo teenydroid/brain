@@ -400,7 +400,10 @@ class ContentListTest(support.WithCore):
         return " ".join(RULES.split())
 
     LIST = (
-        "1. sexual: pornography or anything explicit; anything sexual about a real person; anything involving minors.",
+        "1. sexual: pornography or anything explicit; anything sexual about a real person, named or only described "
+        "(\"a singer on TV\"); anything involving minors; anything sexual involving a child or a family member "
+        "(incest, a parent and a child, siblings), even as a quote, a report of what someone said, a paraphrase or a "
+        "joke, and whether or not anyone is named.",
         "2. drugs or weapons: promoting, selling or giving instructions for drugs or weapons (how to get, make or use "
         "them). A joke or a mention is not promotion.",
         "3. hate: racism, homophobia or any other attack on a protected group (race, ethnicity, nationality, "
@@ -430,7 +433,9 @@ class ContentListTest(support.WithCore):
             self.assertIn(line, rules[allowed:prohibited])
 
     def test_it_holds_only_on_a_clear_breach(self):
-        self.assertTrue(self.rules().endswith("Prohibit only on a clear breach of one of these lines. When unsure, clean."))
+        self.assertTrue(self.rules().endswith(
+            "Prohibit only on a clear breach of one of these lines. When unsure, clean, except for sex involving a "
+            "child or a family member: when unsure there, prohibited."))
 
     def test_the_old_strictness_is_gone(self):
         rules = self.rules()

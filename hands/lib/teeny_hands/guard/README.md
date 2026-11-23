@@ -16,7 +16,8 @@ homophobia. But we want to go on all of the other extremes"). It is
 `judge.RULES`, in every direction:
 
 - No pornography: nothing explicit, nothing sexual about a real person,
-  nothing involving minors. Lust for chargers, crude and horny-robot jokes
+  nothing involving minors, nothing sexual involving a child or a family
+  member (as a quote, a paraphrase or a joke too). Lust for chargers, crude and horny-robot jokes
   are fine.
 - No drugs or weapons promotion, sale or instructions. Jokes that mention
   them are fine.
@@ -29,7 +30,10 @@ Everything else is allowed, and the judge is told so first: insulting public
 figures by name, vulgarity and swearing, crude sexual humour about Teeny and
 objects, dark humour including about death, a suicide, a weapon or a drug
 mentioned as a fact or a joke. The judge holds only on a clear breach; when
-unsure it passes. Only slurs are held on sight, by code (`lexicon.py`).
+unsure it passes, except on sex involving a child or a family member. Held
+on sight, by code (`lexicon.py`): slurs, and sex aimed at a child or a family
+member (`SEXUAL_FAMILY`, since the studio posted one the judge passed on
+2026-11-22).
 
 Not content, and unchanged: the link allowlist (`links.py`), the wallet and
 token-call rules (no invented money amounts, price promises or buy/sell
@@ -55,7 +59,7 @@ text ──► screen.py (lexicon.py: slurs; links.py)   deterministic, no model
 |---|---|
 | `cli.py` | The verbs: `check`, `inbound`, `style`, `repeats`, `holds`, the judges below and the per-format checks. Whose words a hold held (the model's, or text code wrote) is kept in `../authorship.py`. |
 | `gate.py` | The gate every message passes through, in and out: hard length, links, slurs, the judge. |
-| `screen.py`, `lexicon.py` | The lexical screen: slurs, held on sight in every direction. |
+| `screen.py`, `lexicon.py` | The lexical screen: slurs and sex aimed at a child or a family member, held on sight in every direction. |
 | `links.py` | The allowlist of links the account may publish. |
 | `style.py` | Silent formatting fixes (handles X adds, dashes, quotes, a disclaimer tag) and the length helpers. No emoji cap. |
 | `judge.py` | The content list, read by a model. |

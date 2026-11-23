@@ -132,7 +132,10 @@ def check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
         context=_optional(body, "context", dict, "an object"),
     )
     if verdict.kind == "hold":
-        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id)
+        # judge_failed: the judge could not judge it (unreachable, unreadable),
+        # as hands/x says it, so a caller can tell a failure from a verdict.
+        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id,
+                           **({"judge_failed": True} if verdict.judge_failed else {}))
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True)
     return {"text": verdict.text}

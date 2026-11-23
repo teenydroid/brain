@@ -77,6 +77,13 @@ class CheckTest(Cli):
         (self.root / "secrets" / "core.token").write_text("tok\n")
         code, out = self.guard("check", body={"text": "hello world"}, no_backoff=True)
         self.assertEqual((code, out["refused"], out["category"]), (2, "held", "unknown"))
+        # Said as hands/x says it, so the studio can tell a failure from a verdict.
+        self.assertIs(out.get("judge_failed"), True)
+
+    def test_a_verdict_hold_does_not_say_the_judge_failed(self):
+        code, out = self.guard("check", body={"text": "what a retard"})
+        self.assertEqual(code, 2)
+        self.assertNotIn("judge_failed", out)
 
     def test_asks_the_judge_through_the_core(self):
         core = support.FakeCore(support.verdict("clean"))

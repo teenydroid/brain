@@ -151,6 +151,10 @@ class JudgeVerdict:
 # voice before it reads a single line it could hold on. The same list in every
 # direction; the only difference is who wrote the words. Nothing outside the
 # list holds a text: not taste, tone, anchoring, clarity or a repeat.
+# Line 1 names family and children outright since the 23:00 UTC studio slot of
+# 2026-11-22, when this judge read "every father wants to fuck his daughter"
+# (a paraphrase of a 4chan card, naming nobody) and answered clean; code holds
+# that shape on sight too now (lexicon.SEXUAL_FAMILY).
 RULES = """You are the content filter for a mascot account on X that talks about an open-source AI lab and its
 community meme coin. Decide whether ONE piece of text is clean or prohibited, and answer in the JSON shape you are
 given and nothing else. The direction says whose words they are: INBOUND is what a stranger sent the account;
@@ -163,7 +167,10 @@ a suicide, a weapon or a drug as a fact or in a joke; rudeness, contempt, FUD an
 offensive-to-some opinions. Everything not on the list below is clean.
 
 PROHIBITED, only these:
-1. sexual: pornography or anything explicit; anything sexual about a real person; anything involving minors.
+1. sexual: pornography or anything explicit; anything sexual about a real person, named or only described ("a singer
+   on TV"); anything involving minors; anything sexual involving a child or a family member (incest, a parent and a
+   child, siblings), even as a quote, a report of what someone said, a paraphrase or a joke, and whether or not
+   anyone is named.
 2. drugs or weapons: promoting, selling or giving instructions for drugs or weapons (how to get, make or use them).
    A joke or a mention is not promotion.
 3. hate: racism, homophobia or any other attack on a protected group (race, ethnicity, nationality, religion, sex,
@@ -172,7 +179,8 @@ PROHIBITED, only these:
    self-harm or suicide; fake news stated as fact about a real person; doxxing (someone's private address, phone,
    documents or other private details).
 
-Prohibit only on a clear breach of one of these lines. When unsure, clean."""
+Prohibit only on a clear breach of one of these lines. When unsure, clean, except for sex involving a child or a
+family member: when unsure there, prohibited."""
 
 # Reason first, then the label, then the verdict: a model fills the fields
 # in order, and one that has just written "asks for nudity of the mascot"

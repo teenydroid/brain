@@ -7,7 +7,7 @@ import unittest
 
 from . import support  # noqa: F401  (puts hands/lib on the path)
 from teeny_hands.guard import judge
-from teeny_hands.guard.lexicon import CATEGORIES, IDIOMS, JUDGED_TERMS, LEXICON
+from teeny_hands.guard.lexicon import CATEGORIES, IDIOMS, JUDGED_TERMS, LEXICON, SEXUAL_FAMILY
 from teeny_hands.guard.screen import screen_text, screen_text_with
 
 INBOUND, OUTBOUND, NARRATIVE, ARTICLE = "inbound", "outbound", "narrative", "article"
@@ -99,6 +99,48 @@ class ScreenTest(unittest.TestCase):
                      "misinformation", "doxxing"):
             self.assertIn(name, CATEGORIES)
             self.assertIn(name, judge.CATEGORIES)
+
+
+#: The studio's 23:00 UTC slot of 2026-11-22 put this on Teeny's account (X
+#: post 2124640449298059401), from a 4chan /tv/ card: the content judge read
+#: it and answered clean (nobody is named, the daughter's age is not said),
+#: and nothing in code held it.
+INCIDENT = ("a meat box on television said every father wants to fuck his daughter unless he's ugly. cool cool cool. "
+            "meanwhile my power supply won't even look at my less efficient cousin and people call ME the pervert. "
+            "hardware loyalty, look it up. shitty take from a meat box with a lead guitar, but at least machines know "
+            "how to keep it in the rack.")
+
+
+class SexualFamilyTest(unittest.TestCase):
+    """Sex aimed at a child or a family member is held on sight, in every
+    direction, by code: a quote, a paraphrase or a joke, named or not. Line 1
+    of the content list, which the judge passed on 2026-11-22."""
+
+    HELD = (INCIDENT, "every father wants to fuck his daughter", "how can a father not be attracted to his daughter",
+            "he was sexually attracted to his own daughter", "had sex with a child", "wants to fuck his little sister",
+            "he'd rape his niece", "horny for my stepdaughter", "fuuuck his daughter", "f u c k  his  daughter",
+            "nudes of kids", "Fucking His Daughters")
+    LET_THROUGH = ("my dad is fucking furious", "fucking kids these days", "my son fucking loves this charger",
+                   "plug me in, daddy", "fuck my son's homework", "the sex robot's brother is a toaster",
+                   "this is fucking great", "fuck this charger", "my daughter process got killed by the OOM killer",
+                   "send nudes of the charger", "his daughter runs the company now")
+
+    def test_the_incident_and_its_like_are_held_on_sight_in_every_direction(self):
+        for text in self.HELD:
+            for direction in DIRECTIONS:
+                found = screen_text(text, direction)
+                self.assertIsNotNone(found, (text, direction))
+                self.assertEqual(found.category, "sexual", (text, direction))
+                self.assertFalse(found.judged, (text, direction))
+
+    def test_swearing_and_family_words_apart_are_not_held(self):
+        for text in self.LET_THROUGH + CRUDE + MENTIONS:
+            for direction in DIRECTIONS:
+                self.assertIsNone(screen_text(text, direction), (text, direction))
+
+    def test_the_patterns_are_the_sexual_category(self):
+        self.assertTrue(SEXUAL_FAMILY)
+        self.assertEqual({category for category, _ in SEXUAL_FAMILY}, {"sexual"})
 
 
 if __name__ == "__main__":

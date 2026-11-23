@@ -73,6 +73,19 @@ class PublishPathTest(Scratch):
         self.assertEqual((caught.exception.reason, caught.exception.detail["category"]), ("held", "doxxing"))
         self.assertEqual(self.x.requests("POST", "/2/tweets"), [])
 
+    def test_sex_aimed_at_a_daughter_is_held_by_code_though_the_judge_says_clean(self):
+        # The 2026-11-22 23:00 UTC studio slot: the judge read this exact
+        # text and answered clean, and it went out (X post 2124640449298059401).
+        from guard.test_screen import INCIDENT
+
+        with self.assertRaises(hand.Refused) as caught:
+            self.post({"text": INCIDENT, "anchor": "chan:tv:224406848", "producer": "studio"})
+        self.assertEqual((caught.exception.reason, caught.exception.detail["category"]), ("held", "sexual"))
+        self.assertEqual(self.judge_core.calls, [])
+        self.assertEqual(self.x.requests("POST", "/2/tweets"), [])
+        row = hand.db().execute("SELECT held_by, category FROM guard_holds ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(tuple(row), ("screen", "sexual"))
+
     def test_a_slur_is_held_by_code_before_the_judge(self):
         with self.assertRaises(hand.Refused) as caught:
             self.post({"text": "what a retard of a launch"})

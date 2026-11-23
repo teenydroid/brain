@@ -31,9 +31,12 @@ model turn, so a retried run never posts twice).
    ranks them, the rudest and funniest first, and marks any that break the
    content list (brain/narrative/STUDIO-EDITOR.md) with the line it breaks.
    Then the ranked posts, marked ones left out (videos first in a video
-   slot), go to `hands/x post` one by one (`publish`): its guard is the
-   check; the first that is not held posts. A picture, a meme or a video is
-   made only for the post being tried. With STUDIO_DRY=1 (always under
+   slot), are tried one by one (`publish`): first the guard's content list
+   on the exact words (`final_gate`, `hands/guard check`, kept on the
+   attempt as `gates`; held, failed or unreadable sends nothing), then
+   `hands/x post`, whose guard runs again as it posts; the first that is not
+   held posts. A picture, a meme or a video is made only for the post being
+   tried, after its words passed. With STUDIO_DRY=1 (always under
    `--dry-run`) every hand runs with DRY_RUN=1: nothing is posted or bought.
 
 The record: the whole run to state/studio/runs.jsonl and, through `hands/story
@@ -633,10 +636,54 @@ def post_body(room: Room, label: str, post: Json, media_ids: list[str]) -> tuple
     return "post", {"text": post["text"], **body}
 
 
+def final_gate(room: Room, label: str, post: Json, attempt: Json) -> list[str] | None:
+    """The guard's content list (`hands/guard check`, surface x: the slur and
+    family screens, then the judge) on the exact words that go to X, every
+    post of a thread, before anything is made or sent for it. The texts it
+    passed, which are what hands/x is given; None when any one was held, the
+    judge could not judge it, or the guard gave no answer that passes: then
+    nothing is sent. What it said is kept on the attempt as `gates`, one
+    entry a text, so a post that went out always shows the gate it passed.
+    hands/x runs the same guard again in the invocation that posts.
+
+    The 23:00 UTC slot of 2026-11-22 had no gate here: the words went
+    straight to hands/x, whose guard's judge passed a post about a father and
+    his daughter from a 4chan card, and the record kept nothing of it."""
+    texts = list(post["posts"]) if "posts" in post else [post["text"]]
+    context = {"anchor": str(post.get("card") or label)[:200], "producer": "studio",
+               "pitch_id": f"{room.run_id}:{label}"[:120]}
+    gates: list[Json] = []
+    attempt["gates"] = gates
+    passed: list[str] = []
+    for text in texts:
+        code, got = room.budgeted(["guard", "check"], {"text": text, "surface": "x", "kind": "post",
+                                                       "context": context}, 180)
+        ok = code == 0 and isinstance(got, dict) and isinstance(got.get("text"), str) and bool(got["text"].strip())
+        gate: Json = {"gate": "guard", "ok": ok, "code": code}
+        if not ok:
+            gate.update(_brief(got, "refused", "rule", "category", "hold_id", "judge_failed", "error")
+                        if isinstance(got, dict) else {"error": str(got)[:300]})
+        gates.append(gate)
+        if ok:
+            passed.append(got["text"])
+            continue
+        if gate.get("judge_failed"):
+            attempt["result"] = "the judge could not judge it: nothing was sent, the next post is tried"
+        elif gate.get("refused") == "held":
+            attempt["result"] = f"the guard held it ({gate.get('category') or 'unknown'}): nothing was sent, " \
+                                "the next post is tried"
+        else:
+            attempt["result"] = "the guard gave no passing answer " \
+                                f"({gate.get('refused') or gate.get('error') or f'exit {code}'}): nothing was sent"
+        return None
+    return passed
+
+
 def try_post(room: Room, label: str, post: Json, attempt: Json) -> str:
-    """One post through its producer and hands/x. What came of it: "posted",
-    "would_post", "next" (try the next post) or "stop" (the slot is shut,
-    the time ran out, or hands/x may have posted: nothing else either)."""
+    """One post, its words already past `final_gate`, through its producer
+    and hands/x. What came of it: "posted", "would_post", "next" (try the
+    next post) or "stop" (the slot is shut, the time ran out, or hands/x may
+    have posted: nothing else either)."""
     fmt = post["format"]
     media_ids: list[str] = []
     if fmt in registry():
@@ -725,6 +772,15 @@ def publish(room: Room, record: Json, order: list[str], blind: dict[str, Json]) 
             continue
         attempt: Json = {"label": label, "card": post.get("card"), "format": fmt}
         attempts.append(attempt)
+        # No post reaches its producer or hands/x without its words past the
+        # guard here first, and the attempt keeps what the guard said.
+        passed = final_gate(room, label, post, attempt)
+        if passed is None:
+            if attempt["gates"][-1]["code"] == -2:
+                ended = "the run's time ran out at the guard"
+                break
+            continue
+        post = {**post, **({"posts": passed} if "posts" in post else {"text": passed[0]})}
         result = try_post(room, label, post, attempt)
         if result in ("posted", "would_post"):
             out.update(outcome=result, label=label, text=attempt.get("sent"),
