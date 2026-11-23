@@ -101,6 +101,7 @@ class PostTest(Scratch):
         self.assertEqual(self.jobs()[0]["bounty_id"], "b9")
 
     def test_a_refusal_that_may_have_posted_stays_posting(self) -> None:
+        self.configure(RENT_MAX_PER_DAY_USD="100", RENT_OPEN_MAX="5")
         for refusal in (error("create_in_progress", "running", retry_safe=False),
                         error("create_in_progress", "running", retry_safe=True),
                         error("something_new", "?", retry_safe=None)):

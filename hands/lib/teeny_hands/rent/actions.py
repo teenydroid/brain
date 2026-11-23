@@ -654,13 +654,14 @@ def _evidence(job: Mapping[str, Any], submission: Mapping[str, Any]) -> list[Jso
     return saved
 
 
-def _pass_on(conn, job_id: int, kind: str, ref: str, text: str, who: str | None, payload: Mapping[str, Any]) -> bool:
+def _pass_on(conn, job_id: int, kind: str, ref: str, text: str, who: str | None, payload: Mapping[str, Any],
+             stimulus: str | None = None) -> bool:
     """Tells the mind once: the stimulus first (idempotent on its ref), the
     event marked seen only once it is written, so a failed write is tried
     again at the next poll rather than lost."""
     if store.conn_seen(conn, job_id, kind, ref):
         return False
-    told = _tell(kind, f"{job_id}:{ref}", text, who=who, payload=payload)
+    told = _tell(stimulus or kind, f"{job_id}:{ref}", text, who=who, payload=payload)
     if told is None:
         return False
     with hand.transaction(conn):
@@ -753,7 +754,8 @@ def _hire(conn, job: Mapping[str, Any]) -> Json:
             text += (f' Judge it against the criteria only, then {{"do": "rent_review", "job": {job["id"]},'
                      ' "verdict": "approve|redo|reject", "reason": "..."}. Approving pays them; it is final.')
             out["submitted"] = _pass_on(conn, job["id"], "submission", ref, text, _who(hire.get("worker"), job["id"]),
-                                        {"job": job["id"], "submission": submission.get("id"), "files": files})
+                                        {"job": job["id"], "submission": submission.get("id"), "files": files},
+                                        stimulus="submitted")
     return out
 
 
