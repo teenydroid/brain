@@ -216,7 +216,7 @@ class JailTest(Scratch):
         # check_grants looks at a name; between it and the rule the mind could
         # swap state/home/work for a link to secrets/. The rule's own open
         # checks what it opened, so the swap is refused there too.
-        (self.root / "state" / "home").mkdir(parents=True)
+        (self.root / "state" / "home").mkdir(parents=True, exist_ok=True)
         link = self.root / "state" / "home" / "work"
         link.symlink_to(self.root / "secrets")
         with self.assertRaises(jail.Unavailable):
