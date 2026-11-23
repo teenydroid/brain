@@ -392,6 +392,11 @@ mix, and the master is laid back on at the end.
   pictures already draw them (`media/figures.py`, `assets._edit_body`): from
   their Wikipedia photo, as an exaggerated editorial caricature. That keeps the
   plate obviously not footage, and the shot goes to a model that takes it.
+- No video model takes a video in (catalog read 2026-11-23: the inputs on sale
+  are text, a first image, `reference_images` and, on two Pixverse models, an
+  `end_image`). So a clip cannot copy the motion of a reference clip, the
+  method behind the viral Seedance fight videos; motion is whatever the prompt
+  and the still give.
 
 ### 12.3 The manifest
 
@@ -443,9 +448,15 @@ clip is bought twice.
 3. **Score and effects.** One music bed for the whole film, and one effect per
    cue, placed at its beat's time.
 4. **Plates.** One still per beat: Teeny from its sheet, a figure from its
-   photo as a caricature. A beat that continues the last starts from that
-   clip's last frame. The viewer passes every plate (on model, obviously
-   impossible, no lettering) before any video is bought.
+   photo as a caricature. Every still is asked for in one look
+   (`films.HOUSE_STYLE`, a stylised 3D animated film, to match Teeny's sheet),
+   and every still after the first is shown the first and goes first to the
+   model that drew it, so the film is one film. The viewer looks at each
+   still: one with writing it can read, or with Teeny off model, is drawn once
+   more and told why; a second miss is kept, since a film never fails on a
+   still. Not built: starting a beat from the last clip's last frame. It needs
+   a frame taken by the reel service (the spine has no ffmpeg) and the clips
+   rendered one after another, which doubles the wait.
 5. **Clips.** One image-to-video job per beat, through `shots.submit`, `poll`
    and `land` with their ceilings. Teeny alone goes to `FILM_TEENY_MODELS`
    (Seedance 2.5, then 2.0 mini); a figure to `FILM_FIGURE_MODELS` (decided by
@@ -471,8 +482,13 @@ one studio run (at most an hour). The slot writes and screens the manifest,
 then starts `hands/film run <id>` in the background. The job resumes from the
 manifest after a restart and posts when the cut passes. Cadence:
 `FILM_EVERY_DAYS=2`. Money: `FILM_MAX_USD` a film (default $15) out of its own
-`FILM_MAX_USD_PER_WEEK`, with every job's reserved ceiling counted, so the
-skit's daily budget is untouched.
+`FILM_MAX_USD_PER_WEEK`, so the skit's daily budget is untouched. A clip holds
+1.25 times its quote while it renders (`films.HOLD_OVER_QUOTE`), not its
+ceiling: on 2026-11-24 the ceilings ran 2.5 to 6 times the bills, and a film
+that cost $4.55 was short of money for its last clip under a $15 cap. The
+bill is what is recorded. If a seller ever billed a whole ceiling, that film
+could end over `FILM_MAX_USD`; the week's cap counts real bills and stops the
+next one.
 
 ### 12.7 Cost of a 75 s film
 

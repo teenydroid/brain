@@ -22,7 +22,11 @@ The steps, in order:
    figure beat from each figure's own photo (media/figures.py) as an
    exaggerated caricature, never photo-real, and without Teeny (a real figure
    never meets Teeny, skit rule d). A figure who is not a public figure with
-   a photo refuses the film.
+   a photo refuses the film. Every still is asked for in one look
+   (HOUSE_STYLE), and every still after the first is also shown the first
+   and drawn by its model, so a film is one film and not four. The viewer
+   (guard/viewer.py) looks at each: one with writing in it, or with Teeny
+   off model, is drawn once more.
 5. clips: one image-to-video job a beat, every one started before any is
    waited on, on the subject's own models (FILM_TEENY_MODELS for Teeny,
    FILM_FIGURE_MODELS for a figure: Seedance refuses a real face), at the
@@ -34,7 +38,10 @@ The steps, in order:
    ducked under it, the effects on cue, captions and the label burned in.
 
 Money: a film reserves FILM_MAX_USD when it is claimed, and every paid step
-checks what is left of it first. Films are paid from FILM_MAX_USD_PER_WEEK,
+checks what is left of it first. A clip holds HOLD_OVER_QUOTE times its
+quote, not its ceiling, until its bill comes: if a seller ever billed its
+whole ceiling the film could end over FILM_MAX_USD, and the week's cap,
+which counts real bills, is what stops the next one. Films are paid from FILM_MAX_USD_PER_WEEK,
 never from MEDIA_MAX_USD_PER_DAY (assets.FILM_OWNED keeps every row a film
 owns out of the daily sum), so the daily skit is never starved. Every
 purchase is a row with its real cost, its `source_id` the film's.
@@ -52,6 +59,7 @@ from typing import Any, Callable
 
 from .. import hand
 from ..guard import film as rules
+from ..guard import viewer
 from . import assets, audio, narration
 from . import shots as _shots
 from .surplus import Surplus, SurplusError
@@ -68,6 +76,24 @@ PLATE_MODELS = "gpt-image-2-edit,nano-banana-pro-edit"
 DEFAULT_PARAMS = {m: {"resolution": "{resolution}"} for m in (
     "venice-wan-3-0-image-to-video", "venice-seedance-2-5-image-to-video-basic", "seedance-2-0-mini-image-to-video")}
 #: What a film's score is told beyond the writer's own line.
+#: What a clip holds of the film's money while it renders, as a multiple of
+#: its quote. The ceiling (`max_cost_usdc`) ran 2.5 to 6 times the bill, so
+#: holding it starved the last clips of a film that cost a third of its cap
+#: (f123: $4.55 of $15).
+HOLD_OVER_QUOTE = 1.25
+#: The one look every still is asked for. Teeny's sheet is a soft 3D render,
+#: so the world is drawn to match it (f123: one scene clean, the next a
+#: sketch).
+HOUSE_STYLE = ("Art style, the same in every frame of the film: a stylised 3D animated film, soft rounded shapes, "
+               "clean simple materials, bright saturated colour and soft studio light, never photo-real.")
+#: Said of the film's first still when it is shown to a later one.
+ANCHOR = ("Reference {n} is an earlier frame of this same film: match its art style, materials, light and colours "
+          "exactly, and take nothing else from it (not its place, its pose or its framing).")
+#: What a still drawn again is told, for each thing the viewer found.
+REDRAW = {"writing": "The last drawing had writing in it. Every book, sign, screen and label is blank: no words, "
+                     "letters or numbers on anything.",
+          "off_model": "The last drawing got Teeny wrong. Teeny is exactly the character on its sheet: one small "
+                       "yellow rounded robot."}
 SCORE_TAIL = "comic, cinematic, builds to a big finish"
 #: Each sound effect's length, and how far apart a beat's effects fall.
 SFX_SECONDS = narration.SFX_SECONDS
@@ -243,14 +269,14 @@ def effects(conn, manifest: Json, api: Surplus) -> None:
 
 def plate_prompt(film: Json, beat: Json) -> str:
     """What a beat's still is drawn from: the film's look and set, and the
-    beat's moment, as the first frame of its shot, drawn so nobody could take
-    it for a photograph."""
+    beat's moment, as the first frame of its shot, in the house style, drawn
+    so nobody could take it for a photograph."""
     looks = " ".join(f"{name}: {line}." for name, line in (film.get("look") or {}).items()) \
         if beat["subject"] == "figure" else ""
     return (f"A {film['aspect']} cinematic film still, the first frame of one shot of a comedy film. {looks} "
             f"Location: {film.get('setting') or 'an impossible, lavish set'}. The moment: {beat['action']} "
-            "Obviously impossible and exaggerated, bold editorial caricature, never photo-real. No text, letters, "
-            "captions, signs or watermarks anywhere.").replace("  ", " ")
+            f"Obviously impossible and exaggerated. {HOUSE_STYLE} No text, letters, numbers, captions, signs, logos "
+            "or watermarks anywhere: every book, sign, screen and label is blank.").replace("  ", " ")
 
 
 #: The still's size for each aspect, on the models that take one (the GPT
@@ -259,58 +285,106 @@ def plate_prompt(film: Json, beat: Json) -> str:
 PLATE_SIZES = {"16:9": "1536x1024", "1:1": "1024x1024", "9:16": "1024x1536"}
 
 
-def _plate_body(model: str, film: Json, beat: Json, portraits: list[Json]) -> Json:
-    prompt = plate_prompt(film, beat)
+def _plate_body(model: str, film: Json, beat: Json, portraits: list[Json], anchor: str | None = None,
+                fix: str = "") -> Json:
+    """The edit a still is asked for. `anchor` is the film's first still (a
+    data URI), shown last so the look carries; `fix` is what a redraw is
+    told."""
+    prompt = f"{plate_prompt(film, beat)} {fix}".strip()
     if beat["subject"] == "teeny":
         reference = assets._data_uri(hand.root() / (hand.setting("MEDIA_REFERENCE") or assets.REFERENCE))
         body = assets._edit_body(model, prompt, reference, [])
+        if anchor:
+            body = {"model": model, "response_format": "b64_json", "images": [reference, anchor],
+                    "prompt": f"{assets.CHARACTER} Reference 1 is Teeny's sheet. {ANCHOR.format(n=2)} {prompt}"}
     else:
         who = "; ".join(f"photo {i + 1} is {p['name']}" for i, p in enumerate(portraits))
+        carry = f" {ANCHOR.format(n=len(portraits) + 1)}" if anchor else ""
         body = {"model": model, "response_format": "b64_json",
                 "prompt": f"{who}. Draw each of them from their photo as an exaggerated editorial caricature, "
-                          f"unmistakably that person. {prompt}",
-                "images": [assets._data_uri(p["path"]) for p in portraits]}
+                          f"unmistakably that person.{carry} {prompt}",
+                "images": [assets._data_uri(p["path"]) for p in portraits] + ([anchor] if anchor else [])}
     if model.startswith("gpt-image") and film.get("aspect") in PLATE_SIZES:
         body["size"] = PLATE_SIZES[film["aspect"]]
     return body
+
+
+def _draw(conn, manifest: Json, api: Surplus, beat: Json, portraits: list[Json], models: list[str],
+          anchor: str | None, stem: str, fix: str = "") -> Json:
+    """One still bought, on the first model that draws it: {file, model}."""
+    film = manifest["film"]
+    reserve = _usd("FILM_MAX_USD_PLATE", "0.30")
+    row = _row(conn, manifest["id"], "image", plate_prompt(film, beat), reserve, purpose="video_frame")
+    tried = []
+    for model in models:
+        try:
+            answer = api.call("POST", "/v1/images/edits", _plate_body(model, film, beat, portraits, anchor, fix),
+                              timeout=240)
+        except SurplusError as exc:
+            tried.append(f"{model}: {exc}")
+            if exc.status in assets.FALLBACK_STATUSES or exc.status is None or exc.status in (400, 403, 422):
+                continue
+            assets._finish(conn, row, status="failed", cost_micro=0, error="; ".join(tried)[:1000])
+            raise hand.HandError(f"{beat['id']}'s still was not made: {exc}") from None
+        item = (answer.get("data") or [{}])[0] if isinstance(answer, dict) else {}
+        data = base64.b64decode(item["b64_json"]) if item.get("b64_json") else (
+            api.download(item["url"], PLATE_MAX_BYTES) if item.get("url") else b"")
+        ext = assets._extension(data)
+        if ext not in ("png", "jpg", "webp"):
+            tried.append(f"{model}: no picture in the answer")
+            continue
+        path = folder(manifest["id"]) / f"{stem}.{ext}"
+        path.write_bytes(data)
+        assets._finish(conn, row, status="done", model=model, path=_service(path),
+                       cost_micro=assets._image_estimate(api, model) or reserve, estimated=1)
+        return {"file": path.name, "model": model}
+    assets._finish(conn, row, status="failed", cost_micro=0, error="; ".join(tried)[:1000])
+    raise hand.HandError(f"{beat['id']}'s still was not made: " + "; ".join(tried)[:500])
+
+
+def plate_faults(path: Path, beat: Json, api: Surplus) -> list[str]:
+    """What the viewer found wrong with a still, as REDRAW's keys: writing
+    it could read, or (a Teeny beat) Teeny off model. Nothing when the viewer
+    is off or gave no verdict: a still is never drawn again on a guess."""
+    seen = viewer.view(str(path), beat["action"][:viewer.MAX_INTENT_CHARS], api=api)
+    if not seen.get("judged") or "read" not in seen:
+        return []
+    faults = ["writing"] if seen["read"].strip() else []
+    if beat["subject"] == "teeny" and seen.get("on_model") is False:
+        faults.append("off_model")
+    return faults
 
 
 def plates(conn, manifest: Json, api: Surplus) -> None:
     film = manifest["film"]
     portraits = assets._portraits(film["figures"]) if any(b["subject"] == "figure" for b in film["beats"]) else []
     made = manifest.setdefault("plates", {})
-    reserve = _usd("FILM_MAX_USD_PLATE", "0.30")
+    order = _models("FILM_PLATE_MODELS", PLATE_MODELS)
+    first = film["beats"][0]["id"]
+    here = folder(manifest["id"])
     for beat in film["beats"]:
         if beat["id"] in made:
             continue
-        row = _row(conn, manifest["id"], "image", plate_prompt(film, beat), reserve, purpose="video_frame")
-        tried = []
-        for model in _models("FILM_PLATE_MODELS", PLATE_MODELS):
+        models, anchor = order, None
+        if beat["id"] != first:
+            # The first still sets the look: later ones are shown it, by the
+            # model that drew it when that model is still on the list.
+            anchor = assets._data_uri(here / made[first]["file"])
+            models = sorted(order, key=lambda m: m != made[first]["model"])
+        plate = made[beat["id"]] = _draw(conn, manifest, api, beat, portraits, models, anchor, beat["id"])
+        save(manifest)  # bought: a film that stops here never buys it again
+        faults = plate_faults(here / plate["file"], beat, api)
+        if faults:
+            plate["faults"] = faults
             try:
-                answer = api.call("POST", "/v1/images/edits", _plate_body(model, film, beat, portraits), timeout=240)
-            except SurplusError as exc:
-                tried.append(f"{model}: {exc}")
-                if exc.status in assets.FALLBACK_STATUSES or exc.status is None or exc.status in (400, 403, 422):
-                    continue
-                assets._finish(conn, row, status="failed", cost_micro=0, error="; ".join(tried)[:1000])
-                raise hand.HandError(f"{beat['id']}'s still was not made: {exc}") from None
-            item = (answer.get("data") or [{}])[0] if isinstance(answer, dict) else {}
-            data = base64.b64decode(item["b64_json"]) if item.get("b64_json") else (
-                api.download(item["url"], PLATE_MAX_BYTES) if item.get("url") else b"")
-            ext = assets._extension(data)
-            if ext not in ("png", "jpg", "webp"):
-                tried.append(f"{model}: no picture in the answer")
-                continue
-            path = folder(manifest["id"]) / f"{beat['id']}.{ext}"
-            path.write_bytes(data)
-            assets._finish(conn, row, status="done", model=model, path=_service(path),
-                           cost_micro=assets._image_estimate(api, model) or reserve, estimated=1)
-            made[beat["id"]] = {"file": path.name, "model": model}
+                again = _draw(conn, manifest, api, beat, portraits, models, anchor, f"{beat['id']}-2",
+                              " ".join(REDRAW[f] for f in faults))
+            except (hand.HandError, hand.Refused):
+                again = None  # the first still stands: a film never fails on a second try
+            if again:
+                (here / plate["file"]).unlink(missing_ok=True)
+                plate.update(again, redrawn=True)
             save(manifest)
-            break
-        else:
-            assets._finish(conn, row, status="failed", cost_micro=0, error="; ".join(tried)[:1000])
-            raise hand.HandError(f"{beat['id']}'s still was not made: " + "; ".join(tried)[:500])
 
 
 def _plan(windows: dict[str, Json], per_clip: int) -> _shots.Plan:
@@ -318,7 +392,8 @@ def _plan(windows: dict[str, Json], per_clip: int) -> _shots.Plan:
                        body=lambda model, prompt, seconds, aspect, params, shot: _shots.request_body(
                            model, prompt, seconds, aspect, params, image=shot.image,
                            resolution_setting="FILM_RESOLUTION"),
-                       length=lambda shot, sold: narration.buy(windows[shot.name], sold), per_shot=per_clip)
+                       length=lambda shot, sold: narration.buy(windows[shot.name], sold), per_shot=per_clip,
+                       hold=HOLD_OVER_QUOTE)
 
 
 def clips(conn, manifest: Json, api: Surplus, sleep=time.sleep, clock=time.monotonic) -> None:

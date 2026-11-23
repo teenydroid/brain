@@ -510,7 +510,7 @@ def view(image: Any, intent: Any, caption: Any = None, api: Any = None,
                        else "the caption is not readable: the viewer read no words")
     verdict = {"ok": not reasons, "sees": cold["sees"], "on_model": checked["on_model"], "readable": is_readable,
                "reason": "; ".join(reasons) if reasons else "a stranger saw Teeny on model and read the words",
-               "judged": True}
+               "judged": True, "read": cold["text"]}
     return ended("done", verdict, cold["text"], None)
 
 
