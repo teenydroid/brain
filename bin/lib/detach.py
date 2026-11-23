@@ -27,7 +27,9 @@ outcome never reaches cron history. So `bin/tick --detach` and `bin/reflect
   alone, since a concurrent run of the same job may be using it.
 
 The job's own record (state/tick/runs.jsonl for a beat, the log for the
-rest) is where its outcome lands.
+rest) is where its outcome lands. With --lock, a log whose last line is the
+previous run's start line (that run was killed before it said how it ended)
+first gets a line saying so.
 """
 
 from __future__ import annotations
@@ -78,6 +80,19 @@ def _tmpdir(state: Path, log: str, empty: bool) -> Path:
     return path
 
 
+def _unfinished(path: Path) -> str | None:
+    """The start line of the last run in the log, when nothing followed it:
+    that run was killed (or died) before it could say how it ended."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, fh.seek(0, os.SEEK_END) - 4096))
+            tail = fh.read().decode("utf-8", "replace")
+    except FileNotFoundError:
+        return None
+    lines = [line for line in tail.splitlines() if line.strip()]
+    return lines[-1] if lines and lines[-1].startswith("--- ") else None
+
+
 def start(log: str, command: list[str], lock: str | None = None) -> dict:
     state = hand.state_dir()
     path = state / log
@@ -87,6 +102,12 @@ def start(log: str, command: list[str], lock: str | None = None) -> dict:
     tmp = str(_tmpdir(state, log, empty=bool(lock)))
     env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp)
     with _open_log(path) as fh:
+        # With the lock free, a run that ended without a line never will
+        # write one: say so, so the log never reads as if it were running.
+        last = _unfinished(path) if lock else None
+        if last:
+            fh.write(json.dumps({"ok": False, "error": f"the run started {last[4:].strip()[:200]} left no result: it "
+                                 "was killed or died before it could say how it ended"}, ensure_ascii=False) + "\n")
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fh.write(f"--- {stamp} {' '.join(command)}\n")
         fh.flush()
