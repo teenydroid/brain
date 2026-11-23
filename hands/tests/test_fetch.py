@@ -282,6 +282,30 @@ class AnswerTest(FetchCase):
                 self.fetch("https://example.com/slow")
             self.assertLess(time.monotonic() - started, 3)
 
+    def test_a_name_that_resolves_too_slowly_ends_the_fetch(self):
+        # getaddrinfo takes no timeout: the lookup is given up on at the deadline.
+        release = threading.Event()
+        self.addCleanup(release.set)
+        with mock.patch.object(webfetch, "TOTAL_SECS", 1), \
+                mock.patch.object(webfetch, "_resolve", lambda host: release.wait(10) and [PUBLIC]):
+            started = time.monotonic()
+            with self.assertRaises(webfetch.Failed):
+                self.fetch("https://example.com/ok")
+            self.assertLess(time.monotonic() - started, 3)
+
+    def test_a_connect_that_uses_up_the_time_ends_the_fetch_before_the_read(self):
+        real = webfetch._connect
+
+        def slow(ip, host, timeout):
+            time.sleep(1.2)
+            return real(ip, host, timeout)
+
+        with mock.patch.object(webfetch, "TOTAL_SECS", 1), mock.patch.object(webfetch, "_connect", slow):
+            started = time.monotonic()
+            with self.assertRaises(webfetch.Failed):
+                self.fetch("https://example.com/ok")
+            self.assertLess(time.monotonic() - started, 3)
+
     def test_an_error_page_is_an_answer_with_its_status(self):
         got = self.fetch("https://example.com/missing")
         self.assertEqual((got["http"], got["text"]), (404, "no"))
