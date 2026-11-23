@@ -102,7 +102,11 @@ def _dry(text: str, kind: str, **extra: Any) -> Json:
 
 
 def _db():
-    return open_db(rules.SCHEMA)
+    # The lanes read the studio's `producer` column (rules.LANE_ROWS), so a
+    # ledger from before it gets it before any rule reads it.
+    conn = open_db(rules.SCHEMA)
+    rules.add_tag_columns(conn)
+    return conn
 
 
 def link_budget() -> Json:
