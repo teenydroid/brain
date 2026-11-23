@@ -192,6 +192,23 @@ class MediaTest(unittest.TestCase):
         with self.assertRaises(hand.Refused):
             assets.generate_image({"prompt": "x", "figures": ["A B", "C D", "E F"]}, api=self.api)
 
+    def test_a_photo_that_could_not_be_fetched_is_tried_again_next_time(self):
+        # 2026-11-23: the photo host answered 429 for full-size originals, and
+        # the miss was kept for a month as "has no photo".
+        from teeny_hands.media import figures
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        working = figures._get
+
+        def flaky(url, limit, timeout=30.0):
+            if url.startswith("https://upload.wikimedia.org/"):
+                raise OSError("429")
+            return working(url, limit, timeout)
+
+        figures._get = flaky
+        self.assertEqual(figures.portrait("Sam Altman")["why"], "has a photo that could not be fetched")
+        figures._get = working
+        self.assertIn("path", figures.portrait("Sam Altman"))
+
     def test_a_picture_with_nobody_real_in_it_is_asked_for_as_before(self):
         self.image()
         _, _, body = next(c for c in self.api.calls if c[1] == "/v1/images/edits")

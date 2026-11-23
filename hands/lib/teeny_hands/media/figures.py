@@ -9,8 +9,8 @@ article carries a photo. Anyone else (a fan, a commenter, a small account, a
 company, a name that is ambiguous) has no portrait, and the caller refuses
 the picture.
 
-Reads two public hosts and nothing else: en.wikipedia.org (the article's
-summary and photo, served from upload.wikimedia.org) and www.wikidata.org
+Reads public hosts and nothing else: en.wikipedia.org (the article's summary),
+thumb.wikimedia.org and upload.wikimedia.org (its photo) and www.wikidata.org
 (what the subject is). Names are sent as the writer gave them; nothing about
 Teeny or its operator is. What comes back is data: a title, a photo.
 
@@ -43,7 +43,7 @@ MAX_NAME = 60
 #: The most a photo may weigh, and the most a page of JSON may.
 PHOTO_MAX_BYTES = 6 * 1024 * 1024
 JSON_MAX_BYTES = 4 * 1024 * 1024
-PHOTO_HOSTS = ("upload.wikimedia.org",)
+PHOTO_HOSTS = ("upload.wikimedia.org", "thumb.wikimedia.org")
 
 
 def _get(url: str, limit: int, timeout: float = 30.0) -> bytes:
@@ -105,7 +105,10 @@ def _look_up(name: str) -> Json:
             return {"name": name, "why": "is not a person"}
     except (urllib.error.URLError, ValueError, OSError) as exc:
         return {"name": name, "why": f"lookup failed ({type(exc).__name__})", "retry": True}
-    for field in ("originalimage", "thumbnail"):
+    # The small copy first: it is enough to draw a face from, and the photo
+    # host turns away automated fetches of full-size originals (429).
+    failed = False
+    for field in ("thumbnail", "originalimage"):
         source = (page.get(field) or {}).get("source")
         if not (isinstance(source, str) and urllib.parse.urlsplit(source).scheme == "https"
                 and urllib.parse.urlsplit(source).hostname in PHOTO_HOSTS):
@@ -113,9 +116,12 @@ def _look_up(name: str) -> Json:
         try:
             photo = _get(source, PHOTO_MAX_BYTES, 60.0)
         except (urllib.error.URLError, ValueError, OSError):
+            failed = True
             continue
         if _extension(photo):
             return {"name": name, "title": str(page.get("title") or name)[:120], "photo": photo}
+    if failed:
+        return {"name": name, "why": "has a photo that could not be fetched", "retry": True}
     return {"name": name, "why": "has no photo on Wikipedia"}
 
 
