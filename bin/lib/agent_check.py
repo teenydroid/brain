@@ -174,6 +174,20 @@ def check(path: Path) -> str:
             continue
         if any(tool == b or tool.startswith(b) for b in banned):
             raise SystemExit(f"the {agent} agent must not have {tool!r}")
+    parents = [p for p, kids in SUBAGENTS.items() if agent in kids]
+    if parents:
+        parent_file = path.parent / f"{parents[0]}.toml"
+        try:
+            with open(parent_file, "rb") as fh:
+                theirs = (tomllib.load(fh).get("tools") or {}).get("named")
+        except (OSError, tomllib.TOMLDecodeError):
+            theirs = None
+        if not isinstance(theirs, list):
+            raise SystemExit(f"the {agent} agent is checked against {parents[0]}.toml's tools, which must sit beside it")
+        extra = [t for t in named if t not in theirs or t in (SPAWN_TOOL, "memory")]
+        if extra:
+            raise SystemExit(f"the {agent} agent may have only tools the {parents[0]} has (and never {SPAWN_TOOL} "
+                             f"or memory), not {', '.join(extra)}")
     missing = [t for t in needs if t not in named]
     if missing:
         raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
