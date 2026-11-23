@@ -452,10 +452,10 @@ def make(body: Any, api: Surplus | None = None, reel: Any = None, sleep=time.sle
 def run(film_id: int, api: Surplus | None = None, reel: Any = None, sleep=time.sleep, clock=time.monotonic) -> Json:
     """The film's next steps, from its manifest, to its cut. A step it has
     is never bought again."""
-    from ..reel.service import ReelService
+    from ..reel.service import Reel
 
     api = api if api is not None else Surplus()
-    reel = reel if reel is not None else ReelService()
+    reel = reel if reel is not None else Reel()
     manifest = load(film_id)
     if manifest.get("status") in ("done", "failed"):
         return status(film_id)

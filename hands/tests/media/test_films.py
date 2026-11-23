@@ -230,11 +230,15 @@ class FilmTest(unittest.TestCase):
         self.assertTrue(all(r["source_id"] for r in self.rows() if r["kind"] != "film"))
 
     def test_a_week_over_budget_refuses_a_film_before_anything_is_bought(self):
-        self.env(FILM_MAX_USD="15", FILM_MAX_USD_PER_WEEK="20")
+        # The first film spends about $4.60 of the week; a second's $15
+        # reservation would take it past $18.
+        self.env(FILM_MAX_USD="15", FILM_MAX_USD_PER_WEEK="18")
         self.make()
+        bought = len(self.api.calls)
         with self.assertRaises(hand.Refused) as caught:
             self.make()
-        self.assertEqual(caught.exception.detail.get("budget_usd"), 20.0)
+        self.assertEqual(caught.exception.detail.get("budget_usd"), 18.0)
+        self.assertEqual(len(self.api.calls), bought)
 
     def test_a_film_that_stopped_is_carried_on_and_nothing_is_bought_twice(self):
         with mock.patch.object(films, "cut", side_effect=RuntimeError("deploy")):
