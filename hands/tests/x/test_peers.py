@@ -752,6 +752,16 @@ class CliTest(SuggestBase):
         code, out = self.run_x("peers", "report", "--days", "99")
         self.assertEqual(code, 1, out)
 
+    def test_who_was_quoted_this_week_on_the_command_line(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "quote", "a studio quote", quote_of="700", quote_author="77",
+                                  quote_handle="Sama", producer="studio", created_at=hand.now() - 86400)
+        conn.commit()
+        code, out = self.run_x("peers", "quoted")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["handles"], out["days"]), (["sama"], 7))
+
     def test_trending_on_the_command_line_with_no_trend_tool_is_an_empty_read(self):
         # No digg binary in the scratch root: the peers still work.
         code, out = self.run_x("peers", "trending", "--stories", "2", "--per-story", "1", "--skip-quoted")
