@@ -119,6 +119,19 @@ class RestApi:
         headers: Mapping[str, str] | None = None,
     ) -> tuple[Any, Any]:
         """`call`, and the response's headers (an `email.message.Message`)."""
+        return self.request(method, path, query, body, auth, headers)[1:]
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        query: Sequence[tuple[str, str]] = (),
+        body: Any = None,
+        auth: bool = True,
+        headers: Mapping[str, str] | None = None,
+    ) -> tuple[int, Any, Any]:
+        """`exchange`, with the status the service answered first (a 2xx:
+        anything else is a RestError). hands/call passes it on."""
         url = self._base + path
         if query:
             url += "?" + urllib.parse.urlencode(list(query))
