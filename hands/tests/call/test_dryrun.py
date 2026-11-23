@@ -22,13 +22,13 @@ class DryRunTest(Scratch):
     def test_a_write_is_guard_checked_and_not_sent(self):
         self.configure(DRY_RUN="1", CALL_FAKE_SVC_WRITES_PER_DAY="1")
         guard = Recorder()
-        with mock.patch.object(gate, "check_outbound", guard):
+        with mock.patch.object(gate, "gate_outbound", guard):
             for _ in range(2):  # a rehearsal spends nothing of the day
                 code, out = self.write(body={"text": "hello"})
                 self.assertEqual((code, out), (0, {"ok": True, "dry_run": True,
                                                    "would": {"service": "fake-svc", "method": "POST",
                                                              "path": "/notes"}}))
-        self.assertEqual([c["text"] for c in guard.calls], ["hello", "hello"])
+        self.assertEqual(guard.said, ["hello", "hello"])
         self.assertEqual(self.svc.seen, [])
         self.assertEqual([(r["sent"], r["outcome"]) for r in self.log()], [(0, "dry_run"), (0, "dry_run")])
 

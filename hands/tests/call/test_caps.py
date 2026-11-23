@@ -9,10 +9,21 @@ from .support import DAY, KEY, T0, Scratch
 
 
 class OffTest(Scratch):
-    def test_reads_and_writes_are_off_until_the_operator_sets_a_number(self):
+    def test_a_listed_service_works_without_a_setting(self):
+        # Listing a service is the operator's yes. With no number in
+        # secrets/ it gets the default allowance; 0 turns it off.
+        from teeny_hands.call import counts
+        self.assertEqual((counts.DEFAULT_READS_PER_DAY, counts.DEFAULT_WRITES_PER_DAY), (500, 50))
         self.svc.route("GET", "/api/v1/posts", {"posts": []})
         self.svc.route("POST", "/api/v1/notes", {"id": 1})
-        for value in (None, "0", "lots", "-3"):
+        self.configure(CALL_FAKE_SVC_READS_PER_DAY=None, CALL_FAKE_SVC_WRITES_PER_DAY=None)
+        self.assertEqual(self.get("/posts")[0], 0)
+        self.assertEqual(self.write(body={"n": 1})[0], 0)
+
+    def test_zero_turns_reads_and_writes_off(self):
+        self.svc.route("GET", "/api/v1/posts", {"posts": []})
+        self.svc.route("POST", "/api/v1/notes", {"id": 1})
+        for value in ("0",):
             self.configure(CALL_FAKE_SVC_READS_PER_DAY=value, CALL_FAKE_SVC_WRITES_PER_DAY=value)
             code, out = self.get("/posts")
             self.assertEqual((code, out.get("rule")), (2, "cap"), (value, out))
@@ -22,11 +33,12 @@ class OffTest(Scratch):
             self.assertIn("CALL_FAKE_SVC_WRITES_PER_DAY", out["refused"])
         self.assertEqual(self.svc.seen, [])
 
-    def test_the_environment_cannot_switch_a_cap_on(self):
+    def test_the_environment_cannot_switch_a_cap_back_on(self):
         import os
 
-        self.configure(CALL_FAKE_SVC_READS_PER_DAY=None)
+        self.configure(CALL_FAKE_SVC_READS_PER_DAY="0")
         os.environ["CALL_FAKE_SVC_READS_PER_DAY"] = "100"
+        self.addCleanup(os.environ.pop, "CALL_FAKE_SVC_READS_PER_DAY", None)
         code, out = self.get("/posts")
         self.assertEqual(code, 2, out)
         self.assertEqual(self.svc.seen, [])
