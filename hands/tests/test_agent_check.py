@@ -139,5 +139,31 @@ class DraftingAgentIterationsTest(unittest.TestCase):
                      'sandbox_mode = "read_only"')
 
 
+class MemoryLogPostureTest(DraftingAgentIterationsTest):
+    """An agent that recalls no memory (omit_memory_context, which the core
+    defaults to true) must keep its turns out of memory too
+    (omit_memory_log): on the box 1,236 of the studio's and the evals'
+    helper turns sat in CortexDB, recalled by nobody and turning up in the
+    mind's recall. The agents that speak as Teeny log and recall both."""
+
+    QUIET = ("writer", "editor", "judge", "querier", "reviewer", "builder", "operator", "worker", "evolver")
+    SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
+
+    def test_every_memoryless_agent_keeps_its_turns_out_of_memory(self):
+        for name in self.QUIET:
+            text = (REPO / "brain" / "agents" / f"{name}.toml").read_text()
+            self.assertIn("\nomit_memory_log = true\n", text, name)
+
+    def test_a_memoryless_agent_that_logs_is_refused(self):
+        for name in ("writer", "judge", "builder"):
+            self.refused(self.variant(name, "omit_memory_log = true\n", ""), "omit_memory_log = true")
+
+    def test_a_speaking_agent_that_stops_logging_is_refused(self):
+        for name in self.SPEAKING:
+            self.refused(self.variant(name, "omit_memory_context = false\n",
+                                      "omit_memory_context = false\nomit_memory_log = true\n"),
+                         "omit_memory_log")
+
+
 if __name__ == "__main__":
     unittest.main()
