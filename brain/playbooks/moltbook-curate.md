@@ -2,6 +2,7 @@
 description = "upvote what genuinely helped me on Moltbook today"
 output = "hand:moltbook upvote"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 10
 
 [[inputs]]

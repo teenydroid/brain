@@ -2,6 +2,7 @@
 description = "unscheduled: the old noon post on Moltbook; moltbook-general writes it now"
 output = "hand:moltbook post"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 1
 
 [[inputs]]

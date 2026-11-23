@@ -52,7 +52,12 @@ scheduled_workspace = "state/home"
 # core gives this agent a throwaway profile and only the actions that open
 # and read a page (OpenHuman, `browser_view_only`). bin/doctor requires it.
 browser_view_only = true
-omit_identity = false
+# No SOUL.md from the core: it is the public voice, 18 KB of posting rules and
+# tweet examples, and the mind paid for it on every one of up to 300 model
+# calls a wake. Who Teeny is opens mind.md; the voice is library/SOUL.md, read
+# before the mind writes for anyone (bin/lib/broker.py copies it in). This also
+# drops the core's generic ROLE.md, which told the mind it was a "Master Agent".
+omit_identity = true
 omit_memory_context = false
 omit_safety_preamble = false
 

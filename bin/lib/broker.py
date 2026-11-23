@@ -19,7 +19,9 @@ token is never written anywhere else.
 
 At start the broker writes, into state/home/: the token, `.broker-url`
 (http://127.0.0.1:<BROKER_PORT>, default 7790), and the client
-(bin/lib/broker_client.py) as bin/teeny, since the jail cannot read bin/.
+(bin/lib/broker_client.py) as bin/teeny, since the jail cannot read bin/,
+and the skill library (`library/`: brain/skills/*/SKILL.md and SOUL.md, which
+the jail cannot read either; docs/mind.md, "A lean prompt").
 `serve` runs only with MIND=1 in secrets/teeny.env; `install` only writes
 those files and exits (and rotates the token a running broker holds).
 
@@ -151,7 +153,55 @@ def install(port: int, token: str) -> None:
     mind_home.write((), ".broker-token", token + "\n", 0o600)
     mind_home.write(("bin",), "teeny", (LIB / "broker_client.py").read_text(), 0o755)
     mind_home.ensure("notes", "inbox")
+    install_library()
     mind_home.write((), ".broker-url", f"http://{HOST}:{port}\n", 0o644)
+
+
+# --- state/home/library: the skills the mind opens when it needs them ------------------
+
+#: The shared skill library (brain/skills/<name>/SKILL.md) and the public
+#: voice (brain/SOUL.md). The mind's prompt stays short (docs/mind.md, "A lean
+#: prompt"): what one job, tool or service needs is a skill here, read when
+#: that job comes up, never a paragraph every one of its model calls pays for.
+#: The jail cannot read brain/, so the broker copies them in at every start,
+#: over whatever was there: library/ is the repo's, the mind's own skills live
+#: in skills/. A change to one is a pull request to brain/skills/.
+LIBRARY = "library"
+_FRONT = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+
+def _summary(text: str) -> str:
+    """A skill's one line for the index: its front matter's description,
+    else its first line of prose."""
+    front = _FRONT.match(text)
+    if front:
+        for line in front.group(1).splitlines():
+            if line.startswith("description:"):
+                return line.split(":", 1)[1].strip().strip('"')
+        text = text[front.end():]
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return ""
+
+
+def install_library() -> None:
+    brain = CODE / "brain"
+    lines = ["# library", "",
+             "Skills from your repository (`brain/skills/`), copied here at every start: read one when its job comes up.",
+             "Change one by a pull request to `brain/skills/<name>/SKILL.md`; your own skills live in `skills/`.", ""]
+    keep = {"INDEX.md", "SOUL.md"}
+    for skill in sorted(brain.glob("skills/*/SKILL.md")):
+        name = skill.parent.name
+        text = skill.read_text(encoding="utf-8")
+        mind_home.write((LIBRARY,), f"{name}.md", text, 0o644)
+        keep.add(f"{name}.md")
+        lines.append(f"- `library/{name}.md`: {_summary(text)}")
+    lines.append("- `library/SOUL.md`: your public voice and its rules; read it before you write words anyone else will read.")
+    mind_home.write((LIBRARY,), "SOUL.md", (brain / "SOUL.md").read_text(encoding="utf-8"), 0o644)
+    mind_home.write((LIBRARY,), "INDEX.md", "\n".join(lines) + "\n", 0o644)
+    mind_home.prune((LIBRARY,), keep, ".md")
 
 
 def port() -> int:

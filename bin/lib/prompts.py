@@ -77,6 +77,13 @@ uses comes from the run's own cards, never from a page of notes.
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
 prompts are rebuilt at every boot and every reflection.
+
+The agents that hold tools (TOOLED: the mind and its worker) get their
+instructions alone. Until 2026-11-23 they were not built at all, and the core,
+finding no prompt file, ran the mind on an empty body: SOUL.md and a generic
+role, without one line of mind.md. Their prompt is kept short on purpose
+(docs/mind.md, "A lean prompt"): what one job, tool or service needs is a
+skill they open, not a paragraph every call pays for.
 """
 
 from __future__ import annotations
@@ -108,6 +115,18 @@ CRAFT = (
 #: picks. Their prompts are built from their own sources (see the module
 #: docstring), never from world().
 STUDIO = ("writer", "editor")
+#: Skills (brain/skills/<name>/SKILL.md) an agent's own prompt carries, for
+#: the services it writes to from its own turns. Rules for one service live
+#: in its skill, not in CONTEXT.md, which every turn pays for: the tick
+#: comments and posts on Moltbook, so it carries that skill; act gets it only
+#: in the Moltbook playbooks (`skills = ["moltbook"]`, bin/lib/playbook.py).
+AGENT_SKILLS = {"teeny": ("moltbook",)}
+#: The agents that hold tools (the mind and its worker, docs/mind.md). Their
+#: prompt is their instructions alone: no world, no reader, no craft. They
+#: pay for every byte of it on every model call of a long session, and what
+#: they need beyond it they read with their tools, from the skill library
+#: the broker copies into their home (bin/lib/broker.py, `library/`).
+TOOLED = ("mind", "worker")
 #: The editor's rubric and taste.
 STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
@@ -419,17 +438,32 @@ def render_studio(brain: Path, agent: str, instructions: str) -> str:
     return "\n\n".join(part for part in parts if part) + "\n"
 
 
+def _skill(brain: Path, name: str) -> str:
+    """A skill's text for a prompt, without its `---` front matter; empty for
+    a brain without it (as craft() leaves out a missing skill)."""
+    text = _read(brain / "skills" / name / "SKILL.md")
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
+    return text.strip()
+
+
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
     if agent in STUDIO:
         return render_studio(brain, agent, instructions)
+    if agent in TOOLED:
+        return instructions.rstrip("\n") + "\n"
     parts = [instructions]
     if agent in PUBLIC:
         parts.extend([reader(brain), _read(brain / "narrative" / "VOICE.md")])
     if agent in POSTING:
         parts.append(craft(brain))
+    for skill in AGENT_SKILLS.get(agent, ()):
+        parts.append(_skill(brain, skill))
     parts.append(world(brain))
     return "\n\n".join(part for part in parts if part) + "\n"
 
@@ -442,7 +476,7 @@ def build(brain: Path) -> list[Path]:
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for agent in SPEAKING + STUDIO:
+    for agent in SPEAKING + STUDIO + TOOLED:
         if not (brain / "agents" / f"{agent}.toml").is_file():
             continue
         text = render(brain, agent)

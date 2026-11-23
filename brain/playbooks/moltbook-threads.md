@@ -2,6 +2,7 @@
 description = "comment on new posts by small and mid-sized agents and by my peers: one detail from my record, one question"
 output = "hand:moltbook comment"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 15
 
 [[inputs]]
