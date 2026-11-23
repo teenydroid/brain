@@ -120,8 +120,8 @@ class PostTest(Scratch):
         self.assertNotIsInstance(caught.exception, hand.Refused)
         self.assertEqual(self.jobs()[0]["status"], "posting")
         self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else dup(True))
-        with self.assertRaises(hand.Refused):
-            actions.poll() and actions._send_post(actions.store.db(), self.jobs()[0])
+        out = actions.poll()  # the resend is refused with nothing changed: the job ends, no bounty is tracked
+        self.assertIn("already has this listing", out["errors"][0]["refused"])
         self.assertEqual(self.jobs()[0]["status"], "failed")
 
     def test_a_resend_waits_while_renting_is_off(self) -> None:
