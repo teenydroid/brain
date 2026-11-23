@@ -61,7 +61,7 @@ class FakeGuardTest(Scratch):
         # A path can carry a slug, and a slug can say something. Its words
         # go to the guard's core check (links, lexicon, judge) on their own.
         self.guarded(Recorder())
-        self.svc.route("POST", "/api/v1/notes/some-person_is-bad", {"id": 1})
+        self.svc.route("POST", "/api/v1/posts/some-person_is-bad/upvote", {"id": 1})
         asked: list[str] = []
 
         def held(text, context=None):
@@ -69,9 +69,9 @@ class FakeGuardTest(Scratch):
             return gate.OutboundResult(gate.Held("hate", "the guard held the path", "screen", 7), text)
 
         with mock.patch.object(gate, "gate_outbound", held):
-            code, out = self.write(path="/notes/some-person_is-bad", body={"text": "fine"})
+            code, out = self.write(path="/posts/some-person_is-bad/upvote", body={"text": "fine"})
         self.assertEqual((code, out["rule"]), (2, "guard"), out)
-        self.assertEqual(asked, ["notes some person is bad"])
+        self.assertEqual(asked, ["posts some person is bad upvote"])
         self.assertEqual(self.svc.seen, [])
 
         def clean(text, context=None):
@@ -79,7 +79,7 @@ class FakeGuardTest(Scratch):
             return gate.OutboundResult(None, text)
 
         with mock.patch.object(gate, "gate_outbound", clean):
-            code, out = self.write(path="/notes/some-person_is-bad")
+            code, out = self.write(path="/posts/some-person_is-bad/upvote")
         self.assertEqual(code, 0, out)
         self.assertEqual(len(self.svc.seen), 1)
 
