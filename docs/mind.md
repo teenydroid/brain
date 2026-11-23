@@ -61,7 +61,8 @@ broker gives it one read-only view of them, `bin/teeny pulse`
   karma, GitHub followers and stars. Each has its latest value and when it
   was read (`read_at`), and where it stood about a day and a week before
   that reading (`day_before`, `week_before`) with the change
-  (`change_1d`, `change_7d`), null when no snapshot is that old. It is the
+  (`change_1d`, `change_7d`), null when no snapshot is that old, whatever
+  the pulse's window. It is the
   stats board's own reading (`hands/lib/teeny_hands/stats/board.py`),
   numbers only. With nothing recorded yet it is an empty list and
   `audience_unread` says why.
