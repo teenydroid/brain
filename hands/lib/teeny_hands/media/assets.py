@@ -27,7 +27,8 @@ The caps are code, in secrets/teeny.env (defaults in brackets):
   MEDIA_IMAGE_MAX_PER_DAY [20]  MEDIA_VIDEO_MAX_PER_DAY [2]
   MEDIA_MAX_USD_PER_DAY [1.00]  every image and video today, estimates included
   MEDIA_VIDEO_MAX_USD_PER_JOB [0.20]  a video quoted above this is cancelled
-A failed generation costs nothing on Surplus and nothing here. DRY_RUN (on by
+A failed generation costs nothing on Surplus and nothing here, except a
+two-pass picture's paid scene pass (_make_image). DRY_RUN (on by
 default) answers what would be generated and spends nothing.
 """
 
