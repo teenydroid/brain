@@ -44,8 +44,9 @@ class XStudyTest(unittest.TestCase):
         mention = None
         if to:
             mention = f"m{post_id}"
-            self.conn.execute("INSERT INTO x_mentions (id, author_id, author_username, created_at, text, status)"
-                              " VALUES (?, 'a', ?, '2026-09-14', 'hi', 'answered')", (mention, to))
+            self.conn.execute("INSERT INTO x_mentions (id, author_id, author_username, created_at, text, post, status,"
+                              " seen_at, updated_at) VALUES (?, 'a', ?, '2026-09-14', 'hi', '{}', 'answered', ?, ?)",
+                              (mention, to, at, at))
         posting_rules.record_post(self.conn, post_id, kind, f"words of {post_id}", in_reply_to=mention, created_at=at,
                                   format=fmt, producer=producer)
         for n, checkpoint in enumerate(checkpoints):
