@@ -167,6 +167,10 @@ class Scratch(unittest.TestCase):
         self.at(T0)
         self.rah = FakeRah()
         self.addCleanup(self.rah.close)
+        # An application with no price of its own (the bounty's copy of its pay is skipped).
+        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "status": "pending",
+                                                  "applicant": {"name": "Dana R.", "earned": {"amount": 48000}},
+                                                  "bounty": {"pay": {"amount": 1800, "currency": "usd"}}})
         self.configure()
 
     def tearDown(self) -> None:

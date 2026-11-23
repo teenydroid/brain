@@ -35,11 +35,27 @@ class AcceptTest(Hired):
         job = self.jobs()[0]
         self.assertEqual((job["status"], job["hire_id"], job["conversation_id"]), ("hired", "h1", "c1"))
 
-    def test_a_dearer_hire_tells_the_operator(self) -> None:
+    def test_an_application_with_its_own_price_is_never_hired(self) -> None:
+        for application in ({"id": "a7", "proposedPay": {"amount": 40000, "currency": "usd"}},
+                            {"id": "a7", "offer": {"price": {"amount": 40000}}},
+                            {"id": "a7", "proposedPriceCents": 40000}):
+            with self.subTest(application=application):
+                self.rah.on("get_application", application)
+                with self.assertRaises(hand.Refused) as caught:
+                    actions.accept({"job": 1, "application": "a7"})
+                self.assertIn("price of its own", caught.exception.reason)
+        self.assertEqual(self.rah.made("accept_application"), [])
+
+    def test_a_dearer_hire_counts_against_the_day_and_tells_the_operator(self) -> None:
         self.rah.on("accept_application", {"hireId": "h1", "cost": {"amount": 4000, "currency": "usd"}})
         actions.accept({"job": 1, "application": "a7"})
         [told] = self.stimuli()
         self.assertEqual(told["kind"], "charge")
+        self.assertEqual(self.jobs()[0]["extra_cents"], 4000 - 2360)
+        # 40.00 of today's 50.00 is gone: a 23.60 bounty no longer fits.
+        with self.assertRaises(hand.Refused) as caught:
+            actions.post(dict(GOOD, title="Hold a second sign about robots"))
+        self.assertIn("RENT_MAX_PER_DAY_USD", caught.exception.reason)
 
     def test_only_an_open_bounty_hires(self) -> None:
         actions.accept({"job": 1, "application": "a7"})
