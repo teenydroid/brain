@@ -153,9 +153,11 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
-        # A quote has its own lane (posting_rules, "The quote lane").
-        rules.check_gap(conn, kind)
-        rules.check_daily_cap(conn, kind)
+        # A quote has its own lane (posting_rules, "The quote lane"), except a
+        # studio slot's, which is that slot's original post.
+        lane = rules.lane_of(kind, made.get("producer"))
+        rules.check_gap(conn, lane)
+        rules.check_daily_cap(conn, lane)
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
