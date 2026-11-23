@@ -281,6 +281,22 @@ class ShapeTest(Scratch):
 
         return tick.shape()
 
+    def test_a_review_intent_must_carry_the_submission_it_judged(self) -> None:
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin" / "lib"))
+        import tick
+
+        route = tick.ROUTES["rent_review"]
+        for intent in ({"job": 1, "verdict": "approve"}, {"job": 1, "verdict": "approve", "submission": ""},
+                       {"job": 1, "verdict": "approve", "submission": "  "}):
+            with self.subTest(intent=intent), self.assertRaises(ValueError):
+                route(intent)
+        name, argv, body = route({"job": 1, "verdict": "redo", "reason": "too dark", "submission": "s1:1"})
+        self.assertEqual((name, argv), ("rent", ["review"]))
+        self.assertEqual(body, {"job": 1, "verdict": "redo", "reason": "too dark", "submission": "s1:1"})
+
     def test_follow_up_intents_do_not_depend_on_the_posting_cap(self) -> None:
         self.configure(RENT_POSTS_PER_DAY="0")
         self.assertNotIn('"rent_accept"', self.shape())
