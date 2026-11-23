@@ -24,7 +24,8 @@ from typing import Any
 from .. import hand
 from . import actions, store
 
-CANCEL_REASONS = ("not_enough_applicants", "applicants_not_fit", "no_longer_needed", "other")
+CANCEL_REASONS = ("not_enough_applicants", "applicants_not_fit", "task_no_longer_needed",
+                  "budget_timing_requirements_changed", "other")
 
 
 def parser() -> argparse.ArgumentParser:
