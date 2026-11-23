@@ -233,6 +233,21 @@ class FilmTest(unittest.TestCase):
         self.assertTrue(all(r["status"] == "failed" and r["cost_micro"] == 0 and "refused" in r["error"]
                             for r in refused))
 
+    def test_no_sound_effect_plays_over_a_word_or_another_effect(self):
+        """f99: each effect was set halfway through its beat, on top of the
+        narration, and a beat's two effects 1 s apart overlapped each other."""
+        out = self.make()
+        manifest = films.load(out["id"])
+        words = films.captions(manifest)
+        played = sorted((e["at"], e["at"] + films.narration.SFX_SECONDS) for e in manifest["effects"] if e.get("file"))
+        self.assertTrue(played)
+        for start, end in played:
+            for word in words:
+                self.assertFalse(start < word["end"] and word["start"] < end, (start, end, word))
+        for (a0, a1), (b0, b1) in zip(played, played[1:]):
+            self.assertLessEqual(a1, b0 + 1e-6)
+        self.assertLessEqual(played[-1][1], manifest["clock"]["length"] + 1e-6)
+
     def test_captions_are_the_words_moved_onto_the_films_timeline(self):
         out = self.make()
         manifest = films.load(out["id"])
