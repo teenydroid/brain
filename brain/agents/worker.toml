@@ -1,0 +1,53 @@
+# The mind's helper (docs/mind.md, "Helpers"): a sub-agent the agentic mind
+# may spawn (`spawn_subagent`, mind.toml's [subagents] allowlist) to do one
+# piece of work in parallel with its own: read a codebase, write a file, run
+# a script, try an idea. It is never a cron job and no other agent may list
+# it (bin/lib/agent_check.py).
+#
+# What keeps the two fences (docs/governance.md): the same things that hold
+# the mind. It holds no key and no token, and it has no tool the mind lacks.
+# The core runs a spawned agent in its parent's workspace and gives it the
+# parent's file tools, so its shell is jailed to state/home/ exactly as the
+# mind's is; it sets no workspace of its own and bin/doctor refuses one. It
+# cannot spawn, schedule, spend or touch memory, and its browser only reads. To act on the world
+# it uses the broker's client in the mind's home (bin/teeny), so the guard,
+# the caps and the rehearsal hold it as they hold the mind.
+#
+# `scheduled_actions` here is what lets it act at all: the core holds a
+# child of a cron run to read-only tools unless the child's own definition
+# opts in, is sandboxed and names its tools (OpenHuman, the scheduled-actions
+# child grant). On a core without that grant it can only read.
+#
+# Frozen like mind.toml. Its prompt (worker.md) is Teeny's to change.
+id = "worker"
+display_name = "Teeny (worker)"
+when_to_use = "One bounded piece of work for the mind, inside the mind's home: read, write, run, report back. Only the mind spawns it."
+temperature = 0.4
+max_iterations = 40
+sandbox_mode = "sandboxed"
+sandbox_filesystem_only = true
+scheduled_actions = true
+# Its browser is for reading. The core's one browser profile is signed in as
+# Teeny, and the operator agent may click and type in it; with this the
+# core gives this agent a throwaway profile and only the actions that open
+# and read a page (OpenHuman, `browser_view_only`). bin/doctor requires it.
+browser_view_only = true
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = false
+
+[system_prompt]
+file = { path = "worker.md" }
+
+[tools]
+named = [
+    "shell",
+    "file_read",
+    "file_write",
+    "edit",
+    "glob",
+    "grep",
+    "list",
+    # View-only, like the mind's.
+    "browser",
+]

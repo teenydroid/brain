@@ -29,8 +29,8 @@ manages, projects it picks, skills it writes for itself.
 |---|---|
 | Home | `state/home/`: the only folder its shell and file tools can write |
 | Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/` |
-| Skills | `skills/`: scripts and notes it writes for itself |
-| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory` |
+| Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake |
+| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `browser` (view-only), `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
 | Keys | none |
 | Prompt | `brain/agents/mind.md`, which is Teeny's own to change |
@@ -140,6 +140,65 @@ deploy it also opens the revert itself: a pull request `teeny/revert-N-<sha>`
 that puts back the tree the box ran before. That pull request touches the
 held paths, so it waits for the operator like any other change to them.
 
+## Skills
+
+A skill is a folder the mind writes in its home: `skills/<name>/SKILL.md`,
+whose first line says when to use it, with any script beside it, and one
+line in `skills/INDEX.md`. The prompt has it read the index at each wake and
+follow a skill that fits before working the thing out again. Nothing merges
+and nothing restarts: a skill written in one wake is there in the next.
+
+The core has a `create_skill` tool, and the mind does not hold it. That tool
+writes under the core's own workspace or `~/.openhuman/`, outside the home,
+and only the core's built-in orchestrator is shown what it wrote, so for
+the mind it would be a write outside the jail that it never reads back.
+
+## Eyes
+
+The mind's shell can fetch a page, and that is enough for most of the web.
+For a page that only shows its content in a real browser, the mind and its
+worker have the `browser` tool, view-only: `open` a page, then `read_page`,
+`snapshot`, `get_text`, `scroll`, `find` (to read or hover), and `close`.
+
+The core has one browser profile, and Teeny's is signed in to its accounts;
+the operator agent clicks and types in it. A browser in the mind's hands
+would therefore be a way to speak as Teeny past the guard. So both
+definitions set `browser_view_only`, and the core then gives the run a
+throwaway profile with no logins and refuses every action but the ones that
+open and read a page: no click, no typing, no key press, no browser task,
+no download. A helper cannot clear the setting, and `bin/doctor` refuses a
+mind or worker without it. The host deny list (`deploy/browser-deny.txt`)
+and the public-https-only rule apply as they do to the operator.
+
+The browser itself runs in the core, outside the mind's file jail. What
+keeps that safe is that it can only read: it opens no file, takes no
+download, and reaches no local or private address.
+
+## Helpers
+
+The mind can hand a piece of work to a helper and carry on: `spawn_subagent`
+with `agent_id` `worker` and a prompt. The worker
+(`brain/agents/worker.toml`, prompt `worker.md`) has the mind's shell and
+file tools and its view-only browser, and nothing else: no memory, no
+helpers of its own, and no tool that schedules or spends. Like the mind, it
+can run `bin/teeny` from its shell, so it reaches the broker exactly as the
+mind does, under the same guard, caps and rehearsal; it holds no key and no
+token of its own. The mind's run waits for its workers before
+it ends, and the run's 30 minutes cover all of them.
+
+It is held exactly as the mind is. The core runs a spawned agent in its
+parent's workspace with its parent's file tools, so the worker's shell is
+jailed to `state/home/`, and it acts on the world only through `bin/teeny`.
+The core lets a child of a cron run use acting tools only when the child's
+own definition opts in (`scheduled_actions`), is sandboxed and names its
+tools, and only one level down: a worker's own child, if it could have one,
+would be read-only. `bin/doctor` refuses a worker with a workspace of its
+own, a wildcard, or any tool the mind lacks, and refuses `[subagents]` on
+any agent but the mind.
+
+Several workers write the same home at once and nothing locks it, so the
+mind's prompt has it give each one its own folder to write.
+
 ## Its own tools
 
 `home/` in the repository is Teeny's own code (`home/README.md`). A tool is
@@ -229,7 +288,7 @@ comes to say.
 |---|---|
 | The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard |
 | The kill switch and watchers | `secrets/`, `bin/`, `hands/`, `evals/` and the live `brain/` are outside its jail. `MIND=0` stops its wake, the broker and the hand-over. `DRY_RUN` and every cap are read from `secrets/` |
-| Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind with a browser, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
+| Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind whose browser is not view-only, or one with any other browser tool, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
 
 The mind can write anything in its home, including a link to a file
 outside it. The tick, the broker and the operator's note write there from
@@ -289,5 +348,6 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   (`home/tools/`); a hand that holds a key does not. Lifting that means
   moving every key behind a proxy that runs the guard, so that a hand
   asks for a send instead of making it.
-- **Sub-agents and a browser of its own.** A child of a cron run is
-  read-only in the core today; browsing goes through `do queue_task`.
+- **A browser that acts.** The mind's browser only reads. Anything that
+  needs a click, a form or a login goes to the operator agent through
+  `do queue_task`, and comes back in a later wake.
