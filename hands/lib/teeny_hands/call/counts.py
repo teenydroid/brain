@@ -48,11 +48,17 @@ def db() -> sqlite3.Connection:
     return hand.open_db(SCHEMA)
 
 
+#: What a service gets a UTC day when secrets/teeny.env names no number: a
+#: listed service works without a setting, and 0 there turns it off.
+DEFAULT_READS_PER_DAY = 500
+DEFAULT_WRITES_PER_DAY = 50
+
+
 def limit(svc: Service, kind: str) -> tuple[str, int]:
     """The setting that caps KIND ("read" or "write") on SVC, and its value."""
     if kind == "read":
-        return svc.reads_setting, hand.number(svc.reads_setting, 0, 0, MAX_READS_PER_DAY)
-    return svc.writes_setting, hand.number(svc.writes_setting, 0, 0, MAX_WRITES_PER_DAY)
+        return svc.reads_setting, hand.number(svc.reads_setting, DEFAULT_READS_PER_DAY, 0, MAX_READS_PER_DAY)
+    return svc.writes_setting, hand.number(svc.writes_setting, DEFAULT_WRITES_PER_DAY, 0, MAX_WRITES_PER_DAY)
 
 
 def _sent_today(conn: sqlite3.Connection, svc: Service, kind: str) -> int:
