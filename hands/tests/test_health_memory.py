@@ -109,6 +109,35 @@ class MemoryAlarmTest(unittest.TestCase):
         self.assertTrue(any(s["kind"] == "recovered" and s["ref"].startswith("memory:") for s in self.inbox()))
         self.assertIsNone(self.state()["memory_alarm"])
 
+    def test_an_embeddings_answer_that_is_not_an_object_is_unreachable_not_a_crash(self):
+        # Live shape: {"checks": {"embeddings": [1]}} raised AttributeError after the guarded
+        # block, so the check died before the state was saved and monitoring stopped.
+        for malformed in ({"checks": {"embeddings": [1]}}, {"checks": {"embeddings": "ok"}}, ["not", "an", "object"]):
+            self.answer(malformed)
+            self.assertEqual(health.check()["memory"]["embeddings"], "unreachable", malformed)
+        self.at(QUARTER)
+        self.assertEqual(health.check()["memory_alarm"], "raised")
+
+    def test_a_failed_close_is_retried_and_the_recovery_is_told_once(self):
+        # Live shape: a refused close dropped the alarm and its issue number, so the
+        # issue stayed open after memory recovered and nothing could retry it.
+        self.answer(ready(False, self.now(-3600), self.now(-5)))
+        health.check()
+        self.at(QUARTER)
+        self.assertEqual(health.check()["memory_alarm"], "raised")
+        self.at(2 * QUARTER)
+        self.answer(ready(True, self.now(2 * QUARTER - 10)))
+        self.cortex.route("PATCH", f"{ISSUES}/41", {"message": "server error"}, status=500)
+        out = health.check()
+        self.assertEqual(out["memory_alarm"], "closing")
+        self.assertEqual(self.state()["memory_alarm"]["issue"], 41)
+        self.at(3 * QUARTER)
+        self.cortex.route("PATCH", f"{ISSUES}/41", {"number": 41, "state": "closed"})
+        self.assertEqual(health.check()["memory_alarm"], "cleared")
+        self.assertIsNone(self.state()["memory_alarm"])
+        recovered = [s for s in self.inbox() if s["kind"] == "recovered" and s["ref"].startswith("memory:")]
+        self.assertEqual(len(recovered), 1)
+
     def test_no_memory_configured_is_no_check(self):
         (self.root / "secrets" / "spine.env").write_text("SPINE_MODEL=m\n")
         out = health.check()
