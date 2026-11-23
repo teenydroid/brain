@@ -35,7 +35,8 @@ fresh() {
   # Every hand a playbook may name, and their library; not the tests.
   cp -R "$repo/hands/lib" "$root/hands/"
   find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
-  cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
+  # brain/skills/: a playbook names the skills its prompt carries (skills = [...]).
+  cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$repo/brain/skills" "$root/brain/"
   cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
 doctor() { "$root/bin/doctor" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
