@@ -46,7 +46,7 @@ SHOTS = [
                "of a planet. He mutters: \"best of three.\""},
 ]
 PREMISE = "musk said the car drives itself, so on the moon it beats him at chess"
-LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
+LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair"}
 SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour"
 SCORE = "one swelling orchestral score with comic timpani"
 TEENY = "it eats a chess pawn and shrugs at the camera"
