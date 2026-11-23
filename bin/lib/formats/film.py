@@ -18,7 +18,6 @@ cut's frames, as a skit's, then the upload."""
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
 from formats import Format
@@ -65,9 +64,6 @@ FILM_RULES = (
     "suspicious shape), never on the figure's body. Name the sounds in `sfx`; nobody on screen speaks.\n"
     "- Every beat's action is a rich shot a cinematographer could film, never a list of lens words; no sign, screen "
     "or banner with writing on it.")
-FILM_EDITOR = ("A film is a story: judge whether its first beat makes the claim plain, whether every beat escalates "
-               "from the one before, and whether the last pays off the first. A film that is only a list of gags "
-               "is weaker than a short skit.")
 #: What a film's make may take of the run, and the least it is started with.
 FILM_RESERVE_SECS = 600
 FILM_MIN_SECS = 900
