@@ -115,9 +115,17 @@ class ArgvTest(unittest.TestCase):
         g = graph(self.argv())
         self.assertIn("concat=n=3:v=1:a=0[vc]", g)
         self.assertNotRegex(g, r"\[[0-2]:a\]")  # no clip's sound
-        self.assertIn("atrim=start=4.000:end=6.100,asetpts=PTS-STARTPTS,adelay=7400:all=1[p1]", g)
+        self.assertIn("atrim=start=4.000:end=6.100,asetpts=PTS-STARTPTS,adelay=7400:all=1,", g)
         self.assertNotIn("atempo", g)
         self.assertNotIn("rubberband", g)
+
+    def test_every_stream_a_mixer_sees_runs_the_whole_film(self):
+        # A film went silent after its first effect: a stream that ended
+        # early left amix's output to the order its inputs ended in.
+        g = graph(self.argv({**JOB, "stem_volume_pct": 15}, stems=True))
+        for label in ("[p0]", "[p1]", "[bed]", "[fx0]", "[st0]", "[st1]", "[voice]", "[mix]"):
+            with self.subTest(label=label):
+                self.assertIn(f"apad,atrim=end=11.000,asetpts=PTS-STARTPTS{label}", g)
 
     def test_the_score_is_ducked_under_the_voice(self):
         g = graph(self.argv())
@@ -146,7 +154,7 @@ class ArgvTest(unittest.TestCase):
         g = graph(self.argv({**JOB, "stem_volume_pct": 15}, stems=True))
         self.assertIn("[0:a]", g)
         self.assertIn("volume=0.15,afade=t=in:d=0.1", g)
-        self.assertIn("adelay=4400:all=1[st1]", g)
+        self.assertIn("adelay=4400:all=1,apad", g)
 
     def test_a_clip_far_short_of_its_beat_is_refused(self):
         job = filmcut.check_film(JOB)
