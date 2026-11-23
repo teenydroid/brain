@@ -115,6 +115,42 @@ class AudioTest(unittest.TestCase):
             audio.speak("hello", api=self.api)
         self.assertEqual(len(self.api.sent), 1)
 
+    def test_a_text_refusal_is_final_but_a_model_refusal_falls_through(self):
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 422: text violates policy", 422)
+        with self.assertRaises(hand.HandError):
+            audio.speak("hello", api=self.api)
+        self.assertEqual(len(self.api.sent), 1)
+        self.api.sent.clear()
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 400: model not available", 400)
+        self.assertEqual(audio.speak("hello", api=self.api)["model"], "eleven_multilingual_v2")
+
+    def test_a_billed_failure_keeps_its_cost_in_the_error(self):
+        self.api.fail["eleven_v3"] = SurplusError("the answer is over 64 MB", cost_micro=777)
+        with self.assertRaises(hand.HandError) as caught:
+            audio.speak("hello", api=self.api)
+        self.assertEqual(caught.exception.detail["cost_micro"], 777)
+
+    def test_empty_narration_audio_is_an_error_that_says_what_it_cost(self):
+        self.api.speech = {"audio_base64": "", "alignment": alignment("hi")}
+        with self.assertRaises(hand.HandError) as caught:
+            audio.speak("hi", api=self.api)
+        self.assertEqual(caught.exception.detail["cost_micro"], 160)
+
+    def test_invalid_times_are_no_words_so_the_normalized_alignment_is_used(self):
+        for bad in (-1.0, float("nan"), float("inf")):
+            broken = alignment("ab")
+            broken["character_start_times_seconds"][0] = bad
+            self.assertEqual(audio.words_of(broken), [])
+        backwards = alignment("ab")
+        backwards["character_end_times_seconds"][0] = -0.5
+        self.assertEqual(audio.words_of(backwards), [])
+        reversed_ = alignment("ab")
+        reversed_["character_start_times_seconds"][1] = 5.0
+        self.assertEqual(audio.words_of(reversed_), [])
+        self.api.speech = {"audio_base64": base64.b64encode(MP3).decode(), "alignment": reversed_,
+                           "normalized_alignment": alignment("ab")}
+        self.assertEqual([w["text"] for w in audio.speak("ab", api=self.api)["words"]], ["ab"])
+
     def test_a_narration_over_the_models_limit_is_refused_before_it_is_bought(self):
         with self.assertRaises(hand.Refused):
             audio.speak("x" * 2501, api=self.api)
@@ -156,7 +192,7 @@ class AudioTest(unittest.TestCase):
             audio.score("march", 5, api=self.api)
         audio.score("a pompous tuba march", 75, api=self.api)
         self.assertEqual(self.api.sent[-1]["body"], {"prompt": "a pompous tuba march. Instrumental, no vocals.",
-                                                     "music_length_ms": 75000})
+                                                     "music_length_ms": 75000, "force_instrumental": True})
 
 
 class SendTest(unittest.TestCase):
@@ -215,9 +251,10 @@ class SendTest(unittest.TestCase):
         self.assertEqual(caught.exception.status, 404)
         self.assertIn("no sellers", str(caught.exception))
 
-    def test_an_answer_over_the_limit_is_refused(self):
-        with self.assertRaises(SurplusError):
+    def test_an_answer_over_the_limit_is_refused_and_keeps_the_billed_cost(self):
+        with self.assertRaises(SurplusError) as caught:
             self.api.send("/x", {"x": 1}, limit=10)
+        self.assertEqual(caught.exception.cost_micro, 1500)
 
 
 if __name__ == "__main__":
