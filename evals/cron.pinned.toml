@@ -1,8 +1,18 @@
 # Jobs merged into brain/cron.toml at every seed, which Teeny cannot remove,
 # reschedule or redefine (bin/lib/cron_policy.py). Frozen with the rest of
 # evals/: these are the jobs that keep watch over the brain Teeny edits, so
-# the brain does not get to switch them off. The evolve loop's jobs land
-# here with it.
+# the brain does not get to switch them off.
+#
+# The pipelines that only do Teeny's own work are in brain/cron.toml, Teeny's
+# to reschedule, pause or drop: the dreams, the builder, the episode and the
+# Moltbook prune since 2026-11-22; evolve, evolve-credit, wants, tasks-desk
+# and build-ship since 2026-11-23 (docs/mind.md, "Owning its pipelines").
+# Each of those scripts checks its own switch in secrets/ however it is
+# scheduled. What stays here: the inbound jobs and the beat, the watchers
+# (health, audit, babysit, the guard's jobs, goals-check and evolve-watch,
+# which rolls a bad change back), the jobs that move money, the mind's base
+# wake, and the browser operator (signed in as Teeny; a brain-written agent
+# job could hand it a prompt of its own).
 #
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
 # The daily and weekly jobs that only read, record or think (`catch_up = true`)
@@ -13,8 +23,9 @@
 # Nor do the jobs whose order matters: a catch-up runs late, so it can land
 # after the job meant to follow it. Each dream is followed by its receipts
 # (02:00 -> 02:30, 14:00 -> 14:30), which publish the dream's snapshot of
-# MEMORY.md, and by evolve (02:40, 14:40), which acts on what the dream just
-# wrote there; a late dream would miss both. They wait for their next slot. The day's snapshots (stats-snapshot 00:15, world-snapshot 00:30,
+# MEMORY.md, and by evolve (02:40, 14:40, in brain/cron.toml), which acts on
+# what the dream just wrote there; a late dream would miss both. They wait for
+# their next slot. The day's snapshots (stats-snapshot 00:15, world-snapshot 00:30,
 # health-daily 00:40) do catch up: when several are missed the oldest slot
 # goes first, so they keep their order, and when only stats-snapshot is
 # missed, catching it up after world-snapshot leaves W no worse than not
@@ -108,7 +119,10 @@ switch = "MIND"
 # The browser operator (brain/agents/operator.toml), an agent job: the one
 # task on its desk (state/workbench/desk/task.json), done in the browser,
 # reported on the desk. Every 20 minutes: browsing is where Teeny spends its
-# idle time. A run with nothing on the desk ends at once.
+# idle time. A run with nothing on the desk ends at once. Its desk
+# (tasks-desk) is Teeny's to schedule in brain/cron.toml; this job stays
+# pinned: the browser profile is signed in as Teeny, and an agent job the
+# brain wrote would carry a prompt of its own.
 [jobs.operator]
 schedule = "*/20 * * * *"
 agent = "operator"
@@ -224,6 +238,9 @@ command = "bin/guard-rescreen"
 # opens a revert pull request for a person and stops the loop. Its reasons are
 # written under secrets/evolve-watch/ only, never where Teeny reads. With
 # nothing merged it does nothing. Detached: the probes are many turns.
+# Pinned while evolve itself is Teeny's to schedule (brain/cron.toml): this
+# is the watcher that rolls a bad change back, so the brain does not get to
+# move or silence it.
 [jobs.evolve-watch]
 schedule = "20 * * * *"
 command = "bin/evolve watch --detach"
