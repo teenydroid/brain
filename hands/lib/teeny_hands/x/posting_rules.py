@@ -106,8 +106,9 @@ THREAD_MAX_POSTS = 5
 #: Ledger columns added after x_posts was first created. `thread_of` is the
 #: head's id on a thread continuation.
 COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
-#: The id of the account a quote quoted.
-QUOTE_COLUMNS = {"quote_author": "TEXT"}
+#: The id of the account a quote quoted, and its handle (lowercase), which
+#: `peers` reads to leave a recently quoted author out of what it offers.
+QUOTE_COLUMNS = {"quote_author": "TEXT", "quote_handle": "TEXT"}
 #: Who made an own post, and from what (`studio_tags`): added by the studio
 #: cutover, NULL on every row from before it and from the old paths.
 STUDIO_COLUMNS = {"producer": "TEXT", "storyline": "TEXT", "shape": "TEXT", "pitch_id": "TEXT"}
@@ -582,6 +583,7 @@ def record_post(
     anchor: str | None = None,
     thread_of: str | None = None,
     quote_author: str | None = None,
+    quote_handle: str | None = None,
     producer: str | None = None,
     storyline: str | None = None,
     shape: str | None = None,
@@ -591,17 +593,17 @@ def record_post(
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
     an own post is about (`check_anchor`), None on a reply. `thread_of` is the
     head's id on a thread continuation (kind `thread`), None elsewhere; `quote_author` is the id of the account a quote
-    quoted (`check_peer_rotation`). `producer`, `storyline`, `shape` and
+    quoted (`check_peer_rotation`) and `quote_handle` its handle. `producer`, `storyline`, `shape` and
     `pitch_id` say who made it and from what (`studio_tags`)."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
         " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author,"
-        " producer, storyline, shape, pitch_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " quote_handle, producer, storyline, shape, pitch_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
          hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author,
-         producer, storyline, shape, pitch_id),
+         quote_handle.lower() if quote_handle else None, producer, storyline, shape, pitch_id),
     )
 
 
