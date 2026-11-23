@@ -102,7 +102,11 @@ def _dry(text: str, kind: str, **extra: Any) -> Json:
 
 
 def _db():
-    return open_db(rules.SCHEMA)
+    # The lanes read the studio's `producer` column (rules.LANE_ROWS), so a
+    # ledger from before it gets it before any rule reads it.
+    conn = open_db(rules.SCHEMA)
+    rules.add_tag_columns(conn)
+    return conn
 
 
 def link_budget() -> Json:
@@ -153,9 +157,11 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
-        # A quote has its own lane (posting_rules, "The quote lane").
-        rules.check_gap(conn, kind)
-        rules.check_daily_cap(conn, kind)
+        # A quote has its own lane (posting_rules, "The quote lane"), except a
+        # studio slot's, which is that slot's original post.
+        lane = rules.lane_of(kind, made.get("producer"))
+        rules.check_gap(conn, lane)
+        rules.check_daily_cap(conn, lane)
         if quoted is not None:
             reads = cache.reads(x)
             rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
@@ -172,7 +178,8 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # raised: an error here would invite a retry that posts it twice.
         try:
             rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor,
-                              quote_author=quoted["authorId"] if quoted else None, **tagged, **made)
+                              quote_author=quoted["authorId"] if quoted else None,
+                              quote_handle=(quoted.get("authorUsername") or None) if quoted else None, **tagged, **made)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
         # A quote of a peer (brain/x-peers.txt) is a touch, whoever quoted.

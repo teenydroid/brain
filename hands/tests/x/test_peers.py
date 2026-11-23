@@ -577,6 +577,31 @@ class TrendingTest(SuggestBase):
         self.assertEqual([p["id"] for p in out["posts"]], ["803"])
         self.assertEqual(out["quoted_recently"], ["stranger"])
 
+    def test_skip_quoted_leaves_out_an_author_the_studio_quoted_this_week(self):
+        # The studio's quotes of trending posts (2026-11-23) leave no peer
+        # candidate and no touch: the ledger keeps the quoted handle.
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "quote", "a studio quote", quote_of="700", quote_author="77",
+                                  quote_handle="Stranger", producer="studio", created_at=T0 - 3 * DAY)
+        posting_rules.record_post(conn, "91", "quote", "an old one", quote_of="701", quote_author="78",
+                                  quote_handle="other", producer="studio", created_at=T0 - 8 * DAY)
+        conn.commit()
+        out = peers.trending(skip_quoted=True)
+        self.assertEqual([p["id"] for p in out["posts"]], ["803"])
+        self.assertEqual(out["quoted_recently"], ["stranger"])
+
+    def test_a_quote_keeps_the_handle_it_quoted(self):
+        self.x.route("GET", "/2/tweets/801", {
+            "data": {"id": "801", "text": "t", "author_id": "77", "conversation_id": "801"},
+            "includes": {"users": [{"id": "77", "username": "Stranger"}]}})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "990"}}, status=201)
+        self.configure(DRY_RUN="0")
+        publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "801", "producer": "studio"})
+        conn = hand.db()
+        row = conn.execute("SELECT quote_author, quote_handle FROM x_posts WHERE id = '990'").fetchone()
+        self.assertEqual(tuple(row), ("77", "stranger"))
+
     def test_the_outward_rule_still_holds_on_a_trending_post(self):
         self.x.route("GET", "/2/tweets/801", {
             "data": {"id": "801", "text": "t", "author_id": "77", "conversation_id": "801"},
@@ -726,6 +751,16 @@ class CliTest(SuggestBase):
         self.assertEqual([p["handle"] for p in out["peers"]], ["alice", "bob_builder"])
         code, out = self.run_x("peers", "report", "--days", "99")
         self.assertEqual(code, 1, out)
+
+    def test_who_was_quoted_this_week_on_the_command_line(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "quote", "a studio quote", quote_of="700", quote_author="77",
+                                  quote_handle="Sama", producer="studio", created_at=hand.now() - 86400)
+        conn.commit()
+        code, out = self.run_x("peers", "quoted")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["handles"], out["days"]), (["sama"], 7))
 
     def test_trending_on_the_command_line_with_no_trend_tool_is_an_empty_read(self):
         # No digg binary in the scratch root: the peers still work.
