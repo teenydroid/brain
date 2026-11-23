@@ -72,20 +72,20 @@ def _path(value: Any) -> str:
     return value
 
 
-def _scalar(name: str, value: Any) -> str:
+def _scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
         if not math.isfinite(value):
-            raise _shape(f"query {name!r} is not a finite number")
+            raise _shape("a query value is not a finite number")
         return repr(value)
     if isinstance(value, str):
         if len(value) > MAX_VALUE:
-            raise _shape(f"query {name!r} is over {MAX_VALUE} characters")
+            raise _shape(f"a query value is over {MAX_VALUE} characters")
         return value
-    raise _shape(f"query {name!r} is a string, a number or a boolean, not {type(value).__name__}")
+    raise _shape(f"a query value is a string, a number or a boolean, not {type(value).__name__}")
 
 
 def _query(value: Any) -> tuple[tuple[tuple[str, str], ...], list[str]]:
@@ -99,7 +99,7 @@ def _query(value: Any) -> tuple[tuple[tuple[str, str], ...], list[str]]:
     for name, item in value.items():
         if not NAME.fullmatch(name):
             raise _shape(f"a query name is {NAME.pattern}")
-        pairs.append((name, _scalar(name, item)))
+        pairs.append((name, _scalar(item)))
         if isinstance(item, str):
             said.append(item)
     return tuple(pairs), said

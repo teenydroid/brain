@@ -124,6 +124,14 @@ class LogTest(Scratch):
             self.assertNotIn(never, text)
         self.assertEqual(self.leaked(), [])
 
+    def test_a_refused_query_value_leaves_its_field_name_out_of_the_log(self):
+        self.get("/posts", query={"PRIVATEWORDS": []})
+        self.get("/posts", query={"PRIVATEWORDS": "x" * 5000})
+        self.get("/posts", query={"PRIVATEWORDS": float("inf")})
+        rows = self.log()
+        self.assertEqual([r["outcome"] for r in rows], ["refused"] * 3)
+        self.assertNotIn("PRIVATEWORDS", json.dumps(rows))
+
     def test_a_field_too_long_or_strange_is_clipped_in_the_log(self):
         self.call({"service": "s" * 500, "method": "GET", "path": "/x"})
         (row,) = self.log()
