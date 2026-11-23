@@ -824,6 +824,60 @@ class WriteMessageTest(unittest.TestCase):
         self.assertNotIn(studio.MEME_ASK, off)
 
 
+EXPERIMENT = {"id": 6, "format": "number-lead", "posts": 6, "n": 0,
+              "hypothesis": "an x original that opens on one checkable number from the day's news out-earns my average"}
+
+
+class LabExperimentTest(unittest.TestCase):
+    """2026-11-23: X originals all come from the studio, which never tagged a
+    post for the lab, so the two open X experiments sat at 0 posts."""
+
+    def lab_room(self, answer):
+        class LabRoom:
+            asked: list = []
+
+            def hand(self, argv, body=None, dry=True, timeout=120):
+                self.asked.append((argv, dry))
+                return answer
+
+        return LabRoom()
+
+    def test_the_oldest_open_x_experiment_still_short_of_posts_is_offered(self):
+        listing = {"experiments": [
+            {"id": 7, "surface": "moltbook", "format": "number-claim", "posts": 4, "n": 0, "hypothesis": "m"},
+            {**EXPERIMENT, "id": 9, "format": "late"},
+            {**EXPERIMENT, "id": 1, "format": "event-react", "posts": 8, "n": 8},
+            EXPERIMENT,
+            {**EXPERIMENT, "id": 3, "format": "due", "due": True},
+        ]}
+        room = self.lab_room((True, listing))
+        got = studio.open_x_experiment(room)
+        self.assertEqual(got, {"id": 6, "format": "number-lead", "hypothesis": EXPERIMENT["hypothesis"]})
+        self.assertEqual(room.asked, [(["lab", "list"], True)])
+        self.assertIsNone(studio.open_x_experiment(self.lab_room((False, "lab down"))))
+        self.assertIsNone(studio.open_x_experiment(self.lab_room((True, {"experiments": []}))))
+
+    def test_the_writer_is_asked_to_try_it_and_the_marked_post_is_tagged(self):
+        cfg = studio.Config(formats=("post",), posts=4)
+        offered = {"id": 6, "format": "number-lead", "hypothesis": EXPERIMENT["hypothesis"]}
+        message = studio.write_message(cfg, CARDS, experiment=offered)
+        self.assertIn("## the lab's open experiment", message)
+        self.assertIn(EXPERIMENT["hypothesis"], message)
+        self.assertIn('"experiment": 6', message)
+        self.assertNotIn("## the lab's open experiment", studio.write_message(cfg, CARDS))
+        kept, dropped = studio.validate_posts([
+            {"card": "digg:s1", "format": "post", "text": "v15: 0 interventions", "experiment": 6},
+            {"card": "hn:101", "format": "post", "text": "a toaster", "experiment": 99},
+            {"card": "hn:101", "format": "post", "text": "a toaster again"},
+        ], CARDS, ALLOWED, experiment_id=6)
+        self.assertEqual(dropped, [])
+        self.assertEqual([p.get("experiment") for p in kept], [6, None, None])
+        verb, body = studio.post_body(XRoom(), "P1", kept[0], [])
+        self.assertEqual((verb, body["experiment"], body["format"]), ("post", 6, "post"))
+        self.assertNotIn("experiment", studio.post_body(XRoom(), "P2", kept[1], [])[1])
+        self.assertNotIn("experiment", studio.shown(kept[0]))
+
+
 SAMA = {"by": "Sam Altman", "handle": "sama", "post": "2124551594691932405",
         "said": "This is the most important thing OpenAI has published in awhile."}
 QUOTE_CARDS = [card("digg:s1", ["Sam Altman", "OpenAI"], "OpenAI will publish its pretraining limits",
