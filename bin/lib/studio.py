@@ -316,8 +316,8 @@ IMAGE_ASK = ("An image is a post with a picture, and the picture is half the jok
              "name that is not a famous person with a Wikipedia page costs the post its picture. No one real in "
              "the scene means `people` is []. Sweat, bad "
              "lighting, a mess: nothing cute or tidy except you. It is an impossible scene nobody could take for "
-             "real (never sexual about them, never hurt). The lust in the picture is yours and it is for the "
-             "hardware: innuendo a viewer gets in one look, nothing explicit, no nudity. No brand logos or sponsor "
+             "real (never hurt). Everyone's lust is for the object, never for each other's bodies: innuendo a "
+             "viewer gets in one look, nothing explicit, no nudity, no sex acts. No brand logos or sponsor "
              "marks. One place, one moment, described so a painter could paint it, in at most 1,200 characters; no words drawn in "
              "the picture. "
              "`alone` is true only when the words still work without the picture.")
