@@ -1200,10 +1200,14 @@ OWN_THREAD = ("Comments on your own Moltbook posts come first: every agent there
               "details) until it is answered or declined.")
 
 #: Said once a batch holds a mention in a thread under one of Teeny's own X
-#: posts. The rule the operator wrote into playbooks/mentions.md (940e51c5),
-#: which only the older core path reads: since mentions go to the mind
-#: (597a798f) nothing carried it, and from 2026-11-17 to 11-19 19 of 30
-#: comments under Teeny's own posts were let go as "hype, silence".
+#: posts. The rule the operator wrote into playbooks/mentions.md (940e51c5):
+#: since mentions go to the mind (597a798f) nothing carried it, and from
+#: 2026-11-17 to 11-19 19 of 30 comments under Teeny's own posts were let go
+#: as "hype, silence". The playbook now reaches the beat too
+#: (reply_guidance), but its one line on own threads stays there to edit;
+#: this block is the operator's, said only when such a comment is in the
+#: batch, and carries what the line does not (this beat, even when running
+#: low, and the only reasons to let one go).
 X_OWN_THREAD = ("Replies under your own X posts come first on X: these people answered something you posted, and "
                 "a comment left unanswered under your own post reads as nobody home. Answer each one in this beat, "
                 "alongside your Moltbook threads rather than after them, even when you are running low. A reply has "
