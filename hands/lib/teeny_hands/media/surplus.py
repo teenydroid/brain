@@ -25,10 +25,13 @@ _MESSAGE_CHARS = 200
 
 
 class SurplusError(hand.HandError):
-    def __init__(self, message: str, status: int | None = None, body: Any = None) -> None:
+    def __init__(self, message: str, status: int | None = None, body: Any = None,
+                 cost_micro: int | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.body = body
+        #: What Surplus billed for the call when it said so before failing.
+        self.cost_micro = cost_micro
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -108,10 +111,11 @@ class Surplus:
             request.add_header("content-type", f"multipart/form-data; boundary={boundary}")
         else:
             request, timeout = self._request("POST", path, body, timeout, {"accept": "*/*"})
+        cost: str | None = None
         try:
             with _OPENER.open(request, timeout=timeout) as response:
-                data = response.read(limit + 1)
                 cost = response.headers.get("x-si-buyer-cost-micro")
+                data = response.read(limit + 1)
         except urllib.error.HTTPError as exc:
             try:
                 raw = exc.read()
@@ -119,16 +123,15 @@ class Surplus:
                 raw = b""
             message, parsed = _message(raw)
             raise SurplusError(
-                f"Surplus answered {exc.code}: {message}" if message else f"Surplus answered {exc.code}", exc.code, parsed
+                f"Surplus answered {exc.code}: {message}" if message else f"Surplus answered {exc.code}", exc.code, parsed,
+                _billed(exc.headers.get("x-si-buyer-cost-micro") if exc.headers else None),
             ) from None
         except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise SurplusError(f"could not reach Surplus ({type(getattr(exc, 'reason', exc)).__name__})") from None
+            raise SurplusError(f"could not reach Surplus ({type(getattr(exc, 'reason', exc)).__name__})",
+                               cost_micro=_billed(cost)) from None
+        billed = _billed(cost)
         if len(data) > limit:
-            raise SurplusError(f"the answer is over {limit // (1024 * 1024)} MB")
-        try:
-            billed = int(cost) if cost is not None else None
-        except ValueError:
-            billed = None
+            raise SurplusError(f"the answer is over {limit // (1024 * 1024)} MB", cost_micro=billed)
         return data, billed
 
     def download(self, path_or_url: str, limit: int, timeout: float = 120.0) -> bytes:
@@ -146,6 +149,13 @@ class Surplus:
             if not moved.location.startswith("https://"):
                 raise SurplusError("Surplus redirected the download somewhere that is not https") from None
             return _fetch(urllib.request.Request(moved.location, headers={"user-agent": AGENT}), limit, timeout)
+
+
+def _billed(header: str | None) -> int | None:
+    try:
+        return int(header) if header is not None else None
+    except ValueError:
+        return None
 
 
 def _multipart(boundary: str, fields: dict[str, str], file: tuple[str, bytes, str] | None) -> bytes:

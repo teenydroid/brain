@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 from typing import Any
 
@@ -48,7 +49,10 @@ MUSIC_SECONDS = (10, 300)
 PROMPT_MAX = 450
 AUDIO_MAX_BYTES = 32 * 1024 * 1024
 #: The answers that mean "this model, not you": try the next voice model.
-NEXT_MODEL = {400, 404, 409, 422, 503}
+NEXT_MODEL = {404, 409, 503}
+#: A 400 or 422 is the next model's turn only when it names the model; any
+#: other (the text was refused) is final.
+NEXT_MODEL_IF_NAMED = {400, 422}
 _VOICE_ID = re.compile(r"^[A-Za-z0-9]{8,40}$")
 
 
@@ -77,6 +81,20 @@ def voice_id() -> str:
     return voice
 
 
+def _model_fault(exc: SurplusError) -> bool:
+    if exc.status in NEXT_MODEL:
+        return True
+    return exc.status in NEXT_MODEL_IF_NAMED and "model" in f"{exc} {exc.body}".lower()
+
+
+def _span(start: Any, end: Any) -> bool:
+    """A real stretch of time: numbers, finite, not negative, not backwards."""
+    for value in (start, end):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return False
+    return 0 <= start <= end
+
+
 def words_of(alignment: Any) -> list[Json]:
     """ElevenLabs' character alignment as words: [{text, start, end}] in
     seconds, a word being a run of characters with no whitespace in it. An
@@ -93,7 +111,7 @@ def words_of(alignment: Any) -> list[Json]:
     words: list[Json] = []
     current: Json | None = None
     for char, start, end in zip(chars, starts, ends):
-        if not isinstance(char, str) or not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        if not isinstance(char, str) or not _span(start, end):
             return []
         if char.isspace() or not char:
             current = None
@@ -123,14 +141,16 @@ def speak(text: Any, api: Surplus | None = None) -> Json:
                                        {"text": text, "model_id": model}, limit=AUDIO_MAX_BYTES * 2)
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
-            if exc.status in NEXT_MODEL:
+            if _model_fault(exc):
                 continue
-            raise hand.HandError("the narration was not made", tried=tried) from None
+            raise hand.HandError("the narration was not made", tried=tried, cost_micro=exc.cost_micro) from None
         try:
             answer = json.loads(raw)
             audio = base64.b64decode(answer["audio_base64"], validate=True)
         except (ValueError, KeyError, TypeError):
             raise hand.HandError("the narration came back unreadable", model=model, cost_micro=cost) from None
+        if not audio:
+            raise hand.HandError("the narration came back empty", model=model, cost_micro=cost)
         words = words_of(answer.get("alignment")) or words_of(answer.get("normalized_alignment"))
         return {"audio": audio, "words": words, "model": model, "voice": voice, "cost_micro": cost}
     raise hand.HandError("no voice model made the narration", tried=tried)
@@ -156,7 +176,7 @@ def transcribe(audio: bytes, kind: str = "audio/mpeg", api: Surplus | None = Non
         if not isinstance(word, dict) or word.get("type", "word") != "word":
             continue
         text, start, end = word.get("text"), word.get("start"), word.get("end")
-        if isinstance(text, str) and text.strip() and isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        if isinstance(text, str) and text.strip() and _span(start, end):
             words.append({"text": text.strip(), "start": float(start), "end": float(end)})
     return {"words": words, "cost_micro": cost}
 
@@ -188,7 +208,8 @@ def score(prompt: Any, seconds: Any, api: Surplus | None = None) -> Json:
         return {"dry_run": True, "audio": b"", "cost_micro": 0}
     audio, cost = _api(api).send(f"{ROUTE}/music",
                                  {"prompt": f"{prompt}. Instrumental, no vocals.",
-                                  "music_length_ms": int(seconds * 1000)}, limit=AUDIO_MAX_BYTES)
+                                  "music_length_ms": int(seconds * 1000),
+                                  "force_instrumental": True}, limit=AUDIO_MAX_BYTES)
     if not audio:
         raise hand.HandError("the score came back empty", cost_micro=cost)
     return {"audio": audio, "cost_micro": cost}
