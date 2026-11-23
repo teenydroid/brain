@@ -640,6 +640,44 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
         self.assertNotIn("SPOILER", writer)
 
+    def test_every_agent_that_points_at_a_prompt_file_gets_one_built(self):
+        # 2026-11-23: mind.toml and worker.toml named mind.md and worker.md,
+        # but only the speaking and studio agents were built, so the core
+        # found no file and ran the mind on an empty instruction body.
+        pointed = []
+        for toml in sorted((REPO / "brain" / "agents").glob("*.toml")):
+            source = tomllib.loads(toml.read_text()).get("system_prompt", {})
+            if "file" in source:
+                pointed.append(source["file"]["path"].removesuffix(".md"))
+        built = set(prompts.SPEAKING + prompts.STUDIO + prompts.TOOLED)
+        self.assertIn("mind", pointed)
+        self.assertEqual(sorted(set(pointed) - built), [])
+
+    def test_the_tool_holding_agents_get_their_instructions_alone(self):
+        for agent in prompts.TOOLED:
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"{agent} brief.\n")
+        names = sorted(p.name for p in prompts.build(self.brain))
+        self.assertIn("mind.md", names)
+        self.assertIn("worker.md", names)
+        for agent in prompts.TOOLED:
+            text = (self.brain / "agent" / "prompts" / f"{agent}.md").read_text()
+            # No world, no reader, no craft: what it needs it reads with its tools.
+            self.assertEqual(text, f"{agent} brief.\n", agent)
+
+    def test_the_minds_prompt_stays_lean(self):
+        # The mind pays for every byte of its prompt on every one of up to
+        # 300 model calls a wake. Anything about one job, tool or service
+        # belongs in a skill it opens when it needs it.
+        text = (REPO / "brain" / "agents" / "mind.md").read_text(encoding="utf-8")
+        self.assertLess(len(text), 9_000)
+        self.assertIn("library/INDEX.md", text)
+        self.assertNotIn("moltbook", text.lower())
+        doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())
+        # SOUL.md is the public voice (18 KB of posting rules and examples):
+        # the mind reads it from its library before it writes for anyone.
+        self.assertIs(doc["omit_identity"], True)
+
     def test_the_checked_in_studio_agents_are_tool_less_and_point_at_their_prompt(self):
         for agent in prompts.STUDIO:
             doc = tomllib.loads((REPO / "brain" / "agents" / f"{agent}.toml").read_text())
