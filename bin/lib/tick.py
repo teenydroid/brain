@@ -1470,6 +1470,64 @@ def _learn(text: str, kind: str, confidence: float) -> bool | None:
     return proc.returncode == 0
 
 
+#: Where the beat keeps who on X it taught the core about, and on which day.
+X_LEARNED = ("tick", "x-learned.json")
+#: How much of what they said and what Teeny answered a learning keeps.
+X_LEARN_CHARS = 200
+
+
+def _learn_x_regular(intent: Mapping[str, Any]) -> bool | None:
+    """A reply that went out to an X regular (someone who wrote on
+    REGULAR_DAYS days, teeny_hands.people) is taught to the core as a dated
+    learning about them, so recall can find them by name and the dream sees
+    them among its learnings: at most one a person a day. None when there is
+    nothing to teach (not a regular, already taught today, no mention)."""
+    to = _value(intent, "to")
+    if not to:
+        return None
+    try:
+        from teeny_hands.people import records
+
+        conn = records.db()
+        try:
+            row = conn.execute("SELECT who, text FROM stimuli WHERE surface = 'x' AND kind = 'mention' AND ref = ?"
+                               " ORDER BY at DESC LIMIT 1", (to,)).fetchone()
+            if not row or not isinstance(row["who"], str) or not row["who"].strip():
+                return None
+            handle = row["who"].strip().lstrip("@")
+            rec = records.record("x", handle, conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x regular unavailable: {type(exc).__name__}", file=sys.stderr)
+        return None
+    if not rec or not rec.get("regular"):
+        return None
+    day = f"{rhythm.local():%Y-%m-%d}"
+    path = hand.state_dir().joinpath(*X_LEARNED)
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+        seen = seen if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    who = handle.lower()
+    if seen.get(who) == day:
+        return None
+    said = " ".join(str(row["text"] or "").split())[:X_LEARN_CHARS]
+    answered = " ".join(str(intent.get("text") or "").split())[:X_LEARN_CHARS]
+    learned = _learn(f"[{day}] about @{handle} (X, a regular: wrote on {rec['days']} days): they said \"{said}\"; "
+                     f"i answered \"{answered}\"", "fact", 0.6)
+    if learned:
+        # Only today's are kept: yesterday's never blocks a learning again.
+        seen = {k: v for k, v in seen.items() if v == day}
+        seen[who] = day
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(seen, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    return learned
+
+
 def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     note = _text(intent, "note")
     who = intent.get("who") if isinstance(intent.get("who"), str) and intent["who"].strip() else None
@@ -1809,6 +1867,10 @@ def _landed(entry: Json, do: str, intent: Mapping[str, Any], code: int, out: Jso
     entry["result"] = out
     if code == 0 and not out.get("dry_run"):
         _mark(do, intent, "replied")
+        if do == "reply_x":
+            learned = _learn_x_regular(intent)
+            if learned is not None:
+                entry["learned"] = learned
         if do in ANSWERS:
             refs = _refs(do, intent)
             parked[:] = [r for r in parked if r not in refs]
