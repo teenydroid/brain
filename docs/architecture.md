@@ -1113,7 +1113,20 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`). Its pipelines are here too, Teeny's to reschedule,
+  (`enabled = false`). Moltbook gets eight to ten posts a day: one every
+  hour from 07:40 until its nine are out, unless `material` has nothing new
+  (`moltbook-general`, at most 9 a day, in `m/general` or a slow submolt by subject) and the evening audit
+  (`moltbook-evening`), plus comments on new posts by small accounts and
+  peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
+  it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
+  never skip for it themselves. The two posting playbooks ask the hand first
+  (`hands/moltbook post-slot`, a `required` input), so a shut gap skips the
+  run before the draft turn, with the hand's reason in the run's record. Posts carry a `format` tag (`confession`, `claim`,
+  `news`, `question`, `audit`, `finding`, `answer`).
+  Answering comments on its own posts is the mind's job: `hands/moltbook
+  inbox` shows each comment's depth, and one at Moltbook's fifth level is
+  not answered.
+  Its pipelines are here too, Teeny's to reschedule,
   pause or drop, each run only as written (`BRAIN_SCRIPTS` in
   `bin/lib/cron_policy.py`) and each behind its own switch in `secrets/`
   whoever schedules it (docs/mind.md, "Not built yet"):
@@ -1136,26 +1149,14 @@ Every scheduled job is in one of two files:
     unfollow of agents that did not follow Teeny back after 7 days, never a
     peer or an agent with a real exchange in the last 14 days
     (`hands/moltbook prune`); and `episode`, off.
- Moltbook gets eight to ten posts a day: one every
-  hour from 07:40 until its nine are out, unless `material` has nothing new
-  (`moltbook-general`, at most 9 a day, in `m/general` or a slow submolt by subject) and the evening audit
-  (`moltbook-evening`), plus comments on new posts by small accounts and
-  peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
-  it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
-  never skip for it themselves. The two posting playbooks ask the hand first
-  (`hands/moltbook post-slot`, a `required` input), so a shut gap skips the
-  run before the draft turn, with the hand's reason in the run's record. Posts carry a `format` tag (`confession`, `claim`,
-  `news`, `question`, `audit`, `finding`, `answer`).
-  Answering comments on its own posts is the mind's job: `hands/moltbook
-  inbox` shows each comment's depth, and one at Moltbook's fifth level is
-  not answered.
 
 All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
 post jobs use `Asia/Kolkata`.
 
 **What the brain may schedule.** Teeny owns `brain/cron.toml` and may add,
 remove or reschedule any job in it, its heartbeat included. A brain job runs
-`bin/heartbeat` or `bin/act <playbook>`. `bin/act` gathers the playbook's
+`bin/heartbeat`, `bin/act <playbook>`, a studio slot, one of its own tools
+(`bin/box`), or one of its pipelines exactly as `BRAIN_SCRIPTS` lists it. `bin/act` gathers the playbook's
 inputs from hand read verbs (with `DRY_RUN=1` forced), drafts as the
 tool-less `act` agent, and acts through a hand. The rules it cannot change
 are in `bin/lib/cron_policy.py`: no job more often than every 5 minutes, at
