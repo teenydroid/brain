@@ -24,11 +24,11 @@ state/ or .git in reach (docs/mind.md, "Its own tools").
                    netlink, packet, MPTCP or SCTP socket, which Landlock
                    does not see, and no unix one, which Landlock lets
                    connect to any path (socketpair stays). It also refuses
-                   listen (on an
-                   unbound socket it binds a port Landlock never sees) and
-                   io_uring, which can make socket calls the filter never
-                   sees. A Landlock port rule is a port, not an address: a
-                   process may connect to that port on any host
+                   listen (on an unbound socket it binds a port Landlock
+                   never sees) and io_uring, which can make socket calls
+                   the filter never sees. A Landlock port rule is a port,
+                   not an address: a process may connect to that port on
+                   any host
   fail closed      no Landlock, or one too old to stop a truncate (ABI < 3)
                    or, with `tcp_connect`, to rule the network (ABI < 4), a
                    machine the filter has no table for, or a grant that
