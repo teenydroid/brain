@@ -81,11 +81,18 @@ BOX_MAX_ARGS = 8
 BOX_ENTRIES = ("run", "run.py", "run.sh")
 #: The operator scripts a brain job may also run, each with exactly one of
 #: these argument lists: the pipelines that are Teeny's to schedule since
-#: 2026-11-22 (docs/mind.md). Exact, because a cron shell job runs outside
-#: any jail: the brain picks when one of these runs, never what it is given.
+#: 2026-11-22 and 2026-11-23 (docs/mind.md). Exact, because a cron shell job
+#: runs outside any jail: the brain picks when one of these runs, never what
+#: it is given. Each still checks its own switch in secrets/ (EVOLVE and
+#: WANTS in secrets/evolve.env) whoever scheduled it. `bin/evolve watch`
+#: is not here: evolve-watch rolls a bad change back, and stays pinned.
 BRAIN_SCRIPTS = {
     "bin/dream": (("--detach",), ("--light", "--detach")),
     "bin/moltbook-prune": ((),),
+    "bin/evolve": (("run", "--scheduled", "--detach"), ("credit",)),
+    "bin/wants": (("run",),),
+    "bin/tasks-desk": ((),),
+    "bin/build-ship": ((),),
 }
 #: Commands that speak on X however they are scheduled: never caught up.
 SPEAKING_COMMANDS = ("bin/studio",)
