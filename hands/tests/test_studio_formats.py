@@ -151,7 +151,7 @@ class RegistryTest(unittest.TestCase):
         # A skit reads nothing before the write turn; a remake and a khaby read and study a source.
         self.assertIsNone(formats.REGISTRY["skit"].sources)
         self.assertEqual([(f.sources_name, f.prepare_max) for f in list(formats.REGISTRY.values())[1:]],
-                         [("charts", 2), ("finds", 2)])
+                         [("charts", 2), ("finds", 2), ("", 0)])
 
     def test_the_format_is_slim(self):
         self.assertEqual([f.name for f in dataclasses.fields(formats.Format)],
