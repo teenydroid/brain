@@ -512,6 +512,10 @@ class RepoTest(unittest.TestCase):
             self.assertTrue(box.TOOL_NAME.fullmatch(path.name), path)
             self.assertTrue(any((path / e).is_file() and not (path / e).is_symlink() for e in box.ENTRIES), path)
 
+    def test_the_box_opens_the_brokers_default_port(self):
+        import broker
+        self.assertEqual(box.DEFAULT_BROKER_PORT, broker.DEFAULT_PORT)
+
     def test_the_jail_and_the_box_are_frozen(self):
         import frozen
         patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
