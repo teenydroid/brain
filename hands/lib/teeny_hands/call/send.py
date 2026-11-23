@@ -48,11 +48,36 @@ def _send(svc: services.Service, call: request.Call, key: str) -> Json:
     return {"status": status, "json": parsed}
 
 
-def send(raw: Any) -> Json:
+def _carry_out(raw: Any, row: Json) -> Json:
     svc = _service(request.service_of(raw))
+    row["service"] = svc.name
     call = request.parse(raw)
+    kind = "read" if call.is_read else "write"
+    row.update(method=call.method, path=call.path, kind=kind)
     if not svc.allows(call.method, call.path):
         raise hand.Refused(f"{call.method} {call.path} is not allowed on {svc.name} (evals/services.toml)",
                            rule="allow")
+    counts.check(svc, kind)
     key = hand.require(svc.key)
+    row["key"] = key
+    row["id"] = counts.reserve(svc, kind, call.method, call.path)
     return _send(svc, call, key)
+
+
+def send(raw: Any) -> Json:
+    """One call (request.py has its shape), after every rule, and one row
+    in the call log whatever became of it."""
+    row: Json = {"service": raw.get("service") if isinstance(raw, dict) else None}
+    try:
+        answer = _carry_out(raw, row)
+    except hand.Refused as exc:
+        counts.record(row, "refused", _scrub(exc.reason, row.get("key", "")), exc.detail.get("status"))
+        raise
+    except hand.HandError as exc:
+        counts.record(row, "error", _scrub(str(exc), row.get("key", "")), exc.detail.get("status"))
+        raise
+    except Exception as exc:
+        counts.record(row, "error", type(exc).__name__)
+        raise
+    counts.record(row, "ok", None, answer["status"])
+    return answer
