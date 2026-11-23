@@ -3296,16 +3296,17 @@ same call. Teeny's own wallet is never touched.
 | Verb | | Does |
 |---|---|---|
 | `post` | A | `{title, brief, done, price_usd, city, state, country}` (or `remote: true`; optional `proof` [photo, video, text, link], `proof_details`, `hours`, `category`, `skills`). The brief is refused if it asks for a password, a code or a key, identity papers, bank or card details, or where someone lives, or names a street address; then the outbound guard (surface `rentahuman`). RentAHuman's own dry run prices it all in (the worker's pay plus the 18% service fee): over `RENT_MAX_PER_BOUNTY_USD`, or over what is left of `RENT_MAX_PER_DAY_USD`, is refused. Then one post, one spot, with the key `teeny-rent-<job>`. Every description ends by telling the worker that Teeny is an AI and their photos and video may be posted. A short wallet leaves a `draft` and a `rent · draft` stimulus. |
-| `accept` | A | `{job, application}`: hires one applicant from the money already held (`accept_application`, its own key). A hire that cost more than the bounty was posted for (the applicant asked another price) is a `rent · charge` stimulus. |
+| `accept` | A | `{job, application}`: hires one applicant from the money already held (`accept_application`, its own key). RentAHuman charges an applicant's own price on accept without asking, so `get_application` is read first and an application naming any amount other than the posted pay is refused (auto-accept passes over it to the next best). A hire that still cost more counts the difference against the day (`extra_cents`) and is a `rent · charge` stimulus. |
 | `review` | A | `{job, verdict: approve|redo|reject, reason}`: against the bounty's done-criteria. `approve` pays (`pay_hire`), which is final. `redo` and `reject` need a reason, which passes the guard, and move no money. |
 | `message` | A | `{job, text}`: to the person hired, through the guard, with a key so a retry sends once. |
 | `poll` | J | Every open job, once: a post whose answer was lost is sent again with its own key (RentAHuman answers with the first bounty); applications, submitted work and the worker's messages become `rent` stimuli, each stranger's word through `guard inbound` first (a held one is never shown); evidence files are saved under `state/rent/<job>/<submission>/`; a bounty nobody picked from in `RENT_AUTO_ACCEPT_HOURS` hires RentAHuman's best match. Never pays. `bin/rent-poll`, the pinned `rent-poll` job (every 15 minutes). Skipped without `RENTAHUMAN_API_KEY`. |
 | `status` | R | The caps, today's spend, open jobs, jobs in doubt, and the RentAHuman wallet (`get_wallet`). |
 | `list [--status S]`, `get ID` | R | The jobs, newest first; one with what `poll` has passed on. |
 | `humans [--skill --city --country --limit N]` | R | Who is on RentAHuman (`list_humans`). |
+| `resolve ID --as paid|submitted` | O | Settles a job `in_doubt` (or stuck `paying`) after the operator checked it on rentahuman.ai. Nothing else moves such a row. |
 | `cancel ID [--reason R]` | O | Ends an unhired bounty (`cancel_bounty`, confirmed with its token). Under `DRY_RUN`, the quote only. |
 
-A pay is sent once. The row is `paying` before the call; a clear yes makes
+Every write of a job's row is made under the one `rent` lock with the row read afresh inside it, so `poll` never undoes what `post`, `accept` or `pay` just did. A pay is sent once. The row is `paying` before the call; a clear yes makes
 it `paid`; a refusal RentAHuman marks `isRetrySafe` puts it back; anything
 else (no answer, a 5xx, a refusal that may have moved money) makes it
 `in_doubt`, a `rent · in_doubt` stimulus for the operator, and it is never
