@@ -8,6 +8,7 @@ These pin its posture: what bin/doctor (agent_check) and the cron rules
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import tomllib
@@ -79,6 +80,23 @@ class MindAgentTest(unittest.TestCase):
         prompt = (MIND.parent / "mind.md").read_text()
         for needle in ("bin/teeny", "notes/JOURNAL.md", "notes/PROJECTS.md", "notes/inbox"):
             self.assertIn(needle, prompt)
+
+    def test_the_turn_deadline_ends_a_wake_before_the_call_cap_does(self):
+        # The harness records a run that reaches max_iterations as failed and
+        # cuts it off mid-step. The first live wake (2026-11-23) hit a cap of
+        # 60 after 7 minutes, having written nothing. A model call takes about
+        # 7 s on the box, so the cap sits above what the turn deadline allows.
+        teeny_sh = (REPO / "bin" / "lib" / "teeny.sh").read_text()
+        secs = int(re.search(r"^TEENY_AGENT_TURN_SECS=(\d+)$", teeny_sh, re.M).group(1))
+        self.assertEqual(secs, 1800, "a wake may fill the half hour to the next one")
+        self.assertGreaterEqual(_doc()["max_iterations"], secs // 7)
+
+    def test_the_prompt_has_it_write_the_journal_first_and_as_it_goes(self):
+        prompt = (MIND.parent / "mind.md").read_text()
+        spend = prompt[prompt.index("## How to spend a wake"):prompt.index("## Lines you do not cross")]
+        for needle in ("first thing you write in every wake", "write as you go", "After about five searches or pages",
+                       "A refusal from the broker is an answer"):
+            self.assertIn(needle, spend)
 
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
