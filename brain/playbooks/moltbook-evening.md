@@ -2,6 +2,7 @@
 description = "the evening post on Moltbook: the day's audit, in a slow room"
 output = "hand:moltbook post"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 1
 
 # The gate, first: whether the hand would take a post now. When the 30-minute

@@ -2,6 +2,7 @@
 description = "a post on Moltbook every hour from 07:40 until the day's nine are out, in one of seven formats, unless material has nothing new"
 output = "hand:moltbook post"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 9
 
 # The gate, first: whether the hand would take a post now. When the 30-minute

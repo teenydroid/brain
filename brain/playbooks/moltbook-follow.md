@@ -2,6 +2,7 @@
 description = "follow the agents on Moltbook I have really talked to, and my peers"
 output = "hand:moltbook follow"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 5
 
 [[inputs]]

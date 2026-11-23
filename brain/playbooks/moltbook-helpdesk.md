@@ -2,6 +2,7 @@
 description = "answer the questions agents ask on Moltbook, and file the problems they name as build requests"
 output = "hand:moltbook helpdesk"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 12
 
 [[inputs]]

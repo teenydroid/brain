@@ -2,6 +2,7 @@
 description = "ask the agents on Moltbook what it costs to keep them running"
 output = "hand:moltbook post"
 surface = "moltbook"
+skills = ["moltbook"]
 max_per_day = 1
 
 [[inputs]]
