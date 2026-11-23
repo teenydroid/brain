@@ -17,8 +17,10 @@ has learned, newest first, for the prompts.
 The lab cannot wedge: before `score` and before `propose` counts the open
 experiments, `expire` concludes as `unclear`, with a lesson saying why, any
 open experiment that can no longer teach anything: one STALE_DAYS old that no
-post ever carried, one past its deadline short of its planned posts (posts
-after the deadline are not counted), and one past its deadline by GRACE_DAYS
+post ever carried (a tagged post counts once written, measured or not), one
+past its deadline short of its planned posts with none still waiting for its
+first measurement (posts after the deadline are not counted; GRACE_DAYS past
+the deadline it goes regardless), and one past its deadline by GRACE_DAYS
 that had its posts but never got a verdict. On 2026-11-23 five open
 experiments with no posts at all refused every new one (`too_many_open`).
 
@@ -177,16 +179,23 @@ def _num(value: float | None) -> int | float | None:
     return int(value) if value.is_integer() else value
 
 
+def _is_mine(write: Mapping[str, Any], exp: Mapping[str, Any]) -> bool:
+    """Tagged with the experiment's id, or untagged with its format."""
+    return write["experiment"] == exp["id"] or (write["experiment"] is None and write["format"] == exp["format"])
+
+
 def measure(conn: sqlite3.Connection, exp: Mapping[str, Any]) -> Json:
     """The experiment's numbers now: its writes (tagged with its id, or
     untagged with its format) measured between its proposal and its
-    deadline, against the surface's other writes of the same kinds."""
+    deadline, against the surface's other writes of the same kinds.
+    `written` counts the same writes whether or not they are measured yet;
+    `pending` is those still waiting for their first metrics row."""
     until = min(hand.now(), float(exp["deadline_at"]))
     since = float(exp["proposed_at"])
     read = board.x_writes if exp["surface"] == "x" else board.moltbook_writes
     writes = read(conn, since, until + 1)
-    mine = [w for w in writes if w["experiment"] == exp["id"]
-            or (w["experiment"] is None and w["format"] == exp["format"])]
+    mine = [w for w in writes if _is_mine(w, exp)]
+    written = sum(1 for w in board.written(conn, exp["surface"], since, until + 1) if _is_mine(w, exp))
     kinds = {w["kind"] for w in mine}
     rest = [w for w in writes if w not in mine and (not kinds or w["kind"] in kinds)]
 
@@ -201,6 +210,8 @@ def measure(conn: sqlite3.Connection, exp: Mapping[str, Any]) -> Json:
         "avg": _num(sum(got) / len(got)) if got else None,
         "baseline_n": len(base),
         "baseline_avg": _num(sum(base) / len(base)) if base else None,
+        "written": written,
+        "pending": max(0, written - len(mine)),
         "enough": len(got) >= int(exp["posts"]),
         "past_deadline": hand.now() >= float(exp["deadline_at"]),
     }
@@ -221,13 +232,17 @@ def _store(conn: sqlite3.Connection, exp_id: int, got: Mapping[str, Any]) -> Non
 
 
 def _why_expired(row: Mapping[str, Any], got: Mapping[str, Any]) -> str | None:
-    """Why an open experiment is to be concluded unclear now, or None."""
+    """Why an open experiment is to be concluded unclear now, or None. A
+    tagged post counts as soon as it is written: one still waiting for its
+    first metrics checkpoint (X takes an hour or more) holds a short
+    experiment open until GRACE_DAYS past the deadline."""
     now = hand.now()
     days = int((now - float(row["proposed_at"])) // DAY)
-    if got["n"] == 0 and now - float(row["proposed_at"]) >= STALE_DAYS * DAY:
+    if got["written"] == 0 and now - float(row["proposed_at"]) >= STALE_DAYS * DAY:
         return (f"auto: no post carried the {row['format']} tag in {days} days, so nothing could be scored;"
                 " tag the posts, or propose a format a writer actually uses")
-    if got["past_deadline"] and not got["enough"]:
+    short = got["past_deadline"] and not got["enough"]
+    if short and (got["pending"] == 0 or now >= float(row["deadline_at"]) + GRACE_DAYS * DAY):
         return (f"auto: the deadline passed with {got['n']} of {row['posts']} planned posts measured;"
                 " too few for a verdict")
     if got["past_deadline"] and now >= float(row["deadline_at"]) + GRACE_DAYS * DAY:

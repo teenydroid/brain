@@ -1596,10 +1596,15 @@ def _learn_x_regular(intent: Mapping[str, Any]) -> bool | None:
         # Only today's are kept: yesterday's never blocks a learning again.
         seen = {k: v for k, v in seen.items() if v == day}
         seen[who] = day
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(seen, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(seen, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as exc:
+            # The learning is already kept. Only the marker that stops a second one today is lost,
+            # and that must not interrupt the reply's completion (_landed resolves its follow-ups).
+            print(f"[tick] x regular marker not written: {type(exc).__name__}", file=sys.stderr)
     return learned
 
 

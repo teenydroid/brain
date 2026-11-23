@@ -831,7 +831,13 @@ def memory_status(now: float) -> Json | None:
     try:
         with urllib.request.urlopen(f"{url}/v1/admin/ready", timeout=MEMORY_TIMEOUT) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-        embeddings = (body.get("checks") or {}).get("embeddings") or {}
+        # Anything but the expected objects is a malformed answer, read here, not after the handler.
+        if not isinstance(body, dict):
+            raise ValueError("the readiness answer is not an object")
+        checks = body.get("checks")
+        embeddings = (checks.get("embeddings") if isinstance(checks, dict) else None) or {}
+        if not isinstance(embeddings, dict):
+            raise ValueError("checks.embeddings is not an object")
     except (OSError, ValueError, urllib.error.URLError, AttributeError) as exc:
         return {"embeddings": "unreachable", "error": scrub(str(exc))}
     last_ok_ms = embeddings.get("last_success_ms")
@@ -890,10 +896,19 @@ def _watch_memory(state: Json, now: float) -> Json:
         state["memory_down_since"] = None
         if alarm:
             down = f"from {_when(alarm['since'])} to {_when(now)}"
-            out.update(_close_issue(alarm, f"An embedding worked again. Memory had none {down}. Closing."))
-            stimuli.add("health", "recovered", alarm["ref"],
-                        f"health: your memory embeds again; recall works. it had no embeddings {down}.",
-                        payload={"since": alarm["since"], "recovered_at": now, "issue": alarm.get("issue")})
+            # The recovery is told once. If closing the issue fails, the alarm is kept and the
+            # close is retried by later checks, without telling the recovery again.
+            if not alarm.get("recovered"):
+                stimuli.add("health", "recovered", alarm["ref"],
+                            f"health: your memory embeds again; recall works. it had no embeddings {down}.",
+                            payload={"since": alarm["since"], "recovered_at": now, "issue": alarm.get("issue")})
+                alarm["recovered"] = True
+            closed = _close_issue(alarm, f"An embedding worked again. Memory had none {down}. Closing.")
+            out.update(closed)
+            if closed.get("issue_error"):
+                state["memory_alarm"] = alarm
+                out["memory_alarm"] = "closing"
+                return out
             out["memory_alarm"] = "cleared"
         state["memory_alarm"] = None
         return out

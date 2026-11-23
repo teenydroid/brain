@@ -7,6 +7,7 @@ page, and an answer that would wreck the page (or shrink it too far)
 changes nothing."""
 
 import json
+import re
 import os
 import signal
 import stat
@@ -882,6 +883,61 @@ class ReflectTest(unittest.TestCase):
                 return got
             time.sleep(0.1)
         self.fail("timed out waiting")
+
+    def test_the_prompt_states_the_allowance_the_checker_gives_an_oversized_page(self):
+        # Live shape: the checker let a 12,000-character page retire 16 items and
+        # shrink to 5,600 characters, but the prompt still said 8 items and 30%.
+        page = big_page(110)
+        (self.brain / "MEMORY.md").write_text(page)
+        self.answer({"ops": [], "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("at most 16 items", message)
+        size = int(re.search(r"The page is (\d+) characters", message).group(1))
+        self.assertIn(f"take at most {size - 5600} characters off the page", message)
+        self.assertNotIn("30% off the page", message)
+
+    def test_the_prompt_keeps_the_ordinary_limits_for_an_ordinary_page(self):
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answer({"ops": [], "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("at most 8 items", message)
+        self.assertIn("take at most 30% off the page", message)
+
+    def test_a_whole_page_may_not_add_an_item_under_what_i_have_shipped(self):
+        # The rule for an `add` applies to a whole-page answer too.
+        base = MIGRATED_PAGE.replace("## what i have decided\n",
+                                     "## what i have decided\n\n## what i have shipped\n\n- [m9] an old build.\n")
+        (self.brain / "MEMORY.md").write_text(base)
+        whole = base.replace("- [m9] an old build.", "- [m9] an old build.\n- csvstat")
+        self.answers({"memory": whole, "diary": "d"}, {"ops": [], "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertIn("no longer keeps", self.chats()[1]["message"])
+        self.assertNotIn("csvstat", self.page())
+        self.assertIn("[m9] an old build.", self.page())
+
+    def test_a_whole_page_keeps_the_legacy_shipped_items_unchanged(self):
+        base = MIGRATED_PAGE.replace("## what i have decided\n",
+                                     "## what i have decided\n\n## what i have shipped\n\n- [m9] an old build.\n")
+        (self.brain / "MEMORY.md").write_text(base)
+        self.answer({"memory": base, "diary": "d"})
+        got = self.reflect()
+        self.assertEqual((got["ok"], got["how"]), (True, "whole_page"), got)
+        self.assertIn("[m9] an old build.", self.page())
+
+    def test_an_oversized_markdown_page_gets_the_same_recovery_as_an_oversized_json_answer(self):
+        # Live shape: a markdown page past the limit was caught as unusable and
+        # dropped, so the night failed after two answers. It is asked once more.
+        long_page = "# MEMORY.md\n\n## people\n\n- [m1] ana (x, github): builds a cli for crabs.\n- " + "w" * 8500 + "\n"
+        self.answers(long_page, long_page, {"ops": [], "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        chats = self.chats()
+        self.assertEqual(len(chats), 3)
+        self.assertIn("characters over", chats[2]["message"])
+        self.assertNotIn("w" * 100, self.page())
 
     def test_the_pinned_jobs_no_longer_reflect_and_dream_runs_only_detached(self):
         # bin/dream is the reflection with more to go on (bin/lib/dream.py);

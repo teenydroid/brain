@@ -30,6 +30,8 @@ TOP = 3
 ORIGINALS = ("post", "quote")
 TEXT_CHARS = 90
 REGULARS_SHOWN = 8
+#: Groups shown per table: the best and the worst, so a losing format is never cut.
+GROUPS_SHOWN = 6
 
 Json = dict[str, Any]
 
@@ -44,10 +46,10 @@ def _avg(values: list[float]) -> int | float:
     return int(value) if float(value).is_integer() else value
 
 
-def _writes(conn: sqlite3.Connection, since: float) -> list[Json]:
-    """board.x_writes with each write's producer and, for a reply, the
-    account it answered (from x_mentions), when the ledger has them."""
-    writes = board.x_writes(conn, since)
+def _writes(conn: sqlite3.Connection, since: float, until: float) -> list[Json]:
+    """board.x_writes in [since, until) with each write's producer and, for a
+    reply, the account it answered (from x_mentions), when the ledger has them."""
+    writes = board.x_writes(conn, since, until)
     if not writes:
         return []
     cols = {r[1] for r in conn.execute("PRAGMA table_info(x_posts)")}
@@ -75,6 +77,14 @@ def _groups(writes: Iterable[Json], key) -> list[tuple[str, list[Json]]]:
     return sorted(out.items(), key=lambda kv: -_avg([float(w["result"]) for w in kv[1]]))
 
 
+def _spread(groups: list, most: int = GROUPS_SHOWN) -> list:
+    """A best-first list, cut to `most` by keeping its head and its tail."""
+    if len(groups) <= most:
+        return groups
+    head = (most + 1) // 2
+    return groups[:head] + groups[-(most - head):]
+
+
 def _post_line(w: Json) -> str:
     when = datetime.fromtimestamp(float(w["at"]), timezone.utc).strftime("%m-%d")
     views = f", {w['views']} views" if "views" in w else ""
@@ -85,16 +95,18 @@ def summary(now: float | None = None) -> Json:
     now = hand.now() if now is None else now
     conn = hand.db()
     try:
-        by_window = {days: _writes(conn, now - days * DAY) for days in WINDOWS}
+        by_window = {days: _writes(conn, now - days * DAY, now) for days in WINDOWS}
     finally:
         conn.close()
     return {"windows": by_window}
 
 
 def summary_lines(got: Json | None = None) -> list[str]:
-    """The study as short lines for the dream, one per window and table,
-    groups best first; then the best and worst originals and the reach of
-    the replies. [] when nothing is measured."""
+    """The study as short lines for the dream, one per window and group, best
+    first (the best and worst of each table); then the reach of the replies,
+    then the best and worst originals. The reply line comes before the
+    examples, so a section cut from its end loses examples, not regulars.
+    [] when nothing is measured."""
     got = summary() if got is None else got
     windows = got["windows"]
     lines: list[str] = []
@@ -102,18 +114,12 @@ def summary_lines(got: Json | None = None) -> list[str]:
         writes = windows.get(days) or []
         if not writes:
             continue
-        kinds = _groups(writes, lambda w: f"{w['kind']}/{w['producer'] or 'legacy'}")
-        lines.append(f"X by kind/producer, last {days}d: " + "; ".join(_group_line(k, ws) for k, ws in kinds))
+        kinds = _spread(_groups(writes, lambda w: f"{w['kind']}/{w['producer'] or 'legacy'}"))
+        lines += [f"X by kind/producer, last {days}d: {_group_line(k, ws)}" for k, ws in kinds]
         originals = [w for w in writes if w["kind"] in ORIGINALS]
         if originals:
-            formats = _groups(originals, lambda w: w["format"] or "untagged")
-            lines.append(f"X originals by format, last {days}d: " + "; ".join(_group_line(k, ws) for k, ws in formats))
-    longest = windows.get(max(WINDOWS)) or []
-    originals = sorted((w for w in longest if w["kind"] in ORIGINALS), key=lambda w: (-w["result"], -w.get("views", 0)))
-    if originals:
-        lines += [f"X best original, last {max(WINDOWS)}d: {_post_line(w)}" for w in originals[:TOP]]
-        worst = [w for w in reversed(originals) if w not in originals[:TOP]][:TOP]
-        lines += [f"X worst original, last {max(WINDOWS)}d: {_post_line(w)}" for w in worst]
+            formats = _spread(_groups(originals, lambda w: w["format"] or "untagged"))
+            lines += [f"X originals by format, last {days}d: {_group_line(k, ws)}" for k, ws in formats]
     replies = [w for w in (windows.get(min(WINDOWS)) or []) if w["kind"] == "reply"]
     if replies:
         days_of: dict[str, set[str]] = {}
@@ -125,4 +131,10 @@ def summary_lines(got: Json | None = None) -> list[str]:
         shown = ", ".join(f"@{h}" for h in regulars[:REGULARS_SHOWN])
         lines.append(f"X replies, last {min(WINDOWS)}d: {len(replies)} measured to {len(days_of)} accounts;"
                      f" {len(regulars)} regulars (answered on 2+ days)" + (f": {shown}" if shown else ""))
+    longest = windows.get(max(WINDOWS)) or []
+    originals = sorted((w for w in longest if w["kind"] in ORIGINALS), key=lambda w: (-w["result"], -w.get("views", 0)))
+    if originals:
+        lines += [f"X best original, last {max(WINDOWS)}d: {_post_line(w)}" for w in originals[:TOP]]
+        worst = [w for w in reversed(originals) if w not in originals[:TOP]][:TOP]
+        lines += [f"X worst original, last {max(WINDOWS)}d: {_post_line(w)}" for w in worst]
     return lines
