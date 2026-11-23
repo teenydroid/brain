@@ -314,7 +314,7 @@ class Spend:
 
 def _ask(api: Any, name: str, stage: str, text: str, pictures: list[str], read: Callable[[Any], dict | None],
          spend: Spend, clock: Callable[[], float], sleep: Callable[[float], None],
-         max_tokens: int = 400) -> tuple[dict[str, Any] | None, str]:
+         max_tokens: int = ANSWER_TOKENS) -> tuple[dict[str, Any] | None, str]:
     """One pass, inside its own PASS_SECONDS: the verdict as `read` takes
     it, or None and why not."""
     from ..media.surplus import SurplusError
