@@ -67,11 +67,17 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-#: Venice's qwen-edit-uncensored first (2026-11-23: a likeness of Jensen Huang
-#: from his photo for $0.028, against $0.08 for flare). Every model here goes
-#: through Venice's gateway, which refuses a real person's photo in a mocking
-#: or suggestive scene for all of them alike, uncensored included.
-IMAGE_MODELS = "qwen-edit-uncensored,gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
+#: Flare first: every model here goes through Venice's gateway, which refuses
+#: a real person's photo in a mocking scene for all of them alike, uncensored
+#: included. Given a stylised portrait in its place (_stylise), flare drew the
+#: refused Jensen Huang scene and qwen-edit-uncensored still refused it
+#: (2026-11-23), so qwen, cheaper, is the stricter one with stylised faces.
+IMAGE_MODELS = "gpt-image-2-5-flare-edit,qwen-edit-uncensored,nano-banana-2-1-edit,muse-image-edit"
+#: The harmless ask that turns a figure's photo into the portrait a picture
+#: draws from (2026-11-23, qwen-edit-uncensored: a good caricature of Jensen).
+STYLISE = ("Redraw this person as a bold stylised editorial cartoon caricature: thick ink lines, flat colours, "
+           "exaggerated features, clearly still recognisable as the same person. Plain background, head and "
+           "shoulders.")
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
 #: Every image starts from Teeny's character sheet, so Teeny stays on model:
 #: the images are edits of it, never free text-to-image.
@@ -431,17 +437,47 @@ def _likeness_body(model: str, scene: bytes, portraits: list[Json]) -> Json:
             "response_format": "b64_json"}
 
 
+def _stylise(conn, api: Surplus, portraits: list[Json]) -> list[Json]:
+    """Each figure's stylised portrait in place of the photo (figures.py):
+    kept from before, else bought now, once, on its own `image` row (purpose
+    `portrait`) whose cost counts today. A figure no model would stylise is
+    drawn from the photo, as before. Never raises for a model's answer."""
+    out = []
+    for found in portraits:
+        kept = figures.stylised(found["name"])
+        if kept is None:
+            row = _insert(conn, "image", f"{STYLISE} ({found['name']})", None, "portrait")
+            tried: list[str] = []
+            try:
+                got = _walk(api, lambda model: {"model": model, "prompt": STYLISE, "image": _data_uri(found["path"]),
+                                                "response_format": "b64_json"}, tried)
+            except _Failed as failed:
+                got, tried = None, [*tried, f"{failed.model}: {failed.exc}"]
+            if got is None:
+                _finish(conn, row, status="failed", error=("; ".join(tried) or "no image model configured")[:1000])
+                print(f"hands/image: no stylised portrait of {found['name']}; drawing from the photo", file=sys.stderr)
+                out.append(found)
+                continue
+            model, estimate, data, _ = got
+            kept = figures.keep_stylised(found["name"], data)
+            _finish(conn, row, status="done", model=model, path=str(kept.relative_to(hand.root())),
+                    cost_micro=estimate, estimated=1)
+        out.append({**found, "photo": found["path"], "path": kept})
+    return out
+
+
 def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None,
                 portraits: list[Json] | None = None) -> Json:
     """One still: a pending row, each model in turn, the file, under X's
     5 MB limit. Caps checked before the first call; for a video's start frame
     the video's caps hold.
 
-    Two-pass likeness: when every model turns a figure's photo down together
-    with the scene for content (Venice's gateway, in front of all of them,
-    2026-11-23), the scene is drawn with Teeny's sheet alone, then one more
-    edit gives its people their likeness from the photos under a harmless
-    prompt. Both passes are paid and counted on the one row; a refusal of the
+    A figure is drawn from its stylised portrait (_stylise), which Venice's
+    gateway passes where it refuses the photo. Two-pass likeness, the last
+    resort: when every model still turns the portraits down together with
+    the scene for content, the scene is drawn with Teeny's sheet alone, then
+    one more edit gives its people their likeness from the portraits under a
+    harmless prompt. Both passes are paid and counted on the one row; a refusal of the
     second fails the picture."""
     asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post", alt)
     reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
@@ -449,7 +485,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
         _finish(conn, asset_id, status="failed", error=f"no reference image at {reference_path.name}")
         raise hand.HandError(f"Teeny's reference image is missing ({REFERENCE})")
     reference = _data_uri(reference_path)
-    portraits = portraits or []
+    portraits = _stylise(conn, api, portraits or [])
     tried: list[str] = []
     two_pass = None
     paid = 0
@@ -458,7 +494,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
     try:
         got = _walk(api, lambda model: _edit_body(model, prompt, reference, portraits), tried, refused=refused)
         if got is None and portraits and chain and refused == chain:
-            tried = [f"the photo with the scene: every model refused it for content ({', '.join(refused)})"]
+            tried = [f"the portraits with the scene: every model refused them for content ({', '.join(refused)})"]
             got = _walk(api, lambda model: _edit_body(model, prompt, reference, []), tried, "scene pass, ")
             if got is not None:
                 scene_model, paid, scene, _ = got
