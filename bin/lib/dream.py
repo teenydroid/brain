@@ -357,8 +357,9 @@ def dream_once(light: bool = False) -> Json:
 DEADLINE_SECS = 3600
 
 
-class Stopped(Exception):
-    """The dream was stopped: a signal, or its deadline."""
+class Stopped(BaseException):
+    """The dream was stopped: a signal, or its deadline. A BaseException, so
+    no `except Exception` on the way swallows it."""
 
 
 def _stop(signum: int, _frame: Any) -> None:
