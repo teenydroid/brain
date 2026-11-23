@@ -1160,7 +1160,7 @@ remove or reschedule any job in it, its heartbeat included. A brain job runs
 inputs from hand read verbs (with `DRY_RUN=1` forced), drafts as the
 tool-less `act` agent, and acts through a hand. The rules it cannot change
 are in `bin/lib/cron_policy.py`: no job more often than every 5 minutes, at
-most 24 brain jobs, at most 400 `bin/act` runs a day, and the jobs in
+most 60 brain jobs, at most 400 `bin/act` runs a day, and the jobs in
 `evals/cron.pinned.toml` are always merged in and cannot be shadowed.
 `bin/doctor` checks all of it, and `bin/spine` will not boot a checkout the
 doctor fails. See [`evolve.md`](evolve.md).
@@ -1168,7 +1168,9 @@ doctor fails. See [`evolve.md`](evolve.md).
 - Seeding. OpenHuman has no file-declared crons (gap G2). `bin/seed-cron`
   reconciles both files against `openhuman.cron_list` by name, adding,
   updating or removing jobs whose name starts with `teeny.`. It is idempotent
-  and runs at every boot.
+  and runs at every boot. Both files name a job `teeny.<name>`, so a job that
+  moves from one file to the other unchanged is the same core job: the next
+  seed keeps it, with its id and its next run.
 - Inspection. Crons are a SQL query, with no RPC and no running core
   needed. `bin/crons` is:
 
