@@ -3,7 +3,7 @@ one take (one text-to-video job for the whole film) or, when that cannot be
 had, one job a shot cut together with each shot's own sound, always with a
 burned-in label (docs/hands.md, "video").
 
-  hands/video skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
+  hands/video skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, teeny?, wait_seconds?, bed?}
 
 bin/studio's `skit` format calls this only after the skit passed its hard
 lines (`hands/guard skit`: code's screen, then the judge), and looks at the

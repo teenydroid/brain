@@ -144,7 +144,7 @@ SKIT_CUT_SECS = 300
 SKIT_PREMISE_MAX = 300
 #: What a skit holds as data across its whole film (`skit_of` requires them;
 #: the guard's shape checks and keeps them): each figure's look, the
-#: setting, the score.
+#: setting, the score, and Teeny's line in the last shot.
 SKIT_HELD = ("look", "setting", "score", "teeny")
 
 def skit_of(raw: Any, card: Json) -> tuple[Json, str]:
