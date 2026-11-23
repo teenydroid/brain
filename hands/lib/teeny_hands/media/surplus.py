@@ -147,6 +147,18 @@ class Surplus:
             return _fetch(urllib.request.Request(moved.location, headers={"user-agent": AGENT}), limit, timeout)
 
 
+def _multipart(boundary: str, fields: dict[str, str], file: tuple[str, bytes, str] | None) -> bytes:
+    parts: list[bytes] = []
+    for name, value in fields.items():
+        parts.append(f'--{boundary}\r\ncontent-disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    if file is not None:
+        name, data, kind = file
+        parts.append(f'--{boundary}\r\ncontent-disposition: form-data; name="file"; filename="{name}"\r\n'
+                     f"content-type: {kind}\r\n\r\n".encode() + data + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts)
+
+
 class _Redirect(Exception):
     def __init__(self, location: str) -> None:
         super().__init__("redirect")
