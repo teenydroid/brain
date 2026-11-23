@@ -134,10 +134,11 @@ MAX_SHRINK = 0.30
 #: A loss smaller than this is never refused: on a young page of a few
 #: bullets, retiring one kept promise is already a third of it.
 SHRINK_FLOOR_CHARS = 500
-#: The most items one reflection may retire. A full page (12k characters,
-#: about 80 bullets) loses at most a tenth of itself in one sitting, while a
+#: The most items one reflection may retire. A full page (8k characters,
+#: about 50 bullets) loses at most a tenth of itself in one sitting, while a
 #: busy day can still close its threads; anything left over waits a
-#: reflection (midday and night come twelve hours apart).
+#: reflection (midday and night come twelve hours apart). A page over the
+#: limit may retire twice this many, to come down to it.
 MAX_RETIRES = 8
 #: The most learnings one dream may take out of the core's memory (`forget`,
 #: bin/lib/dream.py). Each is archived first; past this the answer is asked
@@ -479,8 +480,9 @@ def may_lose(before: int) -> float:
 
 def check(before: str, after: str, retired: int) -> None:
     """The shrink check, and the page's limit."""
-    if retired > MAX_RETIRES:
-        raise Refused(f"it retires {retired} items; the most one reflection may retire is {MAX_RETIRES}")
+    most_retires = MAX_RETIRES * 2 if len(before) > prompts.MEMORY_MAX_CHARS else MAX_RETIRES
+    if retired > most_retires:
+        raise Refused(f"it retires {retired} items; the most one reflection may retire is {most_retires}")
     lost = len(before) - len(after)
     if lost > SHRINK_FLOOR_CHARS and lost > may_lose(len(before)):
         raise Refused(f"it shrinks the page from {len(before)} to {len(after)} characters; "

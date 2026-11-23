@@ -732,15 +732,25 @@ class ReflectTest(unittest.TestCase):
     def test_a_page_over_the_limit_may_shrink_to_it_in_one_sitting(self):
         # The limit fell from 12,000 to 8,000 characters: a full page must
         # be able to come down to it, though that is more than MAX_SHRINK.
-        page = big_page(100)
+        page = big_page(110)
         self.assertGreater(len(page), 11_000)
         (self.brain / "MEMORY.md").write_text(page)
         ops = [{"op": "edit", "id": f"m{i}", "text": f"person{i} (x): likes crabs, met them in the replies."}
-               for i in range(1, 101)]
+               for i in range(1, 111)]
         self.answer({"ops": ops, "diary": "d"})
         got = self.reflect()
         self.assertTrue(got["ok"], got)
         self.assertLess(len(self.page()), 8_000)
+
+    def test_a_page_over_the_limit_may_retire_twice_the_items(self):
+        # The live page of 2026-11-23 carried eleven shipped builds to retire.
+        page = big_page(110)
+        (self.brain / "MEMORY.md").write_text(page)
+        self.answer({"ops": [{"op": "retire", "id": f"m{i}", "reason": "the ledgers carry it"} for i in range(1, 12)],
+                     "diary": "d"})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(len(self.retired()), 11)
 
     def test_a_page_over_the_limit_still_may_not_collapse_below_it(self):
         page = big_page(100)
