@@ -13,6 +13,14 @@ is skipped and named in the notes; the run goes on with the rest.
   chan     hands/chan sparks: a few premises strangers posted on 4chan
   own      Teeny's own events (hands/story desk), at most OWN_MAX cards
 
+With `quote` (STUDIO_QUOTE, on by default since 2026-11-23) every slot
+quotes a real X post, so the feed is Digg alone, more of its leading stories
+(QUOTE_LEADING), and each X post behind them keeps the id and handle of its
+x.com address (`post`, `handle`). Teeny's own posts and the authors quoted
+in the last 7 days (`hands/x peers quoted`: hands/x would refuse a second
+quote of them after its picture was paid for) lose theirs, and a story left
+with no post to quote is no card. Not knowing who was quoted offers nothing.
+
 One card shape (`card`): id, headline, what_happened (two lines at most),
 people (public figures and companies it names), quotes (real lines from the
 source, with who said them), heat (engagement, 0 to 1 within its source),
@@ -48,6 +56,10 @@ CARDS = 8
 OWN_MAX = 2
 #: How many candidates each source gives at most.
 PER_SOURCE = 12
+#: Of Digg's stories, how many bring their X posts in a quote slot.
+QUOTE_LEADING = 10
+#: An X post's address: its handle and id.
+STATUS_URL = re.compile(r"^https?://(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/status/([0-9]{1,25})\b")
 #: Of HN's leading stories, how many get their top comment read.
 HN_COMMENTS = 4
 #: The most of a candidate the tagging call is shown, in characters.
@@ -124,6 +136,9 @@ def digg_candidates(got: Any, now: float) -> list[Json]:
                 for key in ("likes", "reposts", "retweets", "views"):
                     if _num(post.get(key)) is not None:
                         quote[key] = post[key]
+                address = STATUS_URL.match(post.get("url") or "") if isinstance(post.get("url"), str) else None
+                if address:
+                    quote["handle"], quote["post"] = address.group(1), address.group(2)
                 quotes.append(quote)
         heat = _num(story.get("score")) or 0.0
         heat += sum((_num(q.get("likes")) or 0) + 2 * ((_num(q.get("reposts")) or _num(q.get("retweets"))) or 0)
