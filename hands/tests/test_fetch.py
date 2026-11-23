@@ -85,6 +85,11 @@ class Site(http.server.BaseHTTPRequestHandler):
 
 class FetchCase(unittest.TestCase):
     def setUp(self):
+        # The deny list is read from the checkout: another test in the same
+        # process may have left TEENY_ROOT on a scratch folder without one.
+        patcher = mock.patch.dict(os.environ, {"TEENY_ROOT": str(REPO)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         Site.seen = []
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
         self.server.daemon_threads = True
