@@ -500,6 +500,26 @@ def _fail(conn, manifest: Json, why: str) -> None:
     assets._finish(conn, manifest["id"], status="failed", cost_micro=0, error=why[:1000])
 
 
+def due() -> Json:
+    """Whether a film may be made now: FILM_EVERY_DAYS since the last one
+    that was not refused before it began, and room in the week's film budget
+    for one more. {due, why?, last_at?}."""
+    every = hand.number("FILM_EVERY_DAYS", 2, 1, 30)
+    conn = assets._db()
+    try:
+        last = conn.execute("SELECT MAX(created_at) AS at FROM media_assets WHERE kind = 'film' AND"
+                            " (status != 'failed' OR EXISTS (SELECT 1 FROM media_assets c WHERE c.source_id ="
+                            " media_assets.id AND c.status != 'failed' AND c.cost_micro > 0))").fetchone()["at"]
+        if last is not None and hand.now() - last < every * 86400 - 3600:
+            return {"due": False, "why": f"a film was made under {every} day(s) ago", "last_at": last}
+        week, spent = _usd("FILM_MAX_USD_PER_WEEK", "30.00"), _week_spent(conn)
+        if spent + _usd("FILM_MAX_USD", "15.00") > week:
+            return {"due": False, "why": "this week's film budget has no room for one", "spent_usd": spent / 1e6}
+        return {"due": True, **({"last_at": last} if last is not None else {})}
+    finally:
+        conn.close()
+
+
 def status(film_id: int) -> Json:
     manifest = load(film_id)
     out = {k: manifest.get(k) for k in ("id", "status", "done", "error", "spent_usd")}
@@ -515,6 +535,8 @@ def parser() -> argparse.ArgumentParser:
     verbs = p.add_subparsers(dest="verb")
     verbs.add_parser("make", help="claim and make a film: stdin {film, story}").set_defaults(
         handler=lambda a, body: make(body), takes_body=True)
+    verbs.add_parser("due", help="whether a film may be made now").set_defaults(
+        handler=lambda a, _: due(), takes_body=False)
     for name, handler, what in (("run", lambda a, _: run(a.id), "carry on a film from its manifest"),
                                 ("status", lambda a, _: status(a.id), "where a film is")):
         verb = verbs.add_parser(name, help=what)
