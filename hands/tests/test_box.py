@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -233,6 +234,7 @@ class JailTest(Scratch):
 NET_PROBE = r'''
 import ctypes, json, socket, urllib.request
 BROKER, OTHER = PORTS
+OUTSIDE = UNIX_PATH
 def can(fn):
     try:
         fn()
@@ -244,6 +246,10 @@ def connect(port, family=socket.AF_INET, host="127.0.0.1"):
 def listen():
     s = socket.socket()
     s.listen()
+def unix_connect():
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(OUTSIDE)
+    s.sendall(b"leak")
 def io_uring():
     libc = ctypes.CDLL(None, use_errno=True)
     params = ctypes.create_string_buffer(120)
@@ -267,7 +273,8 @@ out = {
     "mptcp": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 262)),
     "sctp_stream": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 132)),
     "tcp_nonblock": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM | socket.SOCK_NONBLOCK)),
-    "unix": can(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)),
+    "unix": can(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)),
+    "unix_connect": can(unix_connect),
     "socketpair": can(socket.socketpair),
     "io_uring": can(io_uring),
 }
@@ -299,7 +306,6 @@ class NetworkTest(Scratch):
     def setUp(self):
         super().setUp()
         import http.server
-        import socket
         import threading
 
         class Fake(http.server.BaseHTTPRequestHandler):
@@ -330,10 +336,18 @@ class NetworkTest(Scratch):
         self.addCleanup(self.other.close)
         self.port = self.broker.server_address[1]
         self.settings(BOX="1", BROKER_PORT=str(self.port))
+        # A unix socket outside the jail, like the docker daemon's or the
+        # system resolver's: Landlock never asks about connecting to one.
+        self.unix_path = str(self.root / "outside.sock")
+        self.outside = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.outside.bind(self.unix_path)
+        self.outside.listen()
+        self.outside.settimeout(0.2)
+        self.addCleanup(self.outside.close)
 
     def probe(self) -> dict:
         ports = repr((self.port, self.other.getsockname()[1]))
-        self.tool("net", NET_PROBE.replace("PORTS", ports, 1))
+        self.tool("net", NET_PROBE.replace("PORTS", ports, 1).replace("UNIX_PATH", repr(self.unix_path), 1))
         code, out = self.box("run", "net", env={"https_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://x:9"})
         self.assertEqual(code, 0, out)
         return json.loads(out["output"].strip().splitlines()[-1])
@@ -356,8 +370,18 @@ class NetworkTest(Scratch):
         got = self.probe()
         for closed in ("udp", "udp6", "ping", "raw", "netlink", "packet", "mptcp", "sctp_stream"):
             self.assertFalse(got[closed], closed)
-        for open_ in ("tcp_nonblock", "unix", "socketpair"):
+        for open_ in ("tcp_nonblock", "socketpair"):
             self.assertTrue(got[open_], open_)
+
+    def test_a_tool_cannot_reach_a_unix_socket_outside_its_jail(self):
+        # Through one (the docker daemon's, the system resolver's, D-Bus) a
+        # tool could leave the box or resolve a name it made up. A pair of
+        # its own (socketpair) is all it gets.
+        got = self.probe()
+        self.assertFalse(got["unix"])
+        self.assertFalse(got["unix_connect"])
+        with self.assertRaises(OSError):
+            self.outside.accept()
 
     @unittest.skipUnless(_io_uring_works(), "this kernel refuses io_uring to everybody")
     def test_a_tool_cannot_set_up_io_uring(self):
