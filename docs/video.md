@@ -357,12 +357,16 @@ that model.
 - Story films (§12): `FILM_FIGURE_MODELS` after bake-off 3, and the first paid
   film before `FILM_EVERY_DAYS` is turned on.
 
-## 12. Story films (60-90 s, audio first)
+## 12. Story films (about 30 s, audio first)
 
 Operator, 2026-11-22: longer videos that tell a real story. A trending news
 story's public figure, their real claim pushed to an impossible end, told in
 three acts over 60 to 90 seconds, with Teeny as the narrator. One every other
 day, beside the daily skit.
+
+Operator, 2026-11-24, after the first film: about 30 seconds in three or four beats, Teeny leading every
+shot, 16:9 (or 1:1) for X, a livelier read (v3's expressive setting and [tags]), and Teeny thirsty for the
+hardware, never for a person and never explicit.
 
 ### 12.1 Why audio first
 
@@ -411,7 +415,10 @@ clip is bought twice.
 
 ### 12.4 The story
 
-- Three acts, five to seven beats, 60 to 90 seconds.
+- About 30 seconds in three or four beats (set-up, escalation, payoff), every beat Teeny's: no video model on
+  Surplus animates a real face (f99, 2026-11-24: Seedance refuses, Wan 3 and Kling v4 cancel), so the figure is
+  in the narration and the props, never on screen. 16:9 for X. The first films ran 60 to 90 s plans; the operator
+  cut them to 30 s.
 - The hook lands by 3 s, and the premise reads with the sound off.
 - Each beat is one escalation that follows from the last; the last pays off
   the first. A loop ending (the last frame is the first) is welcome.

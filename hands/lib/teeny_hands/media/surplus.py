@@ -10,6 +10,7 @@ followed here once, without the key (the key never goes to another host).
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -88,7 +89,7 @@ class Surplus:
             raise SurplusError(
                 f"Surplus answered {exc.code}: {message}" if message else f"Surplus answered {exc.code}", exc.code, parsed
             ) from None
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
             raise SurplusError(f"could not reach Surplus ({type(getattr(exc, 'reason', exc)).__name__})") from None
         if not raw:
             return {}
@@ -115,7 +116,7 @@ class Surplus:
         try:
             with _OPENER.open(request, timeout=timeout) as response:
                 cost = response.headers.get("x-si-buyer-cost-micro")
-                data = response.read(limit + 1)
+                data = _whole(response, limit)
         except urllib.error.HTTPError as exc:
             try:
                 raw = exc.read()
@@ -126,7 +127,7 @@ class Surplus:
                 f"Surplus answered {exc.code}: {message}" if message else f"Surplus answered {exc.code}", exc.code, parsed,
                 _billed(exc.headers.get("x-si-buyer-cost-micro") if exc.headers else None),
             ) from None
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
             raise SurplusError(f"could not reach Surplus ({type(getattr(exc, 'reason', exc)).__name__})",
                                cost_micro=_billed(cost)) from None
         billed = _billed(cost)
@@ -175,16 +176,27 @@ class _Redirect(Exception):
         super().__init__("redirect")
         self.location = location
 
+def _whole(response, limit: int) -> bytes:
+    """Up to limit + 1 bytes of the answer, refusing one the connection cut
+    short of its Content-Length: a bounded read returns what came rather than
+    raising, so a truncated picture or track would pass as whole."""
+    data = response.read(limit + 1)
+    expected = response.headers.get("content-length")
+    if expected and expected.isdigit() and len(data) <= limit and len(data) < int(expected):
+        raise http.client.IncompleteRead(data, int(expected) - len(data))
+    return data
+
+
 
 def _fetch(request: urllib.request.Request, limit: int, timeout: float) -> bytes:
     try:
         with _OPENER.open(request, timeout=timeout) as response:
-            data = response.read(limit + 1)
+            data = _whole(response, limit)
     except urllib.error.HTTPError as exc:
         if 300 <= exc.code < 400 and exc.headers.get("location"):
             raise _Redirect(exc.headers["location"]) from None
         raise SurplusError(f"the download answered {exc.code}", exc.code) from None
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
         raise SurplusError(f"could not download ({type(getattr(exc, 'reason', exc)).__name__})") from None
     if len(data) > limit:
         raise SurplusError(f"the download is over {limit // (1024 * 1024)} MB")

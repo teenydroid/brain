@@ -39,6 +39,14 @@ VOICE = "JBFqnCBsd6RMkjVDRZzb"
 #: v3 reads audio tags ([laughs], [whispers]) and is $0.08 per 1,000
 #: characters on Surplus; it takes at most 2,500 characters a call.
 VOICE_MODELS = ("eleven_v3", "eleven_multilingual_v2")
+#: The read each voice model is asked for: v3's stability is one of 0.0
+#: ("creative", the most expressive), 0.5 or 1.0; the others take any value
+#: from 0 to 1, lower being livelier. FILM_VOICE_STABILITY overrides both.
+STABILITY = {"eleven_v3": 0.0}
+STABILITY_DEFAULT = 0.3
+#: Only v3 reads [tags] as directions; any other model would say them.
+TAGGED_MODELS = ("eleven_v3",)
+_TAG = re.compile(r"\[[^\[\]\n]{1,30}\]")
 TEXT_MAX = {"eleven_v3": 2500, "eleven_multilingual_v2": 6000}
 TEXT_MAX_DEFAULT = 2500
 STT_MODEL = "scribe_v2"
@@ -72,6 +80,18 @@ def _text(value: Any, what: str, limit: int) -> str:
 def voice_models() -> list[str]:
     named = [m.strip() for m in (hand.setting("FILM_VOICE_MODELS") or "").split(",") if m.strip()]
     return named or list(VOICE_MODELS)
+
+
+def stability(model: str) -> float:
+    """How steady the read is, from FILM_VOICE_STABILITY or the model's own
+    default (STABILITY); v3 takes only 0.0, 0.5 or 1.0, so its value is
+    rounded to the nearest of them."""
+    raw = hand.setting("FILM_VOICE_STABILITY")
+    try:
+        value = min(1.0, max(0.0, float(raw))) if raw else STABILITY.get(model, STABILITY_DEFAULT)
+    except ValueError:
+        value = STABILITY.get(model, STABILITY_DEFAULT)
+    return min((0.0, 0.5, 1.0), key=lambda v: abs(v - value)) if model == "eleven_v3" else value
 
 
 def voice_id() -> str:
@@ -126,7 +146,13 @@ def words_of(alignment: Any) -> list[Json]:
             words.append(current)
         current["text"] += char
         current["end"] = float(end)
-    return words
+    # A v3 [tag] is timed like the words around it but is not one of them.
+    out = []
+    for word in words:
+        text = _TAG.sub("", word["text"])
+        if text:
+            out.append({**word, "text": text})
+    return out
 
 
 def speak(text: Any, api: Surplus | None = None) -> Json:
@@ -143,8 +169,11 @@ def speak(text: Any, api: Surplus | None = None) -> Json:
     spent: int | None = None  # what refused attempts were already billed
     for model in models:
         try:
+            said = text if model in TAGGED_MODELS else " ".join(_TAG.sub(" ", text).split())
             raw, cost = _api(api).send(f"{ROUTE}/text-to-speech/{voice}/with-timestamps?output_format=mp3_44100_128",
-                                       {"text": text, "model_id": model}, limit=AUDIO_MAX_BYTES * 2)
+                                       {"text": said, "model_id": model,
+                                        "voice_settings": {"stability": stability(model)}},
+                                       limit=AUDIO_MAX_BYTES * 2)
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
             spent = _sum(spent, exc.cost_micro)
