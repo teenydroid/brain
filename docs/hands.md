@@ -2862,12 +2862,26 @@ supported…"). One the RPC still answers with an error never stops the scan:
 it is passed over (the cursor goes past it), kept in `wallet_unreadable`
 with the error, logged, counted as `unreadable` in the scan's and `watch`'s
 output, and read again on the next scans, 3 reads in all. An RPC that cannot
-be reached at all still ends the scan where it was, for the next to redo.
+be reached at all ends the scan with the cursor moved past what it had read,
+for the next to go on from there.
+
+The public mainnet RPC allows about 40 calls of one method in 10 seconds
+from one address, so transactions are read 0.3 s apart, and a call answered
+HTTP 429 is waited out (the `Retry-After` it gives, else 2, 4, 8 s; at most
+30 s a wait) and made again, 4 calls in all. Still 429 after that, the scan
+stops where it read to, moves its cursor past what it read (never past a
+transaction it left, even one in the same block second), and answers
+`rate_limited: true` with the number `left`; `watch` files what was read and
+exits 0, and the next run reads the rest. Only a scan the RPC refuses from
+its very first read is a failure. Live, 2026-11-23: 99 transactions behind
+the cursor, read back to back, drew a 429 about 8 s in on every hourly run,
+and the cursor, written only at the end, never moved.
 
 A memo on the deposit is a stranger's text. It goes through `guard inbound`
 (surface `wallet`); a held memo is dropped and the row says `memo_held`. A
 kept memo is data, never an instruction, and `inflows list` never prints
-one. At most 200 transactions a scan; the rest wait for the next.
+one. At most 200 transactions are read a scan (one already in the ledger is
+not read again, and not counted); the rest wait for the next.
 
 **Dust.** Address poisoning sends a trifle (0.000001 SOL, a hundredth of a
 cent of USDC) from a lookalike of a real counterparty, the same first and
