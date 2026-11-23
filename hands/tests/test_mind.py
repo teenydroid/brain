@@ -180,7 +180,7 @@ class WorkerAgentTest(unittest.TestCase):
         # must not slip the flag past the doctor either.
         for name in ("evolver", "judge", "editor", "teeny", "builder", "reviewer"):
             source = MIND.parent / f"{name}.toml"
-            path = self._variant(source, lambda t: t + "\nbrowser_view_only = true\n")
+            path = self._variant(source, lambda t: "browser_view_only = true\n" + t)
             self.assertIn("browser_view_only = true", path.read_text())
             with self.assertRaises(SystemExit, msg=name) as caught:
                 agent_check.check(path)
