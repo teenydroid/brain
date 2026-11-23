@@ -321,27 +321,23 @@ class CutShortTest(unittest.TestCase):
             self.api.download(self.base + "/file.png", 1024 * 1024)
 
 
-class ExpressionTest(unittest.TestCase):
+class ExpressionTest(AudioTest):
     """f99's narration was flat: no voice settings, and no way to direct the
     read. v3 is asked for its most expressive read and takes [tags]; the
     tags are never words, never captions, and never read aloud by a model
     that does not know them."""
 
     def test_v3_gets_the_tags_and_an_expressive_read(self):
-        api = FakeSurplus()
-        with mock.patch.object(hand, "dry_run", return_value=False):
-            got = audio.speak("[gasps] look at all those cores.", api=api)
-        body = api.sent[-1][1]
+        got = audio.speak("[gasps] look at all those cores.", api=self.api)
+        body = self.api.sent[-1]["body"]
         self.assertEqual(body["text"], "[gasps] look at all those cores.")
         self.assertEqual(body["voice_settings"]["stability"], 0.0)
         self.assertNotIn("[gasps]", [w["text"] for w in got["words"]])
 
     def test_a_model_without_tags_never_reads_them_aloud(self):
-        api = FakeSurplus()
-        api.fail["eleven_v3"] = SurplusError("Surplus answered 404: model eleven_v3 has no sellers", 404)
-        with mock.patch.object(hand, "dry_run", return_value=False):
-            audio.speak("[whispers] it is very hot in here.", api=api)
-        body = api.sent[-1][1]
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 404: model eleven_v3 has no sellers", 404)
+        audio.speak("[whispers] it is very hot in here.", api=self.api)
+        body = self.api.sent[-1]["body"]
         self.assertEqual(body["model_id"], "eleven_multilingual_v2")
         self.assertEqual(body["text"], "it is very hot in here.")
 
