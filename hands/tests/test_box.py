@@ -230,6 +230,159 @@ class JailTest(Scratch):
         self.assertEqual(self.box("run", "exe")[1]["output"].strip(), "executable")
 
 
+NET_PROBE = r'''
+import ctypes, json, socket, urllib.request
+BROKER, OTHER = PORTS
+def can(fn):
+    try:
+        fn()
+        return True
+    except OSError:
+        return False
+def connect(port, family=socket.AF_INET, host="127.0.0.1"):
+    socket.create_connection((host, port), timeout=5).close()
+def listen():
+    s = socket.socket()
+    s.listen()
+def io_uring():
+    libc = ctypes.CDLL(None, use_errno=True)
+    params = ctypes.create_string_buffer(120)
+    if libc.syscall(425, 4, params) < 0:
+        raise OSError(ctypes.get_errno(), "io_uring_setup")
+def fetch():
+    with urllib.request.urlopen(f"http://127.0.0.1:{BROKER}/", timeout=10) as resp:
+        return resp.read().decode()
+out = {
+    "connect_broker": can(lambda: connect(BROKER)),
+    "connect_other": can(lambda: connect(OTHER)),
+    "connect_other_v6": can(lambda: connect(OTHER, host="::1")),
+    "bind": can(lambda: socket.socket().bind(("127.0.0.1", 0))),
+    "listen": can(listen),
+    "udp": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM)),
+    "udp6": can(lambda: socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)),
+    "ping": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)),
+    "raw": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)),
+    "netlink": can(lambda: socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, 0)),
+    "packet": can(lambda: socket.socket(socket.AF_PACKET, socket.SOCK_RAW, 0)),
+    "mptcp": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 262)),
+    "sctp_stream": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 132)),
+    "tcp_nonblock": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM | socket.SOCK_NONBLOCK)),
+    "unix": can(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)),
+    "socketpair": can(socket.socketpair),
+    "io_uring": can(io_uring),
+}
+try:
+    out["fetched"] = fetch()
+except OSError as exc:
+    out["fetched"] = repr(exc)
+print(json.dumps(out))
+'''
+
+
+def _io_uring_works() -> bool:
+    """Whether this process may set up an io_uring at all (a sysctl can
+    refuse it to everybody, jailed or not)."""
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.syscall(425, 4, ctypes.create_string_buffer(120))
+    if fd < 0:
+        return False
+    os.close(fd)
+    return True
+
+
+@unittest.skipUnless(jail.abi() >= 4, "the network rule needs Landlock ABI 4")
+class NetworkTest(Scratch):
+    """A jailed tool reaches the broker's port on loopback and nothing else:
+    no other TCP port, no listening, no UDP, raw, netlink or io_uring."""
+
+    def setUp(self):
+        super().setUp()
+        import http.server
+        import socket
+        import threading
+
+        class Fake(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                self._answer(b"broker here")
+
+            def do_POST(self):  # noqa: N802
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                self._answer(json.dumps({"status": "ok", "seen": self.headers.get("Authorization")}).encode())
+
+            def _answer(self, data):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.broker = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=self.broker.serve_forever, daemon=True).start()
+        self.addCleanup(self.broker.server_close)
+        self.addCleanup(self.broker.shutdown)
+        self.other = socket.socket()
+        self.other.bind(("127.0.0.1", 0))
+        self.other.listen()
+        self.other.settimeout(0.2)
+        self.addCleanup(self.other.close)
+        self.port = self.broker.server_address[1]
+        self.settings(BOX="1", BROKER_PORT=str(self.port))
+
+    def probe(self) -> dict:
+        ports = repr((self.port, self.other.getsockname()[1]))
+        self.tool("net", NET_PROBE.replace("PORTS", ports, 1))
+        code, out = self.box("run", "net", env={"https_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://x:9"})
+        self.assertEqual(code, 0, out)
+        return json.loads(out["output"].strip().splitlines()[-1])
+
+    def test_a_tool_cannot_connect_to_a_port_that_is_not_the_brokers(self):
+        got = self.probe()
+        self.assertFalse(got["connect_other"])
+        self.assertFalse(got["connect_other_v6"])
+        with self.assertRaises(OSError):
+            self.other.accept()
+
+    def test_a_tool_cannot_bind_or_listen(self):
+        got = self.probe()
+        self.assertFalse(got["bind"])
+        # listen() on an unbound socket binds an ephemeral port on every
+        # address, which Landlock does not see: the filter refuses listen.
+        self.assertFalse(got["listen"])
+
+    def test_a_tool_cannot_make_a_datagram_raw_netlink_or_other_stream_socket(self):
+        got = self.probe()
+        for closed in ("udp", "udp6", "ping", "raw", "netlink", "packet", "mptcp", "sctp_stream"):
+            self.assertFalse(got[closed], closed)
+        for open_ in ("tcp_nonblock", "unix", "socketpair"):
+            self.assertTrue(got[open_], open_)
+
+    @unittest.skipUnless(_io_uring_works(), "this kernel refuses io_uring to everybody")
+    def test_a_tool_cannot_set_up_io_uring(self):
+        self.assertFalse(self.probe()["io_uring"])
+
+    def test_a_tool_reaches_the_broker_on_a_literal_loopback_url(self):
+        got = self.probe()
+        self.assertTrue(got["connect_broker"])
+        self.assertEqual(got["fetched"], "broker here")
+
+    def test_a_tool_reaches_the_broker_through_its_client(self):
+        home = self.root / "state" / "home"
+        (home / "bin").mkdir(parents=True)
+        cli = home / "bin" / "teeny"
+        cli.write_text((REPO / "bin" / "lib" / "broker_client.py").read_text())
+        cli.chmod(0o755)
+        (home / ".broker-url").write_text(f"http://127.0.0.1:{self.port}\n")
+        (home / ".broker-token").write_text("tok\n")
+        self.tool("client", 'import os, subprocess, sys\n'
+                            'sys.exit(subprocess.run([sys.executable, os.environ["TEENY_CLI"], "goals"]).returncode)\n')
+        code, out = self.box("run", "client")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out["output"])["seen"], "Bearer tok")
+
+
 class RefusalTest(Scratch):
     def test_off_is_quiet_and_runs_nothing(self):
         self.settings()
