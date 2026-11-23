@@ -88,7 +88,7 @@ class FetchCase(unittest.TestCase):
         Site.seen = []
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Site)
         self.server.daemon_threads = True
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(0.05,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.names: dict[str, list[str]] = {"example.com": [PUBLIC], "other.example.org": ["93.184.216.35"]}

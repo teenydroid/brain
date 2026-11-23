@@ -39,6 +39,7 @@ count, which may refuse); nothing is counted for a URL refused before that.
 from __future__ import annotations
 
 import codecs
+import contextlib
 import http.client
 import ipaddress
 import socket
@@ -47,7 +48,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from urllib.parse import urljoin, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
@@ -61,6 +62,7 @@ MAX_REDIRECTS = 5
 USER_AGENT = "TeenyFetch/1.0 (a read-only page reader; https://github.com/teenydroid/brain)"
 REDIRECTS = (301, 302, 303, 307, 308)
 TEXT_TYPES = ("application/json", "application/xml")
+ACCEPT = "text/*, application/json, application/xml, application/*+json, application/*+xml"
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
@@ -186,10 +188,14 @@ def _decode(data: bytes, charset: str | None) -> str:
     return data.decode(codec, "replace")
 
 
-def _get(host: str, target: str, address: str, deadline: float) -> tuple[http.client.HTTPResponse, Callable[[], bool]]:
+@contextlib.contextmanager
+def _get(host: str, target: str, address: str, deadline: float) -> Iterator[tuple[http.client.HTTPResponse,
+                                                                                Callable[[], bool]]]:
+    """One GET of TARGET from HOST at ADDRESS, its response, and whether the
+    deadline cut it short. Everything is closed on the way out."""
     left = deadline - time.monotonic()
     if left <= 0:
-        raise Failed(f"the fetch took longer than {TOTAL_SECS} s")
+        raise _late()
     sock = _connect(address, host, left)
     expired = threading.Event()
 
@@ -206,15 +212,20 @@ def _get(host: str, target: str, address: str, deadline: float) -> tuple[http.cl
     timer.daemon = True
     timer.start()
     conn = _Connection(sock, left)
-    conn.putrequest("GET", target, skip_host=True, skip_accept_encoding=True)
-    for name, value in (("Host", host), ("User-Agent", USER_AGENT), ("Accept", "text/*, application/json, "
-                        "application/xml, application/*+json, application/*+xml"), ("Accept-Encoding", "identity"),
-                        ("Connection", "close")):
-        conn.putheader(name, value)
-    conn.endheaders()
-    resp = conn.getresponse()
-    resp._teeny_close = lambda: (timer.cancel(), conn.close())  # type: ignore[attr-defined]
-    return resp, expired.is_set
+    try:
+        conn.putrequest("GET", target, skip_host=True, skip_accept_encoding=True)
+        for name, value in (("Host", host), ("User-Agent", USER_AGENT), ("Accept", ACCEPT),
+                            ("Accept-Encoding", "identity"), ("Connection", "close")):
+            conn.putheader(name, value)
+        conn.endheaders()
+        yield conn.getresponse(), expired.is_set
+    finally:
+        timer.cancel()
+        conn.close()
+
+
+def _late() -> Failed:
+    return Failed(f"the fetch took longer than {TOTAL_SECS} s")
 
 
 def fetch(url: Any, *, on_send: Callable[[], None] = lambda: None, deny: list[str] | None = None) -> dict[str, Any]:
@@ -227,33 +238,28 @@ def fetch(url: Any, *, on_send: Callable[[], None] = lambda: None, deny: list[st
         host, target = check_url(url, deny)
         address = address_of(host)
         on_send()
-        expired: Callable[[], bool] = lambda: False  # noqa: E731
-        resp = None
         try:
-            resp, expired = _get(host, target, address, deadline)
-            location = resp.getheader("Location")
-            if resp.status in REDIRECTS and location:
-                hops += 1
-                if hops > MAX_REDIRECTS:
-                    raise Refused(f"more than {MAX_REDIRECTS} redirects")
-                url = urljoin(url, location.strip())
-                continue
-            raw_type = resp.getheader("Content-Type")
-            if not raw_type:
-                raise Refused("the page names no content type")
-            kind = resp.headers.get_content_type()
-            if not _text_type(kind):
-                raise Refused(f"the page is {kind[:100]}, not text: only text/*, application/json, application/xml "
-                              "and application/*+json or *+xml are read")
-            data, truncated = _read(resp)
-            if expired():
-                raise Failed(f"the fetch took longer than {TOTAL_SECS} s")
-            return {"http": resp.status, "url": url, "content_type": raw_type[:200],
-                    "text": _decode(data, resp.headers.get_content_charset()), "truncated": truncated}
+            with _get(host, target, address, deadline) as (resp, expired):
+                location = resp.getheader("Location")
+                if resp.status in REDIRECTS and location:
+                    hops += 1
+                    if hops > MAX_REDIRECTS:
+                        raise Refused(f"more than {MAX_REDIRECTS} redirects")
+                    url = urljoin(url, location.strip())
+                    continue
+                raw_type = resp.getheader("Content-Type")
+                if not raw_type:
+                    raise Refused("the page names no content type")
+                kind = resp.headers.get_content_type()
+                if not _text_type(kind):
+                    raise Refused(f"the page is {kind[:100]}, not text: only text/*, application/json, "
+                                  "application/xml and application/*+json or *+xml are read")
+                data, truncated = _read(resp)
+                if expired():
+                    raise _late()
+                return {"http": resp.status, "url": url, "content_type": raw_type[:200],
+                        "text": _decode(data, resp.headers.get_content_charset()), "truncated": truncated}
         except (OSError, http.client.HTTPException) as exc:
-            if expired():
-                raise Failed(f"the fetch took longer than {TOTAL_SECS} s") from None
+            if time.monotonic() >= deadline:
+                raise _late() from None
             raise Failed(f"{host}: {type(exc).__name__}: {exc}"[:300]) from None
-        finally:
-            if resp is not None:
-                resp._teeny_close()  # type: ignore[attr-defined]
