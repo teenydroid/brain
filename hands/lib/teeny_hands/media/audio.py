@@ -87,6 +87,11 @@ def _model_fault(exc: SurplusError) -> bool:
     return exc.status in NEXT_MODEL_IF_NAMED and "model" in f"{exc} {exc.body}".lower()
 
 
+def _sum(total: int | None, more: int | None) -> int | None:
+    """Known charges added up; None only while none has been reported."""
+    return total if more is None else more if total is None else total + more
+
+
 def _span(start: Any, end: Any) -> bool:
     """A real stretch of time: numbers, finite, not negative, not backwards."""
     for value in (start, end):
@@ -135,15 +140,18 @@ def speak(text: Any, api: Surplus | None = None) -> Json:
     if hand.dry_run():
         return {"dry_run": True, "audio": b"", "words": [], "model": models[0], "voice": voice, "cost_micro": 0}
     tried: list[str] = []
+    spent: int | None = None  # what refused attempts were already billed
     for model in models:
         try:
             raw, cost = _api(api).send(f"{ROUTE}/text-to-speech/{voice}/with-timestamps?output_format=mp3_44100_128",
                                        {"text": text, "model_id": model}, limit=AUDIO_MAX_BYTES * 2)
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
+            spent = _sum(spent, exc.cost_micro)
             if _model_fault(exc):
                 continue
-            raise hand.HandError("the narration was not made", tried=tried, cost_micro=exc.cost_micro) from None
+            raise hand.HandError("the narration was not made", tried=tried, cost_micro=spent) from None
+        cost = _sum(spent, cost)
         try:
             answer = json.loads(raw)
             audio = base64.b64decode(answer["audio_base64"], validate=True)
@@ -153,7 +161,7 @@ def speak(text: Any, api: Surplus | None = None) -> Json:
             raise hand.HandError("the narration came back empty", model=model, cost_micro=cost)
         words = words_of(answer.get("alignment")) or words_of(answer.get("normalized_alignment"))
         return {"audio": audio, "words": words, "model": model, "voice": voice, "cost_micro": cost}
-    raise hand.HandError("no voice model made the narration", tried=tried)
+    raise hand.HandError("no voice model made the narration", tried=tried, cost_micro=spent)
 
 
 def transcribe(audio: bytes, kind: str = "audio/mpeg", api: Surplus | None = None) -> Json:

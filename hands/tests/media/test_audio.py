@@ -133,6 +133,15 @@ class AudioTest(unittest.TestCase):
             audio.speak("hello", api=self.api)
         self.assertEqual(caught.exception.detail["cost_micro"], 777)
 
+    def test_charges_from_refused_models_are_added_to_the_one_that_works(self):
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 503: busy", 503, cost_micro=777)
+        self.assertEqual(audio.speak("hello", api=self.api)["cost_micro"], 777 + 160)
+        self.api.fail["eleven_v3"] = SurplusError("Surplus answered 503: busy", 503, cost_micro=777)
+        self.api.fail["eleven_multilingual_v2"] = SurplusError("Surplus answered 503: busy", 503, cost_micro=5)
+        with self.assertRaises(hand.HandError) as caught:
+            audio.speak("hello", api=self.api)
+        self.assertEqual(caught.exception.detail["cost_micro"], 782)
+
     def test_empty_narration_audio_is_an_error_that_says_what_it_cost(self):
         self.api.speech = {"audio_base64": "", "alignment": alignment("hi")}
         with self.assertRaises(hand.HandError) as caught:
