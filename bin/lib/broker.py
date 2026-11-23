@@ -38,6 +38,13 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
 - /wakes      the mind's wakes
 - /drop-wake  `{"name"}`: removes one of them, never any other job
 - /goals      hands/goals list
+- /call       `{"service", "method", "path", "query"?, "body"?}`: one call
+              to a service in evals/services.toml through hands/call send,
+              the key proxy. The hand adds the key (which never enters the
+              jail) and holds the list, the guard on anything a write says,
+              its CALL_<SERVICE>_*_PER_DAY caps and DRY_RUN: in a rehearsal
+              a write is checked and not sent, a read is sent. Never a tick
+              route or a /do verb
 - /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
               at state/home/repo/ (its git directory outside the jail), left
               alone while it holds edits; answers its path and the head
@@ -237,6 +244,15 @@ def do(body: Json, entry: Json) -> Json:
 def goals(body: Json, entry: Json) -> Json:
     entry["verb"] = "goals"
     return _hand_answer(*tick._run_hand("goals", ["list"], None), entry)
+
+
+def call(body: Json, entry: Json) -> Json:
+    """One call through the key proxy, hands/call send, which keeps every
+    rule of it (docs/mind.md, "Keys it never holds")."""
+    service = body.get("service")
+    entry["verb"] = _clipped(service) if isinstance(service, str) else None
+    entry["intent"] = _clipped(body)
+    return _hand_answer(*tick._run_hand("call", ["send"], body), entry)
 
 
 # --- wakes: the mind's own cron jobs --------------------------------------------------
@@ -513,6 +529,7 @@ PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/wakes": wakes,
     "/drop-wake": drop_wake,
     "/goals": goals,
+    "/call": call,
     "/pr": pr,
     "/repo": repo,
 }
