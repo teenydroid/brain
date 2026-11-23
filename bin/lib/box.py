@@ -398,7 +398,7 @@ def check() -> tuple[int, Json]:
     needs = jail.NET_ABI if closed else jail.MIN_ABI
     try:
         jail._filter(network=closed)
-        jail.check_grants(jail.grants([hand.root() / "home"]), protected())
+        jail.check_grants(jail.grants(code_folders()), protected())
         problem = None if version >= needs else f"landlock version {version}, needs {needs}"
     except jail.Unavailable as exc:
         problem = str(exc)
