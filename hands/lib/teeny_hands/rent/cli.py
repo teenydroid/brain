@@ -52,7 +52,7 @@ def parser() -> argparse.ArgumentParser:
     humans.add_argument("--limit", type=int, choices=range(1, 51), default=10, metavar="1..50")
     cancel = verb("cancel", lambda a, _: actions.cancel(a.id, a.reason), "end an unhired bounty (operator)")
     cancel.add_argument("id", type=int, metavar="ID")
-    cancel.add_argument("--reason", choices=CANCEL_REASONS, default="no_longer_needed")
+    cancel.add_argument("--reason", choices=CANCEL_REASONS, default="task_no_longer_needed")
     return root
 
 
