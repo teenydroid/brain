@@ -441,12 +441,12 @@ def _too_soon(rule: str, last: sqlite3.Row, wait: float, what: str) -> hand.Refu
 
 
 def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
-    """Whether an own post of `kind` may go out now. Run under the posting
-    lock, so the answer still holds when the post is recorded. An original
-    post (`post`, a thread's head) looks only at original posts; a quote
-    looks at the previous quote (QUOTE_MIN_GAP_HOURS, less the tolerance) and
-    the newest original post (QUOTE_AFTER_POST_MINUTES), never the other way
-    round."""
+    """Whether an own post of `kind` (a lane, `lane_of`) may go out now. Run
+    under the posting lock, so the answer still holds when the post is
+    recorded. An original post (`post`, a thread's head, a studio quote)
+    looks only at original posts; a quote looks at the previous quote
+    (QUOTE_MIN_GAP_HOURS, less the tolerance) and the newest original post
+    (QUOTE_AFTER_POST_MINUTES), never the other way round."""
     tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
     now = hand.now()
     if _lane(kind) == "post":
