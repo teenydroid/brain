@@ -53,7 +53,7 @@ class MindAgentTest(unittest.TestCase):
             self.assertIn(tool, doc["tools"]["named"])
 
     def test_tools_that_reach_past_the_jail_are_refused(self):
-        for tool in ("browser", "cron_add", "cron_remove", "schedule", "wallet_send", "mcp_call", "composio",
+        for tool in ("browser_open", "cron_add", "cron_remove", "schedule", "wallet_send", "mcp_call", "composio",
                      "spawn_worker", "spawn_agent", "create_skill", "install_workflow_from_url"):
             path = self._variant(lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
             with self.assertRaises(SystemExit, msg=tool) as caught:
@@ -135,7 +135,7 @@ class WorkerAgentTest(unittest.TestCase):
                 agent_check.check(path)
 
     def test_tools_that_reach_past_the_jail_are_refused(self):
-        for tool in ("browser", "cron_add", "schedule", "wallet_send", "mcp_call", "spawn_subagent", "create_skill",
+        for tool in ("browser_open", "cron_add", "schedule", "wallet_send", "mcp_call", "spawn_subagent", "create_skill",
                      "memory", "*"):
             path = self._variant(WORKER, lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
             with self.assertRaises(SystemExit, msg=tool):
@@ -147,6 +147,51 @@ class WorkerAgentTest(unittest.TestCase):
             self.assertIn(tool, path.read_text())
             with self.assertRaises(SystemExit, msg=tool):
                 agent_check.check(path)
+
+    def test_the_mind_and_its_worker_browse_view_only(self):
+        # The core's browser is one profile, signed in as Teeny, with clicks
+        # and typing allowed for the operator. `browser_view_only` is what
+        # keeps a jailed agent's browser to reading, on a throwaway profile.
+        for source in (MIND, WORKER):
+            with open(source, "rb") as fh:
+                doc = tomllib.load(fh)
+            self.assertIn("browser", doc["tools"]["named"], source.name)
+            self.assertIs(doc["browser_view_only"], True, source.name)
+
+    def test_a_jailed_agent_without_the_view_only_flag_is_refused(self):
+        for source in (MIND, WORKER):
+            for new in ("browser_view_only = false\n", ""):
+                path = self._variant(source, lambda t, new=new: t.replace("browser_view_only = true\n", new, 1))
+                self.assertNotEqual(path.read_text(), source.read_text(), source.name)
+                with self.assertRaises(SystemExit, msg=f"{source.name} {new!r}") as caught:
+                    agent_check.check(path)
+                self.assertIn("browser_view_only", str(caught.exception))
+
+    def test_the_flag_is_required_even_without_the_browser_tool(self):
+        # A child inherits it from the mind's run, and a later edit that adds
+        # the tool must not be the only thing between Teeny's accounts and it.
+        path = self._variant(WORKER, lambda t: t.replace('    "browser",\n', "", 1)
+                             .replace("browser_view_only = true\n", "", 1))
+        with self.assertRaises(SystemExit):
+            agent_check.check(path)
+
+    def test_no_other_agent_may_set_the_view_only_flag(self):
+        # Agents that return early (no tools, editors, unscheduled, helpers)
+        # must not slip the flag past the doctor either.
+        for name in ("evolver", "judge", "editor", "teeny", "builder", "reviewer"):
+            source = MIND.parent / f"{name}.toml"
+            path = self._variant(source, lambda t: "browser_view_only = true\n" + t)
+            self.assertIn("browser_view_only = true", path.read_text())
+            with self.assertRaises(SystemExit, msg=name) as caught:
+                agent_check.check(path)
+            self.assertIn("browser_view_only", str(caught.exception), name)
+
+    def test_the_builder_still_has_no_browser(self):
+        builder = MIND.parent / "builder.toml"
+        path = self._variant(builder, lambda t: t.replace('    "shell",', '    "shell",\n    "browser",', 1))
+        self.assertNotEqual(path.read_text(), builder.read_text())
+        with self.assertRaises(SystemExit):
+            agent_check.check(path)
 
     def test_it_must_not_be_shown_the_minds_memory(self):
         for old, new in (("omit_memory_context = true", "omit_memory_context = false"),
