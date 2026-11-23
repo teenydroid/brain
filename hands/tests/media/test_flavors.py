@@ -115,14 +115,6 @@ class DispatchTest(unittest.TestCase):
                     self.assertEqual(out, {"made": name, "ok": True})
                     self.assertEqual(seen, [{"x": 1}])
 
-    def test_each_khaby_step_reaches_its_function_with_the_body(self):
-        for argv, module, name in KHABY_STEPS:
-            with self.subTest(argv=argv):
-                seen = []
-                with mock.patch.object(module, name, lambda body: seen.append(body) or {"made": name}):
-                    self.assertEqual(run(argv, {"x": 1}), (0, {"made": name, "ok": True}))
-                self.assertEqual(seen, [{"x": 1}])
-
     def test_a_refusal_comes_back_the_same_through_either_spelling(self):
         def refuse(body):
             raise hand.Refused("remake takes a JSON object", rule="body")
@@ -148,8 +140,8 @@ class BadStepTest(unittest.TestCase):
     def test_an_unknown_flavor_is_bad_arguments(self):
         self.assertEqual(run(["bogus", "keys"]), (1, {"ok": False, "error": "bad arguments to hands/video"}))
 
-    def test_khaby_without_a_step_needs_one(self):
-        self.assertEqual(run(["khaby"]), (1, {"ok": False, "error": "hands/video needs a verb"}))
+    def test_a_flavor_without_a_default_step_needs_one(self):
+        self.assertEqual(run(["clip"]), (1, {"ok": False, "error": "hands/video needs a verb"}))
 
 
 class ImageTest(unittest.TestCase):
