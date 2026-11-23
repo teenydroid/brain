@@ -26,6 +26,9 @@ omit_identity = true
 # No recall: every fact a draft may use is in the run's message, so nothing
 # remembered can slip a fact in that the gates cannot trace (bin/lib/prompts.py).
 omit_memory_context = true
+# Nor logged: a turn of this agent never reaches the core's memory, where
+# nobody would recall it and it would crowd the mind's recall (agent_check.py).
+omit_memory_log = true
 # No tools, so the shell/file safety preamble says nothing to this turn; the
 # content list in writer.md and the guard in hands/x are its lines.
 omit_safety_preamble = true

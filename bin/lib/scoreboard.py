@@ -7,7 +7,10 @@
   sections()     what both dreams get (bin/lib/dream.py): the board, the
                  open experiments as scored now, the lab's lessons, what
                  worked on Moltbook by format and submolt over 7 and 14 days
-                 (`hands/moltbook study`'s own_summary), and "true right
+                 (`hands/moltbook study`'s own_summary), the same for X
+                 by kind, producer and format with the best and worst
+                 originals and the replies' reach (teeny_hands/stats/x_study),
+                 and "true right
                  now" (balances and followers), each a
                  `- ` list with a hard character cap, so reflect._fit can
                  cut it like the dream's other lists
@@ -82,6 +85,12 @@ def _moltbook_formats() -> list[str]:
     from teeny_hands.moltbook import study
 
     return study.summary_lines()
+
+
+def _x_formats() -> list[str]:
+    from teeny_hands.stats import x_study
+
+    return x_study.summary_lines()
 
 
 def experiment_line(e: Json) -> str:
@@ -190,6 +199,12 @@ def sections(score: bool = True) -> list[str]:
                             "Your own posts and comments by format and by submolt, counted in code from the ledger:"
                             " how many were measured, median and best score, median comments; best first, worst last."
                             " Keep in the page which format and room did best and which did worst.", moltbook))
+    x = _safe(_x_formats, None)
+    if x:
+        out.append(_section("x: what worked and what flopped",
+                            "Your own X posts, quotes and replies with their latest measured numbers, counted in code"
+                            " from the ledger (eng = likes + replies + reposts + quotes); groups best first. Keep in"
+                            " the page which kind of original did best and worst, and who your X regulars are.", x))
     people = [f"{a['metric']}: {a['value']} (as of {a['date']})" for a in (board or {}).get("audience", [])]
     out.append(_section("true right now", "Read just now. Where your memory page says otherwise, this is right:"
                         " fix the page, never copy an old number into it.", _safe(balances, []) + people))

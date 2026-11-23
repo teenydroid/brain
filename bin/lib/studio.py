@@ -349,11 +349,36 @@ def meme_menu_part(menu: Json) -> str:
             "\n```\n\nPictures of you to paste in (`teeny`):\n" + "\n".join(f"- {p}" for p in menu["pictures"]))
 
 
+def open_x_experiment(room: Any) -> Json | None:
+    """The lab experiment on X the studio's posts can fill (hands/lab list):
+    the oldest open one still short of its planned posts and not yet due,
+    as {id, format, hypothesis}; None when there is none or the lab cannot
+    be read. X originals come from the studio alone, so without this no X
+    experiment ever got a post (2026-11-23: experiments 1 and 6 at 0)."""
+    ok, got = room.hand(["lab", "list"])
+    rows = got.get("experiments") if ok and isinstance(got, dict) else None
+    fits = [e for e in rows or [] if isinstance(e, dict) and e.get("surface") == "x" and not e.get("due")
+            and isinstance(e.get("id"), int) and int(e.get("n") or 0) < int(e.get("posts") or 0)]
+    if not fits:
+        return None
+    exp = min(fits, key=lambda e: e["id"])
+    return {"id": exp["id"], "format": str(exp.get("format") or ""), "hypothesis": _str(exp.get("hypothesis"), 300)}
+
+
+def experiment_part(experiment: Json, n: int) -> str:
+    k = max(1, n // 2)
+    return (f"## the lab's open experiment\n\nYou are testing a guess about what gets attention on X: "
+            f"\"{experiment['hypothesis']}\" (`{experiment['format']}`). Write {k} of your {n} posts to test it, "
+            f"each still a finished post on its own card, and mark each of those with \"experiment\": "
+            f"{experiment['id']}. The others are your usual posts, the comparison.")
+
+
 def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.Format, Json | None]] | None = None,
-                  menu: Json | None = None, n: int | None = None) -> str:
+                  menu: Json | None = None, n: int | None = None, experiment: Json | None = None) -> str:
     """The one writer turn. `videos` are the video formats this slot offers,
-    each with its source's study (None for a skit), and `menu` the meme
-    templates when memes are on."""
+    each with its source's study (None for a skit), `menu` the meme
+    templates when memes are on, and `experiment` the lab's open X
+    experiment (open_x_experiment) some of the posts try."""
     n = n or cfg.posts
     videos = videos or []
     words = [f for f in word_formats(cfg) if f != "meme" or (menu or {}).get("templates")] or \
@@ -386,6 +411,8 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
     ]
     if "meme" in words:
         parts.append(meme_menu_part(menu or {}))
+    if experiment:
+        parts.append(experiment_part(experiment, n))
     if videos:
         k = min(cfg.video_posts, n)
         names = " or ".join(v.name for v, _ in videos)
@@ -407,7 +434,8 @@ def write_message(cfg: Config, cards: list[Json], videos: list[tuple[formats.For
 
 
 def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
-                   studies: dict[str, Json | None] | None = None, quote: bool = False) -> tuple[list[Json], list[Json]]:
+                   studies: dict[str, Json | None] | None = None, quote: bool = False,
+                   experiment_id: int | None = None) -> tuple[list[Json], list[Json]]:
     """(posts, dropped with why). Structure only: a list of objects (or
     {"posts": [...]}), each with words, a card that exists, a format offered
     and no link or handle the link rules would strip; a thread is 2 to
@@ -415,7 +443,9 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
     a video its piece as its format shapes it. With `quote`, each names the X
     post it quotes (`quote`, one of its card's quotes with a `post` id; a card
     with one needs none named), kept as `quote_of` and `quoted`. Length is
-    never a reason. Raises ValueError when the answer is no list at all."""
+    never a reason. A post marked with `experiment_id` keeps it as
+    `experiment` (any other mark is ignored). Raises ValueError when the
+    answer is no list at all."""
     if isinstance(answer, dict) and isinstance(answer.get("posts"), list):
         answer = answer["posts"]
     if not isinstance(answer, list):
@@ -431,6 +461,8 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
         card = by_id.get(_str(raw.get("card"), 120))
         fmt = _str(raw.get("format"), 20).lower() or "post"
         post: Json = {"card": _str(raw.get("card"), 120), "format": fmt}
+        if experiment_id is not None and str(raw.get("experiment")).strip() == str(experiment_id):
+            post["experiment"] = experiment_id
         why = ""
         if card is None:
             why = f"its card {raw.get('card')!r} is not one of the cards"
@@ -736,6 +768,8 @@ def post_body(room: Room, label: str, post: Json, media_ids: list[str]) -> tuple
                   "pitch_id": f"{room.run_id}:{label}"[:120]}
     if media_ids:
         body["media_ids"] = media_ids
+    if post.get("experiment"):
+        body["experiment"] = post["experiment"]
     if post.get("quote_of"):
         body["quote_of"] = post["quote_of"]
     if "posts" in post:
@@ -1162,8 +1196,14 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     posts: list[Json] = []
     dropped: list[Json] = []
     record.update(posts=posts, posts_dropped=dropped)
-    checked = room.turn("writer", "write", write_message(cfg, cards, videos, menu), room.writer_thread, soft=True,
-                        want=object, check=lambda answer: validate_posts(answer, cards, allowed, studies, quote=quote))
+    experiment = open_x_experiment(room)
+    if experiment:
+        record["experiment"] = experiment
+    exp_id = experiment["id"] if experiment else None
+    checked = room.turn("writer", "write", write_message(cfg, cards, videos, menu, experiment=experiment),
+                        room.writer_thread, soft=True, want=object,
+                        check=lambda answer: validate_posts(answer, cards, allowed, studies, quote=quote,
+                                                            experiment_id=exp_id))
     if checked is None:
         raise Stop("failed", f"the write answer is not a list of posts: {room.calls[-1].get('unusable')}, twice", 1,
                    failure="studio")

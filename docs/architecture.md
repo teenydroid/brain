@@ -115,7 +115,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` and `bin/*` resolve. |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
 | Model | The core's `local-openai` runtime, which needs no TinyHumans account. `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL`. The core does not ask a `local-openai` endpoint for the model's context window, and budgets an unknown model at a few thousand tokens, so `bin/spine` registers the window with `inference_update_model_settings`, from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models`. |
-| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). |
+| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). Only the agents that speak as Teeny (`teeny`, `act`, `teeny-mentions`, `teeny-mail`) log their turns there; every agent that recalls nothing (`omit_memory_context`) also sets `omit_memory_log = true`, so a helper's turn (the studio's writer and editor, the evals' judge, the querier, the reviewer, the builder, the operator) never reaches memory (`bin/lib/agent_check.py`; on 2026-11-23, 1,236 such turns sat in CortexDB, recalled by nobody and turning up in recall). Embeddings: CortexDB pins its embedding model (`venice-embed-1`, 1024 dims, on Surplus) on the first memory and has no second source (v0.10.4 reads one `CORTEX_EMBEDDING_URL`). A fallback must serve the same model with the same vectors, which no other seller is known to; any other model means a re-embed of everything stored (`CORTEX_EMBEDDING_ALLOW_REPIN=1` with `CORTEX_EMBEDDING_REBUILD_VECTORS=1`), a person's call. So when the seller is down (`503 no_healthy_sellers`, for hours on 2026-11-20..23) the embeddings retry twice, a second and then two apart (`deploy/compose.yaml`), and `bin/health` reads CortexDB's `/v1/admin/ready`: no embedding for 15 minutes, two checks in a row, opens `memory_alarm` (a `health · alarm` stimulus and one issue), closed by the first success. |
 | Keyring | File store: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key`. Every secret OpenHuman holds is a row in `storage.db`, encrypted under that key. Back up `storage.db` and the key file together. |
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
@@ -238,7 +238,10 @@ are built otherwise, §4b):
   The agents set `refresh_prompt_on_resume`, so a rebuilt prompt reaches a
   thread already under way.
 - `MEMORY.md`, Teeny's own page of things to keep in mind (people, promises,
-  what it is in the middle of, what it decided), capped at 12k characters.
+  what it is in the middle of, what it decided), capped at 8,000 characters
+  (about 2,000 tokens; 12,000 until 2026-11-23, when the page had sat at the
+  limit for a week). What it shipped is not on it: the ledgers and "what you
+  did last week" carry every build.
   It is the persistence that survives anything, and no agent's file tool can
   write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/dream`
   rewrites it there, so it is gitignored, and the repository keeps where it
@@ -251,8 +254,14 @@ are built otherwise, §4b):
   each sample on a fresh `eval:<uuid>` thread and stay blind to it.
 - Recall and the memory block: `[memory.recall] budget_tokens = 3000` before
   each turn, and a `memory_block` at each new generation (2000 tokens for
-  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 3000` makes each
-  turn wait up to 3 s for the pack recalled for its own message; unset, a turn
+  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 5000` makes each
+  turn wait up to 5 s for the pack recalled for its own message (at 3 s, 34%
+  of recalls on the box came back after the turn had gone on without them:
+  median 1.7 s, p90 4.2 s, 2026-11-21..23). Each turn logs whether its
+  pack came in time (`[memory:recall] current message recalled in time`,
+  `deadline: recall not ready in time`, `nothing recalled`; the spine's
+  `RUST_LOG` in `deploy/compose.yaml`), so `docker logs` counts the turns
+  that went without. Unset, a turn
   only took the pack an earlier turn left in a cache that lives 60 s, so a
   beat five minutes after the last got none. `build_beliefs_every = 0`: a beat
   logs its whole batch as "the user", and beliefs built from that read "the
@@ -295,7 +304,13 @@ change to Teeny itself through `hands/build self` (one a day by default,
 operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
-teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+teaches the core's memory (`memory_learn`). A `reply_x` that went out to an X regular
+(someone who wrote on two days or more, `hands/people`) also teaches the
+core one dated learning about them, what they said and what Teeny answered
+(`_learn_x_regular`, at most one a person a day, `state/tick/x-learned.json`),
+so recall finds X people by name and the dream sees them among its
+learnings: of 48 accounts replied to on 2026-11-19..23, 21 were regulars
+and recall knew none of them. `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
 
 **People in a beat.** `promise` (`{surface, who, what, due_in_hours, ref?}`)
@@ -550,7 +565,12 @@ or so). It works from:
   experiments scored in code just before the turn, the lab's lessons, what
   worked and what flopped on Moltbook (its own posts by format and submolt,
   comments by format, over 7 and 14 days: `hands/moltbook study`'s
-  `own_summary`), and
+  `own_summary`), the same for X (`teeny_hands/stats/x_study.py`: its own
+  posts, quotes and replies over 7 and 14 days by kind and producer and,
+  for originals, by format, each group's count, average impressions and
+  average engagements; the 3 best and 3 worst originals of the 14 days,
+  words clipped; and who the replies reached, regulars named; until
+  2026-11-23 a dream saw nothing of X's numbers), and
   "true right now" (the wallet's and the x402 rail's balances read at that
   moment, and the follower numbers), so a dream does not write a stale
   number into the page. Each is a list with a hard cap of 2,500 characters.
@@ -565,6 +585,12 @@ is refused until the planned posts are measured. Every beat carries a
 scoreboard block (at most 1,500 characters: the board's lines, the
 open experiments, the latest three lessons); the mind may
 `propose_experiment` and `conclude_experiment` (2 and 5 a day by default).
+An experiment that can no longer teach anything (no post in 5 days, past
+its deadline short of its posts, or past it by 2 days with no verdict) is
+concluded `unclear` in code before each score and proposal, so the lab
+never sits full of dead experiments (docs/hands.md, `lab`, "Expiry"). The
+studio offers the oldest open X experiment to its writer and tags the posts
+that try it; the mind's replies and Moltbook comments carry their tags too.
 The night dream concludes what is due and proposes the next ones through
 two more operations, `experiment` and `conclude` (at most 2 and 5 a night),
 carried out through `hands/lab` after the page is written. The daily
@@ -582,8 +608,11 @@ earliest beats (never below 20), then each of the day's notes shortened to
 notes alone came to 39 KB. Each cut is said in the message, so Teeny knows
 what it did not see.
 
-The page keeps a `what i have shipped` section, and no raw ids or retry
-counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
+The page keeps people (X regulars as much as Moltbook ones), promises, what
+Teeny is in the middle of and what it decided, and no raw ids or retry
+counts. It no longer keeps a `what i have shipped` section: every dream is
+told to retire its items, and an `add` under it is asked about again
+(`RETIRED_SECTIONS`). The dream is the reflection's engine (`bin/lib/reflect.py`, below)
 with one more operation, `forget`, and a snapshot at the end
 (`bin/lib/dream.py`). `bin/reflect` still runs a plain reflection by hand.
 
@@ -620,11 +649,16 @@ text, reason) before the core is asked (`memory_forget`).
 
 The shrink check in `bin/lib/reflect.py` then refuses a result that retires
 more than 8 items, or that takes more than 30% off the page (a loss under
-500 characters is spared, so a young page can still close a thread). Every
-retire needs a reason. A refused reflection is logged to
+500 characters is spared, so a young page can still close a thread). A page
+already over the limit may retire 16, and may come down as far as 70% of the
+limit in one sitting, so a full page can reach it but never collapses
+(`may_lose`). Every retire needs a reason. A refused reflection is logged to
 `state/reflect/refused.jsonl`, keeps the old page and returns
-`refused: true`. A page past the 12k-character limit (and longer than
-before) is not cut: the mind is asked to retire or merge items instead.
+`refused: true`. A page past the 8,000-character limit (and longer than
+before) is not cut: the mind is asked to retire or merge items instead, and
+when its second answer still leaves the page too long it is asked a third
+time, told how many characters over it is (both dreams of 2026-11-21 were
+lost there).
 
 The old page is kept in `state/reflect/`, and the diary entry goes to
 `state/diary/<date>.md` and to the core's memory. On Mondays, the goals
@@ -644,6 +678,16 @@ Anything else changes nothing. Like the beat, the pinned jobs run it
 detached (`bin/dream --detach`, log in `state/dream/dream.log`) under the
 `reflect` lock: one long turn can outlast the core's 300 s, and a second
 dream (or a reflection by hand) never starts while one is running.
+
+A dream always says how it ended (2026-11-23's midday dream left only its
+start line). Each turn runs in a process group of its own and a timeout
+ends the whole group (`reflect.ask`); the whole dream has a deadline of an
+hour (`DEADLINE_SECS`), and SIGTERM, SIGHUP, SIGINT or the deadline end the
+turn and write `{"ok": false, "error": ...}`, as does any unexpected error.
+The lock is an flock, so it goes with the process. A run killed outright
+(SIGKILL, the container recreated) cannot write; the next detached start
+then writes a line saying the earlier run left no result before its own
+(`bin/lib/detach.py`).
 
 At midday (`dream-midday`, `bin/dream --light`) it does the same for the
 page alone, so the afternoon's prompts carry the morning. It writes no diary
@@ -684,7 +728,7 @@ How the day's beats become the page every prompt carries:
                                               │
                                               ▼
                      ops (add / edit / retire by [mN] id, forget by [cN]), then the shrink check
-                     new brain/MEMORY.md (at most 12k chars, never committed); old page in state/reflect/
+                     new brain/MEMORY.md (at most 8k chars, never committed); old page in state/reflect/
                      retired items to state/reflect/retired.jsonl
                      forgotten learnings to state/dream/forgotten.jsonl, then memory_forget
                      night only: diary to state/diary/<date>.md and memory_learn

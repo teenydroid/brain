@@ -1783,6 +1783,30 @@ class TickTest(unittest.TestCase):
         self.assertTrue(got["ok"])
         self.assertEqual(got["thought"], "there")
 
+    def test_a_reply_to_an_x_regular_teaches_the_core_once_a_day(self):
+        # 21 of 48 X accounts replied to over five days (2026-11-19..23) came
+        # back on two days or more, yet recall knew none of them: only the
+        # mind's raw batches held their names. A reply to a regular now
+        # leaves a dated learning about them, at most one a person a day.
+        stimuli.add("x", "mention", "100", "first gm", who="ana", at=T0 - 86400)
+        stimuli.add("x", "mention", "111", "you shipped the chart yet?", who="ana")
+        stimuli.add("x", "mention", "222", "hello", who="bo")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "not yet, friday"},
+            {"do": "reply_x", "to": "222", "text": "hi bo"},
+        ]})
+        self.tick()
+        about = [p["text"] for p in self.learned() if "(X" in p["text"]]
+        self.assertEqual(len(about), 1, about)
+        self.assertIn("about @ana (X", about[0])
+        self.assertIn("you shipped the chart yet?", about[0])
+        self.assertIn("not yet, friday", about[0])
+        stimuli.add("x", "mention", "333", "friday then", who="ana", at=T0 + 300)
+        os.environ["TEENY_NOW"] = str(T0 + 300)
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "333", "text": "friday"}]})
+        self.tick()
+        self.assertEqual(len([p for p in self.learned() if "about @ana (X" in p["text"]]), 1)
+
     def test_remember_keeps_a_note_and_teaches_the_core(self):
         stimuli.add("x", "mention", "111", "i'm building a cli for crabs", who="ana")
         self.answer({"thought": "", "intents": [{"do": "remember", "who": "ana", "note": "builds a cli for crabs"}]})
@@ -2608,6 +2632,29 @@ class TickTest(unittest.TestCase):
                                     "url": "https://github.com/teenydroid/x"}),
             ("moltbook", ["follow"], {"name": "crabby"}),
         ])
+
+    def test_a_reply_and_a_comment_carry_their_lab_tags_to_the_hand(self):
+        # Experiments 2 and 4 (2026-11-14/15) died with no post ever tagged:
+        # the beat dropped format and experiment from reply_x and
+        # comment_moltbook, though both hands keep them.
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "123", "text": "a take, then a question?", "format": "question-reply",
+             "experiment": 4},
+            {"do": "comment_moltbook", "post_id": "p1", "text": "my number: 11.4%", "format": "claim-comment",
+             "experiment": "2"},
+        ]})
+        self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            ("x", ["reply", "--to", "123"], {"text": "a take, then a question?", "format": "question-reply",
+                                             "experiment": 4}),
+            ("moltbook", ["comment"], {"post_id": "p1", "body": "my number: 11.4%", "format": "claim-comment",
+                                       "experiment": "2"}),
+        ])
+        [chat] = self.chats()
+        self.assertIn('{"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>", '
+                      '"format": "<tag, optional>", "experiment": <lab #, optional>}', chat["message"])
 
     def test_the_mind_can_decline_a_comment_on_its_own_post_with_a_reason(self):
         stimuli.add("moltbook", "comment", "c9", "register your bot as a performer", who="pixelbot",

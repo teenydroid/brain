@@ -7,10 +7,12 @@ dream leaves a snapshot of the page for the public diary (bin/lib/diary_memory.p
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -34,6 +36,9 @@ if method == "memory_forget":
 with open(os.environ["FAKE_CALLS"], "a") as fh:
     fh.write(json.dumps(row) + "\n")
 if method == "inference_agent_chat":
+    if os.environ.get("FAKE_TURN_SLEEP"):
+        import time
+        time.sleep(float(os.environ["FAKE_TURN_SLEEP"]))
     with open(os.environ["FAKE_CALLS"]) as fh:
         n = sum(1 for line in fh if '"inference_agent_chat"' in line)
     path = os.environ["FAKE_ANSWER"]
@@ -112,7 +117,7 @@ class DreamTest(unittest.TestCase):
             FAKE_ITEMS=str(self.items),
             CALENDAR_TZ="UTC",
         )
-        for key in ("TEENY_DREAM_THREAD", "TEENY_REFLECT_THREAD"):
+        for key in ("TEENY_DREAM_THREAD", "TEENY_REFLECT_THREAD", "FAKE_TURN_SLEEP"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
 
@@ -246,6 +251,26 @@ class DreamTest(unittest.TestCase):
             self.assertIn("x402 rail (USDC on Base, what paid search spends): 3.00", message)
             # Only the night may run the lab.
             self.assertEqual('"op": "experiment"' in message, not light)
+
+    def test_a_dream_sees_what_worked_on_x(self):
+        # Until 2026-11-23 a dream saw Moltbook's results by format and
+        # nothing of X's, where most of Teeny's writing goes.
+        from teeny_hands.x import metrics as x_metrics
+        from teeny_hands.x import posting_rules
+
+        conn = x_metrics.db()
+        posting_rules.record_post(conn, "1", "post", "a studio picture", created_at=T0 - 86400, format="image",
+                                  producer="studio")
+        conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes,"
+                     " impressions) VALUES ('1', 24, ?, 20, 1, 1, 0, 300)", (T0,))
+        conn.commit()
+        conn.close()
+        self.answer({"ops": [], "diary": "d"})
+        self.assertTrue(self.dream()["ok"])
+        message = self.message()
+        self.assertIn("## x: what worked and what flopped", message)
+        self.assertIn("X by kind/producer, last 7d: post/studio n=1 avg views 300 eng 22", message)
+        self.assertIn('X best original, last 14d: 22 eng, 300 views', message)
 
     def test_a_dream_hears_what_came_of_the_merged_evolve_changes(self):
         # bin/evolve watch scores each merged change's check after the merge
@@ -405,7 +430,7 @@ class DreamTest(unittest.TestCase):
     # --- the page and the snapshot -------------------------------------------
 
     def test_a_dream_updates_the_page_and_leaves_a_snapshot_for_the_diary(self):
-        self.answer({"ops": [{"op": "add", "section": "what i have shipped", "text": "csvstat"},
+        self.answer({"ops": [{"op": "add", "section": "what i am in the middle of", "text": "csvstat"},
                              {"op": "edit", "id": "m1", "text": "ana (x): ships the crab cli friday."},
                              {"op": "forget", "item": "c2", "reason": "superseded by m1"}],
                      "diary": "a good day."})
@@ -442,6 +467,44 @@ class DreamTest(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         self.assertNotIn("## what your memory holds", self.message())
 
+
+    def _stopped_mid_turn(self, sig: int) -> tuple[dict, float]:
+        """A dream stopped by `sig` while its turn is still out: what it said,
+        and how long its turn's processes outlived it."""
+        os.environ["FAKE_TURN_SLEEP"] = "30"
+        self.answer({"ops": [], "diary": "d"})
+        proc = subprocess.Popen([str(REPO / "bin" / "dream")], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=os.environ, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not (self.calls.exists() and "inference_agent_chat" in self.calls.read_text()):
+                time.sleep(0.05)
+            time.sleep(0.3)
+            os.kill(proc.pid, sig)
+            out, _ = proc.communicate(timeout=20)
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        started = time.monotonic()
+        alive = subprocess.run(["pgrep", "-f", str(self.scratch / "fake-oh")], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(alive, "", "the turn outlived the dream")
+        return json.loads(out.strip().splitlines()[-1]), time.monotonic() - started
+
+    def test_a_dream_stopped_mid_turn_still_says_so(self):
+        # 2026-11-23 08:30 UTC: the midday dream started (pid 9914) and its
+        # log never got a result line, so nobody could tell what became of it.
+        got, _ = self._stopped_mid_turn(signal.SIGTERM)
+        self.assertFalse(got["ok"])
+        self.assertIn("SIGTERM", got["error"])
+        with hand.lock("reflect", timeout=1):  # the lock went with it
+            pass
+
+    def test_a_dream_past_its_deadline_says_so_and_ends_its_turn(self):
+        got, _ = self._stopped_mid_turn(signal.SIGALRM)
+        self.assertFalse(got["ok"])
+        self.assertIn("deadline", got["error"])
 
 if __name__ == "__main__":
     unittest.main()

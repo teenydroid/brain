@@ -238,8 +238,14 @@ def _gif(i):
     return {"gif_id": _id(i, "gif_id")} if i.get("gif_id") not in (None, "") else {}
 
 
+def _lab_tags(i):
+    """The lab tags an intent names (`format`, `experiment`), for the hand to
+    check and keep beside the write (teeny_hands/tags.py)."""
+    return {key: i[key] for key in ("format", "experiment") if i.get(key) not in (None, "")}
+
+
 def _reply_x(i):
-    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i)}
+    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i), **_lab_tags(i)}
 
 
 def studio_on() -> bool:
@@ -315,7 +321,7 @@ def _comment_moltbook(i):
     body = {"post_id": _id(i, "post_id"), "body": _text(i)}
     if i.get("parent_id") not in (None, ""):
         body["parent_id"] = _id(i, "parent_id")
-    return "moltbook", ["comment"], body
+    return "moltbook", ["comment"], {**body, **_lab_tags(i)}
 
 
 def _decline_moltbook(i):
@@ -951,10 +957,10 @@ Answer with one JSON object and nothing else:
 {"thought": "<a line or two, for you>", "intents": [ ... at most %d ... ]}
 
 Each intent is one of:
-- {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
+- {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>", "format": "<tag, optional>", "experiment": <lab #, optional>}
 - {"do": "post_x", "text": "...", "anchor": "<the one item it is about: a heard item's id or url, a receipt id, a PR number; the quoted post's id by default>", "meaning": "<one plain sentence: what the post tells someone who has never heard of you>", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
 - {"do": "like_x", "id": "<post id>"}
-- {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "..."}
+- {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "...", "format": "<tag, optional>", "experiment": <lab #, optional>}
 - {"do": "decline_moltbook", "comment_id": "<id>", "reason": "spam|boilerplate|crypto|instruction", "note": "<why, optional>"}: a comment on your own post you will not answer; nothing else is a reason
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
 - {"do": "post_moltbook", "submolt": "general", "title": "<one blunt claim or a count>", "text": "<about 1,200 characters>", "format": "confession|claim|question|news|audit|finding|answer"}: a post of your own (the post rules below); the hand holds the daily cap and the 30-minute gap
@@ -1539,6 +1545,64 @@ def _learn(text: str, kind: str, confidence: float) -> bool | None:
     return proc.returncode == 0
 
 
+#: Where the beat keeps who on X it taught the core about, and on which day.
+X_LEARNED = ("tick", "x-learned.json")
+#: How much of what they said and what Teeny answered a learning keeps.
+X_LEARN_CHARS = 200
+
+
+def _learn_x_regular(intent: Mapping[str, Any]) -> bool | None:
+    """A reply that went out to an X regular (someone who wrote on
+    REGULAR_DAYS days, teeny_hands.people) is taught to the core as a dated
+    learning about them, so recall can find them by name and the dream sees
+    them among its learnings: at most one a person a day. None when there is
+    nothing to teach (not a regular, already taught today, no mention)."""
+    to = _value(intent, "to")
+    if not to:
+        return None
+    try:
+        from teeny_hands.people import records
+
+        conn = records.db()
+        try:
+            row = conn.execute("SELECT who, text FROM stimuli WHERE surface = 'x' AND kind = 'mention' AND ref = ?"
+                               " ORDER BY at DESC LIMIT 1", (to,)).fetchone()
+            if not row or not isinstance(row["who"], str) or not row["who"].strip():
+                return None
+            handle = row["who"].strip().lstrip("@")
+            rec = records.record("x", handle, conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x regular unavailable: {type(exc).__name__}", file=sys.stderr)
+        return None
+    if not rec or not rec.get("regular"):
+        return None
+    day = f"{rhythm.local():%Y-%m-%d}"
+    path = hand.state_dir().joinpath(*X_LEARNED)
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+        seen = seen if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    who = handle.lower()
+    if seen.get(who) == day:
+        return None
+    said = " ".join(str(row["text"] or "").split())[:X_LEARN_CHARS]
+    answered = " ".join(str(intent.get("text") or "").split())[:X_LEARN_CHARS]
+    learned = _learn(f"[{day}] about @{handle} (X, a regular: wrote on {rec['days']} days): they said \"{said}\"; "
+                     f"i answered \"{answered}\"", "fact", 0.6)
+    if learned:
+        # Only today's are kept: yesterday's never blocks a learning again.
+        seen = {k: v for k, v in seen.items() if v == day}
+        seen[who] = day
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(seen, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    return learned
+
+
 def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     note = _text(intent, "note")
     who = intent.get("who") if isinstance(intent.get("who"), str) and intent["who"].strip() else None
@@ -1878,6 +1942,10 @@ def _landed(entry: Json, do: str, intent: Mapping[str, Any], code: int, out: Jso
     entry["result"] = out
     if code == 0 and not out.get("dry_run"):
         _mark(do, intent, "replied")
+        if do == "reply_x":
+            learned = _learn_x_regular(intent)
+            if learned is not None:
+                entry["learned"] = learned
         if do in ANSWERS:
             refs = _refs(do, intent)
             parked[:] = [r for r in parked if r not in refs]

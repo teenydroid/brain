@@ -20,11 +20,15 @@ turn is handed (docs/architecture.md, "One mind").
                    "the user", so beliefs built from the log read "the user
                    energy level 56" and lead the memory block. Teeny's
                    facts come from `remember`, the diary and MEMORY.md.
-  [memory] recall_each_turn_ms = 3000 (one key; the table is the core's):
-                   each turn waits up to 3 s for the pack recalled for its
+  [memory] recall_each_turn_ms = 5000 (one key; the table is the core's):
+                   each turn waits up to 5 s for the pack recalled for its
                    own message. Unset, a turn only takes a pack an earlier
                    turn left in a cache that lives 60 s, so a beat every 5
-                   minutes got none, or the previous batch's.
+                   minutes got none, or the previous batch's. At 3 s, 34%
+                   of CortexDB's recalls on the box (median 1.7 s, p90
+                   4.2 s, 2026-11-21..23) came back after the turn had
+                   gone on without them; 5 s covers past the p90, and a
+                   beat every 5 minutes can spare it.
 
 TEENY_COMPACTION_TRIGGER_TOKENS moves the trigger (a smaller model, a test).
 Only `[memory.recall]` is owned here: the `[memory]` table itself (the
@@ -44,7 +48,7 @@ KEEP_RECENT_TOKENS = 40_000
 #: The memory pack recalled before each turn.
 RECALL_BUDGET_TOKENS = 3000
 #: How long a turn waits for the pack recalled for its own message.
-RECALL_EACH_TURN_MS = 3000
+RECALL_EACH_TURN_MS = 5000
 
 
 def trigger_tokens() -> int:
