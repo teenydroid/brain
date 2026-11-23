@@ -813,6 +813,31 @@ class PulseTest(BrokerCase):
         self.assertIn("pinned", jobs["tick"]["owner"])
         self.assertEqual(jobs["tick"]["failed"], 0)
 
+    def test_a_script_whose_name_starts_with_mind_is_still_a_script(self):
+        self.stores()
+        import sqlite3
+        conn = sqlite3.connect(self.root / "brain" / "storage.db")
+        body = {"id": "j9", "name": "teeny.mind-check", "job_type": "shell", "expression": "0 * * * *", "enabled": 1}
+        conn.execute("insert into docs values ('j9', 'cron.jobs', 0, ?)", (json.dumps(body),))
+        conn.commit()
+        conn.close()
+        self.start()
+        _, answer = self.post("/pulse")
+        self.assertEqual({j["job"] for j in answer["jobs"]}, {"dream", "tick", "mind-check"})
+
+    def test_a_detached_tick_beat_that_failed_shows_even_though_cron_saw_a_clean_launch(self):
+        self.stores()
+        (self.root / "state" / "tick").mkdir()
+        beats = [{"at": "2026-09-14T06:00:00Z", "kind": "failed", "error": "model refused"},
+                 {"at": "2026-09-14T06:30:00Z", "kind": "beat"},
+                 {"at": "2026-09-10T06:00:00Z", "kind": "failed", "error": "too old"}]
+        (self.root / "state" / "tick" / "runs.jsonl").write_text("".join(json.dumps(b) + "\n" for b in beats) + "not json\n")
+        self.start()
+        _, answer = self.post("/pulse")
+        tick = {j["job"]: j for j in answer["jobs"]}["tick"]
+        self.assertEqual((tick["failed"], tick["beats_failed"], tick["last_beat_error"]), (0, 1, "model refused"))
+        self.assertIn("teeny.tick", json.dumps(answer["outcomes"]))
+
     def test_it_says_what_became_of_what_the_scripts_made(self):
         self.stores()
         self.start()
