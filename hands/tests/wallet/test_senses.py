@@ -155,7 +155,8 @@ class WatchTest(Scratch):
 
     def test_a_watch_the_rpc_refuses_from_its_first_read_is_a_failed_run(self):
         self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
-        self.chain.answers["getTransaction"] = HttpStatus(429)
+        # Retry-After 0: the job runs in its own process, where the waits are real.
+        self.chain.answers["getTransaction"] = HttpStatus(429, {"Retry-After": "0"})
         done = self.job()
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("getTransaction answered HTTP 429", json.loads(done.stdout)["error"])
