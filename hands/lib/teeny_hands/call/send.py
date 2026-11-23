@@ -7,7 +7,7 @@ from typing import Any
 
 from .. import hand
 from ..rest import RestApi, RestError
-from . import request, services
+from . import counts, request, services
 
 Json = dict[str, Any]
 
