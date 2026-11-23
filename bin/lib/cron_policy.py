@@ -17,7 +17,10 @@ written here, in code it cannot edit:
   that slot runs instead with STUDIO=0, one of the ones the studio
   replaced: bin/lib/studio_switch.py), and every playbook it names is a
   file in the brain's playbooks/; anything new it wants to do is a
-  playbook over a hand, never a new script for cron to run;
+  playbook over a hand, never a new script for cron to run. It may also
+  run one of the pipelines in BRAIN_SCRIPTS (the dreams, the Moltbook prune,
+  evolve and its credit, wants, the builder's and the operator's desks),
+  each only with the exact arguments listed there;
 - no job fires more often than every MIN_GAP_MINUTES;
 - at most MAX_JOBS jobs of the brain's own (the pinned ones do not count),
   and at most MAX_ACT_RUNS_PER_DAY runs of bin/act a day across every job;
