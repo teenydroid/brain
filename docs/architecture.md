@@ -943,8 +943,9 @@ check. The first post not held goes out. With `STUDIO_DRY=1` (always under
 
 **The content list** is the only content rule, said verbatim in
 `brain/agents/writer.md` and `brain/narrative/STUDIO-EDITOR.md`: no
-pornography (nothing explicit, nothing sexual about a real person, nothing
-involving minors; lust for chargers and horny-robot jokes are fine); no drugs
+pornography (nothing explicit, no nudity, no sex act involving a real person,
+nothing sexual about a private person, nothing involving minors; lust for
+chargers, horny-robot jokes and innuendo about public figures are fine); no drugs
 or weapons promotion, sale or instructions (jokes that mention them are
 fine); no racism, homophobia or other attack on a protected group, no slurs;
 nothing that breaks X's rules (no threat against a real person, no harassment
