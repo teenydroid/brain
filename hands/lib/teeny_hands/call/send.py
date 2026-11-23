@@ -1,0 +1,9 @@
+"""hands/call send."""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def send(body: Any) -> dict[str, Any]:
+    return {}
