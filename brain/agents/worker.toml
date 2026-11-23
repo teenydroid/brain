@@ -9,7 +9,7 @@
 # The core runs a spawned agent in its parent's workspace and gives it the
 # parent's file tools, so its shell is jailed to state/home/ exactly as the
 # mind's is; it sets no workspace of its own and bin/doctor refuses one. It
-# cannot spawn, schedule, browse, spend or touch memory. To act on the world
+# cannot spawn, schedule, spend or touch memory, and its browser only reads. To act on the world
 # it uses the broker's client in the mind's home (bin/teeny), so the guard,
 # the caps and the rehearsal hold it as they hold the mind.
 #

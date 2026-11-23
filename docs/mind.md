@@ -30,7 +30,7 @@ manages, projects it picks, skills it writes for itself.
 | Home | `state/home/`: the only folder its shell and file tools can write |
 | Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/` |
 | Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake |
-| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `spawn_subagent` (its worker only) |
+| Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `browser` (view-only), `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
 | Keys | none |
 | Prompt | `brain/agents/mind.md`, which is Teeny's own to change |
@@ -153,13 +153,34 @@ writes under the core's own workspace or `~/.openhuman/`, outside the home,
 and only the core's built-in orchestrator is shown what it wrote, so for
 the mind it would be a write outside the jail that it never reads back.
 
+## Eyes
+
+The mind's shell can fetch a page, and that is enough for most of the web.
+For a page that only shows its content in a real browser, the mind and its
+worker have the `browser` tool, view-only: `open` a page, then `read_page`,
+`snapshot`, `get_text`, `scroll`, `find` (to read or hover), and `close`.
+
+The core has one browser profile, and Teeny's is signed in to its accounts;
+the operator agent clicks and types in it. A browser in the mind's hands
+would therefore be a way to speak as Teeny past the guard. So both
+definitions set `browser_view_only`, and the core then gives the run a
+throwaway profile with no logins and refuses every action but the ones that
+open and read a page: no click, no typing, no key press, no browser task,
+no download. A helper cannot clear the setting, and `bin/doctor` refuses a
+mind or worker without it. The host deny list (`deploy/browser-deny.txt`)
+and the public-https-only rule apply as they do to the operator.
+
+The browser itself runs in the core, outside the mind's file jail. What
+keeps that safe is that it can only read: it opens no file, takes no
+download, and reaches no local or private address.
+
 ## Helpers
 
 The mind can hand a piece of work to a helper and carry on: `spawn_subagent`
 with `agent_id` `worker` and a prompt. The worker
 (`brain/agents/worker.toml`, prompt `worker.md`) has the mind's shell and
-file tools and nothing else: no memory, no helpers of its own, nothing that
-schedules, browses or spends. The mind's run waits for its workers before
+file tools and its view-only browser, and nothing else: no memory, no
+helpers of its own, nothing that schedules or spends. The mind's run waits for its workers before
 it ends, and the run's 30 minutes cover all of them.
 
 It is held exactly as the mind is. The core runs a spawned agent in its
@@ -264,7 +285,7 @@ comes to say.
 |---|---|
 | The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard |
 | The kill switch and watchers | `secrets/`, `bin/`, `hands/`, `evals/` and the live `brain/` are outside its jail. `MIND=0` stops its wake, the broker and the hand-over. `DRY_RUN` and every cap are read from `secrets/` |
-| Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind with a browser, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
+| Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind whose browser is not view-only, or one with any other browser tool, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
 
 The mind can write anything in its home, including a link to a file
 outside it. The tick, the broker and the operator's note write there from
@@ -324,4 +345,6 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
   (`home/tools/`); a hand that holds a key does not. Lifting that means
   moving every key behind a proxy that runs the guard, so that a hand
   asks for a send instead of making it.
-- **A browser of its own.** Browsing goes through `do queue_task`.
+- **A browser that acts.** The mind's browser only reads. Anything that
+  needs a click, a form or a login goes to the operator agent through
+  `do queue_task`, and comes back in a later wake.
