@@ -106,8 +106,9 @@ THREAD_MAX_POSTS = 5
 #: Ledger columns added after x_posts was first created. `thread_of` is the
 #: head's id on a thread continuation.
 COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
-#: The id of the account a quote quoted.
-QUOTE_COLUMNS = {"quote_author": "TEXT"}
+#: The id of the account a quote quoted, and its handle (lowercase), which
+#: `peers` reads to leave a recently quoted author out of what it offers.
+QUOTE_COLUMNS = {"quote_author": "TEXT", "quote_handle": "TEXT"}
 #: Who made an own post, and from what (`studio_tags`): added by the studio
 #: cutover, NULL on every row from before it and from the old paths.
 STUDIO_COLUMNS = {"producer": "TEXT", "storyline": "TEXT", "shape": "TEXT", "pitch_id": "TEXT"}
@@ -405,9 +406,26 @@ def _lane(kind: str) -> str:
     return LANES[kind]
 
 
-def _last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+def lane_of(kind: str, producer: str | None = None) -> str:
+    """The lane an own post of `kind` goes out in. A studio slot's quote
+    (producer `studio`, 2026-11-23) is the slot's original post: it is in
+    the originals' lane, not the outward quote's."""
+    if kind == "quote" and producer == "studio":
+        return "post"
+    return _lane(kind)
+
+
+#: The ledger rows of each lane: the originals with the studio's quotes, and
+#: every other quote.
+LANE_ROWS = {
+    "post": "(kind = 'post' OR (kind = 'quote' AND producer = 'studio'))",
+    "quote": "(kind = 'quote' AND producer IS NOT 'studio')",
+}
+
+
+def _last(conn: sqlite3.Connection, lane: str) -> sqlite3.Row | None:
     return conn.execute(
-        "SELECT id, created_at FROM x_posts WHERE kind = ? ORDER BY created_at DESC LIMIT 1", (kind,)
+        f"SELECT id, created_at FROM x_posts WHERE {LANE_ROWS[_lane(lane)]} ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
 
 
@@ -424,12 +442,12 @@ def _too_soon(rule: str, last: sqlite3.Row, wait: float, what: str) -> hand.Refu
 
 
 def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
-    """Whether an own post of `kind` may go out now. Run under the posting
-    lock, so the answer still holds when the post is recorded. An original
-    post (`post`, a thread's head) looks only at original posts; a quote
-    looks at the previous quote (QUOTE_MIN_GAP_HOURS, less the tolerance) and
-    the newest original post (QUOTE_AFTER_POST_MINUTES), never the other way
-    round."""
+    """Whether an own post of `kind` (a lane, `lane_of`) may go out now. Run
+    under the posting lock, so the answer still holds when the post is
+    recorded. An original post (`post`, a thread's head, a studio quote)
+    looks only at original posts; a quote looks at the previous quote
+    (QUOTE_MIN_GAP_HOURS, less the tolerance) and the newest original post
+    (QUOTE_AFTER_POST_MINUTES), never the other way round."""
     tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
     now = hand.now()
     if _lane(kind) == "post":
@@ -449,9 +467,10 @@ def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
 
 
 def quotes_today(conn: sqlite3.Connection) -> int:
-    """Quotes in the own-post ledger this UTC day."""
+    """Quotes in the quote lane of the own-post ledger this UTC day (a
+    studio quote is in the originals')."""
     now = hand.now()
-    return int(conn.execute("SELECT count(*) FROM x_posts WHERE kind = 'quote' AND created_at >= ?",
+    return int(conn.execute(f"SELECT count(*) FROM x_posts WHERE {LANE_ROWS['quote']} AND created_at >= ?",
                             (now - (now % 86400.0),)).fetchone()[0])
 
 
@@ -480,7 +499,7 @@ def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
         return
     cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
     sent = conn.execute(
-        "SELECT count(*) FROM x_posts WHERE kind = 'post' AND created_at >= ?", (day_start,)
+        f"SELECT count(*) FROM x_posts WHERE {LANE_ROWS['post']} AND created_at >= ?", (day_start,)
     ).fetchone()[0]
     if sent >= cap:
         raise hand.Refused(
@@ -564,6 +583,7 @@ def record_post(
     anchor: str | None = None,
     thread_of: str | None = None,
     quote_author: str | None = None,
+    quote_handle: str | None = None,
     producer: str | None = None,
     storyline: str | None = None,
     shape: str | None = None,
@@ -573,17 +593,17 @@ def record_post(
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
     an own post is about (`check_anchor`), None on a reply. `thread_of` is the
     head's id on a thread continuation (kind `thread`), None elsewhere; `quote_author` is the id of the account a quote
-    quoted (`check_peer_rotation`). `producer`, `storyline`, `shape` and
+    quoted (`check_peer_rotation`) and `quote_handle` its handle. `producer`, `storyline`, `shape` and
     `pitch_id` say who made it and from what (`studio_tags`)."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
         " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author,"
-        " producer, storyline, shape, pitch_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " quote_handle, producer, storyline, shape, pitch_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
          hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author,
-         producer, storyline, shape, pitch_id),
+         quote_handle.lower() if quote_handle else None, producer, storyline, shape, pitch_id),
     )
 
 

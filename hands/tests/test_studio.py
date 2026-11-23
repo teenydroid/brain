@@ -117,6 +117,17 @@ class ConfigTest(unittest.TestCase):
         cfg = self.load({"STUDIO_POSTS": "99", "STUDIO_FEED_CARDS": "0", "STUDIO_BUDGET_SECS": "nope"})
         self.assertEqual((cfg.posts, cfg.feed_cards, cfg.budget_secs), (10, 1, 2400))
 
+    def test_every_slot_quotes_and_no_setting_turns_it_off(self):
+        # 2026-11-23: every slot quotes a trending X post with a picture or video.
+        self.assertTrue(self.load({}).quote)
+        self.assertTrue(self.load({"STUDIO_QUOTE": "0"}, "STUDIO_QUOTE=off\n").quote)
+
+    def test_a_quote_slot_offers_no_plain_post_or_thread(self):
+        self.assertEqual(studio.word_formats(self.load({})), ("image",))
+        self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post,thread,image,meme"})), ("image", "meme"))
+        self.assertEqual(studio.word_formats(self.load({"STUDIO_FORMATS": "post"})), ("image",))
+        self.assertEqual(studio.word_formats(studio.Config()), ("post", "thread", "image"))  # a --no-outside run
+
     def test_the_environment_cannot_set_the_judges_model(self):
         self.assertEqual(self.load({"SAFETY_JUDGE_MODEL": "j"}).judge_model, "")
         self.assertEqual(self.load({}, "SAFETY_JUDGE_MODEL=j\n").judge_model, "j")
@@ -515,6 +526,83 @@ class FeedTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in cards], ["own:1"])
 
 
+TREND_X = {"stories": [
+    {"id": "s1", "title": "OpenAI says it will publish its pretraining limits", "summary": "a pledge on limits",
+     "score": 900, "published_at": "2026-11-18T09:00:00Z",
+     "posts": [{"by": "Sam Altman", "text": "This is the most important thing OpenAI has published in awhile.",
+                "likes": 9000, "url": "https://x.com/sama/status/2124551594691932405"},
+               {"by": "Teeny", "text": "an own post", "url": "https://x.com/teenydroid/status/801"},
+               {"by": "a page", "text": "the blog post", "url": "https://openai.com/limits"}]},
+    {"id": "s2", "title": "Perplexity ships a browser", "summary": "a browser", "score": 600,
+     "published_at": "2026-11-18T08:00:00Z",
+     "posts": [{"by": "Aravind Srinivas", "text": "Comet is out for everyone.",
+                "url": "https://twitter.com/AravSrinivas/status/803?s=20"}]},
+    {"id": "s3", "title": "a chip maker had a big quarter", "summary": "revenue doubled", "score": 300,
+     "published_at": "2026-11-18T06:00:00Z", "posts": [{"by": "a blog", "text": "numbers", "url": "https://b.example"}]},
+]}
+
+
+class QuoteFeedTest(unittest.TestCase):
+    """Every slot quotes (2026-11-23) a real X post behind one
+    of today's trending stories, so the feed is the X posts Digg ranks, each
+    with the id it would quote. An author quoted in the last 7 days (`hands/x
+    peers quoted`) or Teeny itself is not offered: hands/x would refuse the
+    quote after its picture was paid for."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def room(self, quoted=(0, {"days": 7, "handles": []}), **over):
+        return FeedRoom(self.state, answers(**{"trend top": (0, TREND_X), "x peers": quoted, **over}))
+
+    def test_a_digg_post_keeps_the_id_and_handle_of_its_x_address(self):
+        found = studio_feed.digg_candidates(TREND_X, NOW)
+        sama = found[0]["quotes"][0]
+        self.assertEqual((sama["post"], sama["handle"], sama["by"]), ("2124551594691932405", "sama", "Sam Altman"))
+        self.assertNotIn("post", found[0]["quotes"][2])  # a page is no X post
+        self.assertEqual(found[1]["quotes"][0]["post"], "803")
+
+    def test_the_quote_feed_reads_only_the_trending_x_posts(self):
+        room = self.room()
+        found, notes = studio_feed.gather(room, None, 7, {"items": [{"id": "e1", "what": "mine", "at": NOW}]}, NOW,
+                                          quote=True)
+        self.assertEqual([c["id"] for c in found], ["digg:s1", "digg:s2"])
+        self.assertEqual(sorted(notes), ["digg", "quoted"])
+        self.assertEqual({tuple(a[:2]) for a in room.calls}, {("trend", "top"), ("x", "peers")})
+        self.assertIn(["x", "peers", "quoted"], room.calls)
+        # Teeny's own post is gone; the page stays as a line, with nothing to quote.
+        self.assertEqual([q.get("post") for q in found[0]["quotes"]], ["2124551594691932405", None])
+
+    def test_teeny_and_whoever_was_quoted_this_week_are_not_offered(self):
+        room = self.room(quoted=(0, {"days": 7, "handles": ["aravsrinivas"]}))
+        found, notes = studio_feed.gather(room, None, 7, None, NOW, quote=True)
+        self.assertEqual([c["id"] for c in found], ["digg:s1"])
+        self.assertEqual(notes["quoted"], {"left_out": ["aravsrinivas"]})
+
+    def test_not_knowing_who_was_quoted_offers_nothing(self):
+        room = self.room(quoted=(1, {"ok": False, "error": "no ledger"}))
+        found, notes = studio_feed.gather(room, None, 7, None, NOW, quote=True)
+        self.assertEqual(found, [])
+        self.assertIn("no ledger", notes["quoted"]["skipped"])
+
+    def test_the_quote_feed_asks_digg_for_more_leading_stories(self):
+        room = self.room()
+        studio_feed.gather(room, "0430", 7, None, NOW, quote=True)
+        trend = next(a for a in room.calls if a[:2] == ["trend", "top"])
+        self.assertEqual(trend[trend.index("--leading") + 1], str(studio_feed.QUOTE_LEADING))
+
+    def test_a_card_shows_its_quotable_posts_first(self):
+        found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
+            {"by": "a blog", "text": "words", "url": "https://b.example"},
+            {"by": "Sam Altman", "text": "hello", "url": "https://x.com/sama/status/9"}]}]}, NOW)
+        [c] = studio_feed.rank(found, {})
+        self.assertEqual(c["quotes"][0]["post"], "9")
+
+
 # --- step 2: the write -----------------------------------------------------------------------
 
 CARDS = [card("digg:s1", ["Tesla", "Elon Musk"], "Tesla says FSD v15 is rolling out",
@@ -673,6 +761,67 @@ class WriteMessageTest(unittest.TestCase):
         self.assertIn(studio.MEME_ASK, on)
         off = studio.write_message(cfg, CARDS, menu={"error": "down"})
         self.assertNotIn(studio.MEME_ASK, off)
+
+
+SAMA = {"by": "Sam Altman", "handle": "sama", "post": "2124551594691932405",
+        "said": "This is the most important thing OpenAI has published in awhile."}
+QUOTE_CARDS = [card("digg:s1", ["Sam Altman", "OpenAI"], "OpenAI will publish its pretraining limits",
+                    quotes=[SAMA, {"by": "a blog", "said": "the post"}]),
+               card("digg:s2", ["Perplexity"], "Perplexity ships a browser",
+                    quotes=[{"by": "Aravind Srinivas", "handle": "AravSrinivas", "post": "803", "said": "Comet is out."}])]
+SCENE = {"image": "Teeny strapped to a server rack, Sam Altman holding a speed dial", "people": ["Sam Altman"]}
+
+
+class QuoteWriteTest(unittest.TestCase):
+    """A quote slot: each post names the X post it quotes (`quote`, one of
+    its card's posts), and goes out above it."""
+
+    def validate(self, answer, allowed=("image", "meme")):
+        return studio.validate_posts(answer, QUOTE_CARDS, allowed, quote=True)
+
+    def test_a_quote_keeps_the_post_it_quotes(self):
+        kept, dropped = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"],
+                                        "text": "oooooooo strap me with your limits baby", **SCENE}])
+        self.assertEqual(dropped, [])
+        self.assertEqual(kept[0]["quote_of"], SAMA["post"])
+        self.assertEqual(kept[0]["quoted"], {"by": "Sam Altman", "handle": "sama", "said": SAMA["said"]})
+
+    def test_a_quote_of_a_post_not_on_its_card_is_dropped_with_why(self):
+        bad = [{"card": "digg:s1", "format": "image", "quote": "803", "text": "t", **SCENE},
+               {"card": "digg:s1", "format": "image", "quote": "a blog", "text": "t", **SCENE}]
+        kept, dropped = self.validate(bad)
+        self.assertEqual(kept, [])
+        self.assertEqual(len(dropped), 2)
+        self.assertTrue(all("quotes" in d["why"] for d in dropped), dropped)
+
+    def test_a_card_with_one_post_to_quote_needs_no_quote_named(self):
+        kept, dropped = self.validate([{"card": "digg:s2", "format": "image", "text": "t", **SCENE}])
+        self.assertEqual((dropped, kept[0]["quote_of"]), ([], "803"))
+
+    def test_a_plain_post_is_not_offered_in_a_quote_slot(self):
+        _, dropped = self.validate([{"card": "digg:s1", "format": "post", "quote": SAMA["post"], "text": "t"}])
+        self.assertIn("not offered", dropped[0]["why"])
+
+    def test_the_writer_is_asked_for_quotes_with_pictures(self):
+        cfg = studio.Config(formats=("image",), posts=4, quote=True)
+        message = studio.write_message(cfg, QUOTE_CARDS)
+        self.assertIn("Write 4 quotes", message)
+        self.assertIn("`post`", message)
+        self.assertIn('"quote": "<the post id>"', message)
+        self.assertIn("Every one is a picture", message)
+        self.assertNotIn('"format": "post"', message)
+        self.assertNotIn('"format": "thread"', message)
+
+    def test_the_editor_sees_the_post_it_quotes(self):
+        kept, _ = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"], "text": "t", **SCENE}])
+        shown = studio.shown(kept[0])
+        self.assertEqual(shown["quotes"], {"by": "Sam Altman", "said": SAMA["said"]})
+
+    def test_hands_x_is_asked_to_quote_it(self):
+        kept, _ = self.validate([{"card": "digg:s1", "format": "image", "quote": SAMA["post"], "text": "t", **SCENE}])
+        verb, body = studio.post_body(XRoom(), "P1", kept[0], ["m1"])
+        self.assertEqual((verb, body["quote_of"], body["producer"], body["media_ids"]),
+                         ("post", SAMA["post"], "studio", ["m1"]))
 
 
 # --- step 3: the pick ------------------------------------------------------------------------
@@ -1036,6 +1185,11 @@ class RunTest(unittest.TestCase):
                     "TEENY_SECRETS": str(root / "secrets"), "TEENY_BRAIN": str(REPO / "brain"),
                     "TEENY_NOW": str(NOW), "STUDIO_RUN_ID": "run-1", "STUDIO_WRITER_MODEL": "w",
                     "STUDIO_EDITOR_MODEL": "e"}
+        # The mechanics below run on plain posts from every source; the quote
+        # slot has its own tests (`quoting`).
+        plain = mock.patch.object(studio, "QUOTE_SLOTS", False)
+        plain.start()
+        self.addCleanup(plain.stop)
         self.args = argparse.Namespace(dry_run=True, slot=None, desk=str(root / "desk.json"), force_slot=False,
                                        no_outside=False, no_slot=True, legacy=None, print=False)
         self.steps: list[tuple[str, str]] = []
@@ -1074,6 +1228,10 @@ class RunTest(unittest.TestCase):
             return 1, "", f"unexpected {step}"
         return ask
 
+    def quoting(self):
+        """A live run as the box makes it: a quote slot."""
+        return mock.patch.object(studio, "QUOTE_SLOTS", True)
+
     def go(self, ask, **env):
         return studio.run(self.args, {**self.env, **env}, ask=ask)
 
@@ -1102,6 +1260,34 @@ class RunTest(unittest.TestCase):
         # Every hand ran dry; x was asked once.
         self.assertTrue(all(c["dry"] for c in self.calls() if c["hand"] != "story"))
         self.assertEqual(len([c for c in self.calls() if c["hand"] == "x"]), 1)
+
+    def test_a_quote_slot_quotes_a_trending_post_with_its_picture(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
+        tags = {"items": [{"id": "digg:s1", "people": ["Sam Altman"], "what_happened": "openai pledges limits"}]}
+        posts = [{"card": "digg:s1", "format": "image", "quote": "2124551594691932405",
+                  "text": "oooooooo strap me with your limits baby", **SCENE},
+                 {"card": "digg:s1", "format": "post", "text": "a plain post"}]
+        with self.quoting():
+            code, out = self.go(self.ask(tag=tags, posts=posts))
+        rec = self.record()
+        self.assertEqual((code, rec["outcome"]), (0, "picked"))
+        self.assertEqual([c["id"] for c in rec["cards"]], ["digg:s1", "digg:s2"])  # no hn, no chan, no own
+        self.assertIn("not offered", rec["posts_dropped"][0]["why"])
+        [sent] = [c for c in self.calls() if c["hand"] == "x" and c["argv"][0] == "post"]
+        body = json.loads(sent["body"])
+        self.assertEqual((body["quote_of"], body["producer"]), ("2124551594691932405", "studio"))
+        self.assertEqual(rec["final"]["quote_of"], "2124551594691932405")
+        self.assertFalse([c for c in self.calls() if c["hand"] in ("hn", "chan")])
+
+    def test_a_quote_slot_with_nothing_to_quote_skips_before_the_writer(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": ["sama", "aravsrinivas"]}}]})
+        with self.quoting():
+            code, out = self.go(self.ask())
+        self.assertEqual((code, out["outcome"]), (0, "skipped"))
+        self.assertEqual([s for _, s in self.steps], [])  # no feed tag, no writer, no editor
+        self.assertIn("no card", out["reason"])
 
     def test_the_writer_keeps_the_runs_thread_and_the_editor_reads_cold(self):
         threads: list[tuple[str, str]] = []

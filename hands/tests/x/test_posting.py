@@ -468,6 +468,58 @@ class QuoteLaneTest(Posting):
         self.assertEqual(out["sent"], 2)
 
 
+class StudioQuoteTest(QuoteLaneTest):
+    """A studio slot quotes a trending post (2026-11-23): that quote is the
+    slot's original post. It keeps the originals' gap and day's cap, and
+    leaves the outward quote's own lane (2 a day) to the peer quote."""
+
+    def studio_quote(self, n: int, post_id: str = "555") -> dict:
+        self.fresh_id()
+        return publish.post({"text": self.TEXTS[n], "quote_of": post_id, "producer": "studio"})
+
+    def test_a_studio_quote_is_recorded_as_a_quote_from_the_studio(self):
+        out = self.studio_quote(0)
+        self.assertEqual(out["kind"], "quote")
+        [row] = self.ledger()
+        self.assertEqual((row["kind"], row["quote_of"], row["producer"]), ("quote", "555", "studio"))
+
+    def test_a_studio_quote_shuts_the_studio_slot_like_an_original(self):
+        self.studio_quote(0)
+        self.assertIn("why", publish.slot())
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            self.original()
+        self.assertEqual(caught.exception.detail["rule"], "gap")
+
+    def test_a_studio_quote_waits_for_the_originals_gap_not_the_quotes(self):
+        self.original()
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            self.studio_quote(0)
+        self.assertEqual(caught.exception.detail["rule"], "gap")
+        self.at(T0 + 5 * HOUR)
+        self.studio_quote(0)
+
+    def test_a_studio_quote_spends_none_of_the_quote_lane(self):
+        self.studio_quote(0)
+        self.at(T0 + HOUR)  # the spacing after an original post still holds
+        self.assertEqual(publish.slot(quote=True), {"open": True})
+        self.assertEqual(self.quote(1, "556")["kind"], "quote")
+        self.at(T0 + 5 * HOUR)
+        self.studio_quote(2, "557")
+        self.assertEqual([r["producer"] for r in self.ledger()], ["studio", None, "studio"])
+
+    def test_studio_quotes_count_against_the_four_originals_a_day(self):
+        self.configure(POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0", QUOTE_MIN_GAP_HOURS="0",
+                       QUOTE_AFTER_POST_MINUTES="0")
+        for n, post_id in enumerate(("555", "556", "557")):
+            self.studio_quote(n, post_id)
+        self.original()
+        with self.assertRaises(hand.Refused) as caught:
+            self.original("a fifth original about kettles")
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["sent_today"]), ("daily_cap", 4))
+
+
 class DailyCapTest(Posting):
     """Four original posts a UTC day by default (X_POSTS_MAX_PER_DAY); quotes
     have their own cap (QuoteLaneTest) and replies are never counted."""

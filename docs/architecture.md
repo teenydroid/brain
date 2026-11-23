@@ -808,6 +808,20 @@ since the cutover. It runs at the four slots of `brain/cron.toml` (04:30,
 guard in `hands/x` does not hold is posted, with no per-post approval. An
 empty slot is a normal outcome.
 
+Since 2026-11-23 every slot is a quote, with no switch for it:
+X is talked into by replying to what is on it, and a plain post from a
+small account lands in nobody's feed. The feed is the X posts behind Digg's
+leading stories, each card with the id and handle of the posts it may quote
+(Teeny's own and authors quoted in the last 7 days, `hands/x peers quoted`,
+left out); the writer names the post each draft quotes (`quote`) and writes
+pictures, memes or, in a video slot, videos, never a plain post or a thread;
+the editor sees the quoted post beside each draft; `hands/x post` gets
+`quote_of` and `producer: studio`. A studio quote is the slot's original
+post: it counts against `X_POSTS_MAX_PER_DAY` and `POST_MIN_GAP_HOURS`, not
+the outward quote's lane (`posting_rules.lane_of`), so `peer-quote` keeps its
+own two a day. The rollback is a revert; the plain posts described below
+are what a `--no-outside` run still writes.
+
 It was rewritten on 2026-11-22 from 17 stages and 11 to 35 model calls a slot
 (pitch, pitch quotas, drafting, pre-screens, shorten, a pairwise tournament,
 a final slot question, a truth gate, a clarity gate, rewrites) into three

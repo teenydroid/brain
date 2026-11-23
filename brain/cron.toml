@@ -83,7 +83,10 @@ command = "bin/heartbeat"
 # from the next. A run pitches from what really happened, drafts the best
 # pitches, has an editor pick one or none, and puts the pick through the truth
 # judge, the cold reader and the guard before hands/x; an empty slot is a
-# normal outcome. Sunday's 15:00 is a normal studio slot for now (the weekly
+# normal outcome. Since 2026-11-23 every slot is a quote of a trending X post
+# (one behind Digg's leading stories) with a picture, a meme or a video, never
+# a plain post (docs/architecture.md "4b"); it is the slot's
+# original post, so it spends none of the two quotes below. Sunday's 15:00 is a normal studio slot for now (the weekly
 # plan that will take it arrives in a later change).
 #
 # The rollback is STUDIO=0 in secrets/teeny.env, and nothing here changes for
