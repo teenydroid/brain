@@ -319,7 +319,7 @@ def enter(ro: Iterable[str | Path] = (), rw: Iterable[str | Path] = (), *, syste
     ports = None if tcp_connect is None else _ports(tcp_connect)
     if ports is not None and version < NET_ABI:
         raise Unavailable(f"landlock: this kernel has version {version}, the network rule needs {NET_ABI}")
-    ro, rw = list(ro), list(rw)
+    ro, rw, protect = list(ro), list(rw), list(protect)
     named = grants(ro, rw, system=system)
     real = {name: os.path.realpath(name) for name in named}
     check_grants(real.values(), protect)

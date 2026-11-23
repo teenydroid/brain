@@ -212,18 +212,22 @@ class JailTest(Scratch):
             jail.check_grants([self.root / "secrets"], protect=[self.root / "secrets"])
         jail.check_grants([self.root / "home", "/usr"], protect=[self.root / "secrets", self.root / "state"])
 
-    def test_a_grant_swapped_for_a_link_to_what_is_protected_is_refused_where_it_is_opened(self):
-        # check_grants looks at a name; between it and the rule the mind could
-        # swap state/home/work for a link to secrets/. The rule's own open
-        # checks what it opened, so the swap is refused there too.
+    def test_a_grant_swapped_for_a_link_to_a_secret_is_refused_where_it_is_opened(self):
+        # check_grants vets a resolved path; between it and the rule the mind
+        # could swap state/home/work for a link to secrets/ or to a file in
+        # it. The rule's own open must find what was vetted, or refuses.
+        handled = jail._handled(jail.abi())
         (self.root / "state" / "home").mkdir(parents=True, exist_ok=True)
-        link = self.root / "state" / "home" / "work"
-        link.symlink_to(self.root / "secrets")
-        with self.assertRaises(jail.Unavailable):
-            jail._add(None, -1, str(link), jail._WRITE, jail._handled(jail.abi()), [self.root / "secrets"])
-        plain = self.root / "state" / "home" / "plain"
-        plain.mkdir()
-        self.assertIsNone(jail._add(None, -1, str(plain), 0, jail._handled(jail.abi()), [self.root / "secrets"]))
+        work = self.root / "state" / "home" / "work"
+        work.mkdir()
+        vetted = str(work.resolve())
+        self.assertIsNone(jail._add(None, -1, str(work), 0, handled, vetted))
+        work.rmdir()
+        for target in (self.root / "secrets", self.root / "secrets" / "core.token"):
+            work.symlink_to(target)
+            with self.assertRaises(jail.Unavailable):
+                jail._add(None, -1, str(work), jail._WRITE, handled, vetted)
+            work.unlink()
 
     def test_one_run_ends_before_the_cores_own_limit(self):
         # The core gives any cron shell call 300 s (docs/architecture.md).
