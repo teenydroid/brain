@@ -813,7 +813,9 @@ X is talked into by replying to what is on it, and a plain post from a
 small account lands in nobody's feed. The feed is the X posts behind Digg's
 leading stories, each card with the id and handle of the posts it may quote
 (Teeny's own and authors quoted in the last 7 days, `hands/x peers quoted`,
-left out); the writer names the post each draft quotes (`quote`) and writes
+left out; so is a reply, any author the feed's tagging call does not name a
+public figure, company, outlet or journalist, and every story about a death);
+the writer names the post each draft quotes (`quote`) and writes
 pictures, memes or, in a video slot, videos, never a plain post or a thread;
 the editor sees the quoted post beside each draft; `hands/x post` gets
 `quote_of` and `producer: studio`. A studio quote is the slot's original

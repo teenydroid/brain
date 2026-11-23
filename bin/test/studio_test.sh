@@ -56,7 +56,8 @@ case "$(head -n 1 <<<"$msg")" in
   "# studio: feed")
     [ -z "${FAKE_FEED_GARBLED:-}" ] || { say 'items": oops'; exit 0; }
     say "$(block | jq -c '{items: map({id, people: (if (.id | startswith("digg:")) then ["OpenAI"] elif (.id | startswith("hn:")) then ["Hacker News"] else [] end),
-      what_happened: ("what happened: " + .headline)})}')" ;;
+      what_happened: ("what happened: " + .headline),
+      public: [.quotes[]? | capture("^@(?<h>[A-Za-z0-9_]+)") | .h]})}')" ;;
   "# studio: write")
     # $FAKE_WRITE_GARBLED: the first write answer is not JSON.
     if [ -n "${FAKE_WRITE_GARBLED:-}" ] && [ ! -e "$FAKE_SEEN.garbled" ]; then : >"$FAKE_SEEN.garbled"; say 'posts": oops'; exit 0; fi
@@ -221,7 +222,7 @@ cat >"$scratch/hands/trend" <<'FAKE'
 printf 'trend %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
 if [ -n "${FAKE_TREND_DOWN:-}" ]; then echo '{"ok": false, "error": "digg-pp-cli top exited 1: temporarily unavailable", "reason": "rate_limited"}'; exit 1; fi
 jq -cn --arg at "$(date -u -d '-3 hours' +%Y-%m-%dT%H:%M:%SZ)" --arg old "$(date -u -d '-3 days' +%Y-%m-%dT%H:%M:%SZ)" '{ok: true, source: "digg", stories: [
-  {id: "s1", topic: "ai", title: "an AI lab hired a new chief scientist", summary: "the lab says the hire will lead its research team", score: 556, published_at: $at,
+  {id: "s1", topic: "ai", title: (if ($ENV.FAKE_DEATH // "") != "" then "an AI lab chief scientist dies at 75" else "an AI lab hired a new chief scientist" end), summary: "the lab says the hire will lead its research team", score: 556, published_at: $at,
    posts: [{by: "Ana", text: "big hire for the lab", likes: 120, reposts: 4, url: "https://x.com/ana/status/1"}]},
   {id: "s2", topic: "tech", title: "a robot startup raised a giant round", summary: "investors paid a lot", score: 300, published_at: $at,
    posts: [{by: "Bob", text: "we raised the round", likes: 40, url: "https://x.com/bob/status/2"}]},
@@ -373,9 +374,13 @@ check "not knowing who was quoted offers nothing: the slot is skipped" \
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FEED_GARBLED=1 run)"
 rec="$(last_record)"
-check "a tagging answer unusable twice costs only the people: the run picks" \
-  jqe '.outcome == "picked" and (.feed.tag.failed | test("twice")) and (.cards | all(.people == []))' <<<"$rec"
-check "and the tagging was asked once more" test "$(steps)" = "feed,feed,write,pick"
+check "a tagging answer unusable twice names no author public: nothing is quoted, the slot is skipped" \
+  jqe '.outcome == "skipped" and (.feed.tag.failed | test("twice")) and .cards == [] and .feed.private.left_out == ["ana", "bob"]' <<<"$rec"
+check "and the tagging was asked once more, and no writer turn taken" test "$(steps)" = "feed,feed"
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_DEATH=1 run)"
+check "a story about a death is no card" \
+  jqe '[.cards[].id] == ["digg:s2"] and .feed.sources.digg.dropped_death == 1' <<<"$(last_record)"
 
 # --- write: structure only ------------------------------------------------------------
 reset

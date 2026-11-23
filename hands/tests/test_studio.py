@@ -318,7 +318,7 @@ class TagTest(unittest.TestCase):
         answer = {"items": [{"id": "digg:a", "people": ["A", "B", "A", "C", "D", "E", 7], "what_happened": "w"},
                             {"id": "ghost", "people": ["X"]}, "junk"]}
         self.assertEqual(studio_feed.read_tags(answer, {"digg:a"}),
-                         {"digg:a": {"people": ["A", "B", "C", "D"], "what_happened": "w"}})
+                         {"digg:a": {"people": ["A", "B", "C", "D"], "what_happened": "w", "public": []}})
 
     def test_an_account_that_only_posted_about_the_story_is_not_one_of_its_people(self):
         # 2026-11-23: on "'The Hunger Games' reaps $120M", the tagger named two
@@ -594,6 +594,67 @@ class QuoteFeedTest(unittest.TestCase):
         studio_feed.gather(room, "0430", 7, None, NOW, quote=True)
         trend = next(a for a in room.calls if a[:2] == ["trend", "top"])
         self.assertEqual(trend[trend.index("--leading") + 1], str(studio_feed.QUOTE_LEADING))
+
+    def test_a_story_about_a_death_is_no_card(self):
+        # The 2026-11-23 dry run: a meme on Tom Jackson's death, quoting ESPN's obituary.
+        trend = {"stories": [
+            *TREND_X["stories"],
+            {"id": "s4", "title": "Tom Jackson, Broncos linebacker and ESPN broadcaster, dies at 75", "score": 950,
+             "posts": [{"by": "ESPN", "text": "Tom Jackson has died at the age of 75.",
+                        "url": "https://x.com/espn/status/41"}]},
+            {"id": "s5", "title": "a studio honours its founder", "score": 940,
+             "posts": [{"by": "A Studio", "text": "Rest in peace to our founder.", "url": "https://x.com/studio/status/51"}]},
+        ]}
+        found, notes = studio_feed.gather(self.room(**{"trend top": (0, trend)}), None, 7, None, NOW, quote=True)
+        self.assertEqual([c["id"] for c in found], ["digg:s1", "digg:s2"])
+        self.assertEqual(notes["digg"]["dropped_death"], 2)
+
+    def test_the_common_ways_a_headline_says_somebody_died(self):
+        for headline in ("Broadcaster found dead aged 75", "Former broadcaster's death confirmed by family",
+                         "Actor dead at 80", "Singer has passed away", "Star dies after short illness",
+                         "Fans mourn the coach", "RIP to a legend", "The obituary of a pitcher"):
+            self.assertTrue(studio_feed.deathly(headline), headline)
+        for headline in ("OpenAI ships a faster model", "Nvidia brings Jensen Huang back"):
+            self.assertFalse(studio_feed.deathly(headline), headline)
+
+    def test_a_death_late_in_a_long_post_is_seen_before_the_post_is_cut(self):
+        long = "A long tribute to a career in broadcasting. " * 8 + "Rest in peace."
+        trend = {"stories": [{"id": "s7", "title": "a broadcaster's career", "summary": "a career", "score": 950,
+                              "posts": [{"by": "ESPN", "text": long, "url": "https://x.com/espn/status/71"}]}]}
+        self.assertGreater(len(long), studio_feed.QUOTE_MAX)
+        found, notes = studio_feed.gather(self.room(**{"trend top": (0, trend)}), None, 7, None, NOW, quote=True)
+        self.assertEqual(found, [])
+        self.assertEqual(notes["digg"]["dropped_death"], 1)
+
+    def test_a_reply_is_never_quoted(self):
+        # The 2026-11-23 dry run quoted a private person's reply to Mustafa Suleyman.
+        found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
+            {"by": "Douglas", "text": "@mustafasuleyman @sama What does a log-perplexity of 0.819 mean?",
+             "url": "https://x.com/DouglasTAbreu/status/7"}]}]}, NOW)
+        self.assertNotIn("post", found[0]["quotes"][0])
+
+    def test_the_tagging_names_which_authors_are_public(self):
+        found, _ = studio_feed.gather(self.room(), None, 7, None, NOW, quote=True)
+        message = studio_feed.tag_message(found)
+        self.assertIn("@sama (Sam Altman):", message)
+        self.assertIn("`public`", message)
+        tags = studio_feed.read_tags({"items": [{"id": "digg:s1", "people": ["OpenAI"], "what_happened": "w",
+                                                 "public": ["@Sama", "nobody"]}]}, {"digg:s1"})
+        self.assertEqual(tags["digg:s1"]["public"], ["sama", "nobody"])
+
+    def test_only_a_public_authors_post_is_quotable(self):
+        tags = {"items": [{"id": "digg:s1", "people": ["Sam Altman"], "what_happened": "w", "public": ["sama"]},
+                          {"id": "digg:s2", "people": ["Perplexity"], "what_happened": "w", "public": []}]}
+        room = FeedRoom(self.state, answers(**{"trend top": (0, TREND_X), "x peers": (0, {"handles": []})}), tag=tags)
+        cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW, quote=True)
+        self.assertEqual([c["id"] for c in cards], ["digg:s1"])
+        self.assertEqual(note["private"], {"left_out": ["aravsrinivas"]})
+
+    def test_with_no_tagging_no_author_is_known_public_and_nothing_is_offered(self):
+        room = FeedRoom(self.state, answers(**{"trend top": (0, TREND_X), "x peers": (0, {"handles": []})}), tag=None)
+        cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW, quote=True)
+        self.assertEqual(cards, [])
+        self.assertEqual(note["private"]["left_out"], ["aravsrinivas", "sama"])
 
     def test_a_card_shows_its_quotable_posts_first(self):
         found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
@@ -1264,7 +1325,10 @@ class RunTest(unittest.TestCase):
     def test_a_quote_slot_quotes_a_trending_post_with_its_picture(self):
         self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
                    "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
-        tags = {"items": [{"id": "digg:s1", "people": ["Sam Altman"], "what_happened": "openai pledges limits"}]}
+        tags = {"items": [{"id": "digg:s1", "people": ["OpenAI"], "what_happened": "openai pledges limits",
+                           "public": ["sama"]},
+                          {"id": "digg:s2", "people": ["Perplexity"], "what_happened": "a browser",
+                           "public": ["aravsrinivas"]}]}
         posts = [{"card": "digg:s1", "format": "image", "quote": "2124551594691932405",
                   "text": "oooooooo strap me with your limits baby", **SCENE},
                  {"card": "digg:s1", "format": "post", "text": "a plain post"}]
