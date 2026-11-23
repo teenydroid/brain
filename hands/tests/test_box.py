@@ -212,6 +212,23 @@ class JailTest(Scratch):
             jail.check_grants([self.root / "secrets"], protect=[self.root / "secrets"])
         jail.check_grants([self.root / "home", "/usr"], protect=[self.root / "secrets", self.root / "state"])
 
+    def test_a_grant_swapped_for_a_link_to_a_secret_is_refused_where_it_is_opened(self):
+        # check_grants vets a resolved path; between it and the rule the mind
+        # could swap state/home/work for a link to secrets/ or to a file in
+        # it. The rule's own open must find what was vetted, or refuses.
+        handled = jail._handled(jail.abi())
+        (self.root / "state" / "home").mkdir(parents=True, exist_ok=True)
+        work = self.root / "state" / "home" / "work"
+        work.mkdir()
+        vetted = str(work.resolve())
+        self.assertIsNone(jail._add(None, -1, str(work), 0, handled, vetted))
+        work.rmdir()
+        for target in (self.root / "secrets", self.root / "secrets" / "core.token"):
+            work.symlink_to(target)
+            with self.assertRaises(jail.Unavailable):
+                jail._add(None, -1, str(work), jail._WRITE, handled, vetted)
+            work.unlink()
+
     def test_one_run_ends_before_the_cores_own_limit(self):
         # The core gives any cron shell call 300 s (docs/architecture.md).
         self.assertLess(box.MAX_TIMEOUT_SECS, 300)
@@ -413,7 +430,8 @@ class NetworkTest(Scratch):
         got = self.probe()
         self.assertTrue(got["connect_other"])
         self.assertTrue(got["udp"])
-        self.assertTrue(got["broker"] if "broker" in got else True)
+        self.assertTrue(got["connect_broker"])
+        self.assertEqual(got["fetched"], "broker here")
 
     def test_a_tool_cannot_bind_or_listen(self):
         got = self.probe()

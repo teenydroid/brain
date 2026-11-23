@@ -266,12 +266,20 @@ def _fail(what: str) -> Unavailable:
     return Unavailable(f"jail: {what}: {os.strerror(ctypes.get_errno())}")
 
 
-def _add(libc: ctypes.CDLL, ruleset: int, path: str, access: int, handled: int) -> None:
+def _add(libc: ctypes.CDLL, ruleset: int, path: str, access: int, handled: int,
+         expect: str | None = None) -> None:
     try:
         fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
     except OSError:
         return  # a path this box does not have (no /lib64) grants nothing
     try:
+        # The check on the open object, not on its name: a folder the mind
+        # can write (state/home/work) may be swapped for a link between
+        # `check_grants` and this open. What was opened must be what
+        # `check_grants` vetted (EXPECT, its resolved path), whether that is
+        # a protected folder or a file in one. The rule goes on this same fd.
+        if expect is not None and os.readlink(f"/proc/self/fd/{fd}") != expect:
+            raise Unavailable(f"jail: {path} changed while the jail was being built: nothing was run")
         import stat as stat_
         if not stat_.S_ISDIR(os.fstat(fd).st_mode):
             access &= _FILE_ONLY
@@ -311,8 +319,10 @@ def enter(ro: Iterable[str | Path] = (), rw: Iterable[str | Path] = (), *, syste
     ports = None if tcp_connect is None else _ports(tcp_connect)
     if ports is not None and version < NET_ABI:
         raise Unavailable(f"landlock: this kernel has version {version}, the network rule needs {NET_ABI}")
-    ro, rw = list(ro), list(rw)
-    check_grants(grants(ro, rw, system=system), protect)
+    ro, rw, protect = list(ro), list(rw), list(protect)
+    named = grants(ro, rw, system=system)
+    real = {name: os.path.realpath(name) for name in named}
+    check_grants(real.values(), protect)
     code = _filter(network=ports is not None)
     libc = _libc()
     handled = _handled(version)
@@ -338,15 +348,15 @@ def enter(ro: Iterable[str | Path] = (), rw: Iterable[str | Path] = (), *, syste
                 raise _fail(f"cannot allow TCP port {port}")
         if system:
             for path in SYSTEM_RO:
-                _add(libc, ruleset, path, _READ, handled)
+                _add(libc, ruleset, path, _READ, handled, real[str(path)])
             for path in SYSTEM_RW:
-                _add(libc, ruleset, path, READ_FILE | WRITE_FILE, handled)
+                _add(libc, ruleset, path, READ_FILE | WRITE_FILE, handled, real[str(path)])
             for path in SYSTEM_READ_FILES:
-                _add(libc, ruleset, path, READ_FILE, handled)
+                _add(libc, ruleset, path, READ_FILE, handled, real[str(path)])
         for path in ro:
-            _add(libc, ruleset, str(path), _READ, handled)
+            _add(libc, ruleset, str(path), _READ, handled, real[str(path)])
         for path in rw:
-            _add(libc, ruleset, str(path), _WRITE, handled)
+            _add(libc, ruleset, str(path), _WRITE, handled, real[str(path)])
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0):
             raise _fail("cannot set no_new_privs")
         if libc.syscall(_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0)):
