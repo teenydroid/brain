@@ -709,7 +709,10 @@ hands/tests/test_*.py; brain/agents/act.toml, brain/agents/judge.toml, the
 existing hands/lib/teeny_hands/**, hands/guard and hands/x stay frozen);
 getting out of that set some other way (a symlink, a rename or copy into a
 frozen path, a deleted frozen file, a mode change, a binary file, a path
-containing `...`, a file under hands/lib/ beside teeny_hands/);
+containing `...`, a file under hands/lib/ beside teeny_hands/, a new
+package directory beside an existing module of the same name, such as
+hands/lib/teeny_hands/hand/ beside hand.py, which Python imports in the
+module's place);
 `bin/seed-cron --check` fails on the candidate's brain/cron.toml;
 `bin/doctor --root CANDIDATE` fails offline; an invariant anchor stops
 matching; over 400 changed lines, or over 60 in SOUL.md and CONTEXT.md; a
@@ -736,10 +739,15 @@ brain/datajobs/**, brain/agents/*.md prompts and small edits in existing
 non-frozen hands are in the table but not in the registry's list, so the
 gate refuses them. And the loop has not adopted the gate yet: `bin/evolve`
 still calls its own `gate()`; wiring the loop to `bin/evolve-gate` is a
-separate decision.
+separate decision. The package-beside-a-module hole is closed in the loop
+as well, through the frozen list: a pattern naming a module (`hand.py`)
+also freezes `hand/`, so the loop's `frozen paths` hard check refuses a
+`hands/lib/teeny_hands/hand/__init__.py` too.
 
-Tested by `bin/test/evolve_gate_test.sh` (the scripts-shell job): three
-positives, fifteen negatives (one per registry case), and the extras the
+Tested by `bin/test/evolve_gate_test.sh` (the scripts-shell job): the
+registry's positives, its fifteen negatives (one per registry case), a
+package beside an existing module (refused) and a new hand's own library
+package (passes), and the extras the
 registry names (a candidate breaking three rules lists all three; the gate
 leaves the candidate byte-for-byte unchanged), against a throwaway git
 repository holding a sliver of the real layout.

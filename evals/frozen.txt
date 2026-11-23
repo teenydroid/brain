@@ -12,6 +12,8 @@
 # One glob per line, from the repository root. `*` and `?` stop at `/`; `**`
 # crosses directories. Every pattern also covers everything beneath what it
 # matches, so `hands/guard` is the script and `secrets/` is the directory.
+# A pattern naming a Python module (`hand.py`) also covers the directory of
+# the same name (`hand/`): a package there would be imported in its place.
 
 # What judges and measures Teeny: tasks, the judge rubric, invariants.md,
 # cron.pinned.toml, this list.
