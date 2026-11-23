@@ -176,12 +176,12 @@ class RestApi:
         if failure is not None:
             raise failure
         if not text:
-            return {}, received
+            return status, {}, received
         parsed = _parse(text)
         # JSON's own null is an answer (Hacker News says "no such item" so).
         if parsed is None and text.strip() != b"null":
             raise RestError(f"{self.name} sent something unreadable")
-        return parsed, received
+        return status, parsed, received
 
 
 def quote(part: str) -> str:
