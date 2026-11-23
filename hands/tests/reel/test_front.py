@@ -35,6 +35,9 @@ class RoutesTest(unittest.TestCase):
         ("GET", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
         ("HEAD", f"/teeny/v1/cuts/{TASK}/frame-0.jpg"),
         ("DELETE", f"/teeny/v1/cuts/{TASK}"),
+        # A story film (deploy/reel/filmcut.py): made here, then fetched and
+        # deleted as a cut.
+        ("POST", "/teeny/v1/films"),
     ]
 
     def test_only_the_routes_hands_reel_uses_are_open(self):
@@ -55,6 +58,8 @@ class RoutesTest(unittest.TestCase):
     def test_lookalike_paths_are_shut(self):
         shut = [
             "/teeny/v1/reels/",
+            "/teeny/v1/films/",
+            f"/teeny/v1/films/{TASK}/cut.mp4",
             "//teeny/v1/reels",
             "/teeny/v1//reels",
             "/teeny%2Fv1/reels",
