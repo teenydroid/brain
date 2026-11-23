@@ -858,22 +858,23 @@ class LabExperimentTest(unittest.TestCase):
         self.assertIsNone(studio.open_x_experiment(self.lab_room((True, {"experiments": []}))))
 
     def test_a_comparison_post_in_the_experiments_format_goes_out_untagged(self):
-        # Live shape: an untagged image comparison post counted as one of an image experiment's posts.
-        offered = {"id": 6, "format": "image", "hypothesis": EXPERIMENT["hypothesis"]}
+        # Live shape: an untagged comparison post with the experiment's format counted as one of its posts.
+        offered = {"id": 6, "format": "post", "hypothesis": EXPERIMENT["hypothesis"]}
         kept, _ = studio.validate_posts([
-            {"card": "digg:s1", "format": "image", "text": "a tagged one", "experiment": 6},
-            {"card": "hn:101", "format": "image", "text": "a plain one"},
-            {"card": "hn:101", "format": "post", "text": "another format"},
-        ], CARDS, ("image", "post"), experiment_id=6)
+            {"card": "digg:s1", "format": "post", "text": "a tagged one", "experiment": 6},
+            {"card": "hn:101", "format": "post", "text": "a plain one"},
+            {"card": "hn:101", "format": "thread", "posts": ["one", "two"]},
+        ], CARDS, ALLOWED, experiment_id=6)
+        self.assertEqual(len(kept), 3)
         studio.mark_comparisons(kept, offered)
         self.assertEqual([p["comparison"] for p in kept], [False, True, False])
         _, tagged = studio.post_body(XRoom(), "P1", kept[0], [])
         _, plain = studio.post_body(XRoom(), "P2", kept[1], [])
-        _, other = studio.post_body(XRoom(), "P3", kept[2], [])
-        self.assertEqual((tagged["experiment"], tagged["format"]), (6, "image"))
+        _, thread = studio.post_body(XRoom(), "P3", kept[2], [])
+        self.assertEqual((tagged["experiment"], tagged["format"]), (6, "post"))
         self.assertNotIn("format", plain)
         self.assertNotIn("experiment", plain)
-        self.assertEqual(other["format"], "post")
+        self.assertEqual(thread["format"], "thread")
         studio.mark_comparisons(kept, None)
         self.assertEqual([p["comparison"] for p in kept], [False, False, False])
 
