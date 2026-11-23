@@ -41,7 +41,7 @@ FILM = {
         {"subject": "figure", "action": ACTION.replace("shakes", "kicks"), "narration": "the vault gives a bolt"},
         {"subject": "teeny", "action": "Macro shot: Teeny, the small yellow robot, lowers its newspaper in the "
                                        "same vault and stares into the lens, deadpan.",
-         "narration": "i run on ten dollars a day"},
+         "narration": "i run on ten dollars a day", "sfx": ["a tiny sniff", "a cash register ding"]},
     ],
 }
 
@@ -182,6 +182,12 @@ class FilmTest(unittest.TestCase):
         self.assertTrue(all(v["image_url"].startswith("data:image/png;base64,") for v in videos))
         self.assertTrue(all("No music" in v["prompt"] for v in videos))
 
+    def test_every_clip_asks_for_the_film_resolution_with_no_params_set(self):
+        """FILM_RESOLUTION reached no job while FILM_PARAMS was empty, so the
+        models made 1080p, quoted over the clip cap and were cancelled (f65)."""
+        self.make()
+        self.assertTrue(all(v.get("resolution") == "720p" for v in self.api.videos()), self.api.videos())
+
     def test_a_figure_is_drawn_from_its_photo_without_teeny_and_teeny_from_its_sheet(self):
         self.make()
         edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
@@ -209,6 +215,46 @@ class FilmTest(unittest.TestCase):
         beats = self.reel.jobs[0]["beats"]
         self.assertIn("plate", beats[2])
         self.assertIn("clip", beats[0])
+
+    def test_a_refused_clip_gives_its_hold_back_so_the_next_beat_is_still_bought(self):
+        """f65: both figure clips were refused but kept their $5 holds, so the
+        Teeny clip after them was refused for budget and the film stopped."""
+        self.env(FILM_MAX_USD="10.50", FILM_MAX_USD_PER_CLIP="5.00")
+        for model in films.FIGURE_MODELS.split(","):
+            self.api.video_fail[model] = SurplusError("Surplus answered 400: content policy refused", 400)
+        out = self.make()
+        self.assertEqual(out["status"], "done", out)
+        self.assertEqual(out["stills"], ["b1", "b2"])
+        self.assertEqual([v["model"] for v in self.api.videos()][-1], "venice-seedance-2-5-image-to-video-basic")
+        conn = assets._db()
+        refused = conn.execute("SELECT status, cost_micro, error FROM media_assets WHERE kind = 'shot' AND "
+                               "status != 'done'").fetchall()
+        self.assertTrue(refused)
+        self.assertTrue(all(r["status"] == "failed" and r["cost_micro"] == 0 and "refused" in r["error"]
+                            for r in refused))
+
+    def test_no_sound_effect_plays_over_a_word_or_another_effect(self):
+        """f99: each effect was set halfway through its beat, on top of the
+        narration, and a beat's two effects 1 s apart overlapped each other."""
+        out = self.make()
+        manifest = films.load(out["id"])
+        words = films.captions(manifest)
+        played = sorted((e["at"], e["at"] + films.narration.SFX_SECONDS) for e in manifest["effects"] if e.get("file"))
+        self.assertTrue(played)
+        for start, end in played:
+            for word in words:
+                self.assertFalse(start < word["end"] and word["start"] < end, (start, end, word))
+        for (a0, a1), (b0, b1) in zip(played, played[1:]):
+            self.assertLessEqual(a1, b0 + 1e-6)
+        self.assertLessEqual(played[-1][1], manifest["clock"]["length"] + 1e-6)
+
+    def test_a_landscape_film_asks_for_landscape_stills(self):
+        """f99's stills came back portrait whatever the film's aspect: the
+        edit was never told a size."""
+        self.make({**FILM, "aspect": "16:9"})
+        edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertTrue(edits)
+        self.assertTrue(all(b.get("size") == "1536x1024" for b in edits if b["model"].startswith("gpt-image")))
 
     def test_captions_are_the_words_moved_onto_the_films_timeline(self):
         out = self.make()
