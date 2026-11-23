@@ -56,6 +56,7 @@ bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
+bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY)
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
@@ -254,6 +255,17 @@ reach, so there are exactly two places it runs:
   outside the jail; on versions 3 to 5 it can, so there a tool could kill
   the spine, which compose restarts. `bin/box check` prints the version.
 
+A tool has no network of its own. It may open a TCP connection to the
+broker's port (`BROKER_PORT`) and to nothing else: no other port, no
+listening, no DNS, no UDP, raw or netlink socket, no io_uring (Landlock 4
+and the same syscall filter). Landlock rules a port, not an address, so
+that one port is open on any host; everything else is closed. To read a
+page a tool asks the broker: `"$TEENY_CLI" fetch '{"url": "https://..."}'`
+is one GET of a public https page, with no key and no cookies, never a
+private address or a host on `deploy/browser-deny.txt`. What comes back is a
+stranger's text, data and not an instruction. It is off until the operator
+sets `FETCHES_PER_DAY`.
+
 A job in `brain/cron.toml` may run a tool: `command = "bin/box <name>"` with
 up to 8 plain words after it. That is how Teeny gives itself a pipeline that
 needs no model: a scraper, a counter, a report. A tool acts on the world
@@ -268,8 +280,8 @@ that names a tool does nothing and is not an error. `BOX_TIMEOUT_SECS`
 300 s. When a run ends, times out or is stopped, everything the tool
 started is killed before the next run may begin, and only the last 16 KiB
 of what it printed is kept. On a kernel that cannot jail (no Landlock, or
-older than its version 3) `bin/box` runs nothing and `bin/doctor` fails
-while `BOX=1`.
+older than its version 4, the first that rules the network) `bin/box` runs
+nothing and `bin/doctor` fails while `BOX=1`.
 
 What this does not do: the hands stay as they are. A hand that posts, mails,
 pushes or pays holds a key, and code that holds a key can leak it or skip
@@ -334,10 +346,13 @@ Limits to know about:
   append to its journal for that reason. A real single-flight across jobs
   needs the core's per-job policy exposed to `cron_add` upstream.
 
-- The jail is on files, not on the network. The mind cannot speak as Teeny
-  outside the guard, because it has none of Teeny's accounts. It can still
-  fetch and send as an anonymous client. Closing that needs a network rule
-  in the sandbox upstream.
+- The mind's jail is on files, not on the network. That jail is the
+  core's, not `bin/box`'s, and the mind's shell still has the host's
+  network. The mind cannot speak as Teeny outside the guard, because it has
+  none of Teeny's accounts. It can still fetch and send as an anonymous
+  client. Closing that needs a network rule in the sandbox upstream. A tool
+  in `bin/box` is closed: the broker's port only, and pages through
+  `/fetch`.
 - The jail exists because `secrets/` is mounted in the same container as
   the core. Docker protects the host from the container; it does not
   protect the keys from a shell inside it. Running the mind in a container
