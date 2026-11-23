@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The builder's desk and shipping (evals/cron.pinned.toml, build-ship):
+# The builder's desk and shipping (brain/cron.toml, build-ship):
 # `hands/build desk` collects the report the builder left in
 # state/workbench/desk/build-done.json and lays out its next job in
 # state/workbench/desk/build.json; then `hands/build ship` pushes every job

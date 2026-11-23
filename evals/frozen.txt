@@ -250,6 +250,14 @@ hands/lib/teeny_hands/xpost.py
 hands/goals
 hands/lib/teeny_hands/goals/
 
+# The key proxy (docs/mind.md, "Keys it never holds"): the one hand that adds
+# a key to a call Teeny's own jailed code asked for. Its list of services is
+# evals/services.toml (frozen above); its code, its entry point and the tests
+# that pin the guard, the caps and the rehearsal are the operator's.
+hands/call
+hands/lib/teeny_hands/call/
+hands/tests/call/
+
 # The lab ledger: how an experiment Teeny proposed is scored, and when a
 # verdict is allowed, is frozen code, like the goal checks.
 hands/lab

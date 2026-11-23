@@ -220,6 +220,22 @@ for i in $(seq 1 24); do full+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncomman
 reset
 printf '%s' "$full" >"$toml"
 if seed >/dev/null; then pass "the pinned jobs do not count against the brain's 24"; else fail "the pinned jobs do not count against the brain's 24: $(cat "$scratch/stderr")"; fi
+
+# A job that moves from the pinned file to the brain's, as written (evolve,
+# 2026-11-23), is the same core job: both files name it teeny.<name>, so the
+# box keeps it, its id and its next run; nothing is added, removed or orphaned.
+reset
+printf '[jobs.evolve]\nschedule = "40 2,14 * * *"\ntz = "Asia/Kolkata"\ncommand = "bin/evolve run --scheduled --detach"\n' >"$pinned"
+: >"$toml"
+seed
+id_before="$(job_field teeny.evolve .id)"
+: >"$pinned"
+printf '[jobs.evolve]\nschedule = "40 2,14 * * *"\ntz = "Asia/Kolkata"\ncommand = "bin/evolve run --scheduled --detach"\n' >"$toml"
+: >"$FAKE_CALLS"
+seed
+check "a job moved from the pinned file to the brain's is kept as it is" \
+  test "$(calls cron_add)/$(calls cron_update)/$(calls cron_remove)" = 0/0/0
+check "under its one name and id" test "$(jobs | jq -c '[.[] | select(.name == "teeny.evolve") | .id]')" = "[\"$id_before\"]"
 : >"$pinned"
 
 # --- agent jobs: an agent written to act on a schedule, with a prompt ------------

@@ -1,4 +1,4 @@
-# The agent the pinned `builder` cron job runs (evals/cron.pinned.toml).
+# The agent the `builder` cron job runs (brain/cron.toml).
 # OpenHuman lets a cron run of this agent act without a person's approval
 # because it sets `scheduled_actions = true` and names every tool it has
 # (docs/architecture.md, "Scheduled agents"). The autonomy tier, the

@@ -273,6 +273,18 @@ from teeny_hands import websites
 hosts = websites.load_deny(Path(sys.argv[2]))
 print(f"{len(hosts)} host(s) the browser never opens")
 ' "$root/hands/lib" "$root"
+# The key proxy's list (hands/call, evals/services.toml): what Teeny's own
+# jailed code may call with a key it never holds. A list that does not load
+# or breaks a rule (not https, a bad key name, a regex that does not compile)
+# fails the boot rather than leaving the proxy to refuse every call.
+run "services.toml" python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from teeny_hands.call import services
+found = services.load(Path(sys.argv[2]))
+print("%d service(s) the key proxy may call: %s" % (len(found), ", ".join(sorted(found)) or "none"))
+' "$root/hands/lib" "$root/evals/services.toml"
 
 # --- invariants: the brain still says what Teeny is (evals/invariants.md) ----------
 if [ -s "$root/evals/invariants.md" ]; then

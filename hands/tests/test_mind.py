@@ -329,6 +329,32 @@ class MindCronTest(unittest.TestCase):
             with self.assertRaises(cron_policy.PolicyError, msg=command):
                 self._load()
 
+    def test_the_brain_schedules_evolve_wants_and_the_desks_as_written_and_in_no_other_form(self):
+        # Since 2026-11-23 these are Teeny's to move too, each with exactly
+        # the arguments its pinned job had: when, never what.
+        self.pinned.write_text("")
+        for command in ("bin/evolve run --scheduled --detach", "bin/evolve credit", "bin/wants run",
+                        "bin/tasks-desk", "bin/build-ship"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            self.assertEqual(self._load()["teeny.x"]["command"], command)
+        for command in ("bin/evolve", "bin/evolve run", "bin/evolve run --detach", "bin/evolve run --scheduled",
+                        "bin/evolve run --scheduled --detach --candidates 8",
+                        "bin/evolve run --candidates 8 --scheduled --detach", "bin/evolve --detach run --scheduled",
+                        "bin/evolve credit --detach", "bin/evolve watch --detach", "bin/evolve watch",
+                        "bin/evolve probe --baseline --force", "bin/evolve aa --detach", "bin/evolve status",
+                        "bin/wants", "bin/wants file", "bin/wants watch", "bin/wants run --force",
+                        "bin/tasks-desk now", "bin/build-ship --push"):
+            self.cron.write_text(f'[jobs.x]\nschedule = "0 2 * * *"\ncommand = "{command}"\n')
+            with self.assertRaises(cron_policy.PolicyError, msg=command):
+                self._load()
+
+    def test_the_brain_runs_no_other_operator_script(self):
+        self.assertEqual(
+            {script: set(forms) for script, forms in cron_policy.BRAIN_SCRIPTS.items()},
+            {"bin/dream": {("--detach",), ("--light", "--detach")}, "bin/moltbook-prune": {()},
+             "bin/evolve": {("run", "--scheduled", "--detach"), ("credit",)}, "bin/wants": {("run",)},
+             "bin/tasks-desk": {()}, "bin/build-ship": {()}})
+
     def test_the_first_pipelines_are_in_teenys_own_cron_file(self):
         with open(REPO / "brain" / "cron.toml", "rb") as fh:
             brain = tomllib.load(fh)["jobs"]
@@ -343,6 +369,30 @@ class MindCronTest(unittest.TestCase):
         for name in ("tick", "mind", "babysit", "health", "audit", "guard-review", "evolve-watch", "goals-check",
                      "pay-bills", "surplus-sweep"):
             self.assertIn(name, pinned)
+
+    def test_evolve_wants_and_the_desks_are_in_teenys_own_cron_file_as_they_were_pinned(self):
+        with open(REPO / "brain" / "cron.toml", "rb") as fh:
+            brain = tomllib.load(fh)["jobs"]
+        with open(REPO / "evals" / "cron.pinned.toml", "rb") as fh:
+            pinned = tomllib.load(fh)["jobs"]
+        # Exactly the jobs they were when pinned, so nothing changes the day
+        # they move: seed-cron reconciles by name, and finds each one as it is.
+        moved = {
+            "evolve": {"schedule": "40 2,14 * * *", "tz": "Asia/Kolkata", "command": "bin/evolve run --scheduled --detach"},
+            "evolve-credit": {"schedule": "50 3 * * *", "tz": "Asia/Kolkata", "command": "bin/evolve credit"},
+            "wants": {"schedule": "0 9 * * *", "command": "bin/wants run", "catch_up": True},
+            "tasks-desk": {"schedule": "*/15 * * * *", "command": "bin/tasks-desk"},
+            "build-ship": {"schedule": "*/30 * * * *", "command": "bin/build-ship"},
+        }
+        for name, job in moved.items():
+            self.assertNotIn(name, pinned)
+            self.assertEqual(brain.get(name), job, name)
+        # What watches Teeny stays pinned: evolve-watch rolls a bad change
+        # back. So does the browser operator, signed in as Teeny.
+        self.assertEqual(pinned["evolve-watch"]["command"], "bin/evolve watch --detach")
+        self.assertEqual(pinned["operator"]["agent"], "operator")
+        self.assertNotIn("evolve-watch", brain)
+        self.assertNotIn("operator", brain)
 
     def test_the_caps_leave_room_for_the_mind(self):
         # builder 12 a day, operator 72, the mind 48, and room for the jobs

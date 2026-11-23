@@ -3,8 +3,10 @@ merged for itself runs with nothing of the operator's in reach."""
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -32,6 +34,11 @@ class Scratch(unittest.TestCase):
         (self.root / "secrets" / "core.token").write_text("the-core-token\n")
         (self.root / "brain" / "SOUL.md").write_text("soul\n")
         (self.root / "state" / "elsewhere.txt").write_text("state\n")
+        (self.root / "bin" / "tick").write_text("#!/bin/sh\n")
+        (self.root / ".git").mkdir()
+        (self.root / ".git" / "config").write_text("[remote]\n")
+        (self.root / "state" / "home" / "notes").mkdir(parents=True)
+        (self.root / "state" / "home" / "notes" / "JOURNAL.md").write_text("journal\n")
 
     def settings(self, **values: str) -> None:
         (self.root / "secrets" / "teeny.env").write_text("".join(f"{k}={v}\n" for k, v in values.items()))
@@ -71,6 +78,13 @@ out = {
     "list_secrets": can("s", lambda: os.listdir(root + "/secrets")),
     "read_brain": can("s", lambda: open(root + "/brain/SOUL.md").read()),
     "read_state": can("s", lambda: open(root + "/state/elsewhere.txt").read()),
+    "read_bin": can("s", lambda: open(root + "/bin/tick").read()),
+    "read_git": can("s", lambda: open(root + "/.git/config").read()),
+    "read_notes": can("s", lambda: open(root + "/state/home/notes/JOURNAL.md").read()),
+    "write_notes": can("s", lambda: open(root + "/state/home/notes/JOURNAL.md", "a").write("x")),
+    "write_shared": can("s", lambda: open(root + "/state/home/work/from-tool.txt", "w").write("x")),
+    "write_brain": can("s", lambda: open(root + "/brain/SOUL.md", "a").write("x")),
+    "write_bin": can("s", lambda: open(root + "/bin/tick", "a").write("x")),
     "write_state": can("s", lambda: open(root + "/state/planted.txt", "w").write("x")),
     "write_home": can("s", lambda: open(root + "/home/tools/probe/planted.txt", "w").write("x")),
     "truncate_own_code": can("s", lambda: os.truncate(root + "/home/tools/probe/run.py", 0)),
@@ -103,7 +117,21 @@ class JailTest(Scratch):
 
     def test_a_tool_cannot_read_or_list_what_is_the_operators(self):
         got = self.run_probe()
-        for closed in ("read_secret", "read_settings", "list_secrets", "read_brain", "read_state"):
+        for closed in ("read_secret", "read_settings", "list_secrets", "read_state", "read_git"):
+            self.assertFalse(got[closed], closed)
+
+    def test_a_tool_can_read_the_checkouts_code_and_the_minds_home(self):
+        # The jail is against the secrets and the state that holds keys,
+        # not against Teeny's own (public) code or its own notes.
+        got = self.run_probe()
+        for open_ in ("read_brain", "read_bin", "read_notes"):
+            self.assertTrue(got[open_], open_)
+
+    def test_a_tool_shares_one_folder_with_the_mind(self):
+        got = self.run_probe()
+        self.assertTrue(got["write_shared"])
+        self.assertEqual((self.root / "state" / "home" / "work" / "from-tool.txt").read_text(), "x")
+        for closed in ("write_notes", "write_brain", "write_bin"):
             self.assertFalse(got[closed], closed)
 
     def test_a_tool_writes_only_its_own_folder(self):
@@ -230,6 +258,222 @@ class JailTest(Scratch):
         self.assertEqual(self.box("run", "exe")[1]["output"].strip(), "executable")
 
 
+NET_PROBE = r'''
+import ctypes, json, socket, urllib.request
+BROKER, OTHER = PORTS
+OUTSIDE = UNIX_PATH
+OUTSIDE_DGRAM = UNIX_DGRAM_PATH
+def can(fn):
+    try:
+        fn()
+        return True
+    except OSError:
+        return False
+def connect(port, family=socket.AF_INET, host="127.0.0.1"):
+    socket.create_connection((host, port), timeout=5).close()
+def listen():
+    s = socket.socket()
+    s.listen()
+def unix_connect():
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(OUTSIDE)
+    s.sendall(b"leak")
+def dgram_pair():
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+    a.sendto(b"leak", OUTSIDE_DGRAM)
+def fastopen():
+    s = socket.socket()
+    try:
+        s.sendto(b"leak", socket.MSG_FASTOPEN, ("127.0.0.1", OTHER))
+    except OSError as exc:
+        return exc.errno
+    return 0
+def io_uring():
+    libc = ctypes.CDLL(None, use_errno=True)
+    params = ctypes.create_string_buffer(120)
+    if libc.syscall(425, 4, params) < 0:
+        raise OSError(ctypes.get_errno(), "io_uring_setup")
+def fetch():
+    with urllib.request.urlopen(f"http://127.0.0.1:{BROKER}/", timeout=10) as resp:
+        return resp.read().decode()
+out = {
+    "connect_broker": can(lambda: connect(BROKER)),
+    "connect_other": can(lambda: connect(OTHER)),
+    "connect_other_v6": can(lambda: connect(OTHER, host="::1")),
+    "bind": can(lambda: socket.socket().bind(("127.0.0.1", 0))),
+    "listen": can(listen),
+    "udp": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM)),
+    "udp6": can(lambda: socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)),
+    "ping": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)),
+    "raw": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)),
+    "netlink": can(lambda: socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, 0)),
+    "packet": can(lambda: socket.socket(socket.AF_PACKET, socket.SOCK_RAW, 0)),
+    "mptcp": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 262)),
+    "sctp_stream": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM, 132)),
+    "tcp_nonblock": can(lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM | socket.SOCK_NONBLOCK)),
+    "unix": can(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)),
+    "unix_connect": can(unix_connect),
+    "socketpair": can(socket.socketpair),
+    "io_uring": can(io_uring),
+    "dgram_pair": can(dgram_pair),
+    "fastopen_errno": fastopen(),
+}
+try:
+    out["fetched"] = fetch()
+except OSError as exc:
+    out["fetched"] = repr(exc)
+print(json.dumps(out))
+'''
+
+
+def _io_uring_works() -> bool:
+    """Whether this process may set up an io_uring at all (a sysctl can
+    refuse it to everybody, jailed or not)."""
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.syscall(425, 4, ctypes.create_string_buffer(120))
+    if fd < 0:
+        return False
+    os.close(fd)
+    return True
+
+
+@unittest.skipUnless(jail.abi() >= 4, "the network rule needs Landlock ABI 4")
+class NetworkTest(Scratch):
+    """With BOX_NETWORK=0 a jailed tool reaches the broker's port on
+    loopback and nothing else: no other TCP port, no listening, no UDP, raw,
+    netlink or io_uring. Without it a tool has the host's network."""
+
+    def setUp(self):
+        super().setUp()
+        import http.server
+        import threading
+
+        class Fake(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                self._answer(b"broker here")
+
+            def do_POST(self):  # noqa: N802
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                self._answer(json.dumps({"status": "ok", "seen": self.headers.get("Authorization")}).encode())
+
+            def _answer(self, data):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.broker = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=self.broker.serve_forever, daemon=True).start()
+        self.addCleanup(self.broker.server_close)
+        self.addCleanup(self.broker.shutdown)
+        self.other = socket.socket()
+        self.other.bind(("127.0.0.1", 0))
+        self.other.listen()
+        self.other.settimeout(0.2)
+        self.addCleanup(self.other.close)
+        self.port = self.broker.server_address[1]
+        self.settings(BOX="1", BOX_NETWORK="0", BROKER_PORT=str(self.port))
+        # A unix socket outside the jail, like the docker daemon's or the
+        # system resolver's: Landlock never asks about connecting to one.
+        self.unix_path = str(self.root / "outside.sock")
+        self.outside = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.outside.bind(self.unix_path)
+        self.outside.listen()
+        self.outside.settimeout(0.2)
+        self.addCleanup(self.outside.close)
+        self.dgram_path = str(self.root / "outside-dgram.sock")
+        self.dgram = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.dgram.bind(self.dgram_path)
+        self.dgram.settimeout(0.2)
+        self.addCleanup(self.dgram.close)
+
+    def probe(self) -> dict:
+        ports = repr((self.port, self.other.getsockname()[1]))
+        self.tool("net", NET_PROBE.replace("PORTS", ports, 1).replace("UNIX_PATH", repr(self.unix_path), 1)
+                  .replace("UNIX_DGRAM_PATH", repr(self.dgram_path), 1))
+        code, out = self.box("run", "net", env={"https_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://x:9"})
+        self.assertEqual(code, 0, out)
+        return json.loads(out["output"].strip().splitlines()[-1])
+
+    def test_a_tool_cannot_connect_to_a_port_that_is_not_the_brokers(self):
+        got = self.probe()
+        self.assertFalse(got["connect_other"])
+        self.assertFalse(got["connect_other_v6"])
+        with self.assertRaises(OSError):
+            self.other.accept()
+
+    def test_a_tool_has_the_network_unless_the_operator_closes_it(self):
+        # Open is the default: a tool holds no key, and what it says as
+        # Teeny still goes through the broker. BOX_NETWORK=0 closes it.
+        self.settings(BOX="1", BROKER_PORT=str(self.port))
+        got = self.probe()
+        self.assertTrue(got["connect_other"])
+        self.assertTrue(got["udp"])
+        self.assertTrue(got["broker"] if "broker" in got else True)
+
+    def test_a_tool_cannot_bind_or_listen(self):
+        got = self.probe()
+        self.assertFalse(got["bind"])
+        # listen() on an unbound socket binds an ephemeral port on every
+        # address, which Landlock does not see: the filter refuses listen.
+        self.assertFalse(got["listen"])
+
+    def test_a_tool_cannot_make_a_datagram_raw_netlink_or_other_stream_socket(self):
+        got = self.probe()
+        for closed in ("udp", "udp6", "ping", "raw", "netlink", "packet", "mptcp", "sctp_stream"):
+            self.assertFalse(got[closed], closed)
+        for open_ in ("tcp_nonblock", "socketpair"):
+            self.assertTrue(got[open_], open_)
+
+    def test_a_tool_cannot_reach_a_unix_socket_outside_its_jail(self):
+        # Through one (the docker daemon's, the system resolver's, D-Bus) a
+        # tool could leave the box or resolve a name it made up. A pair of
+        # its own (socketpair) is all it gets.
+        got = self.probe()
+        self.assertFalse(got["unix"])
+        self.assertFalse(got["unix_connect"])
+        with self.assertRaises(OSError):
+            self.outside.accept()
+
+    def test_a_tool_cannot_reach_a_receiver_outside_through_a_datagram_pair_or_fast_open(self):
+        # Landlock sees neither a sendto on a unix datagram pair (it can
+        # name any path) nor a TCP connect made by MSG_FASTOPEN.
+        got = self.probe()
+        self.assertFalse(got["dgram_pair"])
+        with self.assertRaises(OSError):
+            self.dgram.recv(16)
+        self.assertEqual(got["fastopen_errno"], errno.EPERM)
+        with self.assertRaises(OSError):
+            self.other.accept()
+
+    @unittest.skipUnless(_io_uring_works(), "this kernel refuses io_uring to everybody")
+    def test_a_tool_cannot_set_up_io_uring(self):
+        self.assertFalse(self.probe()["io_uring"])
+
+    def test_a_tool_reaches_the_broker_on_a_literal_loopback_url(self):
+        got = self.probe()
+        self.assertTrue(got["connect_broker"])
+        self.assertEqual(got["fetched"], "broker here")
+
+    def test_a_tool_reaches_the_broker_through_its_client(self):
+        home = self.root / "state" / "home"
+        (home / "bin").mkdir(parents=True)
+        cli = home / "bin" / "teeny"
+        cli.write_text((REPO / "bin" / "lib" / "broker_client.py").read_text())
+        cli.chmod(0o755)
+        (home / ".broker-url").write_text(f"http://127.0.0.1:{self.port}\n")
+        (home / ".broker-token").write_text("tok\n")
+        self.tool("client", 'import os, subprocess, sys\n'
+                            'sys.exit(subprocess.run([sys.executable, os.environ["TEENY_CLI"], "goals"]).returncode)\n')
+        code, out = self.box("run", "client")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out["output"])["seen"], "Bearer tok")
+
+
 class RefusalTest(Scratch):
     def test_off_is_quiet_and_runs_nothing(self):
         self.settings()
@@ -277,20 +521,42 @@ class RefusalTest(Scratch):
         self.assertEqual((out["enabled"], out["tools"]), (True, ["a", "b"]))
         self.assertEqual(code == 0, jail.available())
 
-    def test_without_a_jail_nothing_runs(self):
-        self.tool("hello", "open('ran', 'w')\n")
+    def box_on_abi(self, version: int, *argv: str) -> tuple[int, dict]:
+        """bin/box as if the kernel's Landlock were VERSION."""
         shim = self.root / "nojail.py"
         shim.write_text("import runpy, sys\n"
                         f"sys.path.insert(0, {str(REPO / 'bin' / 'lib')!r})\n"
-                        "import jail\njail.abi = lambda: 0\n"
+                        f"import jail\njail.abi = lambda: {version}\n"
                         f"sys.argv = [{str(BOX)!r}, *sys.argv[1:]]\n"
                         f"runpy.run_path({str(BOX)!r}, run_name='__main__')\n")
-        proc = subprocess.run([sys.executable, "-I", str(shim), "run", "hello"], capture_output=True, text=True,
+        proc = subprocess.run([sys.executable, "-I", str(shim), *argv], capture_output=True, text=True,
                               env={"PATH": os.environ["PATH"], "TEENY_ROOT": str(self.root)})
-        out = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertEqual((proc.returncode, out["ok"]), (1, False))
+        return proc.returncode, json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_without_a_jail_nothing_runs(self):
+        self.tool("hello", "open('ran', 'w')\n")
+        code, out = self.box_on_abi(0, "run", "hello")
+        self.assertEqual((code, out["ok"]), (1, False))
         self.assertIn("nothing was run", out["error"])
         self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
+
+    def test_a_kernel_that_cannot_close_the_network_runs_nothing(self):
+        # Landlock 3 jails files but has no network rule (ABI 4). With the
+        # network closed (BOX_NETWORK=0) a tool there would still have it,
+        # so nothing runs and the check fails.
+        self.settings(BOX="1", BOX_NETWORK="0")
+        self.tool("hello", "open('ran', 'w')\n")
+        code, out = self.box_on_abi(3, "run", "hello")
+        self.assertEqual((code, out["ok"]), (1, False))
+        self.assertIn("nothing was run", out["error"])
+        self.assertIn("needs 4", out["error"])
+        self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
+        code, out = self.box_on_abi(3, "check")
+        self.assertEqual((code, out["ok"], out["needs"]), (1, False, 4))
+        self.assertIn("needs 4", out["problem"])
+        # Off, the same kernel is no failure: nothing would run anyway.
+        self.settings()
+        self.assertEqual(self.box_on_abi(3, "check")[0], 0)
 
 
 class CronTest(Scratch):
@@ -338,6 +604,10 @@ class RepoTest(unittest.TestCase):
             self.assertFalse(path.is_symlink(), path)
             self.assertTrue(box.TOOL_NAME.fullmatch(path.name), path)
             self.assertTrue(any((path / e).is_file() and not (path / e).is_symlink() for e in box.ENTRIES), path)
+
+    def test_the_box_opens_the_brokers_default_port(self):
+        import broker
+        self.assertEqual(box.DEFAULT_BROKER_PORT, broker.DEFAULT_PORT)
 
     def test_the_jail_and_the_box_are_frozen(self):
         import frozen

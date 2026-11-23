@@ -1901,7 +1901,7 @@ on `hands/x post`.
 
 ## `build`: the builder's work queue
 
-The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
+The builder (`brain/agents/builder.toml`, the `builder` agent job in `brain/cron.toml`,
 every 2 hours) builds one job at a time in its own folder,
 `state/workbench/<slug>/`. It reads its job from
 `state/workbench/desk/build.json`, leaves its report in `build-done.json`
@@ -1931,7 +1931,7 @@ the feature rubric as JSON, below; the column is added to an older table when
 the hand opens it). This hand only reads
 `build_requests`. It writes back only to a request it built, and only while
 that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the pinned `build-ship` job (every 30 minutes):
+`bin/build-ship` is the `build-ship` job in `brain/cron.toml` (every 30 minutes):
 `self-sync`, `desk`, then `ship`. The builder runs at ten past every second
 hour, after a desk.
 
@@ -3488,6 +3488,28 @@ night dream's `experiment` and `conclude` operations (`--source dream`),
 and the `speculate` playbook's inputs (`list`, `lessons`). `self-improve`
 and the evolve loop's evidence read `lessons`.
 
+## `call`: the key proxy
+
+The one hand that makes a call Teeny's own jailed code asked for (the mind,
+its worker, a `home/tools/` tool, through the broker's `/call`). It adds the
+key, which never enters the jail. It calls only what `evals/services.toml`
+lists (frozen; `bin/doctor` fails a list that does not load): a service's
+https base on a named host, the setting holding its key (sent as a Bearer),
+its guard surface, its user-agent and `allow`, the methods and path regexes
+it may call. The shipped list is Moltbook, reads only. Transport is
+`teeny_hands/rest.py`: no redirect is followed, and no error names the URL or
+a header.
+
+| Verb | | Does |
+|---|---|---|
+| `send` | A | `{service, method, path, query?, body?}`. `method` is GET, POST, PUT, PATCH or DELETE; the method and the whole path must match an `allow` entry (`allow`). The path is printable ASCII from `/`, at most 300 characters, with no `..`, `//`, `.` segment, `\`, `@`, `?`, `#` or `%` (`path`). The query is a flat object of strings, numbers and booleans, at most 30 pairs, a string at most 500 characters; the body a JSON object of at most 32 KiB as sent, no string over 20,000 characters, and a GET has none; every name in either is a plain field name (`shape`, `size`). Then the day's cap (`cap`): `CALL_<SERVICE>_READS_PER_DAY` for a GET, `CALL_<SERVICE>_WRITES_PER_DAY` for the rest, the name upper-cased with `-` as `_`, 500 and 50 when `secrets/teeny.env` names no number (listing a service in `evals/services.toml` is the operator's yes), `0` turns either off, at most 5000 and 500. A write's path words are read by the outbound guard's own check (links, the lexicon, the judge; the service's surface, `post_kind` `call`), then its strings (body, depth-first, then the query's values) are joined a line each and read the same way; a hold, or a text the guard would change (a link it would cut), is refused (`guard`), since the proxy sends exactly what it was given or nothing. The house style (emoji, dashes, handles) is not applied and never refuses a call. Under `DRY_RUN` a write answers `{dry_run, would: {service, method, path}}` after those checks and spends nothing; a read is sent. Sent: `{status, json}`, the service's status and its JSON. A 429 is refused with `status` and `retry_after` (`rate_limited`); another failure is an error with `status`. An answer over 256 KiB of JSON (`size`) or one holding the key (`key`) is refused. |
+
+Every call is one row in `call_log`: when, the service, the method, the
+path, read or write, whether it was sent, the outcome, the status and a reason
+clipped to 200 characters. Never the body, the query or the key. A call counts
+against the day once its row says it was sent, in the same transaction that
+checked the cap; a call the service failed was sent, and counts.
+
 ## `goals`: the goal ledger
 
 Teeny proposes its own goals, and frozen code checks them
@@ -3593,6 +3615,7 @@ creates its own tables:
 | `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows`, `x_peer_reads`, `x_peer_searches`, `x_peer_candidates`, `x_peer_touches` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
+| `call` | `call_log` (one row a call; the day's counts) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `reddit` | `reddit_actions` (the ledger: one row a write or read queued, unique per verb and target for comments, replies, votes and subscribes), `reddit_seen`, `reddit_rules`, `reddit_account` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |

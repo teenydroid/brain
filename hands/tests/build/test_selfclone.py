@@ -708,7 +708,7 @@ class SelfShipTest(SelfJobScratch):
 
 
 class ScheduledTest(SelfJobScratch):
-    """The pinned build-ship job (every 30 minutes) syncs the clone first, so
+    """The build-ship job (every 30 minutes) syncs the clone first, so
     Teeny's copy of itself is never more than a run behind main."""
 
     def build_ship(self) -> dict:

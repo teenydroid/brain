@@ -10,6 +10,9 @@
 #   command  = "bin/act <playbook>"   brain/playbooks/<playbook>.md
 #            | "bin/studio --slot <name> --legacy <playbook> --detach"   a studio slot
 #            | "bin/heartbeat"
+#            | "bin/box <tool> [words]"   one of your tools (below)
+#            | one of your pipelines, exactly as written in the section
+#              "the pipelines that are yours to move" below
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
 #                          CALENDAR_TZ, else UTC
 #   enabled  = false       optional; keeps the job, does not run it
@@ -365,12 +368,16 @@ command = "bin/act reddit-browse"
 
 # --- the pipelines that are yours to move (docs/mind.md) ---------------------------
 #
-# Until 2026-11-22 these were pinned in evals/cron.pinned.toml. They are
-# yours now: reschedule one, pause it (`enabled = false`) or drop it, in a
-# pull request like any other change to yourself. bin/dream and
-# bin/moltbook-prune run only with the arguments written here
-# (bin/lib/cron_policy.py, BRAIN_SCRIPTS). What watches you, and what moves
-# money, stays pinned.
+# Until 2026-11-22 (the dreams, the builder, the episode, the prune) and
+# 2026-11-23 (evolve, evolve-credit, wants, build-ship, tasks-desk) these were
+# pinned in evals/cron.pinned.toml. They are yours now: reschedule one, pause
+# it (`enabled = false`) or drop it, in a pull request like any other change
+# to yourself. bin/dream, bin/moltbook-prune, bin/evolve, bin/wants,
+# bin/build-ship and bin/tasks-desk run only with the arguments written here
+# (bin/lib/cron_policy.py, BRAIN_SCRIPTS), and each still checks its own
+# switch in secrets/ (EVOLVE, WANTS): a job here never turns one on. What
+# watches you (evolve-watch among them, which rolls a bad change back), what
+# moves money, and the browser operator stay pinned.
 
 # Teeny dreams (bin/dream): on a thread of its own, teeny:dream, it updates
 # MEMORY.md (the page in every prompt) item by item from everything since the
@@ -415,6 +422,63 @@ prompt = "Build the job on your desk, following your instructions."
 schedule = "50 17 * * *"
 command = "bin/act episode"
 enabled = false
+
+# The builder's desk and shipping (bin/build-ship): collect its report, lay
+# out its next job, and push what it finished to GitHub through hands/gh
+# (the guard, the owner rule, the secret scan, DRY_RUN). The builder's job
+# above starts ten minutes after the hour, once this has laid the desk out.
+[jobs.build-ship]
+schedule = "*/30 * * * *"
+command = "bin/build-ship"
+
+# The browser operator's desk (bin/tasks-desk): collect its report, lay out
+# its next task. The operator's own job is pinned (evals/cron.pinned.toml).
+[jobs.tasks-desk]
+schedule = "*/15 * * * *"
+command = "bin/tasks-desk"
+
+# Acting on what you learned (bin/evolve; docs/evolve.md, "The loop"): each
+# open learning on your page (brain/MEMORY.md: what you decided, promised and
+# are in the middle of) becomes one small change in a worktree off main, gated
+# in code, measured on the eval tasks it reaches, and its own ready pull
+# request, which the babysitter merges once its audit and CI pass. Forty
+# minutes after each dream (02:00 and 14:00), so what the dream wrote down is
+# acted on the same day; with no open learning a run does nothing. No
+# catch-up: a late dream would come after it. Off unless secrets/evolve.env
+# sets EVOLVE=1 (the operator's switch, and its kill switch); its halt
+# thresholds and EVOLVE_GENERATIONS_PER_DAY live in the same file, so moving
+# or adding slots here never runs more generations than that. Detached: a
+# generation outlasts the 300 s a cron shell call gets (docs/oh-gaps.md,
+# G12); it logs to state/evolve/evolve.log. --scheduled: this job's runs are
+# the ones EVOLVE_GENERATIONS_PER_DAY counts.
+[jobs.evolve]
+schedule = "40 2,14 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve run --scheduled --detach"
+
+# Lineage credit (bin/evolve credit): which evolve pull requests merged
+# (whoever merged them), each merged generation's chronicle page, and for
+# every one merged at least seven days ago the change in J since the merge
+# (hands/world history), credited to its ancestors. Reads only; with nothing
+# merged it does nothing. The watch over what those merges changed
+# (evolve-watch) is pinned.
+[jobs.evolve-credit]
+schedule = "50 3 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve credit"
+
+# What you said you would build (bin/wants run; docs/evolve.md, "1c. Wants"):
+# the build-intent items of your memory page ("the first thing i build myself
+# is ... not built yet"), drawn in code, no model. Scores each merged feature
+# a week after it merged (did a scheduled playbook run its hand?), then files
+# at most one want a day as a `self` build request, through the guard, for
+# the builder. 09:00 (CALENDAR_TZ, else UTC) is after the morning pick and
+# before self-improve and pick-request's second slot. Off unless WANTS=1 in
+# secrets/evolve.env: the operator's switch, which no job here turns on.
+[jobs.wants]
+schedule = "0 9 * * *"
+command = "bin/wants run"
+catch_up = true
 
 # The weekly Moltbook unfollow (bin/moltbook-prune): whoever Teeny followed 7 or
 # more days ago that does not follow back is taken off its follow list (peers and

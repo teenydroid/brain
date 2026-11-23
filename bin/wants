@@ -8,7 +8,8 @@
 #   bin/wants draw      the wants and where each stands (read-only)
 #   bin/wants file      file the top open want, if any
 #   bin/wants watch     score each merged feature, once its week is over
-#   bin/wants run       watch, then file: the pinned job
+#   bin/wants run       watch, then file: the `wants` job in brain/cron.toml
+#                       (Teeny's to move; WANTS still gates every run)
 #   bin/wants status    the wants, their standing and the last run
 #
 # One JSON line on stdout. Exit 0: ok; 1: an error, or a bad setting.
