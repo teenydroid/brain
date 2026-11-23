@@ -59,6 +59,11 @@ class FakeSurplus:
         self.jobs = {}
         self.n = 0
         self._polls = {}
+        self.picture = PNG  # what an edit answers; a real picture is one the viewer can look at
+        self.reads = []  # the words the viewer reads in each still, in order ("" when none are left)
+        self.off_model = []  # whether it finds Teeny off model in each, in order
+        self.quote = None  # a job's estimated_cost_usdc, when the seller gives one
+        self.ceiling = "3000000"
         self.catalog = {"data": [{"id": m, "durations_seconds": [5, 10, 15]} for m in
                                  films.TEENY_MODELS.split(",") + films.FIGURE_MODELS.split(",")]}
 
@@ -76,7 +81,15 @@ class FakeSurplus:
         if path.startswith("/api/markets/"):
             return {"offers": [{"available": True, "media_unit_price": 40000, "media_unit": "image"}]}
         if path == "/v1/images/edits":
-            return {"data": [{"b64_json": base64.b64encode(PNG).decode()}]}
+            if body["model"] in getattr(self, "image_fail", {}):
+                raise self.image_fail[body["model"]]
+            return {"data": [{"b64_json": base64.b64encode(self.picture).decode()}]}
+        if path == "/v1/chat/completions":
+            pictures = [part for part in body["messages"][0]["content"] if part["type"] == "image_url"]
+            answer = ({"sees": "a yellow robot in a vault", "text": self.reads.pop(0) if self.reads else ""}
+                      if len(pictures) == 1 else
+                      {"on_model": not (self.off_model.pop(0) if self.off_model else False), "reason": "looked"})
+            return {"choices": [{"message": {"content": json.dumps(answer)}}]}
         if path == "/v1/video/generations" and method == "POST":
             model = body["model"]
             if model in self.video_fail:
@@ -84,7 +97,8 @@ class FakeSurplus:
             self.n += 1
             job = f"job-{self.n}-{model}"
             self._polls[job] = list(self.jobs.get(model, ["running", "succeeded"]))
-            return {"id": job, "status": "queued", "max_cost_usdc": "3000000"}
+            return {"id": job, "status": "queued", "max_cost_usdc": self.ceiling,
+                    **({"estimated_cost_usdc": self.quote} if self.quote else {})}
         if path.startswith("/v1/video/generations/") and method == "GET":
             job = path.rsplit("/", 1)[1]
             polls = self._polls[job]
@@ -196,8 +210,66 @@ class FilmTest(unittest.TestCase):
         self.assertIn("never photo-real", figure["prompt"])
         self.assertNotIn("image", figure)
         self.assertEqual(len(figure["images"]), 1)
-        self.assertIn("image", teeny)
+        self.assertEqual(len(teeny["images"]), 2)  # its sheet, then the film's first still
+        self.assertTrue(teeny["images"][0].startswith("data:image/png"))
         self.assertNotIn("leather jacket", teeny["prompt"])
+
+    def test_every_still_is_asked_for_in_one_look_and_shown_the_first(self):
+        """f123: one scene came back a clean cartoon and the next a sketch.
+        Nothing told the stills they were one film."""
+        out = self.make()
+        edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertTrue(all(films.HOUSE_STYLE in b["prompt"] for b in edits))
+        first = assets._data_uri(films.folder(out["id"]) / films.load(out["id"])["plates"]["b1"]["file"])
+        self.assertNotIn(first, edits[0]["images"])
+        for later in edits[1:]:
+            self.assertEqual(later["images"][-1], first)
+            self.assertIn("an earlier frame of this same film", later["prompt"])
+
+    def test_later_stills_go_first_to_the_model_that_drew_the_first(self):
+        self.api.image_fail = {"gpt-image-2-edit": SurplusError("Surplus answered 400: size is not taken", 400)}
+        self.make()
+        edits = [b["model"] for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertEqual(edits, ["gpt-image-2-edit"] + ["nano-banana-pro-edit"] * 3)
+
+    def test_a_still_with_writing_in_it_is_drawn_once_more_and_told_why(self):
+        """f123: a prop came back with a word lettered on it, though every
+        still was told to have none."""
+        self.api.picture = (REPO / "brain" / "assets" / "teeny-reference.png").read_bytes()
+        self.api.reads = ["", "HYMN"]  # the second still has a word on it
+        out = self.make()
+        edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertEqual(len(edits), 4)
+        self.assertIn(films.REDRAW["writing"], edits[2]["prompt"])
+        self.assertFalse(any(films.REDRAW["writing"] in b["prompt"] for b in edits[:2] + edits[3:]))
+        plates = films.load(out["id"])["plates"]
+        self.assertEqual(plates["b2"]["faults"], ["writing"])
+        self.assertTrue(plates["b2"]["redrawn"])
+        self.assertTrue(plates["b2"]["file"].startswith("b2-2."))
+        self.assertIn(plates["b2"]["file"], self.reel.jobs[0]["beats"][1]["clip"] + str(self.api.videos()[1]) or "")
+        self.assertNotIn("faults", plates["b1"])
+
+    def test_teeny_off_model_is_drawn_once_more_and_a_second_miss_is_kept(self):
+        self.api.picture = (REPO / "brain" / "assets" / "teeny-reference.png").read_bytes()
+        self.api.off_model = [False, False, True, True]  # the Teeny beat, and its redraw
+        out = self.make()
+        self.assertEqual(out["status"], "done")
+        edits = [b for m, p, b in self.api.calls if p == "/v1/images/edits"]
+        self.assertEqual(len(edits), 4)  # one redraw, never a third try
+        self.assertIn(films.REDRAW["off_model"], edits[3]["prompt"])
+        self.assertEqual(films.load(out["id"])["plates"]["b3"]["faults"], ["off_model"])
+
+    def test_a_clip_holds_its_quote_not_its_ceiling_so_the_last_beat_is_still_bought(self):
+        """f123 cost $4.55 of a $15 film, yet its last clip was short of
+        money: every clip held its ceiling, several times its bill."""
+        self.env(FILM_MAX_USD="8.00", FILM_MAX_USD_PER_CLIP="5.00")
+        self.api.quote, self.api.ceiling = "1000000", "5200000"  # over the clip cap, and three would be $15.60
+        out = self.make()
+        self.assertEqual(out["status"], "done", out)
+        self.assertEqual(out["stills"], [])
+        self.assertEqual(len(self.api.videos()), 3)
+        shots = [r for r in self.rows() if r["kind"] == "shot"]
+        self.assertTrue(all(r["cost_micro"] == 1_500_000 and r["estimated"] == 0 for r in shots))  # the bill
 
     def test_each_clip_is_bought_at_the_shortest_length_that_covers_its_beat(self):
         out = self.make()

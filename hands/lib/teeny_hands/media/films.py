@@ -371,7 +371,8 @@ def plates(conn, manifest: Json, api: Surplus) -> None:
             # model that drew it when that model is still on the list.
             anchor = assets._data_uri(here / made[first]["file"])
             models = sorted(order, key=lambda m: m != made[first]["model"])
-        plate = _draw(conn, manifest, api, beat, portraits, models, anchor, beat["id"])
+        plate = made[beat["id"]] = _draw(conn, manifest, api, beat, portraits, models, anchor, beat["id"])
+        save(manifest)  # bought: a film that stops here never buys it again
         faults = plate_faults(here / plate["file"], beat, api)
         if faults:
             plate["faults"] = faults
@@ -383,8 +384,7 @@ def plates(conn, manifest: Json, api: Surplus) -> None:
             if again:
                 (here / plate["file"]).unlink(missing_ok=True)
                 plate.update(again, redrawn=True)
-        made[beat["id"]] = plate
-        save(manifest)
+            save(manifest)
 
 
 def _plan(windows: dict[str, Json], per_clip: int) -> _shots.Plan:
