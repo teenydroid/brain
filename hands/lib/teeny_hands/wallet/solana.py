@@ -74,6 +74,25 @@ class RpcError(hand.HandError):
     it will not return, say), as against one that could not be reached."""
 
 
+class RateLimited(hand.HandError):
+    """The RPC answered HTTP 429: too many requests from here, for now.
+    `retry_after` is the wait it asked for in seconds (Retry-After), or None."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_after(headers: Any) -> float | None:
+    """A Retry-After given in seconds; None for none, or for an HTTP date."""
+    value = str((headers.get("Retry-After") if headers is not None else None) or "").strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        return None
+    return seconds if 0 <= seconds < float("inf") else None
+
+
 def rpc_url(cluster: str) -> str:
     return hand.setting("SOLANA_RPC_URL") or caps.RPC_DEFAULTS[cluster]
 
@@ -90,6 +109,8 @@ def rpc(cluster: str, method: str, params: list[Any]) -> Any:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise RateLimited(f"Solana RPC {method} answered HTTP 429", _retry_after(exc.headers)) from None
         failure = f"Solana RPC {method} answered HTTP {exc.code}"
     except (urllib.error.URLError, OSError, ValueError) as exc:
         failure = f"could not reach Solana RPC for {method} ({type(getattr(exc, 'reason', exc)).__name__})"
