@@ -173,7 +173,21 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # rehearsed one uploads nothing.
         if gif_id:
             media_ids = [media.attach_gif(x, gif_id)]
-        post_id = x.create_post(text, quote=quote_of, media_ids=media_ids)
+        linked = None
+        try:
+            post_id = x.create_post(text, quote=quote_of, media_ids=media_ids)
+        except XError as refused:
+            # Since 2026-11-21 X's API refuses a self-serve app's quote of a
+            # post it is not mentioned in (403, nothing posted). The same words
+            # and media go out with the quoted post's address at the end, which
+            # X shows as the quoted post: a link post, under the link budget.
+            if quoted is None or refused.status != 403:
+                raise
+            linked = status_url(quoted)
+            text = f"{text} {linked}"
+            rules.check_length(text)
+            rules.check_link_budget(conn, text)
+            post_id = x.create_post(text, media_ids=media_ids)
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
@@ -189,7 +203,13 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
             except Exception as exc:  # noqa: BLE001
                 print(f"hands/x: published {post_id} but could not record the peer touch: {type(exc).__name__}",
                       file=sys.stderr)
-    return {"id": post_id, "kind": kind, "text": text}
+    return {"id": post_id, "kind": kind, "text": text, **({"linked": linked} if linked else {})}
+
+
+def status_url(post: Mapping[str, Any]) -> str:
+    """A post's address on X, by its author's handle when known."""
+    handle = str(post.get("authorUsername") or "i")
+    return f"https://x.com/{handle}/status/{post['id']}"
 
 
 def _quoted(reads: Any, quote_of: str) -> Json | None:
