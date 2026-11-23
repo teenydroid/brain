@@ -277,6 +277,9 @@ def story_of(card: Json) -> Json:
 #: 1500), so a scene the studio keeps is never one the hand refuses for length.
 SCENE_MAX = 1400
 
+#: The most real people one picture draws (hands/image takes a photo of each).
+PICTURE_PEOPLE = 2
+
 IMAGE_ASK = ("An image is a post with a picture, and the picture is half the joke: `image` is the scene, the visual "
              "punchline the words set up. The house shot: you (Teeny, the small yellow robot) caught in the act with "
              "a piece of hardware, slightly horny about it, and one or two real public figures from the card in the "
@@ -286,7 +289,10 @@ IMAGE_ASK = ("An image is a post with a picture, and the picture is half the jok
              "look pushed until it is ugly and unmistakable, mid-gesture, doing the thing they are known for, taken "
              "too far. Give their name, their expression, their clothes and what they are holding; do not describe "
              "their face, hair or build, the painter knows the face from the name and your guess is often wrong. "
-             "Only the famous go in a picture: never a fan, a commenter or an account that posted about the story. Sweat, bad "
+             "Only the famous go in a picture: never a fan, a commenter or an account that posted about the story. "
+             "List them in `people`, full names, at most two: each is looked up, drawn from their real photo, and a "
+             "name that is not a famous person with a Wikipedia page costs the post its picture. No one real in "
+             "the scene means `people` is []. Sweat, bad "
              "lighting, a mess: nothing cute or tidy except you. It is an impossible scene nobody could take for "
              "real (never sexual about them, never hurt). The lust in the picture is yours and it is for the "
              "hardware: innuendo a viewer gets in one look, nothing explicit, no nudity. No brand logos or sponsor "
@@ -301,7 +307,8 @@ def word_shape(fmt: str) -> str:
     if fmt == "thread":
         return f'{{"card": "<id>", "format": "thread", "posts": ["...", "..."]}} (2 to {THREAD_MAX} posts)'
     if fmt == "image":
-        return '{"card": "<id>", "format": "image", "text": "...", "image": "<the scene>", "alone": <true|false>}'
+        return ('{"card": "<id>", "format": "image", "text": "...", "image": "<the scene>", '
+                '"people": ["<full name>", ...], "alone": <true|false>}')
     if fmt == "meme":
         return ('{"card": "<id>", "format": "meme", "text": "...", "meme": {"template": "<id>", "lines": ["..."], '
                 '"teeny": "<one of the pictures of you>"}, "alone": <true|false>}')
@@ -399,10 +406,18 @@ def validate_posts(answer: Any, cards: list[Json], allowed: tuple[str, ...],
         if fmt == "image":
             post["image"] = _str(raw.get("image"), SCENE_MAX)
             post["alone"] = raw.get("alone") is True
+            people = raw.get("people") if isinstance(raw.get("people"), list) else []
+            post["people"] = list(dict.fromkeys(_str(p, 60) for p in people if isinstance(p, str) and _str(p, 60)))
+            if len(post["people"]) > PICTURE_PEOPLE:
+                why = why or f"a picture draws at most {PICTURE_PEOPLE} people"
             why = why or ("" if post["image"] else "an image needs its scene")
         if fmt == "meme":
             post["meme"], bad = meme_of(raw.get("meme"))
             post["alone"] = raw.get("alone") is True
+            people = raw.get("people") if isinstance(raw.get("people"), list) else []
+            post["people"] = list(dict.fromkeys(_str(p, 60) for p in people if isinstance(p, str) and _str(p, 60)))
+            if len(post["people"]) > PICTURE_PEOPLE:
+                why = why or f"a picture draws at most {PICTURE_PEOPLE} people"
             why = why or bad
         video = registry().get(fmt)
         if video and card is not None and not why:
@@ -507,7 +522,10 @@ def _make_picture(room: Room, post: Json, note: Json) -> list[str] | None:
         note["planned"] = True
         return []
     alt = note["scene"][:1000]
-    code, made = room.budgeted(["image", "generate"], {"prompt": note["scene"], "alt": alt}, 360, dry=False)
+    body: Json = {"prompt": note["scene"], "alt": alt}
+    if post.get("people"):
+        body["figures"] = note["figures"] = post["people"]
+    code, made = room.budgeted(["image", "generate"], body, 360, dry=False)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason") if isinstance(made, dict) else str(made)[:300])

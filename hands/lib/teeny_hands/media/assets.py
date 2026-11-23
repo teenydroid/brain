@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import hand
-from . import fit
+from . import figures, fit
 from .surplus import Surplus, SurplusError
 
 SCHEMA = """
