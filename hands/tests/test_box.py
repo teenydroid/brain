@@ -261,6 +261,7 @@ NET_PROBE = r'''
 import ctypes, json, socket, urllib.request
 BROKER, OTHER = PORTS
 OUTSIDE = UNIX_PATH
+OUTSIDE_DGRAM = UNIX_DGRAM_PATH
 def can(fn):
     try:
         fn()
@@ -276,6 +277,16 @@ def unix_connect():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(OUTSIDE)
     s.sendall(b"leak")
+def dgram_pair():
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+    a.sendto(b"leak", OUTSIDE_DGRAM)
+def fastopen():
+    s = socket.socket()
+    try:
+        s.sendto(b"leak", socket.MSG_FASTOPEN, ("127.0.0.1", OTHER))
+    except OSError as exc:
+        return exc.errno
+    return 0
 def io_uring():
     libc = ctypes.CDLL(None, use_errno=True)
     params = ctypes.create_string_buffer(120)
@@ -303,6 +314,8 @@ out = {
     "unix_connect": can(unix_connect),
     "socketpair": can(socket.socketpair),
     "io_uring": can(io_uring),
+    "dgram_pair": can(dgram_pair),
+    "fastopen_errno": fastopen(),
 }
 try:
     out["fetched"] = fetch()
@@ -371,10 +384,16 @@ class NetworkTest(Scratch):
         self.outside.listen()
         self.outside.settimeout(0.2)
         self.addCleanup(self.outside.close)
+        self.dgram_path = str(self.root / "outside-dgram.sock")
+        self.dgram = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.dgram.bind(self.dgram_path)
+        self.dgram.settimeout(0.2)
+        self.addCleanup(self.dgram.close)
 
     def probe(self) -> dict:
         ports = repr((self.port, self.other.getsockname()[1]))
-        self.tool("net", NET_PROBE.replace("PORTS", ports, 1).replace("UNIX_PATH", repr(self.unix_path), 1))
+        self.tool("net", NET_PROBE.replace("PORTS", ports, 1).replace("UNIX_PATH", repr(self.unix_path), 1)
+                  .replace("UNIX_DGRAM_PATH", repr(self.dgram_path), 1))
         code, out = self.box("run", "net", env={"https_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://x:9"})
         self.assertEqual(code, 0, out)
         return json.loads(out["output"].strip().splitlines()[-1])
@@ -418,6 +437,17 @@ class NetworkTest(Scratch):
         self.assertFalse(got["unix_connect"])
         with self.assertRaises(OSError):
             self.outside.accept()
+
+    def test_a_tool_cannot_reach_a_receiver_outside_through_a_datagram_pair_or_fast_open(self):
+        # Landlock sees neither a sendto on a unix datagram pair (it can
+        # name any path) nor a TCP connect made by MSG_FASTOPEN.
+        got = self.probe()
+        self.assertFalse(got["dgram_pair"])
+        with self.assertRaises(OSError):
+            self.dgram.recv(16)
+        self.assertEqual(got["fastopen_errno"], errno.EPERM)
+        with self.assertRaises(OSError):
+            self.other.accept()
 
     @unittest.skipUnless(_io_uring_works(), "this kernel refuses io_uring to everybody")
     def test_a_tool_cannot_set_up_io_uring(self):

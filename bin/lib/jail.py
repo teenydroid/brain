@@ -23,7 +23,9 @@ state/ or .git in reach (docs/mind.md, "Its own tools").
                    (AF_INET or AF_INET6, protocol TCP): no UDP, ICMP, raw,
                    netlink, packet, MPTCP or SCTP socket, which Landlock
                    does not see, and no unix one, which Landlock lets
-                   connect to any path (socketpair stays). It also refuses
+                   connect to any path (a stream socketpair stays; a datagram one
+                   can sendto a path, so it goes). It also refuses
+                   MSG_FASTOPEN sends, a TCP connect Landlock never sees, and
                    listen (on an unbound socket it binds a port Landlock
                    never sees) and io_uring, which can make socket calls
                    the filter never sees. A Landlock port rule is a port,
@@ -126,6 +128,16 @@ _NET_SYSCALLS = {
     "x86_64": (41, (50, 425, 426, 427)),
     "aarch64": (198, (201, 425, 426, 427)),
 }
+#: Per machine, for the network rule: socketpair, then sendto, sendmsg and
+#: sendmmsg. The last three open a TCP connection under MSG_FASTOPEN with no
+#: connect(2), which Landlock's port rule never sees.
+_NET_PAIR_SYSCALLS = {
+    "x86_64": (53, 44, 46, 307),
+    "aarch64": (199, 206, 211, 269),
+}
+_AF_UNIX, _SOCK_DGRAM = 1, 2
+_MSG_FASTOPEN = 0x20000000
+_JSET = 0x45
 _AF_INET, _AF_INET6 = 2, 10
 _SOCK_STREAM, _SOCK_TYPE_MASK = 1, 0xF
 _IPPROTO_TCP = 6
@@ -161,6 +173,34 @@ def _socket_rule(nr: int) -> list[bytes]:
     ]
 
 
+def _pair_rule(nr: int) -> list[bytes]:
+    """socketpair(AF_UNIX, SOCK_DGRAM): EPERM. On a datagram pair, sendto
+    with a pathname names a receiver outside the jail, whatever the pair's
+    peer; a stream pair has nobody to name. Any other call skips the block."""
+    return [
+        _insn(_JEQ, 0, 7, nr),                  # 0: not socketpair: on past 7
+        _insn(_LD_ABS, 0, 0, 16),               # 1: the family
+        _insn(_JEQ, 0, 3, _AF_UNIX),            # 2: else -> 6 allow
+        _insn(_LD_ABS, 0, 0, 24),               # 3: the type
+        _insn(_AND, 0, 0, _SOCK_TYPE_MASK),     # 4
+        _insn(_JEQ, 1, 0, _SOCK_DGRAM),         # 5: -> 7 refuse
+        _insn(_RET, 0, 0, _RET_ALLOW),          # 6
+        _insn(_RET, 0, 0, _RET_ERRNO | errno.EPERM),  # 7
+    ]
+
+
+def _fastopen_rule(nr: int, flags_offset: int) -> list[bytes]:
+    """A send call with MSG_FASTOPEN in its flags: EPERM. Any other call, and
+    any other flags, skip the block (the call is not otherwise refused)."""
+    return [
+        _insn(_JEQ, 0, 4, nr),                  # 0: not this call: on past 4
+        _insn(_LD_ABS, 0, 0, flags_offset),     # 1
+        _insn(_JSET, 1, 0, _MSG_FASTOPEN),      # 2: -> 4 refuse
+        _insn(_RET, 0, 0, _RET_ALLOW),          # 3
+        _insn(_RET, 0, 0, _RET_ERRNO | errno.EPERM),  # 4
+    ]
+
+
 def _filter(network: bool = False) -> bytes:
     """The syscall filter; with NETWORK, also the socket rule and the
     network calls refused outright (see the module's docstring)."""
@@ -168,6 +208,7 @@ def _filter(network: bool = False) -> bytes:
     try:
         arch, utimensat, denied = _SYSCALLS[machine]
         socket_nr, net_denied = _NET_SYSCALLS[machine]
+        pair_nr, sendto_nr, sendmsg_nr, sendmmsg_nr = _NET_PAIR_SYSCALLS[machine]
     except KeyError:
         raise Unavailable(f"seccomp: no syscall table for a {machine} machine") from None
     insn = _insn
@@ -180,7 +221,8 @@ def _filter(network: bool = False) -> bytes:
     prog += [insn(_JEQ, 0, 6, utimensat), insn(_LD_ABS, 0, 0, 24), insn(_JEQ, 0, 3, 0), insn(_LD_ABS, 0, 0, 28),
              insn(_JEQ, 0, 1, 0), insn(_RET, 0, 0, _RET_ALLOW), insn(_RET, 0, 0, eperm)]
     if network:
-        prog += _socket_rule(socket_nr)
+        prog += _socket_rule(socket_nr) + _pair_rule(pair_nr)
+        prog += _fastopen_rule(sendto_nr, 40) + _fastopen_rule(sendmsg_nr, 32) + _fastopen_rule(sendmmsg_nr, 40)
         denied = (*denied, *net_denied)
     prog += [insn(_JEQ, len(denied) - i, 0, nr) for i, nr in enumerate(denied)]
     prog += [insn(_RET, 0, 0, _RET_ALLOW), insn(_RET, 0, 0, eperm)]
