@@ -15,6 +15,7 @@ Read-only. Only Teeny's own words are quoted; other people's are counted.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import sqlite3
 import sys
@@ -117,7 +118,6 @@ def jobs(since: float) -> list[Json] | None:
 def _act_failures(since: float) -> Json:
     """Failed bin/act runs per playbook since SINCE, with the last error
     (as bin/evolve counts them)."""
-    import json
     out: Json = {}
     for runs in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
         failed, last = 0, None
@@ -132,7 +132,8 @@ def _act_failures(since: float) -> Json:
                 continue
             if not isinstance(run, dict):
                 continue
-            when = evolve_evidence.epoch(run.get("at") or run.get("ts") or run.get("started_at"))
+            when = next((w for w in (evolve_evidence.epoch(run.get(k)) for k in ("at", "ts", "date", "time"))
+                         if w is not None), None)
             if when is None or when < since:
                 continue
             errors = [a for a in run.get("actions") or [] if isinstance(a, dict) and a.get("status") == "error"]

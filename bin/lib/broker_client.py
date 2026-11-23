@@ -72,8 +72,10 @@ def _request(argv: list[str]) -> tuple[str, dict]:
     command, args = argv[0], argv[1:]
     if command in ("do", "wake", "pr", "call", "fetch") and len(args) == 1:
         return f"/{command}", _object(args[0])
-    if command in ("wakes", "goals", "repo") and not args:
+    if command in ("wakes", "goals", "repo", "pulse") and not args:
         return f"/{command}", {}
+    if command == "pulse" and len(args) == 1:
+        return "/pulse", _object(args[0])
     if command == "drop-wake" and len(args) == 1:
         return "/drop-wake", {"name": args[0]}
     raise ValueError(f"usage: see `teeny help` ({command!r} with {len(args)} argument(s))")
