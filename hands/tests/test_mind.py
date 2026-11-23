@@ -139,6 +139,13 @@ class WorkerAgentTest(unittest.TestCase):
             with self.assertRaises(SystemExit, msg=tool):
                 agent_check.check(path)
 
+    def test_a_tool_the_mind_lacks_is_refused_even_when_its_name_is_not_banned(self):
+        for tool in ("http_request", "apply_patch"):
+            path = self._variant(WORKER, lambda t, tool=tool: t.replace('    "shell",', f'    "shell",\n    "{tool}",', 1))
+            self.assertIn(tool, path.read_text())
+            with self.assertRaises(SystemExit, msg=tool):
+                agent_check.check(path)
+
     def test_it_cannot_have_helpers_of_its_own(self):
         path = self._variant(WORKER, lambda t: t + '\n[subagents]\nallowlist = ["worker"]\n')
         with self.assertRaises(SystemExit):
