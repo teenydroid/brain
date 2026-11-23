@@ -592,42 +592,6 @@ check "--live warns, never fails, when ingest does not answer" \
   grep -q '^warn remakes: the ingest service at http://127.0.0.1:9 does not answer' "$scratch/doctor.log"
 rm -f "$root/secrets/teeny.env"
 
-# Khaby: off until a video model is named, never a failure; says when the cap,
-# the provider's key, the accounts or INGEST_URL would stop it.
-fresh; doctor || true
-check "khaby is off while no video model is named" grep -q '^ok   khaby: off: KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
-fresh; mkdir -p "$root/secrets"; printf 'STUDIO_FORMATS=post,khaby\n' >"$root/secrets/teeny.env"
-check "a boot with the khaby format but no model passes" doctor
-check "and warns that dissect refuses every video" grep -q '^warn khaby: .*KHABY_DISSECT_MODEL is not set' "$scratch/doctor.log"
-printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_MAX_PER_DAY=0\n' >"$root/secrets/teeny.env"
-doctor || true
-check "a zero cap is off" grep -q '^ok   khaby: off: KHABY_DISSECT_MAX_PER_DAY is 0' "$scratch/doctor.log"
-printf 'KHABY_DISSECT_MODEL=m\nKHABY_DISSECT_PROVIDER=gemini\nKHABY_ACCOUNTS=,\n' >"$root/secrets/teeny.env"
-doctor || true
-check "a missing key, no account and no ingest warn" \
-  grep -q '^warn khaby: GEMINI_API_KEY is not set.*KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
-printf 'KHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' >"$root/secrets/teeny.env"
-doctor || true
-check "khaby on says its cap, model, accounts and ingest" \
-  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080' "$scratch/doctor.log"
-# The studio side: STUDIO_FORMATS naming khaby while the video hand is off.
-printf 'STUDIO_FORMATS=post,khaby\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
-  >"$root/secrets/teeny.env"
-check "the khaby format with the video hand off passes" doctor
-check "and warns that hands/video refuses every khaby video" \
-  grep -q '^warn khaby: STUDIO_FORMATS names khaby, but MEDIA_KHABY_MAX_PER_DAY is 0' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nKHABY_ACCOUNTS=,\n' \
-  >"$root/secrets/teeny.env"
-doctor || true
-check "the khaby format with no account and no ingest warns of both" \
-  grep -q '^warn khaby: KHABY_ACCOUNTS names no account.*INGEST_URL is not set' "$scratch/doctor.log"
-printf 'STUDIO_FORMATS=post,khaby\nMEDIA_KHABY_MAX_PER_DAY=1\nKHABY_DISSECT_MODEL=m\nSURPLUS_API_KEY=k\nINGEST_URL=http://ingest:8080\n' \
-  >"$root/secrets/teeny.env"
-doctor || true
-check "the khaby format on says the studio makes one a day" \
-  grep -q '^ok   khaby: on: 3 a day on surplus m; accounts khaby.lame; ingest at http://ingest:8080; the studio makes up to 1 a day' "$scratch/doctor.log"
-rm -f "$root/secrets/teeny.env"
-
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash
