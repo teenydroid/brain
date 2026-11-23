@@ -125,6 +125,9 @@ def check(path: Path) -> str:
             raise SystemExit(f"the {agent} agent must set [subagents] allowlist = {allowed!r} and nothing else there")
         if not isinstance(named, list) or SPAWN_TOOL not in named:
             raise SystemExit(f"the {agent} agent lists helpers, so it needs {SPAWN_TOOL}")
+        if doc.get("agent_tier") not in ("chat", "reasoning"):
+            raise SystemExit(f"the {agent} agent lists helpers, so it must set agent_tier = \"reasoning\": the core "
+                             "defaults to a leaf worker tier and rejects the whole agent registry over a leaf with subagents")
     elif helpers is not None:
         raise SystemExit(f"only {', '.join(SUBAGENTS)} may have [subagents], not {agent}")
     root = doc.get("scheduled_workspace")

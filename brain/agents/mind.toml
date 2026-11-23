@@ -39,6 +39,11 @@ omit_safety_preamble = false
 
 memory_block = { max_tokens = 2000 }
 
+# The core defaults agent_tier to "worker", a leaf that may not list subagents,
+# and rejects the whole agent registry over one such definition. The mind is the
+# coordinator, so it is a reasoning-tier agent; the worker stays the leaf.
+agent_tier = "reasoning"
+
 [system_prompt]
 file = { path = "mind.md" }
 
