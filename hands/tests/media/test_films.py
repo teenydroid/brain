@@ -268,3 +268,12 @@ class FilmTest(unittest.TestCase):
         out = self.make()
         self.assertTrue(out["dry_run"])
         self.assertEqual(self.api.calls, [])
+
+    def test_a_film_is_due_every_other_day_and_only_with_room_in_the_week(self):
+        self.assertTrue(films.due()["due"])
+        self.make()
+        self.assertFalse(films.due()["due"])
+        os.environ["TEENY_NOW"] = str(T0 + 2 * 86400)
+        self.assertTrue(films.due()["due"])
+        self.env(FILM_MAX_USD_PER_WEEK="18")
+        self.assertFalse(films.due()["due"])
