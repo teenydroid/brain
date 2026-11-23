@@ -200,6 +200,10 @@ def _quoted_recently(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
     # A trending author is no peer, so no touch: their handle is on the suggestion that went out.
     touched |= {r[0].lower() for r in conn.execute(
         "SELECT author FROM x_peer_candidates WHERE status = 'posted' AND author IS NOT NULL AND at >= ?", (since,))}
+    # The studio's quotes of trending posts leave neither: the ledger keeps the handle.
+    touched |= {r[0].lower() for r in conn.execute(
+        "SELECT quote_handle FROM x_posts WHERE kind = 'quote' AND quote_handle IS NOT NULL AND created_at >= ?",
+        (since,))}
     return ids, touched
 
 
