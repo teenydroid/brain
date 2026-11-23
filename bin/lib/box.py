@@ -329,7 +329,7 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
         try:
             proc = subprocess.Popen(_argv(path, args), stdin=subprocess.DEVNULL, stdout=write_end,
                                     stderr=subprocess.STDOUT, cwd=folder, env=env, close_fds=True,
-                                    preexec_fn=_jailed(folder, readable, port))
+                                    preexec_fn=_jailed(folder, readable, ports))
             os.close(write_end)
             write_end = -1
             tail.start()

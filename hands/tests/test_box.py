@@ -300,8 +300,9 @@ def _io_uring_works() -> bool:
 
 @unittest.skipUnless(jail.abi() >= 4, "the network rule needs Landlock ABI 4")
 class NetworkTest(Scratch):
-    """A jailed tool reaches the broker's port on loopback and nothing else:
-    no other TCP port, no listening, no UDP, raw, netlink or io_uring."""
+    """With BOX_NETWORK=0 a jailed tool reaches the broker's port on
+    loopback and nothing else: no other TCP port, no listening, no UDP, raw,
+    netlink or io_uring. Without it a tool has the host's network."""
 
     def setUp(self):
         super().setUp()
@@ -335,7 +336,7 @@ class NetworkTest(Scratch):
         self.other.settimeout(0.2)
         self.addCleanup(self.other.close)
         self.port = self.broker.server_address[1]
-        self.settings(BOX="1", BROKER_PORT=str(self.port))
+        self.settings(BOX="1", BOX_NETWORK="0", BROKER_PORT=str(self.port))
         # A unix socket outside the jail, like the docker daemon's or the
         # system resolver's: Landlock never asks about connecting to one.
         self.unix_path = str(self.root / "outside.sock")
@@ -474,8 +475,10 @@ class RefusalTest(Scratch):
         self.assertFalse((self.root / "state" / "box" / "tools" / "hello" / "ran").exists())
 
     def test_a_kernel_that_cannot_close_the_network_runs_nothing(self):
-        # Landlock 3 jails files but has no network rule (ABI 4): a tool
-        # there would have the network, so nothing runs and the check fails.
+        # Landlock 3 jails files but has no network rule (ABI 4). With the
+        # network closed (BOX_NETWORK=0) a tool there would still have it,
+        # so nothing runs and the check fails.
+        self.settings(BOX="1", BOX_NETWORK="0")
         self.tool("hello", "open('ran', 'w')\n")
         code, out = self.box_on_abi(3, "run", "hello")
         self.assertEqual((code, out["ok"]), (1, False))
