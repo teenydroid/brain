@@ -49,7 +49,7 @@ PREMISE = "musk said the car drives itself, so on the moon it beats him at chess
 LOOK = {"Elon Musk": "silver tuxedo, slicked-back hair, a velvet sheet over one arm"}
 SETTING = "a marble showroom built on the moon, Earth in a black sky, golden hour"
 SCORE = "one swelling orchestral score with comic timpani"
-TEENY = "it sits on a moon rock eating a chess pawn, then faces the camera and shrugs"
+TEENY = "it eats a chess pawn, faces the camera and shrugs"
 RAW = {"figures": ["Elon Musk"], "premise": PREMISE,
        "logline": "elon musk loses a chess match to his own car on a lunar showroom floor",
        "look": LOOK, "setting": SETTING, "score": SCORE, "teeny": TEENY, "shots": SHOTS, "aspect": "16:9"}

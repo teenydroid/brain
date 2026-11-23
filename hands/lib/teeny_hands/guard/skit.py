@@ -97,7 +97,7 @@ SHOT_SECONDS = (3, 10)
 MAX_LOOK = 200
 MAX_SETTING = 300
 MAX_SCORE = 200
-MAX_TEENY = 160
+MAX_TEENY = 120
 #: A shot's length when it names none (as hands/video skit's default).
 DEFAULT_SECONDS = 5
 
@@ -289,7 +289,7 @@ def _held(skit: dict[str, Any]) -> list[str]:
 #: to video: there is no character sheet to show it), and where: the last
 #: shot only, apart from everyone, as a remake's Teeny is (guard/remake.py,
 #: rule g). In the script, so skit_budget counts it.
-TEENY_IS = "In the last shot, apart and unnoticed, a small round yellow cartoon character with a ball on its head:"
+TEENY_IS = "Last shot, apart and unnoticed, a small round yellow cartoon character, a ball on its head:"
 
 
 def teeny_line(skit: dict[str, Any]) -> list[str]:
