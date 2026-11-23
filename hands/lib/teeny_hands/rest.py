@@ -149,10 +149,12 @@ class RestApi:
         failure: RestError | None = None
         text = b""
         received: Any = None
+        status = 0
         try:
             with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
                 text = response.read()
                 received = response.headers
+                status = response.status
         except urllib.error.HTTPError as exc:
             try:
                 error_body = exc.read()
