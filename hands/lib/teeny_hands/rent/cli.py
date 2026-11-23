@@ -11,6 +11,7 @@
   R  get ID              one job and what poll has passed on
   R  humans [--skill --city --country --limit N]   who is on RentAHuman
   O  cancel ID [--reason R]   end an unhired bounty
+  O  resolve ID --as paid|submitted   settle a pay in doubt after checking rentahuman.ai
 
 The mind reaches post, accept, review and message through its rent_* intents
 (bin/lib/tick.py); no playbook reaches a verb that spends (bin/lib/playbook.py).
@@ -50,6 +51,9 @@ def parser() -> argparse.ArgumentParser:
     humans.add_argument("--city")
     humans.add_argument("--country")
     humans.add_argument("--limit", type=int, choices=range(1, 51), default=10, metavar="1..50")
+    resolve = verb("resolve", lambda a, _: actions.resolve(a.id, a.outcome), "settle a pay in doubt (operator)")
+    resolve.add_argument("id", type=int, metavar="ID")
+    resolve.add_argument("--as", dest="outcome", choices=("paid", "submitted"), required=True)
     cancel = verb("cancel", lambda a, _: actions.cancel(a.id, a.reason), "end an unhired bounty (operator)")
     cancel.add_argument("id", type=int, metavar="ID")
     cancel.add_argument("--reason", choices=CANCEL_REASONS, default="task_no_longer_needed")
