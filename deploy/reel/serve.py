@@ -29,10 +29,7 @@ plain code in policy.py (no upstream import), which hands/tests/reel tests.
    corner for the whole length, then takes frames for the viewer check.
    A remake's cut (hands/video remake) joins up to six image-to-video
    clips, each trimmed to its source shot (`trims`), with the source's
-   audio from media/remake/ as the only sound (`sound`). A khaby cut
-   (hands/video khaby) also takes a dissect's own source.mp4 from
-   media/khaby/ as a clip, from where `starts` says, with its audio from
-   there. One cut at a time, in a folder of its own on the storage volume, served
+   audio from media/remake/ as the only sound (`sound`). One cut at a time, in a folder of its own on the storage volume, served
    back (`GET /teeny/v1/cuts/{id}/cut.mp4`, `.../frame-N.jpg`) until
    hands/video deletes it (`DELETE /teeny/v1/cuts/{id}`).
    Story films (filmcut.py; docs/video.md §12): `POST /teeny/v1/films`
@@ -189,28 +186,22 @@ async def create_reel(request: Request):
 
 
 def _cut(cut_id: str, checked: dict) -> dict:
-    """One skit's, remake's or khaby video's cut, in its own folder. Runs in a worker thread."""
+    """One skit's or remake's cut, in its own folder. Runs in a worker thread."""
     sources = [policy.resolve_source(TEENY, path) for path in checked["clips"]]
-    # A dissect's source: really under media/khaby/ once symlinks are resolved.
-    for clip, path in zip(checked["clips"], sources):
-        if skitcut.SOURCE_CLIP.fullmatch(clip) and not skitcut.under(path, os.path.join(TEENY, "media", "khaby")):
-            raise policy.JobError("a dissect's source is a file under media/khaby/")
     bed = policy.resolve_source(TEENY, checked["bed"], policy.AUDIO_MAX_BYTES) if checked["bed"] else None
     if bed and os.path.splitext(bed)[1].lower() not in policy.AUDIO_SUFFIXES:
         raise skitcut.CutError("a bed is an mp3, wav, m4a, aac, flac, ogg or opus file")
-    # A remake's or a khaby cut's sound: the source's audio, really under
-    # media/remake/ or media/khaby/ once symlinks are resolved.
+    # A remake's sound: the source's audio, really under media/remake/ once
+    # symlinks are resolved.
     sound = policy.resolve_source(TEENY, checked["sound"], policy.AUDIO_MAX_BYTES) if checked.get("sound") else None
-    if sound and (not (skitcut.under(sound, os.path.join(TEENY, "media", "remake"))
-                       or skitcut.under(sound, os.path.join(TEENY, "media", "khaby")))
+    if sound and (not skitcut.under(sound, os.path.join(TEENY, "media", "remake"))
                   or os.path.splitext(sound)[1].lower() not in policy.AUDIO_SUFFIXES):
-        raise policy.JobError("a sound is an audio file under media/remake/ or media/khaby/")
+        raise policy.JobError("a sound is an audio file under media/remake/")
     folder = os.path.join(CUTS, cut_id)
     os.makedirs(folder)
     with CUTTING:
         return skitcut.render(sources, checked["label"], checked["aspect"], folder, os.path.join(FONTS, skitcut.FONT),
-                              bed=bed, bed_volume=checked["bed_volume"],
-                              starts=checked.get("starts"), trims=checked.get("trims"), sound=sound)
+                              bed=bed, bed_volume=checked["bed_volume"], trims=checked.get("trims"), sound=sound)
 
 
 def _film(cut_id: str, checked: dict) -> dict:
