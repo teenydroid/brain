@@ -215,8 +215,8 @@ The loop moves Teeny's story forward instead of tuning a generic score.
   reads the day's proof events (`hands/lore events`: a generation merged with
   its chronicle page, a pull request merged elsewhere, a bounty paid) and
   posts one episode about the biggest. With no event it skips before any
-  model turn. It runs from the pinned `episode` job, off until the operator
-  turns it on.
+  model turn. It runs from the `episode` job in `brain/cron.toml`, off
+  (`enabled = false`) until it is turned on.
 - The judge scores lore alongside voice and usefulness. The output has to fit
   the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
   visibly move.

@@ -1900,7 +1900,7 @@ on `hands/x post`.
 
 ## `build`: the builder's work queue
 
-The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
+The builder (`brain/agents/builder.toml`, the `builder` agent job in `brain/cron.toml`,
 every 2 hours) builds one job at a time in its own folder,
 `state/workbench/<slug>/`. It reads its job from
 `state/workbench/desk/build.json`, leaves its report in `build-done.json`
@@ -1930,7 +1930,7 @@ the feature rubric as JSON, below; the column is added to an older table when
 the hand opens it). This hand only reads
 `build_requests`. It writes back only to a request it built, and only while
 that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the pinned `build-ship` job (every 30 minutes):
+`bin/build-ship` is the `build-ship` job in `brain/cron.toml` (every 30 minutes):
 `self-sync`, `desk`, then `ship`. The builder runs at ten past every second
 hour, after a desk.
 
