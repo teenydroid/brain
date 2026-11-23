@@ -466,9 +466,10 @@ def check_gap(conn: sqlite3.Connection, kind: str = "post") -> None:
 
 
 def quotes_today(conn: sqlite3.Connection) -> int:
-    """Quotes in the own-post ledger this UTC day."""
+    """Quotes in the quote lane of the own-post ledger this UTC day (a
+    studio quote is in the originals')."""
     now = hand.now()
-    return int(conn.execute("SELECT count(*) FROM x_posts WHERE kind = 'quote' AND created_at >= ?",
+    return int(conn.execute(f"SELECT count(*) FROM x_posts WHERE {LANE_ROWS['quote']} AND created_at >= ?",
                             (now - (now % 86400.0),)).fetchone()[0])
 
 
