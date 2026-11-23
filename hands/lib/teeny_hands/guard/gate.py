@@ -68,11 +68,15 @@ LIMITS: dict[str, dict[str, int]] = {
     "mail": {"subject": 200, "body": 10000},
     "telegram": {"text": 4096},
     "task": {"text": 1000},
+    # A RentAHuman bounty (hands/rent): its title, description, done-criteria
+    # and evidence details are public to every worker; a message goes to the
+    # person hired.
+    "rentahuman": {"title": 200, "description": 5000, "criteria": 2000, "details": 2000, "message": 2000},
 }
 
 # Where a title, a body or a subject is written rather than a post: a leading
 # @handle is an address, not a tag X adds back.
-LONG_FORM_SURFACES = ("github", "moltbook", "reddit", "mail")
+LONG_FORM_SURFACES = ("github", "moltbook", "reddit", "mail", "rentahuman")
 #: Where markdown code is rendered as code and never linkified, so a file name
 #: in backticks (`pr-agent-budget.sh`) is not a link: GitHub only.
 CODE_SPAN_SURFACES = ("github",)
