@@ -22,9 +22,14 @@ display_name = "Teeny (mind)"
 when_to_use = "Teeny's own standing work, on a schedule: its projects, its notes, its changes to itself. Not a chat delegate."
 temperature = 0.7
 # A wake is a real working session: read the notes, do a piece of a project,
-# write down where it stopped. The turn deadline (bin/lib/teeny.sh) ends a
-# run that does not end itself.
-max_iterations = 60
+# write down where it stopped. A wake may fill the half hour to the next one:
+# the turn deadline (bin/lib/teeny.sh, 1800 s) is what ends a run that does
+# not end itself, and this count is set above what that deadline lets through
+# (a model call takes about 7 s on the box, so about 250 in 30 minutes). At
+# 60 the first live wake (2026-11-23) was cut off after 7 minutes of reading,
+# with nothing written. The harness records a run that reaches this count as
+# failed, so it must not be the limit a normal wake meets.
+max_iterations = 300
 # The sandbox jails files, not the network (see builder.toml): the shell
 # writes state/home/ and reads the system's own directories, and nothing
 # else of the checkout. It has the host's network, which is how it reaches
