@@ -480,6 +480,34 @@ def _check_wallet(i):
     return "wallet", ["balance"], None
 
 
+# --- renting people (hands/rent, docs/hands.md "rent") ----------------------------------------
+#
+# A person on RentAHuman.ai does a thing in the world Teeny cannot. The money
+# is the RentAHuman wallet the operator tops up; hands/rent holds every post
+# to RENT_MAX_PER_BOUNTY_USD and RENT_MAX_PER_DAY_USD in the same call, and
+# pays a hire once. rent_post is also held to RENT_POSTS_PER_DAY here; the
+# others act on a job already paid for.
+
+RENT_POST_FIELDS = ("title", "brief", "done", "proof", "proof_details", "price_usd", "hours", "category", "skills",
+                    "city", "state", "country", "remote")
+
+
+def _rent_post(i):
+    return "rent", ["post"], _pick(i, RENT_POST_FIELDS)
+
+
+def _rent_accept(i):
+    return "rent", ["accept"], {"job": _id(i, "job"), "application": _id(i, "application")}
+
+
+def _rent_review(i):
+    return "rent", ["review"], _pick(i, ("job", "verdict", "reason"))
+
+
+def _rent_message(i):
+    return "rent", ["message"], {"job": _id(i, "job"), "text": _text(i)}
+
+
 # --- issues, browser tasks and new mail (docs/roadmap.md, A3) -------------------------------
 #
 # Three reaches the mind did not have: an issue on its own repositories
