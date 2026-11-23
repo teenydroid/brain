@@ -66,13 +66,13 @@ def _num(value: float) -> int | float:
     return int(value) if value.is_integer() else value
 
 
-def audience(conn: sqlite3.Connection) -> list[Json]:
-    """Each AUDIENCE metric's latest value and its change over 1 and 7 days
-    (absent when no snapshot is that old)."""
+def audience(conn: sqlite3.Connection, metrics: Iterable[tuple[str, str]] = AUDIENCE) -> list[Json]:
+    """Each of METRICS' (AUDIENCE by default) latest value and its change
+    over 1 and 7 days (absent when no snapshot is that old)."""
     if "stats" not in _tables(conn):
         return []
     out = []
-    for source, metric in AUDIENCE:
+    for source, metric in metrics:
         latest = conn.execute(
             "SELECT value, date FROM stats WHERE source = ? AND metric = ? ORDER BY date DESC LIMIT 1", (source, metric)
         ).fetchone()
