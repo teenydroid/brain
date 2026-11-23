@@ -439,10 +439,9 @@ def render_studio(brain: Path, agent: str, instructions: str) -> str:
 
 
 def _skill(brain: Path, name: str) -> str:
-    """A skill's text for a prompt, without its `---` front matter."""
+    """A skill's text for a prompt, without its `---` front matter; empty for
+    a brain without it (as craft() leaves out a missing skill)."""
     text = _read(brain / "skills" / name / "SKILL.md")
-    if not text:
-        raise ValueError(f"brain/skills/{name}/SKILL.md is missing or empty")
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end != -1:
