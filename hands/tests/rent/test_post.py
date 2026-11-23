@@ -100,6 +100,17 @@ class PostTest(Scratch):
         self.assertEqual(keys, ["teeny-rent-1", "teeny-rent-1"])
         self.assertEqual(self.jobs()[0]["bounty_id"], "b9")
 
+    def test_a_refusal_that_may_have_posted_stays_posting(self) -> None:
+        for refusal in (error("create_in_progress", "running", retry_safe=False),
+                        error("create_in_progress", "running", retry_safe=True),
+                        error("something_new", "?", retry_safe=None)):
+            with self.subTest(refusal=refusal):
+                self.rah.on("create_bounty", lambda a, r=refusal: preview(2000) if a.get("dryRun") else r)
+                with self.assertRaises(hand.HandError) as caught:
+                    actions.post(dict(GOOD, title=f"Hold a sign {len(self.jobs())} about robots"))
+                self.assertNotIsInstance(caught.exception, hand.Refused)
+                self.assertEqual(self.jobs()[-1]["status"], "posting")  # counted, and poll sends it again
+
     def test_a_refused_post_spends_nothing(self) -> None:
         self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else error("listing_refused", "a rule"))
         with self.assertRaises(hand.Refused):
