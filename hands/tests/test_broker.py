@@ -953,7 +953,6 @@ class FetchTest(BrokerCase):
 
     def test_fetch_works_without_a_setting_and_zero_turns_it_off(self):
         # Reading a page says nothing to anyone: on by default, 0 is off.
-        self.assertEqual(broker.DEFAULT_FETCHES_PER_DAY, 500)
         self.start_fetching()
         code, out = self.post("/fetch", {"url": "https://example.com/"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)

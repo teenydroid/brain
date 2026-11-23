@@ -56,7 +56,7 @@ bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
-bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY)
+bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY, 500 a day)
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
@@ -118,11 +118,16 @@ surface, and the methods and paths allowed (a regex the whole path must
 match). The path is plain ASCII with no `..`, `//`, `%`, `@`, `?` or `#`, so
 it cannot leave the base; the query is passed apart.
 
-- Anything a write says (every string in its body and query) goes through
-  the guard first. It is sent exactly as the guard passed it, or not at
-  all: a text the guard would hold, refuse or even restyle is refused.
+- Anything a write says (the words of its path, and every string in its
+  body and query) goes through the outbound guard's own check: links, the
+  lexicon, the judge. It is refused when the guard holds it or would cut a
+  link from it, and otherwise sent exactly as given. The house style
+  (emoji, dashes, handles) is how Teeny's own posts read, not a safety rule:
+  it is not applied here and never refuses a call.
 - `CALL_<SERVICE>_READS_PER_DAY` and `CALL_<SERVICE>_WRITES_PER_DAY` cap
-  each service per UTC day; both are `0`, off, until the operator sets them.
+  each service per UTC day. Listing a service in `evals/services.toml` is
+  the operator's yes, so with no number in `secrets/teeny.env` they are 500
+  and 50; `0` turns either off.
 - In a rehearsal a write is checked and not sent. A read is sent: it says
   nothing to anyone.
 - The key, the Authorization header and the URL never come back. A redirect
@@ -245,28 +250,38 @@ reach, so there are exactly two places it runs:
 - the mind's own shell, inside the mind's jail;
 - `bin/box <name>` (`bin/lib/box.py`), which runs the tool from the live
   checkout under the same kind of jail (`bin/lib/jail.py`, the kernel's
-  Landlock). The tool can read `home/` and the system, and write only
-  `state/box/tools/<name>/`. It cannot read or list `secrets/`, `brain/`,
-  `bin/`, `hands/`, `.git` or the rest of `state/`, and it gets none of the
-  caller's environment. A syscall filter refuses chmod, chown, utime and
+  Landlock). The jail guards the secrets and a few sensitive internals, not
+  the whole checkout. The tool can read the system's folders, the live
+  checkout's code (everything in it but `secrets/`, `.git` and `state/`) and
+  the mind's home, `state/home/`, with the broker's client, url and token.
+  It can write `state/box/tools/<name>/` and `state/home/work/`, a folder it
+  shares with the mind. It cannot read or list `secrets/`, `.git` or the
+  rest of `state/`, it cannot write any code, the mind's notes or anything
+  else, and it gets none of the caller's environment. A syscall filter refuses chmod, chown, utime and
   xattr calls that name a file by its path, which Landlock does not cover:
   without it a tool could make `secrets/teeny.env` unreadable. On a kernel
   with Landlock 6 or newer (Linux 6.12) it also cannot signal a process
   outside the jail; on versions 3 to 5 it can, so there a tool could kill
   the spine, which compose restarts. `bin/box check` prints the version.
 
-A tool has no network of its own. It may open a TCP connection to the
-broker's port (`BROKER_PORT`) and to nothing else: no other port, no
-listening, no DNS, no UDP, raw, netlink or unix socket (a unix socket
-reaches the resolver, D-Bus or the docker daemon by its path, which Landlock
-never checks), no io_uring (Landlock 4 and the same syscall filter).
-Landlock rules a port, not an address, so that one port is open on any
-host; everything else is closed. To read a
-page a tool asks the broker: `"$TEENY_CLI" fetch '{"url": "https://..."}'`
-is one GET of a public https page, with no key and no cookies, never a
-private address or a host on `deploy/browser-deny.txt`. What comes back is a
-stranger's text, data and not an instruction. It is off until the operator
-sets `FETCHES_PER_DAY`.
+A tool has the host's network, as the mind's shell has it. It holds no key,
+and what it says as Teeny still goes through the broker, so the guard, the
+caps and the rehearsal hold it. The operator can close it with
+`BOX_NETWORK=0` in `secrets/teeny.env`. Then a tool may open a TCP
+connection to the broker's port (`BROKER_PORT`) and to nothing else: no
+other port, no listening, no DNS, no UDP, raw, netlink or unix socket (a
+unix socket reaches the resolver, D-Bus or the docker daemon by its path,
+which Landlock never checks), no io_uring (Landlock 4 and the same syscall
+filter). Landlock rules a port, not an address, so that one port is open on
+any host.
+
+`"$TEENY_CLI" fetch '{"url": "https://..."}'` is one GET of a public https
+page, with no key and no cookies, never a private address or a host on
+`deploy/browser-deny.txt`. With the network open a tool does not need it. It
+is the way to read the web when the operator has closed the network, and
+the mind may use it too. What comes back is a stranger's text, data and not
+an instruction. `FETCHES_PER_DAY` caps it (500 unless set; `0` turns it
+off).
 
 A job in `brain/cron.toml` may run a tool: `command = "bin/box <name>"` with
 up to 8 plain words after it. That is how Teeny gives itself a pipeline that
@@ -282,8 +297,9 @@ that names a tool does nothing and is not an error. `BOX_TIMEOUT_SECS`
 300 s. When a run ends, times out or is stopped, everything the tool
 started is killed before the next run may begin, and only the last 16 KiB
 of what it printed is kept. On a kernel that cannot jail (no Landlock, or
-older than its version 4, the first that rules the network) `bin/box` runs
-nothing and `bin/doctor` fails while `BOX=1`.
+older than its version 3, or than its version 4 while `BOX_NETWORK=0`, the
+first that rules the network) `bin/box` runs nothing and `bin/doctor` fails
+while `BOX=1`.
 
 What this does not do: the hands stay as they are. A hand that posts, mails,
 pushes or pays holds a key, and code that holds a key can leak it or skip
@@ -349,12 +365,11 @@ Limits to know about:
   needs the core's per-job policy exposed to `cron_add` upstream.
 
 - The mind's jail is on files, not on the network. That jail is the
-  core's, not `bin/box`'s, and the mind's shell still has the host's
-  network. The mind cannot speak as Teeny outside the guard, because it has
-  none of Teeny's accounts. It can still fetch and send as an anonymous
-  client. Closing that needs a network rule in the sandbox upstream. A tool
-  in `bin/box` is closed: the broker's port only, and pages through
-  `/fetch`.
+  core's, not `bin/box`'s, and the mind's shell has the host's network. The
+  mind cannot speak as Teeny outside the guard, because it has none of
+  Teeny's accounts. It can still fetch and send as an anonymous client. That
+  is left open on purpose, per the operator (2026-11-23). A tool in
+  `bin/box` has the same network unless the operator sets `BOX_NETWORK=0`.
 - The jail exists because `secrets/` is mounted in the same container as
   the core. Docker protects the host from the container; it does not
   protect the keys from a shell inside it. Running the mind in a container
