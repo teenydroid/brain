@@ -354,6 +354,8 @@ that model.
   `STUDIO_FORMATS`.
 - Whether the daily video budget ($10) and the one-a-day cadence change once the
   better models cost $3-5 a take.
+- Story films (§12): `FILM_FIGURE_MODELS` after bake-off 3, and the first paid
+  film before `FILM_EVERY_DAYS` is turned on.
 
 ## 12. Story films (60-90 s, audio first)
 
