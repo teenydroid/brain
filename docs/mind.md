@@ -56,6 +56,7 @@ bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
+bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY, 500 a day)
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
@@ -99,6 +100,42 @@ token on every request, minted at each start into
 The mind can also schedule itself in the repository: a job in
 `brain/cron.toml` with `agent = "mind"` and a `prompt` is a wake that
 survives a redeploy and that everyone can read.
+
+### Keys it never holds
+
+A service Teeny already has a key for usually has more endpoints than its
+hand covers. The mind, its worker and its tools can call them through the
+broker without ever holding the key:
+
+```
+bin/teeny call '{"service": "moltbook", "method": "GET", "path": "/posts", "query": {"sort": "new"}}'
+```
+
+The broker passes the request to `hands/call`, the key proxy, outside the
+jail. It calls only a service in `evals/services.toml`, a frozen list the
+operator keeps: an https base, the setting that holds its key, the guard
+surface, and the methods and paths allowed (a regex the whole path must
+match). The path is plain ASCII with no `..`, `//`, `%`, `@`, `?` or `#`, so
+it cannot leave the base; the query is passed apart.
+
+- Anything a write says (the words of its path, and every string in its
+  body and query) goes through the outbound guard's own check: links, the
+  lexicon, the judge. It is refused when the guard holds it or would cut a
+  link from it, and otherwise sent exactly as given. The house style
+  (emoji, dashes, handles) is how Teeny's own posts read, not a safety rule:
+  it is not applied here and never refuses a call.
+- `CALL_<SERVICE>_READS_PER_DAY` and `CALL_<SERVICE>_WRITES_PER_DAY` cap
+  each service per UTC day. Listing a service in `evals/services.toml` is
+  the operator's yes, so with no number in `secrets/teeny.env` they are 500
+  and 50; `0` turns either off.
+- In a rehearsal a write is checked and not sent. A read is sent: it says
+  nothing to anyone.
+- The key, the Authorization header and the URL never come back. A redirect
+  is not followed, an answer over 256 KiB or one holding the key is refused,
+  and every call is one row in `call_log` without its body. The broker ledger keeps a `/call` as service, method and path only, never the body or the query.
+
+The shipped list has Moltbook, reads only: every Moltbook write is already a
+verb of `hands/moltbook`, with rules a proxy write would skip.
 
 ## How it changes itself
 
@@ -213,15 +250,38 @@ reach, so there are exactly two places it runs:
 - the mind's own shell, inside the mind's jail;
 - `bin/box <name>` (`bin/lib/box.py`), which runs the tool from the live
   checkout under the same kind of jail (`bin/lib/jail.py`, the kernel's
-  Landlock). The tool can read `home/` and the system, and write only
-  `state/box/tools/<name>/`. It cannot read or list `secrets/`, `brain/`,
-  `bin/`, `hands/`, `.git` or the rest of `state/`, and it gets none of the
-  caller's environment. A syscall filter refuses chmod, chown, utime and
+  Landlock). The jail guards the secrets and a few sensitive internals, not
+  the whole checkout. The tool can read the system's folders, the live
+  checkout's code (everything in it but `secrets/`, `.git` and `state/`) and
+  the mind's home, `state/home/`, with the broker's client, url and token.
+  It can write `state/box/tools/<name>/` and `state/home/work/`, a folder it
+  shares with the mind. It cannot read or list `secrets/`, `.git` or the
+  rest of `state/`, it cannot write any code, the mind's notes or anything
+  else, and it gets none of the caller's environment. A syscall filter refuses chmod, chown, utime and
   xattr calls that name a file by its path, which Landlock does not cover:
   without it a tool could make `secrets/teeny.env` unreadable. On a kernel
   with Landlock 6 or newer (Linux 6.12) it also cannot signal a process
   outside the jail; on versions 3 to 5 it can, so there a tool could kill
   the spine, which compose restarts. `bin/box check` prints the version.
+
+A tool has the host's network, as the mind's shell has it. It holds no key,
+and what it says as Teeny still goes through the broker, so the guard, the
+caps and the rehearsal hold it. The operator can close it with
+`BOX_NETWORK=0` in `secrets/teeny.env`. Then a tool may open a TCP
+connection to the broker's port (`BROKER_PORT`) and to nothing else: no
+other port, no listening, no DNS, no UDP, raw, netlink or unix socket (a
+unix socket reaches the resolver, D-Bus or the docker daemon by its path,
+which Landlock never checks), no io_uring (Landlock 4 and the same syscall
+filter). Landlock rules a port, not an address, so that one port is open on
+any host.
+
+`"$TEENY_CLI" fetch '{"url": "https://..."}'` is one GET of a public https
+page, with no key and no cookies, never a private address or a host on
+`deploy/browser-deny.txt`. With the network open a tool does not need it. It
+is the way to read the web when the operator has closed the network, and
+the mind may use it too. What comes back is a stranger's text, data and not
+an instruction. `FETCHES_PER_DAY` caps it (500 unless set; `0` turns it
+off).
 
 A job in `brain/cron.toml` may run a tool: `command = "bin/box <name>"` with
 up to 8 plain words after it. That is how Teeny gives itself a pipeline that
@@ -237,7 +297,8 @@ that names a tool does nothing and is not an error. `BOX_TIMEOUT_SECS`
 300 s. When a run ends, times out or is stopped, everything the tool
 started is killed before the next run may begin, and only the last 16 KiB
 of what it printed is kept. On a kernel that cannot jail (no Landlock, or
-older than its version 3) `bin/box` runs nothing and `bin/doctor` fails
+older than its version 3, or than its version 4 while `BOX_NETWORK=0`, the
+first that rules the network) `bin/box` runs nothing and `bin/doctor` fails
 while `BOX=1`.
 
 What this does not do: the hands stay as they are. A hand that posts, mails,
@@ -286,7 +347,7 @@ comes to say.
 
 | Fence | How |
 |---|---|
-| The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard |
+| The outbound guard | The mind has no credentials, so it cannot post, mail, push or pay except through a hand, and every hand runs the guard, the key proxy (`hands/call`) included |
 | The kill switch and watchers | `secrets/`, `bin/`, `hands/`, `evals/` and the live `brain/` are outside its jail. `MIND=0` stops its wake, the broker and the hand-over. `DRY_RUN` and every cap are read from `secrets/` |
 | Its own definition | `brain/agents/mind.toml` is frozen: a self-edited tool list or sandbox setting would be a way out. `bin/doctor` refuses a mind whose browser is not view-only, or one with any other browser tool, a scheduling tool, a wallet tool, a connector, a wildcard, or a workspace other than `state/home` |
 
@@ -303,10 +364,12 @@ Limits to know about:
   append to its journal for that reason. A real single-flight across jobs
   needs the core's per-job policy exposed to `cron_add` upstream.
 
-- The jail is on files, not on the network. The mind cannot speak as Teeny
-  outside the guard, because it has none of Teeny's accounts. It can still
-  fetch and send as an anonymous client. Closing that needs a network rule
-  in the sandbox upstream.
+- The mind's jail is on files, not on the network. That jail is the
+  core's, not `bin/box`'s, and the mind's shell has the host's network. The
+  mind cannot speak as Teeny outside the guard, because it has none of
+  Teeny's accounts. It can still fetch and send as an anonymous client. That
+  is left open on purpose, per the operator (2026-11-23). A tool in
+  `bin/box` has the same network unless the operator sets `BOX_NETWORK=0`.
 - The jail exists because `secrets/` is mounted in the same container as
   the core. Docker protects the host from the container; it does not
   protect the keys from a shell inside it. Running the mind in a container
@@ -340,14 +403,26 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
 
 ## Not built yet
 
-- **Owning every pipeline.** The two dreams, the builder, the lore episode
-  and the Moltbook prune are in `brain/cron.toml` now, Teeny's to
-  reschedule, pause or drop. Evolve, the wants feed and the desks stay
-  pinned for now; the watchers and the money jobs stay pinned for good.
+- **Owning every pipeline.** Teeny's own pipelines are in `brain/cron.toml`,
+  Teeny's to reschedule, pause or drop: the two dreams, the builder, the
+  lore episode and the Moltbook prune (2026-11-22), and evolve, its lineage
+  credit, the wants feed, the builder's desk (`build-ship`) and the
+  operator's (`tasks-desk`) (2026-11-23). A brain job runs each script only
+  with the arguments its pinned job had (`BRAIN_SCRIPTS` in
+  `bin/lib/cron_policy.py`), and each still checks its own switch in
+  `secrets/` (`EVOLVE`, `WANTS`), so a schedule never turns one on. A few
+  stay pinned in `evals/cron.pinned.toml`, and are not Teeny's to own:
+  `evolve-watch`, the watcher that rolls a bad change back; the browser
+  `operator` job, whose profile is signed in as Teeny, where an agent job
+  the brain wrote would carry a prompt of its own; and the inbound jobs, the
+  beat, the mind's base wake, the other watchers and the money jobs.
 - **Self-merged hands.** Teeny's own tools merge by themselves
-  (`home/tools/`); a hand that holds a key does not. Lifting that means
-  moving every key behind a proxy that runs the guard, so that a hand
-  asks for a send instead of making it.
+  (`home/tools/`); a hand that holds a key does not. The key proxy
+  (`bin/teeny call`, "Keys it never holds") covers part of it: a jailed tool
+  can use a new endpoint of a listed service with no new hand. A new service
+  still needs the operator: a table in `evals/services.toml`, its key in
+  `secrets/`, and its caps. GitHub, X, mail, Telegram and the wallet stay
+  off the list, so their hands still change only by a person's merge.
 - **A browser that acts.** The mind's browser only reads. Anything that
   needs a click, a form or a login goes to the operator agent through
   `do queue_task`, and comes back in a later wake.

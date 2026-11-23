@@ -44,6 +44,10 @@ class RestError(hand.HandError):
         self.body = body
 
 
+class TooLarge(RestError):
+    """An answer longer than the caller's `limit`; the rest was not read."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401 - urllib's hook
         return None
@@ -59,13 +63,18 @@ def _parse(body: bytes) -> Any:
         return None
 
 
-def _message(parsed: Any) -> str | None:
+def _message(parsed: Any, key: str | None = None) -> str | None:
+    """The service's own error text, clipped. The KEY is cut out first: a
+    key echoed across the clip would leave a piece no later scrub matches."""
     if not isinstance(parsed, Mapping):
         return None
-    for key in ("error", "message", "detail"):
-        value = parsed.get(key)
+    for field in ("error", "message", "detail"):
+        value = parsed.get(field)
         if isinstance(value, str) and value.strip():
-            return value.strip()[:_MESSAGE_CHARS]
+            text = value.strip()
+            if key:
+                text = text.replace(key, "[the key]")
+            return text[:_MESSAGE_CHARS]
     return None
 
 
@@ -119,6 +128,20 @@ class RestApi:
         headers: Mapping[str, str] | None = None,
     ) -> tuple[Any, Any]:
         """`call`, and the response's headers (an `email.message.Message`)."""
+        return self.request(method, path, query, body, auth, headers)[1:]
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        query: Sequence[tuple[str, str]] = (),
+        body: Any = None,
+        auth: bool = True,
+        headers: Mapping[str, str] | None = None,
+        limit: int | None = None,
+    ) -> tuple[int, Any, Any]:
+        """`exchange`, with the status the service answered first (a 2xx:
+        anything else is a RestError). hands/call passes it on."""
         url = self._base + path
         if query:
             url += "?" + urllib.parse.urlencode(list(query))
@@ -136,20 +159,30 @@ class RestApi:
         failure: RestError | None = None
         text = b""
         received: Any = None
+        status = 0
         try:
             with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
-                text = response.read()
+                # With a LIMIT, one byte more than it at most is ever read.
+                text = response.read() if limit is None else response.read(limit + 1)
+                if limit is not None and len(text) > limit:
+                    raise TooLarge(f"{self.name} answered more than {limit} bytes", response.status)
                 received = response.headers
+                status = response.status
         except urllib.error.HTTPError as exc:
             try:
-                error_body = exc.read()
+                # With a LIMIT, an error's body is held to it as well.
+                error_body = exc.read() if limit is None else exc.read(limit + 1)
             except OSError:
                 error_body = b""
+            finally:
+                exc.close()
+            if limit is not None and len(error_body) > limit:
+                raise TooLarge(f"{self.name} answered more than {limit} bytes", exc.code) from None
             parsed = _parse(error_body)
             if 300 <= exc.code < 400:
                 failure = RestError(f"{self.name} answered a redirect ({exc.code}); not followed with the key", exc.code)
             else:
-                message = _message(parsed)
+                message = _message(parsed, self._key)
                 failure = RestError(
                     f"{self.name} answered {exc.code}: {message}" if message else f"{self.name} answered {exc.code}",
                     exc.code,
@@ -161,12 +194,12 @@ class RestApi:
         if failure is not None:
             raise failure
         if not text:
-            return {}, received
+            return status, {}, received
         parsed = _parse(text)
         # JSON's own null is an answer (Hacker News says "no such item" so).
         if parsed is None and text.strip() != b"null":
             raise RestError(f"{self.name} sent something unreadable")
-        return parsed, received
+        return status, parsed, received
 
 
 def quote(part: str) -> str:

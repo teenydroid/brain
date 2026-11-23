@@ -19,6 +19,8 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
                             no X read: ids, handles and texts are Digg's
   A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source?, format}], "media_ids"?,
                             "meme"?}: all kept, the top one quoted only when it clears the bar (x/peers.py)
+  R  peers quoted             the handles quoted in the last 7 days (lowercase), which a quote would be refused
+                            or skipped for: {days, handles}
   R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
@@ -183,6 +185,10 @@ def _peers_report(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return peers.report(args.days)
 
 
+def _peers_quoted(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return peers.quoted()
+
+
 def _peers_trending(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return peers.trending(args.trend_max_age_hours, args.stories, args.per_story, skip_quoted=args.trend_skip_quoted)
 
@@ -279,6 +285,8 @@ def parser() -> argparse.ArgumentParser:
     reported = peer_verbs.add_parser("report", help="per peer: touches, who answered, how the quote did")
     reported.add_argument("--days", type=_days, default=14)
     reported.set_defaults(handler=_peers_report, takes_body=False)
+    peer_verbs.add_parser("quoted", help="the handles quoted in the last 7 days").set_defaults(
+        handler=_peers_quoted, takes_body=False)
     trend = peer_verbs.add_parser("trending", help="the X posts behind today's top-ranked AI and tech stories")
     trend.add_argument("--max-age-hours", dest="trend_max_age_hours", type=_hours, default=peers.TREND_MAX_AGE_HOURS)
     trend.add_argument("--stories", type=_stories, default=peers.TREND_STORIES)

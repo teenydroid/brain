@@ -672,6 +672,10 @@ class SlotRun(unittest.TestCase):
                     "TEENY_SECRETS": str(root / "secrets"), "TEENY_BRAIN": str(REPO / "brain"),
                     "STUDIO_RUN_ID": self.run_id, "STUDIO_WRITER_MODEL": "w", "STUDIO_EDITOR_MODEL": "e",
                     "STUDIO_FORMATS": self.formats, "STUDIO_SKIT_SLOTS": "evening", "TEENY_NOW": str(NOW)}
+        # The video mechanics, on plain cards; a quote slot is test_studio.py's.
+        plain = mock.patch.object(studio, "QUOTE_SLOTS", False)
+        plain.start()
+        self.addCleanup(plain.stop)
         self.args = argparse.Namespace(dry_run=True, slot=self.slot, desk=str(root / "desk.json"), force_slot=False,
                                        no_outside=False, no_slot=True, print=False, legacy=None)
         self.messages: list[str] = []

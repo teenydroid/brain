@@ -200,7 +200,20 @@ def _quoted_recently(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
     # A trending author is no peer, so no touch: their handle is on the suggestion that went out.
     touched |= {r[0].lower() for r in conn.execute(
         "SELECT author FROM x_peer_candidates WHERE status = 'posted' AND author IS NOT NULL AND at >= ?", (since,))}
+    # The studio's quotes of trending posts leave neither: the ledger keeps the handle.
+    touched |= {r[0].lower() for r in conn.execute(
+        "SELECT quote_handle FROM x_posts WHERE kind = 'quote' AND quote_handle IS NOT NULL AND created_at >= ?",
+        (since,))}
     return ids, touched
+
+
+def quoted() -> Json:
+    """Who was quoted in the last QUOTED_DAYS, by handle (lowercase): the
+    studio leaves their posts out of what it may quote, since a quote of
+    them would be skipped here or refused by `check_peer_rotation`. A read
+    of the ledger: it writes nothing and calls no one."""
+    _, handles = _quoted_recently(_db())
+    return {"days": QUOTED_DAYS, "handles": sorted(handles)}
 
 
 def _reused(conn: sqlite3.Connection, reuse_hours: float, max_age_hours: float, skip_quoted: bool) -> list[Json] | None:

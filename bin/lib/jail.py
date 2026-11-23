@@ -16,12 +16,24 @@ state/ or .git in reach (docs/mind.md, "Its own tools").
                    those calls when they name a file by its path. Through a
                    file the process has open (one the jail let it open) they
                    still work: fchmod, fchown, futimens, fsetxattr
-  what it leaves   the network. A jailed process holds none of Teeny's
-                   accounts, so it cannot speak as Teeny; it can still fetch
-                   and send as an anonymous client, and reach whatever
-                   listens on loopback without a password
-  fail closed      no Landlock, or one too old to stop a truncate (ABI < 3),
-                   a machine the filter has no table for, or a grant that
+  the network      left open unless the caller names `tcp_connect`, the
+                   TCP ports it may connect to (ABI 4). Then Landlock
+                   refuses every other TCP connect and every bind, and the
+                   filter allows a socket only for a plain TCP stream
+                   (AF_INET or AF_INET6, protocol TCP): no UDP, ICMP, raw,
+                   netlink, packet, MPTCP or SCTP socket, which Landlock
+                   does not see, and no unix one, which Landlock lets
+                   connect to any path (a stream socketpair stays; a datagram one
+                   can sendto a path, so it goes). It also refuses
+                   MSG_FASTOPEN sends, a TCP connect Landlock never sees, and
+                   listen (on an unbound socket it binds a port Landlock
+                   never sees) and io_uring, which can make socket calls
+                   the filter never sees. A Landlock port rule is a port,
+                   not an address: a process may connect to that port on
+                   any host
+  fail closed      no Landlock, or one too old to stop a truncate (ABI < 3)
+                   or, with `tcp_connect`, to rule the network (ABI < 4), a
+                   machine the filter has no table for, or a grant that
                    holds something the caller named as protected, is
                    `Unavailable`: the caller runs nothing
 
@@ -43,15 +55,19 @@ from typing import Iterable
 #: x86_64 and aarch64 share these numbers (the generic syscall table).
 _CREATE_RULESET, _ADD_RULE, _RESTRICT_SELF = 444, 445, 446
 _VERSION_FLAG = 1
-_RULE_PATH_BENEATH = 1
+_RULE_PATH_BENEATH, _RULE_NET_PORT = 1, 2
 _PR_SET_NO_NEW_PRIVS = 38
 MIN_ABI = 3
+#: The first Landlock with network rules.
+NET_ABI = 4
 
 EXECUTE, WRITE_FILE, READ_FILE, READ_DIR = 1 << 0, 1 << 1, 1 << 2, 1 << 3
 REMOVE_DIR, REMOVE_FILE, MAKE_CHAR, MAKE_DIR = 1 << 4, 1 << 5, 1 << 6, 1 << 7
 MAKE_REG, MAKE_SOCK, MAKE_FIFO, MAKE_BLOCK, MAKE_SYM = 1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12
 REFER, TRUNCATE, IOCTL_DEV = 1 << 13, 1 << 14, 1 << 15
 _SCOPE_ABSTRACT_UNIX_SOCKET, _SCOPE_SIGNAL = 1 << 0, 1 << 1
+#: LANDLOCK_ACCESS_NET_BIND_TCP and _CONNECT_TCP (linux/landlock.h).
+_NET_BIND_TCP, _NET_CONNECT_TCP = 1 << 0, 1 << 1
 
 _READ = EXECUTE | READ_FILE | READ_DIR
 #: No device nodes inside the jail, whatever the folder: MAKE_CHAR and
@@ -87,15 +103,17 @@ def abi() -> int:
     return max(int(got), 0)
 
 
-def available() -> bool:
-    return abi() >= MIN_ABI
+def available(network: bool = False) -> bool:
+    """Whether this kernel can hold the jail; with NETWORK, the jail that
+    also rules the network (`enter(tcp_connect=...)`)."""
+    return abi() >= (NET_ABI if network else MIN_ABI)
 
 
 # --- the syscall filter -------------------------------------------------------------------
 
 _PR_SET_SECCOMP, _SECCOMP_MODE_FILTER = 22, 2
 _RET_ALLOW, _RET_ERRNO, _RET_KILL = 0x7FFF0000, 0x00050000, 0x80000000
-_LD_ABS, _JEQ, _JGE, _RET = 0x20, 0x15, 0x35, 0x06
+_LD_ABS, _JEQ, _JGE, _AND, _RET = 0x20, 0x15, 0x35, 0x54, 0x06
 #: Per machine: the audit arch, utimensat (allowed with no path: futimens),
 #: and the calls that change a file's mode, owner, times or attributes by
 #: its path. fchmodat2, setxattrat and removexattrat share one number.
@@ -103,25 +121,109 @@ _SYSCALLS = {
     "x86_64": (0xC000003E, 280, (90, 268, 452, 92, 94, 260, 132, 235, 261, 188, 189, 197, 198, 463, 466)),
     "aarch64": (0xC00000B7, 88, (53, 452, 54, 5, 6, 14, 15, 463, 466)),
 }
+#: Per machine, for the network rule: socket, then the calls refused
+#: outright: listen, io_uring_setup, io_uring_enter, io_uring_register
+#: (asm/unistd_64.h and asm-generic/unistd.h).
+_NET_SYSCALLS = {
+    "x86_64": (41, (50, 425, 426, 427)),
+    "aarch64": (198, (201, 425, 426, 427)),
+}
+#: Per machine, for the network rule: socketpair, then sendto, sendmsg and
+#: sendmmsg. The last three open a TCP connection under MSG_FASTOPEN with no
+#: connect(2), which Landlock's port rule never sees.
+_NET_PAIR_SYSCALLS = {
+    "x86_64": (53, 44, 46, 307),
+    "aarch64": (199, 206, 211, 269),
+}
+_AF_UNIX, _SOCK_DGRAM = 1, 2
+_MSG_FASTOPEN = 0x20000000
+_JSET = 0x45
+_AF_INET, _AF_INET6 = 2, 10
+_SOCK_STREAM, _SOCK_TYPE_MASK = 1, 0xF
+_IPPROTO_TCP = 6
 
 
-def _filter() -> bytes:
+def _insn(code: int, jt: int, jf: int, k: int) -> bytes:
+    return struct.pack("=HBBI", code, jt, jf, k)
+
+
+def _socket_rule(nr: int) -> list[bytes]:
+    """socket(family, type, protocol): only a TCP stream over AF_INET or
+    AF_INET6 (SOCK_NONBLOCK and SOCK_CLOEXEC masked off the type, the
+    protocol 0 or IPPROTO_TCP); anything else EPERM, AF_UNIX too: Landlock
+    never asks about connecting to a unix socket by its path, and through
+    one (the docker daemon's, the system resolver's, D-Bus) a process
+    leaves the jail. socketpair, a pair of its own, stays. Any other call
+    skips the block. The arguments are ints: the kernel reads the low 32
+    bits."""
+    allow, eperm = _RET_ALLOW, _RET_ERRNO | errno.EPERM
+    return [
+        _insn(_JEQ, 0, 11, nr),               # 0: not socket: on past 11
+        _insn(_LD_ABS, 0, 0, 16),             # 1: the family
+        _insn(_JEQ, 1, 0, _AF_INET),          # 2: -> 4
+        _insn(_JEQ, 0, 7, _AF_INET6),         # 3: else -> 11 refuse
+        _insn(_LD_ABS, 0, 0, 24),             # 4: the type
+        _insn(_AND, 0, 0, _SOCK_TYPE_MASK),   # 5
+        _insn(_JEQ, 0, 4, _SOCK_STREAM),      # 6: else -> 11 refuse
+        _insn(_LD_ABS, 0, 0, 32),             # 7: the protocol
+        _insn(_JEQ, 1, 0, 0),                 # 8: -> 10 allow
+        _insn(_JEQ, 0, 1, _IPPROTO_TCP),      # 9: else -> 11 refuse
+        _insn(_RET, 0, 0, allow),             # 10
+        _insn(_RET, 0, 0, eperm),             # 11
+    ]
+
+
+def _pair_rule(nr: int) -> list[bytes]:
+    """socketpair(AF_UNIX, SOCK_DGRAM): EPERM. On a datagram pair, sendto
+    with a pathname names a receiver outside the jail, whatever the pair's
+    peer; a stream pair has nobody to name. Any other call skips the block."""
+    return [
+        _insn(_JEQ, 0, 7, nr),                  # 0: not socketpair: on past 7
+        _insn(_LD_ABS, 0, 0, 16),               # 1: the family
+        _insn(_JEQ, 0, 3, _AF_UNIX),            # 2: else -> 6 allow
+        _insn(_LD_ABS, 0, 0, 24),               # 3: the type
+        _insn(_AND, 0, 0, _SOCK_TYPE_MASK),     # 4
+        _insn(_JEQ, 1, 0, _SOCK_DGRAM),         # 5: -> 7 refuse
+        _insn(_RET, 0, 0, _RET_ALLOW),          # 6
+        _insn(_RET, 0, 0, _RET_ERRNO | errno.EPERM),  # 7
+    ]
+
+
+def _fastopen_rule(nr: int, flags_offset: int) -> list[bytes]:
+    """A send call with MSG_FASTOPEN in its flags: EPERM. Any other call, and
+    any other flags, skip the block (the call is not otherwise refused)."""
+    return [
+        _insn(_JEQ, 0, 4, nr),                  # 0: not this call: on past 4
+        _insn(_LD_ABS, 0, 0, flags_offset),     # 1
+        _insn(_JSET, 1, 0, _MSG_FASTOPEN),      # 2: -> 4 refuse
+        _insn(_RET, 0, 0, _RET_ALLOW),          # 3
+        _insn(_RET, 0, 0, _RET_ERRNO | errno.EPERM),  # 4
+    ]
+
+
+def _filter(network: bool = False) -> bytes:
+    """The syscall filter; with NETWORK, also the socket rule and the
+    network calls refused outright (see the module's docstring)."""
+    machine = platform.machine()
     try:
-        arch, utimensat, denied = _SYSCALLS[platform.machine()]
+        arch, utimensat, denied = _SYSCALLS[machine]
+        socket_nr, net_denied = _NET_SYSCALLS[machine]
+        pair_nr, sendto_nr, sendmsg_nr, sendmmsg_nr = _NET_PAIR_SYSCALLS[machine]
     except KeyError:
-        raise Unavailable(f"seccomp: no syscall table for a {platform.machine()} machine") from None
-
-    def insn(code: int, jt: int, jf: int, k: int) -> bytes:
-        return struct.pack("=HBBI", code, jt, jf, k)
-
+        raise Unavailable(f"seccomp: no syscall table for a {machine} machine") from None
+    insn = _insn
     eperm = _RET_ERRNO | errno.EPERM
     prog = [insn(_LD_ABS, 0, 0, 4), insn(_JEQ, 1, 0, arch), insn(_RET, 0, 0, _RET_KILL), insn(_LD_ABS, 0, 0, 0)]
-    if platform.machine() == "x86_64":
+    if machine == "x86_64":
         # The x32 numbers are another table for the same calls.
         prog += [insn(_JGE, 0, 1, 0x40000000), insn(_RET, 0, 0, _RET_ERRNO | errno.ENOSYS)]
     # utimensat(fd, NULL, ...) is futimens: allowed. With a path it is not.
     prog += [insn(_JEQ, 0, 6, utimensat), insn(_LD_ABS, 0, 0, 24), insn(_JEQ, 0, 3, 0), insn(_LD_ABS, 0, 0, 28),
              insn(_JEQ, 0, 1, 0), insn(_RET, 0, 0, _RET_ALLOW), insn(_RET, 0, 0, eperm)]
+    if network:
+        prog += _socket_rule(socket_nr) + _pair_rule(pair_nr)
+        prog += _fastopen_rule(sendto_nr, 40) + _fastopen_rule(sendmsg_nr, 32) + _fastopen_rule(sendmmsg_nr, 40)
+        denied = (*denied, *net_denied)
     prog += [insn(_JEQ, len(denied) - i, 0, nr) for i, nr in enumerate(denied)]
     prog += [insn(_RET, 0, 0, _RET_ALLOW), insn(_RET, 0, 0, eperm)]
     return b"".join(prog)
@@ -188,26 +290,52 @@ def grants(ro: Iterable[str | Path] = (), rw: Iterable[str | Path] = (), *, syst
     return [*(SYSTEM_RO + SYSTEM_RW + SYSTEM_READ_FILES if system else ()), *map(str, ro), *map(str, rw)]
 
 
+def _ports(tcp_connect: Iterable[int]) -> list[int]:
+    ports = list(tcp_connect)
+    for port in ports:
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise Unavailable(f"jail: {port!r} is not a TCP port")
+    return ports
+
+
 def enter(ro: Iterable[str | Path] = (), rw: Iterable[str | Path] = (), *, system: bool = True,
-          protect: Iterable[str | Path] = ()) -> None:
+          protect: Iterable[str | Path] = (), tcp_connect: Iterable[int] | None = None) -> None:
     """Jails this process for good. `ro` may be read and run, `rw` also
     written; with `system`, the system's own folders are readable too.
-    `protect` names what no grant may hold."""
+    `protect` names what no grant may hold. `tcp_connect`, when given, is
+    the only TCP ports it may connect to (none: no TCP at all), and the
+    rest of the network is closed with them; None leaves the network."""
     version = abi()
     if version < MIN_ABI:
         raise Unavailable(f"landlock: this kernel has version {version}, the jail needs {MIN_ABI}")
+    ports = None if tcp_connect is None else _ports(tcp_connect)
+    if ports is not None and version < NET_ABI:
+        raise Unavailable(f"landlock: this kernel has version {version}, the network rule needs {NET_ABI}")
     ro, rw = list(ro), list(rw)
     check_grants(grants(ro, rw, system=system), protect)
-    code = _filter()
+    code = _filter(network=ports is not None)
     libc = _libc()
     handled = _handled(version)
+    # Bind is handled and never granted: no rule ever allows it.
+    net = 0 if ports is None else _NET_BIND_TCP | _NET_CONNECT_TCP
     scoped = (_SCOPE_ABSTRACT_UNIX_SOCKET | _SCOPE_SIGNAL) if version >= 6 else 0
-    # handled_access_fs, handled_access_net (none: the network stays), scoped.
-    attr = struct.pack("=QQQ", handled, 0, scoped) if version >= 6 else struct.pack("=Q", handled)
+    # struct landlock_ruleset_attr: handled_access_fs, handled_access_net
+    # (ABI 4), scoped (ABI 6); an older kernel takes the shorter struct.
+    if version >= 6:
+        attr = struct.pack("=QQQ", handled, net, scoped)
+    elif net:
+        attr = struct.pack("=QQ", handled, net)
+    else:
+        attr = struct.pack("=Q", handled)
     ruleset = libc.syscall(_CREATE_RULESET, attr, ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))
     if ruleset < 0:
         raise _fail("cannot make the ruleset")
     try:
+        for port in ports or ():
+            # struct landlock_net_port_attr: allowed_access, port (host order).
+            rule = struct.pack("=QQ", _NET_CONNECT_TCP, port)
+            if libc.syscall(_ADD_RULE, ctypes.c_int(ruleset), ctypes.c_int(_RULE_NET_PORT), rule, ctypes.c_uint32(0)):
+                raise _fail(f"cannot allow TCP port {port}")
         if system:
             for path in SYSTEM_RO:
                 _add(libc, ruleset, path, _READ, handled)

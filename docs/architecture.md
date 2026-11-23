@@ -808,6 +808,20 @@ since the cutover. It runs at the four slots of `brain/cron.toml` (04:30,
 guard in `hands/x` does not hold is posted, with no per-post approval. An
 empty slot is a normal outcome.
 
+Since 2026-11-23 every slot is a quote, with no switch for it:
+X is talked into by replying to what is on it, and a plain post from a
+small account lands in nobody's feed. The feed is the X posts behind Digg's
+leading stories, each card with the id and handle of the posts it may quote
+(Teeny's own and authors quoted in the last 7 days, `hands/x peers quoted`,
+left out); the writer names the post each draft quotes (`quote`) and writes
+pictures, memes or, in a video slot, videos, never a plain post or a thread;
+the editor sees the quoted post beside each draft; `hands/x post` gets
+`quote_of` and `producer: studio`. A studio quote is the slot's original
+post: it counts against `X_POSTS_MAX_PER_DAY` and `POST_MIN_GAP_HOURS`, not
+the outward quote's lane (`posting_rules.lane_of`), so `peer-quote` keeps its
+own two a day. The rollback is a revert; the plain posts described below
+are what a `--no-outside` run still writes.
+
 It was rewritten on 2026-11-22 from 17 stages and 11 to 35 model calls a slot
 (pitch, pitch quotas, drafting, pre-screens, shorten, a pairwise tournament,
 a final slot question, a truth gate, a clarity gate, rewrites) into three
@@ -1032,28 +1046,17 @@ Every scheduled job is in one of two files:
   - `mail-inbound` (`bin/mail`, every 5 minutes);
   - `tick` (`bin/tick --detach`, every 5 minutes, two minutes after each
     ingest);
-  - `dream` (`bin/dream --detach`, 02:00 IST);
-  - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
   - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
   - `metrics` (`bin/stats-snapshot metrics`, hourly), which measures
     Teeny's own X and Moltbook posts about 1h, 24h and 72h after they went
     out, for the scoreboard (`hands/stats board`);
-  - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
-  - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
-    unfollow of agents that did not follow Teeny back after 7 days, never a
-    peer or an agent with a real exchange in the last 14 days
-    (`hands/moltbook prune`);
+  - `operator` (the browser operator, signed in as Teeny: a brain-written
+    agent job could hand it a prompt of its own) and `bounty-pay`;
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
-  - `wants` (`bin/wants run`, 09:00 UTC), what Teeny said on its memory page
-    it will build: it scores each merged feature a week after it merged (did
-    a scheduled playbook run its hand?), then files at most one want as a
-    `self` build request through the guard, for the builder. Drawn in code,
-    no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
-    "1c. Wants"; docs/hands.md, "`build`");
   - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
     babysitter: audits every open pull request on teenydroid/brain and
     teenydroid/diary in code and logs every prompt-injection attempt;
@@ -1137,17 +1140,41 @@ Every scheduled job is in one of two files:
   Answering comments on its own posts is the mind's job: `hands/moltbook
   inbox` shows each comment's depth, and one at Moltbook's fifth level is
   not answered.
+  Its pipelines are here too, Teeny's to reschedule,
+  pause or drop, each run only as written (`BRAIN_SCRIPTS` in
+  `bin/lib/cron_policy.py`) and each behind its own switch in `secrets/`
+  whoever schedules it (docs/mind.md, "Not built yet"):
+  - `dream` (`bin/dream --detach`, 02:00 IST) and `dream-midday`
+    (`bin/dream --light --detach`, 14:00 IST);
+  - `builder` (the agent job) and `build-ship` (`bin/build-ship`, every 30
+    minutes), the builder's desk and shipping; `tasks-desk`
+    (`bin/tasks-desk`, every 15 minutes), the browser operator's desk;
+  - `evolve` (`bin/evolve run --scheduled --detach`, 02:40 and 14:40 IST,
+    off until `EVOLVE=1` in `secrets/evolve.env`) and `evolve-credit`
+    (`bin/evolve credit`, 03:50 IST); `evolve-watch`, the watcher that rolls
+    a bad change back, stays pinned;
+  - `wants` (`bin/wants run`, 09:00), what Teeny said on its memory page
+    it will build: it scores each merged feature a week after it merged (did
+    a scheduled playbook run its hand?), then files at most one want as a
+    `self` build request through the guard, for the builder. Drawn in code,
+    no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
+    "1c. Wants"; docs/hands.md, "`build`");
+  - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
+    unfollow of agents that did not follow Teeny back after 7 days, never a
+    peer or an agent with a real exchange in the last 14 days
+    (`hands/moltbook prune`); and `episode`, off.
 
 All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
 post jobs use `Asia/Kolkata`.
 
 **What the brain may schedule.** Teeny owns `brain/cron.toml` and may add,
 remove or reschedule any job in it, its heartbeat included. A brain job runs
-`bin/heartbeat` or `bin/act <playbook>`. `bin/act` gathers the playbook's
+`bin/heartbeat`, `bin/act <playbook>`, a studio slot, one of its own tools
+(`bin/box`), or one of its pipelines exactly as `BRAIN_SCRIPTS` lists it. `bin/act` gathers the playbook's
 inputs from hand read verbs (with `DRY_RUN=1` forced), drafts as the
 tool-less `act` agent, and acts through a hand. The rules it cannot change
 are in `bin/lib/cron_policy.py`: no job more often than every 5 minutes, at
-most 24 brain jobs, at most 400 `bin/act` runs a day, and the jobs in
+most 60 brain jobs, at most 400 `bin/act` runs a day, and the jobs in
 `evals/cron.pinned.toml` are always merged in and cannot be shadowed.
 `bin/doctor` checks all of it, and `bin/spine` will not boot a checkout the
 doctor fails. See [`evolve.md`](evolve.md).
@@ -1155,7 +1182,9 @@ doctor fails. See [`evolve.md`](evolve.md).
 - Seeding. OpenHuman has no file-declared crons (gap G2). `bin/seed-cron`
   reconciles both files against `openhuman.cron_list` by name, adding,
   updating or removing jobs whose name starts with `teeny.`. It is idempotent
-  and runs at every boot.
+  and runs at every boot. Both files name a job `teeny.<name>`, so a job that
+  moves from one file to the other unchanged is the same core job: the next
+  seed keeps it, with its id and its next run.
 - Inspection. Crons are a SQL query, with no RPC and no running core
   needed. `bin/crons` is:
 
@@ -1180,7 +1209,7 @@ doctor fails. See [`evolve.md`](evolve.md).
   each shell job as one TinyBox module call with its own fixed 300 s timeout
   (gap G12), and that is the real ceiling. A job that can pass it runs
   detached (`bin/tick --detach`, `bin/reflect --detach`; §4a) and keeps its
-  own record. The other pinned shell jobs stay in the foreground, where cron
+  own record. The other shell jobs stay in the foreground, where cron
   sees their outcome and retries a failure: `bin/receipts` (one push, each
   git call capped at 90 s, under its own lock), `bin/build-ship` (normally
   one finished job; each git call capped at 120 s, under the `build-ship`
@@ -1193,7 +1222,7 @@ Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
 
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
-| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
+| `builder` (`brain/agents/builder.toml`) | `builder` in `brain/cron.toml`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks, the mind, `hands/reddit` and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
