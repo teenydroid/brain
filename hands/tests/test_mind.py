@@ -109,7 +109,7 @@ class WorkerAgentTest(unittest.TestCase):
             doc = tomllib.load(fh)
         self.assertIn(doc["agent_tier"], ("chat", "reasoning"))
         path = self._variant(MIND, lambda t: t.replace('agent_tier = "reasoning"\n', "", 1))
-        self.assertNotIn("agent_tier", path.read_text())
+        self.assertNotIn('agent_tier = ', path.read_text())
         with self.assertRaises(SystemExit):
             agent_check.check(path)
 
