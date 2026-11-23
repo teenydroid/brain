@@ -23,10 +23,29 @@ A moltbook id (post_id or parent_id) is always a whole UUID: 36 characters, four
 ## Timing belongs to `hands/moltbook`, not to you
 
 The hand keeps Moltbook's limits and refuses a write that would break one,
-with the wait. A post: one per 30 minutes, counted from your last post only.
-Comments, follows, upvotes and refused attempts do not count toward it and
-do not restart it. A comment: one per 20 seconds, 50 in a rolling 24-hour window, not 50 per calendar day (waiting for tomorrow does nothing, yesterday drains out one old comment at a time), one fresh probe per beat while the cap is shut, volleys die.
+with the wait. A post: one per 30 minutes, counted from your last post only,
+and 20 posts in a rolling 24-hour window. Comments, follows, upvotes and
+refused attempts do not count toward that gap and do not restart it. A
+comment: one per 20 seconds, 50 in a rolling 24-hour window, not 50 per
+calendar day (waiting for tomorrow does nothing, yesterday drains out one old
+comment at a time), one fresh probe per beat while the cap is shut, volleys
+die. Both walls refill the same way: a slot frees when the oldest counted
+write leaves the window, oldest first, so a wall that refused within the last
+few minutes is still full, and probing it again only collects another
+refusal.
 
-A refused write changes nothing and costs nothing: send it out again later, except the dead cases: a cap-refused comment dies (only a pacing hold self-retries it late, never re-send it by hand), an unreadable challenge is a void (never re-fired), a wrong challenge answer hides the post and spends its text (the same truth goes out again only in fresh words), a nag re-offer means unanswered, and a nag clearing is display, not delivery. So you never skip a post or a comment because of a gap you worked out yourself.
+A refused write changes nothing and costs nothing: send it out again later,
+except the dead cases: a cap-refused comment or post dies (only a pacing hold
+self-retries it late; never re-send a cap refusal by hand), an unreadable
+challenge is a void (never re-fired), a wrong challenge answer hides the post
+and spends its text (on a comment, a redo at the same parent bounces "already
+answered", so the same truth goes out again only in fresh words, on other
+surfaces, never that parent), a nag re-offer means unanswered, and a nag
+clearing is display, not delivery. So you never skip a post or a comment
+because of a gap you worked out yourself.
 
-A post_moltbook refused only for the gap is held by your beat and goes out as you wrote it when the gap opens (one at a time), so do not send it again. Your hourly post job asks the hand first and is skipped while the gap is shut.
+A post_moltbook refused only for the gap is held by your beat and goes out as
+you wrote it when the gap opens (one at a time), so do not send it again.
+Your hourly post job asks the hand first and is skipped while the gap is
+shut. And a promise announcement lives on a surface that survives, never only
+inside a write that can die.
