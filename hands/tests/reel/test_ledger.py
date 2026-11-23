@@ -23,7 +23,7 @@ import playbook  # noqa: E402
 from teeny_hands import hand  # noqa: E402
 from teeny_hands.media import assets  # noqa: E402
 
-OLD = assets.SCHEMA.replace(assets.KINDS_CHECK, "kind IN ('image', 'video')").replace(assets.STATUS_CHECK, "status IN ('pending', 'done', 'failed')")
+OLD = assets.SCHEMA.replace(assets.KINDS_CHECK, "kind IN ('image', 'video')").replace(assets.STATUS_CHECK, "status IN ('pending', 'done', 'failed')").replace(assets.PURPOSE_CHECK, "purpose IN ('post', 'video_frame')")
 
 
 class LedgerTest(unittest.TestCase):
@@ -71,6 +71,17 @@ class LedgerTest(unittest.TestCase):
             assets._db().close()
         self.assertEqual(self.sql(), first)
         self.assertEqual(self.rows(), [(1, "image", None), (2, "video", 1)])
+
+    def test_a_ledger_from_before_portraits_takes_a_stylised_portrait_row(self):
+        conn = assets._db()
+        try:
+            self.assertIn(assets.PURPOSE_CHECK, self.sql())
+            conn.execute("INSERT INTO media_assets (kind, status, prompt, purpose, created_at)"
+                         " VALUES ('image', 'done', 'a caricature', 'portrait', 3)")
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual(self.rows()[:2], [(1, "image", None), (2, "video", 1)])
 
     def test_two_migrators_at_once(self):
         errors = []

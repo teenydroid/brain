@@ -27,7 +27,8 @@ The caps are code, in secrets/teeny.env (defaults in brackets):
   MEDIA_IMAGE_MAX_PER_DAY [20]  MEDIA_VIDEO_MAX_PER_DAY [2]
   MEDIA_MAX_USD_PER_DAY [1.00]  every image and video today, estimates included
   MEDIA_VIDEO_MAX_USD_PER_JOB [0.20]  a video quoted above this is cancelled
-A failed generation costs nothing on Surplus and nothing here. DRY_RUN (on by
+A failed generation costs nothing on Surplus and nothing here, except a
+two-pass picture's paid scene pass (_make_image). DRY_RUN (on by
 default) answers what would be generated and spends nothing.
 """
 
@@ -56,7 +57,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
   job_id      TEXT,
   path        TEXT,
   source_id   INTEGER REFERENCES media_assets (id),
-  purpose     TEXT NOT NULL DEFAULT 'post' CHECK (purpose IN ('post', 'video_frame')),
+  purpose     TEXT NOT NULL DEFAULT 'post' CHECK (purpose IN ('post', 'video_frame', 'portrait')),
   cost_micro  INTEGER NOT NULL DEFAULT 0,
   estimated   INTEGER NOT NULL DEFAULT 1,
   error       TEXT,
@@ -66,11 +67,17 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-#: Venice's qwen-edit-uncensored first (2026-11-23: a likeness of Jensen Huang
-#: from his photo for $0.028, against $0.08 for flare). Every model here goes
-#: through Venice's gateway, which refuses a real person's photo in a mocking
-#: or suggestive scene for all of them alike, uncensored included.
-IMAGE_MODELS = "qwen-edit-uncensored,gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
+#: Flare first: every model here goes through Venice's gateway, which refuses
+#: a real person's photo in a mocking scene for all of them alike, uncensored
+#: included. Given a stylised portrait in its place (_stylise), flare drew the
+#: refused Jensen Huang scene and qwen-edit-uncensored still refused it
+#: (2026-11-23), so qwen, cheaper, is the stricter one with stylised faces.
+IMAGE_MODELS = "gpt-image-2-5-flare-edit,qwen-edit-uncensored,nano-banana-2-1-edit,muse-image-edit"
+#: The harmless ask that turns a figure's photo into the portrait a picture
+#: draws from (2026-11-23, qwen-edit-uncensored: a good caricature of Jensen).
+STYLISE = ("Redraw this person as a bold stylised editorial cartoon caricature: thick ink lines, flat colours, "
+           "exaggerated features, clearly still recognisable as the same person. Plain background, head and "
+           "shoulders.")
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
 #: Every image starts from Teeny's character sheet, so Teeny stays on model:
 #: the images are edits of it, never free text-to-image.
@@ -104,6 +111,12 @@ def _db():
 
 KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic', 'skit', 'shot', 'remake', 'key', 'khaby', 'film', 'audio')"
 STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
+#: `portrait`: a public figure's stylised portrait, bought once (_stylise).
+PURPOSE_CHECK = "purpose IN ('post', 'video_frame', 'portrait')"
+
+
+def _current(sql: str) -> bool:
+    return KINDS_CHECK in sql and STATUS_CHECK in sql and PURPOSE_CHECK in sql
 
 
 def allow_reel_kinds(conn) -> None:
@@ -118,7 +131,8 @@ def allow_reel_kinds(conn) -> None:
     keyframe), `khaby` (hands/video khaby's cut), `film` (hands/film's story
     film) and `audio` (a film's bought narration, score or effect) allowed,
     and the status `unknown` (money was
-    committed and the outcome is not known: it counts as spent), as
+    committed and the outcome is not known: it counts as spent), and the
+    purpose `portrait` (a figure's stylised portrait), as
     x/posting_rules.py does for threads.
 
     The rebuild is one transaction: interrupted, nothing changes and the next
@@ -130,11 +144,12 @@ def allow_reel_kinds(conn) -> None:
     as it was, so hands/image and hands/video keep working; only a new kind
     or status is refused, by the check itself."""
     row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
-    if row is None or (KINDS_CHECK in row[0] and STATUS_CHECK in row[0]):
+    if row is None or _current(row[0]):
         return
     rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?media_assets\"?", "CREATE TABLE media_assets_new", row[0], count=1)
     rebuilt = re.sub(r"kind IN \([^)]*\)", KINDS_CHECK, rebuilt, count=1)
     rebuilt = re.sub(r"status IN \([^)]*\)", STATUS_CHECK, rebuilt, count=1)
+    rebuilt = re.sub(r"purpose IN \([^)]*\)", PURPOSE_CHECK, rebuilt, count=1)
     # SQLite's own recipe for a table rebuild: foreign keys off (a video's
     # source_id names a still in the same table, and dropping the old table
     # would count every such row as a violation), checked after, then on.
@@ -144,7 +159,7 @@ def allow_reel_kinds(conn) -> None:
         orphans_before = len(conn.execute("PRAGMA foreign_key_check(media_assets)").fetchall())
         with hand.transaction(conn):
             again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
-            if KINDS_CHECK in again[0] and STATUS_CHECK in again[0]:
+            if _current(again[0]):
                 return
             conn.execute("DROP TABLE IF EXISTS media_assets_new")
             conn.execute(rebuilt)
@@ -260,8 +275,12 @@ FILM_OWNED = "(kind = 'film' OR source_id IN (SELECT id FROM media_assets WHERE 
 
 
 def _spent_today(conn) -> int:
+    """Today's media spend, film rows aside. A failed row that still carries
+    a cost was paid for (a two-pass picture whose likeness pass was refused
+    keeps its scene pass's cost), so it counts too."""
     row = conn.execute(
-        "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE status != 'failed' AND created_at >= ?"
+        "SELECT COALESCE(SUM(cost_micro), 0) AS spent FROM media_assets WHERE (status != 'failed' OR cost_micro > 0)"
+        " AND created_at >= ?"
         f" AND NOT {FILM_OWNED}",
         (hand.day_start(),),
     ).fetchone()
@@ -360,11 +379,109 @@ def _content_refusal(exc: SurplusError) -> bool:
     return exc.status == 400 and "content policy" in str(exc).lower()
 
 
+class _Failed(Exception):
+    """A model's answer that fails the picture outright (not a fallback)."""
+
+    def __init__(self, model: str, exc: SurplusError):
+        super().__init__(str(exc))
+        self.model, self.exc = model, exc
+
+
+def _walk(api: Surplus, body_of, tried: list[str], label: str = "",
+          refused: list[str] | None = None) -> tuple[str, int, bytes, str] | None:
+    """Each model in turn asked for BODY_OF(model): the first picture back as
+    (model, estimate, bytes, extension), or None when every model passed it
+    on (each reason in TRIED, after LABEL; each model that refused it for
+    content in REFUSED). A failure no other model would answer differently
+    raises _Failed."""
+    for model in _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS):
+        estimate = _image_estimate(api, model)
+        try:
+            answer = api.call("POST", "/v1/images/edits", body_of(model), timeout=240)
+        except SurplusError as exc:
+            tried.append(f"{label}{model}: {exc}")
+            if refused is not None and _content_refusal(exc):
+                refused.append(model)
+            # One seller's content filter turning a scene down is that
+            # seller's answer, not the scene's: the next model reads it afresh.
+            if exc.status in FALLBACK_STATUSES or exc.status is None or _content_refusal(exc):
+                continue
+            raise _Failed(model, exc) from None
+        item = (answer.get("data") or [{}])[0]
+        if item.get("b64_json"):
+            data = base64.b64decode(item["b64_json"])
+        elif item.get("url"):
+            data = api.download(item["url"], IMAGE_MAX_BYTES)
+        else:
+            tried.append(f"{label}{model}: no image in the answer")
+            continue
+        ext = _extension(data)
+        if ext not in ("png", "jpg", "webp"):
+            tried.append(f"{label}{model}: the answer is not an image")
+            continue
+        return model, estimate, data, ext
+    return None
+
+
+def _likeness_body(model: str, scene: bytes, portraits: list[Json]) -> Json:
+    """The second pass: the drawn scene and each figure's photo, under a
+    fixed, harmless prompt that never carries the scene's words."""
+    who = "; ".join(f"photo {i + 2} is {p['name']}" for i, p in enumerate(portraits))
+    mime = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[_extension(scene) or "png"]
+    return {"model": model,
+            "prompt": f"Picture 1 is the scene; {who}. Redraw each of those people in picture 1 so they are "
+                      "unmistakably that person from their photo: their face, hair and glasses. Keep everything "
+                      "else in picture 1 exactly as it is.",
+            "images": [f"data:{mime};base64," + base64.b64encode(scene).decode(),
+                       *[_data_uri(p["path"]) for p in portraits]],
+            "response_format": "b64_json"}
+
+
+def _stylise(conn, api: Surplus, portraits: list[Json]) -> list[Json]:
+    """Each figure's stylised portrait in place of the photo (figures.py):
+    kept from before, else bought now, once, on its own `image` row (purpose
+    `portrait`) whose cost counts today. A figure no model would stylise is
+    drawn from the photo, as before. Never raises for a model's answer."""
+    out = []
+    for found in portraits:
+        kept = figures.stylised(found["name"])
+        if kept is None:
+            row = _insert(conn, "image", f"{STYLISE} ({found['name']})", None, "portrait")
+            tried: list[str] = []
+            try:
+                got = _walk(api, lambda model: {"model": model, "prompt": STYLISE, "image": _data_uri(found["path"]),
+                                                "response_format": "b64_json"}, tried)
+            except _Failed as failed:
+                got, tried = None, [*tried, f"{failed.model}: {failed.exc}"]
+            if got is None:
+                _finish(conn, row, status="failed", error=("; ".join(tried) or "no image model configured")[:1000])
+                print(f"hands/image: no stylised portrait of {found['name']}; drawing from the photo", file=sys.stderr)
+                out.append(found)
+                continue
+            model, estimate, data, _ = got
+            kept = figures.keep_stylised(found["name"], data)
+            _finish(conn, row, status="done", model=model, path=str(kept.relative_to(hand.root())),
+                    cost_micro=estimate, estimated=1)
+        out.append({**found, "photo": found["path"], "path": kept})
+    return out
+
+
 def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None,
                 portraits: list[Json] | None = None) -> Json:
     """One still: a pending row, each model in turn, the file, under X's
     5 MB limit. Caps checked before the first call; for a video's start frame
-    the video's caps hold."""
+    the video's caps hold.
+
+    A figure is drawn from its stylised portrait (_stylise), which Venice's
+    gateway passes where it refuses the photo. Two-pass likeness, the last
+    resort: when every model still turns the portraits down together with
+    the scene for content, the scene is drawn with Teeny's sheet alone, then
+    one more edit gives its people their likeness from the portraits under a
+    harmless prompt. Both passes are paid and counted on the one row; a refusal of the
+    second fails the picture."""
+    # A stylised portrait is bought before the picture's row, once per figure
+    # and kept for good, so the picture's row is the newest.
+    portraits = _stylise(conn, api, portraits or [])
     asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post", alt)
     reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
     if not reference_path.is_file():
@@ -372,61 +489,65 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str
         raise hand.HandError(f"Teeny's reference image is missing ({REFERENCE})")
     reference = _data_uri(reference_path)
     tried: list[str] = []
-    for model in _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS):
-        estimate = _image_estimate(api, model)
-        try:
-            answer = api.call(
-                "POST",
-                "/v1/images/edits",
-                _edit_body(model, prompt, reference, portraits or []),
-                timeout=240,
-            )
-        except SurplusError as exc:
-            tried.append(f"{model}: {exc}")
-            # One seller's content filter turning a scene down is that
-            # seller's answer, not the scene's: the next model reads it afresh.
-            if exc.status in FALLBACK_STATUSES or exc.status is None or _content_refusal(exc):
-                continue
-            _finish(conn, asset_id, status="failed", model=model, error=str(exc))
-            raise hand.HandError(f"image generation failed: {exc}") from None
-        item = (answer.get("data") or [{}])[0]
-        if item.get("b64_json"):
-            data = base64.b64decode(item["b64_json"])
-        elif item.get("url"):
-            data = api.download(item["url"], IMAGE_MAX_BYTES)
-        else:
-            tried.append(f"{model}: no image in the answer")
-            continue
-        ext = _extension(data)
-        if ext not in ("png", "jpg", "webp"):
-            tried.append(f"{model}: the answer is not an image")
-            continue
-        # The picture is paid for: a failure to shrink it is recorded on the
-        # row with what it cost, never dropped.
-        detail = None
-        try:
-            data, ext, shrunk = fit.under_limit(data, ext)
-        except (hand.HandError, hand.Refused) as exc:
-            shrunk = None
-            detail = f"kept over X's image limit: {getattr(exc, 'reason', None) or exc}"
-            print(f"hands/image: picture {asset_id} is {len(data):,} bytes, over X's limit ({detail})", file=sys.stderr)
-        if shrunk:
-            detail = json.dumps({"shrunk": shrunk})
-        path = _media_dir() / f"image-{asset_id}.{ext}"
-        path.write_bytes(data)
-        _finish(
-            conn,
-            asset_id,
-            status="done",
-            model=model,
-            path=str(path.relative_to(hand.root())),
-            cost_micro=estimate,
-            estimated=1,
-            detail=detail,
-        )
-        return _public(conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone())
-    _finish(conn, asset_id, status="failed", error="; ".join(tried)[:1000] or "no image model configured")
-    raise hand.HandError("no image model could take it: " + ("; ".join(tried)[:500] or "none configured"))
+    two_pass = None
+    paid = 0
+    chain = _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)
+    refused: list[str] = []
+    try:
+        got = _walk(api, lambda model: _edit_body(model, prompt, reference, portraits), tried, refused=refused)
+        if got is None and portraits and chain and refused == chain:
+            tried = [f"the portraits with the scene: every model refused them for content ({', '.join(refused)})"]
+            got = _walk(api, lambda model: _edit_body(model, prompt, reference, []), tried, "scene pass, ")
+            if got is not None:
+                scene_model, paid, scene, _ = got
+                # The scene is paid for: its cost holds today's budget while
+                # the likeness pass runs, and stays if that pass fails.
+                _finish(conn, asset_id, status="pending", model=scene_model, cost_micro=paid, done_at=None)
+                budget = _usd("MEDIA_MAX_USD_PER_DAY", "1.00")
+                spent = _spent_today(conn)
+                if spent + _image_estimate(api, chain[0]) > budget:
+                    why = f"the likeness pass would take today's media spend past ${budget / 1e6:.2f}"
+                    _finish(conn, asset_id, status="failed", error="; ".join([*tried, why])[:1000])
+                    raise hand.Refused(why, rule="budget", spent_usd=round(spent / 1e6, 4), budget_usd=budget / 1e6)
+                likeness: list[str] = []
+                got = _walk(api, lambda model: _likeness_body(model, scene, portraits), likeness, "likeness pass, ")
+                tried += likeness
+                if got is None:
+                    _finish(conn, asset_id, status="failed", error="; ".join(tried)[:1000])
+                    raise hand.HandError("no image model could take the likeness pass: " + "; ".join(likeness)[:500])
+                two_pass = {"scene": scene_model, "likeness": got[0]}
+    except _Failed as failed:
+        _finish(conn, asset_id, status="failed", model=failed.model, error=str(failed.exc))
+        raise hand.HandError(f"image generation failed: {failed.exc}") from None
+    if got is None:
+        _finish(conn, asset_id, status="failed", error="; ".join(tried)[:1000] or "no image model configured")
+        raise hand.HandError("no image model could take it: " + ("; ".join(tried)[:500] or "none configured"))
+    model, estimate, data, ext = got
+    # The picture is paid for: a failure to shrink it is recorded on the
+    # row with what it cost, never dropped.
+    detail = None
+    try:
+        data, ext, shrunk = fit.under_limit(data, ext)
+    except (hand.HandError, hand.Refused) as exc:
+        shrunk = None
+        detail = f"kept over X's image limit: {getattr(exc, 'reason', None) or exc}"
+        print(f"hands/image: picture {asset_id} is {len(data):,} bytes, over X's limit ({detail})", file=sys.stderr)
+    if shrunk or two_pass:
+        detail = json.dumps({**({"shrunk": shrunk} if shrunk else {}), **({"kept": detail} if detail else {}),
+                             **({"two_pass": two_pass} if two_pass else {})})
+    path = _media_dir() / f"image-{asset_id}.{ext}"
+    path.write_bytes(data)
+    _finish(
+        conn,
+        asset_id,
+        status="done",
+        model=model,
+        path=str(path.relative_to(hand.root())),
+        cost_micro=paid + estimate,
+        estimated=1,
+        detail=detail,
+    )
+    return _public(conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone())
 
 
 MAX_FIGURES = 2
