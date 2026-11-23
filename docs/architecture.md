@@ -833,7 +833,9 @@ cron slot ──> bin/studio --slot S --legacy P --detach
       and any post that breaks the content list marked with the line it breaks
                 │
    publish: the ranking (marked ones out; videos first in a video slot) one by one
-      ──> picture / meme / video for that post only ──> hands/x post (its guard is the check)
+      ──> the guard's content list on its exact words (final_gate: hands/guard check, kept as `gates`;
+          held, judge failed or no answer: nothing sent, the next post)
+      ──> picture / meme / video for that post only ──> hands/x post (its guard runs again as it posts)
       ──> held or refused: the next post; gap or daily cap: stop; no answer: stop (in doubt)
                 │
    record ──> state/studio/runs.jsonl + studio_runs (hands/story record-run)
