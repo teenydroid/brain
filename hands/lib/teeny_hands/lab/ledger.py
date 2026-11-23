@@ -140,8 +140,10 @@ def propose(body: Any, source: str | None = None) -> Json:
     deadline_at = _deadline(body, now)
     conn = db()
     try:
+        # Its own transaction: a refusal below must not undo the expiry.
         with hand.transaction(conn):
             expired = _expire(conn)
+        with hand.transaction(conn):
             open_rows = conn.execute("SELECT id, surface, format FROM experiments WHERE status = 'open'").fetchall()
             if len(open_rows) >= MAX_OPEN:
                 raise hand.Refused(f"{MAX_OPEN} experiments are already open; conclude one first", rule="too_many_open",
