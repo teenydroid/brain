@@ -122,24 +122,28 @@ def _act_failures(since: float) -> Json:
     for runs in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
         failed, last = 0, None
         try:
-            lines = runs.read_text(encoding="utf-8").splitlines()
+            fh = runs.open(encoding="utf-8")
         except OSError:
             continue
-        for line in lines:
+        with fh:  # streamed: a long-lived log never sits in memory whole
             try:
-                run = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(run, dict):
-                continue
-            when = next((w for w in (evolve_evidence.epoch(run.get(k)) for k in ("at", "ts", "date", "time"))
-                         if w is not None), None)
-            if when is None or when < since:
-                continue
-            errors = [a for a in run.get("actions") or [] if isinstance(a, dict) and a.get("status") == "error"]
-            if run.get("ok") is False or errors:
-                failed += 1
-                last = str(run.get("error") or (errors[0].get("action") if errors else ""))[:200]
+                for line in fh:
+                    try:
+                        run = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(run, dict):
+                        continue
+                    when = next((w for w in (evolve_evidence.epoch(run.get(k)) for k in ("at", "ts", "date", "time"))
+                                 if w is not None), None)
+                    if when is None or when < since:
+                        continue
+                    errors = [a for a in run.get("actions") or [] if isinstance(a, dict) and a.get("status") == "error"]
+                    if run.get("ok") is False or errors:
+                        failed += 1
+                        last = str(run.get("error") or (errors[0].get("action") if errors else ""))[:200]
+            except (OSError, UnicodeDecodeError):
+                pass
         if failed:
             out[runs.parent.name] = {"failed": failed, "last_error": last}
     return out
