@@ -274,7 +274,6 @@ class CommandTest(unittest.TestCase):
                                                       trims=[3.9], sound="/m/a.m4a")))
 
 
-
 class RouteTest(unittest.TestCase):
     """serve.py's cut route, checked from its source (importing it needs
     upstream): a remake's sound is resolved, confined to media/remake/ with
