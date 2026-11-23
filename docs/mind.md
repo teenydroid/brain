@@ -29,7 +29,7 @@ manages, projects it picks, skills it writes for itself.
 |---|---|
 | Home | `state/home/`: the only folder its shell and file tools can write |
 | Notes | `notes/JOURNAL.md`, `notes/PROJECTS.md`, `notes/TASKS.md`, `notes/inbox/` |
-| Skills | `skills/`: scripts and notes it writes for itself |
+| Skills | `skills/<name>/SKILL.md`, listed in `skills/INDEX.md`: what it has taught itself, read at each wake |
 | Tools | `shell`, `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, `memory`, `spawn_subagent` (its worker only) |
 | Network | the host's: it can read the web, clone and install into its home |
 | Keys | none |
