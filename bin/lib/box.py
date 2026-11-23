@@ -19,7 +19,11 @@ user. What makes that safe is the jail (bin/lib/jail.py):
               the rest of state/; change the mode, owner or times of a
               file by its path; with Landlock 6 or newer, signal a process
               outside the jail
-  network     open, as for the mind (docs/mind.md, "Limits to know about")
+  network     TCP to the broker's port only (BROKER_PORT) and no other
+              socket but a unix one: no DNS, UDP, listening or io_uring.
+              A Landlock port rule does not name the address, so that
+              one port is reachable on any host. A tool reads the web
+              through the broker: `"$TEENY_CLI" fetch '{"url": ...}'`
 
 A tool acts on the world the way the mind does, through the broker:
 `"$TEENY_CLI" do '{...}'`. The guard, the caps, MIND_DRY_RUN and the box's
@@ -41,7 +45,8 @@ DRY_RUN hold it exactly as they hold the mind. It holds no account.
                       state/box/ledger.jsonl. One file a tool writes is at
                       most 256 MiB
 
-Without Landlock (or one older than ABI 3) nothing runs: exit 1.
+Without Landlock (or one older than ABI 4, which rules the network)
+nothing runs: exit 1.
 """
 
 from __future__ import annotations
@@ -88,6 +93,8 @@ MAX_FILE_BYTES = 256 * 1024 * 1024
 _PR_SET_CHILD_SUBREAPER = 36
 TAIL_BYTES = 16 * 1024
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+#: bin/lib/broker.py's DEFAULT_PORT (the box does not import the broker).
+DEFAULT_BROKER_PORT = 7790
 
 
 def tools_dir() -> Path:
@@ -165,12 +172,20 @@ def protected() -> list[Path]:
     return [root / name for name in ("secrets", "brain", "bin", "hands", "evals", ".git")] + [hand.state_dir()]
 
 
-def _jailed(folder: Path, readable: list[Path]):
+def broker_port() -> int | None:
+    """The one TCP port a tool may connect to: the broker's, as
+    secrets/teeny.env sets it (bin/lib/broker.py, port). Never read from
+    state/home/.broker-url, which the mind can write. None when it is 0 (an
+    ephemeral port, for tests of the broker): then no TCP at all."""
+    return hand.number("BROKER_PORT", DEFAULT_BROKER_PORT, 0, 65535) or None
+
+
+def _jailed(folder: Path, readable: list[Path], port: int | None):
     def enter() -> None:
         os.setsid()
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        jail.enter(ro=readable, rw=[folder], protect=protected())
+        jail.enter(ro=readable, rw=[folder], protect=protected(), tcp_connect=() if port is None else (port,))
     return enter
 
 
@@ -265,9 +280,9 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     path = entry(name)
     if path is None:
         return 2, {"ok": False, "error": f"no tool home/tools/{name}/ with a run file"}
-    if not jail.available():
+    if not jail.available(network=True):
         return 1, {"ok": False, "error": f"no jail on this kernel (landlock version {jail.abi()}, "
-                                         f"needs {jail.MIN_ABI}): nothing was run"}
+                                         f"needs {jail.NET_ABI}): nothing was run"}
     folder = hand.state_dir() / "box" / "tools" / name
     (folder / "tmp").mkdir(parents=True, exist_ok=True)
     home = hand.state_dir() / "home"
@@ -277,9 +292,10 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     readable = [p for p in readable if p != Path("/") and p != Path.home()]
     try:
         jail.check_grants(jail.grants(readable, [folder]), protected())
-        jail._filter()
+        jail._filter(network=True)
     except jail.Unavailable as exc:
         return 1, {"ok": False, "error": f"{exc}: nothing was run"}
+    port = broker_port()
     env = {"PATH": PATH, "HOME": str(folder), "TMPDIR": str(folder / "tmp"), "LANG": "C.UTF-8",
            "TEENY_BOX": name, "TEENY_CLI": str(home / "bin" / "teeny"), "TEENY_TOOL_DIR": str(path.parent)}
     limit = hand.number("BOX_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS, 1, MAX_TIMEOUT_SECS)
@@ -301,7 +317,7 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
         try:
             proc = subprocess.Popen(_argv(path, args), stdin=subprocess.DEVNULL, stdout=write_end,
                                     stderr=subprocess.STDOUT, cwd=folder, env=env, close_fds=True,
-                                    preexec_fn=_jailed(folder, readable))
+                                    preexec_fn=_jailed(folder, readable, port))
             os.close(write_end)
             write_end = -1
             tail.start()
@@ -337,17 +353,17 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
 
 
 def check() -> tuple[int, Json]:
-    """For bin/doctor: with BOX=1, the jail must exist."""
+    """For bin/doctor: with BOX=1, the jail must exist, network rule and all."""
     version = jail.abi()
     try:
-        jail._filter()
+        jail._filter(network=True)
         jail.check_grants(jail.grants([hand.root() / "home"]), protected())
-        problem = None if version >= jail.MIN_ABI else f"landlock version {version}, needs {jail.MIN_ABI}"
+        problem = None if version >= jail.NET_ABI else f"landlock version {version}, needs {jail.NET_ABI}"
     except jail.Unavailable as exc:
         problem = str(exc)
     ok = not enabled() or problem is None
-    answer: Json = {"ok": ok, "enabled": enabled(), "landlock": version, "needs": jail.MIN_ABI,
-                    "signals_scoped": version >= 6, "tools": tools()}
+    answer: Json = {"ok": ok, "enabled": enabled(), "landlock": version, "needs": jail.NET_ABI,
+                    "signals_scoped": version >= 6, "broker_port": broker_port(), "tools": tools()}
     if problem:
         answer["problem"] = problem
     return (0 if ok else 1), answer

@@ -269,12 +269,16 @@ check "the fourth rule of an exhausted kind is rejected" test "$(jq -r '.candida
 check "naming the lesson" grep -qF "lesson \`prompt-rule/learning\` is exhausted" <<<"$(jq -r '.candidates[0].reason' <<<"$out")"
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 
-# --- the pinned jobs -------------------------------------------------------------------------------
+# --- the evolve jobs: evolve and its credit are Teeny's (brain/cron.toml), the watch pinned -------------------------------------------------------------------------------
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"
-check "evolve is pinned, after each dream, and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.tz)|\(.command)|\(.enabled)"' <<<"$jobs")" = "40 2,14 * * *|Asia/Kolkata|bin/evolve run --scheduled --detach|true"
+check "evolve is scheduled after each dream, and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.tz)|\(.command)|\(.enabled)"' <<<"$jobs")" = "40 2,14 * * *|Asia/Kolkata|bin/evolve run --scheduled --detach|true"
 check "each dream comes before it" test "$(jq -r '[.[] | select(.name == "teeny.dream" or .name == "teeny.dream-midday") | .expr] | sort | join(";")' <<<"$jobs")" = "0 14 * * *;0 2 * * *"
-check "evolve-credit is pinned, daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
+check "evolve-credit is scheduled daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
 check "evolve-watch is pinned, hourly and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve-watch") | "\(.expr)|\(.command)"' <<<"$jobs")" = "20 * * * *|bin/evolve watch --detach"
+check "evolve and evolve-credit are in Teeny's own schedule, the watch is not" python3 -c 'import sys, tomllib
+brain = tomllib.load(open(sys.argv[1], "rb"))["jobs"]; pinned = tomllib.load(open(sys.argv[2], "rb"))["jobs"]
+assert "evolve" in brain and "evolve-credit" in brain and "evolve-watch" not in brain
+assert "evolve" not in pinned and "evolve-credit" not in pinned and "evolve-watch" in pinned' "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml"
 check "and the schedule passes seed-cron --check" env -u TEENY_ROOT "$repo/bin/seed-cron" --check --file "$repo/brain/cron.toml"
 
 if [ "$failures" -gt 0 ]; then

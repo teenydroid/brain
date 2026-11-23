@@ -715,7 +715,7 @@ PATHS = (
     "your file tools resolve: use it exactly as written, never with state/workbench/ in front."
 )
 _STRAY_SHOWN = 10
-#: The cron job that runs the builder (evals/cron.pinned.toml).
+#: The cron job that runs the builder (brain/cron.toml).
 BUILDER_JOB = "teeny.builder"
 #: The most of the builder's last final message put back on a resumed job.
 LAST_RUN_CHARS = 4000
