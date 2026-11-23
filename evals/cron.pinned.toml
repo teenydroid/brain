@@ -105,12 +105,6 @@ agent = "mind"
 prompt = "You are awake. Read your notes, pick what matters most, do a real piece of it, and write down where you stopped."
 switch = "MIND"
 
-# The builder's desk and shipping (bin/build-ship): collect its report, lay
-# out its next job, and push what it finished to GitHub through hands/gh.
-[jobs.build-ship]
-schedule = "*/30 * * * *"
-command = "bin/build-ship"
-
 # The browser operator (brain/agents/operator.toml), an agent job: the one
 # task on its desk (state/workbench/desk/task.json), done in the browser,
 # reported on the desk. Every 20 minutes: browsing is where Teeny spends its
@@ -119,11 +113,6 @@ command = "bin/build-ship"
 schedule = "*/20 * * * *"
 agent = "operator"
 prompt = "Do the browser task on your desk, following your instructions."
-
-# The operator's desk (bin/tasks-desk): collect its report, lay out its next task.
-[jobs.tasks-desk]
-schedule = "*/15 * * * *"
-command = "bin/tasks-desk"
 
 # Pay the bounty prizes that are due (bin/bounty-pay): collect entries, take the
 # winner's claim from the winner's own reply, and pay once the winner has been
@@ -228,35 +217,6 @@ command = "bin/guard-review"
 schedule = "3-59/5 * * * *"
 command = "bin/guard-rescreen"
 
-# Teeny acting on what it learned (bin/evolve; docs/evolve.md, "The loop"):
-# each open learning on its page (brain/MEMORY.md: what it decided, promised
-# and is in the middle of) becomes one small change in a worktree off main,
-# gated in code, measured on the eval tasks it reaches, and its own ready pull
-# request, which the babysitter merges once its audit and CI pass. Forty
-# minutes after each dream (02:00 and 14:00), so what the dream wrote down is
-# acted on the same day; with no open learning a run does nothing. Off unless
-# secrets/evolve.env sets EVOLVE=1, so seeding this job changes nothing until
-# the operator turns the loop on; EVOLVE=0 is the kill switch, and its halt
-# thresholds live in the same file. Detached: a generation outlasts the 300 s
-# a cron shell call gets (docs/oh-gaps.md, G12); it logs to
-# state/evolve/evolve.log. --scheduled: this job's runs are the ones
-# EVOLVE_GENERATIONS_PER_DAY counts; a run by hand (no flag) counts against
-# EVOLVE_MANUAL_GENERATIONS_PER_DAY instead.
-[jobs.evolve]
-schedule = "40 2,14 * * *"
-tz = "Asia/Kolkata"
-command = "bin/evolve run --scheduled --detach"
-
-# Lineage credit (bin/evolve credit): which evolve pull requests merged
-# (whoever merged them), each merged generation's chronicle page, and for
-# every one merged at least seven days ago the change in J since the merge
-# (hands/world history), credited to its ancestors. Reads only; with nothing
-# merged it does nothing.
-[jobs.evolve-credit]
-schedule = "50 3 * * *"
-tz = "Asia/Kolkata"
-command = "bin/evolve credit"
-
 # The watch over what the loop's pull requests changed (bin/evolve watch;
 # docs/evolve.md, "evolve-watch"): for the newest merged one, a last-good
 # boot, a spike in guard holds or failed cron runs against the week before,
@@ -267,19 +227,6 @@ command = "bin/evolve credit"
 [jobs.evolve-watch]
 schedule = "20 * * * *"
 command = "bin/evolve watch --detach"
-
-# What Teeny said it would build (bin/wants run; docs/evolve.md, "1c. Wants"):
-# the build-intent items of its memory page ("the first thing i build myself
-# is ... not built yet"), drawn in code, no model. Scores each merged feature
-# a week after it merged (did a scheduled playbook run its hand?), then files
-# at most one want as a `self` build request, through the guard, for the
-# builder. 09:00 UTC is after the morning pick and before self-improve (09:40)
-# and pick-request's second slot (09:50). Off unless WANTS=1 in secrets/evolve.env. Operator-owned: the
-# brain does not get to redefine a want, or to switch the feed on.
-[jobs.wants]
-schedule = "0 9 * * *"
-command = "bin/wants run"
-catch_up = true
 
 # The goal ledger's checks (bin/goals-check): every open goal Teeny proposed
 # (brain/playbooks/goals.md) is evaluated against its check, one of the kinds
