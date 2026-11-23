@@ -539,6 +539,8 @@ MIND_CAPS = {
     "reddit_post": ("REDDIT_POSTS_PER_DAY", 3),
     "reddit_upvote": ("REDDIT_VOTES_PER_DAY", 40),
     "reddit_subscribe": ("REDDIT_SUBSCRIBES_PER_DAY", 10),
+    # hands/rent holds the money (RENT_MAX_*); this holds how often.
+    "rent_post": ("RENT_POSTS_PER_DAY", 10),
 }
 #: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
 #: nothing and touches only Teeny's own ledger, and a change to itself is a
