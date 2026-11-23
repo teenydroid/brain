@@ -536,9 +536,7 @@ class QuoteLinkFallbackTest(Posting):
 
     def test_a_refused_quote_goes_out_with_the_quoted_posts_link(self):
         self.refuse_quotes()
-        out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555",
-                            "media_ids": ["m1"], "producer": "studio"} if False else
-                           {"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
+        out = publish.post({"text": "my robot would also pick the wrong paris", "quote_of": "555", "producer": "studio"})
         sent = self.posted()
         self.assertEqual(sent[0], {"text": "my robot would also pick the wrong paris", "quote_tweet_id": "555"})
         self.assertEqual(sent[1], {"text": f"my robot would also pick the wrong paris {self.LINK}"})
