@@ -79,6 +79,8 @@ def _carry_out(raw: Any, row: Json) -> Json:
         raise hand.Refused(f"{call.method} {call.path} is not allowed on {svc.name} (evals/services.toml)",
                            rule="allow")
     counts.check(svc, kind)
+    if not call.is_read:
+        guard(svc, call)
     key = hand.require(svc.key)
     row["key"] = key
     row["id"] = counts.reserve(svc, kind, call.method, call.path)
