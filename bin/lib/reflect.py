@@ -135,7 +135,7 @@ MAX_SHRINK = 0.30
 #: bullets, retiring one kept promise is already a third of it.
 SHRINK_FLOOR_CHARS = 500
 #: The most items one reflection may retire. A full page (8k characters,
-#: about 50 bullets) loses at most a tenth of itself in one sitting, while a
+#: about 50 bullets) loses at most a sixth of itself in one sitting, while a
 #: busy day can still close its threads; anything left over waits a
 #: reflection (midday and night come twelve hours apart). A page over the
 #: limit may retire twice this many, to come down to it.
