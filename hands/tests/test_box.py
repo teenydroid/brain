@@ -360,6 +360,15 @@ class NetworkTest(Scratch):
         with self.assertRaises(OSError):
             self.other.accept()
 
+    def test_a_tool_has_the_network_unless_the_operator_closes_it(self):
+        # Open is the default: a tool holds no key, and what it says as
+        # Teeny still goes through the broker. BOX_NETWORK=0 closes it.
+        self.settings(BOX="1", BROKER_PORT=str(self.port))
+        got = self.probe()
+        self.assertTrue(got["connect_other"])
+        self.assertTrue(got["udp"])
+        self.assertTrue(got["broker"] if "broker" in got else True)
+
     def test_a_tool_cannot_bind_or_listen(self):
         got = self.probe()
         self.assertFalse(got["bind"])
