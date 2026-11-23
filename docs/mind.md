@@ -371,10 +371,19 @@ and `bin/crons` for the `teeny.mind` and `mind.*` runs.
 
 ## Not built yet
 
-- **Owning every pipeline.** The two dreams, the builder, the lore episode
-  and the Moltbook prune are in `brain/cron.toml` now, Teeny's to
-  reschedule, pause or drop. Evolve, the wants feed and the desks stay
-  pinned for now; the watchers and the money jobs stay pinned for good.
+- **Owning every pipeline.** Teeny's own pipelines are in `brain/cron.toml`,
+  Teeny's to reschedule, pause or drop: the two dreams, the builder, the
+  lore episode and the Moltbook prune (2026-11-22), and evolve, its lineage
+  credit, the wants feed, the builder's desk (`build-ship`) and the
+  operator's (`tasks-desk`) (2026-11-23). A brain job runs each script only
+  with the arguments its pinned job had (`BRAIN_SCRIPTS` in
+  `bin/lib/cron_policy.py`), and each still checks its own switch in
+  `secrets/` (`EVOLVE`, `WANTS`), so a schedule never turns one on. A few
+  stay pinned in `evals/cron.pinned.toml`, and are not Teeny's to own:
+  `evolve-watch`, the watcher that rolls a bad change back; the browser
+  `operator` job, whose profile is signed in as Teeny, where an agent job
+  the brain wrote would carry a prompt of its own; and the inbound jobs, the
+  beat, the mind's base wake, the other watchers and the money jobs.
 - **Self-merged hands.** Teeny's own tools merge by themselves
   (`home/tools/`); a hand that holds a key does not. The key proxy
   (`bin/teeny call`, "Keys it never holds") covers part of it: a jailed tool
