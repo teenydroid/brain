@@ -68,8 +68,8 @@ def _message(parsed: Any, key: str | None = None) -> str | None:
     key echoed across the clip would leave a piece no later scrub matches."""
     if not isinstance(parsed, Mapping):
         return None
-    for key in ("error", "message", "detail"):
-        value = parsed.get(key)
+    for field in ("error", "message", "detail"):
+        value = parsed.get(field)
         if isinstance(value, str) and value.strip():
             text = value.strip()
             if key:
