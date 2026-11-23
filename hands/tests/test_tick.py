@@ -1817,7 +1817,7 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual(got["results"][0]["status"], "done", got)
         self.assertEqual(len([p for p in self.learned() if "about @ana (X" in p["text"]]), 1)
-        self.assertEqual(stimuli.open_for("x", who="ana") if hasattr(stimuli, "open_for") else [], [])
+        self.assertNotIn("111", [s.get("ref") for s in stimuli.pending()])
 
     def test_remember_keeps_a_note_and_teaches_the_core(self):
         stimuli.add("x", "mention", "111", "i'm building a cli for crabs", who="ana")
