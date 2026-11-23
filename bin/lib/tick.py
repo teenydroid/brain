@@ -1218,6 +1218,58 @@ X_OWN_THREAD = ("Replies under your own X posts come first on X: these people an
                 "abuse, the same point you already answered, or from someone you have answered three times today "
                 "with nothing new asked; then say which in your thought.")
 
+#: How Teeny answers on X, said once a batch holds an X mention: the body of
+#: brain/playbooks/mentions.md, read every beat. It is Teeny's own page (not
+#: frozen), the same one the core's queue drafts from (TEENY_INBOX=core,
+#: bin/lib/inbound_config.py), so one edit steers both. Before 2026-11-23 only
+#: that queue read it, and on the default path (the mind) an edit to it
+#: (#529) changed nothing. Which mentions reach a beat, in what order, and
+#: every cap and guard stay in code (stimuli.take, hands/x, hands/guard);
+#: the page steers what the model decides: which of them to answer, and how.
+REPLY_PLAYBOOK = Path("playbooks") / "mentions.md"
+#: The most of the page a beat carries, so a page that grows cannot crowd
+#: the batch out: it is cut at a paragraph and says so.
+REPLY_GUIDANCE_MAX_CHARS = 4_000
+REPLY_GUIDANCE_CUT = "[...the rest of brain/playbooks/mentions.md was cut: it runs past 4,000 characters]"
+#: Said when the page is missing, empty, or its front matter never closes.
+REPLY_GUIDANCE_FALLBACK = ("Answer the mentions that deserve an answer: replies under your own posts first, then real "
+                           "questions ahead of greetings and hype. A reply answers what was said, in the words they "
+                           "used, under 240 characters, in your own voice. $TINY talk always gets a short line back. "
+                           "Skip spam, bots, abuse and anyone you already answered.")
+REPLY_GUIDANCE_HEAD = ("## how you answer on X (brain/playbooks/mentions.md)\n\n"
+                       "Your own playbook for X mentions, yours to edit. Where it says inputs, it means the X "
+                       "messages in this beat; a reply is a reply_x to that message's ref.")
+
+
+def _brain() -> Path:
+    return Path(os.environ.get("TEENY_ROOT") or CODE) / "brain"
+
+
+def reply_guidance(brain: Path | None = None) -> str:
+    """The body of brain/playbooks/mentions.md, after its +++ front matter,
+    clipped to REPLY_GUIDANCE_MAX_CHARS at a paragraph; REPLY_GUIDANCE_FALLBACK
+    when there is no body to read."""
+    try:
+        text = ((brain or _brain()) / REPLY_PLAYBOOK).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return REPLY_GUIDANCE_FALLBACK
+    if text.lstrip().startswith("+++"):
+        parts = text.lstrip().split("+++", 2)
+        if len(parts) < 3:
+            return REPLY_GUIDANCE_FALLBACK  # front matter that never closes: none of it is prose
+        text = parts[2]
+    body = text.strip()
+    if not body:
+        return REPLY_GUIDANCE_FALLBACK
+    if len(body) <= REPLY_GUIDANCE_MAX_CHARS:
+        return body
+    room = REPLY_GUIDANCE_MAX_CHARS - len(REPLY_GUIDANCE_CUT) - 2
+    head = body[:room]
+    cut = head.rfind("\n\n")
+    head = head[:cut] if cut > room // 2 else head[:head.rfind(" ")] if " " in head else head
+    return head.rstrip() + "\n\n" + REPLY_GUIDANCE_CUT
+
+
 #: Said once a batch holds something from Hacker News, where Teeny cannot write.
 HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn comment can be talked "
                 "about elsewhere, remembered or followed up; never answered on HN.")
