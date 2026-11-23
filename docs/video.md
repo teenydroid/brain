@@ -364,6 +364,10 @@ story's public figure, their real claim pushed to an impossible end, told in
 three acts over 60 to 90 seconds, with Teeny as the narrator. One every other
 day, beside the daily skit.
 
+Operator, 2026-11-24, after the first film: about 30 seconds in three or four beats, Teeny leading every
+shot, 16:9 (or 1:1) for X, a livelier read (v3's expressive setting and [tags]), and Teeny thirsty for the
+hardware, never for a person and never explicit.
+
 ### 12.1 Why audio first
 
 Stitching 15 s clips that each bring their own sound gives a new voice, a new
