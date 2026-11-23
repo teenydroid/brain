@@ -14,6 +14,14 @@ a one-line lesson, and refuses `works` or `fails` before the planned number
 of posts was measured: below it, only `unclear`. `lessons` is what the lab
 has learned, newest first, for the prompts.
 
+The lab cannot wedge: before `score` and before `propose` counts the open
+experiments, `expire` concludes as `unclear`, with a lesson saying why, any
+open experiment that can no longer teach anything: one STALE_DAYS old that no
+post ever carried, one past its deadline short of its planned posts (posts
+after the deadline are not counted), and one past its deadline by GRACE_DAYS
+that had its posts but never got a verdict. On 2026-11-23 five open
+experiments with no posts at all refused every new one (`too_many_open`).
+
 Local state only; nothing is said anywhere, so DRY_RUN does not apply.
 """
 
@@ -38,6 +46,10 @@ MAX_DAYS = 30
 HYPOTHESIS_CHARS = 300
 LESSON_CHARS = 200
 MAX_LESSONS = 20
+#: An open experiment no post has carried for this many days is concluded.
+STALE_DAYS = 5
+#: How long past its deadline an experiment with its posts waits for a verdict.
+GRACE_DAYS = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS experiments (
@@ -129,6 +141,7 @@ def propose(body: Any, source: str | None = None) -> Json:
     conn = db()
     try:
         with hand.transaction(conn):
+            expired = _expire(conn)
             open_rows = conn.execute("SELECT id, surface, format FROM experiments WHERE status = 'open'").fetchall()
             if len(open_rows) >= MAX_OPEN:
                 raise hand.Refused(f"{MAX_OPEN} experiments are already open; conclude one first", rule="too_many_open",
@@ -144,8 +157,11 @@ def propose(body: Any, source: str | None = None) -> Json:
             ).lastrowid
     finally:
         conn.close()
-    return {"proposed": row_id, "surface": surface, "format": tagged["format"], "metric": metric, "posts": posts,
-            "deadline": _date(deadline_at)}
+    out: Json = {"proposed": row_id, "surface": surface, "format": tagged["format"], "metric": metric, "posts": posts,
+                 "deadline": _date(deadline_at)}
+    if expired:
+        out["expired"] = expired
+    return out
 
 
 def _date(at: float) -> str:
@@ -202,12 +218,47 @@ def _store(conn: sqlite3.Connection, exp_id: int, got: Mapping[str, Any]) -> Non
     )
 
 
+def _why_expired(row: Mapping[str, Any], got: Mapping[str, Any]) -> str | None:
+    """Why an open experiment is to be concluded unclear now, or None."""
+    now = hand.now()
+    days = int((now - float(row["proposed_at"])) // DAY)
+    if got["n"] == 0 and now - float(row["proposed_at"]) >= STALE_DAYS * DAY:
+        return (f"auto: no post carried the {row['format']} tag in {days} days, so nothing could be scored;"
+                " tag the posts, or propose a format a writer actually uses")
+    if got["past_deadline"] and not got["enough"]:
+        return (f"auto: the deadline passed with {got['n']} of {row['posts']} planned posts measured;"
+                " too few for a verdict")
+    if got["past_deadline"] and now >= float(row["deadline_at"]) + GRACE_DAYS * DAY:
+        return (f"auto: {got['n']} posts were measured but no verdict came {GRACE_DAYS} days past the deadline"
+                f" (avg {got['avg']} against {got['baseline_avg']})")
+    return None
+
+
+def _expire(conn: sqlite3.Connection) -> list[Json]:
+    """Concludes as unclear every open experiment that can no longer teach
+    anything (_why_expired). Inside the caller's transaction."""
+    done = []
+    for row in conn.execute("SELECT * FROM experiments WHERE status = 'open' ORDER BY id").fetchall():
+        got = measure(conn, row)
+        why = _why_expired(row, got)
+        if why is None:
+            continue
+        _store(conn, row["id"], got)
+        conn.execute("UPDATE experiments SET status = 'concluded', verdict = 'unclear', lesson = ?, concluded_at = ?"
+                     " WHERE id = ?", (why[:LESSON_CHARS], hand.now(), row["id"]))
+        done.append({"id": row["id"], "surface": row["surface"], "format": row["format"], "n": got["n"],
+                     "lesson": why[:LESSON_CHARS]})
+    return done
+
+
 def score(exp_id: int | None = None) -> Json:
     """Scores the open experiments (or one) and records the numbers. `due`
     is true once the planned posts are measured or the deadline has passed:
     then it is time to conclude."""
     conn = db()
     try:
+        with hand.transaction(conn):
+            expired = _expire(conn)
         if exp_id is not None:
             rows = [_row(conn, exp_id)]
         else:
@@ -221,7 +272,7 @@ def score(exp_id: int | None = None) -> Json:
                         "posts": row["posts"], **got, "due": got["enough"] or got["past_deadline"]})
     finally:
         conn.close()
-    return {"scored": out}
+    return {"scored": out, "expired": expired}
 
 
 def conclude(body: Any) -> Json:
