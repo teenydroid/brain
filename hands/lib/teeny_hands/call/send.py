@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .. import hand
@@ -14,6 +15,8 @@ Json = dict[str, Any]
 
 #: The most of a service's answer passed back, as JSON.
 MAX_ANSWER = 256 * 1024
+#: What separates the words of a path.
+_PATH_BREAK = re.compile(r"[/_.~-]+")
 
 
 def _service(name: str) -> services.Service:
@@ -54,15 +57,26 @@ CHANGED = ("the guard would change this text; send it through the verb that publ
 
 
 def guard(svc: services.Service, call: request.Call) -> None:
-    """What a write says, through the outbound guard as one text: every
-    non-empty string of the body and the query, in order, a line each.
+    """What a write says, through the outbound guard: the words of its
+    path, then every non-empty string of the body and the query as one
+    text, in order, a line each.
     Refused unless the guard allows it unchanged: the proxy cannot rewrite
     an arbitrary body, and sends nothing but what the guard passed."""
+    context = {"service": svc.name, "method": call.method, "path": call.path}
+    # The path's own words (a slug can say something), through the guard's
+    # core check on their own: links, the lexicon, the judge. They are sent
+    # as given or not at all, so the house style has nothing to do here.
+    words = " ".join(word for word in _PATH_BREAK.split(call.path) if word)
+    if words:
+        held = gate.gate_outbound(words, {**context, "surface": svc.surface, "kind": "call"}).held
+        if held is not None:
+            raise hand.Refused("the guard did not let the path through", rule="guard",
+                               category=held.category, hold_id=held.hold_id)
     said = "\n".join(text for text in call.texts if text)
     if not said:
         return
     verdict = gate.check_outbound(said, surface=svc.surface, kind="call",
-                                  context={"service": svc.name, "method": call.method, "path": call.path})
+                                  context=context)
     if verdict.kind != "allow":
         raise hand.Refused(verdict.reason or "the guard did not let it through", rule="guard",
                            category=verdict.category, hold_id=verdict.hold_id)

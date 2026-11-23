@@ -18,8 +18,8 @@
 #   agent    the user-agent
 #   allow    what may be called: a method and a regex the whole path must match
 #
-# The guard reads what a write's body and query say, never its path. So a
-# path regex for a write must admit only ids and fixed words, never free text.
+# The guard reads what a write's body and query say, and the words of its
+# path. Even so, keep a write's path regex to ids and fixed words.
 #
 # Not here on purpose: GitHub (its token can change repository settings), X
 # (OAuth1 signing, and hands/x's posting rules), mail, Telegram, the wallet and
