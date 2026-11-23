@@ -604,6 +604,15 @@ class ValidatePostsTest(unittest.TestCase):
         from teeny_hands.media import assets
         self.assertLess(studio.SCENE_MAX, assets.MAX_PROMPT)
 
+    def test_an_image_lists_the_famous_people_it_draws_at_most_two(self):
+        kept, dropped = self.validate([
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene",
+             "people": ["Sam Altman", " Jakub  Pachocki ", "Sam Altman", 7]},
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene"},
+            {"card": "hn:101", "format": "image", "text": "w", "image": "a scene", "people": ["A B", "C D", "E F"]}])
+        self.assertEqual([p["people"] for p in kept], [["Sam Altman", "Jakub Pachocki"], []])
+        self.assertEqual(dropped[0]["why"], "a picture draws at most 2 people")
+
     def test_a_meme_keeps_its_template_lines_and_picture(self):
         kept, dropped = self.validate([{"card": "hn:101", "format": "meme", "text": "t", "meme": MEME}])
         self.assertEqual(dropped, [])

@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -119,6 +120,82 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(out["model"], "gpt-image-2-5-flare-edit")
         self.assertEqual((self.root / out["path"]).read_bytes(), PNG)
         self.assertTrue(out["path"].startswith("state/media/"))
+
+    # --- public figures in a picture --------------------------------------------
+
+    def wiki(self, pages):
+        """Stand in for Wikipedia and Wikidata: PAGES is {name: (item, kinds, has_photo)}."""
+        from teeny_hands.media import figures
+        import urllib.error
+        seen = []
+
+        def get(url, limit, timeout=30.0):
+            seen.append(url)
+            if url.startswith(figures.SUMMARY):
+                name = urllib.parse.unquote(url[len(figures.SUMMARY):].split("?")[0]).replace("_", " ")
+                if name not in pages:
+                    raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+                item, _, photo = pages[name]
+                page = {"type": "standard", "title": name, "wikibase_item": item}
+                if photo:
+                    page["originalimage"] = {"source": f"https://upload.wikimedia.org/{item}.png"}
+                return json.dumps(page).encode()
+            if url.startswith(figures.ENTITY):
+                item = url[len(figures.ENTITY):].split(".")[0]
+                kinds = next(k for i, k, _ in pages.values() if i == item)
+                claims = [{"mainsnak": {"datavalue": {"value": {"id": k}}}} for k in kinds]
+                return json.dumps({"entities": {item: {"claims": {"P31": claims}}}}).encode()
+            if url.startswith("https://upload.wikimedia.org/"):
+                return PNG
+            raise AssertionError(f"unexpected url {url}")
+
+        self._get = figures._get
+        figures._get = get
+        self.addCleanup(lambda: setattr(figures, "_get", self._get))
+        return seen
+
+    def test_a_public_figure_in_a_picture_is_drawn_from_their_photo(self):
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        out = assets.generate_image({"prompt": "the boss grins in the doorway", "figures": ["Sam Altman"]}, api=self.api)
+        _, _, body = next(c for c in self.api.calls if c[1] == "/v1/images/edits")
+        self.assertNotIn("image", body)
+        self.assertEqual(len(body["images"]), 2)
+        self.assertEqual(base64.b64decode(body["images"][0].split(",", 1)[1]),
+                         (self.root / "brain/assets/teeny-reference.png").read_bytes())
+        self.assertEqual(base64.b64decode(body["images"][1].split(",", 1)[1]), PNG)
+        self.assertIn("photo 2 is Sam Altman", body["prompt"])
+        self.assertEqual(out["asset"]["model"], "gpt-image-2-5-flare-edit")
+
+    def test_a_private_person_is_never_drawn(self):
+        # 2026-11-23: a fan whose post a story quoted was named in a scene.
+        # Someone with no Wikipedia article is not a public figure: no picture.
+        self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        with self.assertRaises(hand.Refused) as caught:
+            assets.generate_image({"prompt": "a fan cheers", "figures": ["Sam Altman", "Teeyah"]}, api=self.api)
+        self.assertEqual(caught.exception.rule, "figure")
+        self.assertIn("Teeyah has no Wikipedia article", str(caught.exception))
+        self.assertEqual(self.api.models("/v1/images/edits"), [])
+
+    def test_a_company_or_a_person_with_no_photo_is_not_a_figure(self):
+        self.wiki({"Lionsgate": ("Q2", ["Q4830453"], True), "Jane Roe": ("Q3", ["Q5"], False)})
+        for name, why in (("Lionsgate", "is not a person"), ("Jane Roe", "has no photo on Wikipedia")):
+            with self.assertRaises(hand.Refused) as caught:
+                assets.generate_image({"prompt": "x", "figures": [name]}, api=self.api)
+            self.assertIn(f"{name} {why}", str(caught.exception))
+
+    def test_a_figure_is_looked_up_once_and_at_most_two_are_drawn(self):
+        seen = self.wiki({"Sam Altman": ("Q1", ["Q5"], True)})
+        for _ in range(2):
+            assets.generate_image({"prompt": "x", "figures": ["Sam Altman"]}, api=self.api)
+        self.assertEqual(len(seen), 3)
+        with self.assertRaises(hand.Refused):
+            assets.generate_image({"prompt": "x", "figures": ["A B", "C D", "E F"]}, api=self.api)
+
+    def test_a_picture_with_nobody_real_in_it_is_asked_for_as_before(self):
+        self.image()
+        _, _, body = next(c for c in self.api.calls if c[1] == "/v1/images/edits")
+        self.assertIn("image", body)
+        self.assertNotIn("images", body)
 
     def test_no_reference_no_image(self):
         (self.root / "brain/assets/teeny-reference.png").unlink()

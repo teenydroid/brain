@@ -1288,9 +1288,13 @@ def sample_text(summary: Json) -> str:
         lines.append(f"- {p.get('label')} [{p['format']} on {p['card']}] {words}")
         if p.get("image"):
             lines.append(f"    scene: {p['image']}")
+            if p.get("people"):
+                lines.append(f"    people: {', '.join(p['people'])}")
             made = (s.get("pictures") or {}).get(p.get("label")) or {}
             if made:
-                lines.append(f"    picture: {made.get('path') or made.get('failed') or made}")
+                lines.append(f"    picture: {made.get('path') or made.get('failed') or made}"
+                             + (f" ({(made.get('result') or {}).get('refused') or (made.get('result') or {}).get('error')})"
+                                if isinstance(made.get("result"), dict) else ""))
     for d in s.get("posts_dropped") or []:
         lines.append(f"- dropped: {d.get('why')}: {json.dumps(d.get('post'), ensure_ascii=False)[:200]}")
     rank_ = s.get("ranking") or {}
