@@ -1,4 +1,4 @@
-"""The `film` format: a story film, 60-90 seconds, three acts, Teeny
+"""The `film` format: a story film, about 30 seconds in three or four beats, Teeny
 narrating a public figure's real claim pushed to an impossible end
 (docs/video.md §12). Its words for the write turn, its structural check, its
 producer (`_make_film`) and what the record keeps of it, as `FORMAT`.
