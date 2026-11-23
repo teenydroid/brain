@@ -53,7 +53,7 @@ class FakeGuardTest(Scratch):
         self.assertEqual(code, 0, out)
         self.assertEqual([c["text"] for c in guard.calls], ["notes", "a\nb\nc\nd\ne"])
         self.assertEqual(guard.calls[1]["context"], {"service": "fake-svc", "method": "POST", "path": "/notes",
-                                                     "surface": "moltbook", "kind": "call"})
+                                                     "surface": "moltbook", "post_kind": "call"})
 
     def test_a_held_text_is_not_sent_and_spends_nothing(self):
         self.svc.route("POST", "/api/v1/notes", {"id": 1})

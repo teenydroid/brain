@@ -70,7 +70,7 @@ def guard(svc: services.Service, call: request.Call) -> None:
     Teeny's own posts read, not a safety rule, and a call to an API is not
     a post: it is not applied here and never refuses a call."""
     context = {"service": svc.name, "method": call.method, "path": call.path, "surface": svc.surface,
-               "kind": "call"}
+               "post_kind": "call"}
     words = " ".join(word for word in _PATH_BREAK.split(call.path) if word)
     said = "\n".join(text for text in call.texts if text)
     for what, text in (("the path", words), ("it", said)):
