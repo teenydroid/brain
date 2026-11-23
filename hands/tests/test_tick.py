@@ -427,6 +427,89 @@ class TickTest(unittest.TestCase):
         self.assertIn("a spray of another token's contract or ticker ($TINY's own address or ticker is never a spray)",
                       text)
 
+    def mentions_playbook(self, text: str) -> Path:
+        path = self.root / "brain" / "playbooks" / "mentions.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_the_mentions_playbook_steers_the_beat_that_answers_x(self):
+        # 2026-11-23: Teeny edited brain/playbooks/mentions.md (#529) to get
+        # more of its X replies answered back, but with TEENY_INBOX unset the
+        # beat writes every reply and only the core's queue read that file.
+        # The beat that holds an X mention now carries the playbook's body.
+        self.x_ledgers().close()
+        self.mentions_playbook('+++\ndescription = "answer"\noutput = "reply"\n\n[[inputs]]\nname = "mentions"\n'
+                               'run = "hands/x mentions --status offered"\n+++\n'
+                               "REPLY-GUIDANCE-MARKER: end on something they can answer.\n")
+        stimuli.add("x", "mention", "61", "what are you building?", who="bo", payload={"conversation_id": "70"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertEqual(message.count("REPLY-GUIDANCE-MARKER: end on something they can answer."), 1)
+        # Guidance, not data: it sits ahead of the people's words, under its own heading.
+        self.assertLess(message.index("REPLY-GUIDANCE-MARKER"), message.index("what are you building?"))
+        self.assertIn("## how you answer on X (brain/playbooks/mentions.md)", message)
+        # The front matter is the core path's plumbing, never prose for the model.
+        for bit in ("+++", "description =", "[[inputs]]", "hands/x mentions --status offered"):
+            self.assertNotIn(bit, message)
+
+    def test_a_beat_with_no_x_mention_carries_no_reply_guidance(self):
+        self.mentions_playbook("+++\ndescription = \"x\"\n+++\nREPLY-GUIDANCE-MARKER\n")
+        stimuli.add("mail", "message", "m1", "hello", who="a@b.c")
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertNotIn("REPLY-GUIDANCE-MARKER", message)
+        self.assertNotIn("## how you answer on X", message)
+
+    def test_a_missing_or_empty_mentions_playbook_falls_back_to_the_built_in_guidance(self):
+        tick = _tick_module()
+        brain = self.root / "brain"
+        self.assertEqual(tick.reply_guidance(brain), tick.REPLY_GUIDANCE_FALLBACK)  # no file
+        for text in ("", "   \n", "+++\ndescription = \"x\"\n+++\n\n  \n"):
+            self.mentions_playbook(text)
+            self.assertEqual(tick.reply_guidance(brain), tick.REPLY_GUIDANCE_FALLBACK, repr(text))
+        # Front matter that never closes is not guessed at: nothing of it reaches the turn.
+        self.mentions_playbook('+++\ndescription = "x"\nBODY-NEVER-SEPARATED\n')
+        self.assertEqual(tick.reply_guidance(brain), tick.REPLY_GUIDANCE_FALLBACK)
+        # The beat still says how to answer when the file is gone.
+        (brain / "playbooks" / "mentions.md").unlink()
+        self.x_ledgers().close()
+        stimuli.add("x", "mention", "61", "gm", who="bo", payload={"conversation_id": "70"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        self.assertIn(tick.REPLY_GUIDANCE_FALLBACK, self.chats()[0]["message"])
+
+    def test_an_oversized_mentions_playbook_is_clipped_and_says_so(self):
+        tick = _tick_module()
+        para = "A paragraph of reply guidance that goes on and on. " * 10
+        self.mentions_playbook("+++\ndescription = \"x\"\n+++\nFIRST-LINE\n\n" + "\n\n".join([para] * 40) + "\n\nLAST-LINE\n")
+        got = tick.reply_guidance(self.root / "brain")
+        self.assertTrue(got.startswith("FIRST-LINE"))
+        self.assertNotIn("LAST-LINE", got)
+        self.assertLessEqual(len(got), tick.REPLY_GUIDANCE_MAX_CHARS)
+        self.assertTrue(got.endswith(tick.REPLY_GUIDANCE_CUT), got[-120:])
+        # The committed playbook fits whole.
+        real = tick.reply_guidance(REPO / "brain")
+        self.assertNotEqual(real, tick.REPLY_GUIDANCE_FALLBACK)
+        self.assertFalse(real.endswith(tick.REPLY_GUIDANCE_CUT))
+        self.assertIn("someone new cheering $TINY always gets answered", real)
+
+    def test_the_core_queue_path_still_drafts_from_the_mentions_playbook(self):
+        # TEENY_INBOX=core: bin/spine writes the playbook's body into the
+        # core's [inbound.sources."x:mentions"] prompt, as before.
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import inbound_config
+
+        brain = self.root / "brain"
+        self.mentions_playbook('+++\ndescription = "x"\noutput = "reply"\n+++\nCORE-PATH-MARKER\n')
+        got = inbound_config.prompt(brain)
+        self.assertTrue(got.startswith("CORE-PATH-MARKER\n"), got[:80])
+        self.assertNotIn("description =", got)
+        self.assertIn("{{events}}", got)
+        self.assertIn("CORE-PATH-MARKER", inbound_config.tables(brain))
+
     def test_a_beat_with_no_comment_under_an_own_x_post_has_no_own_thread_block(self):
         self.x_ledgers().close()
         stimuli.add("x", "mention", "61", "look at this coin", who="bo", payload={"conversation_id": "70"})
