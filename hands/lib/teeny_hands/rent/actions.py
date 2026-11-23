@@ -315,8 +315,7 @@ def _send_post(conn, job: Mapping[str, Any]) -> Json:
         raise hand.Refused(str(exc), code=exc.code, job=job["id"]) from None
     except api.Uncertain:
         raise  # stays `posting`; poll sends it again with the same key
-    with hand.transaction(conn):
-        return _land(conn, job, reply)
+    return _land(conn, job, reply)
 
 
 # --- accept -----------------------------------------------------------------------------------------
