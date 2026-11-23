@@ -93,6 +93,43 @@ class Surplus:
         except ValueError:
             raise SurplusError("Surplus sent something unreadable") from None
 
+    def send(self, path: str, body: Any = None, limit: int = 32 * 1024 * 1024, timeout: float = 120.0,
+             fields: dict[str, str] | None = None, file: tuple[str, bytes, str] | None = None) -> tuple[bytes, int | None]:
+        """One POST whose answer may be bytes (the Provider Market's audio
+        routes answer an mp3, not JSON): the body as it came, at most `limit`
+        bytes, and what Surplus billed for it (its x-si-buyer-cost-micro
+        header, None when absent). `fields` and `file` (name, bytes, type)
+        make it a multipart upload instead of a JSON body."""
+        if fields is not None or file is not None:
+            request, timeout = self._request("POST", path, None, timeout, {"accept": "*/*"})
+            boundary = "teeny" + uuid.uuid4().hex
+            request.data = _multipart(boundary, fields or {}, file)
+            request.add_header("content-type", f"multipart/form-data; boundary={boundary}")
+        else:
+            request, timeout = self._request("POST", path, body, timeout, {"accept": "*/*"})
+        try:
+            with _OPENER.open(request, timeout=timeout) as response:
+                data = response.read(limit + 1)
+                cost = response.headers.get("x-si-buyer-cost-micro")
+        except urllib.error.HTTPError as exc:
+            try:
+                raw = exc.read()
+            except OSError:
+                raw = b""
+            message, parsed = _message(raw)
+            raise SurplusError(
+                f"Surplus answered {exc.code}: {message}" if message else f"Surplus answered {exc.code}", exc.code, parsed
+            ) from None
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise SurplusError(f"could not reach Surplus ({type(getattr(exc, 'reason', exc)).__name__})") from None
+        if len(data) > limit:
+            raise SurplusError(f"the answer is over {limit // (1024 * 1024)} MB")
+        try:
+            billed = int(cost) if cost is not None else None
+        except ValueError:
+            billed = None
+        return data, billed
+
     def download(self, path_or_url: str, limit: int, timeout: float = 120.0) -> bytes:
         """An artifact: on Surplus's host with the key; a redirect it answers
         is followed once, to wherever it points, without the key."""
