@@ -513,6 +513,47 @@ def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -
     return {"closed_issue": repo, "number": number, "html_url": closed.get("html_url")}
 
 
+def edit_pr(body: Any, gh: GitHubApi | None = None) -> Json:
+    """A new title or body (or both) on a pull request of an own repository,
+    through the guard. In-process only (the mind's clone revising its own
+    pull request, teeny_hands.build.mindclone): no verb edits one."""
+    body = _body(body, ("repo", "number"), ("title", "body"))
+    owner, name, repo = _own_repo(body["repo"], "edits pull requests")
+    number = _number(body, "number")
+    given = {key: _string(body, key) for key in ("title", "body") if key in body}
+    if not given:
+        raise hand.HandError('an edit sets "title", "body" or both')
+    fields = guarded(given, "pr", {"repo": repo, "number": number})
+    if hand.dry_run():
+        return {"dry_run": True, "would_edit_pr": repo, "number": number, **fields}
+    gh = gh or GitHubApi.from_settings()
+    edited = gh.edit_pr(owner, name, number, fields)
+    _record("edit-pr", repo, False, number, fields=sorted(fields), url=edited.get("html_url"))
+    return {"edited_pr": repo, "number": number, "html_url": edited.get("html_url")}
+
+
+def close_pr(body: Any, gh: GitHubApi | None = None) -> Json:
+    """Closes a pull request of an own repository, never merging it, after an
+    optional last comment through the guard. In-process only (the mind
+    closing its own pull request, teeny_hands.build.mindclone, which also
+    holds who wrote it and which branch it is on)."""
+    body = _body(body, ("repo", "number"), ("comment",))
+    owner, name, repo = _own_repo(body["repo"], "closes pull requests")
+    number = _number(body, "number")
+    text = None
+    if "comment" in body:
+        text = guarded({"body": _string(body, "comment")}, "comment", {"repo": repo, "number": number})["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_close_pr": repo, "number": number, "comment": text}
+    gh = gh or GitHubApi.from_settings()
+    if text is not None:
+        made = gh.comment(owner, name, number, text)
+        _record("comment", repo, False, made.get("id"), number=number, url=made.get("html_url"))
+    closed = gh.close_pr(owner, name, number)
+    _record("close-pr", repo, False, number, url=closed.get("html_url"))
+    return {"closed_pr": repo, "number": number, "html_url": closed.get("html_url")}
+
+
 def fork(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo",))
     owner, name = split_repo(body["repo"])

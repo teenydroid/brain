@@ -123,3 +123,63 @@ def checks(repo: str, number: int, gh: GitHubApi | None = None) -> Json:
     return {"repo": f"{owner}/{name}", "number": number, "state": pr.get("state"), "merged": pr.get("merged"),
             "head_ref": pr.get("head_ref"), "head_sha": pr.get("head_sha"), "user": pr.get("user"),
             "red": red, "pending": pending, "green": green}
+
+
+#: The most of any one review text `pr_feedback` passes on.
+FEEDBACK_CLIP = 1500
+FEEDBACK_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number state headRefName author { login }
+      reviewThreads(first: 100) { nodes { isResolved isOutdated path line
+        comments(first: 20) { nodes { author { login } body createdAt } } } }
+      reviews(last: 50) { nodes { author { login } state body submittedAt } }
+      comments(last: 50) { nodes { author { login } body createdAt } }
+    }
+  }
+}
+"""
+
+
+def _clipped(text: Any) -> str:
+    text = text if isinstance(text, str) else ""
+    return text if len(text) <= FEEDBACK_CLIP else text[:FEEDBACK_CLIP] + "…"
+
+
+def _author(node: Any) -> str | None:
+    who = node.get("author") if isinstance(node, dict) else None
+    return who.get("login") if isinstance(who, dict) else None
+
+
+def _nodes(parent: Any, key: str) -> list[dict]:
+    got = parent.get(key) if isinstance(parent, dict) else None
+    nodes = got.get("nodes") if isinstance(got, dict) else None
+    return [n for n in (nodes if isinstance(nodes, list) else []) if isinstance(n, dict)]
+
+
+def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | None:
+    """A pull request's review threads (resolved or not, with their file and
+    line), its reviews' verdicts and its conversation, every text clipped to
+    FEEDBACK_CLIP; None when there is no such pull request. One GraphQL read,
+    not cached: a revision needs it fresh."""
+    owner, name = split_repo(repo)
+    data = _gh(gh).graphql(FEEDBACK_QUERY, {"owner": owner, "name": name, "number": number})
+    pull = (data.get("repository") or {}).get("pullRequest") if isinstance(data.get("repository"), dict) else None
+    if not isinstance(pull, dict):
+        return None
+    threads = [{"path": t.get("path"), "line": t.get("line"), "resolved": bool(t.get("isResolved")),
+                "outdated": bool(t.get("isOutdated")),
+                "comments": [{"author": _author(c), "body": _clipped(c.get("body")), "at": c.get("createdAt")}
+                             for c in _nodes(t, "comments")]}
+               for t in _nodes(pull, "reviewThreads")]
+    return {
+        "repo": f"{owner}/{name}", "number": pull.get("number"), "state": pull.get("state"),
+        "branch": pull.get("headRefName"), "author": _author(pull),
+        "open_threads": sum(1 for t in threads if not t["resolved"]),
+        "threads": threads,
+        "reviews": [{"author": _author(r), "state": r.get("state"), "body": _clipped(r.get("body")),
+                     "at": r.get("submittedAt")} for r in _nodes(pull, "reviews")],
+        "comments": [{"author": _author(c), "body": _clipped(c.get("body")), "at": c.get("createdAt")}
+                     for c in _nodes(pull, "comments")],
+    }
