@@ -401,6 +401,13 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
 
+Its model is pinned in `brain/agents/mind.toml` (`model`), apart from the
+scripts' `SPINE_MODEL`: a half-hour session with tools needs a stronger
+model than a one-shot draft, and the scripts stay on the cheap one. Its
+worker inherits it. `bin/spine` registers the pinned model's context window
+at boot (`bin/lib/model_windows.sh`). A wake on it costs far more than a
+script run; `MIND=0` stops the wakes.
+
 ## Not built yet
 
 - **Owning every pipeline.** Teeny's own pipelines are in `brain/cron.toml`,

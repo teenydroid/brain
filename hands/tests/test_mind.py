@@ -98,6 +98,18 @@ class MindAgentTest(unittest.TestCase):
                        "A refusal from the broker is an answer"):
             self.assertIn(needle, spend)
 
+    def test_it_runs_on_a_model_of_its_own_whose_window_the_boot_registers(self):
+        # On the scripts' small model its first live wakes looped and wrote
+        # nothing. A pinned model needs a window registered at boot, or its
+        # turns go out with no user message (bin/lib/model_windows.sh).
+        model = _doc().get("model")
+        self.assertIsInstance(model, str)
+        self.assertTrue(model and not model.startswith("hint:"), model)
+        self.assertIs(agent_check.check(MIND) is not None, True)
+        windows = (REPO / "bin" / "lib" / "model_windows.sh").read_text()
+        self.assertIn('"agents", "*.toml"', windows)
+        self.assertNotIn("model", tomllib.loads(WORKER.read_text()), "the worker inherits the mind's model")
+
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 
