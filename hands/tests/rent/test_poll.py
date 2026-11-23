@@ -8,6 +8,7 @@ import json
 import unittest
 
 from rent.support import GOOD, HOUR, T0, Scratch, create_bounty
+from teeny_hands import hand
 from teeny_hands.rent import actions
 
 
@@ -119,6 +120,95 @@ class PollTest(Scratch):
         self.assertIn("On my way!", told["message"]["text"])
         self.assertEqual(self.jobs()[0]["status"], "submitted")
         self.assertEqual(self.leaked(), [])
+
+    def test_a_redone_submission_gets_its_own_files(self) -> None:
+        actions.accept({"job": 1, "application": "a1"})
+        self.rah.on("list_messages", {"data": []})
+        self.rah.files["/f/old.mp4"] = b"old"
+        self.rah.files["/f/new.mp4"] = b"new"
+
+        def submission(used, name):
+            return {"id": "h1", "status": "submitted", "submission": {
+                "id": "s1", "status": "pending_review", "attempt": {"used": used},
+                "files": [{"type": "video", "url": f"{self.rah.base}/f/{name}.mp4", "contentType": "video/mp4"}]}}
+
+        self.rah.on("get_hire", submission(0, "old"))
+        actions.poll()
+        self.rah.on("get_hire", submission(1, "new"))
+        actions.poll()
+        paths = [json.loads(s["payload"])["files"][0]["path"] for s in self.stimuli() if s["kind"] == "submitted"]
+        self.assertEqual(len(set(paths)), 2)
+        self.assertEqual([(self.root / p).read_bytes() for p in paths], [b"old", b"new"])
+        self.assertIn('"submission": "s1:1"', [s for s in self.stimuli() if s["kind"] == "submitted"][-1]["text"])
+
+    def test_a_download_that_breaks_leaves_no_file_to_reuse(self) -> None:
+        from pathlib import Path
+
+        dest = self.root / "x.mp4"
+        self.rah.files["/f/a.mp4"] = b"abc"
+
+        class Broken:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, n):
+                if not hasattr(self, "sent"):
+                    self.sent = True
+                    return b"abc"
+                raise OSError("reset")
+
+        original = actions._FILES.open
+        actions._FILES.open = lambda *a, **k: Broken()
+        try:
+            with self.assertRaises(OSError):
+                actions._download(f"{self.rah.base}/f/a.mp4", Path(dest))
+        finally:
+            actions._FILES.open = original
+        self.assertEqual(list(self.root.glob("x.mp4*")), [])
+        self.assertEqual(actions._download(f"{self.rah.base}/f/a.mp4", dest), 3)
+
+    def test_evidence_never_comes_from_a_private_address(self) -> None:
+        from pathlib import Path
+        import urllib.request
+
+        for url in ("https://127.0.0.1/x.mp4", "https://10.0.0.5/x.mp4", "https://169.254.169.254/latest",
+                    "https://[::1]/x"):
+            with self.subTest(url=url), self.assertRaises(hand.HandError):
+                actions._download(url, Path(self.root / "y.mp4"))
+        with self.assertRaises(hand.HandError):
+            actions._HttpsRedirects().redirect_request(
+                urllib.request.Request("https://example.com/"), None, 302, "", {}, "https://192.168.1.1/x")
+
+    def test_a_draft_that_was_cancelled_remotely_is_retired(self) -> None:
+        self.rah.on("create_bounty", lambda a: {"dryRun": {"cost": {"total": {"amount": 2000}}}} if a.get("dryRun") else
+                    {"id": "b2", "status": "draft", "funding": {"status": "unfunded"}})
+        actions.post(dict(GOOD, title="Hold a second sign about robots"))
+        self.rah.on("get_bounty", {"id": "b2", "status": "cancelled"})
+        actions.poll()
+        self.assertEqual(self.jobs()[-1]["status"], "cancelled")
+
+    def test_auto_accept_skips_an_application_that_names_even_the_posted_price(self) -> None:
+        self.rah.on("list_applications", {"data": [application("a1"), application("a2")]})
+        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "bountyId": "b1",
+                                                  "proposedPay": {"amount": 1800}}
+                    if a["applicationId"] == "a1" else {"id": a["applicationId"], "bountyId": "b1"})
+        self.at(T0 + 7 * HOUR)
+        actions.poll()
+        [call] = self.rah.made("accept_application")
+        self.assertEqual(call.arguments["applicationId"], "a2")
+
+    def test_auto_accept_stops_when_a_refused_accept_may_have_hired(self) -> None:
+        from rent.support import error
+
+        self.rah.on("list_applications", {"data": [application("a1"), application("a2")]})
+        self.rah.on("accept_application", error("server_error", "hm", retry_safe=False))
+        self.at(T0 + 7 * HOUR)
+        out = actions.poll()
+        self.assertEqual(len(self.rah.made("accept_application")), 1)
+        self.assertTrue(out["errors"])
 
     def test_a_redone_submission_is_news_again(self) -> None:
         actions.accept({"job": 1, "application": "a1"})

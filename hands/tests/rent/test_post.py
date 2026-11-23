@@ -9,7 +9,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 
-from rent.support import GOOD, KEY, Crash, Scratch, create_bounty, created, error, preview
+from rent.support import GOOD, HOUR, KEY, T0, Crash, Scratch, create_bounty, created, error, preview
 from teeny_hands import hand
 from teeny_hands.rent import actions, cli
 
@@ -112,6 +112,43 @@ class PostTest(Scratch):
                 self.assertNotIsInstance(caught.exception, hand.Refused)
                 self.assertEqual(self.jobs()[-1]["status"], "posting")  # counted, and poll sends it again
 
+    def test_a_duplicate_listing_that_may_have_posted_stays_posting(self) -> None:
+        dup = lambda safe: error("duplicate_listing", "same", retry_safe=safe, existingBountyId="b0")  # noqa: E731
+        self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else dup(False))
+        with self.assertRaises(hand.HandError) as caught:
+            actions.post(dict(GOOD))
+        self.assertNotIsInstance(caught.exception, hand.Refused)
+        self.assertEqual(self.jobs()[0]["status"], "posting")
+        self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else dup(True))
+        with self.assertRaises(hand.Refused):
+            actions.poll() and actions._send_post(actions.store.db(), self.jobs()[0])
+        self.assertEqual(self.jobs()[0]["status"], "failed")
+
+    def test_a_resend_waits_while_renting_is_off(self) -> None:
+        self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else error("x", "?", retry_safe=None))
+        with self.assertRaises(hand.HandError):
+            actions.post(dict(GOOD))
+        sent = len(self.rah.made("create_bounty"))
+        self.configure(RENT_MAX_PER_DAY_USD="0")
+        self.rah.on("create_bounty", create_bounty(2000))
+        out = actions.poll()
+        self.assertIn("held", out["results"][0])
+        self.assertEqual(len(self.rah.made("create_bounty")), sent)
+        self.assertEqual(self.jobs()[0]["status"], "posting")
+
+    def test_a_resend_on_a_later_day_is_counted_on_that_day(self) -> None:
+        from teeny_hands.rent import store
+
+        self.rah.on("create_bounty", lambda a: preview(2400) if a.get("dryRun") else error("x", "?", retry_safe=None))
+        with self.assertRaises(hand.HandError):
+            actions.post(dict(GOOD))
+        self.at(T0 + 30 * HOUR)
+        self.assertEqual(store.spent_today(store.db()), 2400)  # still reserved the next day
+        self.rah.on("create_bounty", create_bounty(2400))
+        actions.poll()
+        self.assertEqual(self.jobs()[0]["status"], "posted")
+        self.assertEqual(store.spent_today(store.db()), 2400)  # and still today's once it lands
+
     def test_a_refused_post_spends_nothing(self) -> None:
         self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else error("listing_refused", "a rule"))
         with self.assertRaises(hand.Refused):
@@ -148,6 +185,11 @@ class BriefTest(Scratch):
                       "film their home address and the door code"):
             with self.subTest(words=words):
                 self.assertIn("never does", self.refused(brief=f"Hold the sign and {words}. Then film it all."))
+
+    def test_every_public_field_is_screened(self) -> None:
+        self.assertIn("never does", self.refused(city="12 Elm Street"))
+        self.assertIn("never does", self.refused(skills=["film your passport"]))
+        self.assertIn("never does", self.refused(state="send your password"))
 
     def test_says_where(self) -> None:
         body = dict(GOOD)

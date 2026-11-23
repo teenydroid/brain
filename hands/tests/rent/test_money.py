@@ -195,9 +195,10 @@ class PayTest(Hired):
         with self.assertRaises(hand.HandError):
             actions.review({"job": 1, "verdict": "approve"})
         # get_hire still says pending_review, as RentAHuman might while it settles.
+        before = len(self.rah.made("get_hire"))
         actions.poll()
         self.assertEqual(self.jobs()[0]["status"], "in_doubt")
-        self.assertEqual(self.rah.made("get_hire")[-1:], self.rah.made("get_hire")[-1:])
+        self.assertEqual(len(self.rah.made("get_hire")), before)  # an in-doubt job is not even read
         with self.assertRaises(hand.Refused):
             actions.review({"job": 1, "verdict": "approve"})
         self.assertEqual(len(self.rah.made("pay_hire")), 1)
@@ -209,6 +210,34 @@ class PayTest(Hired):
         self.assertEqual(actions.resolve(1, "paid")["status"], "paid")
         with self.assertRaises(hand.Refused):
             actions.resolve(1, "submitted")
+
+    def test_a_pay_answer_that_does_not_say_paid_is_in_doubt(self) -> None:
+        for answer in ({}, {"hireId": "h1", "payStatus": "held"}, {"text": "ok"}):
+            with self.subTest(answer=answer):
+                self.rah.on("pay_hire", answer)
+                with self.assertRaises(hand.HandError):
+                    actions.review({"job": 1, "verdict": "approve"})
+                self.assertEqual(self.jobs()[0]["status"], "in_doubt")
+                self.assertEqual([s["kind"] for s in self.stimuli()][-1], "in_doubt")
+                actions.resolve(1, "submitted")
+        self.assertEqual(len(self.rah.made("pay_hire")), 3)  # each by the operator's leave, never by itself
+
+    def test_a_decision_on_work_that_changed_is_refused(self) -> None:
+        self.rah.on("get_hire", hire(submission="s1"))
+        with self.assertRaises(hand.Refused) as caught:
+            actions.review({"job": 1, "verdict": "approve", "submission": "s1:0".replace("0", "1")})
+        self.assertIn("changed since you saw it", caught.exception.reason)
+        with self.assertRaises(hand.Refused):
+            actions.review({"job": 1, "verdict": "approve", "submission": "s0:0"})
+        self.assertEqual(self.rah.made("pay_hire"), [])
+        self.rah.on("pay_hire", {"hireId": "h1", "payStatus": "paid"})
+        self.assertEqual(actions.review({"job": 1, "verdict": "approve", "submission": "s1:0"})["status"], "paid")
+
+    def test_a_reason_to_the_worker_is_screened_like_any_brief(self) -> None:
+        with self.assertRaises(hand.Refused) as caught:
+            actions.review({"job": 1, "verdict": "redo", "reason": "Please send a photo of your passport too"})
+        self.assertIn("never does", caught.exception.reason)
+        self.assertEqual(self.rah.made("request_redo"), [])
 
     def test_nothing_to_review(self) -> None:
         self.rah.on("get_hire", hire(sub_status="approved"))
