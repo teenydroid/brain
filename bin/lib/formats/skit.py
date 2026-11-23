@@ -72,7 +72,7 @@ def _written(skit: Json) -> int:
     the setting, the score and every shot's prompt."""
     look = skit.get("look") or {}
     return sum(_length(str(t)) for t in (*look.keys(), *look.values(), skit.get("setting") or "",
-                                         skit.get("score") or "",
+                                         skit.get("score") or "", skit.get("teeny") or "",
                                          *(s.get("prompt") or "" for s in skit.get("shots") or [])))
 
 
@@ -84,7 +84,7 @@ def skit_budget(figures: int) -> int:
     every shot" lines, each shot's time range)."""
     rules = _skit_rules()
     names = [f"f{n}" for n in range(max(1, figures))]
-    frame = {"figures": names, "look": {n: "x" for n in names}, "setting": "x", "score": "x",
+    frame = {"figures": names, "look": {n: "x" for n in names}, "setting": "x", "score": "x", "teeny": "x",
              "shots": [{"prompt": "x", "seconds": SKIT_SHOT_MAX_SECS} for _ in range(rules.MAX_SHOTS)]}
     return SKIT_SCRIPT_LIMIT - (_length(rules.script(frame)) - _written(frame))
 
@@ -108,7 +108,12 @@ SKIT_ASK = ("A skit is a post with a short AI-made parody video: one or two of t
             "sets up the real thing so plainly that someone with the sound off gets it; second escalates; last is the "
             "payoff and ends on a held still image. Say once, as data, what holds across the film: `look` (one line a "
             "figure: hair, glasses, wardrobe, prop), `setting` (one line: the place, its light, the lens, the film "
-            "look), `score` (one line: the one piece of music under it all). Each shot then says only what changes: "
+            "look), `score` (one line: the one piece of music under it all), `teeny` (one line: what Teeny does in the "
+            "last shot. Teeny is a bystander with a verdict: its own small thing, apart from everyone and noticed by "
+            "nobody, that says what to think of the whole room, such as eating the cake out of the bin, facing the "
+            "camera and shrugging, or walking out. Write only Teeny and objects in it: no person, no pronoun for "
+            "one, nothing Teeny looks at, touches, hands over or talks to, no writing and no money. Teeny is only "
+            "ever in `teeny`, never in a shot). Each shot then says only what changes: "
             "the framing, the figure's full name and the one thing they do, what reacts, at most one short spoken "
             "line (about six words) and its sound. No sign, screen or banner with writing on it. The tone of every "
             "skit: defiant (nobody is sorry or embarrassed; the figure does it at the people watching, on purpose, "
@@ -125,7 +130,7 @@ SKIT_ASK = ("A skit is a post with a short AI-made parody video: one or two of t
 SKIT_SHAPE = ('{"figures": ["<people from the card, as the card names them>"], "premise": "<one line: what they '
               'did or claimed on the card, so what they do in the video>", "logline": "<one line: the impossible '
               'scene and its joke>", "look": {"<each figure>": "<one line>"}, "setting": "<one line>", "score": '
-              '"<one line>", "shots": [{"prompt": "<one shot>", "seconds": <3 to 6>}, "... 3 or 4 shots"], '
+              '"<one line>", "teeny": "<one line>", "shots": [{"prompt": "<one shot>", "seconds": <3 to 6>}, "... 3 or 4 shots"], '
               '"aspect": "16:9"}')
 SKIT_RULES = ("A skit's mechanics: it carries an 'AI parody' label the whole way through, so the post's words never "
               "call it real, leaked or caught on camera; no logo or brand shown endorsing anything; no @-mentions and "
@@ -140,7 +145,7 @@ SKIT_PREMISE_MAX = 300
 #: What a skit holds as data across its whole film (`skit_of` requires them;
 #: the guard's shape checks and keeps them): each figure's look, the
 #: setting, the score.
-SKIT_HELD = ("look", "setting", "score")
+SKIT_HELD = ("look", "setting", "score", "teeny")
 
 def skit_of(raw: Any, card: Json) -> tuple[Json, str]:
     """A post's `skit` as kept ({story, figures, premise, logline, shots,
@@ -170,6 +175,9 @@ def skit_of(raw: Any, card: Json) -> tuple[Json, str]:
             bad = "a skit needs its setting: one line, the one place, its light and lens, for the whole film"
         elif not skit.get("score"):
             bad = "a skit needs its score: one line, the one piece of music under the whole film"
+        elif not skit.get("teeny"):
+            bad = ("a skit needs its teeny: one line, what Teeny does in the last shot, as a bystander apart from "
+                   "everyone")
     if card.get("id"):
         skit["story"] = card["id"]
     elif not bad:
@@ -206,13 +214,13 @@ def skit_shorten_message(skit: Json, why: str) -> str:
     return ("# studio: cut the skit to fit\n\nThe editor picked this skit, but it is too long to film: "
             f"{why}. The video model is sent one script of the whole film and the guard refuses one over "
             f"{SKIT_SCRIPT_LIMIT} characters, so nothing would be made. Cut it to fit: the figures' names and "
-            f"`look`s, the `setting`, the `score` and every shot's `prompt` together at most {budget} characters. "
+            f"`look`s, the `setting`, the `score`, the `teeny` line and every shot's `prompt` together at most {budget} characters. "
             "The same film: the same figures, premise and logline, the same beats in the same order, the "
             "impossible thing still in frame in every shot, still rich concrete words; leave out what a "
             "camera would not miss, never the gag. Three shots are enough.\n\n"
             "```json\n" + json.dumps(shown_, ensure_ascii=False) + "\n```\n\n## your answer\n\nJSON only, no "
             'prose and no code fence: {"skit": {"look": {"<each figure>": "..."}, "setting": "...", "score": '
-            '"...", "shots": [{"prompt": "...", "seconds": <3 to 6>}, ...]}}, or {"skip": "<why>"} when it '
+            '"...", "teeny": "...", "shots": [{"prompt": "...", "seconds": <3 to 6>}, ...]}}, or {"skip": "<why>"} when it '
             "cannot be cut.")
 
 
@@ -292,7 +300,7 @@ def _make_skit(room: "Room", draft: Json, note: Json) -> list[str] | None:
         note["failed"] = "the draft's skit could not be composed into a script"
         return None
     texts = [("logline", skit["logline"]), *((f"look of {k}", v) for k, v in (skit.get("look") or {}).items()),
-             *((k, skit[k]) for k in ("setting", "score") if skit.get(k)),
+             *((k, skit[k]) for k in ("setting", "score", "teeny") if skit.get(k)),
              *((f"shot {n}", t) for n, t in enumerate(shots, 1)), ("one-take script", composed[0]),
              *((f"shot {n} prompt", t) for n, t in enumerate(composed[1:], 1))]
     for what, text in texts:
