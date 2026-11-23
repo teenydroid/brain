@@ -44,6 +44,10 @@ class RestError(hand.HandError):
         self.body = body
 
 
+class TooLarge(RestError):
+    """An answer longer than the caller's `limit`; the rest was not read."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401 - urllib's hook
         return None
@@ -129,6 +133,7 @@ class RestApi:
         body: Any = None,
         auth: bool = True,
         headers: Mapping[str, str] | None = None,
+        limit: int | None = None,
     ) -> tuple[int, Any, Any]:
         """`exchange`, with the status the service answered first (a 2xx:
         anything else is a RestError). hands/call passes it on."""
@@ -152,7 +157,10 @@ class RestApi:
         status = 0
         try:
             with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
-                text = response.read()
+                # With a LIMIT, one byte more than it at most is ever read.
+                text = response.read() if limit is None else response.read(limit + 1)
+                if limit is not None and len(text) > limit:
+                    raise TooLarge(f"{self.name} answered more than {limit} bytes", response.status)
                 received = response.headers
                 status = response.status
         except urllib.error.HTTPError as exc:

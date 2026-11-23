@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import hand
 from ..guard import gate
-from ..rest import RestApi, RestError
+from ..rest import RestApi, RestError, TooLarge
 from . import counts, request, services
 
 Json = dict[str, Any]
@@ -36,7 +36,10 @@ def _send(svc: services.Service, call: request.Call, key: str) -> Json:
     """The call itself, and its answer as the hand's."""
     api = RestApi(svc.name, svc.base, key, svc.agent)
     try:
-        status, parsed, _ = api.request(call.method, call.path, call.query, call.body)
+        status, parsed, _ = api.request(call.method, call.path, call.query, call.body, limit=MAX_ANSWER)
+    except TooLarge as exc:
+        raise hand.Refused(f"{svc.name} answered more than 256 KiB; no more than that is read or passed on. "
+                           "Ask for less (a smaller page, a narrower query)", rule="size", status=exc.status) from None
     except RestError as exc:
         message = _scrub(str(exc), key)
         if exc.status == 429:
