@@ -65,7 +65,7 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["cron"]["shell_timeout_secs"], 1800)
         autonomy = doc["autonomy"]
         self.assertEqual((autonomy["enabled"], autonomy["level"], autonomy["workspace_only"]), (True, "full", True))
-        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
+        self.assertEqual(autonomy["trusted_roots"][0], {"path": str(self.root / "state" / "workbench"), "access": "readwrite"})
         brain = self.root / "brain"
         for path in (self.root / "secrets", brain / "storage.db", brain / "agents", brain / "playbooks",
                      brain / "cron.toml", brain / "MEMORY.md", brain / "MEMORY.seed.md", brain / "agent",
@@ -79,6 +79,27 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["http_request"]["allowed_domains"], websites.load(self.root))
         self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
+
+    def test_file_tools_read_the_checkouts_code_and_none_of_what_is_closed(self):
+        # The operator's rule (2026-11-23): close the secrets and a few
+        # internals, not everything. A trusted root lifts forbidden_paths
+        # under it, so the closed folders must never be one, or sit in one.
+        # (The fixture's hands/ is a link to the repository's, so it is left out: no link is a root.)
+        for name in ("bin", "docs", "evals", "secrets", ".git", ".openhuman", "state", "brain"):
+            (self.root / name).mkdir(parents=True, exist_ok=True)
+        (self.root / "README.md").write_text("readme\n")
+        (self.root / "leak").symlink_to(self.root / "secrets")
+        (self.root / "all").symlink_to(self.root)
+        roots = self.written()["autonomy"]["trusted_roots"]
+        read = {r["path"] for r in roots if r["access"] == "read"}
+        self.assertEqual(read, {str(self.root / n) for n in ("bin", "deploy", "docs", "evals")})
+        self.assertEqual([r for r in roots if r["access"] == "readwrite"],
+                         [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
+        closed = [self.root / n for n in ("secrets", ".git", ".openhuman", "state", "brain")]
+        for root in roots[1:]:
+            path = Path(root["path"]).resolve()
+            for c in closed:
+                self.assertFalse(path == c or c in path.parents or path in c.parents, (root, c))
 
     def test_the_headless_core_answers_its_own_secret_unlock(self):
         # bin/wallet-setup's encrypt_secret needs the config secret master
@@ -188,7 +209,8 @@ class CoreConfigTest(unittest.TestCase):
         os.environ.pop("SPINE_LAB", None)
         os.environ["SPINE_LAB_EDIT"] = "1"
         autonomy = self.written()["autonomy"]
-        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
+        self.assertEqual(autonomy["trusted_roots"][0], {"path": str(self.root / "state" / "workbench"), "access": "readwrite"})
+        self.assertEqual([r["access"] for r in autonomy["trusted_roots"][1:]], ["read"] * (len(autonomy["trusted_roots"]) - 1))
         self.assertIn(str(self.root / "brain" / "playbooks"), autonomy["forbidden_paths"])
 
     def test_context_compacts_at_100k_with_a_free_form_summary(self):

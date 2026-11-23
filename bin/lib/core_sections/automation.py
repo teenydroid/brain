@@ -5,8 +5,10 @@ linked module.
 
   [cron]         shell_timeout_secs: bin/ jobs that draft several turns
                  take minutes, not the core's default 120 s
-  [autonomy]     on, `full` tier, workspace_only: file tools reach the brain
-                 (minus Teeny's own files, below) and state/workbench/ only.
+  [autonomy]     on, `full` tier, workspace_only: file tools write the brain
+                 (minus Teeny's own files, below) and state/workbench/, and
+                 read the checkout's own code folders as well (code_roots:
+                 all but secrets/, .git, state/, .openhuman and brain/).
                  On the evolver's lab spine (SPINE_LAB=1 and SPINE_LAB_EDIT=1,
                  bin/lib/lab.py) the root is a candidate's worktree, and the
                  file tools may write it, except its git link, secrets, the
@@ -89,6 +91,13 @@ BRAIN_FORBIDDEN = (
     "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md", "MEMORY.md",
     "MEMORY.seed.md", "agent",
 )
+
+#: The folders of the checkout no agent's file tool may read, whatever else
+#: it reads (code_roots): the keys, the git directory (it can hold a token),
+#: the state that holds ledgers, cookies and the broker's token, the core's
+#: own config and sign-ins, and the brain, which is the core's workspace
+#: already and keeps its own forbidden list (a trusted root would lift it).
+CLOSED_TO_FILE_TOOLS = ("secrets", ".git", "state", ".openhuman", "brain")
 
 #: What the evolver's file tools may not touch even in its own worktree: the
 #: core's store and keyring, the prompts it builds, the git link.
@@ -192,6 +201,29 @@ def chrome_path() -> str | None:
     return next((c for c in CHROME_CANDIDATES if Path(c).is_file()), None)
 
 
+def code_roots(root: Path, brain: Path) -> list[Path]:
+    """The checkout's own folders, for the agents' file tools to read: every
+    folder at its top but CLOSED_TO_FILE_TOOLS. Teeny's code is public, so
+    reading it gives nothing away, and an agent that can read its own hands
+    and docs stops guessing at them. Read only: nothing here is writable.
+    Folders only, never a link, and resolved, so nothing reached through one
+    of these names is one of the closed ones."""
+    closed = {(root / name).resolve() for name in CLOSED_TO_FILE_TOOLS} | {brain.resolve()}
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return []
+    out = []
+    for entry in entries:
+        if entry.name in CLOSED_TO_FILE_TOOLS or entry.is_symlink() or not entry.is_dir():
+            continue
+        real = entry.resolve()
+        if any(real == c or c in real.parents or real in c.parents for c in closed):
+            continue
+        out.append(entry)
+    return out
+
+
 def tables(root: Path) -> dict[str, str]:
     _hands_lib(root)
     from teeny_hands import websites
@@ -218,15 +250,21 @@ def tables(root: Path) -> dict[str, str]:
     if lab_edit:
         forbidden += [str(root / ".git"), str(root / "state"), *(str(brain / name) for name in LAB_EDIT_FORBIDDEN)]
         trusted = root
+        readable: list[Path] = []
     else:
         forbidden += [str(brain / name) for name in BRAIN_FORBIDDEN]
         trusted = workbench
+        # A trusted root lifts forbidden_paths under it, so none of these
+        # may hold a closed folder (code_roots).
+        readable = code_roots(root, brain)
+    roots = [f'{{ path = {_s(str(trusted))}, access = "readwrite" }}',
+             *(f'{{ path = {_s(str(path))}, access = "read" }}' for path in readable)]
     autonomy = (
         "enabled = true\n"
         'level = "full"\n'
         "workspace_only = true\n"
         f"forbidden_paths = {_list(forbidden)}\n"
-        f'trusted_roots = [{{ path = {_s(str(trusted))}, access = "readwrite" }}]\n'
+        f"trusted_roots = [{', '.join(roots)}]\n"
     )
 
     # One persistent profile, so cookies and sign-ins survive a restart. The
