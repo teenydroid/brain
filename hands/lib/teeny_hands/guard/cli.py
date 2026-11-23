@@ -51,6 +51,10 @@
             screen first (`screen` lists every reason), then the safety judge's model
             with the skit rules. A verdict, never a hold; anything but a clear
             "allowed" is ok false, and there is no switch that turns it off
+  film      stdin {"film", "story"} -> {"ok", "rule", "reason", "screen", "judged"}: a story
+            film (film.py): the skit's hard lines on every beat, Teeny's narration and
+            the sound cues screened, every beat's clip prompt under the task cap, then
+            the safety judge once on the whole film. Fails closed, as skit does
   view-skit stdin {"frames", "label", "intent"} -> {"ok", "sees", "labelled", "prohibited",
             "looks_real", "reason", "judged"}: the viewer on frames of a rendered skit
             (viewer.view_skit): the label read on at least half of them, nothing
@@ -88,7 +92,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds, khaby, quote, remake, skit, viewer
+from . import anchor, clarity, film, gate, holds, khaby, quote, remake, skit, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length, x_max_length
 
@@ -182,6 +186,15 @@ def skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if unknown:
         raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
     return skit.check(body.get("skit"), body.get("text"), body.get("story"))
+
+
+def film_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with a film and its story")
+    unknown = set(body) - {"film", "story"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    return film.check(body.get("film"), body.get("story"))
 
 
 def view_skit_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -402,7 +415,7 @@ def parser() -> argparse.ArgumentParser:
     check_p.set_defaults(handler=check, takes_body=True)
     for name, handler in (("inbound", inbound), ("style", style), ("truth", truth_check),
                           ("quote", quote_check), ("clarity", clarity_check), ("view", view_check),
-                          ("skit", skit_check), ("view-skit", view_skit_check), ("remake", remake_check),
+                          ("skit", skit_check), ("film", film_check), ("view-skit", view_skit_check), ("remake", remake_check),
                           ("view-remake", view_remake_check), ("khaby", khaby_check),
                           ("view-khaby", view_khaby_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)

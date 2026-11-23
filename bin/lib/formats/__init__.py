@@ -71,6 +71,10 @@ class Format:
     prepare_max: int = 0
     #: The write turn's section on the study, when there is one.
     study_part: Callable[[Json], str] | None = None
+    #: Whether the format is offered this run at all (room -> bool), for a
+    #: format with a cadence of its own (a film every other day); None is
+    #: always.
+    offered: Callable[[Any], bool] | None = None
 
 
 def named(**given: Any) -> dict[str, Any]:
@@ -83,11 +87,12 @@ def named(**given: Any) -> dict[str, Any]:
     return out
 
 
-from formats import khaby, remake, skit  # noqa: E402  (each builds its FORMAT from Format above)
+from formats import film, khaby, remake, skit  # noqa: E402  (each builds its FORMAT from Format above)
 
 #: The video formats, in order.
 REGISTRY: dict[str, Format] = {
     "skit": skit.FORMAT,
     "remake": remake.FORMAT,
     "khaby": khaby.FORMAT,
+    "film": film.FORMAT,
 }
