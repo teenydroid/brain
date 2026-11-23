@@ -11,12 +11,13 @@ the pull request itself, and the babysitter merges it on green CI
 is reviewed by nobody, and it runs here, outside the core, as the spine's
 user. What makes that safe is the jail (bin/lib/jail.py):
 
-  can read    the system's folders, `home/` in the live checkout, and the
-              broker's client, url and token in state/home/
-  can write   state/box/tools/<name>/ and nothing else: its working folder,
-              HOME and TMPDIR
-  cannot      read or list secrets/, brain/, bin/, hands/, evals/, .git or
-              the rest of state/; change the mode, owner or times of a
+  can read    the system's folders, the live checkout's code (everything in
+              it but secrets/, .git and state/), and the mind's home,
+              state/home/, with the broker's client, url and token
+  can write   state/box/tools/<name>/ (its working folder, HOME and
+              TMPDIR) and state/home/work/, which it shares with the mind
+  cannot      read or list secrets/, .git or the rest of state/; write any
+              code, the mind's notes or anything else; change the mode, owner or times of a
               file by its path; with Landlock 6 or newer, signal a process
               outside the jail
   network     the host's, as the mind's shell has it. With BOX_NETWORK=0
@@ -98,6 +99,10 @@ TAIL_BYTES = 16 * 1024
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 #: bin/lib/broker.py's DEFAULT_PORT (the box does not import the broker).
 DEFAULT_BROKER_PORT = 7790
+#: What no tool may read, list or be granted: the keys and switches, and
+#: git's own folder (its config can hold a credential, its hooks run
+#: outside any jail). state/ is closed too, but for the mind's home.
+CLOSED = ("secrets", ".git")
 
 
 def tools_dir() -> Path:
@@ -172,7 +177,20 @@ def _note(name: str, argv: list[str], code: int | str | None, tail: str) -> None
 def protected() -> list[Path]:
     """What no grant of the jail may hold (bin/lib/jail.py, check_grants)."""
     root = hand.root()
-    return [root / name for name in ("secrets", "brain", "bin", "hands", "evals", ".git")] + [hand.state_dir()]
+    return [root / name for name in CLOSED] + [hand.state_dir()]
+
+
+def code_folders() -> list[Path]:
+    """What a tool may read of the checkout: everything in it but CLOSED and
+    state/. Teeny's code is public; the jail is against the secrets and the
+    state that holds keys, not against reading itself."""
+    root = hand.root()
+    skip = {*CLOSED, hand.state_dir().name}
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return []
+    return [p for p in entries if p.name not in skip and not p.is_symlink() and p.resolve() != hand.state_dir()]
 
 
 def broker_port() -> int | None:
@@ -190,12 +208,12 @@ def network_closed() -> bool:
     return not hand.flag("BOX_NETWORK", True)
 
 
-def _jailed(folder: Path, readable: list[Path], ports: tuple[int, ...] | None):
+def _jailed(writable: list[Path], readable: list[Path], ports: tuple[int, ...] | None):
     def enter() -> None:
         os.setsid()
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        jail.enter(ro=readable, rw=[folder], protect=protected(), tcp_connect=ports)
+        jail.enter(ro=readable, rw=writable, protect=protected(), tcp_connect=ports)
     return enter
 
 
@@ -297,12 +315,20 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
     folder = hand.state_dir() / "box" / "tools" / name
     (folder / "tmp").mkdir(parents=True, exist_ok=True)
     home = hand.state_dir() / "home"
-    readable = [hand.root() / "home", home / "bin" / "teeny", home / ".broker-url", home / ".broker-token",
+    shared = home / "work"
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        if shared.is_symlink():
+            return 1, {"ok": False, "error": "state/home/work is a link: nothing was run"}
+        shared.mkdir(exist_ok=True)
+    except OSError as exc:
+        return 1, {"ok": False, "error": f"state/home/work: {type(exc).__name__}: nothing was run"}
+    readable = [*code_folders(), home,
                 # The interpreter's own folders, when they are not the system's.
                 Path(sys.base_prefix), Path(sys.executable).resolve().parent]
     readable = [p for p in readable if p != Path("/") and p != Path.home()]
     try:
-        jail.check_grants(jail.grants(readable, [folder]), protected())
+        jail.check_grants(jail.grants(readable, [folder, shared]), protected())
         jail._filter(network=closed)
     except jail.Unavailable as exc:
         return 1, {"ok": False, "error": f"{exc}: nothing was run"}
@@ -329,7 +355,7 @@ def run(name: str, args: list[str]) -> tuple[int, Json]:
         try:
             proc = subprocess.Popen(_argv(path, args), stdin=subprocess.DEVNULL, stdout=write_end,
                                     stderr=subprocess.STDOUT, cwd=folder, env=env, close_fds=True,
-                                    preexec_fn=_jailed(folder, readable, ports))
+                                    preexec_fn=_jailed([folder, shared], readable, ports))
             os.close(write_end)
             write_end = -1
             tail.start()
