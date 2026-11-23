@@ -17,8 +17,10 @@ has learned, newest first, for the prompts.
 The lab cannot wedge: before `score` and before `propose` counts the open
 experiments, `expire` concludes as `unclear`, with a lesson saying why, any
 open experiment that can no longer teach anything: one STALE_DAYS old that no
-post ever carried, one past its deadline short of its planned posts (posts
-after the deadline are not counted), and one past its deadline by GRACE_DAYS
+post ever carried (a tagged post counts once written, measured or not), one
+past its deadline short of its planned posts with none still waiting for its
+first measurement (posts after the deadline are not counted; GRACE_DAYS past
+the deadline it goes regardless), and one past its deadline by GRACE_DAYS
 that had its posts but never got a verdict. On 2026-11-23 five open
 experiments with no posts at all refused every new one (`too_many_open`).
 
