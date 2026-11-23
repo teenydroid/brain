@@ -19,10 +19,12 @@ state/ or .git in reach (docs/mind.md, "Its own tools").
   the network      left open unless the caller names `tcp_connect`, the
                    TCP ports it may connect to (ABI 4). Then Landlock
                    refuses every other TCP connect and every bind, and the
-                   filter allows a socket only for AF_UNIX or a plain TCP
-                   stream (AF_INET or AF_INET6, protocol TCP): no UDP, ICMP,
-                   raw, netlink, packet, MPTCP or SCTP socket, which
-                   Landlock does not see. It also refuses listen (on an
+                   filter allows a socket only for a plain TCP stream
+                   (AF_INET or AF_INET6, protocol TCP): no UDP, ICMP, raw,
+                   netlink, packet, MPTCP or SCTP socket, which Landlock
+                   does not see, and no unix one, which Landlock lets
+                   connect to any path (socketpair stays). It also refuses
+                   listen (on an
                    unbound socket it binds a port Landlock never sees) and
                    io_uring, which can make socket calls the filter never
                    sees. A Landlock port rule is a port, not an address: a
@@ -124,7 +126,7 @@ _NET_SYSCALLS = {
     "x86_64": (41, (50, 425, 426, 427)),
     "aarch64": (198, (201, 425, 426, 427)),
 }
-_AF_UNIX, _AF_INET, _AF_INET6 = 1, 2, 10
+_AF_INET, _AF_INET6 = 2, 10
 _SOCK_STREAM, _SOCK_TYPE_MASK = 1, 0xF
 _IPPROTO_TCP = 6
 
@@ -134,25 +136,28 @@ def _insn(code: int, jt: int, jf: int, k: int) -> bytes:
 
 
 def _socket_rule(nr: int) -> list[bytes]:
-    """socket(family, type, protocol): AF_UNIX, or a TCP stream over AF_INET
-    or AF_INET6 (SOCK_NONBLOCK and SOCK_CLOEXEC masked off the type, the
-    protocol 0 or IPPROTO_TCP); anything else EPERM. Any other call skips
-    the block. The arguments are ints: the kernel reads the low 32 bits."""
+    """socket(family, type, protocol): only a TCP stream over AF_INET or
+    AF_INET6 (SOCK_NONBLOCK and SOCK_CLOEXEC masked off the type, the
+    protocol 0 or IPPROTO_TCP); anything else EPERM, AF_UNIX too: Landlock
+    never asks about connecting to a unix socket by its path, and through
+    one (the docker daemon's, the system resolver's, D-Bus) a process
+    leaves the jail. socketpair, a pair of its own, stays. Any other call
+    skips the block. The arguments are ints: the kernel reads the low 32
+    bits."""
     allow, eperm = _RET_ALLOW, _RET_ERRNO | errno.EPERM
     return [
-        _insn(_JEQ, 0, 12, nr),               # 0: not socket: on past 12
+        _insn(_JEQ, 0, 11, nr),               # 0: not socket: on past 11
         _insn(_LD_ABS, 0, 0, 16),             # 1: the family
-        _insn(_JEQ, 8, 0, _AF_UNIX),          # 2: -> 11 allow
-        _insn(_JEQ, 1, 0, _AF_INET),          # 3: -> 5
-        _insn(_JEQ, 0, 7, _AF_INET6),         # 4: else -> 12 refuse
-        _insn(_LD_ABS, 0, 0, 24),             # 5: the type
-        _insn(_AND, 0, 0, _SOCK_TYPE_MASK),   # 6
-        _insn(_JEQ, 0, 4, _SOCK_STREAM),      # 7: else -> 12 refuse
-        _insn(_LD_ABS, 0, 0, 32),             # 8: the protocol
-        _insn(_JEQ, 1, 0, 0),                 # 9: -> 11 allow
-        _insn(_JEQ, 0, 1, _IPPROTO_TCP),      # 10: else -> 12 refuse
-        _insn(_RET, 0, 0, allow),             # 11
-        _insn(_RET, 0, 0, eperm),             # 12
+        _insn(_JEQ, 1, 0, _AF_INET),          # 2: -> 4
+        _insn(_JEQ, 0, 7, _AF_INET6),         # 3: else -> 11 refuse
+        _insn(_LD_ABS, 0, 0, 24),             # 4: the type
+        _insn(_AND, 0, 0, _SOCK_TYPE_MASK),   # 5
+        _insn(_JEQ, 0, 4, _SOCK_STREAM),      # 6: else -> 11 refuse
+        _insn(_LD_ABS, 0, 0, 32),             # 7: the protocol
+        _insn(_JEQ, 1, 0, 0),                 # 8: -> 10 allow
+        _insn(_JEQ, 0, 1, _IPPROTO_TCP),      # 9: else -> 11 refuse
+        _insn(_RET, 0, 0, allow),             # 10
+        _insn(_RET, 0, 0, eperm),             # 11
     ]
 
 
