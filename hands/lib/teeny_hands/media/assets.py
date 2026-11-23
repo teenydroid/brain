@@ -66,7 +66,11 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-IMAGE_MODELS = "gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
+#: Venice's qwen-edit-uncensored first (2026-11-23: a likeness of Jensen Huang
+#: from his photo for $0.028, against $0.08 for flare). Every model here goes
+#: through Venice's gateway, which refuses a real person's photo in a mocking
+#: or suggestive scene for all of them alike, uncensored included.
+IMAGE_MODELS = "qwen-edit-uncensored,gpt-image-2-5-flare-edit,nano-banana-2-1-edit,muse-image-edit"
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
 #: Every image starts from Teeny's character sheet, so Teeny stays on model:
 #: the images are edits of it, never free text-to-image.
