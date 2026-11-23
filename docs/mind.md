@@ -127,7 +127,7 @@ it cannot leave the base; the query is passed apart.
   nothing to anyone.
 - The key, the Authorization header and the URL never come back. A redirect
   is not followed, an answer over 256 KiB or one holding the key is refused,
-  and every call is one row in `call_log` without its body.
+  and every call is one row in `call_log` without its body. The broker ledger keeps a `/call` as service, method and path only, never the body or the query.
 
 The shipped list has Moltbook, reads only: every Moltbook write is already a
 verb of `hands/moltbook`, with rules a proxy write would skip.

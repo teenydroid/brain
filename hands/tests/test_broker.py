@@ -830,6 +830,16 @@ class CallTest(BrokerCase):
         self.assertEqual((line["path"], line["verb"], line["status"], line["exit"]), ("/call", "moltbook", "ok", 0))
         self.assertEqual(line["intent"]["path"], "/posts")
 
+    def test_call_ledger_keeps_no_body_or_query_text(self):
+        self.start()
+        sent = {**self.CALL, "method": "POST", "path": "/posts",
+                "query": {"q": "QUERYWORDS"}, "body": {"text": "DRAFTWORDS", "n": ["NESTEDWORDS"]}}
+        self.post("/call", sent)
+        raw = (self.root / "state" / "broker" / "ledger.jsonl").read_text()
+        for word in ("QUERYWORDS", "DRAFTWORDS", "NESTEDWORDS"):
+            self.assertNotIn(word, raw)
+        self.assertEqual(self.ledger()[-1]["intent"], {"service": "moltbook", "method": "POST", "path": "/posts"})
+
     def test_call_needs_the_token(self):
         self.start()
         code, out = self.post("/call", self.CALL, token="wrong")

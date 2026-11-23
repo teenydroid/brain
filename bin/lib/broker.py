@@ -259,7 +259,9 @@ def call(body: Json, entry: Json) -> Json:
     rule of it (docs/mind.md, "Keys it never holds")."""
     service = body.get("service")
     entry["verb"] = _clipped(service) if isinstance(service, str) else None
-    entry["intent"] = _clipped(body)
+    # Only what call_log keeps: never the body or the query, which a refused
+    # draft would otherwise leave in the ledger in plaintext.
+    entry["intent"] = {k: _clipped(body.get(k)) for k in ("service", "method", "path") if isinstance(body.get(k), str)}
     return _hand_answer(*tick._run_hand("call", ["send"], body), entry)
 
 
