@@ -449,7 +449,7 @@ def abandon(api: Surplus, conn, parent_id: int, shots: list[_Shot]) -> None:
 
 
 def keep_cut(reel: Any, cut_job: Json, name: str, the_label: str, timeout: int,
-             cuts: list[str]) -> tuple[Json, Json, Any, list[str]]:
+             cuts: list[str], make: Callable[..., Json] | None = None) -> tuple[Json, Json, Any, list[str]]:
     """The cut made on the reel service and kept: (what the service
     answered, reels.verify's info, the mp4's path, the frames' paths), as
     state/media/<name>.mp4 and <name>-frame-N.jpg. The cut's id goes into
@@ -462,7 +462,7 @@ def keep_cut(reel: Any, cut_job: Json, name: str, the_label: str, timeout: int,
 
     written: list[Any] = []
     try:
-        made = reel.cut(cut_job, timeout=timeout)
+        made = (make or reel.cut)(cut_job, timeout=timeout)
         cut_id = made["cut_id"]
         cuts.append(cut_id)
         if made.get("labelled") is not True or made.get("label") != the_label:
