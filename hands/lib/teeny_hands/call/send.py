@@ -82,6 +82,11 @@ def _carry_out(raw: Any, row: Json) -> Json:
     counts.check(svc, kind)
     if not call.is_read:
         guard(svc, call)
+        if hand.dry_run():
+            # Checked, not sent, and nothing of the day spent. A read is sent
+            # in a rehearsal: it says nothing to anyone.
+            row["outcome"] = "dry_run"
+            return {"dry_run": True, "would": {"service": svc.name, "method": call.method, "path": call.path}}
     key = hand.require(svc.key)
     row["key"] = key
     row["id"] = counts.reserve(svc, kind, call.method, call.path)
