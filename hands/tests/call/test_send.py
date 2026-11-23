@@ -94,6 +94,30 @@ class SendTest(Scratch):
         self.assertIn("256 KiB", out["refused"])
         self.assertNotIn("json", out)
 
+    def test_an_error_body_over_256_kib_is_not_read_whole(self):
+        self.svc.route("GET", "/api/v1/posts", raw=b"x" * (3 * 1024 * 1024), status=500, content_type="text/plain")
+        read: list[int] = []
+        real = rest._OPENER.open
+
+        def watched(request, timeout=None):
+            try:
+                return real(request, timeout=timeout)
+            except urllib.error.HTTPError as exc:
+                inner = exc.read
+
+                def counted(*args):
+                    data = inner(*args)
+                    read.append(len(data))
+                    return data
+
+                exc.read = counted
+                raise
+
+        with mock.patch.object(rest._OPENER, "open", watched):
+            code, out = self.get("/posts")
+        self.assertEqual((code, out["rule"]), (2, "size"), out)
+        self.assertEqual(sum(read), 256 * 1024 + 1)
+
     def test_an_answer_that_carries_the_key_is_not_returned(self):
         self.svc.route("GET", "/api/v1/agents/me", {"agent": {"name": "teeny", "api_key": KEY}})
         code, out = self.get("/agents/me")
