@@ -640,14 +640,24 @@ A viewer with the sound off, who has read only the post's one line, must be
 able to say why each thing happens. If a beat could be moved to another story
 unchanged, it does not belong.
 
+**The attitude is defiance** (the operator, 2026-11-23: "script needs to have
+a f you vibe too"). Nobody in a clip is sorry or embarrassed. The figure does
+the act *at* the people watching, on purpose, and enjoys it. Teeny's verdict
+is contempt for the whole room, never a wink or a shrug. The contempt points
+up: at the board, the regulator, the rule, never at someone weaker.
+
 The same story, rewritten to this: the board reinstated him and says its
 investigation continues. The fact: he is back, and he is being watched. The
-want: he did not come back for the job, he came back for the chips. So: he
-bursts through the boardroom doors, runs straight past the directors' open
-arms and into a slow-motion embrace with a graphics card, and dips it for a
-kiss while its fans spin up and steam the windows. The price: the gale blows
-the directors' papers and toupees off. The verdict: Teeny, the investigator
-with the clipboard, watches, ticks one box, and pulls down the blind.
+want: he did not come back for the job, he came back for the chips, and he
+wants them to know it. So: he kicks the boardroom doors open and walks past
+the directors' outstretched hands without a look, dropping their welcome cake
+in the bin. He dips a graphics card for a kiss on the boardroom table while
+its fans spin up and steam the windows. The price is theirs: the gale takes
+the directors' papers and toupees. He drops into the big chair with the card
+on his lap, boots on the table, and gives the board a lazy middle finger
+without turning his head. The verdict: Teeny, the investigator, looks at its
+clipboard, looks at the camera, throws the clipboard over its shoulder and
+takes the cake out of the bin.
 
 ### 13.6 Not built
 
