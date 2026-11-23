@@ -37,6 +37,7 @@ class FakeSurplus:
         self.sent = []
         self.fail = {}
         self.speech = None
+        self.transcript = None
 
     def send(self, path, body=None, limit=0, timeout=120.0, fields=None, file=None):
         self.sent.append({"path": path, "body": body, "fields": fields, "file": file})
@@ -47,6 +48,8 @@ class FakeSurplus:
                                      "alignment": alignment(body["text"])}
             return json.dumps(answer).encode(), 160
         if path.endswith("/speech-to-text"):
+            if self.transcript is not None:
+                return json.dumps({"words": self.transcript}).encode(), 55
             return json.dumps({"words": [
                 {"text": "one", "start": 0.0, "end": 0.4, "type": "word"},
                 {"text": " ", "start": 0.4, "end": 0.5, "type": "spacing"},
@@ -184,6 +187,14 @@ class AudioTest(unittest.TestCase):
         sent = self.api.sent[0]
         self.assertEqual(sent["fields"], {"model_id": "scribe_v2", "timestamps_granularity": "word"})
         self.assertEqual(sent["file"], ("take.mp3", MP3, "audio/mpeg"))
+
+    def test_a_transcript_drops_words_with_impossible_times(self):
+        self.api.transcript = [
+            {"text": "ok", "start": 0, "end": 0.3, "type": "word"},
+            {"text": "back", "start": 2, "end": 1, "type": "word"},
+            {"text": "neg", "start": -1, "end": 1, "type": "word"},
+            {"text": "inf", "start": 0, "end": 1e999, "type": "word"}]
+        self.assertEqual(audio.transcribe(MP3, api=self.api)["words"], [{"text": "ok", "start": 0.0, "end": 0.3}])
 
     def test_effects_and_score_are_bounded_and_the_score_is_instrumental(self):
         with self.assertRaises(hand.Refused):
