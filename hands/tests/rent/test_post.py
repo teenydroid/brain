@@ -105,7 +105,10 @@ class PostTest(Scratch):
         with self.assertRaises(hand.Refused):
             actions.post(dict(GOOD))
         self.assertEqual(self.jobs()[0]["status"], "failed")
-        actions.post(dict(GOOD, title="Hold a second sign about robots"))  # the day's room is whole
+        # The day's room is whole: two more at $24 fit under $50.
+        self.rah.on("create_bounty", create_bounty(2400))
+        actions.post(dict(GOOD, title="Hold a second sign about robots"))
+        actions.post(dict(GOOD, title="Hold a third sign about robots"))
 
     def test_a_short_wallet_leaves_a_draft_and_tells_the_mind(self) -> None:
         self.rah.on("create_bounty", lambda a: preview(2000) if a.get("dryRun") else created(
