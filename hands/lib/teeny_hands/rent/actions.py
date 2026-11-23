@@ -836,7 +836,7 @@ def _hire(conn, job: Mapping[str, Any]) -> Json:
             elif words:
                 text += f" They wrote: {words}"
             text += (f' Judge it against the criteria only, then {{"do": "rent_review", "job": {job["id"]},'
-                     f' "submission": "{ref}", "verdict": "approve|redo|reject", "reason": "..."}. Approving pays them; it is final.')
+                     f' "submission": "{ref}", "verdict": "approve|redo|reject", "reason": "..."}}. Approving pays them; it is final.')
             out["submitted"] = _pass_on(conn, job["id"], "submission", ref, text, _who(hire.get("worker"), job["id"]),
                                         {"job": job["id"], "submission": submission.get("id"), "files": files},
                                         stimulus="submitted")

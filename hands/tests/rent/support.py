@@ -158,9 +158,11 @@ class Scratch(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
         (self.root / "secrets").mkdir()
-        self._env = dict(os.environ)
+        env = dict(os.environ)
+        self.addCleanup(self._restore_env, env)
         os.environ["TEENY_ROOT"] = str(self.root)
         for key in ("DRY_RUN", "TEENY_NOW", "TEENY_HANDS_DEBUG"):
             os.environ.pop(key, None)
@@ -168,16 +170,16 @@ class Scratch(unittest.TestCase):
         self.rah = FakeRah()
         self.addCleanup(self.rah.close)
         # An application with no price of its own (the bounty's copy of its pay is skipped).
-        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "status": "pending",
+        self.rah.on("get_application", lambda a: {"id": a["applicationId"], "status": "pending", "bountyId": "b1",
                                                   "applicant": {"name": "Dana R.", "earned": {"amount": 48000}},
                                                   "bounty": {"pay": {"amount": 1800, "currency": "usd"}}})
         self.configure()
 
-    def tearDown(self) -> None:
+    @staticmethod
+    def _restore_env(env: dict[str, str]) -> None:
         os.environ.clear()
-        os.environ.update(self._env)
+        os.environ.update(env)
         hand._ENV_CACHE = None
-        self.tmp.cleanup()
 
     def configure(self, **overrides: str | None) -> None:
         values: dict[str, str | None] = {
