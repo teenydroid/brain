@@ -45,7 +45,7 @@ class PathTest(ShapeCase):
     def test_a_path_that_could_leave_the_base_or_carry_more_is_refused(self):
         bad = ["posts", "", "/posts/../agents", "/..", "/posts//x", "//evil.example/x", "/posts\\x", "/@evil.example",
                "/posts?x=1", "/posts#x", "/posts%2F..%2Fx", "/posts/%41", "/posts x", "/posts\tx", "/posts\nx",
-               "/posts\x00", "/posts\x7f", "/pöst", "/posts/‮", "/posts/./x", "/" + "a" * 300]
+               "/posts\x00", "/posts\x7f", "/pöst", "/posts/\u202e", "/posts/./x", "/" + "a" * 300]
         for path in bad:
             self.refused({"service": "fake-svc", "method": "GET", "path": path}, "path", "path")
 
