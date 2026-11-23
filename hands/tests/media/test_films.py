@@ -216,6 +216,23 @@ class FilmTest(unittest.TestCase):
         self.assertIn("plate", beats[2])
         self.assertIn("clip", beats[0])
 
+    def test_a_refused_clip_gives_its_hold_back_so_the_next_beat_is_still_bought(self):
+        """f65: both figure clips were refused but kept their $5 holds, so the
+        Teeny clip after them was refused for budget and the film stopped."""
+        self.env(FILM_MAX_USD="10.50", FILM_MAX_USD_PER_CLIP="5.00")
+        for model in films.FIGURE_MODELS.split(","):
+            self.api.video_fail[model] = SurplusError("Surplus answered 400: content policy refused", 400)
+        out = self.make()
+        self.assertEqual(out["status"], "done", out)
+        self.assertEqual(out["stills"], ["b1", "b2"])
+        self.assertEqual([v["model"] for v in self.api.videos()][-1], "venice-seedance-2-5-image-to-video-basic")
+        conn = assets._db()
+        refused = conn.execute("SELECT status, cost_micro, error FROM media_assets WHERE kind = 'shot' AND "
+                               "status != 'done'").fetchall()
+        self.assertTrue(refused)
+        self.assertTrue(all(r["status"] == "failed" and r["cost_micro"] == 0 and "refused" in r["error"]
+                            for r in refused))
+
     def test_captions_are_the_words_moved_onto_the_films_timeline(self):
         out = self.make()
         manifest = films.load(out["id"])
