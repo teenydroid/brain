@@ -81,9 +81,15 @@ def _resolve(host: str) -> list[str]:
 
 
 def _connect(ip: str, host: str, timeout: float) -> socket.socket:
-    """TLS to IP on 443, checked against HOST's certificate."""
+    """TLS to IP on 443, checked against HOST's certificate, the connect and
+    the handshake together within TIMEOUT seconds."""
+    end = time.monotonic() + timeout
     raw = socket.create_connection((ip, 443), timeout=timeout)
     try:
+        left = end - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the connect used up the time")
+        raw.settimeout(left)  # the handshake's own limit: what is left
         return ssl.create_default_context().wrap_socket(raw, server_hostname=host)
     except BaseException:
         raw.close()
@@ -138,10 +144,32 @@ def check_url(url: Any, deny: list[str]) -> tuple[str, str]:
     return host, target
 
 
-def address_of(host: str) -> str:
-    """The one address to connect to: HOST resolved once, every answer public."""
+def _resolved(host: str, secs: float) -> list[str]:
+    """`_resolve` of HOST, given up on after SECS: getaddrinfo takes no
+    timeout, so it runs in a thread (a daemon one, left to finish alone)."""
+    got: list[Any] = []
+
+    def work() -> None:
+        try:
+            got.append(_resolve(host))
+        except BaseException as exc:  # handed to the caller below
+            got.append(exc)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(max(secs, 0))
+    if not got:
+        raise _late()
+    if isinstance(got[0], BaseException):
+        raise got[0]
+    return got[0]
+
+
+def address_of(host: str, secs: float = TOTAL_SECS) -> str:
+    """The one address to connect to: HOST resolved once (within SECS),
+    every answer public."""
     try:
-        addresses = _resolve(host)
+        addresses = _resolved(host, secs)
     except (OSError, UnicodeError) as exc:
         raise Refused(f"{host} does not resolve ({exc})") from None
     if not addresses:
@@ -198,6 +226,10 @@ def _get(host: str, target: str, address: str, deadline: float) -> Iterator[tupl
     if left <= 0:
         raise _late()
     sock = _connect(address, host, left)
+    left = deadline - time.monotonic()  # what the connect and handshake left
+    if left <= 0:
+        sock.close()
+        raise _late()
     expired = threading.Event()
 
     def cut() -> None:
@@ -237,7 +269,7 @@ def fetch(url: Any, *, on_send: Callable[[], None] = lambda: None, deny: list[st
     hops = 0
     while True:
         host, target = check_url(url, deny)
-        address = address_of(host)
+        address = address_of(host, deadline - time.monotonic())
         on_send()
         try:
             with _get(host, target, address, deadline) as (resp, expired):
