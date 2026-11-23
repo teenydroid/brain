@@ -563,7 +563,8 @@ class QuoteFeedTest(unittest.TestCase):
         self.assertEqual(sorted(notes), ["digg", "quoted"])
         self.assertEqual({tuple(a[:2]) for a in room.calls}, {("trend", "top"), ("x", "peers")})
         self.assertIn(["x", "peers", "quoted"], room.calls)
-        self.assertEqual([q.get("post") for q in found[0]["quotes"]], ["2124551594691932405"])
+        # Teeny's own post is gone; the page stays as a line, with nothing to quote.
+        self.assertEqual([q.get("post") for q in found[0]["quotes"]], ["2124551594691932405", None])
 
     def test_teeny_and_whoever_was_quoted_this_week_are_not_offered(self):
         room = self.room(quoted=(0, {"days": 7, "handles": ["aravsrinivas"]}))

@@ -238,16 +238,18 @@ def own_candidates(desk: Json | None, now: float) -> list[Json]:
 # --- gathering -----------------------------------------------------------------------
 
 
-def quotable(candidates: list[Json], skip: set[str]) -> tuple[list[Json], list[str]]:
+def quotable(candidates: list[Json], skip: set[str], own: str = "") -> tuple[list[Json], list[str]]:
     """(the candidates with an X post left to quote, the handles left out).
-    A post by a handle in SKIP (any case) loses its `post`; a candidate with
-    none left is dropped."""
+    A post by a handle in SKIP (any case) loses its `post`, one by OWN is
+    dropped, and a candidate with no post left to quote is dropped."""
     skip = {h.lower() for h in skip}
     kept: list[Json] = []
     left_out: list[str] = []
     for c in candidates:
         quotes = []
         for q in c.get("quotes") or []:
+            if own and str(q.get("handle") or "").lower() == own.lower():
+                continue
             if q.get("post") and str(q.get("handle") or "").lower() in skip:
                 left_out.append(str(q["handle"]).lower())
                 q = {k: v for k, v in q.items() if k not in ("post", "handle")}
@@ -290,8 +292,8 @@ def gather(room: Any, slot_key: str | None, seed: int, desk: Json | None, now: f
             notes["quoted"] = {"skipped": f"who was quoted this week is unknown, so nothing is offered: {why}"[:300]}
             return [], notes
         own = (os.environ.get("X_BOT_USERNAME") or "teenydroid").lstrip("@")
-        kept, left_out = quotable(found, {own, *(h for h in handles if isinstance(h, str))})
-        notes["quoted"] = {"left_out": sorted(set(left_out) - {own.lower()})}
+        kept, left_out = quotable(found, {h for h in handles if isinstance(h, str)}, own)
+        notes["quoted"] = {"left_out": sorted(left_out)}
         return kept, notes
 
     code, got = room.hand_code(["hn", "top", "--max", "15"], timeout=90)
