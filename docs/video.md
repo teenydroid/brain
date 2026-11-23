@@ -609,12 +609,14 @@ not needed, so how well they follow such a prompt is not known.
 
 ### 13.4 Where the jokes come from
 
-Absurd, crude and dark, at full strength: a ceremony that goes wrong, a body
-launched, crushed, flattened or eaten by the thing it worships, cartoon death
-in an impossible scene. Lust is aimed at an object (the chip, the money, the
-merger), and it is cartoon lust: heart eyes, a smooch, a wedding. The hard
-lines of §8 hold: nothing sexual about a real person, and nobody could take a
-frame for real footage.
+Absurd, crude and dark, at full strength: a ceremony that goes wrong, and
+slapstick that happens to the figure (launched, dragged, soaked, flattened
+like a cartoon and popping back). The dark end of it lands on the objects, the
+ceremony and Teeny, never as a death or an injury shown as the figure's own.
+Lust is aimed at an object (the chip, the money, the merger), and it is
+cartoon lust: heart eyes, a smooch, a wedding. The hard lines of §8 hold:
+nothing sexual about a real person, nothing violent done to them, and nobody
+could take a frame for real footage.
 
 ### 13.5 Not built
 
