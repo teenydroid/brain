@@ -336,9 +336,22 @@ def tables(root: Path) -> dict[str, str]:
 
     overrides = ", ".join(f'{{ id = {_s(m)}, source = "linked" }}' for m in LINKED_MODULES)
 
+    # The sandboxed shell's jail (brain/agents/mind.toml, builder.toml) reads
+    # the same code folders the file tools do, and nothing closed to them:
+    # the core adds these to the jail beside the run's own workspace
+    # (tinyhumansai/openhuman#8776). /proc stays shut: it shows the core's
+    # own environment, which holds keys.
+    jail = (
+        "toolchain_homes = true\n"
+        f"extra_read_only = {_list(str(path) for path in readable)}\n"
+        "extra_read_write = []\n"
+        "allow_proc = false\n"
+    )
+
     return {
         "[cron]": f"shell_timeout_secs = {SHELL_TIMEOUT_SECS}\n",
         "[autonomy]": autonomy,
+        "[runtime.local_jail]": jail,
         "[browser]": browser,
         "[http_request]": f"allowed_domains = {_list(websites.load(root))}\n",
         "[modules]": f"overrides = [{overrides}]\n",
