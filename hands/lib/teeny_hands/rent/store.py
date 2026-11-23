@@ -19,6 +19,9 @@ stands:
   failed     refused by RentAHuman before anything was posted
   in_doubt   a pay whose outcome is unknown: never retried, the operator looks
 
+`extra_cents` is what a hire cost beyond the posted total (an applicant's
+own price, which RentAHuman charges on accept): it counts against the day.
+
 `rent_events` is what `poll` has already passed on (an application, a
 submission, a message), so nothing reaches the mind twice.
 """
@@ -57,7 +60,9 @@ CREATE TABLE IF NOT EXISTS rent_jobs (
     hire_id         TEXT,
     conversation_id TEXT,
     submission_id   TEXT,
+    posted_at       REAL,
     hired_at        REAL,
+    extra_cents     INTEGER NOT NULL DEFAULT 0,
     paid_at         REAL,
     note            TEXT
 );
@@ -113,7 +118,7 @@ def insert(conn: sqlite3.Connection, status: str, title: str, request: Mapping[s
 def spent_today(conn: sqlite3.Connection) -> int:
     marks = ",".join("?" for _ in SPENT)
     found = conn.execute(
-        f"SELECT COALESCE(SUM(total_cents), 0) FROM rent_jobs WHERE status IN ({marks}) AND at >= ?",
+        f"SELECT COALESCE(SUM(total_cents + extra_cents), 0) FROM rent_jobs WHERE status IN ({marks}) AND at >= ?",
         (*SPENT, hand.day_start()),
     ).fetchone()
     return int(found[0])
