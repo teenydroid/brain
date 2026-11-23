@@ -13,6 +13,8 @@ These calls, and the front answers 403 to anything else:
   GET    /teeny/v1/cuts/{id}/cut.mp4            the cut
   GET    /teeny/v1/cuts/{id}/frame-N.jpg        one of its frames
   DELETE /teeny/v1/cuts/{id}                    the cut and its frames
+  POST   /teeny/v1/films                        a story film's cut (deploy/reel/filmcut.py),
+                                                served and deleted as a cut
 
 No key: the service binds the compose network only. Redirects are not
 followed, and an error says the status and the service's short message.
@@ -124,6 +126,16 @@ class Reel:
         data = self._json("POST", "/teeny/v1/cuts", job, timeout=timeout).get("data")
         if not isinstance(data, dict):
             raise ReelError("the reel service answered a cut with nothing in it")
+        _task(data.get("cut_id"))
+        return data
+
+    def film(self, job: dict, timeout: float = 600.0) -> dict:
+        """A story film's cut (deploy/reel/filmcut.py), made before the
+        answer comes: {cut_id, seconds, beats, frames, label, labelled,
+        loudness, captions, stills}. It is served and deleted as a cut."""
+        data = self._json("POST", "/teeny/v1/films", job, timeout=timeout).get("data")
+        if not isinstance(data, dict):
+            raise ReelError("the reel service answered a film with nothing in it")
         _task(data.get("cut_id"))
         return data
 

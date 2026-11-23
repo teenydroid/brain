@@ -899,7 +899,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     room.preview = bool(dry and getattr(args, "pictures", False))
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in video_formats())
-    if room.skit_slot and any(f in cfg.formats for f in ("remake", "khaby")):
+    if room.skit_slot and any(f in cfg.formats for f in ("remake", "khaby", "film")):
         cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
@@ -1046,6 +1046,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         record["skit_slot"] = True
         for video in registry().values():
             if video.name not in cfg.formats:
+                continue
+            if video.offered is not None and not video.offered(room):
+                record.setdefault("not_offered", []).append(video.name)
                 continue
             if video.sources is None:
                 videos.append((video, None))
