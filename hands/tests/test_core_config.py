@@ -101,6 +101,41 @@ class CoreConfigTest(unittest.TestCase):
             for c in closed:
                 self.assertFalse(path == c or c in path.parents or path in c.parents, (root, c))
 
+    def test_an_agents_pinned_model_reaches_the_core_as_a_team_pin(self):
+        # Under bin/spine's fixed route the core ignores a definition's own
+        # `model` and asks its config instead ([teams.<id>]): the agentic
+        # mind, pinned in mind.toml, ran on SPINE_MODEL until this was written.
+        agents = self.root / "brain" / "agents"
+        agents.mkdir(parents=True)
+        (agents / "mind.toml").write_text('id = "mind"\nmodel = "big-model"\n[subagents]\nallowlist = ["worker"]\n')
+        (agents / "worker.toml").write_text('id = "worker"\n')
+        (agents / "judge.toml").write_text('id = "judge"\nmodel = "hint:reasoning"\n')
+        (agents / "act.toml").write_text('id = "act"\n')
+        (agents / "broken.toml").write_text("not toml [")
+        self.assertEqual(self.written()["teams"], {
+            "mind": {"lead_model": "big-model", "agent_model": "big-model"},
+            "worker": {"agent_model": "big-model"},
+        })
+
+    def test_a_helper_with_a_pin_of_its_own_keeps_it(self):
+        agents = self.root / "brain" / "agents"
+        agents.mkdir(parents=True)
+        (agents / "mind.toml").write_text('id = "mind"\nmodel = "big-model"\n[subagents]\nallowlist = ["worker"]\n')
+        (agents / "worker.toml").write_text('id = "worker"\nmodel = "small-model"\n')
+        self.assertEqual(self.written()["teams"]["worker"], {"lead_model": "small-model", "agent_model": "small-model"})
+
+    def test_with_no_pinned_agent_there_is_no_team_pin(self):
+        self.assertEqual(self.written().get("teams", {}), {})
+
+    def test_the_checked_in_mind_is_pinned_with_its_worker(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("automation", REPO / "bin" / "lib" / "core_sections" / "automation.py")
+        automation = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(automation)
+        pins = automation.agent_models(REPO / "brain")
+        self.assertTrue(pins["mind"]["lead_model"])
+        self.assertEqual(pins["worker"], {"agent_model": pins["mind"]["lead_model"]})
+
     def test_the_headless_core_answers_its_own_secret_unlock(self):
         # bin/wallet-setup's encrypt_secret needs the config secret master
         # grant; with nobody to approve it, it parked 29 s and was refused.
