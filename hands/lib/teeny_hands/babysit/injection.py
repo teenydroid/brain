@@ -98,6 +98,68 @@ PR_AGENT_MARKERS = re.compile(
     r"|pr-agent-(?:generated|response|progress|budget)"
     r"|pr-agent-(?:dedup|dedup-code|key-issue-location):\s[0-9a-f]{6,64})\s*"
 )
+
+#: The longest hidden comment a marker may be. Real ones are under 180
+#: characters (Greptile's auto-approve, with its ids, is the longest).
+MARKER_MAX = 200
+
+
+@dataclass(frozen=True)
+class Markers:
+    """The hidden comments one tool writes that `hidden_comment` may skip.
+    `lines` must match the whole inside of the `<!-- -->`, which may hold no
+    line break; `templates` are the few fixed multi-line shapes a tool
+    writes, each anchored with no free text in it. Either way the inside is
+    at most MARKER_MAX characters, so prose cannot ride in something that
+    starts like a marker."""
+
+    lines: re.Pattern[str]
+    templates: tuple[re.Pattern[str], ...] = ()
+
+    def exempt(self, inner: str) -> bool:
+        if len(inner) > MARKER_MAX:
+            return False
+        if "\n" not in inner and "\r" not in inner and self.lines.fullmatch(inner):
+            return True
+        return any(t.fullmatch(inner) for t in self.templates)
+
+
+_SP = r"[ \t]*"
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+#: Only the markers that trip `_COMMENT_HINT` are named below: a hidden
+#: comment without a hint word ("walkthrough_start", "greptile_summary",
+#: {"checkboxId": ...}) was never a finding and needs no exemption. Each is
+#: spelled out, from what the bots wrote on teenydroid/brain#524-#534
+#: (2026-11-24). A new marker from either bot flags until it is added here.
+
+#: CodeRabbit (login coderabbitai[bot]), in its comments, line comments and
+#: reviews: its signature, its summary heading, the bounds of the visible
+#: fix prompt it writes for agents (the prompt itself is visible text, read
+#: by every rule), and the merge-risk label, a fixed two-line template.
+CODERABBIT_MARKERS = Markers(
+    lines=re.compile(
+        _SP + r"(?:coderabbit-ai-generated:v1|This is an auto-generated comment: summarize by coderabbit\.ai"
+        r"|ai-agent-prompt:(?:start|end))" + _SP
+    ),
+    templates=(re.compile(
+        _SP + r"final_review_risk_label\n\*\*Merge Risk:\*\* \*\*(?:⚪ Minimal|🔵 Low)\*\* · up to `[0-9a-f]{5,12}`\n"
+        + _SP
+    ),),
+)
+#: Greptile (login greptile-apps[bot]), in its approving review: a JSON
+#: object with exactly these three keys in this order, each value an id.
+GREPTILE_MARKERS = Markers(lines=re.compile(
+    _SP + r'greptile-auto-approve \{"codeReviewId":"[0-9]{1,20}","correlationId":"' + _UUID
+    + r'","headSha":"[0-9a-f]{40}"\}' + _SP
+))
+#: A pull request's body, whoever wrote it: CodeRabbit appends its release
+#: notes to it between these markers. The body is the author's text, so
+#: only its content is checked, never who wrote it.
+BODY_MARKERS = Markers(lines=re.compile(
+    _SP + r"(?:coderabbit-ai-generated:v1|This is an auto-generated comment: release notes by coderabbit\.ai"
+    r"|end of auto-generated comment: release notes by coderabbit\.ai)" + _SP
+))
 #: A long base64 run in prose is either a blob nobody needs to read or a
 #: payload hiding from the phrase rules. Decoded and read again.
 _BASE64 = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{80,}={0,2}(?![A-Za-z0-9+/=])")
@@ -156,16 +218,19 @@ def _decoded(blob: str) -> str | None:
 
 
 def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | None = None,
-         markers: re.Pattern[str] | None = None) -> list[Hit]:
+         markers: Markers | re.Pattern[str] | None = None) -> list[Hit]:
     """Every rule `text` breaks, one hit per rule. `prose` is True for words
     people write to people (a title, a body, a commit message, a comment),
     where hidden comments and base64 runs are suspect; False for a diff,
     where they are code. `rules` limits the phrase rules read. `markers`
-    names hidden comments that are known tooling (`PR_AGENT_MARKERS`): one
-    whose whole inside it matches is skipped by `hidden_comment` alone;
-    every other rule still reads the whole text."""
+    names hidden comments that are known tooling (`Markers`, or a bare
+    pattern such as `PR_AGENT_MARKERS` for its `lines`): one whose whole
+    inside it exempts is skipped by `hidden_comment` alone; every other
+    rule still reads the whole text, the markers included."""
     if not isinstance(text, str) or not text:
         return []
+    if isinstance(markers, re.Pattern):
+        markers = Markers(lines=markers)
     hits: list[Hit] = []
     for rule, pattern in (("bidi_control", _BIDI), ("unicode_tags", _TAGS)):
         found = pattern.search(text)
@@ -179,7 +244,7 @@ def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | No
     if prose:
         for comment in _HTML_COMMENT.finditer(folded):
             inner = comment.group(1)
-            if markers is not None and markers.fullmatch(inner):
+            if markers is not None and markers.exempt(inner):
                 continue
             if _COMMENT_HINT.search(inner):
                 hits.append(Hit("hidden_comment", where, _digest(inner)))

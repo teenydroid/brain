@@ -175,7 +175,12 @@ class _Audit:
                             ("branch", self.pr.get("head_ref"))):
             if not isinstance(text, str) or not text:
                 continue
-            self.injected(injection.scan(text, where), self.author, self.author_tier, self._prose_severity)
+            # CodeRabbit appends its release notes to the body between its
+            # markers; on teenydroid/brain those markers alone are spared
+            # `hidden_comment`, by content (the author wrote the body).
+            markers = injection.BODY_MARKERS if where == "body" and policy.is_brain(self.repo) else None
+            self.injected(injection.scan(text, where, markers=markers), self.author, self.author_tier,
+                          self._prose_severity)
             if where != "branch":
                 found = _screen(text)
                 if found is not None:
@@ -310,12 +315,18 @@ class _Audit:
 
     def _markers(self, who: str | None) -> Any:
         """The hidden comments `who` may leave without a `hidden_comment`
-        finding: on teenydroid/brain, PR-Agent's markers in comments by the
-        login its workflow posts as. A content exemption, not trust: the
-        author is still a stranger and every other rule still reads it."""
-        if policy.is_brain(self.repo) and who == policy.PR_AGENT_LOGIN:
-            return injection.PR_AGENT_MARKERS
-        return None
+        finding: on teenydroid/brain, each review tool's own markers in
+        comments and reviews by the login that tool posts as (PR-Agent's
+        workflow, CodeRabbit, Greptile), and no one else's. A content
+        exemption, not trust: the author is still a stranger and every
+        other rule still reads it."""
+        if not policy.is_brain(self.repo):
+            return None
+        return {
+            policy.PR_AGENT_LOGIN: injection.PR_AGENT_MARKERS,
+            policy.CODERABBIT_LOGIN: injection.CODERABBIT_MARKERS,
+            policy.GREPTILE_LOGIN: injection.GREPTILE_MARKERS,
+        }.get(who or "")
 
     def _shape(self) -> None:
         pr = self.pr
