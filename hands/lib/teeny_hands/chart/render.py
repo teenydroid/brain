@@ -98,7 +98,7 @@ def path_for(coin: str, days: int) -> Path:
     """
     directory = hand.state_dir() / "media" / "chart"
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{coin}-{int(days)}d-{int(hand.now())}-{uuid.uuid4().hex[:8]}.png"
+    return directory / f"{coin}-{int(days)}d-{int(hand.now())}-{uuid.uuid4().hex}.png"
 
 
 def render(candles: list[tuple], path: Path) -> dict[str, Any]:
