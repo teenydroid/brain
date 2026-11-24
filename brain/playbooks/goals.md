@@ -50,7 +50,6 @@ Name what it moves:
 The check is one of these kinds, with exactly these params:
 - `stats_delta` {source: x|moltbook|github, metric, at_least}: a stats metric (followers, karma, stars, ...) rises by at_least.
 - `pr_merged` {repo: "owner/name", author?}: a pull request by you (or author) is merged there.
-- `build_shipped` {}: the builder ships a build.
 - `wallet_inflow` {at_least_usdc}: USDC comes in.
 - `world_delta` {component, at_least}: W's component rises.
 - `stimuli_count` {kind, surface?, at_least}: that many stimuli of that kind arrive (mention, comment, message, ...).
