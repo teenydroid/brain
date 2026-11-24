@@ -1268,7 +1268,7 @@ pull requests through the broker.
 |---|---|---|---|---|
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks, the mind, `hands/reddit` and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
-| `babysitter` (`brain/agents/babysitter.toml`, GLM) | pinned `babysitter`, `4-59/10 * * * *`, off until `BABYSIT_SELF_MERGE_ALL=1` | `state/sitter/home/brief.json` and the checkout beside it, laid out by `hands/babysit sweep` | `shell` (jailed to `state/sitter/home/`) and the file tools | its `report.json`, carried out by the next sweep |
+| `babysitter` (`brain/agents/babysitter.toml`, GLM) | pinned `babysitter`, `4-59/10 * * * *`, off until `BABYSIT_SELF_MERGE_ALL=1` | `state/sitter/home/brief.json` and the checkout beside it, laid out by `hands/babysit sweep` | `shell` (jailed to `state/sitter/home/`, its only way to write) and the reading file tools | its `report.json`, carried out by the next sweep |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
 names its tools (never the wildcard). A cron job naming that agent in

@@ -555,26 +555,33 @@ no further deploy is made.
 (`brain/agents/babysitter.toml`, the pinned `babysitter` job, four minutes
 after each sweep) works Teeny's own pull requests, one at a time, the one left
 longest first. It holds no key and reaches nobody: its shell is jailed to
-`state/sitter/home/`, apart from the mind's home.
+`state/sitter/home/`, apart from the mind's home, and it writes through that
+shell alone (the core's writing file tools reach the operator's desk and the
+brain).
 
 1. **queue** (the sweep, after the audits): a candidate that is red, in
    conflict, behind, has an open review thread, or is green and undecided is
-   checked out at its exact head in `state/sitter/home/repo`
+   checked out at its exact head in `state/sitter/home/repo-<job>`
    (`build/sitterclone.py`; its git directory is outside the jail). With a fix
    to make, `main` is merged in too, conflict markers left for the agent.
    Beside it, `brief.json`: the findings, the red checks with log excerpts
    (an Actions job, a token with Actions read; names only otherwise), the
    unresolved threads with their ids and the words of the review bots
    (`policy.REVIEW_BOTS`) and trusted people. Nobody else's words are in it.
-2. **the agent** edits `repo/`, runs tests and writes `report.json`:
-   `{number, head_sha, decision: merge|fix|close|wait, reason,
+   Every job has names of its own (`brief.json` says them), so what a late
+   run of an older job writes is read for no other.
+2. **the agent** edits the checkout, runs tests and writes its report:
+   `{number, head_sha, decision: merge|fix|close|wait|retry, reason,
    commit_message?, replies: [{thread_id, outcome: fixed|declined, body}]}`.
 3. **collect** (the next sweep, before the audits): `fix` goes out as one
    commit on the head (two parents when main was merged in), never forced,
    under the mind's clone's rules: plain files only, the frozen list as of
    `main`, the secret scan, 100 files and 3000 lines, the branch still at that
    head. Then its threads are answered through the guard and resolved; a
-   `declined` one a trusted person opened is answered and left to them.
+   `declined` one a trusted person spoke in is answered and left to them, and
+   one somebody added to since the brief is left open and takes a `merge` back.
+   `retry` runs a red check's failed jobs again (twice a head; Actions write),
+   or pushes an empty commit when the token may not.
    `merge` is recorded for that exact head. `close` comments the reason
    through the guard and closes, only an open `teeny/*` pull request of
    Teeny's own. `wait` stands six hours, or until something changes.
@@ -584,17 +591,19 @@ green, no thread of a review bot or a trusted person is unresolved
 (`open_threads`; `threads_unreadable` when they cannot be read), and the
 agent's last word at that head is `merge` (`sitter_pending` otherwise; an
 operator's approval of the head does instead). On such a candidate `too_large`
-(unless GitHub cut the file list), `removes_test`, `unreadable_diff`,
-`lexicon` and an injection in someone's comment or review are notes, and
-`outside_the_jail` is gone. What stays the operator's: `sensitive`, an
-injection in the pull request's own diff, title, body or commits,
+(unless GitHub cut the file list), `removes_test`, `unreadable_diff` (once
+the file was read at the head and scanned whole; the operator's otherwise),
+`lexicon`, an injection in someone's comment or review and one in a commit
+message of Teeny's are notes, and `outside_the_jail` is gone. What stays the operator's: `sensitive`, an
+injection in the pull request's own diff, title or body,
 `recently_rolled_back`, `foreign_commit`, `odd_path`, and `module_shadow`, a
 file Python would import in place of another: anything in `hands/lib/` beside
 `teeny_hands/`, a compiled module under `hands/`, a module at the top of the
 checkout. `frozen`, `secret` and bidi or tag characters still block.
 
 Three tries that come to nothing at one head (no report in 45 minutes, a
-report that does not read, a push refused) or five fixes pushed, and the pull
+report that does not read, a push refused) or five fixes pushed on top of one
+another (somebody else's commit starts the count over), and the pull
 request is left to the operator with one comment. A GitHub outage is not a
 try. The agent's words are in `state/sitter/decisions.jsonl`, never in the
 ledger. Under `DRY_RUN` nothing is laid out or carried out.

@@ -47,7 +47,7 @@ class AgentTest(Tmp):
         self.assertEqual(agent_check.check(SITTER), "babysitter")
 
     def test_tools_that_reach_past_the_jail_are_refused(self):
-        for tool in ("browser", "browser_click", "cron_add", "schedule", "spawn_subagent", "memory", "wallet_send",
+        for tool in ("file_write", "edit", "apply_patch", "browser", "browser_click", "cron_add", "schedule", "spawn_subagent", "memory", "wallet_send",
                      "mcp_call", "composio", "install_skill", "*"):
             self.refused('    "grep",', f'    "grep",\n    "{tool}",')
 
@@ -77,7 +77,7 @@ class AgentTest(Tmp):
 
     def test_its_prompt_is_lean_and_built_as_it_is(self):
         text = SITTER.with_suffix(".md").read_text()
-        self.assertLess(len(text), 4500)
+        self.assertLess(len(text), 5000)
         self.assertIn("babysitter", prompts.TOOLED)
 
 
