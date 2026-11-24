@@ -269,7 +269,7 @@ class Filing(WantsCase):
     def test_hands_the_top_open_want_to_the_mind_through_the_guard(self):
         self.guard = lambda body: (0, {"ok": True, "text": body["text"] + "\n(checked)"})
         got = self.file()
-        self.assertEqual(got, {"ok": True, "filed": "w:m15", "note": "notes/inbox/want-w-m15.md"})
+        self.assertEqual(got, {"ok": True, "filed": "w:m15", "note": "notes/inbox/want-w-m15-3034fdee.md"})
         guard = self.guard_calls()
         self.assertEqual((len(guard), self.build_calls()), (1, []))
         self.assertEqual(guard[0][1], ["check"])
@@ -280,7 +280,7 @@ class Filing(WantsCase):
         self.assertIn(evolve_findings.scrub(M15, 600), brief)
         # the mind gets what the guard handed back, framed as its own words
         (note,) = list(self.inbox().iterdir())
-        self.assertEqual(note.name, "want-w-m15.md")
+        self.assertEqual(note.name, "want-w-m15-3034fdee.md")
         text = note.read_text()
         self.assertTrue(text.startswith("from: wants (bin/wants)\nwant: w:m15\n"), text)
         self.assertIn(brief + "\n(checked)", text)
@@ -288,12 +288,12 @@ class Filing(WantsCase):
         self.assertNotIn("builder", text)
         record = self.filed()
         self.assertEqual(len(record), 1)
-        self.assertEqual((record[0]["want"], record[0]["note"], record[0]["at"]), ("w:m15", "notes/inbox/want-w-m15.md", T0))
+        self.assertEqual((record[0]["want"], record[0]["note"], record[0]["at"]), ("w:m15", "notes/inbox/want-w-m15-3034fdee.md", T0))
         self.assertNotIn("request_id", record[0])
         self.assertEqual(record[0]["hash"], evolve.learning_hash(evolve_findings.scrub(M15, 600)))
         self.assertEqual(record[0]["text"], evolve_findings.scrub(M15, 600))
         got = self.standing()
-        self.assertEqual((got["state"], got["by"]), ("handed", "handed to the agentic mind (notes/inbox/want-w-m15.md)"))
+        self.assertEqual((got["state"], got["by"]), ("handed", "handed to the agentic mind (notes/inbox/want-w-m15-3034fdee.md)"))
         self.assertEqual(self.rows("SELECT count(*) FROM build_requests")[0][0], 0)
 
     def test_a_handed_want_is_not_handed_again_until_its_text_changes(self):
@@ -304,8 +304,8 @@ class Filing(WantsCase):
                                  "visibility, publish weekly maps. nothing like it exists yet."))
         self.assertEqual(self.file()["filed"], "w:m15")
         # one note per want: the new brief replaced the old one
-        self.assertEqual([p.name for p in self.inbox().iterdir()], ["want-w-m15.md"])
-        self.assertIn("reef survey", (self.inbox() / "want-w-m15.md").read_text())
+        self.assertEqual([p.name for p in self.inbox().iterdir()], ["want-w-m15-3034fdee.md"])
+        self.assertIn("reef survey", (self.inbox() / "want-w-m15-3034fdee.md").read_text())
         self.assertEqual(len(self.filed()), 2)
 
     def test_never_writes_through_a_link_the_mind_left(self):
@@ -316,7 +316,7 @@ class Filing(WantsCase):
         self.assertTrue(self.file()["filed"])
         self.assertEqual(list(outside.iterdir()), [])
         self.assertFalse(self.inbox().is_symlink())
-        self.assertTrue((self.inbox() / "want-w-m15.md").is_file())
+        self.assertTrue((self.inbox() / "want-w-m15-3034fdee.md").is_file())
 
     def test_no_open_want_files_nothing(self):
         self.page("# MEMORY.md\n\n## what i have decided\n\n- [m36] check first.\n")
@@ -367,7 +367,7 @@ class Filing(WantsCase):
         self.legacy()
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
-        self.assertEqual(self.file()["note"], "notes/inbox/want-w-m15.md")
+        self.assertEqual(self.file()["note"], "notes/inbox/want-w-m15-3034fdee.md")
         self.assertEqual(len(self.filed()), 2)
         got = self.standing()
         self.assertEqual((got["state"], got["tries"]), ("handed", 1))
