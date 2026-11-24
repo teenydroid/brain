@@ -26,7 +26,9 @@ body = json.loads(raw) if raw.strip() else None
 seen = {"hand": "gh", "argv": sys.argv[1:], "body": body, "dry_run": os.environ.get("DRY_RUN")}
 if isinstance(body, dict) and isinstance(body.get("workdir"), str):
     top = Path(body["workdir"])
-    seen["files"] = {str(p.relative_to(top)): p.read_text() for p in sorted(top.rglob("*")) if p.is_file()}
+    seen["files"] = {str(p.relative_to(top)): p.read_text() for p in sorted(top.rglob("*"))
+                     if p.is_file() and not p.is_symlink()}
+    seen["links"] = [[str(p.relative_to(top)), os.readlink(p)] for p in sorted(top.rglob("*")) if p.is_symlink()]
 with open(os.environ["FAKE_HANDS"], "a") as fh:
     fh.write(json.dumps(seen) + "\n")
 key = verb.upper().replace("-", "_")
@@ -235,7 +237,7 @@ class GhPushTest(GhCase):
             str(self.root / "secrets"): "inside your home",
             "work/out": "link",
             "work/out/": "link",
-            "work/linky": "work/linky/env",
+            "work/linky": "work/linky/env is a link out of the folder",
             ".": "a folder inside your home",
             "": "a folder inside your home",
             "work/nope": "no folder",
@@ -248,6 +250,21 @@ class GhPushTest(GhCase):
                 self.assertIn(said, out["reason"])
                 self.assertIn("teeny gh push '{\"workdir\": \"work/", out["reason"] + out.get("next", ""))
         self.assertEqual(self.staged(), [])
+
+    def test_a_link_inside_the_folder_goes_as_a_link_and_is_never_followed(self):
+        top = self.folder()
+        (top / "docs").symlink_to("README.md")
+        (top / "deep").mkdir()
+        (top / "deep" / "up").symlink_to("../src/main.py")
+        (top / "deep" / "out").symlink_to("../../../secrets")
+        self.start()
+        code, out = self.gh("push", self.PUSH)
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("work/tool/deep/out is a link out of the folder", out["reason"])
+        (top / "deep" / "out").unlink()
+        code, out = self.gh("push", self.PUSH)
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(sorted(self.staged()[0]["links"]), [["deep/up", "../src/main.py"], ["docs", "README.md"]])
 
     def test_a_file_holding_the_brokers_token_is_never_pushed(self):
         self.start()

@@ -964,7 +964,9 @@ class _Copy:
     to its parent with O_NOFOLLOW, so a link anywhere (the folder, a folder
     on the way, a file) is refused, never followed, and a link swapped in
     while it copies is found too. A .git at any depth is left out: the hand
-    pushes files, never a history or a config the mind wrote."""
+    pushes files, never a history or a config the mind wrote. A link that
+    stays inside the folder is copied as a link (its text, never followed);
+    one out of it is refused."""
 
     def __init__(self, rel: str) -> None:
         self.rel = rel
@@ -1015,8 +1017,16 @@ class _Copy:
             where = f"{shown}/{name}"
             found = os.stat(name, dir_fd=fd, follow_symlinks=False)
             if stat.S_ISLNK(found.st_mode):
-                raise Refused(f"{where} is a link: a push carries plain files only; put the file itself there "
-                              "or leave it out")
+                # A project's own link (docs -> README.md) goes as git keeps
+                # one, its text only: never followed here, and the hand
+                # refuses one the push adds or changes (gitpush.scan).
+                target = os.readlink(name, dir_fd=fd)
+                inside = os.path.normpath(os.path.join(os.path.dirname(where[len(self.rel) + 1:]), target))
+                if os.path.isabs(target) or inside == ".." or inside.startswith("../"):
+                    raise Refused(f"{where} is a link out of the folder: a push carries the folder's own files only; "
+                                  "put the file itself there or leave it out")
+                os.symlink(target, dest / name)
+                continue
             if stat.S_ISDIR(found.st_mode):
                 try:
                     sub = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
