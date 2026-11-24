@@ -422,6 +422,40 @@ class OpenPrTest(Scratch):
             actions.open_pr(self.body(head="evil:main"))
 
 
+class TheJudgeReadsEveryMindWriteTest(Scratch):
+    """The mind reaches every writing verb through bin/broker /gh, which runs
+    the hand as its command line does: the guard's model judge (whose lines
+    hold harassment of a private individual, a threat, doxxing) reads every
+    word of each, on the github surface. Only an operator script's own fixed
+    text skips it (`judge=False`), and no verb can ask for that."""
+
+    def test_every_writing_verb_asks_the_judge(self):
+        self.me()
+        self.gh.route("GET", "/search/issues", {"total_count": 0, "items": []})
+        self.gh.route("POST", "/repos/a/b/pulls", {"number": 1}, status=201)
+        self.gh.route("POST", "/repos/a/b/issues", {"number": 2}, status=201)
+        self.gh.route("POST", "/repos/a/b/issues/2/comments", {"id": 3}, status=201)
+        self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/x"}, status=201)
+        self.gh.route("GET", "/repos/a/b/pulls/2", {"number": 2, "user": {"login": "someone"}, "state": "open"})
+        self.remote("teenydroid/hello")
+        self.workdir()
+        seen = []
+
+        def guard(fields, **kw):
+            seen.append((kw["kind"], kw["surface"], kw["judge"]))
+            return SimpleNamespace(kind="allow", fields=dict(fields))
+
+        with mock.patch.object(actions, "check_fields", guard):
+            actions.open_pr({"repo": "a/b", "head": "x", "base": "main", "title": "t", "body": "b"})
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+            actions.comment({"repo": "a/b", "number": 2, "body": "b"})
+            actions.create_repo({"name": "x", "description": "d"})
+            actions.push({"workdir": "state/workbench/hello", "repo": "teenydroid/hello", "branch": "main",
+                          "message": "m"})
+        self.assertEqual(seen, [("pr", "github", True), ("issue", "github", True), ("comment", "github", True),
+                                ("repo", "github", True), ("commit", "github", True)])
+
+
 class CommentAndForkTest(Scratch):
     def test_comments_through_the_guard(self):
         self.gh.route("POST", "/repos/a/b/issues/4/comments", {"id": 9, "html_url": "u"}, status=201)
