@@ -11,8 +11,8 @@ same way (bin/lib/tick.py ROUTES and _send): each hand keeps its own guard,
 caps and DRY_RUN. The broker itself never talks to X, GitHub, mail or a
 wallet, and the only core RPCs it makes are the `mind.*` cron jobs below.
 
-Other jails share the loopback (the builder, which runs strangers' build
-requests, is jailed to state/workbench/), so every request carries a bearer
+Other jails share the loopback (a tool of the mind's under bin/box, the
+datajob sandbox), so every request carries a bearer
 token minted afresh at every start into state/home/.broker-token (0600), which
 only the mind's jail can read. A missing or wrong token is a 401, and the
 token is never written anywhere else.
@@ -82,6 +82,16 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
               comment passes the guard. Never merges, never reopens
 - /reviews    `{"pr": N}`: the review threads, verdicts and conversation of
               a pull request of Teeny's own, as data. Reads only
+- /gh         `{"verb", "args"?}`: one verb of hands/gh, which holds the
+              token, the guard, the owner rule, the secret scan, DISCLOSURE,
+              the AI-policy check and the caps on other people's projects
+              (GH_MAX_EXTERNAL_PRS_PER_DAY, GH_MAX_EXTERNAL_ISSUES_PER_DAY,
+              5 each), and rehearses itself. Every verb but `ingest` (the
+              gh-inbound job's). `push` takes a folder of state/home/: its
+              plain files are copied outside the jail and that copy is what
+              the hand pushes. Reads come back as data within a budget; a
+              refusal says the call to make instead (`next`). Never a push or
+              a pull request to Teeny's own repository: that is /pr
 
 The answer is `{"status": "ok" | "refused" | "error", ...}` with HTTP 200,
 403 or 500 (401 unauthorised, 404 no such path, 405 not POST), and each
@@ -282,7 +292,7 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
 
 #: The hands that rehearse themselves under DRY_RUN: they say what they
 #: would send and send nothing. Every other hand a route reaches writes for
-#: real whatever DRY_RUN says (hands/tasks, hands/build, hands/lab, ...), so
+#: real whatever DRY_RUN says (hands/tasks, hands/lab, ...), so
 #: in a rehearsal the broker does not run it.
 #: hands/rent rehearses through RentAHuman's own dry run and spends nothing.
 REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit", "rent"})
