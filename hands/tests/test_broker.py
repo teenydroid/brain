@@ -1818,5 +1818,33 @@ class NotesAppendTest(BrokerCase):
             self.assertIn(text, out)
 
 
+class NotesKeepTest(BrokerCase):
+    """The broker snapshots the mind's notes as it starts and every ten
+    minutes after (bin/lib/notes_keep.py, tested in test_notes_keep.py)."""
+
+    def test_serve_takes_a_snapshot_of_the_notes_at_start(self):
+        notes = self.home / "notes"
+        notes.mkdir(parents=True)
+        (notes / "JOURNAL.md").write_text("- an entry\n")
+        self.start()
+        copy = self.home / "notes" / ".keep"
+        deadline = time.monotonic() + 20
+        while not any(copy.glob("*/JOURNAL.md")):
+            self.assertLess(time.monotonic(), deadline, "no snapshot was taken")
+            time.sleep(0.05)
+        [kept] = copy.glob("*/JOURNAL.md")
+        self.assertEqual(kept.read_text(), "- an entry\n")
+
+    def test_keep_takes_one_by_hand_and_skips_an_unchanged_one(self):
+        self.settings()
+        self.assertEqual(self.broker("install").returncode, 0)
+        (self.home / "notes" / "TASKS.md").write_text("- a task\n")
+        proc = self.broker("keep")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["taken"].startswith("notes/.keep/2026"))
+        proc = self.broker("keep", env={"TEENY_NOW": str(T0 + 600)})
+        self.assertIsNone(json.loads(proc.stdout)["taken"])
+
+
 if __name__ == "__main__":
     unittest.main()
