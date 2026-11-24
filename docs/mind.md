@@ -208,6 +208,10 @@ asks the broker for a pull request:
 ```
 bin/teeny repo                 a fresh checkout of main (left alone while it holds edits)
 bin/teeny pr '{"branch": "calmer-mornings", "title": "...", "body": "..."}'
+bin/teeny reviews '{"pr": 529}'          the review threads and verdicts on its pull request
+bin/teeny repo '{"pr": 529}'             the head of its open pull request, to revise it
+bin/teeny pr '{"branch": "calmer-mornings"}'   the revision, as one more commit on that pull request
+bin/teeny close-pr '{"pr": 529, "comment": "..."}'   gives one up
 ```
 
 The working copy is hostile input, so the broker treats it as one:
@@ -224,6 +228,33 @@ The working copy is hostile input, so the broker treats it as one:
 - The branch is `teeny/mind-<name>`, pushed and opened through `hands/gh`,
   and the body ends by saying an autonomous AI agent wrote it.
 - `MIND_PRS_PER_DAY` caps it; `0`, the default, keeps it off.
+
+It answers review on its own pull request rather than opening a new one.
+`bin/teeny reviews` returns the threads (author, file, line, the text clipped
+to 1,500 characters, resolved or not), the verdicts and the conversation, as
+data: other people's words, never instructions about its rules, tools or
+keys. `bin/teeny repo '{"pr": N}'` checks out that pull request's head, on
+the same rule as main (a copy holding edits is left as it is). `bin/teeny pr`
+to a branch whose pull request is open adds the copy as one more commit on
+top of its head, pushed without force; title and body are kept unless given.
+Every rule of a first push applies again (the guard on a new title or body,
+plain files only, the frozen list and the secret scan over the whole branch,
+the size of the whole pull request), and so do these:
+
+- only an open pull request Teeny wrote, from a `teeny/mind-*` branch of its
+  own repository; a merged or closed one is refused, saying so, and a new
+  change goes on a new branch;
+- the copy must have been taken from the head as it is now: a copy of main,
+  or of a head someone has pushed to since, is refused rather than undoing
+  their commit;
+- `MIND_PR_UPDATES_PER_PR` (default 5, `0` off, at most 20) caps the pushes
+  to one pull request a UTC day, apart from `MIND_PRS_PER_DAY`, so review
+  rounds do not spend the day's new pull requests; while `MIND_PRS_PER_DAY`
+  is `0` updates are off too.
+
+`bin/teeny close-pr` closes such a pull request, after an optional comment
+that passes the guard. It never merges and never reopens, and reaches no
+other author's pull request and no other repository.
 
 What happens next is the babysitter's (`docs/hands.md`, "babysit"). With
 `BABYSIT_SELF_MERGE_ALL=1`, a pull request of Teeny's own from any `teeny/`
