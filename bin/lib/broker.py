@@ -96,6 +96,8 @@ import json
 import os
 import re
 import secrets
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -979,8 +981,6 @@ class _Copy:
         self.dest = Path(tempfile.mkdtemp(prefix="push-", dir=base))
 
     def close(self) -> None:
-        import shutil
-
         shutil.rmtree(self.dest, ignore_errors=True)
 
     def run(self) -> Path:
@@ -1134,7 +1134,11 @@ def gh(body: Json, entry: Json) -> Json:
     rel = _home_rel(args["workdir"])
     copy = _Copy(rel)
     try:
-        staged = copy.run()
+        try:
+            staged = copy.run()
+        except Refused as exc:
+            said = str(exc)
+            raise Refused(said if GH_EXAMPLES["push"] in said else f"{said}; then: {GH_EXAMPLES['push']}") from None
         answer = _hand_answer(*tick._run_hand("gh", ["push"], {**args, "workdir": str(staged)}), entry)
     finally:
         copy.close()
