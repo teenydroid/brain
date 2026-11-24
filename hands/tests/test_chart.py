@@ -123,6 +123,10 @@ class ChartTest(unittest.TestCase):
         self.assertEqual(out["high"], 1.9)
         self.assertEqual(out["low"], 0.9)
 
+    def test_path_for_is_unique_per_read_even_within_one_second(self) -> None:
+        paths = {render.path_for("tiny", 7) for _ in range(20)}
+        self.assertEqual(len(paths), 20)
+
     def test_render_refuses_without_candles(self) -> None:
         with self.assertRaises(hand.Refused):
             render.render([], render.path_for("tiny", 7))

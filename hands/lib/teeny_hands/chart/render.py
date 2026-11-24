@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import struct
+import uuid
 import zlib
 from pathlib import Path
 from typing import Any
@@ -92,12 +93,12 @@ def path_for(coin: str, days: int) -> Path:
     """Where the PNG for `coin` over `days` goes.
 
     state/media/chart/, the folder `hands/x upload` accepts, so the PNG a post
-    quotes can be attached. One file per read (suffix = hand.now()): a later
+    quotes can be attached. One file per read (suffix = hand.now() plus a random token, so same-second and pinned-clock reads still differ): a later
     read never overwrites a chart an earlier caller still holds.
     """
     directory = hand.state_dir() / "media" / "chart"
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{coin}-{int(days)}d-{int(hand.now())}.png"
+    return directory / f"{coin}-{int(days)}d-{int(hand.now())}-{uuid.uuid4().hex[:8]}.png"
 
 
 def render(candles: list[tuple], path: Path) -> dict[str, Any]:
