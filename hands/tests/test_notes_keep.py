@@ -315,5 +315,37 @@ class ReviewFindingsTest(KeepCase):
         self.assertIn(stamp(T0), self.stamps())
 
 
+class SecondReviewTest(KeepCase):
+    """The second review of #545."""
+
+    def test_a_notes_file_left_out_for_its_size_is_not_reported_gone(self):
+        # A fixed file that is still there but not copied (over MAX_FILE, or
+        # a link) is no loss: it is listed in skipped_files and raises no
+        # alert. Only a file absent from notes/ is "gone".
+        self.journal(40)
+        notes_keep.snapshot()
+        self.at(T0 + 600)
+        (self.notes / "JOURNAL.md").write_text("x" * (notes_keep.MAX_FILE + 1))
+        out = notes_keep.snapshot()
+        self.assertIn("JOURNAL.md", out["skipped_files"])
+        self.assertEqual((out["shrunk"], notes_keep.alerts()), ([], []))
+        self.assertFalse((self.notes / "inbox" / "keep-JOURNAL.md").exists())
+
+    def test_the_notes_are_read_only_under_the_lock(self):
+        import fcntl
+        self.journal(3)
+        notes_keep.snapshot()
+        fd = os.open(self.keep, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with mock.patch.object(notes_keep, "_read_folder", wraps=notes_keep._read_folder) as read:
+                out = notes_keep.snapshot()
+            self.assertTrue(out["busy"])
+            self.assertEqual(read.call_count, 0, "a reading taken before the lock could be stale by the time it is used")
+            self.assertEqual(out["skipped_files"], [])
+        finally:
+            os.close(fd)
+
+
 if __name__ == "__main__":
     unittest.main()

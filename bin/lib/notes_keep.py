@@ -269,10 +269,14 @@ def _inbox(alert: Json) -> None:
     mind_home.write((NOTES, "inbox"), f"keep-{alert['file']}", text, 0o644)
 
 
-def _shrunk(before: dict[str, str], now: dict[str, str], prev: str, t: float) -> list[Json]:
+def _shrunk(before: dict[str, str], now: dict[str, str], excluded: list[str], prev: str, t: float) -> list[Json]:
+    """The fixed files lost since snapshot PREV: JOURNAL.md shorter by more
+    than SHRINK_LINES, or any of them absent from notes/. A file still there
+    but left out of the copy (EXCLUDED: over MAX_FILE, a link, a hard link)
+    is no loss and raises nothing; snapshot() lists it in skipped_files."""
     found = []
     for name in FIXED:
-        if name not in before:
+        if name not in before or name in excluded:
             continue
         was, cur = _lines(before[name]), _lines(now.get(name, ""))
         vanished = name not in now
@@ -327,19 +331,22 @@ def snapshot() -> Json:
     the shortened snapshot becomes the newest, and its inbox note is retried
     at every run until it is written."""
     t = hand.now()
-    notes = _notes_fd()
-    try:
-        current, skipped = _read_folder(notes)
-    finally:
-        os.close(notes)
     keep = _keep_fd()
-    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": skipped, "busy": False}
+    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": [], "busy": False}
     try:
         try:
             fcntl.flock(keep, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             out["busy"] = True
             return out
+        # Read under the lock: a reading taken before it could predate
+        # another run's snapshot and close that run's alert.
+        notes = _notes_fd()
+        try:
+            current, skipped = _read_folder(notes)
+        finally:
+            os.close(notes)
+        out["skipped_files"] = skipped
         for name in os.listdir(keep):
             if name.startswith(PARTIAL):
                 _remove(keep, name)  # an interrupted snapshot: no other run holds the lock
@@ -359,7 +366,7 @@ def snapshot() -> Json:
             out["unchanged_since"] = f"{NOTES}/{KEEP}/{prev}"
         elif prev is not None:
             have = {a["file"] for a in open_alerts}
-            for alert in _shrunk(before, current, prev, t):
+            for alert in _shrunk(before, current, skipped, prev, t):
                 if alert["file"] in have:  # the first full copy is the one to keep
                     continue
                 alert["notified"] = False
