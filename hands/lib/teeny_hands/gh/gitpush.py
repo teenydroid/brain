@@ -186,10 +186,27 @@ def scan_branch(git_dir: Path, since: str, ref: str) -> list[dict[str, str]]:
     return [item.as_dict() for item in findings]
 
 
-def push_ref(git_dir: Path, owner: str, name: str, ref: str, token: str, user: str) -> str:
+def push_ref(git_dir: Path, owner: str, name: str, ref: str, token: str, user: str,
+             expect: str | None = None) -> str:
     """Pushes the branch REF to the same branch on owner/name. Never forces.
-    Returns the commit."""
+    With EXPECT (a commit the pushed one descends from), the push lands only
+    while the remote branch is still exactly EXPECT (git's lease): a branch
+    rewound or moved since it was read is refused, never overwritten, and
+    since the commit descends from EXPECT the push is always a fast-forward
+    of it. Returns the commit."""
     sha = head_of(git_dir, ref)
-    _git_dir(git_dir, "push", "-q", remote_url(owner, name), f"refs/heads/{ref}:refs/heads/{ref}", token=token,
-             user=user)
+    lease: tuple[str, ...] = ()
+    if expect is not None:
+        if _git_dir(git_dir, "merge-base", "--is-ancestor", expect, sha, check=False).returncode != 0:
+            raise hand.HandError(f"{ref} does not descend from {expect}: that push would rewrite the branch")
+        lease = (f"--force-with-lease=refs/heads/{ref}:{expect}",)
+    try:
+        _git_dir(git_dir, "push", "-q", *lease, remote_url(owner, name), f"refs/heads/{ref}:refs/heads/{ref}",
+                 token=token, user=user)
+    except hand.HandError as exc:
+        # A refused ref (the lease, or a ref that moved) says "failed to push
+        # some refs"; a network or auth failure says something else.
+        if expect is not None and any(w in str(exc) for w in ("stale info", "rejected", "failed to push some refs")):
+            raise hand.Refused(f"{ref} moved on GitHub since it was read; nothing was pushed", rule="moved") from None
+        raise
     return sha

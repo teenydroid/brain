@@ -283,6 +283,8 @@ REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit
 #: What the mind reads when its intent was filed for the studio, not sent.
 PITCH_MESSAGE = ("filed as a pitch for the studio (STUDIO=1), not posted: the studio decides at its next slot "
                  "whether anything comes of it")
+PITCH_AGAIN = ("already filed as a pitch for the studio (STUDIO=1) with the same words, not posted and not filed "
+               "twice: the studio decides at its next slot whether anything comes of it")
 PITCH_REHEARSED = ("would be filed as a pitch for the studio (STUDIO=1), not posted; this is a rehearsal, so "
                    "nothing was filed")
 
@@ -298,7 +300,11 @@ def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
     """An answer for a pitch says in plain words that nothing was posted,
     and its ledger line records it."""
     if answer.get("status") == "ok" and _filed_pitch(name, hand_body):
-        if hand.dry_run():
+        result = answer.get("result") if isinstance(answer.get("result"), dict) else {}
+        if not hand.dry_run() and result.get("added") is False:
+            answer["filed"] = entry["filed"] = "studio_pitch_already_filed"
+            answer["message"] = entry["message"] = PITCH_AGAIN
+        elif hand.dry_run():
             answer["would_file"] = "studio_pitch"
             entry["filed"] = "studio_pitch (rehearsed: not filed)"
             answer["message"] = entry["message"] = PITCH_REHEARSED
@@ -616,8 +622,19 @@ def _updates_today() -> Json:
     return {"day": day, "counts": {}}
 
 
-def _count_update(number: Any) -> None:
+def _count_update(number: Any, day: str | None = None) -> None:
+    """One update to NUMBER, charged to DAY (the UTC day its allowance was
+    checked; today when not given), never to a later day's allowance."""
     today = _updates_today()
+    if day is not None and day != today["day"]:
+        try:
+            saved = json.loads(_updates_path().read_text())
+        except (OSError, ValueError):
+            saved = None
+        if isinstance(saved, dict) and str(saved.get("day", "")) > day:
+            return  # a later day is already counting: this one is past
+        ok = isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("counts"), dict)
+        today = saved if ok else {"day": day, "counts": {}}
     today["counts"][str(number)] = int(today["counts"].get(str(number), 0)) + 1
     path = _updates_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -653,7 +670,10 @@ def pr(body: Json, entry: Json) -> Json:
         raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
     updates = hand.number("MIND_PR_UPDATES_PER_PR", DEFAULT_PR_UPDATES, 0, MAX_PR_UPDATES)
 
+    checked: Json = {}
+
     def allow(kind: str, number: int | None) -> None:
+        checked["day"] = _updates_today()["day"]
         if kind == "open" and _prs_today()["count"] >= limit:
             raise hand.Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
         if kind == "update" and updates == 0:
@@ -664,7 +684,7 @@ def pr(body: Json, entry: Json) -> Json:
     out = _clone_call(lambda: mindclone.ship(body["branch"], body.get("title"), body.get("body"), allow=allow))
     if not out.get("dry_run"):
         if out.get("updated"):
-            _count_update(out["number"])
+            _count_update(out["number"], checked.get("day"))
         else:
             _count_pr()
     return {"status": "ok", **out}
@@ -677,7 +697,10 @@ def repo(body: Json, entry: Json) -> Json:
     one): its path and the head."""
     entry["verb"] = "repo"
     entry["intent"] = _clipped(body)
-    _fields(body, ("pr", "branch"), (), 'a copy is {} for main, or {"pr": N} or {"branch"} for your open pull request')
+    shape = 'a copy is {} for main, or {"pr": N} or {"branch"} for your open pull request'
+    _fields(body, ("pr", "branch"), (), shape)
+    if len(body) > 1 or any(v is None for v in body.values()):
+        raise Refused(shape + ": one of them, not null")
     return {"status": "ok", **_clone_call(lambda: mindclone.prepare(pr=body.get("pr"), branch=body.get("branch")))}
 
 

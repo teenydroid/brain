@@ -244,12 +244,15 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"pushed": repo, "branch": ref, "commit": sha}
 
 
-def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None) -> Json:
+def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None,
+                expect: str | None = None) -> Json:
     """Pushes BRANCH of the clone whose git directory is GIT_DIR (under
     state/) to the same branch of an own repository, for a pull request. Only
     a teeny/* branch, never forced, and refused when what it adds to SINCE
     looks like a secret. In-process only (Teeny's own clone,
-    teeny_hands.build.selfclone): no verb takes a git directory."""
+    teeny_hands.build.selfclone): no verb takes a git directory. EXPECT, the
+    branch's head as the caller read it, makes the push land only while the
+    branch is still there (gitpush.push_ref)."""
     owner, name = split_repo(repo)
     repo = f"{owner}/{name}"
     if not is_own(owner):
@@ -268,7 +271,7 @@ def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: Git
     gh = gh or GitHubApi.from_settings()
     login = _own_identity(gh)
     with hand.lock(f"gh-push-{name.lower()}"):
-        sha = gitpush.push_ref(path, owner, name, ref, hand.require("GITHUB_TOKEN"), login)
+        sha = gitpush.push_ref(path, owner, name, ref, hand.require("GITHUB_TOKEN"), login, expect=expect)
     _record("push", repo, False, sha, branch=ref)
     return {"pushed": repo, "branch": ref, "commit": sha}
 

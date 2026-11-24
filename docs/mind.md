@@ -264,7 +264,10 @@ in `edit_refused`. And these hold too:
   change goes on a new branch;
 - the copy must have been taken from the head as it is now: a copy of main,
   or of a head someone has pushed to since, is refused rather than undoing
-  their commit;
+  their commit, and the push itself lands only while the branch is still
+  exactly that head (git's lease; the new commit is its child, so it is
+  always a fast-forward), so a branch rewound or moved mid-push is never
+  overwritten;
 - `MIND_PR_UPDATES_PER_PR` (default 5, `0` off, at most 20) caps the pushes
   to one pull request a UTC day, apart from `MIND_PRS_PER_DAY`, so review
   rounds do not spend the day's new pull requests; while `MIND_PRS_PER_DAY`

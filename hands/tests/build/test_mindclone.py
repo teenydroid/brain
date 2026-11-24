@@ -545,6 +545,21 @@ class PreparePrTest(ReviseCase):
         self.assertFalse((self.tree / ".git").exists())
         self.assertEqual(mindclone.prepare(branch="fix-morning-post")["state"], "current")
 
+    def test_a_branch_head_that_is_not_the_one_github_named_is_not_checked_out(self):
+        self.open_first()
+        self.github_has(sha="0" * 40)  # GitHub's record names another head than the branch now has
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.prepare(pr=9)
+        self.assertEqual(caught.exception.detail["rule"], "moved")
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nsmall and kind\n", "tree unchanged")
+
+    def test_the_open_pull_request_into_main_is_found_past_older_ones_on_the_branch(self):
+        first = self.open_first()
+        older = [{k: v for k, v in raw_pr(number=n, sha=first, state="closed", base="other").items() if k != "merged"}
+                 for n in range(100, 110)]
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls", older, when=lambda seen: seen.query.get("state") == "all")
+        self.assertEqual(mindclone.prepare(branch="fix-morning-post")["number"], 9)
+
     def test_a_tree_holding_edits_is_kept_as_it_is(self):
         self.open_first()
         self.edit({"brain/SOUL.md": "unshipped\n"})
@@ -766,6 +781,57 @@ class UpdateTest(ReviseCase):
         mindclone.prepare(pr=9)
         self.edit({"brain/SOUL.md": "# soul\nagain\n"})
         self.assertEqual(self.update()["number"], 9)
+
+    def test_a_pull_request_left_empty_against_its_merge_base_is_refused(self):
+        self.open_first()
+        self.upstream({"brain/unrelated.md": "main moved\n"}, "main moves on")
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nsmall and kind\n"})  # undoes the pull request's only change
+        refused = self.update_refused()
+        self.assertIn("close #9", refused.reason)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+
+    def test_a_branch_rewound_between_the_checks_and_the_push_is_not_pushed(self):
+        first = self.open_first()
+        main = self.origin_ref("main")
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+        real = mindclone._check_branch
+
+        def rewind_then_check(branch):
+            # an operator rewinds the branch after the mind's checks read it
+            git("--git-dir", str(self.origin), "update-ref", f"refs/heads/{BRANCH}", main, first)
+            return real(branch)
+
+        with mock.patch.object(mindclone, "_check_branch", rewind_then_check):
+            refused = self.update_refused()
+        self.assertEqual(refused.detail["rule"], "moved")
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), main, "the rewind stands")
+
+    def test_a_pushed_update_whose_fresh_checkout_fails_is_still_an_update(self):
+        first = self.open_first()
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+
+        def broken(*args, **kw):
+            raise hand.HandError("could not put a fresh checkout at state/home/repo")
+
+        with mock.patch.object(mindclone, "_fresh", broken):
+            out = self.update()
+        self.assertEqual((out["updated"], out["commit"]), (True, self.origin_ref(f"refs/heads/{BRANCH}")))
+        self.assertNotEqual(out["commit"], first)
+        self.assertIn("fresh checkout", out["refresh_failed"])
+
+    def test_a_spent_opening_allowance_leaves_a_pull_request_checkout_alone(self):
+        self.open_first()
+        mindclone.prepare(pr=9)
+
+        def spent(kind, number):
+            raise hand.Refused("spent")
+
+        with self.assertRaises(hand.Refused):
+            mindclone.ship("another-change", "t", "b", allow=spent)
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "# soul\nsmall, kind, brief\n")
 
     def test_under_dry_run_an_update_pushes_and_edits_nothing(self):
         first = self.open_first()

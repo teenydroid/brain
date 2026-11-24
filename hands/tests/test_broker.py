@@ -34,6 +34,8 @@ if (name, verb) == ("guard", "clarity"):
     print(os.environ.get("FAKE_CLARITY") or json.dumps({"ok": True, "clear": True})); sys.exit(0)
 if (name, verb) == ("guard", "check"):
     print(json.dumps({"ok": True, "text": json.loads(body).get("text", "")})); sys.exit(0)
+if os.environ.get("FAKE_OUT_" + name.upper()):
+    print(os.environ["FAKE_OUT_" + name.upper()]); sys.exit(0)
 if (name, verb) == ("goals", "list"):
     print(json.dumps({"ok": True, "goals": [{"id": 1, "title": "be famous"}]})); sys.exit(0)
 code = int(os.environ.get("FAKE_EXIT_" + name.upper(), "0"))
@@ -417,6 +419,13 @@ class StudioPitchTest(BrokerCase):
         line = self.ledger()[-1]
         self.assertEqual((line["filed"], line["verb"]), ("studio_pitch", "post_x"))
         self.assertIn("not posted", line["message"])
+
+    def test_the_same_pitch_filed_again_is_said_to_be_already_filed(self):
+        self.start(STUDIO="1", env={"FAKE_OUT_STIMULI": json.dumps({"ok": True, "added": False})})
+        code, out = self.post("/do", {"do": "post_x", "text": "a thought about the news"})
+        self.assertEqual((code, out["status"], out["filed"]), (200, "ok", "studio_pitch_already_filed"), out)
+        self.assertIn("already", out["message"])
+        self.assertIn("not posted", out["message"])
 
     def test_a_rehearsed_post_x_while_the_studio_is_on_says_it_would_be_a_pitch(self):
         self.start(STUDIO="1", MIND_DRY_RUN=None)
@@ -1510,6 +1519,7 @@ class PullRequestUpdateTest(RevisionCase):
         self.assertEqual(len(self.opened()), 1)
         self.assertEqual(self.prs_today(), {"day": "2026-09-14", "count": 1}, "not a new pull request")
         self.assertEqual(self.updates_today(), {"day": "2026-09-14", "counts": {"3": 1}})
+        self.github_has(sha=head)
         code, out = self.revised("# soul\nbriefest\n")
         self.assertEqual((code, out["status"]), (403, "refused"))
         self.assertIn("MIND_PR_UPDATES_PER_PR", out["reason"])
@@ -1525,6 +1535,20 @@ class PullRequestUpdateTest(RevisionCase):
         self.assertIn("422", out["edit_refused"])
         self.assertEqual(self.branch_on_origin("fix-morning-post"), out["commit"])
         self.assertEqual(self.updates_today()["counts"], {"3": 1})
+
+    def test_an_update_is_charged_to_the_day_its_allowance_was_checked(self):
+        import importlib
+        import sys
+        from unittest import mock
+
+        self.settings()
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        with mock.patch.dict(os.environ, {"TEENY_ROOT": str(self.root), "TEENY_NOW": str(T0 + 86400)}):
+            broker = importlib.import_module("broker")
+            broker.hand._ENV_CACHE = None
+            broker._count_update(3, "2026-09-14")  # checked just before midnight, counted just after
+            self.assertEqual(broker._updates_today(), {"day": "2026-09-15", "counts": {}}, "today's are untouched")
+            self.assertEqual(self.updates_today(), {"day": "2026-09-14", "counts": {"3": 1}})
 
     def test_updates_are_on_by_default_and_0_turns_them_off(self):
         self.opened_first(MIND_PR_UPDATES_PER_PR="0")
@@ -1552,7 +1576,8 @@ class RepoFromPullRequestTest(RevisionCase):
         code, out = self.post("/repo", {"pr": 4})
         self.assertEqual((code, out["status"]), (403, "refused"))
         self.assertIn("somebody", out["reason"])
-        for body in ({"pr": 3, "base": "x"}, {"pr": "3"}, {"pr": 3, "branch": "fix-morning-post"}):
+        for body in ({"pr": 3, "base": "x"}, {"pr": "3"}, {"pr": 3, "branch": "fix-morning-post"}, {"pr": None},
+                     {"branch": None}, {"pr": None, "branch": "fix-morning-post"}):
             code, out = self.post("/repo", body)
             self.assertEqual((code, out["status"]), (403, "refused"), body)
         self.assertEqual(self.ledger()[-1]["verb"], "repo")

@@ -286,6 +286,7 @@ def prepare(pr: Any = None, branch: Any = None, gh: Any = None) -> Json:
         head = _rev(f"refs/remotes/origin/{head_branch}")
         if head is None:
             raise hand.Refused(f"{head_branch} is not on GitHub any more", rule="not_found")
+        _same_head(found, head)
         current = _rev("HEAD")
         kept: list[str] = []
         if _tree_kind() == "missing" or current is None:
@@ -343,13 +344,29 @@ def _pr_by_branch(gh: Any, branch: str) -> Json | None:
     from ..gh.client import is_own
 
     owner, name = split_repo(selfclone.repo())
-    found = [p for p in gh.pulls(owner, name, f"{user()}:{branch}") if p.get("head_ref") == branch]
+    head = f"{user()}:{branch}"
+    # The open one into main first: a page of every state can be filled by
+    # older pull requests from the same branch.
+    opened = [p for p in gh.pulls(owner, name, head, state="open", base=BASE) if p.get("head_ref") == branch
+              and isinstance(p.get("user"), str) and is_own(p["user"]) and p.get("base") == BASE]
+    if opened:
+        return opened[0]
+    found = [p for p in gh.pulls(owner, name, head) if p.get("head_ref") == branch]
     # Anybody can open a pull request from this branch into any base: only
     # Teeny's own into main stands for it. With none, the first found is
     # returned, so the refusal names whose it is.
     own = [p for p in found if isinstance(p.get("user"), str) and is_own(p["user"]) and p.get("base") == BASE]
     pool = own or found
     return next((p for p in pool if p.get("state") == "open"), pool[0] if pool else None)
+
+
+def _same_head(found: Json, head: str) -> None:
+    """Refuses when the branch fetched is not the head GitHub named for the
+    pull request just checked: it moved in between, and what was checked is
+    not what would be used."""
+    named = found.get("head_sha")
+    if isinstance(named, str) and named and named != head:
+        raise hand.Refused(f"#{found.get('number')}'s branch moved while it was read: ask again", rule="moved")
 
 
 def _own_mind_pr(found: Json) -> str:
@@ -593,14 +610,15 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
         if title is None or body is None:
             raise hand.Refused(f"a new pull request needs a title (1 to {MAX_TITLE} characters) and a body (1 to "
                                f"{MAX_BODY}); only an update to an open one may leave them out", rule="title")
+        if allow is not None:
+            # Before the copy is touched: a spent allowance changes nothing.
+            allow("open", None)
         _settle(origin)
         head = _rev("HEAD")
         if head is not None and not _is_ancestor(head, origin):
             other = _branch_at(head) or "a pull request's head"
             raise hand.Refused(f"your copy was taken from {other}, not from {BASE}: send it to that branch, or "
                                "delete repo/ and run bin/teeny repo for a fresh copy", rule="base")
-        if allow is not None:
-            allow("open", None)
         fields = _guarded({"title": title, "body": body}, branch)
         _no_git_inside()
         commit = _commit(fields["title"])
@@ -659,6 +677,7 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     _own_mind_pr(found)
     number = found["number"]
     remote = _rev(f"refs/remotes/origin/{branch}")
+    _same_head(found, remote)
     head = _rev("HEAD")
     take = f"bin/teeny repo '{{\"pr\": {number}}}'"
     if _tree_kind() == "missing" or head is None:
@@ -680,10 +699,11 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     files = _changed("HEAD", commit)
     if not files:
         raise hand.Refused(f"nothing changed against #{number}'s head", rule="empty")
-    if not _changed(origin, commit):
-        raise hand.Refused(f"nothing would be left against origin/main: close #{number} instead", rule="empty")
     since = _bare("merge-base", ORIGIN_BASE, commit).stdout.decode().strip()
-    _within_limits(since, commit, _changed(since, commit))
+    whole = _changed(since, commit)
+    if not whole:
+        raise hand.Refused(f"nothing would be left in the pull request: close #{number} instead", rule="empty")
+    _within_limits(since, commit, whole)
     _only_plain_files(commit)
     edit = {"repo": full, "number": number, **fields}
     if "body" in edit:
@@ -692,10 +712,11 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     pushed: Json = {}
     edited: Json = {}
     edit_refused: str | None = None
+    refresh_failed: str | None = None
     kept: list[str] = []
     try:
         _check_branch(branch)
-        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
+        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh, expect=remote)
         if given:
             try:
                 edited = actions.edit_pr(edit, gh=gh)
@@ -706,7 +727,10 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
                 edit_refused = (exc.reason if isinstance(exc, hand.Refused) else str(exc))[:300]
     finally:
         if pushed and not pushed.get("dry_run"):
-            kept = _fresh(origin, commit)
+            try:
+                kept = _fresh(origin, commit)
+            except Exception as exc:  # noqa: BLE001 - the commit is live: an update, whatever the copy did
+                refresh_failed = f"{type(exc).__name__}: {exc}"[:300]
         else:
             _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
     if pushed.get("dry_run"):
@@ -718,6 +742,9 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     if edit_refused is not None:
         out["edit_refused"] = ("the commit is pushed, but the pull request's title and body were not changed: "
                                + edit_refused)
+    if refresh_failed is not None:
+        out["refresh_failed"] = ("the commit is pushed, but your copy could not be put back at main: " + refresh_failed
+                                 + "; run bin/teeny repo (delete repo/ first if it is left half-made)")
     return _with_kept(out, kept)
 
 

@@ -212,12 +212,15 @@ def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | N
     def kept_threads(resolved: bool) -> list[Json]:
         out = []
         for thread in (t for t in threads if t["resolved"] is resolved):
-            said = [c for c in thread["comments"] if fits(c)]
-            omitted["thread_comments"] += len(thread["comments"]) - len(said)
-            if said:
-                out.append({**thread, "comments": said})
-            else:
+            # A reply means nothing without the finding it answers: a thread
+            # whose opening comment does not fit is left out whole.
+            if not thread["comments"] or not fits(thread["comments"][0]):
                 omitted["threads"] += 1
+                omitted["thread_comments"] += len(thread["comments"])
+                continue
+            said = [thread["comments"][0], *(c for c in thread["comments"][1:] if fits(c))]
+            omitted["thread_comments"] += len(thread["comments"]) - len(said)
+            out.append({**thread, "comments": said})
         return out
 
     open_kept = kept_threads(False)

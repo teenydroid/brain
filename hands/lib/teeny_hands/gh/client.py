@@ -166,10 +166,14 @@ class GitHubApi:
             raise
         return to_pr(got)
 
-    def pulls(self, owner: str, name: str, head: str, state: str = "all", max_results: int = 10) -> list[Json]:
-        """The pull requests on owner/name from HEAD (`owner:branch`), newest first."""
-        got = self.call("GET", self._path("repos", owner, name, "pulls"),
-                        [("head", head), ("state", state), ("per_page", str(max_results))])
+    def pulls(self, owner: str, name: str, head: str, state: str = "all", max_results: int = 10,
+              base: str | None = None) -> list[Json]:
+        """The pull requests on owner/name from HEAD (`owner:branch`), into
+        BASE when given, newest first."""
+        query = [("head", head), ("state", state), ("per_page", str(max_results))]
+        if base is not None:
+            query.append(("base", base))
+        got = self.call("GET", self._path("repos", owner, name, "pulls"), query)
         return [to_pr(item) for item in (got if isinstance(got, list) else []) if isinstance(item, Mapping)]
 
     def graphql(self, query: str, variables: Mapping[str, Any]) -> Json:
