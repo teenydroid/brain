@@ -469,16 +469,23 @@ def _named(sent: Any, origin: str) -> Any:
         f"refs/remotes/origin/{MIND_BRANCH_PREFIX}{slug}") is not None
     if on_github(sent):
         return sent
-    copy = _copy_branch(origin)
+    head = _rev("HEAD")
+    from_branch = head is not None and not _is_ancestor(head, origin)
+
+    def is_copy(slug: str) -> bool:
+        # The copy was taken from this very branch: its head on GitHub is the
+        # copy's, whatever other branch shares that commit.
+        return from_branch and _rev(f"refs/remotes/origin/{MIND_BRANCH_PREFIX}{slug}") == head
+
     for prefix in (*SENT_PREFIXES, "mind-"):
         rest = sent[len(prefix):] if sent.startswith(prefix) else None
         if rest is None or not SLUG.fullmatch(rest):
             continue
         if prefix == "mind-":
             # A slug may start with mind-: read it so only for the copy's own branch.
-            if copy == MIND_BRANCH_PREFIX + rest:
+            if is_copy(rest):
                 return rest
-        elif on_github(rest) or copy == MIND_BRANCH_PREFIX + rest:
+        elif on_github(rest) or is_copy(rest):
             return rest
     return sent
 
@@ -673,7 +680,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
             if slug is not None and _named(slug, origin) != _slug_of(branch):
                 raise hand.Refused(f"#{number} is on {branch}, not the branch you named: send {{\"pr\": {number}}} "
                                    "alone, or the branch alone", rule="disagree")
-            return _update(branch, title, body, origin, gh, allow)
+            return _update(branch, title, body, origin, gh, allow, expect=number)
         branch = _branch(_named(slug, origin))
         if _rev(f"refs/remotes/origin/{branch}") is not None:
             return _update(branch, title, body, origin, _client(gh), allow)
@@ -737,7 +744,8 @@ def _with_kept(out: Json, kept: list[str]) -> Json:
     return out
 
 
-def _update(branch: str, title: str | None, body: str | None, origin: str, gh: Any, allow: Allow | None) -> Json:
+def _update(branch: str, title: str | None, body: str | None, origin: str, gh: Any, allow: Allow | None,
+            expect: int | None = None) -> Json:
     """The tree as one more commit on BRANCH, whose open pull request is
     Teeny's own: a plain commit whose parent is the branch's head, pushed
     without force, after the same rules as a first push (the guard on a new
@@ -753,6 +761,10 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
         raise hand.Refused(f"{branch} is on GitHub but has no pull request: pick another name", rule="branch_taken")
     _own_mind_pr(found)
     number = found["number"]
+    if expect is not None and number != expect:
+        # Named by number: never another pull request that took over the branch.
+        raise hand.Refused(f"#{expect} is no longer the open pull request from {branch}: send {{\"pr\": {number}}} "
+                           f"to update #{number}", rule="moved")
     remote = _rev(f"refs/remotes/origin/{branch}")
     _same_head(found, remote)
     head = _rev("HEAD")

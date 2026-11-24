@@ -913,6 +913,43 @@ class SelectorTest(ReviseCase):
                 self.assertTrue(caught.exception.reason.endswith("send it there: " + self.CALL), caught.exception.reason)
                 self.assertIn(f"your copy was taken from {BRANCH}", caught.exception.reason)
 
+    def test_a_mind_prefixed_slug_reaches_the_copys_branch_when_another_branch_shares_its_commit(self):
+        self.revise()
+        # another branch of the mind's at the same commit, sorting before it
+        git("--git-dir", str(self.origin), "update-ref", "refs/heads/teeny/mind-alpha", self.first)
+        self.assertEqual(mindclone.ship("mind-fix-morning-post", None, None)["number"], 9)
+
+    def test_a_numbered_update_never_reaches_another_pull_request_on_the_same_branch(self):
+        self.revise()
+        # #9 is still open by number, but the branch's open pull request is now #12
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls",
+                      [{k: v for k, v in raw_pr(number=12, sha=self.first).items() if k != "merged"}])
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.ship(None, "t", "b", pr=9)
+        self.assertIn('{"pr": 12}', caught.exception.reason)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+        self.assertEqual(self.patches(12), [])
+
+    def test_a_malformed_branch_reaches_no_git_command(self):
+        self.revise()
+        seen = []
+        real = mindclone.git.run
+
+        def recording(cwd, *args, **kw):
+            seen.append(" ".join(map(str, args)))
+            return real(cwd, *args, **kw)
+
+        hostile = ("--upload-pack=touch /tmp/x", "a b", "../main", "x..y", "-x", "a;rm -rf ~", "a:b", "a" * 5000,
+                   "teeny/mind-../../x", "refs/heads/teeny/mind--x", "mind-$(id)")
+        with mock.patch.object(mindclone.git, "run", recording):
+            for sent in hostile:
+                with self.subTest(sent=sent[:20]), self.assertRaises(hand.Refused) as caught:
+                    mindclone.ship(sent, "t", "b")
+                self.assertEqual(caught.exception.detail["rule"], "branch")
+        for word in ("upload-pack", "a b", "..", ";", "a:b", "a" * 50, "$(id)"):
+            self.assertFalse(any(word in line for line in seen), word)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+
     def test_a_pull_request_copy_says_how_to_send_its_update(self):
         self.open_first()
         out = mindclone.prepare(pr=9)
