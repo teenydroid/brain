@@ -105,12 +105,9 @@ class Model(BaseHTTPRequestHandler):
             answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
-        # The builder: one shell call into its job's folder, then done. The
-        # marker is computed by the shell, so only the call's output (never
-        # the call itself, replayed in the transcript) carries it.
         # The browser operator with a task on its desk: open the start page in
-        # the real browser, then write the report with the page's title. The
-        # desk sits beside the builder's (sys.argv[5]).
+        # the real browser, then write the report with the page's title. Its
+        # desk is sys.argv[5].
         elif "doing one task in a web browser" in json.dumps(body):
             import os
             desk_dir = os.path.dirname(sys.argv[5])
@@ -156,25 +153,6 @@ class Model(BaseHTTPRequestHandler):
                 answer = "the task is done and reported"
             if call is not None:
                 native_call = call
-        elif "building something small in public" in json.dumps(body):
-            if SHELL_RAN in json.dumps(body):
-                answer = "built"
-            else:
-                with open(sys.argv[5]) as desk:
-                    # Relative to the workbench, where the builder's shell starts.
-                    workdir = json.load(desk)["job"]["workdir"]
-                # The jail confines files, not the network: the shell shares the
-                # host's, so it reaches this model on loopback (a printed status,
-                # computed by the shell like the marker).
-                command = (f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
-                           f" && echo \"teeny-net-$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{sys.argv[1]}/v1/models)\"")
-                call = {"name": "shell", "arguments": json.dumps({"command": command})}
-                # Offered native tools, answer the way Surplus does: one
-                # structured call. Otherwise the text protocol.
-                if body.get("tools"):
-                    native_call = call
-                else:
-                    answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
         if native_call is not None:
             call_id = "call_stub_%d" % (1 + sum(1 for m in body.get("messages", []) if m.get("role") == "tool"))
             tool_calls = [{"index": 0, "id": call_id, "type": "function", "function": native_call}]
@@ -219,7 +197,7 @@ class Model(BaseHTTPRequestHandler):
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
 python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" "$scratch/model-bodies.jsonl" \
-  "$scratch/root/state/workbench/desk/build.json" &
+  "$scratch/root/state/workbench/desk/task.json" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -433,80 +411,17 @@ fi
 
 # --- the scheduled agents: seeded as agent jobs, run as CronActions ------------
 jobs_json="$("$root/bin/oh" cron_list 2>/dev/null || echo '[]')"
-builder_id="$(jq -r '[.[] | select(.name == "teeny.builder")][0].id // empty' <<<"$jobs_json")"
-check "seeds the builder as an agent job" \
-  test "$(jq -r '[.[] | select(.name == "teeny.builder")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent builder"
+# The builder is retired (2026-11-24): nothing seeds it, or its desk's job.
+check "seeds no builder" \
+  test "$(jq -r '[.[] | select(.name | IN("teeny.builder", "teeny.build-ship"))] | length' <<<"$jobs_json")" = 0
 check "seeds the operator as an agent job" \
   test "$(jq -r '[.[] | select(.name == "teeny.operator")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent operator"
-check "seeds build-ship as a shell job" \
-  test "$(jq -r '[.[] | select(.name == "teeny.build-ship")][0].job_type' <<<"$jobs_json")" = shell
 check "the core kept the cron shell timeout" python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
 assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")
 assert cfg["autonomy"]["enabled"] and cfg["autonomy"]["workspace_only"]
 assert cfg["browser"]["unattended_actions"]' "$root/.openhuman/config.toml"
-# The builder's desk, laid out the way bin/build-ship does it every 30 minutes
-# (DRY_RUN is on: nothing ships).
-"$root/bin/build-ship" >"$scratch/build-ship.log" 2>&1 || true
-check "bin/build-ship lays the builder's desk out" \
-  test "$(jq -r .job.kind "$root/state/workbench/desk/build.json" 2>/dev/null)" = daily
-# One builder run now, against the stub model, which calls the shell once in
-# the job's folder and then answers: the core builds the builder from
-# brain/agents/ with its named tools, runs it with the scheduled-actions
-# opt-in, and roots it at the workbench, so the sandboxed shell runs.
-builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | head -n 1; }
-workdir="$(jq -r '.job.workdir // empty' "$root/state/workbench/desk/build.json" 2>/dev/null)"
-[ -z "$workdir" ] || workdir="$root/state/workbench/$workdir"
-if [ -n "$builder_id" ]; then
-  "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 120); do
-    grep -q 'teeny-shell-2-ran' "$scratch/model-bodies.jsonl" 2>/dev/null && break
-    grep -q 'refused the spawn' "$scratch/spine.log" && break
-    sleep 1
-  done
-fi
-check "the core loaded the builder agent from brain/agents/" grep -q 'building session agent id=builder ' "$scratch/spine.log"
-check "the builder run opted into scheduled actions" grep -q 'agent opted into scheduled actions' "$scratch/spine.log"
 offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr -d ' '; }
-check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
-check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
-check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
-check "the builder is told where its desk is" grep -q 'desk/build.json' <<<"$(builder_request)"
-# The regression: the builder was prompted with the JSON-in-tag text protocol
-# and no `tools`, and Surplus read each <tool_call> body as the tool's name.
-# bin/spine turns native tool calls on, so the shell rides the wire as a tool.
-check "the builder is offered the shell as a native tool" \
-  bash -c "jq -e '[.tools[]?.function.name] | index(\"shell\")' <<<\"\$1\" >/dev/null" _ "$(builder_request)"
-check "the builder run is rooted at the workbench" grep -q "rooted at its agent's workspace" "$scratch/spine.log"
-# The regression: a shell rooted at the checkout, which holds brain/, was
-# refused as a grant over the core workspace on every call. Never again,
-# whatever sandbox the host has.
-check "the builder's shell is never refused over the core workspace" \
-  bash -c "! grep -q 'refused the spawn denial=Path' '$scratch/spine.log'"
-# Whether the shell can run at all depends on the host: one with no jail at
-# all refuses every sandboxed spawn, as it should. Any jail must run it, and
-# that includes Landlock alone (a container on Docker's defaults, or a runner
-# that restricts user namespaces): the builder asks for files only
-# (`sandbox_filesystem_only`), so a plan onto Landlock is no longer refused
-# as unsupported.
-sandbox_backend="$("$root/bin/oh" config_get_sandbox_settings '{}' 2>/dev/null |
-  jq -r '[.. | objects | .detected_backend? | strings] | first // empty' 2>/dev/null || true)"
-no_backend=0
-case "$sandbox_backend" in unavailable | none | "") no_backend=1 ;; esac
-check "the builder's shell is never refused as unsupported where a jail exists" \
-  bash -c "[ '$no_backend' = 1 ] || ! grep -q 'refused the spawn denial=Unsupported' '$scratch/spine.log'"
-if [ "$no_backend" = 1 ]; then
-  printf 'info no sandbox backend on this host (detected_backend=%s): skipped the builder shell run checks\n' \
-    "${sandbox_backend:-unknown}"
-else
-  printf 'info sandbox backend: %s\n' "${sandbox_backend:-unknown}"
-  check "the builder's shell is not refused" bash -c "! grep -q 'refused the spawn' '$scratch/spine.log'"
-  check "the builder's shell ran in its job's folder" test -n "$workdir" -a -e "$workdir/shell-ran"
-  check "the builder saw the shell's output" grep -qF "teeny-shell-2-ran:$workdir" "$scratch/model-bodies.jsonl"
-  # builder.toml and docs/architecture.md say it plainly: files jailed, network not.
-  check "the builder's shell has the host's network" grep -qF "teeny-net-200" "$scratch/model-bodies.jsonl"
-fi
-printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
 # It does a real task in the real browser: the stub model opens the start
 # page and reports its title. On 2026-11-13 the one task on the box failed
