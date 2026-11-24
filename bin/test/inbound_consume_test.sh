@@ -124,6 +124,17 @@ check "an unusable draft is reported" grep -q 'not usable JSON' <<<"$out"
 check "its mentions are skipped" marked 41 skipped
 check "and it is acked, so it is not retried forever" grep -q '^inbound_result_ack' "$FAKE_CALLS"
 
+# --- a raw control character in an answer ------------------------------------------------
+reset
+results $'[{"action": "reply", "to": "42", "text": "one\ntwo"}]' '["42"]'
+run >/dev/null
+check "a raw newline in a reply goes to the hand" grep -qF 'x reply --to 42 stdin={"text":"one\ntwo"}' "$FAKE_HANDS"
+reset
+results $'[{"action": "reply", "to": "43", "text": "one\n\e[31mtwo"}]' '["43"]'
+out="$(run)"
+check "a raw ESC is refused" grep -q 'not usable JSON: .*control character' <<<"$out"
+check "and no reply goes out" bash -c "! grep -q '^x reply' '$FAKE_HANDS'"
+
 # --- nothing to do ---------------------------------------------------------------------
 reset
 echo '{"results": []}' >"$FAKE_RESULTS"
