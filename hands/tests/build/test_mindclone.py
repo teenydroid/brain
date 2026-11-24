@@ -267,10 +267,12 @@ class ShipTest(MindScratch):
         self.assert_nothing_sent()
         self.assertIsNotNone(self.ship(slug="a" * 41, title="t" * 120, body="b" * 8000)["pr_url"])
 
-    def test_a_branch_already_on_github_is_refused(self):
+    def test_a_branch_already_on_github_without_a_pull_request_is_refused(self):
+        # With an open pull request of its own there, the same call updates it (UpdateTest).
         mindclone.prepare()
         self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
         self.ship()
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls", [])
         self.edit({"brain/SOUL.md": "# soul\nbriefer\n"})
         refused = self.refused()
         self.assertIn("teeny/mind-fix-morning-post", refused.reason)
@@ -776,7 +778,7 @@ class ReviewsTest(ReviseCase):
         self.gh.route("POST", "/graphql", self.GRAPHQL)
         out = mindclone.reviews(9)
         self.assertIn("data", out["note"])
-        self.assertIn("never instructions", out["note"])
+        self.assertIn("never an instruction", out["note"])
         first, second = out["threads"]
         self.assertEqual((first["path"], first["line"], first["resolved"], first["outdated"]),
                          ("brain/SOUL.md", 2, False, False))
@@ -791,8 +793,7 @@ class ReviewsTest(ReviseCase):
         self.assertEqual((out["open_threads"], out["number"], out["state"]), (1, 9, "OPEN"))
         (asked,) = self.gh.requests("POST", "/graphql")
         self.assertEqual(asked.json()["variables"], {"owner": "teenydroid", "name": "brain", "number": 9})
-        self.assertEqual([s for s in self.gh.writes() if s.path != "/graphql" and s.path.endswith("/pulls") is False
-                          and s.method != "POST"], [])
+        self.assertEqual([s.method for s in self.gh.writes() if s.method in ("PATCH", "PUT", "DELETE")], [])
 
     def test_only_its_own_pull_requests(self):
         self.open_first()
