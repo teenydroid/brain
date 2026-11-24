@@ -32,7 +32,7 @@ for f in bin/act bin/lib/teeny.sh evals/judge.md evals/tasks/morning.toml spine/
   hands/surplus hands/lib/teeny_hands/surplus/sweep.py hands/tests/surplus/test_sweep.py \
   hands/lib/teeny_hands/guard/__init__.py hands/lib/teeny_hands/x/post.py \
   brain/SOUL.md brain/agents/act.toml brain/agents/act.md brain/agents/judge.toml \
-  brain/agents/reviewer.toml brain/agents/querier.toml brain/agents/teeny.toml brain/agents/teeny.md brain/agents/builder.toml brain/agents/operator.toml \
+  brain/agents/reviewer.toml brain/agents/querier.toml brain/agents/teeny.toml brain/agents/teeny.md brain/agents/operator.toml \
   brain/agents/teeny-mentions.toml brain/agents/teeny-mail.toml brain/agents/writer.toml brain/agents/editor.toml \
   brain/agents/writer.md brain/playbooks/morning.md; do
   put "$f"
@@ -168,10 +168,10 @@ commit
 refuses "the reviewer and querier agents are refused" brain/agents/reviewer.toml brain/agents/querier.toml
 
 branch
-for a in teeny builder operator teeny-mentions teeny-mail; do put "brain/agents/$a.toml" "named = ['shell']"; done
+for a in teeny operator teeny-mentions teeny-mail; do put "brain/agents/$a.toml" "named = ['shell']"; done
 commit
 refuses "the agent definitions that say they are frozen are refused" brain/agents/teeny.toml \
-  brain/agents/builder.toml brain/agents/operator.toml brain/agents/teeny-mentions.toml brain/agents/teeny-mail.toml
+  brain/agents/operator.toml brain/agents/teeny-mentions.toml brain/agents/teeny-mail.toml
 
 branch
 put hands/lib/teeny_hands/guard/screen/deep/rules.py
