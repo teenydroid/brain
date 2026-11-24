@@ -641,6 +641,19 @@ def _count_update(number: Any, day: str | None = None) -> None:
     _write(path, json.dumps(today) + "\n", 0o600)
 
 
+def _update_allowance(number: Any, updates: int) -> str:
+    """Refuses an update to NUMBER when MIND_PR_UPDATES_PER_PR (UPDATES) is
+    0 or today's are spent; else the UTC day it was checked on, to charge it
+    to. One read of the day's record, so the check and the charge are the
+    same day even across midnight."""
+    if updates == 0:
+        raise hand.Refused("updates to your open pull requests are off (MIND_PR_UPDATES_PER_PR=0)")
+    today = _updates_today()
+    if int(today["counts"].get(str(number), 0)) >= updates:
+        raise hand.Refused(f"today's {updates} update(s) to #{number} are spent (MIND_PR_UPDATES_PER_PR)")
+    return today["day"]
+
+
 def _clone_call(fn: Callable[[], Json]) -> Json:
     """A mindclone call; its rule's refusal as the broker's."""
     try:
@@ -673,13 +686,10 @@ def pr(body: Json, entry: Json) -> Json:
     checked: Json = {}
 
     def allow(kind: str, number: int | None) -> None:
-        checked["day"] = _updates_today()["day"]
         if kind == "open" and _prs_today()["count"] >= limit:
             raise hand.Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
-        if kind == "update" and updates == 0:
-            raise hand.Refused("updates to your open pull requests are off (MIND_PR_UPDATES_PER_PR=0)")
-        if kind == "update" and int(_updates_today()["counts"].get(str(number), 0)) >= updates:
-            raise hand.Refused(f"today's {updates} update(s) to #{number} are spent (MIND_PR_UPDATES_PER_PR)")
+        if kind == "update":
+            checked["day"] = _update_allowance(number, updates)
 
     out = _clone_call(lambda: mindclone.ship(body["branch"], body.get("title"), body.get("body"), allow=allow))
     if not out.get("dry_run"):

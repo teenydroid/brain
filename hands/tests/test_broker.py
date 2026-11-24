@@ -1550,6 +1550,22 @@ class PullRequestUpdateTest(RevisionCase):
             self.assertEqual(broker._updates_today(), {"day": "2026-09-15", "counts": {}}, "today's are untouched")
             self.assertEqual(self.updates_today(), {"day": "2026-09-14", "counts": {"3": 1}})
 
+    def test_an_update_spent_on_the_day_checked_stays_refused_when_midnight_falls_mid_check(self):
+        import importlib
+        import sys
+        from unittest import mock
+
+        self.settings()
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        with mock.patch.dict(os.environ, {"TEENY_ROOT": str(self.root), "TEENY_NOW": str(T0)}):
+            broker = importlib.import_module("broker")
+            broker.hand._ENV_CACHE = None
+            reads = iter([{"day": "2026-09-14", "counts": {"3": 1}}, {"day": "2026-09-15", "counts": {}}])
+            with mock.patch.object(broker, "_updates_today", lambda: next(reads)):
+                with self.assertRaises(broker.hand.Refused) as caught:
+                    broker._update_allowance(3, 1)
+            self.assertIn("MIND_PR_UPDATES_PER_PR", caught.exception.reason)
+
     def test_updates_are_on_by_default_and_0_turns_them_off(self):
         self.opened_first(MIND_PR_UPDATES_PER_PR="0")
         code, out = self.revised("# soul\nagain\n")
