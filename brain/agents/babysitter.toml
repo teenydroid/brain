@@ -40,11 +40,12 @@ omit_safety_preamble = false
 file = { path = "babysitter.md" }
 
 [tools]
+# It writes through the shell alone. The file tools that write go by the
+# core's trusted roots, not the jail: they would reach state/workbench/desk/,
+# whose task the browser operator does signed in as Teeny, and the brain.
 named = [
     "shell",
     "file_read",
-    "file_write",
-    "edit",
     "glob",
     "grep",
     "list",

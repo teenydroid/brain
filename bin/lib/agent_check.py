@@ -79,9 +79,11 @@ SCHEDULED = {
              ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
               *NEVER)),
     # The pull-request babysitter works a checkout in a folder of its own with
-    # a shell and no key. No browser, no memory: it reads reviewers' words.
-    "babysitter": (("shell", "file_read", "file_write"),
-                   ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry",
+    # a shell and no key. No browser, no memory: it reads reviewers' words. It
+    # writes through the jailed shell only: the file tools that write reach
+    # the core's trusted roots (the operator's desk) and the brain.
+    "babysitter": (("shell", "file_read"),
+                   ("file_write", "edit", "apply_patch", "browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry",
                     "run_workflow", "memory", *NEVER)),
 }
 #: agent -> the only agents its [subagents] allowlist may name, all of them.

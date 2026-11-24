@@ -562,6 +562,14 @@ def collect(api: PullsApi | None = None) -> Json | None:
 
 
 def _errored(now: Json, exc: Exception, counts: bool) -> Json:
+    try:
+        return _error(now, exc, counts)
+    except Exception:  # noqa: BLE001 - a job that cannot even be given up is dropped
+        _drop()
+        return {"number": now["number"], "dropped": "errors"}
+
+
+def _error(now: Json, exc: Exception, counts: bool) -> Json:
     """The same again next sweep, MAX_TRIES times; then dropped, as a try
     that failed when it COUNTS (git, or the tree), else only as dropped."""
     now["errors"] = int(now.get("errors") or 0) + 1
