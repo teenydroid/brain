@@ -228,11 +228,11 @@ check "and posts nothing" test "$(hand_calls x)" = 1
 # (moltbook-general, 2026-11-24); bin/lib/answer.py reads it, the guard sees it.
 reset
 answer $'{"action": "hand", "title": "a title", "body": "one\n\ntwo"}'
-printf '+++\ndescription = "test"\noutput = "hand:moltbook post"\nsurface = "moltbook-post"\n+++\npost\n' >"$brain/playbooks/rawnl.md"
+printf '+++\ndescription = "test"\noutput = "hand:lab propose"\n+++\npost\n' >"$brain/playbooks/rawnl.md"
 run rawnl >/dev/null || true
 check "a raw newline in a body is not a second draft" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 1
 check "and the guard reads the body with its newline" grep -qF '"body":"one\n\ntwo"' <(grep '^guard ' "$FAKE_HANDS")
-check "and the hand gets the guard's words" grep -qF '"body":"one\n\ntwo [g]"' <(grep '^moltbook post' "$FAKE_HANDS")
+check "and the hand gets the guard's words" grep -qF '"body":"one\n\ntwo[g]"' <(grep '^lab propose' "$FAKE_HANDS")
 rm -f "$brain/playbooks/rawnl.md"
 # Back to one morning post taken today, which the budget checks below expect.
 reset
