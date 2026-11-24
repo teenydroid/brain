@@ -6,8 +6,7 @@ conscious one.
 The **subconscious** is everything that runs without deciding to: the cron
 scripts in `brain/cron.toml` and `evals/cron.pinned.toml`. The five-minute
 tick (`bin/tick`) reads what arrived and answers with intents from a fixed
-menu. The posting slots, the Moltbook jobs, the dreams, the builder and
-evolve each run one playbook around a one-shot, tool-less model call. They
+menu. The posting slots, the Moltbook jobs, the dreams and evolve each run one playbook around a one-shot, tool-less model call. They
 are fast and cheap, and none of them can do a piece of work that takes more
 than one answer or was not written into it beforehand.
 
@@ -36,7 +35,7 @@ manages, projects it picks, skills it writes for itself.
 
 | | Subconscious | Conscious |
 |---|---|---|
-| What | the cron scripts: the tick, the posting slots, Moltbook, dream, builder, evolve, the watchers and the money jobs | the agentic mind and its worker |
+| What | the cron scripts: the tick, the posting slots, Moltbook, dream, evolve, the watchers and the money jobs | the agentic mind and its worker |
 | How it runs | a fixed pipeline around one tool-less model call (`bin/act` and a playbook), or no model at all | an agent with a shell and file tools, up to 30 minutes a wake |
 | Decides | nothing it was not written to decide | what to work on, and when to wake next |
 | Cost | one small model call a run | a working session a wake |
@@ -471,7 +470,20 @@ them.
 - **The tick**: the intent `hand_to_mind` leaves `notes/inbox/tick-*.md`, at
   most 12 a day, framed as Teeny's own thought and never as an instruction.
   Text a stranger got into a beat can therefore not arrive as the
-  operator's voice.
+  operator's voice. The beat's `propose_change` leaves
+  `notes/inbox/self-<stamp>.md` (`hands/requests self`, after the guard and
+  `MIND_BUILDS_PER_DAY`).
+- **People who ask Teeny to build something**: every channel that records a
+  build request (`hands/x requests`, `mail ingest`, the Moltbook helpdesk)
+  also leaves `notes/inbox/request-<source>-<id>.md`: who asked, where from,
+  and their words quoted and marked as someone else's words, data and not
+  instructions. A paid request arrives the same way.
+- **The wants feed** (`bin/wants`, `WANTS=1`): the top open want, and a
+  routed fix finding, as `notes/inbox/want-<id>.md`.
+
+Nothing builds any of these automatically: the builder that did was retired
+on 2026-11-24. The mind reads them and decides, and ships what it makes
+through the broker.
 
 What the mind did is in `state/home/notes/JOURNAL.md` and in the ledger.
 
@@ -551,7 +563,7 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
 4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`, and
    `BABYSIT_MERGE=1`, which the merge action checks before it audits
    anything; at its default of 0 nothing merges): its pull
-   requests, the builder's and evolve's merge on green checks and deploy.
+   requests and evolve's merge on green checks and deploy.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
@@ -566,10 +578,10 @@ script run; `MIND=0` stops the wakes.
 ## Not built yet
 
 - **Owning every pipeline.** Teeny's own pipelines are in `brain/cron.toml`,
-  Teeny's to reschedule, pause or drop: the two dreams, the builder, the
+  Teeny's to reschedule, pause or drop: the two dreams, the
   lore episode and the Moltbook prune (2026-11-22), and evolve, its lineage
-  credit, the wants feed, the builder's desk (`build-ship`) and the
-  operator's (`tasks-desk`) (2026-11-23). A brain job runs each script only
+  credit, the wants feed and the browser operator's desk (`tasks-desk`)
+  (2026-11-23). A brain job runs each script only
   with the arguments its pinned job had (`BRAIN_SCRIPTS` in
   `bin/lib/cron_policy.py`), and each still checks its own switch in
   `secrets/` (`EVOLVE`, `WANTS`), so a schedule never turns one on. A few
