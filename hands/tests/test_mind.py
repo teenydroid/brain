@@ -463,7 +463,7 @@ class MindCronTest(unittest.TestCase):
         self.assertNotIn("builder", brain)
         self.assertNotIn("builder", pinned)
         # What watches Teeny, and what moves money, stays pinned.
-        for name in ("tick", "mind", "babysit", "health", "audit", "guard-review", "evolve-watch", "goals-check",
+        for name in ("tick", "mind", "babysit", "babysitter", "health", "audit", "guard-review", "evolve-watch", "goals-check",
                      "pay-bills", "surplus-sweep"):
             self.assertIn(name, pinned)
 
@@ -492,9 +492,9 @@ class MindCronTest(unittest.TestCase):
         self.assertNotIn("operator", brain)
 
     def test_the_caps_leave_room_for_the_mind(self):
-        # operator 72 a day, the mind 48, and room for the jobs the mind
-        # schedules for itself in brain/cron.toml.
-        self.assertGreaterEqual(cron_policy.MAX_AGENT_RUNS_PER_DAY, 72 + 48 + 48)
+        # operator 72 a day, the babysitter 144, the mind 48, and room for the
+        # jobs the mind schedules for itself in brain/cron.toml.
+        self.assertGreaterEqual(cron_policy.MAX_AGENT_RUNS_PER_DAY, 72 + 144 + 48 + 48)
         self.assertGreaterEqual(cron_policy.MAX_JOBS, 60)
 
     def test_the_repository_pins_the_mind_job_behind_its_switch(self):

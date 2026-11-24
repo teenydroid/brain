@@ -554,7 +554,7 @@ MIND_CAPS = {
 }
 #: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
 #: nothing and touches only Teeny's own ledger, and a change to itself is a
-#: pull request the operator merges or closes, nothing outward.
+#: pull request, nothing outward.
 CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1,
                 "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3,
                 # The operator delegated renting within hands/rent's money caps
@@ -2209,7 +2209,7 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         found = result["note"].replace("\\", "/")
         note = found[found.index("notes/inbox/"):] if "notes/inbox/" in found else found.rsplit("/", 1)[-1]
         text += (f"; it is a note in the agentic mind's inbox ({note}): the agentic mind reads it at its next wake and"
-                 " decides whether to make the change, as a pull request the operator merges or closes")
+                 " decides whether to make the change, as a pull request")
     if do in ROUTES and entry["status"] == "refused" and result.get("rule") != "verification":
         # Said plainly: live, 2026-11-19, the next beat took eight refused
         # answers as sent (rule 10). A Moltbook challenge left unsolved is

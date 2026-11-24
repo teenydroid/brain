@@ -19,7 +19,7 @@ before it audits anything, so a judgement made now holds this run's merges.
               once
 
 Only the newest deploy is judged: an older one a newer deploy followed is
-not. One found after its window has closed (the sweep runs every 20 minutes)
+not. One found after its window has closed (the sweep runs every 10 minutes)
 is still judged on the evidence inside it, once; past twice the window it is
 history and left alone.
 

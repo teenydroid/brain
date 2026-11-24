@@ -467,7 +467,7 @@ The babysitter watches the open pull requests on `BABYSIT_REPOS` (default
 not own is never watched). It reads through hands/gh's transport, so the
 token stays hands/gh's, and every word it publishes goes through
 `gh comment` and so through the guard. The pinned `babysit` job
-(`bin/babysit`, every 20 minutes) runs `sweep`. Frozen to Teeny, like
+(`bin/babysit`, every 10 minutes) runs `sweep`. Frozen to Teeny, like
 `gh`: the code that merges Teeny's changes is not Teeny's to edit.
 
 The audit is code, never a model. A pull request is strangers' text, and
@@ -494,6 +494,8 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
 | `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
+| `sitter_pending`, `open_threads`, `threads_unreadable` | wait | A self-change the babysitter's agent works (below): no `merge` from it at this head, an unresolved review thread, or threads GitHub would not list |
+| `module_shadow` | operator | Such a candidate adding a file Python would import in place of another |
 | `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
 
 Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
@@ -532,8 +534,7 @@ still need a person's approval of the exact head.
 approval is CI, not `teeny/eval`: every job in `policy.REQUIRED_CHECKS` must
 be on the head and green (`required_check_missing` waits,
 `required_check_not_green` fails). Every other finding stops it as before,
-and two more need the operator: `outside_the_jail` (a path outside
-`brain/`, `docs/` and `home/`) and `recently_rolled_back`. The day's caps
+and `recently_rolled_back` needs the operator too. The day's caps
 become `BABYSIT_MERGES_PER_DAY` and `BABYSIT_SELF_MERGES_PER_DAY` (12 each),
 deploys that restart the spine are at least `BABYSIT_DEPLOY_MIN_GAP_MINUTES`
 apart, and each run starts with the rollback watch (`rollback.py`): a deploy
@@ -547,8 +548,75 @@ opened once too (`deploy_revert_pr`); otherwise the reason is recorded
 that pull request for the operator, since it touches the held paths. While `state/spine-fallback.json` exists
 no further deploy is made.
 
+**The babysitter's agent** (`babysit/sitter.py`; on with the four switches
+`BABYSIT`, `BABYSIT_MERGE`, `BABYSIT_SELF_MERGE` and
+`BABYSIT_SELF_MERGE_ALL`, `BABYSIT_SITTER=0` off; the operator's decision of
+2026-11-24). Auditing fixes nothing, so a GLM agent
+(`brain/agents/babysitter.toml`, the pinned `babysitter` job, four minutes
+after each sweep) works Teeny's own pull requests, one at a time, the one left
+longest first. It holds no key and reaches nobody: its shell is jailed to
+`state/sitter/home/`, apart from the mind's home, and it writes through that
+shell alone (the core's writing file tools reach the operator's desk and the
+brain).
+
+1. **queue** (the sweep, after the audits): a candidate that is red, in
+   conflict, behind, has an open review thread, or is green and undecided is
+   checked out at its exact head in `state/sitter/home/repo-<job>`
+   (`build/sitterclone.py`; its git directory is outside the jail). With a fix
+   to make, `main` is merged in too, conflict markers left for the agent.
+   Beside it, `brief.json`: the findings, the red checks with log excerpts
+   (an Actions job, a token with Actions read; names only otherwise), the
+   unresolved threads with their ids and the words of the review bots
+   (`policy.REVIEW_BOTS`) and trusted people. Nobody else's words are in it.
+   Every job has names of its own (`brief.json` says them), so what a late
+   run of an older job writes is read for no other.
+2. **the agent** edits the checkout, runs tests and writes its report:
+   `{number, head_sha, decision: merge|fix|close|wait|retry, reason,
+   commit_message?, replies: [{thread_id, outcome: fixed|declined, body}], resolved?}`
+   (`resolved` names the conflicts git left no marker in that it decided).
+3. **collect** (the next sweep, before the audits): `fix` goes out as one
+   commit on the head (two parents when main was merged in), never forced,
+   under the mind's clone's rules: plain files only, the frozen list as of
+   `main`, the secret scan, 100 files and 3000 lines, the branch still at that
+   head. Then its threads are answered through the guard and resolved; a
+   `declined` one a trusted person spoke in is answered and left to them, and
+   one somebody added to since the brief is left open and takes a `merge` back.
+   `retry` runs a red check's failed jobs again (twice a head; Actions write),
+   or pushes an empty commit when the token may not.
+   `merge` is recorded for that exact head. `close` comments the reason
+   through the guard and closes, only an open `teeny/*` pull request of
+   Teeny's own. `wait` stands six hours, or until there is a new head or the
+   findings or the open threads change (not for an edited description).
+
+A candidate is `ready` with no person's approval when every required check is
+green, no thread of a review bot or a trusted person is unresolved
+(`open_threads`; `threads_unreadable` when they cannot be read), and the
+agent's last word at that head is `merge` (`sitter_pending` otherwise; an
+operator's approval of the head does instead). On such a candidate `too_large`
+(unless GitHub cut the file list), `removes_test`, `unreadable_diff` (once
+the file was read at the head and scanned whole; the operator's otherwise),
+`lexicon`, an injection in someone's comment or review and one in a commit
+message of Teeny's are notes, and `outside_the_jail` is gone. What stays the operator's: `sensitive`, an
+injection in the pull request's own diff, title or body,
+`recently_rolled_back`, `foreign_commit`, `odd_path`, and `module_shadow`, a
+file Python would import in place of another: anything in `hands/lib/` beside
+`teeny_hands/`, a compiled module under `hands/`, a module at the top of the
+checkout. `frozen`, `secret` and bidi or tag characters still block.
+
+Three tries that come to nothing at one head (no report in 45 minutes, a
+report that does not read, a push refused) or five fixes pushed on top of one
+another (somebody else's commit starts the count over), and the pull
+request is left to the operator with one comment. A GitHub outage is not a
+try. The agent's words are in `state/sitter/decisions.jsonl`, never in the
+ledger. Under `DRY_RUN` nothing is laid out or carried out.
+
+With `BABYSIT_SITTER=0` a self-change merges on green checks with no decision
+of the agent's, as before, every finding above as it was before the agent,
+and `outside_the_jail` (a path outside `brain/`, `docs/` and `home/`) needs
+the operator.
+
 **Deploy on merge.** A self-merge queues `state/deploy-pending.json`
-(`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
+(`babysit/deploy.py`); the sweep runs it last, every 10 minutes until done,
 and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
 (`TEENY_ROOT`, the one `bin/spine` runs) to the merge in the order
 `bin/lib/live_checkout.py` keeps for it and for `bin/evolve`'s promotion
@@ -593,7 +661,7 @@ the deploy stays pending.
 | `audits [--max N]` | R | The last audits, with their findings. |
 | `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
 | `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC, self-merges included; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). A self-merge is also refused past `BABYSIT_SELF_MERGES_PER_DAY` (2, at most 10; `self_merge_cap`), is recorded as `self_merge` (with `eval`) instead of `merge`, and queues the deploy. GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
-| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. One pull request's refusal or error is listed in `errors`; the rest go on. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. With the babysitter's agent on, its report is carried out first and its next pull request laid out after the merges (`sitter`). One pull request's refusal or error is listed in `errors`; the rest go on. |
 
 Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
 write nothing to GitHub or the action ledger; the audits are reads and are

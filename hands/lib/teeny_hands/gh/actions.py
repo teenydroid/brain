@@ -586,6 +586,47 @@ def close_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"closed_pr": repo, "number": number, "html_url": closed.get("html_url")}
 
 
+def reply_thread(body: Any, gh: GitHubApi | None = None) -> Json:
+    """A reply in a review thread of an own repository's pull request,
+    through the guard. In-process only (the babysitter's agent's answers,
+    teeny_hands.babysit.sitter, which holds whose pull request and which
+    threads): no verb replies in one."""
+    body = _body(body, ("repo", "number", "thread_id", "body"))
+    _, _, repo = _own_repo(body["repo"], "answers review threads")
+    number, thread = _number(body, "number"), _string(body, "thread_id")
+    text = guarded({"body": _string(body, "body")}, "comment", {"repo": repo, "number": number})["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_reply": repo, "number": number, "thread_id": thread, "body": text}
+    made = (gh or GitHubApi.from_settings()).reply_thread(thread, text)
+    _record("reply-thread", repo, False, thread, number=number, url=made.get("html_url"))
+    return {"replied": repo, "number": number, "thread_id": thread, "html_url": made.get("html_url")}
+
+
+def resolve_thread(body: Any, gh: GitHubApi | None = None) -> Json:
+    """Resolves a review thread of an own repository's pull request; `last` is
+    its newest comment as it was resolved. In-process only, as `reply_thread`."""
+    body = _body(body, ("repo", "number", "thread_id"))
+    _, _, repo = _own_repo(body["repo"], "resolves review threads")
+    number, thread = _number(body, "number"), _string(body, "thread_id")
+    if hand.dry_run():
+        return {"dry_run": True, "would_resolve": repo, "number": number, "thread_id": thread}
+    done = (gh or GitHubApi.from_settings()).resolve_thread(thread)
+    _record("resolve-thread", repo, False, thread, number=number)
+    return {"resolved": bool(done.get("resolved")), "number": number, "thread_id": thread, "last": done.get("last")}
+
+
+def reopen_thread(body: Any, gh: GitHubApi | None = None) -> Json:
+    """Opens a thread `resolve_thread` resolved again. In-process only."""
+    body = _body(body, ("repo", "number", "thread_id"))
+    _, _, repo = _own_repo(body["repo"], "reopens review threads")
+    number, thread = _number(body, "number"), _string(body, "thread_id")
+    if hand.dry_run():
+        return {"dry_run": True, "would_reopen": repo, "number": number, "thread_id": thread}
+    (gh or GitHubApi.from_settings()).reopen_thread(thread)
+    _record("reopen-thread", repo, False, thread, number=number)
+    return {"reopened": True, "number": number, "thread_id": thread}
+
+
 def fork(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo",))
     owner, name = split_repo(body["repo"])

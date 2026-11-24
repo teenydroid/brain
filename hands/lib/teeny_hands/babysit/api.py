@@ -7,6 +7,9 @@ The raw writes (labels, merge) run no rule. Only `actions` calls them.
 
 from __future__ import annotations
 
+import base64
+import urllib.parse
+
 from typing import Any, Mapping
 
 from ..gh.client import GitHubApi, GitHubError, to_pr
@@ -24,7 +27,7 @@ def _login(value: Any) -> str | None:
 
 
 class PullsApi:
-    """Pull-request reads and the babysitter's two raw writes."""
+    """Pull-request reads and the babysitter's raw writes."""
 
     def __init__(self, gh: GitHubApi | None = None) -> None:
         self.gh = gh or GitHubApi.from_settings()
@@ -182,6 +185,19 @@ class PullsApi:
     def text_file(self, owner: str, name: str, path: str) -> str | None:
         return self.gh.file(owner, name, path)
 
+    def content_at(self, owner: str, name: str, path: str, ref: str) -> bytes | None:
+        """A file's bytes at REF; None when GitHub will not give them whole
+        (over 1 MB, not a file)."""
+        quoted = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
+        got = self.gh.call("GET", f"{self._p(owner, name, 'contents')}/{quoted}", [("ref", ref)])
+        if not isinstance(got, Mapping) or got.get("type") != "file" or got.get("encoding") != "base64":
+            return None
+        try:
+            data = base64.b64decode(got.get("content") or "")
+        except (ValueError, TypeError):
+            return None
+        return data if got.get("size") in (None, len(data)) else None
+
     # --- raw writes (only teeny_hands.babysit.actions calls these) -----------------------
 
     def add_labels(self, owner: str, name: str, number: int, labels: list[str]) -> list[str]:
@@ -194,6 +210,16 @@ class PullsApi:
         except GitHubError as error:
             if error.status != 404:
                 raise
+
+    def rerun_failed(self, owner: str, name: str, job_id: int) -> int:
+        """Runs the failed jobs of an Actions job's workflow run again;
+        returns the run. Needs the token's Actions write."""
+        got = self.gh.call("GET", self._p(owner, name, "actions", "jobs", str(job_id)))
+        run = got.get("run_id") if isinstance(got, Mapping) else None
+        if not isinstance(run, int):
+            raise GitHubError("the job names no run", 404)
+        self.gh.call("POST", self._p(owner, name, "actions", "runs", str(run), "rerun-failed-jobs"), body={})
+        return run
 
     def merge(self, owner: str, name: str, number: int, sha: str, method: str) -> Json:
         """Merges only if the head is still `sha` (GitHub answers 409

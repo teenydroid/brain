@@ -166,13 +166,27 @@ command = "bin/gh-inbound"
 # the text). Labels and an audit comment only with BABYSIT=1; a merge only
 # with BABYSIT_MERGE=1, of a pull request a person approved at its exact
 # head (evals/autonomy.toml, merge), or, with BABYSIT_SELF_MERGE=1 too, of
-# Teeny's own teeny/gen-* pull request whose teeny/eval passed at its head,
-# deployed to the live checkout after (evals/autonomy.toml, self-merge; a
-# deploy waits while a generation or an eval runs). Operator-owned: Teeny does not get to
+# Teeny's own teeny/gen-* pull request whose teeny/eval passed at its head, or,
+# with BABYSIT_SELF_MERGE_ALL=1, of any teeny/* one that is green, has no open
+# review thread and that the agent below said to merge at that head. Deployed
+# to the live checkout after (evals/autonomy.toml, self-merge; a deploy waits
+# while a generation or an eval runs). Operator-owned: Teeny does not get to
 # switch off the thing that reviews its own pull requests.
 [jobs.babysit]
-schedule = "*/20 * * * *"
+schedule = "*/10 * * * *"
 command = "bin/babysit"
+
+# The babysitter's agent (brain/agents/babysitter.toml; the operator's
+# decision of 2026-11-24), a GLM agent job: the one pull request of Teeny's own
+# bin/babysit laid out in state/sitter/home/, fixed, answered and reported on;
+# the next sweep pushes, replies, closes or merges. Four minutes after each
+# sweep. A run with nothing laid out ends at once. Off unless
+# BABYSIT_SELF_MERGE_ALL=1; BABYSIT_SITTER=0 lays nothing out.
+[jobs.babysitter]
+schedule = "4-59/10 * * * *"
+agent = "babysitter"
+prompt = "Work the pull request in brief.json, following your instructions."
+switch = "BABYSIT_SELF_MERGE_ALL"
 
 # Whether Teeny's model answers at all (bin/health): one tiny question through
 # the core; two failures in a row raise one alarm (a `health` stimulus and one

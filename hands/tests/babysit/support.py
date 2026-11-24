@@ -45,6 +45,7 @@ class BabysitScratch(Scratch):
         state: str = "open",
         labels: list[str] | None = None,
         permissions: dict[str, str] | None = None,
+        head: str = HEAD,
     ) -> None:
         """Routes one pull request and everything the audit reads about it.
         By default: by a maintainer, green, approved by the operator at HEAD.
@@ -60,7 +61,7 @@ class BabysitScratch(Scratch):
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}", {
             "number": number, "title": title, "body": body, "state": state, "draft": draft, "merged": False,
             "user": {"login": author}, "author_association": "MEMBER",
-            "head": {"label": f"{head_repo.split('/')[0]}:{branch}", "ref": branch, "sha": HEAD,
+            "head": {"label": f"{head_repo.split('/')[0]}:{branch}", "ref": branch, "sha": head,
                      "repo": {"full_name": head_repo}},
             "base": {"ref": "main", "sha": BASE, "repo": {"full_name": repo}},
             "mergeable": mergeable, "mergeable_state": mergeable_state,
@@ -68,30 +69,30 @@ class BabysitScratch(Scratch):
             "html_url": f"https://github.com/{repo}/pull/{number}",
         })
         self.gh.route("GET", f"/repos/{repo}/pulls", [{"number": number, "user": {"login": author},
-                                                       "head": {"sha": HEAD}, "base": {"ref": "main"}}])
+                                                       "head": {"sha": head}, "base": {"ref": "main"}}])
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}/files", files if files is not None else [
             {"filename": "brain/playbooks/morning.md", "status": "modified", "additions": 1, "deletions": 1,
              "patch": patch("say gm a little later")},
         ])
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}/commits", commits if commits is not None else [
-            {"sha": HEAD, "author": {"login": author},
+            {"sha": head, "author": {"login": author},
              "commit": {"message": "fix: a small fix", "verification": {"verified": True}}},
         ])
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}/reviews", reviews if reviews is not None else [
-            {"user": {"login": "senamakel"}, "state": "APPROVED", "commit_id": HEAD, "body": ""},
+            {"user": {"login": "senamakel"}, "state": "APPROVED", "commit_id": head, "body": ""},
         ])
         self.gh.route("GET", f"/repos/{repo}/issues/{number}/comments", comments or [])
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}/comments", [])
-        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/check-runs", {"check_runs": checks if checks is not None else [
+        self.gh.route("GET", f"/repos/{repo}/commits/{head}/check-runs", {"check_runs": checks if checks is not None else [
             {"name": "check", "status": "completed", "conclusion": "success"},
         ]})
         newest: dict[str, dict[str, Any]] = {}
         for s in statuses or []:
             newest.setdefault(s["context"], {k: v for k, v in s.items() if k != "creator"})
-        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/status",
+        self.gh.route("GET", f"/repos/{repo}/commits/{head}/status",
                       {"state": "success", "statuses": list(newest.values())})
         listed = status_list if status_list is not None else statuses or []
-        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/statuses",
+        self.gh.route("GET", f"/repos/{repo}/commits/{head}/statuses",
                       [dict(s, id=len(listed) - i) for i, s in enumerate(listed)])
         content = base64.b64encode(FROZEN.encode()).decode()
         self.gh.route("GET", f"/repos/{repo}/contents/evals/frozen.txt", {"type": "file", "content": content})

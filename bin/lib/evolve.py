@@ -7436,7 +7436,7 @@ def watch_problem(cfg: Config, cand: Mapping[str, Any], label: str, reasons: lis
         lines += ["", "**J**: " + ", ".join(f"{k} {v}" for k, v in j.items() if k != "history") + "."]
     lines += ["", "## What was done", ""]
     if done.get("pr_url"):
-        lines.append(f"- a revert pull request, waiting for a person: {done['pr_url']}")
+        lines.append(f"- a revert pull request: {done['pr_url']}")
     elif done.get("dry_run"):
         lines.append("- a revert pull request would open (DRY_RUN)")
     else:
@@ -7452,8 +7452,8 @@ def watch_problem(cfg: Config, cand: Mapping[str, Any], label: str, reasons: lis
 
 def revert(cfg: Config, cand: Json, publisher: Publisher | None, reasons: list[str] | None = None,
            checks: Mapping[str, Any] | None = None) -> Json:
-    """A revert pull request for the merge, from Teeny's clone, left for a
-    person to merge (the babysitter merges teeny/gen-* only), and its public
+    """A revert pull request for the merge, from Teeny's clone (which
+    the loop never merges: the babysitter or a person does), and its public
     issue (watch_problem). Nothing latches. Under DRY_RUN it says what it
     would have done."""
     gen = int(cand["gen"])

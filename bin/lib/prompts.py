@@ -78,7 +78,7 @@ The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
 prompts are rebuilt at every boot and every reflection.
 
-The agents that hold tools (TOOLED: the mind and its worker) get their
+The agents that hold tools (TOOLED: the mind, its worker and the babysitter) get their
 instructions alone. Until 2026-11-23 they were not built at all, and the core,
 finding no prompt file, ran the mind on an empty body: SOUL.md and a generic
 role, without one line of mind.md. Their prompt is kept short on purpose
@@ -121,12 +121,13 @@ STUDIO = ("writer", "editor")
 #: comments and posts on Moltbook, so it carries that skill; act gets it only
 #: in the Moltbook playbooks (`skills = ["moltbook"]`, bin/lib/playbook.py).
 AGENT_SKILLS = {"teeny": ("moltbook",)}
-#: The agents that hold tools (the mind and its worker, docs/mind.md). Their
+#: The agents that hold tools (the mind and its worker, docs/mind.md, and the
+#: pull-request babysitter). Their
 #: prompt is their instructions alone: no world, no reader, no craft. They
 #: pay for every byte of it on every model call of a long session, and what
 #: they need beyond it they read with their tools, from the skill library
 #: the broker copies into their home (bin/lib/broker.py, `library/`).
-TOOLED = ("mind", "worker")
+TOOLED = ("mind", "worker", "babysitter")
 #: The editor's rubric and taste.
 STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every

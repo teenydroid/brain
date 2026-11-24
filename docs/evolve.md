@@ -2488,8 +2488,8 @@ counts, rates and p, the failing jobs since the merge and in the week
 before, the error classes, what was left out and why, the `spread`, the
 probes' and J's numbers, and what help is wanted (is the evidence real; if
 so, what in the change caused it). Nothing latches: the next scheduled run
-goes on. The revert waits for a person: the loop merges nothing, and the
-babysitter merges only `teeny/gen-*`. A merge that passes all of it is
+goes on. The loop merges nothing: the babysitter or a person merges the
+revert (`docs/hands.md`, "babysit"). A merge that passes all of it is
 closed after 72 hours, and the watch moves on to the next.
 
 On the box the reasons stay out of Teeny's view: the full checks are
@@ -2635,11 +2635,6 @@ gen-0).
 
 ## What is not built
 
-- **Self-merge for feature pull requests.** A person approves every
-  `teeny/self-*` pull request. The babysitter's self-merge covers only
-  `teeny/gen-*` (`audit.py`), and widening it would move a fence (the L5
-  autonomy rung). The feature rubric is useful before that point and does not
-  depend on it. There is also no `teeny/eval` status on a self pull request.
 - **A ledger of hand calls.** `hand.run` logs nothing, so "used" is counted
   from the scheduled playbook runs that call a hand (`hand_used`). A hand
   that only a cron `command` or a beat runs reads 0, and the rubric does not

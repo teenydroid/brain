@@ -97,7 +97,7 @@ difference: `command = ...` for a shell job, `agent = ...` for an agent job):
   │              │ ◄────────────────────────────────────────────┘
   │              └─► hands/<name> <verb> ──► guard, caps, DRY_RUN ──► the outside world
   │
-  └── agent job (agent = "operator" | "mind")     a CronActions turn, named tools only
+  └── agent job (agent = "operator" | "mind" | "babysitter")   a CronActions turn, named tools only
         │
         └─► the operator reads one desk file and writes one report;
             it calls no hand (a shell job settles the desk, §6a);
@@ -1098,11 +1098,12 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
-  - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
+  - `babysit` (`bin/babysit`, every 10 minutes), the pull-request
     babysitter: audits every open pull request on teenydroid/brain and
     teenydroid/diary in code and logs every prompt-injection attempt;
     labels and comments only with `BABYSIT=1`, merges a person-approved,
     green, clean head only with `BABYSIT_MERGE=1` (docs/hands.md, "babysit");
+    and `babysitter`, the agent that works Teeny's own pull requests (§6a);
   - `wallet-watch` (`bin/wallet-watch`, every 15 minutes) and
     `wallet-daily` (`bin/wallet-watch daily`, 00:50 UTC), the on-chain
     senses, read only, off until `WALLET_WATCH=1`; `accounts`
@@ -1257,7 +1258,8 @@ doctor fails. See [`evolve.md`](evolve.md).
 ## 6a. Scheduled agents: the browser operator
 
 The browser operator acts from cron with tools, and so does the agentic mind
-(docs/mind.md), and no other agent (`AGENT_JOB_AGENTS` in
+(docs/mind.md) and the pull-request babysitter (docs/hands.md, "babysit"),
+and no other agent (`AGENT_JOB_AGENTS` in
 `bin/lib/cron_policy.py`). The builder, which wrote and shipped code from a
 desk of its own, was retired on 2026-11-24: the mind ships things itself, as
 pull requests through the broker.
@@ -1265,6 +1267,8 @@ pull requests through the broker.
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks, the mind, `hands/reddit` and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
+
+| `babysitter` (`brain/agents/babysitter.toml`, GLM) | pinned `babysitter`, `4-59/10 * * * *`, off until `BABYSIT_SELF_MERGE_ALL=1` | `state/sitter/home/brief.json` and the checkout beside it, laid out by `hands/babysit sweep` | `shell` (jailed to `state/sitter/home/`, its only way to write) and the reading file tools | its `report.json`, carried out by the next sweep |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
 names its tools (never the wildcard). A cron job naming that agent in

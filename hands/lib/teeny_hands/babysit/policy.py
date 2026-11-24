@@ -19,6 +19,10 @@ is read from secrets/teeny.env (the operator's), never the environment.
                       rollback watch change with it (actions.py, deploy.py,
                       rollback.py; the operator's decision of 2026-11-22);
                       default off
+  BABYSIT_SITTER      0 turns the babysitter's agent off (sitter.py; on while
+                      BABYSIT_SELF_MERGE_ALL is, the operator's decision of
+                      2026-11-24). Off, a self-change merges as it did before
+                      it: on green checks alone, only under JAILED_PATHS
 """
 
 from __future__ import annotations
@@ -125,6 +129,8 @@ PR_AGENT_LOGIN = "github-actions[bot]"
 #: GitHub App alone, so nobody else can post as one.
 CODERABBIT_LOGIN = "coderabbitai[bot]"
 GREPTILE_LOGIN = "greptile-apps[bot]"
+#: The review bots whose findings the babysitter's agent answers.
+REVIEW_BOTS = (PR_AGENT_LOGIN, CODERABBIT_LOGIN, GREPTILE_LOGIN)
 
 
 def self_merge_on() -> bool:
@@ -154,8 +160,8 @@ REQUIRED_CHECKS = (
 )
 
 
-#: What a self-change may touch and still merge on green checks alone: the
-#: brain (prompts, playbooks, the schedule; its jobs and data jobs run under
+#: With the babysitter's agent off (BABYSIT_SITTER=0), what a self-change may
+#: touch and still merge on green checks alone: the brain (prompts, playbooks, the schedule; its jobs and data jobs run under
 #: the cron rules and the jail), the docs, and home/ (code that runs only
 #: inside the mind's jail). Everything else in the repository can run outside
 #: any jail, as the spine's user, with secrets/ in reach: a hand, a hand's
@@ -170,6 +176,33 @@ def outside_the_jail(path: str) -> bool:
 def self_merge_all_on() -> bool:
     """BABYSIT_SELF_MERGE_ALL, which counts only with BABYSIT_SELF_MERGE."""
     return self_merge_on() and hand.flag("BABYSIT_SELF_MERGE_ALL", False)
+
+
+def sitter_on() -> bool:
+    """The babysitter's agent reads every self-change and says merge, fix or
+    close (sitter.py). On while BABYSIT_SELF_MERGE_ALL is; 0 turns it off."""
+    return self_merge_all_on() and hand.flag("BABYSIT_SITTER", True)
+
+
+#: What Python would import as a module.
+_IMPORTABLE = re.compile(r"\.(?:py|pyc|pyd|so|pth)$")
+
+
+def module_shadow(path: str) -> bool:
+    """A file that would be imported in place of a module it is not: in
+    hands/lib/ beside teeny_hands (hands/lib/ is first on every hand's path,
+    so `json.py` there is every hand's json, the guard's too), a compiled
+    module under hands/ (Python takes it before the .py it stands beside), or
+    a module at the top of the checkout (bin/'s inline Python runs there)."""
+    parts = path.split("/")
+    if parts[:2] == ["hands", "lib"] and parts[2:3] != ["teeny_hands"]:
+        return True
+    leaf = parts[-1]
+    if not _IMPORTABLE.search(leaf):
+        return False
+    if parts[0] == "hands" and not leaf.endswith(".py"):
+        return True
+    return len(parts) == 1 or (len(parts) == 2 and leaf.startswith("__init__."))
 
 
 def is_teeny_branch(ref: Any) -> bool:

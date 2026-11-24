@@ -50,6 +50,21 @@ other way (skipped, neutral, cancelled, red) a fail
 still fails. Every block, fail and operator finding stops it as before, and
 one more: `recently_rolled_back` (operator), a path a bad deploy changed in
 the last day (rollback.py).
+
+The babysitter's agent (the operator's decision of 2026-11-24, "full ability
+to babysit ... and merge or close the PRs if everything is green"; on with
+BABYSIT_SELF_MERGE_ALL, BABYSIT_SITTER=0 off) reads each such candidate, and
+its `merge` at the exact head (the ledger) is needed besides the checks:
+`sitter_pending` waits without one, unless an operator approved the head.
+Two more waits: `open_threads`, an unresolved review thread of a review bot
+or a trusted person, and `threads_unreadable`. With it on, these are notes
+on a candidate rather than the operator's: `too_large`, `removes_test`,
+`unreadable_diff` (once the file's content at the head was read and scanned;
+the operator's when it could not be), `lexicon`, an injection in somebody's
+comment or review (a comment is not what merges, and anybody may leave one),
+and one in a commit message of Teeny's (ordinary ones read as such, and a
+pushed one cannot be reworded; bidi and tag characters block). Nothing is
+`outside_the_jail`; `module_shadow` (operator) is what stays of it.
 """
 
 from __future__ import annotations
@@ -60,7 +75,7 @@ from .. import hand
 from ..gh import reads as gh_reads
 from ..gh import secretscan
 from ..gh.client import user
-from . import injection, ledger, policy, rollback
+from . import injection, ledger, policy, rollback, threads
 from .api import PullsApi
 
 Json = dict[str, Any]
@@ -132,6 +147,9 @@ class _Audit:
         # PR, BABYSIT_SELF_MERGE_ALL). None for everyone else.
         self.gate = "checks" if self._is_self_change() else "eval" if self._is_evolve_pr() else None
         self.evolve = self.gate is not None
+        # A candidate the babysitter's agent reads (sitter.py).
+        self.sitter = self.gate == "checks" and policy.sitter_on()
+        self.threads: list[Json] = []
         self.eval_state: str | None = None
         if pr.get("state") != "open":
             return self._answer(closed=True)
@@ -144,6 +162,8 @@ class _Audit:
         self._conversation()
         self._shape()
         self._checks()
+        if self.sitter:
+            self._threads()
         reviews = self.api.reviews(self.owner, self.name, self.number)
         return self._answer(reviews=reviews)
 
@@ -163,6 +183,19 @@ class _Audit:
         return (policy.self_merge_all_on() and policy.is_brain(self.repo) and self.author_tier == policy.TEENY
                 and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
                 and policy.is_teeny_branch(pr.get("head_ref")))
+
+    def _judgement(self) -> str:
+        """The severity of what a reviewer weighs rather than a fence holds."""
+        return "note" if self.sitter else "operator"
+
+    def _threads(self) -> None:
+        try:
+            self.threads, cut = threads.unresolved(self.api.gh, self.owner, self.name, self.number, self.tier)
+        except hand.HandError:
+            self.add("threads_unreadable", "wait", "threads")
+            return
+        if self.threads or cut:
+            self.add("open_threads", "wait", "threads", f"{len(self.threads)} unresolved")
 
     def _prose_severity(self, rule: str) -> str:
         if self.author_tier == policy.STRANGER:
@@ -189,7 +222,7 @@ class _Audit:
                     # the text; the guard sends that to its judge rather than
                     # holding it, and the babysitter has no judge, so it is a
                     # note. "kill you", "rifle" and the rest stay operator.
-                    self.add("lexicon", "note" if found.judged else "operator", where, found.category)
+                    self.add("lexicon", "note" if found.judged else self._judgement(), where, found.category)
 
     def _diff_severity(self, rule: str) -> str:
         if rule in injection.ALWAYS_HOSTILE:
@@ -201,7 +234,8 @@ class _Audit:
         max_lines = hand.number("BABYSIT_MAX_LINES", DEFAULT_MAX_LINES, 1, 100_000)
         lines = sum(int(f.get("additions") or 0) + int(f.get("deletions") or 0) for f in files)
         if cut or len(files) > max_files or lines > max_lines:
-            self.add("too_large", "operator", "diff", f"{len(files)} files, {lines} lines")
+            # A list GitHub cut hides paths, and the path rules below need them all.
+            self.add("too_large", "operator" if cut else self._judgement(), "diff", f"{len(files)} files, {lines} lines")
         if not files:
             self.add("empty_diff", "wait", "diff")
         frozen = policy.frozen_checker(self._frozen_list()) if policy.is_brain(self.repo) else None
@@ -223,8 +257,10 @@ class _Audit:
                 self._path(name, status, frozen)
             patch = f.get("patch")
             if patch is None:
-                if status != "removed" and (f.get("additions") or f.get("deletions") or status == "added"):
-                    self.add("unreadable_diff", "operator", path, "binary or too large for GitHub to show")
+                if status != "removed" and (self.sitter or f.get("additions") or f.get("deletions") or status == "added"):
+                    read = self.sitter and self._whole_file(raw, path)
+                    self.add("unreadable_diff", "note" if read else "operator", path,
+                             "binary or too large for GitHub to show")
                 continue
             added = "\n".join(line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
             secret = secretscan.content_finding(path, added)
@@ -232,6 +268,34 @@ class _Audit:
                 self.add("secret", "block", path, secret.rule)
             self.injected(injection.scan(added, f"diff:{path}", prose=False), self.author, self.author_tier,
                           self._diff_severity)
+
+    def _whole_file(self, raw: str, path: str) -> bool:
+        """A changed file whose patch GitHub left out, read whole at the head
+        and scanned as added lines are. False when it could not be read."""
+        try:
+            data = self.api.content_at(self.owner, self.name, raw, str(self.head_sha))
+        except hand.HandError:
+            return False
+        if data is None:
+            return False
+        text = data.decode("utf-8", "replace")
+        if b"\0" in data:  # binary: its text, as a push reads it, for secrets alone
+            text += "\n" + data.replace(b"\0", b"").decode("utf-8", "replace")
+        secret = secretscan.content_finding(path, text)
+        if secret is not None:
+            self.add("secret", "block", path, secret.rule)
+        severity = self._diff_severity
+        hits = injection.scan(text, f"diff:{path}", prose=False)
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            # Not text: a picture's bytes can spell a control character by
+            # chance, so one found here is the operator's to look at, and the
+            # phrases are noise.
+            hits = [h for h in hits if h.rule in injection.ALWAYS_HOSTILE]
+            severity = lambda rule: "operator"  # noqa: E731
+        self.injected(hits, self.author, self.author_tier, severity)
+        return True
 
     def _frozen_list(self) -> str | None:
         try:
@@ -251,10 +315,12 @@ class _Audit:
             self.add("sensitive", "block" if stranger and fork and raw.startswith(".github/") else "operator",
                      path, what)
         if policy.is_test_removal(raw, status):
-            self.add("removes_test", "operator", path)
+            self.add("removes_test", self._judgement(), path)
         if path in self.rolled_back:
             self.add("recently_rolled_back", "operator", path)
-        if self.gate == "checks" and policy.outside_the_jail(raw):
+        if self.sitter and status != "removed" and policy.module_shadow(raw):
+            self.add("module_shadow", "operator", path, "would be imported in place of another module")
+        if self.gate == "checks" and not self.sitter and policy.outside_the_jail(raw):
             self.add("outside_the_jail", "operator", path, "runs outside the mind's jail: a person merges it")
         if frozen is not None:
             pattern = frozen(raw)
@@ -290,7 +356,7 @@ class _Audit:
             who = c.get("author") or self.author
             who_tier = self.tier(who) if who != self.author else self.author_tier
             self.injected(injection.scan(c.get("message") or "", f"commit:{sha}"), who, who_tier,
-                          lambda rule, t=who_tier: "block" if t == policy.STRANGER else "operator")
+                          lambda rule, t=who_tier: self._message_severity(rule, t))
             secret = secretscan.content_finding(f"commit:{sha}", c.get("message") or "")
             if secret is not None:
                 self.add("secret", "block", f"commit:{sha}", secret.rule)
@@ -300,6 +366,11 @@ class _Audit:
                 self.add("foreign_commit", "operator", f"commit:{sha}", "a commit by someone untrusted")
         if unverified:
             self.add("unsigned_commits", "note", "commits", f"{unverified} without a verified signature")
+
+    def _message_severity(self, rule: str, who_tier: str) -> str:
+        if who_tier == policy.STRANGER or (self.sitter and rule in injection.ALWAYS_HOSTILE):
+            return "block"
+        return "note" if self.sitter and who_tier == policy.TEENY else "operator"
 
     def _conversation(self) -> None:
         """Comments and review comments, by anyone. Trusted people's words are
@@ -311,7 +382,7 @@ class _Audit:
                 continue
             where = f"{c.get('kind')}:{c.get('id')}"
             self.injected(injection.scan(c.get("body") or "", where, markers=self._markers(who)), who, who_tier,
-                          lambda rule: "operator")
+                          lambda rule: self._judgement())
 
     def _markers(self, who: str | None) -> Any:
         """The hidden comments `who` may leave without a `hidden_comment`
@@ -412,7 +483,7 @@ class _Audit:
             if who_tier not in policy.TRUSTED:
                 self.injected(injection.scan(r.get("body") or "", f"review:{who}", markers=self._markers(who)),
                               who, who_tier,
-                              lambda rule: "operator")
+                              lambda rule: self._judgement())
         approved, blocking = [], []
         for who, r in latest.items():
             if who.lower() in (str(self.author or "").lower(), user().lower()):
@@ -435,6 +506,9 @@ class _Audit:
             for who in blocking:
                 self.add("changes_requested", "fail", f"review:{who}")
             by_operator = [who for who in approved if self.tier(who) == policy.OPERATOR]
+            if self.sitter and not by_operator and ledger.sitter_decision(
+                    self.repo, self.number, self.head_sha) != "merge":
+                self.add("sitter_pending", "wait", "pr", "the babysitter's agent has not said merge at this head")
             severities = {f["severity"] for f in self.findings}
             if "block" in severities:
                 verdict = "blocked"
@@ -473,6 +547,9 @@ class _Audit:
             "eval": self.eval_state,
             "labels": [str(label) for label in self.pr.get("labels") or []],
             "findings": sorted(self.findings, key=lambda f: (SEVERITIES.index(f["severity"]), f["rule"], f["where"])),
+            "sitter": self.sitter,
+            "branch": self.pr.get("head_ref") if self.sitter else None,
+            "open_threads": [[t["id"], t["last"]] for t in self.threads],
             "injections": len(self.injections),
             "html_url": self.pr.get("html_url"),
         }

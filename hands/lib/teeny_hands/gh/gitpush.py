@@ -263,8 +263,14 @@ def scan_branch(git_dir: Path, since: str, ref: str) -> list[dict[str, str]]:
     head = f"refs/heads/{ref}"
     names = _git_dir(git_dir, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=d",
                      f"{since}...{head}").stdout.decode("utf-8", "replace")
-    patch = _git_dir(git_dir, "log", "-p", "--format=", "--unified=0", "--no-renames", f"{since}..{head}",
+    # A merge commit's own lines, what its resolution added, are shown against
+    # the merge git makes by itself (--diff-merges); `log -p` alone shows none.
+    patch = _git_dir(git_dir, "log", "-p", "--diff-merges=remerge", "--format=", "--unified=0", "--no-renames",
+                     f"{since}..{head}",
                      "--").stdout.decode("utf-8", "replace")
+    # And the branch's whole change, whatever its history showed.
+    patch += "\n" + _git_dir(git_dir, "diff", "--unified=0", "--no-renames",
+                             f"{since}...{head}").stdout.decode("utf-8", "replace")
     findings = secretscan.scan(sorted({n for n in names.split("\0") if n}), _added_lines(patch))
     return [item.as_dict() for item in findings]
 
