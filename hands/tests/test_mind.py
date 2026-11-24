@@ -151,6 +151,21 @@ class MindAgentTest(unittest.TestCase):
                        "a private\nperson is never the target", "stood in `SELF.md` for a week"):
             self.assertIn(needle, skill)
 
+    def test_the_spine_container_has_a_memory_ceiling_and_no_swap_on_top(self):
+        # The jail confines a shell's files, not its memory. On 2026-11-24 a
+        # daily build's own test grew to 80 GB in ten minutes inside the
+        # spine's container, which had no limit, and the box went into swap
+        # until health checks timed out.
+        text = (REPO / "deploy" / "compose.yaml").read_text()
+        spine = text[text.index("\n  spine:"):text.index("\n  cortexdb:")]
+        limits = dict(re.findall(r"^    (mem_limit|memswap_limit): (\S+)$", spine, re.M))
+        self.assertEqual(set(limits), {"mem_limit", "memswap_limit"})
+        self.assertEqual(limits["mem_limit"], limits["memswap_limit"], "no swap on top of the ceiling")
+        self.assertRegex(limits["mem_limit"], r"^\d+g$")
+        gigabytes = int(limits["mem_limit"][:-1])
+        self.assertGreater(gigabytes, 0, "Docker reads 0 as no limit at all")
+        self.assertLessEqual(gigabytes, 32)
+
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 
 
