@@ -141,6 +141,9 @@ class FeedbackTest(Scratch):
     def test_no_such_pull_request_or_a_graphql_error(self):
         self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}}})
         self.assertIsNone(reads.pr_feedback("teenydroid/brain", 4))
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}},
+                                           "errors": [{"type": "NOT_FOUND", "message": "Could not resolve"}]})
+        self.assertIsNone(reads.pr_feedback("teenydroid/brain", 4))
         self.gh.route("POST", "/graphql", {"errors": [{"message": "secret query text"}]})
         with self.assertRaises(GitHubError) as caught:
             reads.pr_feedback("teenydroid/brain", 4)

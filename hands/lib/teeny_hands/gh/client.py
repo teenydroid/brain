@@ -176,7 +176,12 @@ class GitHubApi:
         """One GraphQL read; its `data`. An answer with errors raises, naming
         none of them (they can quote the query)."""
         got = self.call("POST", "/graphql", body={"query": query, "variables": dict(variables)})
-        if not isinstance(got, Mapping) or got.get("errors") or not isinstance(got.get("data"), Mapping):
+        if not isinstance(got, Mapping) or not isinstance(got.get("data"), Mapping):
+            raise GitHubError("GitHub's GraphQL answered an error")
+        errors = got.get("errors") or []
+        # NOT_FOUND leaves its field null in `data`, which the caller reads as "none".
+        if not isinstance(errors, list) or any(not isinstance(e, Mapping) or e.get("type") != "NOT_FOUND"
+                                               for e in errors):
             raise GitHubError("GitHub's GraphQL answered an error")
         return dict(got["data"])
 

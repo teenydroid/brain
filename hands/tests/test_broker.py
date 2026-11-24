@@ -421,7 +421,10 @@ class StudioPitchTest(BrokerCase):
     def test_a_rehearsed_post_x_while_the_studio_is_on_says_it_would_be_a_pitch(self):
         self.start(STUDIO="1", MIND_DRY_RUN=None)
         code, out = self.post("/do", {"do": "post_x", "text": "a thought about the news"})
-        self.assertEqual((code, out["status"], out["dry_run"], out["filed"]), (200, "ok", True, "studio_pitch"), out)
+        self.assertEqual((code, out["status"], out["dry_run"], out["would_file"]), (200, "ok", True, "studio_pitch"),
+                         out)
+        self.assertNotIn("filed", out, "nothing was filed in a rehearsal")
+        self.assertIn("would be filed", out["message"])
         self.assertIn("not posted", out["message"])
 
     def test_a_post_x_while_the_studio_is_off_is_answered_as_before(self):
@@ -1416,6 +1419,17 @@ class PullRequestUpdateTest(RevisionCase):
         self.assertIn("MIND_PR_UPDATES_PER_PR", out["reason"])
         self.assertEqual(self.branch_on_origin("fix-morning-post"), head)
 
+    def test_an_update_whose_edit_is_refused_after_the_push_is_answered_and_counted(self):
+        self.opened_first()
+        self.gh.route("PATCH", "/repos/teenydroid/brain/pulls/3", {"message": "Validation Failed"}, status=422)
+        code, out = self.post("/repo", {"pr": 3})
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nafter review\n")
+        code, out = self.post("/pr", {"branch": "fix-morning-post", "title": "a briefer soul, reviewed"})
+        self.assertEqual((code, out["status"], out["updated"]), (200, "ok", True), out)
+        self.assertIn("422", out["edit_refused"])
+        self.assertEqual(self.branch_on_origin("fix-morning-post"), out["commit"])
+        self.assertEqual(self.updates_today()["counts"], {"3": 1})
+
     def test_updates_are_on_by_default_and_0_turns_them_off(self):
         self.opened_first(MIND_PR_UPDATES_PER_PR="0")
         code, out = self.revised("# soul\nagain\n")
@@ -1489,6 +1503,10 @@ class ReviewsTest(RevisionCase):
         self.assertEqual(self.gh.writes(), self.gh.requests("POST", "/graphql"), "one read, no write")
         code, out = self.post("/reviews", {"pr": 3, "reply": "x"})
         self.assertEqual((code, out["status"]), (403, "refused"))
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}},
+                                           "errors": [{"type": "NOT_FOUND", "message": "Could not resolve"}]})
+        code, out = self.post("/reviews", {"pr": 999})
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
 
 
 class CloneClientTest(MindCloneCase):

@@ -283,6 +283,8 @@ REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit
 #: What the mind reads when its intent was filed for the studio, not sent.
 PITCH_MESSAGE = ("filed as a pitch for the studio (STUDIO=1), not posted: the studio decides at its next slot "
                  "whether anything comes of it")
+PITCH_REHEARSED = ("would be filed as a pitch for the studio (STUDIO=1), not posted; this is a rehearsal, so "
+                   "nothing was filed")
 
 
 def _filed_pitch(name: str, hand_body: Any) -> bool:
@@ -296,8 +298,13 @@ def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
     """An answer for a pitch says in plain words that nothing was posted,
     and its ledger line records it."""
     if answer.get("status") == "ok" and _filed_pitch(name, hand_body):
-        answer["filed"] = entry["filed"] = "studio_pitch"
-        answer["message"] = entry["message"] = PITCH_MESSAGE
+        if answer.get("dry_run"):
+            answer["would_file"] = entry["filed"] = "studio_pitch (rehearsed)"
+            answer["would_file"] = "studio_pitch"
+            answer["message"] = entry["message"] = PITCH_REHEARSED
+        else:
+            answer["filed"] = entry["filed"] = "studio_pitch"
+            answer["message"] = entry["message"] = PITCH_MESSAGE
     return answer
 
 

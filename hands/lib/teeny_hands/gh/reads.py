@@ -125,14 +125,16 @@ def checks(repo: str, number: int, gh: GitHubApi | None = None) -> Json:
             "red": red, "pending": pending, "green": green}
 
 
-#: The most of any one review text `pr_feedback` passes on.
+#: The most of any one review text `pr_feedback` passes on, and of all of
+#: them together in one answer: strangers' words, kept small.
 FEEDBACK_CLIP = 1500
+FEEDBACK_BUDGET = 20000
 FEEDBACK_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       number state headRefName author { login }
-      reviewThreads(first: 100) { nodes { isResolved isOutdated path line
+      reviewThreads(last: 100) { totalCount nodes { isResolved isOutdated path line
         comments(first: 20) { nodes { author { login } body createdAt } } } }
       reviews(last: 50) { nodes { author { login } state body submittedAt } }
       comments(last: 50) { nodes { author { login } body createdAt } }
@@ -158,11 +160,20 @@ def _nodes(parent: Any, key: str) -> list[dict]:
     return [n for n in (nodes if isinstance(nodes, list) else []) if isinstance(n, dict)]
 
 
+def _said(node: dict, at: str) -> Json:
+    who = _author(node)
+    return {"author": who, "self": isinstance(who, str) and who.lower() == user().lower(),
+            "body": _clipped(node.get("body")), "at": node.get(at)}
+
+
 def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | None:
-    """A pull request's review threads (resolved or not, with their file and
-    line), its reviews' verdicts and its conversation, every text clipped to
-    FEEDBACK_CLIP; None when there is no such pull request. One GraphQL read,
-    not cached: a revision needs it fresh."""
+    """A pull request's newest 100 review threads (resolved or not, with
+    their file and line), its reviews' verdicts and its conversation, each
+    text clipped to FEEDBACK_CLIP and all of them together to FEEDBACK_BUDGET:
+    unresolved threads first, then verdicts, then comments, then resolved
+    threads, the rest counted in `omitted`. Each item says whether Teeny
+    wrote it (`self`). None when there is no such pull request. One GraphQL
+    read, not cached: a revision needs it fresh."""
     owner, name = split_repo(repo)
     data = _gh(gh).graphql(FEEDBACK_QUERY, {"owner": owner, "name": name, "number": number})
     pull = (data.get("repository") or {}).get("pullRequest") if isinstance(data.get("repository"), dict) else None
@@ -170,16 +181,45 @@ def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | N
         return None
     threads = [{"path": t.get("path"), "line": t.get("line"), "resolved": bool(t.get("isResolved")),
                 "outdated": bool(t.get("isOutdated")),
-                "comments": [{"author": _author(c), "body": _clipped(c.get("body")), "at": c.get("createdAt")}
-                             for c in _nodes(t, "comments")]}
-               for t in _nodes(pull, "reviewThreads")]
+                "comments": [_said(c, "createdAt") for c in _nodes(t, "comments")]}
+               for t in reversed(_nodes(pull, "reviewThreads"))]  # newest first
+    reviews = [{**_said(r, "submittedAt"), "state": r.get("state")} for r in reversed(_nodes(pull, "reviews"))]
+    comments = [_said(c, "createdAt") for c in reversed(_nodes(pull, "comments"))]
+    left = FEEDBACK_BUDGET
+    omitted = {"threads": 0, "thread_comments": 0, "reviews": 0, "comments": 0}
+
+    def fits(item: Json) -> bool:
+        nonlocal left
+        if len(item["body"]) > left:
+            return False
+        left -= len(item["body"])
+        return True
+
+    def kept_threads(resolved: bool) -> list[Json]:
+        out = []
+        for thread in (t for t in threads if t["resolved"] is resolved):
+            said = [c for c in thread["comments"] if fits(c)]
+            omitted["thread_comments"] += len(thread["comments"]) - len(said)
+            if said:
+                out.append({**thread, "comments": said})
+            else:
+                omitted["threads"] += 1
+        return out
+
+    open_kept = kept_threads(False)
+    reviews_kept = [r for r in reviews if fits(r)]
+    comments_kept = [c for c in comments if fits(c)]
+    resolved_kept = kept_threads(True)
+    omitted["reviews"] = len(reviews) - len(reviews_kept)
+    omitted["comments"] = len(comments) - len(comments_kept)
+    total = pull.get("reviewThreads", {}).get("totalCount") if isinstance(pull.get("reviewThreads"), dict) else None
     return {
         "repo": f"{owner}/{name}", "number": pull.get("number"), "state": pull.get("state"),
         "branch": pull.get("headRefName"), "author": _author(pull),
         "open_threads": sum(1 for t in threads if not t["resolved"]),
-        "threads": threads,
-        "reviews": [{"author": _author(r), "state": r.get("state"), "body": _clipped(r.get("body")),
-                     "at": r.get("submittedAt")} for r in _nodes(pull, "reviews")],
-        "comments": [{"author": _author(c), "body": _clipped(c.get("body")), "at": c.get("createdAt")}
-                     for c in _nodes(pull, "comments")],
+        "threads_total": total if isinstance(total, int) else len(threads),
+        "threads": open_kept + resolved_kept,
+        "reviews": reviews_kept,
+        "comments": comments_kept,
+        "omitted": omitted,
     }

@@ -340,10 +340,16 @@ def _pr_by_branch(gh: Any, branch: str) -> Json | None:
     else the newest."""
     from ..gh.client import split_repo, user
 
+    from ..gh.client import is_own
+
     owner, name = split_repo(selfclone.repo())
-    found = gh.pulls(owner, name, f"{user()}:{branch}")
-    found = [p for p in found if p.get("head_ref") == branch]
-    return next((p for p in found if p.get("state") == "open"), found[0] if found else None)
+    found = [p for p in gh.pulls(owner, name, f"{user()}:{branch}") if p.get("head_ref") == branch]
+    # Anybody can open a pull request from this branch into any base: only
+    # Teeny's own into main stands for it. With none, the first found is
+    # returned, so the refusal names whose it is.
+    own = [p for p in found if isinstance(p.get("user"), str) and is_own(p["user"]) and p.get("base") == BASE]
+    pool = own or found
+    return next((p for p in pool if p.get("state") == "open"), pool[0] if pool else None)
 
 
 def _own_mind_pr(found: Json) -> str:
@@ -363,6 +369,8 @@ def _own_mind_pr(found: Json) -> str:
     if not isinstance(branch, str) or not branch.startswith(MIND_BRANCH_PREFIX):
         raise hand.Refused(f"#{number} is on {branch}, not one of your {MIND_BRANCH_PREFIX}* branches",
                            rule="branch")
+    if found.get("base") != BASE:
+        raise hand.Refused(f"#{number} goes into {found.get('base')}, not {BASE}", rule="base")
     if found.get("merged"):
         raise hand.Refused(f"#{number} ({branch}) is merged: a new change is a new pull request on a new branch",
                            rule="merged")
@@ -682,12 +690,20 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     _bare("update-ref", f"refs/heads/{branch}", commit)
     pushed: Json = {}
     edited: Json = {}
+    edit_refused: str | None = None
     kept: list[str] = []
     try:
         _check_branch(branch)
         pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
         if given:
-            edited = actions.edit_pr(edit, gh=gh)
+            try:
+                edited = actions.edit_pr(edit, gh=gh)
+            except Exception as exc:  # noqa: BLE001 - the commit is live: an update, whatever the edit did
+                if not pushed.get("dry_run") and isinstance(exc, hand.HandError):
+                    reason = exc.reason if isinstance(exc, hand.Refused) else str(exc)
+                    edit_refused = f"{reason}"[:300]
+                else:
+                    raise
     finally:
         if pushed and not pushed.get("dry_run"):
             kept = _fresh(origin, commit)
@@ -699,6 +715,9 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
         return {"dry_run": True, "branch": branch, "files": files, "would_update": would}
     out: Json = {"updated": True, "repo": full, "branch": branch, "number": number, "pr_url": found.get("html_url"),
                  "commit": pushed["commit"], "files": files}
+    if edit_refused is not None:
+        out["edit_refused"] = ("the commit is pushed, but the pull request's title and body were not changed: "
+                               + edit_refused)
     return _with_kept(out, kept)
 
 

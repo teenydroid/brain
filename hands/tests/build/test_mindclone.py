@@ -20,6 +20,7 @@ from pathlib import Path
 from gh.support import Scratch, git
 from teeny_hands import hand
 from teeny_hands.build import mindclone
+from teeny_hands.gh import reads
 
 CHECKOUT = Path(__file__).resolve().parents[3]
 PR_URL = "https://github.com/teenydroid/brain/pull/9"
@@ -273,10 +274,12 @@ class ShipTest(MindScratch):
         self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
         self.ship()
         self.gh.route("GET", "/repos/teenydroid/brain/pulls", [])
+        head = self.origin_ref("refs/heads/teeny/mind-fix-morning-post")
         self.edit({"brain/SOUL.md": "# soul\nbriefer\n"})
         refused = self.refused()
         self.assertIn("teeny/mind-fix-morning-post", refused.reason)
         self.assertEqual(len(self.pulls()), 1)
+        self.assertEqual(self.origin_ref("refs/heads/teeny/mind-fix-morning-post"), head, "the branch is untouched")
 
 
 class HostileTreeTest(ShipTest):
@@ -487,12 +490,12 @@ BRANCH = "teeny/mind-fix-morning-post"
 
 
 def raw_pr(number=9, branch=BRANCH, sha=None, state="open", merged=False, author="teenydroid", head_owner=None,
-           title="a briefer soul", body="The old one rambled."):
+           title="a briefer soul", body="The old one rambled.", base="main"):
     """A pull request as GitHub's REST API answers one."""
     return {"number": number, "state": state, "merged": merged, "title": title, "body": body,
             "user": {"login": author}, "html_url": f"https://github.com/teenydroid/brain/pull/{number}",
             "head": {"label": f"{head_owner or author}:{branch}", "ref": branch, "sha": sha},
-            "base": {"ref": "main"}}
+            "base": {"ref": base}}
 
 
 class ReviseCase(MindScratch):
@@ -511,7 +514,8 @@ class ReviseCase(MindScratch):
     def github_has(self, **pr):
         got = raw_pr(**pr)
         number = got["number"]
-        self.gh.route("GET", "/repos/teenydroid/brain/pulls", [got],
+        listed = [got, *getattr(self, "also_listed", [])]
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls", listed,
                       when=lambda seen: seen.query.get("head") == f"teenydroid:{got['head']['ref']}")
         self.gh.route("GET", f"/repos/teenydroid/brain/pulls/{number}", got)
         self.gh.route("PATCH", f"/repos/teenydroid/brain/pulls/{number}", {**got, "state": "closed"})
@@ -561,6 +565,7 @@ class PreparePrTest(ReviseCase):
             "merged": dict(number=13, state="closed", merged=True),
             "closed": dict(number=14, state="closed"),
             "teeny/": dict(number=15, branch="teeny/builder-thing"),
+            "into evil": dict(number=16, base="evil"),
         }
         for words, pr in cases.items():
             with self.subTest(words=words):
@@ -703,6 +708,62 @@ class UpdateTest(ReviseCase):
             mindclone.ship("stacked", "t", "b")
         self.assertIn(BRANCH, caught.exception.reason)
 
+    def test_a_pushed_update_whose_pull_request_edit_fails_is_still_an_update(self):
+        from teeny_hands.gh import actions
+
+        first = self.open_first()
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+
+        def held(*args, **kw):
+            raise hand.Refused("held", category="slur")
+
+        with mock.patch.object(actions, "edit_pr", held):
+            out = self.update(title="a new title")
+        head = self.origin_ref(f"refs/heads/{BRANCH}")
+        self.assertEqual((out["updated"], out["commit"]), (True, head))
+        self.assertNotEqual(head, first)
+        self.assertIn("held", out["edit_refused"])
+
+    def test_the_size_cap_is_over_the_whole_pull_request_from_its_merge_base(self):
+        mindclone.prepare()
+        self.edit({"brain/long.md": "line\n" * 2000})
+        self.first = self.ship()["commit"]
+        self.github_has(sha=self.first)
+        self.upstream({"brain/main-moved.md": "x\n" * 2500}, "main grows meanwhile")  # not the PR's lines
+        mindclone.prepare(pr=9)
+        self.edit({"brain/more.md": "line\n" * 1001})  # 1001 new, 3001 in the whole pull request
+        refused = self.update_refused()
+        self.assertIn("3001 lines", refused.reason)
+        mindclone.prepare(pr=9)
+        self.edit({"brain/more.md": "line\n" * 1000})
+        self.assertTrue(self.update()["updated"])
+
+    def test_links_hard_links_and_a_git_folder_are_refused_on_an_update_too(self):
+        self.open_first()
+        secret = self.root / "secrets" / "teeny.env"
+        for plant, rule in ((lambda: (self.tree / "brain" / "leak.md").symlink_to(secret), "link"),
+                            (lambda: os.link(secret, self.tree / "brain" / "hard.md"), "changed"),
+                            (lambda: (self.tree / "brain" / ".git").mkdir(), "git_in_tree")):
+            with self.subTest(rule=rule):
+                subprocess.run(["rm", "-rf", str(self.tree)], check=True)
+                mindclone.prepare(pr=9)
+                self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+                plant()
+                self.assertEqual(self.update_refused().detail["rule"], rule)
+                self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+
+    def test_a_strangers_pull_request_from_the_same_branch_does_not_stand_in_for_teenys(self):
+        self.also_listed = [raw_pr(number=50, author="stranger", head_owner="teenydroid", base="evil")]
+        self.open_first()
+        self.also_listed = []
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls",
+                      [raw_pr(number=50, author="stranger", head_owner="teenydroid", base="evil"),
+                       raw_pr(sha=self.first)])
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+        self.assertEqual(self.update()["number"], 9)
+
     def test_under_dry_run_an_update_pushes_and_edits_nothing(self):
         first = self.open_first()
         mindclone.prepare(pr=9)
@@ -788,12 +849,47 @@ class ReviewsTest(ReviseCase):
         self.assertEqual(first["comments"][1]["author"], "teenydroid")
         self.assertEqual((second["resolved"], second["comments"][0]["author"]), (True, None))
         self.assertEqual(out["reviews"], [{"author": "senamakel", "state": "CHANGES_REQUESTED", "body": "see inline",
-                                           "at": "2026-11-23T20:05:00Z"}])
+                                           "at": "2026-11-23T20:05:00Z", "self": False}])
         self.assertEqual(out["comments"][0]["author"], "greptile-apps")
         self.assertEqual((out["open_threads"], out["number"], out["state"]), (1, 9, "OPEN"))
         (asked,) = self.gh.requests("POST", "/graphql")
         self.assertEqual(asked.json()["variables"], {"owner": "teenydroid", "name": "brain", "number": 9})
         self.assertEqual([s.method for s in self.gh.writes() if s.method in ("PATCH", "PUT", "DELETE")], [])
+
+    def test_one_answer_holds_at_most_the_budget_open_threads_first(self):
+        self.open_first()
+        big = "z" * 1500
+        threads = [{"isResolved": n % 2 == 0, "isOutdated": False, "path": f"f{n}.md", "line": n,
+                    "comments": {"nodes": [{"author": {"login": "bot"}, "body": big}] * 3}} for n in range(30)]
+        pull = {**self.GRAPHQL["data"]["repository"]["pullRequest"], "reviewThreads": {"totalCount": 130, "nodes": threads},
+                "reviews": {"nodes": [{"author": {"login": "op"}, "state": "COMMENTED", "body": big}] * 10},
+                "comments": {"nodes": [{"author": {"login": "teenydroid"}, "body": big}] * 10}}
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": pull}}})
+        out = mindclone.reviews(9)
+        texts = [c["body"] for t in out["threads"] for c in t["comments"]]
+        texts += [r["body"] for r in out["reviews"]] + [c["body"] for c in out["comments"]]
+        self.assertLessEqual(sum(len(t) for t in texts), reads.FEEDBACK_BUDGET)
+        self.assertTrue(all(not t["resolved"] for t in out["threads"]), "unresolved threads come first")
+        self.assertEqual((out["open_threads"], out["threads_total"]), (15, 130))
+        self.assertGreater(sum(out["omitted"].values()), 0)
+        self.assertIn("query($owner", self.gh.requests("POST", "/graphql")[0].json()["query"])
+        self.assertIn("reviewThreads(last: 100)", self.gh.requests("POST", "/graphql")[0].json()["query"])
+
+    def test_each_item_says_whether_teeny_wrote_it(self):
+        self.open_first()
+        self.gh.route("POST", "/graphql", self.GRAPHQL)
+        out = mindclone.reviews(9)
+        first = out["threads"][0]["comments"]
+        self.assertEqual([c["self"] for c in first], [False, True])
+        self.assertIs(out["reviews"][0]["self"], False)
+
+    def test_a_number_that_is_no_pull_request_is_refused_not_an_error(self):
+        self.open_first()
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}},
+                                           "errors": [{"type": "NOT_FOUND", "message": "Could not resolve"}]})
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.reviews(77)
+        self.assertEqual(caught.exception.detail["rule"], "not_found")
 
     def test_only_its_own_pull_requests(self):
         self.open_first()
