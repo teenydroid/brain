@@ -294,15 +294,48 @@ class GhPushTest(GhCase):
         code, out = self.gh("push", self.PUSH)
         self.assertEqual((code, out["status"]), (403, "refused"), out)
         self.assertIn("20 files", out["reason"])
+        self.assertEqual(self.staged(), [])
+
+    def test_nesting_past_64_folders_is_refused(self):
         deep = self.folder("work/deep", {"README.md": "hi"})
-        here = deep
-        for n in range(70):
-            here = here / "d"
-        here.mkdir(parents=True)
+        (deep / "/".join(["d"] * 70)).mkdir(parents=True)
+        self.start()
         code, out = self.gh("push", {**self.PUSH, "workdir": "work/deep"})
         self.assertEqual((code, out["status"]), (403, "refused"), out)
-        self.assertIn("deep", out["reason"])
+        self.assertIn("nested too deep", out["reason"])
         self.assertEqual(self.staged(), [])
+
+    def test_a_folder_of_empty_folders_holds_no_files_to_push(self):
+        """CodeRabbit on #550: folders count toward the cap, but never as
+        files: an empty tree pushed onto a branch would delete it all."""
+        top = self.home / "work" / "hollow"
+        (top / "a" / "b").mkdir(parents=True)
+        self.start()
+        code, out = self.gh("push", {**self.PUSH, "workdir": "work/hollow"})
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("holds no files", out["reason"])
+
+    def test_a_git_directory_is_never_the_folder_pushed(self):
+        top = self.folder()
+        (top / ".git").mkdir()
+        (top / ".git" / "config").write_text("[core]\n")
+        self.start()
+        for workdir in ("work/tool/.git", "work/tool/.GIT", "work/tool/.git/"):
+            code, out = self.gh("push", {**self.PUSH, "workdir": workdir})
+            self.assertEqual((code, out["status"]), (403, "refused"), workdir)
+            self.assertIn(".git", out["reason"])
+        self.assertEqual(self.staged(), [])
+
+    def test_the_ledger_keeps_no_draft_text_of_a_gh_write(self):
+        """CodeRabbit on #550: as /call does, a refused or sent body, title,
+        message or comment never stays in the ledger in plaintext."""
+        self.start()
+        self.gh("open-pr", {"repo": "a/b", "head": "x", "base": "main", "title": "TITLEWORDS", "body": "BODYWORDS"})
+        self.gh("comment", {"repo": "a/b", "number": 3, "body": "COMMENTWORDS", "extra": "EXTRAWORDS"})
+        raw = (self.root / "state" / "broker" / "ledger.jsonl").read_text()
+        for word in ("TITLEWORDS", "BODYWORDS", "COMMENTWORDS", "EXTRAWORDS"):
+            self.assertNotIn(word, raw)
+        self.assertEqual(self.ledger()[-2]["intent"], {"repo": "a/b", "head": "x", "base": "main"})
 
     def test_your_own_repository_is_changed_by_teeny_pr_never_pushed(self):
         self.folder()

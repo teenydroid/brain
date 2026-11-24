@@ -936,6 +936,8 @@ GH_NEXT = {
     "moved": "the branch moved on GitHub since it was read: push again",
 }
 GH_HELD = "the guard held it: say something else or nothing; never reword it to get past"
+#: The fields of a gh call the ledger keeps: what it names, never what it says.
+GH_LEDGER_KEYS = ("repo", "number", "name", "head", "base", "branch", "workdir", "label", "max", "days", "private")
 #: The folder `push` copies: at most this many files and bytes (env seams for the tests).
 PUSH_MAX_FILES = 5000
 PUSH_MAX_BYTES = 200 * 1024 * 1024
@@ -996,6 +998,8 @@ def _home_rel(value: Any) -> str:
         raise Refused(f"{value} is not inside your home (no ..); {why}")
     if not parts:
         raise Refused(f"push a folder inside your home, not the home itself; {why}")
+    if any(p.lower() == ".git" for p in parts):
+        raise Refused(f"{value} is a .git folder: push the project's folder, whose .git is left out; {why}")
     return "/".join(parts)
 
 
@@ -1011,7 +1015,8 @@ class _Copy:
 
     def __init__(self, rel: str) -> None:
         self.rel = rel
-        self.files = 0
+        self.files = 0  # every entry: files, folders, links (the cap)
+        self.plain = 0  # plain files alone (a push of none is refused)
         self.bytes = 0
         self.max_files = int(os.environ.get("TEENY_BROKER_PUSH_MAX_FILES") or PUSH_MAX_FILES)
         self.max_bytes = int(os.environ.get("TEENY_BROKER_PUSH_MAX_BYTES") or PUSH_MAX_BYTES)
@@ -1045,7 +1050,7 @@ class _Copy:
         finally:
             if top >= 0:
                 os.close(top)
-        if not self.files:
+        if not self.plain:
             raise Refused(f"{self.rel} holds no files to push")
         return self.dest
 
@@ -1102,6 +1107,7 @@ class _Copy:
             if not stat.S_ISREG(found.st_mode):
                 raise Refused(f"{where} is not a plain file: a push carries plain files only")
             self._count(found.st_size)
+            self.plain += 1
             try:
                 src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=fd)
             except OSError:
@@ -1174,7 +1180,10 @@ def gh(body: Json, entry: Json) -> Json:
     verb = body.get("verb")
     entry["verb"] = f"gh {verb}"[:LEDGER_CLIP] if isinstance(verb, str) else "gh"
     args = body.get("args", {})
-    entry["intent"] = _clipped(args) if isinstance(args, dict) else None
+    # As /call: only what names the target, never a draft's words (a title,
+    # a body, a message, a comment), which a refusal would leave in plaintext.
+    entry["intent"] = ({k: _clipped(args[k]) for k in GH_LEDGER_KEYS if k in args and not isinstance(args[k], dict)}
+                       if isinstance(args, dict) else None)
     verbs = ", ".join([*GH_READS, *GH_WRITES])
     if isinstance(verb, str) and verb in GH_WITHHELD:
         raise Refused(GH_WITHHELD[verb])

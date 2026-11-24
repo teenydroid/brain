@@ -712,3 +712,14 @@ class Wrapper(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoteNameTest(unittest.TestCase):
+    """CodeRabbit on #550: `w:f:act_failed:foo-bar` and `w:f:act_failed:foo_bar`
+    are different finding families and must not share (and overwrite) one note."""
+
+    def test_distinct_ids_have_distinct_notes_and_one_id_keeps_its_name(self):
+        a, b = wants.note_name("w:f:act_failed:foo-bar"), wants.note_name("w:f:act_failed:foo_bar")
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, wants.note_name("w:f:act_failed:foo-bar"))
+        self.assertRegex(a, r"^want-w-f-act-failed-foo-bar-[0-9a-f]{8}\.md$")

@@ -405,7 +405,12 @@ def _held(verdict: Json) -> str:
 def note_name(want_id: str) -> str:
     """want-<id>.md: one note per want, so handing the same want again (its
     text materially changed) replaces the note, never adds a second."""
-    return "want-" + re.sub(r"[^a-z0-9]+", "-", want_id.lower()).strip("-") + ".md"
+    import hashlib
+
+    # The readable part folds case and punctuation; the hash of the whole id
+    # keeps two ids that fold alike apart (foo-bar, foo_bar).
+    digest = hashlib.sha256(want_id.encode("utf-8")).hexdigest()[:8]
+    return "want-" + re.sub(r"[^a-z0-9]+", "-", want_id.lower()).strip("-")[:80] + "-" + digest + ".md"
 
 
 def _note(want: Want, text: str) -> str:
