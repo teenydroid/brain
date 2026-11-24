@@ -1274,11 +1274,14 @@ class TickTest(unittest.TestCase):
         """Through the real hands/gh, hands/tasks and hands/mail (DRY_RUN, the
         guard's judge off): a repository not Teeny's, a link no reputed source
         showed, and an address that is not a contact are each refused by the
-        hand itself; the ones inside the limits are dry runs."""
+        hand itself (an issue on another project with the operator's cap at 0,
+        GH_MAX_EXTERNAL_ISSUES_PER_DAY, is `off`); the ones inside the limits
+        are dry runs."""
         os.environ["TEENY_HANDS"] = str(REPO / "hands")
         (self.root / "deploy").symlink_to(REPO / "deploy")
         self.caps(MIND_ISSUES_PER_DAY=5, MIND_TASKS_PER_DAY=5, MIND_MAILS_PER_DAY=5, DRY_RUN=1, SAFETY_JUDGE=0,
-                  GITHUB_USER="teenydroid", GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", AGENTMAIL_API_KEY="k", AGENTMAIL_INBOX="i@x")
+                  GITHUB_USER="teenydroid", GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", AGENTMAIL_API_KEY="k", AGENTMAIL_INBOX="i@x",
+                  GH_MAX_EXTERNAL_ISSUES_PER_DAY=0)
         self.answer({"thought": "", "intents": [
             {**self.ISSUE, "repo": "tinyhumansai/openhuman"},
             {**self.TASK, "start_url": "https://evil.example/login"},
@@ -1289,7 +1292,7 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         results = got["results"]
         self.assertEqual([r["status"] for r in results], ["refused", "refused", "refused", "done", "done"], results)
-        self.assertEqual(results[0]["result"]["rule"], "owner")
+        self.assertEqual(results[0]["result"]["rule"], "off")
         self.assertEqual(results[1]["result"]["rule"], "reputed")
         self.assertEqual(results[2]["result"]["rule"], "contacts")
         self.assertTrue(results[3]["result"]["dry_run"])
