@@ -956,6 +956,20 @@ class PulseTest(BrokerCase):
         self.assertEqual([a["metric"] for a in answer["audience"]], ["x.followers"])
         self.assertIn("jobs", answer)
 
+    def test_a_bad_older_row_loses_only_its_comparison_never_the_latest_number(self):
+        self.stores()
+        read = T0 - 2 * 3600  # 2026-09-14T05:00:00Z
+        self.stats([("2026-09-06", "x", "followers", 300, read - 8 * 86400),
+                    ("2026-09-13", "x", "followers", "not a number STRANGER", read - 86400),
+                    ("2026-09-14", "x", "followers", 334, read)])
+        self.start()
+        _, answer = self.post("/pulse")
+        self.assertEqual(answer["audience"], [
+            {"metric": "x.followers", "value": 334, "read_at": "2026-09-14T05:00:00Z",
+             "day_before": None, "change_1d": None, "week_before": 300, "change_7d": 34},
+        ])
+        self.assertNotIn("STRANGER", json.dumps(answer["audience"]))
+
     def test_the_client_reaches_it(self):
         self.stores()
         self.start()
