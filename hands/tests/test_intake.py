@@ -88,20 +88,22 @@ class IntakeTest(unittest.TestCase):
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
 
-    def test_x_has_four_studio_slots_five_hours_apart_and_brief_runs_just_before_one(self):
+    def test_x_has_three_studio_slots_five_hours_apart_and_brief_runs_just_before_one(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
         slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name]["command"])
-                 for name in ("studio-0430", "studio-0930", "studio-1500", "studio-sunday", "studio-2300", "brief",
+                 for name in ("studio-0430", "studio-1500", "studio-sunday", "studio-2300", "brief",
                               "shiplog")}
         self.assertEqual(slots, {
             "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote --detach"),
-            "studio-0930": ("30 9 * * *", "Asia/Kolkata", "bin/studio --slot 0930 --legacy morning --detach"),
             "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take --detach"),
             "studio-sunday": ("0 15 * * 0", "Asia/Kolkata", "bin/studio --slot 1500 --legacy growth --detach"),
             "studio-2300": ("0 23 * * *", "Asia/Kolkata", "bin/studio --slot 2300 --legacy show --detach"),
             "brief": ("55 14,22 * * *", "Asia/Kolkata", "bin/act brief"),
             "shiplog": ("10 23 * * *", "Asia/Kolkata", "bin/act shiplog"),
         })
+        # Three a day since 2026-11-23: the 09:30 slot is gone.
+        self.assertEqual(sorted(n for n in jobs if n.startswith("studio-")),
+                         ["studio-0430", "studio-1500", "studio-2300", "studio-sunday"])
         # The replaced jobs are gone from cron: their slots are the studio's,
         # and each studio job names the old playbook it runs with STUDIO=0.
         for gone in ("x-quote", "morning", "take", "show", "growth"):

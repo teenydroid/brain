@@ -11,7 +11,7 @@ guard and before DRY_RUN; nothing else in the hand posts.
   repetitive-publishing shape the ranker demotes. Replies are never subject
   to it: they are conversations, not slots. Quotes are not either: they have
   their own lane (below), so a quote never shuts a studio slot.
-- At most `X_POSTS_MAX_PER_DAY` original posts a UTC day (4 by default).
+- At most `X_POSTS_MAX_PER_DAY` original posts a UTC day (3 by default).
   Quotes and replies to mentions are not counted.
 - The quote lane (`check_gap` and `check_daily_cap` with kind `quote`): a
   quote of a post goes out at least `QUOTE_MIN_GAP_HOURS` (3) after the
@@ -84,8 +84,8 @@ MAX_POST_LENGTH = 280
 #: The longest post X Premium publishes, and X_MAX_POST_LENGTH's default.
 X_LONG_POST_LIMIT = 25_000
 #: Original posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
-#: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
-DEFAULT_POSTS_MAX_PER_DAY = 4
+#: (POST_MIN_GAP_HOURS): three slots at most, five hours apart (2026-11-23).
+DEFAULT_POSTS_MAX_PER_DAY = 3
 DEFAULT_POST_MIN_GAP_HOURS = 5.0
 #: The quote lane: quotes a UTC day (X_QUOTES_MAX_PER_DAY), the hours from
 #: one quote to the next (QUOTE_MIN_GAP_HOURS), and the minutes a quote waits

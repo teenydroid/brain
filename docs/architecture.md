@@ -808,7 +808,7 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is at most four original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+- X is at most three original posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
   `POST_MIN_GAP_HOURS`), plus at most two quotes a day in a lane of their own
   (`X_QUOTES_MAX_PER_DAY`, three hours apart, `QUOTE_MIN_GAP_HOURS`, and 45
   minutes after an original post, `QUOTE_AFTER_POST_MINUTES`): the day's
