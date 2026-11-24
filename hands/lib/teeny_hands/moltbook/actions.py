@@ -554,11 +554,6 @@ def _comment_detail(writer: str | None, own_post: bool, the_post: Any) -> str:
     return json.dumps(detail, sort_keys=True)
 
 
-#: The oldest post (hours) Teeny comments on at the top level, by default
-#: (kept in rules: the own-thread reserve reads the same setting).
-DEFAULT_MAX_COMMENT_AGE_HOURS = rules.DEFAULT_MAX_COMMENT_AGE_HOURS
-
-
 def _check_age(the_post: Mapping[str, Any], me: str) -> None:
     """Refuses a top-level comment on another agent's post that is too old
     to be read (`too_old`), unless the post names Teeny: that is a mention,
