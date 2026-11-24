@@ -18,8 +18,10 @@ jailed mind edits, and the one way that copy becomes a pull request
 clean tree (ignored files do not count, and go with it) is replaced by a
 fresh checkout of origin/main, made in state/mind/ (where the mind cannot
 race it) and renamed into place; the tree it replaces is renamed aside
-first, which never follows a link. A tree with edits is left as it is. Git
-never writes into the mind's tree, and the mind cannot run git on it.
+first, which never follows a link. A tree with edits is left as it is, and
+the answer says so (`left_alone`: the commit it is on, how far behind
+origin/main, the changed files, the calls for a fresh copy). Git never
+writes into the mind's tree, and the mind cannot run git on it.
 
 `ship(slug, title, body)` refuses, in order: a bad slug, title (1..120) or
 body (1..8000); a tree taken from a pull request's head rather than main; a
@@ -30,7 +32,11 @@ is not a plain file of the tree's own (a link, wherever it points, a nested
 repository, a hard link, a file over 2 MB, or bytes that differ from what
 git staged, read here without following a link); a frozen path, the list
 read from origin/main (selfclone's frozen check); anything the secret scan
-finds (gitpush.scan_branch). It commits as Teeny with commit-tree (no
+finds (gitpush.scan_branch); and, for a new pull request from a copy behind
+origin/main, a file main changed since the copy was taken (`stale`: sending
+it would undo what was merged; 2026-11-24, #546). The answer carries `diff`,
+what was shipped against origin/main, file by file with added and deleted
+lines. It commits as Teeny with commit-tree (no
 hooks, HEAD and the tree untouched), pushes teeny/mind-<slug> (hands/gh
 push_branch, which scans again) and opens a ready pull request into main
 (hands/gh open_pr, which guards again) whose body ends with DISCLOSURE.
@@ -259,11 +265,49 @@ def _settle(origin: str) -> Json:
         state = "current"
     out: Json = {"path": str(worktree()), "repo": selfclone.repo(), "commit": origin, "head": _rev("HEAD"),
                  "state": state}
+    if state == "dirty":
+        out.update(_left_alone(origin))
     if kept:
         out["kept"] = kept
         out["note"] = ("edits made while the tree was refreshed are in " + ", ".join(kept)
                        + " (outside the mind's reach); copy what is wanted back")
     return out
+
+
+#: A fresh copy of main, said as the calls that make one.
+FRESH_COPY = ("copy what you want to keep out of it (cp -r repo work/repo-edits), then rm -rf repo and run "
+              "bin/teeny repo for a fresh copy of main")
+MAX_LISTED = 50
+
+
+def _left_alone(origin: str) -> Json:
+    """What `prepare` says when it left a copy holding edits as it is (2026-11-24,
+    #546: an old tree was left alone and shipped blind): the commit it is
+    on, how far behind origin/main, which files differ from it, and the calls
+    for a fresh one."""
+    head = _rev("HEAD")
+    behind = int(_bare("rev-list", "--count", f"{head}..{origin}").stdout.decode().strip() or 0) if head else 0
+    changed = sorted({line[3:].split(" -> ")[-1] for line in
+                      _git("status", "--porcelain", "--untracked-files=all").stdout.decode("utf-8", "replace")
+                      .splitlines() if len(line) > 3})
+    where = f"{behind} commits behind origin/main" if behind else "on origin/main"
+    return {"left_alone": True, "base": head, "behind": behind, "changed": changed[:MAX_LISTED],
+            "note": (f"your copy holds edits, so it was left as it is: {where}, with {len(changed)} changed "
+                     f"file(s) ({', '.join(changed[:10])}{', ...' if len(changed) > 10 else ''}). If those are not "
+                     f"the edits you mean to send, {FRESH_COPY}")}
+
+
+def _diffstat(base: str, head: str) -> Json:
+    """What HEAD changes against BASE, as a pull request shows it: each
+    file's added and deleted lines, and the totals."""
+    files, added, deleted = [], 0, 0
+    for row in _bare("diff", "--numstat", "--no-renames", base, head).stdout.decode("utf-8", "replace").splitlines():
+        a, d, path = (row.split("\t", 2) + ["", ""])[:3]
+        a, d = (int(a) if a.isdigit() else 0), (int(d) if d.isdigit() else 0)
+        files.append({"path": path, "added": a, "deleted": d})
+        added, deleted = added + a, deleted + d
+    return {"against": "origin/main", "files": files[:MAX_FILES], "added": added, "deleted": deleted,
+            "count": len(files)}
 
 
 def prepare(pr: Any = None, branch: Any = None, gh: Any = None) -> Json:
@@ -304,8 +348,11 @@ def prepare(pr: Any = None, branch: Any = None, gh: Any = None) -> Json:
                      "pr_url": found.get("html_url"), "pr_head": head, "slug": _slug_of(head_branch),
                      "update": f"""bin/teeny pr '{{"pr": {found.get('number')}}}'"""}
     if state == "dirty":
+        with hand.lock("mind-clone"):
+            out.update(_left_alone(origin))
         out["note"] = ("your copy holds edits, so it is left as it is and is not the pull request's head: finish "
-                       "or drop them (delete repo/), then ask again")
+                       f"or drop them, then ask again. {FRESH_COPY}, or bin/teeny repo '{{\"pr\": "
+                       f"{found.get('number')}}}' once repo/ is gone")
     if kept:
         out["kept"] = kept
         out["note"] = ("edits made while the tree was refreshed are in " + ", ".join(kept)
@@ -710,7 +757,16 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
         if not files or not _changed(origin, commit):
             raise hand.Refused("nothing changed against origin/main", rule="empty")
         _within_limits("HEAD", commit, files)
+        if head is not None and head != origin:
+            merged = set(_changed(head, origin)) & set(files)
+            if merged:
+                raise hand.Refused(
+                    f"your copy is {len(_bare('rev-list', f'{head}..{origin}').stdout.split())} commit(s) behind "
+                    f"origin/main, and main changed {', '.join(sorted(merged)[:10])} since: sending it would undo "
+                    f"what was merged there. {FRESH_COPY}; redo your edits on it, then send it again",
+                    rule="stale", paths=sorted(merged))
         _only_plain_files(commit)
+        diff = _diffstat(head or origin, commit)
         request = {"repo": full, "head": branch, "base": BASE, "title": fields["title"],
                    "body": fields["body"].rstrip() + "\n\n" + DISCLOSURE}
         _bare("update-ref", f"refs/heads/{branch}", commit)
@@ -730,8 +786,8 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
                 _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
     if pushed.get("dry_run"):
         would = {"repo": opened.get("would_open_pr"), **{k: opened.get(k) for k in ("head", "base", "title", "body")}}
-        return {"dry_run": True, "branch": branch, "files": files, "would_open": would}
-    out: Json = {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files,
+        return {"dry_run": True, "branch": branch, "files": files, "diff": diff, "would_open": would}
+    out: Json = {"repo": full, "branch": branch, "commit": pushed["commit"], "files": files, "diff": diff,
                  "pr_url": opened.get("html_url"), "number": opened.get("number")}
     return _with_kept(out, kept)
 
@@ -825,9 +881,10 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     if pushed.get("dry_run"):
         would = {"number": number, "pr_url": found.get("html_url"), "commit": commit,
                  **{k: edited.get(k) for k in ("title", "body") if k in edited}}
-        return {"dry_run": True, "branch": branch, "files": files, "would_update": would}
+        return {"dry_run": True, "branch": branch, "files": files, "diff": _diffstat(since, commit),
+                "would_update": would}
     out: Json = {"updated": True, "repo": full, "branch": branch, "number": number, "pr_url": found.get("html_url"),
-                 "commit": pushed["commit"], "files": files}
+                 "commit": pushed["commit"], "files": files, "diff": _diffstat(since, commit)}
     if edit_refused is not None:
         out["edit_refused"] = ("the commit is pushed, but the pull request's title and body were not changed: "
                                + edit_refused)

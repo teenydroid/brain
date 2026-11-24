@@ -70,7 +70,9 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
   teeny pr '<json>'          turn your edits in repo/ into a pull request from teeny/mind-<branch>:
                              teeny pr '{"branch": "fix-morning-post", "title": "...", "body": "..."}'
                              (refused when it touches a frozen path, holds a secret or a link, is
-                             over 100 files or 3000 lines, or today's pull requests are spent).
+                             over 100 files or 3000 lines, would undo what main merged since your
+                             copy was taken, or today's pull requests are spent). The answer's
+                             "diff" is what was sent, file by file: check it is the change you meant.
                              To your open pull request it adds one commit, from a copy taken with
                              teeny repo '{"pr": N}'; name it by number, title and body optional:
                              teeny repo '{"pr": 529}', edit repo/, then teeny pr '{"pr": 529}'
