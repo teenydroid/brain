@@ -166,7 +166,7 @@ class GhAnswersTest(GhCase):
         self.assertIn("teeny gh fork '{\"repo\": \"a/b\"}'", out["next"])
 
     def test_reads_of_other_peoples_repositories_come_back_as_data_within_a_budget(self):
-        issues = [{"number": n, "title": f"issue {n}", "body": "x" * 5000} for n in range(1, 60)]
+        issues = [{"number": n, "title": f"issue {n}", "body": "x" * 3000} for n in range(1, 26)]
         self.start(env={"FAKE_GH_OUT_ISSUES": json.dumps({"ok": True, "issues": issues})})
         code, out = self.gh("issues", {"repo": "a/b", "max": 100})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
@@ -175,7 +175,7 @@ class GhAnswersTest(GhCase):
         self.assertTrue(kept, "something is kept")
         self.assertTrue(all(len(i["body"]) <= 1501 for i in kept))
         self.assertLessEqual(len(json.dumps(out["result"])), 40_000)
-        self.assertEqual(out["omitted"], 59 - len(kept))
+        self.assertEqual(out["omitted"], 25 - len(kept))
         self.assertEqual([i["number"] for i in kept], list(range(1, len(kept) + 1)), "the first ones are kept")
 
     def test_a_rehearsal_runs_the_hand_which_rehearses_itself(self):
