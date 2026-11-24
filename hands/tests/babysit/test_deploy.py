@@ -12,8 +12,11 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 from .support import DIARY, REPO, BabysitScratch
@@ -245,3 +248,17 @@ class PlanTest(BabysitScratch):
     def test_cron_files_reseed(self):
         self.assertTrue(deploy.plan(["brain/cron.toml"])["reseed"])
         self.assertTrue(deploy.plan(["evals/cron.pinned.toml"])["reseed"])
+
+
+class RuntimeFilesIgnored(unittest.TestCase):
+    def test_the_cores_storage_folder_is_ignored(self) -> None:
+        """A box-local commit of it left the live checkout unable to
+        fast-forward, so every deploy was refused (2026-11-24)."""
+        checkout = Path(__file__).resolve().parents[3]
+        for name in ("storage.db", "storage.db-shm", "storage.db-wal"):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                git(Path(tmp), "init", "-q")
+                shutil.copy(checkout / ".gitignore", Path(tmp) / ".gitignore")
+                # The rule that matched must be the repository's own, not a developer's global one.
+                rule = git(Path(tmp), "-c", "core.excludesFile=/dev/null", "check-ignore", "-v", f"brain/storage/{name}")
+                self.assertRegex(rule, r"^\.gitignore:\d+:[^!]")

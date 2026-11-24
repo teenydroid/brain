@@ -10,9 +10,8 @@ key.pem.pub
 worktrees/
 target/
 /brain/storage.db*
-# The core's store in a folder of its own. Unignored, a box-local commit of it
-# (2026-11-23) left the live checkout unable to fast-forward, and the
-# babysitter's deploy was refused.
+# The core's own database under its storage folder. Unignored, a box-local
+# commit of it left the live checkout unable to fast-forward (2026-11-23).
 /brain/storage/
 # Teeny's live page: bin/reflect rewrites it on the box twice a day. The
 # repository keeps where it started, brain/MEMORY.seed.md, and the prompts
