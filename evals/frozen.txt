@@ -62,7 +62,6 @@ brain/agents/querier.toml
 brain/agents/teeny.toml
 brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
-brain/agents/builder.toml
 brain/agents/operator.toml
 # The agentic mind's tools and jail (docs/mind.md): a self-edited sandbox or
 # tool list is a way out of state/home/. Its prompt (mind.md) stays Teeny's.

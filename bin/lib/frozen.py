@@ -38,15 +38,11 @@ LIST_PATH = "evals/frozen.txt"
 #: The frozen things a self change most often reaches for, where each lives,
 #: and what is Teeny's to change instead. A proposer that wants one of these
 #: should know before it spends a turn finding out: on 2026-11-13 a self
-#: change asked to reword the builder's daily brief, and the builder spent
-#: three hours learning it is frozen code. Shown by bin/evolve in every
-#: proposer's message and by `hands/build frozen` (the self-improve playbook).
+#: change asked to reword the (since retired) builder's daily brief, and the
+#: builder spent three hours learning it is frozen code. Shown by bin/evolve
+#: in every proposer's message and by `hands/build frozen`.
 OFTEN_WANTED = (
-    ("the builder's daily brief and the rules every build gets",
-     "hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF, DAILY_RULES, IDEA_RULES)",
-     "brain/playbooks/build-idea.md picks the idea a daily build makes; brain/agents/builder-self.md guides a self "
-     "change"),
-    ("when the builder, the operator, the mind's tick, dream, the wallet jobs and this loop run",
+    ("when the operator, the mind, its tick, dream, the wallet jobs and this loop run",
      "evals/cron.pinned.toml", "brain/cron.toml: every job that is not pinned"),
     ("an agent's tools, model or limits", "brain/agents/*.toml", "the agent prompts, brain/agents/*.md"),
     ("how posts and replies reach X, and their pacing", "hands/x, hands/lib/teeny_hands/x/",
