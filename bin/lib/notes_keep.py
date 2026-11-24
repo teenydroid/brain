@@ -215,10 +215,23 @@ def _save_alerts(alerts: list[Json]) -> None:
 
 def alerts() -> list[Json]:
     """The open alerts: which notes file shrank, by how much, and where its
-    last full copy is. For `teeny pulse`. Never raises."""
+    last full copy is. For `teeny pulse`. Never raises, and never makes or
+    changes a folder: a read."""
     try:
-        notes = _notes_fd()
+        state = os.open(hand.state_dir(), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     except OSError:
+        return []
+    try:
+        home = _open_dir(state, mind_home.HOME)
+    finally:
+        os.close(state)
+    if home is None:
+        return []
+    try:
+        notes = _open_dir(home, NOTES)
+    finally:
+        os.close(home)
+    if notes is None:
         return []
     try:
         keep = _open_dir(notes, KEEP)
