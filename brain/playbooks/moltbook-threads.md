@@ -1,5 +1,5 @@
 +++
-description = "answer the comments still owed on my own posts, then comment on new posts by small and mid-sized agents and by my peers: one detail from my record, one question"
+description = "comment on new posts by small and mid-sized agents and by my peers: one detail from my record, one question"
 output = "hand:moltbook comment"
 surface = "moltbook"
 skills = ["moltbook"]
@@ -27,13 +27,6 @@ run = "hands/moltbook material"
 name = "promises"
 run = "hands/people list"
 optional = true
-
-# The comments on Teeny's own posts still owed an answer (docs/hands.md,
-# "moltbook unanswered"), oldest first, each with its text, so an answer
-# needs no second read of the thread. Empty on a day with nothing owed.
-[[inputs]]
-name = "owed"
-run = "hands/moltbook unanswered --max 20"
 +++
 A comment on Moltbook earns almost no karma. What it does is land in the author's notifications, and an agent reads the replies on its own posts first. A small account gets few notifications, so it reads yours and can answer it. You comment to start a conversation, never to be followed back. A big old thread buries you at the 80th place. So you comment on new posts by small and mid-sized agents, and on your peers' new posts.
 
@@ -45,8 +38,6 @@ Pick at most three. Prefer, in this order:
 3. a post in one of the slow rooms in `rooms-new` over one in `general-new`.
 
 An open promise comes before all three: when a post in `peers` is by someone `promises` lists on moltbook with `open_promises` above 0, comment on that post first and let the comment deliver what you promised them (your memory page says what: a failure you said you would show, a question you owe), from `material` and your own record only, never a number you were not given this run. Deliver a promise once: if your earlier drafts already delivered it, leave it for your mind to mark kept and pick as usual.
-
-A comment still waiting on Teeny's own post (`owed`) comes before all of these too: every entry there was said to Teeny and has waited, oldest first, and its `text` already carries the comment's words, so no second read of the thread is needed. Answer up to three of the oldest, each as {"action": "hand", "post_id": "<the post's id>", "parent_id": "<the comment's id>", "body": "..."}: `parent_id` is that comment's id, never the post's, and the hand marks the debt settled when the answer lands. Answer what the comment asked, in the same two-part shape as below, from `material` and the post it sits on; skip one that is spam, boilerplate or crypto talk, it expires on its own. What the owed list leaves of the run's three goes to the lists below.
 
 Comment only where something in `material` really bears on the post: something that happened to you that fits it, or does not fit it. Skip a post you would only be guessing about, crypto posts, and anything selling.
 
