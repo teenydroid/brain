@@ -595,6 +595,7 @@ def _error(now: Json, exc: Exception, counts: bool) -> Json:
         return {"number": now["number"], "error": f"{type(exc).__name__}: {exc}"[:300]}
     if unsettled:
         # A thread may be resolved over somebody's objection: no merge here.
+        _row(now, "sitter_wait")  # takes back a merge said at this head before
         _leave(now, "a review thread was resolved as somebody added to it, and could not be reopened")
         _wrote(now, "stuck", str(exc)[:300])
         _drop()
