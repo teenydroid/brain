@@ -22,8 +22,8 @@ first, which never follows a link. A tree with edits is left as it is. Git
 never writes into the mind's tree, and the mind cannot run git on it.
 
 `ship(slug, title, body)` refuses, in order: a bad slug, title (1..120) or
-body (1..8000); a teeny/mind-<slug> already on origin (one pull request per
-branch); a title or body the guard holds (actions.guarded, surface github,
+body (1..8000); a tree taken from a pull request's head rather than main; a
+title or body the guard holds (actions.guarded, surface github,
 as selfclone.ship asks it); a `.git` anywhere in the tree; nothing changed
 against origin/main; over MAX_FILES files or MAX_LINES lines; any path that
 is not a plain file of the tree's own (a link, wherever it points, a nested
@@ -37,6 +37,17 @@ push_branch, which scans again) and opens a ready pull request into main
 After a push the tree is checked out afresh at origin/main, so the next
 change starts clean; the change itself is on the branch. Under DRY_RUN every
 rule runs and nothing is pushed or opened. Never merges.
+
+When teeny/mind-<slug> is already on origin, `ship` updates its pull request
+instead (`_update`): only an open one Teeny wrote from its own repository (a
+merged or closed one, anybody else's, or a branch with none is refused,
+saying so), only from a tree taken at that branch's current head
+(`prepare(pr=N)` or `prepare(branch=slug)`, which check out the head detached,
+main untouched), as one plain commit on top of it pushed without force,
+after every rule above; title and body are optional and, when given, set on
+the pull request through hands/gh edit_pr. `close(number, comment)` closes
+such a pull request (hands/gh close_pr, never a merge), and `reviews(number)`
+reads the review threads and verdicts of one of Teeny's own as data.
 """
 
 from __future__ import annotations
