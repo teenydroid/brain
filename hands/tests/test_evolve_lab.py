@@ -375,7 +375,7 @@ class LabPorts(LabCase):
             with unittest.mock.patch.object(judge, "_saved_report", lambda *a: None), \
                     self.assertRaises(evolve.EvolveError):
                 judge._one(cand, {"tasks": [], "all": False}, None, {}, 1)
-        self.assertEqual(started, [7801, 7812, 7812, 7803])
+        self.assertEqual(started, [7801, 7813, 7813, 7803])
 
 
 

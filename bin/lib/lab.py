@@ -6,7 +6,8 @@ A lab core is `bin/spine` run with its own everything:
   TEENY_ROOT, OPENHUMAN_WORKSPACE   the worktree and its brain/
   TEENY_STATE, TEENY_SECRETS        LAB/state and LAB/secrets, never the live ones
   TEENY_STORAGE                     LAB/storage.db, a fresh store
-  OPENHUMAN_CORE_PORT               a port of its own (EVOLVE_LAB_PORT and up)
+  OPENHUMAN_CORE_PORT               a port of its own (EVOLVE_LAB_PORT and up,
+                                    never the live core's or broker's: `port`)
   DRY_RUN=1                         forced, and LAB/secrets/teeny.env says so too
   SPINE_LAB=1                       bin/spine seeds no cron, never falls back
                                     to state/last-good, and refuses DRY_RUN=0
@@ -30,15 +31,19 @@ for a stand-in that answers /health.
 
 from __future__ import annotations
 
+import itertools
 import os
 import secrets as _secrets
 import signal
+import socket
 import subprocess
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+import box
 
 CODE = Path(__file__).resolve().parents[2]
 
@@ -157,12 +162,40 @@ def healthy(url: str, timeout: float = 2.0) -> bool:
         return False
 
 
+def port(base: int, offset: int) -> int:
+    """The lab port OFFSET places up from BASE (EVOLVE_LAB_PORT), counting
+    only ports that are neither the live core's nor the mind's broker's. So
+    no two offsets share a port, whatever BROKER_PORT is set to. Every lab's
+    port comes from here."""
+    taken = {7788, box.DEFAULT_BROKER_PORT, box.broker_port()}
+    core = os.environ.get("OPENHUMAN_CORE_PORT", "")
+    if core.isdecimal():
+        taken.add(int(core))
+    free = (p for p in itertools.count(base) if p not in taken)
+    return next(itertools.islice(free, offset, None))
+
+
+def in_use(port: int) -> bool:
+    """Anything listens on PORT, whatever it answers. SO_REUSEADDR lets a
+    port whose last connections are still in TIME_WAIT count as free."""
+    with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
 def start(name: str, tree: Path, folder: Path, port: int, live_secrets: Path, boot_secs: float,
           edit: bool = False) -> Lab:
     """Boots a lab spine over TREE and waits for it to answer. Raises
-    LabError (after stopping it) when it exits or does not answer in time."""
-    if healthy(f"http://127.0.0.1:{port}", 0.5):
-        raise LabError(f"port {port} already answers /health: another core is there")
+    LabError (after stopping it) when it exits or does not answer in time,
+    and before anything is spawned when the port is taken: a core would move
+    to another port, where nothing looks for it."""
+    if in_use(port):
+        raise LabError(f"port {port} is already in use: another process listens there, so no lab was started "
+                       "(EVOLVE_LAB_PORT in secrets/evolve.env moves the labs)")
     folder.mkdir(parents=True, exist_ok=True)
     lab = Lab(name=name, tree=tree, folder=folder, port=port, token=prepare(folder, live_secrets))
     # Every boot starts from an empty store: nothing one turn left (the

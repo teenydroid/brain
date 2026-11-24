@@ -293,7 +293,7 @@ class AskQueryTurn(LoopCase):
             return json.dumps({"queries": [GOOD]})
 
         cfg = {"EVOLVE_PROPOSER_AGENT": "act", "EVOLVE_QUERY_AGENT": "querier", "EVOLVE_EVOLVER_AGENT": "evolver",
-               "EVOLVE_LAB_PORT": 7790}
+               "EVOLVE_LAB_PORT": 7800}
         with unittest.mock.patch.object(evolve.AskProposer, "_turn", turn):
             got = evolve.EvolverProposer(cfg).queries({"gen": 1, "cand": 1, "learning": LEARNING, "n": 2})
         self.assertEqual(got, {"queries": [GOOD]})

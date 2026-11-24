@@ -249,7 +249,7 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_QUERY_AGENT": ("querier", str, None, None),
     "EVOLVE_ISSUE_REPO": ("teenydroid/brain", str, None, None),
     "EVOLVE_EVALUATOR": ("lab", str, None, None),
-    "EVOLVE_LAB_PORT": ("7790", int, 1024, 65000),
+    "EVOLVE_LAB_PORT": ("7800", int, 1024, 65000),
     "EVOLVE_LAB_BOOT_SECS": ("180", int, 10, 1800),
     "EVOLVE_EVOLVER_AGENT": ("evolver", str, None, None),
     # Paid web searches (hands/x402, Exa) a learning's research may run;
@@ -1814,7 +1814,7 @@ class EvolverProposer:
 
     def propose(self, request: Json) -> Any:
         tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-{request['cand']}"
-        port = self.cfg["EVOLVE_LAB_PORT"] + 10 + int(request["cand"])
+        port = lab_lib.port(self.cfg["EVOLVE_LAB_PORT"], 10 + int(request["cand"]))
         with held_lock("eval"):
             return self._propose(request, tree, folder, port)
 
@@ -1823,7 +1823,7 @@ class EvolverProposer:
         its file tools read-only (edit=False). It reads what it needs; the
         worktree is put back as it was whatever the turn did (restore_tree)."""
         tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-{request['cand']}"
-        port = self.cfg["EVOLVE_LAB_PORT"] + 10 + int(request["cand"])
+        port = lab_lib.port(self.cfg["EVOLVE_LAB_PORT"], 10 + int(request["cand"]))
         before = snapshot(tree)
         try:
             with held_lock("eval"):
@@ -4448,7 +4448,8 @@ class TargetedEvaluator:
             self.base_tree = self.gdir / "lab-base" / "tree"
             if not self.base_tree.exists():
                 add_worktree(self.src, self.base_tree, self.base)
-            self.base_lab = self._boot("base", self.base_tree, self.gdir / "lab-base", self.cfg["EVOLVE_LAB_PORT"])
+            self.base_lab = self._boot("base", self.base_tree, self.gdir / "lab-base",
+                                       lab_lib.port(self.cfg["EVOLVE_LAB_PORT"], 0))
         return self.base_lab.env()
 
     def evaluate(self, cands: list[Json], done: Any) -> None:
@@ -4541,7 +4542,7 @@ class TargetedEvaluator:
         if report is None or (plan["all"] and self.probes):
             before = snapshot(tree)
             lab = self._boot(f"cand-{cand['cand']}", tree, self.gdir / f"lab-{cand['cand']}",
-                             self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
+                             lab_lib.port(self.cfg["EVOLVE_LAB_PORT"], int(cand["cand"])))
             try:
                 if report is None:
                     report = self._measure(cand, tasks, run, compare, baseline, lab.env(), base_env, share)

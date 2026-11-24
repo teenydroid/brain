@@ -2358,7 +2358,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown, then cut to fit the core's 64 KiB prompt screen |
 | `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a problem's issue, and a frozen learning's, opens |
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
-| `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
+| `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7800`, `180` | the labs' first port (they count up from it, skipping the core's and `BROKER_PORT`; a lab refuses to start on a port anything listens on), and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
 | `EVOLVE_REVISE_ROUNDS` | `3` | rounds of build, checks and review before a candidate is parked, 1 to 6 |
 | `EVOLVE_MAX_CHANGE_PCT` | `5` | the biggest change, as a percentage of every text line the repository tracks (the old fixed cap of 400 changed lines is gone); past it a candidate is rejected for good |
