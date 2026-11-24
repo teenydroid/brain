@@ -122,6 +122,31 @@ class ReadsTest(Scratch):
         self.assertIn("author:teenydroid type:pr created:>=2026-09-07", queries)
 
 
+class FeedbackTest(Scratch):
+    def test_threads_reviews_and_comments_come_back_shaped_and_clipped(self):
+        long = "y" * (reads.FEEDBACK_CLIP + 50)
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": {
+            "number": 4, "state": "OPEN", "headRefName": "teeny/mind-x", "author": {"login": "teenydroid"},
+            "reviewThreads": {"nodes": [{"isResolved": False, "isOutdated": False, "path": "a.md", "line": 3,
+                                         "comments": {"nodes": [{"author": {"login": "bot"}, "body": long}]}}]},
+            "reviews": {"nodes": [{"author": {"login": "op"}, "state": "APPROVED", "body": ""}]},
+            "comments": {"nodes": []}}}}})
+        out = reads.pr_feedback("teenydroid/brain", 4)
+        self.assertEqual((out["author"], out["branch"], out["open_threads"]), ("teenydroid", "teeny/mind-x", 1))
+        (thread,) = out["threads"]
+        self.assertEqual((thread["path"], thread["line"], thread["resolved"]), ("a.md", 3, False))
+        self.assertEqual(thread["comments"][0]["body"], "y" * reads.FEEDBACK_CLIP + "…")
+        self.assertEqual(out["reviews"][0]["state"], "APPROVED")
+
+    def test_no_such_pull_request_or_a_graphql_error(self):
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}}})
+        self.assertIsNone(reads.pr_feedback("teenydroid/brain", 4))
+        self.gh.route("POST", "/graphql", {"errors": [{"message": "secret query text"}]})
+        with self.assertRaises(GitHubError) as caught:
+            reads.pr_feedback("teenydroid/brain", 4)
+        self.assertNotIn("secret", str(caught.exception))
+
+
 class PolicyTest(Scratch):
     def assess(self, text):
         return contributing.assess({"CONTRIBUTING.md": text})

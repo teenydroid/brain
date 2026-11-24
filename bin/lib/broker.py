@@ -56,14 +56,27 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
               each redirect one,
               counted in state/broker/fetches.json as each is sent. A fetch
               says nothing, so a rehearsal fetches too. Never a tick route
-- /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
-              at state/home/repo/ (its git directory outside the jail), left
-              alone while it holds edits; answers its path and the head
+- /repo       `{}` | `{"pr": N}` | `{"branch"}`:
+              teeny_hands.build.mindclone.prepare: a checkout of origin/main
+              at state/home/repo/ (its git directory outside the jail), or of
+              the head of an open pull request of Teeny's own from
+              teeny/mind-*, left alone while it holds edits; answers its path
+              and the head
 - /pr         `{"branch", "title", "body"}`: the tree as a pull request from
               teeny/mind-<branch> (mindclone.ship: the guard, the frozen
               paths, the secret scan, the size), at most MIND_PRS_PER_DAY
               (default 0, off) a UTC day, counted in
-              state/broker/prs-opened.json when one is opened
+              state/broker/prs-opened.json when one is opened. When that
+              branch has an open pull request of Teeny's own, the tree goes
+              to it as one more commit (never forced), title and body
+              optional; at most MIND_PR_UPDATES_PER_PR (default 5, 0 off) a
+              pull request a UTC day, counted in state/broker/pr-updates.json,
+              never against MIND_PRS_PER_DAY, and off while that is 0
+- /close-pr   `{"pr": N, "comment"?}`: closes an open pull request of
+              Teeny's own from teeny/mind-* in its own repository, after the
+              comment passes the guard. Never merges, never reopens
+- /reviews    `{"pr": N}`: the review threads, verdicts and conversation of
+              a pull request of Teeny's own, as data. Reads only
 
 The answer is `{"status": "ok" | "refused" | "error", ...}` with HTTP 200,
 403 or 500 (401 unauthorised, 404 no such path, 405 not POST), and each
@@ -525,6 +538,10 @@ def drop_wake(body: Json, entry: Json) -> Json:
 PR_FIELDS = ("branch", "title", "body")
 #: The most MIND_PRS_PER_DAY may be set to.
 MAX_PRS_PER_DAY = 12
+#: Pushes to one open pull request a UTC day (MIND_PR_UPDATES_PER_PR): enough
+#: for a few review rounds, apart from the day's new pull requests.
+DEFAULT_PR_UPDATES = 5
+MAX_PR_UPDATES = 20
 
 
 def _prs_path() -> Path:
@@ -551,6 +568,30 @@ def _count_pr() -> None:
     _write(path, json.dumps(today) + "\n", 0o600)
 
 
+def _updates_path() -> Path:
+    return hand.state_dir() / "broker" / "pr-updates.json"
+
+
+def _updates_today() -> Json:
+    """The updates pushed today (UTC), by pull request number."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_updates_path().read_text())
+    except (OSError, ValueError):
+        saved = None
+    if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("counts"), dict):
+        return saved
+    return {"day": day, "counts": {}}
+
+
+def _count_update(number: Any) -> None:
+    today = _updates_today()
+    today["counts"][str(number)] = int(today["counts"].get(str(number), 0)) + 1
+    path = _updates_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write(path, json.dumps(today) + "\n", 0o600)
+
+
 def _clone_call(fn: Callable[[], Json]) -> Json:
     """A mindclone call; its rule's refusal as the broker's."""
     try:
@@ -559,32 +600,71 @@ def _clone_call(fn: Callable[[], Json]) -> Json:
         raise Refused(exc.reason) from None
 
 
+def _fields(body: Json, allowed: tuple[str, ...], required: tuple[str, ...], shape: str) -> None:
+    unknown = sorted(str(k)[:LEDGER_CLIP] for k in set(body) - set(allowed))
+    if unknown or any(k not in body for k in required):
+        raise Refused(shape + (f"; not {', '.join(unknown)}" if unknown else ""))
+
+
 def pr(body: Json, entry: Json) -> Json:
     """The mind's tree as a pull request from teeny/mind-<branch>, within
-    the day's MIND_PRS_PER_DAY, counted once one is opened."""
+    the day's MIND_PRS_PER_DAY, counted once one is opened; or, to the open
+    pull request of its own on that branch, one more commit, within
+    MIND_PR_UPDATES_PER_PR for that pull request, counted once pushed."""
     if isinstance(body.get("branch"), str):
         entry["verb"] = body["branch"][:LEDGER_CLIP]
     entry["intent"] = _clipped(body)
-    unknown = sorted(str(k)[:LEDGER_CLIP] for k in set(body) - set(PR_FIELDS))
-    if unknown or any(k not in body for k in PR_FIELDS):
-        raise Refused(f"a pull request is {{{', '.join(repr(k) for k in PR_FIELDS)}}}"
-                      + (f"; not {', '.join(unknown)}" if unknown else ""))
+    _fields(body, PR_FIELDS, ("branch",), f"a pull request is {{{', '.join(repr(k) for k in PR_FIELDS)}}} "
+            "(an update to your open one may leave out the title and the body)")
     limit = hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY)
     if limit == 0:
         raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
-    if _prs_today()["count"] >= limit:
-        raise Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
-    out = _clone_call(lambda: mindclone.ship(body["branch"], body["title"], body["body"]))
+    updates = hand.number("MIND_PR_UPDATES_PER_PR", DEFAULT_PR_UPDATES, 0, MAX_PR_UPDATES)
+
+    def allow(kind: str, number: int | None) -> None:
+        if kind == "open" and _prs_today()["count"] >= limit:
+            raise hand.Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
+        if kind == "update" and updates == 0:
+            raise hand.Refused("updates to your open pull requests are off (MIND_PR_UPDATES_PER_PR=0)")
+        if kind == "update" and int(_updates_today()["counts"].get(str(number), 0)) >= updates:
+            raise hand.Refused(f"today's {updates} update(s) to #{number} are spent (MIND_PR_UPDATES_PER_PR)")
+
+    out = _clone_call(lambda: mindclone.ship(body["branch"], body.get("title"), body.get("body"), allow=allow))
     if not out.get("dry_run"):
-        _count_pr()
+        if out.get("updated"):
+            _count_update(out["number"])
+        else:
+            _count_pr()
     return {"status": "ok", **out}
 
 
 def repo(body: Json, entry: Json) -> Json:
-    """A fresh checkout of origin/main at state/home/repo/, unless the tree
-    holds edits (delete it for a fresh one): its path and the upstream head."""
+    """A fresh checkout of origin/main at state/home/repo/, or with `pr` (a
+    number) or `branch`, of the head of an open pull request of the mind's
+    own from teeny/mind-*, unless the tree holds edits (delete it for a fresh
+    one): its path and the head."""
     entry["verb"] = "repo"
-    return {"status": "ok", **_clone_call(mindclone.prepare)}
+    entry["intent"] = _clipped(body)
+    _fields(body, ("pr", "branch"), (), 'a copy is {} for main, or {"pr": N} or {"branch"} for your open pull request')
+    return {"status": "ok", **_clone_call(lambda: mindclone.prepare(pr=body.get("pr"), branch=body.get("branch")))}
+
+
+def close_pr(body: Json, entry: Json) -> Json:
+    """Closes an open pull request of the mind's own (mindclone.close holds
+    whose and which); never merges, never reopens."""
+    entry["verb"] = "close-pr"
+    entry["intent"] = _clipped(body)
+    _fields(body, ("pr", "comment"), ("pr",), 'a close is {"pr": N, "comment"?: "..."}')
+    return {"status": "ok", **_clone_call(lambda: mindclone.close(body["pr"], body.get("comment")))}
+
+
+def reviews(body: Json, entry: Json) -> Json:
+    """The review threads and verdicts of a pull request of the mind's own,
+    as data (mindclone.reviews). Reads only, no cap."""
+    entry["verb"] = "reviews"
+    entry["intent"] = _clipped(body)
+    _fields(body, ("pr",), ("pr",), 'a review read is {"pr": N}')
+    return {"status": "ok", **_clone_call(lambda: mindclone.reviews(body["pr"]))}
 
 
 # --- the web, read: /fetch -----------------------------------------------------------
@@ -669,6 +749,8 @@ PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/fetch": fetch,
     "/pr": pr,
     "/repo": repo,
+    "/close-pr": close_pr,
+    "/reviews": reviews,
 }
 
 
