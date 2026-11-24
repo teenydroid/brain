@@ -1582,6 +1582,30 @@ class PullRequestUpdateTest(RevisionCase):
         self.assertEqual(self.branch_on_origin("fix-morning-post"), first)
 
 
+class PullRequestSelectorTest(RevisionCase):
+    def test_an_update_may_name_the_pull_request_by_its_number(self):
+        first = self.opened_first()
+        code, out = self.post("/repo", {"pr": 3})
+        self.assertEqual(out["update"], """bin/teeny pr '{"pr": 3}'""")
+        self.assertEqual(out["slug"], "fix-morning-post")
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nafter review\n")
+        for body in ({"pr": None}, {"pr": 3, "branch": "other-name"}, {"title": "t"}, {"pr": "3"}):
+            code, out = self.post("/pr", body)
+            self.assertEqual((code, out["status"]), (403, "refused"), body)
+        self.assertEqual(self.branch_on_origin("fix-morning-post"), first)
+        code, out = self.post("/pr", {"pr": 3})
+        self.assertEqual((code, out["status"], out["updated"], out["number"]), (200, "ok", True, 3), out)
+        self.assertEqual(self.updates_today()["counts"], {"3": 1})
+        self.assertEqual(self.ledger()[-1]["verb"], "#3")
+
+    def test_the_full_branch_name_reaches_the_open_pull_request(self):
+        self.opened_first()
+        self.post("/repo", {"pr": 3})
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nafter review\n")
+        code, out = self.post("/pr", {"branch": self.BRANCH})
+        self.assertEqual((code, out["status"], out["number"]), (200, "ok", 3), out)
+
+
 class RepoFromPullRequestTest(RevisionCase):
     def test_repo_takes_an_own_pull_requests_head_and_refuses_anybody_elses(self):
         first = self.opened_first()

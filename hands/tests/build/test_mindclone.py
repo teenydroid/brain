@@ -844,6 +844,119 @@ class UpdateTest(ReviseCase):
         self.assertEqual(self.patches(), [])
 
 
+class SelectorTest(ReviseCase):
+    """What the mind is likely to send to name its open pull request: the
+    number, the full branch, or the slug; each refusal says what to send."""
+
+    CALL = """bin/teeny pr '{"branch": "fix-morning-post"}'"""
+
+    def revise(self):
+        self.open_first()
+        mindclone.prepare(pr=9)
+        self.edit({"brain/SOUL.md": "# soul\nagain\n"})
+
+    def test_the_pull_request_number_selects_the_update(self):
+        self.revise()
+        out = mindclone.ship(None, None, None, pr=9)
+        self.assertEqual((out["updated"], out["number"], out["branch"]), (True, 9, BRANCH))
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), out["commit"])
+
+    def test_a_number_and_a_branch_must_agree(self):
+        self.revise()
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.ship("something-else", None, None, pr=9)
+        self.assertIn('{"pr": 9}', caught.exception.reason)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+        self.assertTrue(mindclone.ship("fix-morning-post", None, None, pr=9)["updated"])
+
+    def test_a_number_keeps_every_rule_of_whose_pull_request_it_is(self):
+        first = self.open_first()
+        for words, pr in {"somebody": dict(number=11, author="somebody"),
+                          "merged": dict(number=13, state="closed", merged=True),
+                          "into evil": dict(number=16, base="evil")}.items():
+            with self.subTest(words=words):
+                self.github_has(sha=first, **pr)
+                with self.assertRaises(hand.Refused) as caught:
+                    mindclone.ship(None, None, None, pr=pr["number"])
+                self.assertIn(words, caught.exception.reason)
+        with self.assertRaises(hand.Refused):
+            mindclone.ship(None, "t", "b")
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), first)
+
+    def test_the_full_branch_name_of_an_open_pull_request_is_read_as_its_slug(self):
+        for sent in (BRANCH, "refs/heads/" + BRANCH, "mind-fix-morning-post"):
+            with self.subTest(sent=sent):
+                subprocess.run(["rm", "-rf", str(self.tree)], check=True)
+                git("--git-dir", str(self.origin), "update-ref", "-d", f"refs/heads/{BRANCH}")
+                self.revise()
+                self.assertEqual(mindclone.ship(sent, None, None)["number"], 9)
+
+    def test_a_full_branch_name_that_names_nothing_is_refused_saying_what_the_branch_is(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.ship("teeny/mind-nothing-here", "t", "b")
+        self.assertIn("the branch is the part after teeny/mind-", caught.exception.reason)
+        self.assertIn('{"branch": "nothing-here"}', caught.exception.reason)
+
+    def test_a_slug_starting_with_mind_is_still_a_new_branch(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.assertEqual(mindclone.ship("mind-reading", "t", "b")["branch"], "teeny/mind-mind-reading")
+
+    def test_a_new_branch_from_a_pull_requests_copy_says_where_to_send_it(self):
+        self.revise()
+        for title, body in ((None, None), ("t", "b")):
+            with self.subTest(title=title):
+                with self.assertRaises(hand.Refused) as caught:
+                    mindclone.ship("another-name", title, body)
+                self.assertTrue(caught.exception.reason.endswith("send it there: " + self.CALL), caught.exception.reason)
+                self.assertIn(f"your copy was taken from {BRANCH}", caught.exception.reason)
+
+    def test_a_mind_prefixed_slug_reaches_the_copys_branch_when_another_branch_shares_its_commit(self):
+        self.revise()
+        # another branch of the mind's at the same commit, sorting before it
+        git("--git-dir", str(self.origin), "update-ref", "refs/heads/teeny/mind-alpha", self.first)
+        self.assertEqual(mindclone.ship("mind-fix-morning-post", None, None)["number"], 9)
+
+    def test_a_numbered_update_never_reaches_another_pull_request_on_the_same_branch(self):
+        self.revise()
+        # #9 is still open by number, but the branch's open pull request is now #12
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls",
+                      [{k: v for k, v in raw_pr(number=12, sha=self.first).items() if k != "merged"}])
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.ship(None, "t", "b", pr=9)
+        self.assertIn('{"pr": 12}', caught.exception.reason)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+        self.assertEqual(self.patches(12), [])
+
+    def test_a_malformed_branch_reaches_no_git_command(self):
+        self.revise()
+        seen = []
+        real = mindclone.git.run
+
+        def recording(cwd, *args, **kw):
+            seen.append(" ".join(map(str, args)))
+            return real(cwd, *args, **kw)
+
+        hostile = ("--upload-pack=touch /tmp/x", "a b", "../main", "x..y", "-x", "a;rm -rf ~", "a:b", "a" * 5000,
+                   "teeny/mind-../../x", "refs/heads/teeny/mind--x", "mind-$(id)")
+        with mock.patch.object(mindclone.git, "run", recording):
+            for sent in hostile:
+                with self.subTest(sent=sent[:20]), self.assertRaises(hand.Refused) as caught:
+                    mindclone.ship(sent, "t", "b")
+                self.assertEqual(caught.exception.detail["rule"], "branch")
+        for word in ("upload-pack", "a b", "..", ";", "a:b", "a" * 50, "$(id)"):
+            self.assertFalse(any(word in line for line in seen), word)
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+
+    def test_a_pull_request_copy_says_how_to_send_its_update(self):
+        self.open_first()
+        out = mindclone.prepare(pr=9)
+        self.assertEqual(out["slug"], "fix-morning-post")
+        self.assertEqual(out["update"], """bin/teeny pr '{"pr": 9}'""")
+
+
 class CloseTest(ReviseCase):
     def close(self, number=9, comment=None):
         return mindclone.close(number, comment)
