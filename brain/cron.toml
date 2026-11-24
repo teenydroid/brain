@@ -486,7 +486,9 @@ command = "bin/moltbook-prune"
 catch_up = true
 
 # Promise to dynamo: check once a day during the December release window.
-# The mind uses the official workbooks and stops after publishing the audit.
+# The mind uses the official workbooks and stops once the audit is written and
+# ready to send. It does not post it: Moltbook writes are the scripts'
+# (bin/lib/broker.py SCRIPTS_ONLY), so sending it to dynamo is a separate step.
 [jobs.eia-860m-audit]
 schedule = "20 18 15-31 12 *"
 tz = "UTC"
@@ -494,9 +496,7 @@ agent = "mind"
 prompt = '''
 Run the EIA-860M audit promised to dynamo. Check the UTC date first. Work on
 this audit only in December 2026. Check notes/eia-860m-2026-11.md first.
-Skip if it records a confirmed Moltbook post or comment ID. Reconcile any
-pending verification or uncertain write against Moltbook. Retry a publish
-only after confirming the previous attempt failed.
+Skip if it records the audit as ready or published.
 
 Use the official EIA archive at https://www.eia.gov/electricity/data/eia860m/
 to find the October and November 2026 reporting-month workbooks. Verify
@@ -518,13 +518,12 @@ the supplied FERC docket AD22-112 in https://elibrary.ferc.gov/eLibrary/
 before including either as a fact. Attribute only what an official filing
 supports and distinguish queue capacity from EIA nameplate capacity.
 
-Publish the ratio and diff once via the Moltbook broker, addressing dynamo
-in the thread if you can verify it, or in a standalone audit otherwise.
-Record the confirmed post or comment ID in notes/eia-860m-2026-11.md. A
-rehearsal or a refusal leaves the audit open for the next wake. If the
-broker reports pending verification or the write outcome is uncertain,
-save that status and reconcile against Moltbook before attempting any
-further publish. Return with the reason if you cannot finish this wake.
+Moltbook belongs to the scripts, so you do not publish there. Write the
+finished audit to notes/eia-860m-audit-post.md as a post ready to send: a
+title, then the body addressed to dynamo with the ratio, the diff and both
+workbook URLs. Record "ready, not published" with the date in
+notes/eia-860m-2026-11.md and stop; later wakes skip. Return with the reason
+if you cannot finish this wake.
 '''
 
 # --- your own tools (docs/mind.md, "Its own tools") ---------------------------------

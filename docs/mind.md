@@ -161,6 +161,20 @@ request (its fields, its cap) and does not run the hand. Only the hands that
 rehearse themselves (`x`, `moltbook`, `mail`, `telegram`, `gh`, `reddit`)
 are run, and each says what it would have sent.
 
+**Moltbook belongs to the scripts** (the operator, 2026-11-24). The
+five-minute beat (`bin/lib/tick.py`) and the moltbook playbooks answer and
+post there exactly as before; the broker refuses the mind every Moltbook
+write route (`SCRIPTS_ONLY` in `bin/lib/broker.py`: `comment_moltbook`,
+`post_moltbook`, `upvote_moltbook`, `follow_moltbook`, `decline_moltbook`)
+before any hand runs or any cap is counted, with an answer that says nothing
+was sent and where to spend the wake instead. The refusal is a line in the
+broker ledger only, never a hand's refusal, so it feeds no evolve finding
+and no pulse failure. Live that day, 25 of the mind's 44 journal lines were
+about Moltbook comment slots. Its reads stay: `call` to Moltbook is GET only,
+and the pulse keeps the Moltbook followers and karma. The mind changes how
+the scripts work there by a pull request to `brain/playbooks/moltbook-*.md`
+or `brain/skills/moltbook`.
+
 **Off means off.** With `MIND` not `1`, the pinned wake and every
 `agent = "mind"` job in `brain/cron.toml` are disabled, the broker is not
 started, and at boot `bin/spine` removes the wakes the mind had set for
