@@ -5,7 +5,7 @@
        A post attaches the PNG at `path` and quotes only the numbers here:
        last_close, change_pct, high, low. No key, no wallet, no trade.
 
-Defaults: the solana token Teeny holds, over the last 7 days.
+Defaults: the solana token Teeny holds (CoinGecko id tiny-humans-ai; the bare id "tiny" is a different asset), over the last 7 days.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def parser() -> argparse.ArgumentParser:
         return sub
 
     read = verb("read", _read, "fetch, render, and answer the numbers a post may quote")
-    read.add_argument("--coin", type=_coin, default="tiny")
+    read.add_argument("--coin", type=_coin, default="tiny-humans-ai")
     read.add_argument("--days", type=_days, default=7)
     return root
 

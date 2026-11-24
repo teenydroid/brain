@@ -29,7 +29,7 @@ class FakeChart:
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                if self.path.startswith("/coins/tiny/ohlc"):
+                if "/ohlc" in self.path:
                     body = json.dumps(outer.rows).encode()
                     self.send_response(outer.status)
                     self.send_header("Content-Type", "application/json")

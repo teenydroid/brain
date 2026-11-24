@@ -42,6 +42,7 @@ _GLYPH_STRINGS = {
     "o": "01110 10001 10001 10001 10001 10001 01110",
     "w": "10001 10001 10001 10101 10101 10101 01010",
     " ": "00000 00000 00000 00000 00000 00000 00000",
+    "e": "01110 10001 11111 11000 10001 10001 01110",
 }
 
 
@@ -63,7 +64,10 @@ def _fmt(price: float) -> str:
     magnitude = math.floor(math.log10(abs(price)))
     if magnitude >= 2:
         return f"{price:.2f}"
-    return f"{price:.{min(6, max(2, 5 - magnitude))}f}"
+    digits = min(9, max(2, 5 - magnitude))
+    if price >= 10**-digits:
+        return f"{price:.{digits}f}"
+    return f"{price:.2e}"  # smaller than the digits reach: exponent form, never a false zero
 
 
 def chunk(kind: bytes, data: bytes) -> bytes:
@@ -85,10 +89,15 @@ def _png(pixels: bytearray, width: int, height: int) -> bytes:
 
 
 def path_for(coin: str, days: int) -> Path:
-    """Where the PNG for `coin` over `days` goes: state/chart/<coin>-<days>d.png."""
-    directory = hand.state_dir() / "chart"
+    """Where the PNG for `coin` over `days` goes.
+
+    state/media/chart/, the folder `hands/x upload` accepts, so the PNG a post
+    quotes can be attached. One file per read (suffix = hand.now()): a later
+    read never overwrites a chart an earlier caller still holds.
+    """
+    directory = hand.state_dir() / "media" / "chart"
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{coin}-{int(days)}d.png"
+    return directory / f"{coin}-{int(days)}d-{int(hand.now())}.png"
 
 
 def render(candles: list[tuple], path: Path) -> dict[str, Any]:
