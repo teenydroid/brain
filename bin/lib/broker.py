@@ -573,7 +573,7 @@ def drop_wake(body: Json, entry: Json) -> Json:
 # change itself (the guard, the frozen paths, the secret scan, the size, the
 # hostile tree); the broker adds the day's count, which is its own.
 
-PR_FIELDS = ("branch", "title", "body")
+PR_FIELDS = ("branch", "title", "body", "pr")
 #: The most MIND_PRS_PER_DAY may be set to.
 MAX_PRS_PER_DAY = 12
 #: Pushes to one open pull request a UTC day (MIND_PR_UPDATES_PER_PR): enough
@@ -675,9 +675,14 @@ def pr(body: Json, entry: Json) -> Json:
     MIND_PR_UPDATES_PER_PR for that pull request, counted once pushed."""
     if isinstance(body.get("branch"), str):
         entry["verb"] = body["branch"][:LEDGER_CLIP]
+    elif isinstance(body.get("pr"), int) and not isinstance(body.get("pr"), bool):
+        entry["verb"] = f"#{body['pr']}"
     entry["intent"] = _clipped(body)
-    _fields(body, PR_FIELDS, ("branch",), f"a pull request is {{{', '.join(repr(k) for k in PR_FIELDS)}}} "
-            "(an update to your open one may leave out the title and the body)")
+    shape = ('a new pull request is {"branch", "title", "body"} (the branch is the part after teeny/mind-); an update '
+             'to your open one is {"pr": N} or {"branch"}, title and body optional')
+    _fields(body, PR_FIELDS, (), shape)
+    if not ({"branch", "pr"} & set(body)) or any(body.get(k, "") is None for k in PR_FIELDS):
+        raise Refused(shape)
     limit = hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY)
     if limit == 0:
         raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
@@ -691,7 +696,8 @@ def pr(body: Json, entry: Json) -> Json:
         if kind == "update":
             checked["day"] = _update_allowance(number, updates)
 
-    out = _clone_call(lambda: mindclone.ship(body["branch"], body.get("title"), body.get("body"), allow=allow))
+    out = _clone_call(lambda: mindclone.ship(body.get("branch"), body.get("title"), body.get("body"), allow=allow,
+                                             pr=body.get("pr")))
     if not out.get("dry_run"):
         if out.get("updated"):
             _count_update(out["number"], checked.get("day"))
