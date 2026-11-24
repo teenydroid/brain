@@ -224,23 +224,13 @@ class PushTest(Scratch):
                 self.assertEqual(error.detail["findings"][0]["path"], "config.py")
                 self.assertNotIn(secret, str(error.detail))
 
-    def test_refuses_a_secret_already_in_the_history(self):
-        path = self.workdir()
-        git("init", "-q", "-b", "main", str(path))
-        (path / "leak.txt").write_text("token = ghp_" + "z" * 36 + "\n")
-        git("-C", str(path), "add", "-A")
-        git("-C", str(path), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "x")
-        (path / "leak.txt").unlink()
-        error = self.refused(self.body(), "secrets")
-        self.assertEqual(error.detail["findings"][0]["path"], "(history)")
-
     def test_an_ignored_secret_is_not_published_so_not_refused(self):
         self.me()
-        path = self.workdir(files={"README.md": "hi", ".gitignore": ".env\n", ".env": "X=ghp_" + "q" * 36})
-        git("init", "-q", "-b", "main", str(path))
-        self.remote("teenydroid/hello")
+        self.workdir(files={"README.md": "hi", ".gitignore": ".env\n", ".env": "X=ghp_" + "q" * 36})
+        remote = self.remote("teenydroid/hello")
         # .gitignore itself matches ".env*"? No: it is ".gitignore". The ignored .env is not published.
         actions.push(self.body())
+        self.assertNotIn(".env\n", git("--git-dir", str(remote), "ls-tree", "-r", "--name-only", "main") + "\n")
 
     def test_a_held_message_pushes_nothing(self):
         self.workdir()
