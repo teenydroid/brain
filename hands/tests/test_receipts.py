@@ -124,12 +124,14 @@ class ReceiptsCase(unittest.TestCase):
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'upvote-comment', 'mbcomment4')", AT)
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', 'crabagent')", AT)
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'subscribe', 'crustacea')", AT)
-        self.sql("INSERT INTO telegram_chats VALUES (4242424242, 'private', NULL, ?, ?)", AT, AT)
-        self.sql("INSERT INTO telegram_chats VALUES (-1009876543210, 'supergroup', 'Tiny Secret Society', ?, ?)", AT, AT)
-        self.sql("INSERT INTO telegram_messages VALUES ('4242424242:31337', 4242424242, 31337, 4242424242,"
-                 " 'Ana Pereira', 'my wallet seed is in the drawer', 'dm', 'replied')")
-        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, 4242424242, 31338, 31337)", AT)
-        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, -1009876543210, 55501, NULL)", AT)
+        self.sql("INSERT INTO telegram_chats VALUES (?, 'private', NULL, ?, ?)", TG_DM_CHAT, AT, AT)
+        self.sql("INSERT INTO telegram_chats VALUES (?, 'supergroup', 'Tiny Secret Society', ?, ?)", -TG_GROUP_CHAT, AT, AT)
+        self.sql("INSERT INTO telegram_messages VALUES (?, ?, ?, ?, 'Ana Pereira', 'my wallet seed is in the drawer',"
+                 " 'dm', 'replied')", f"{TG_DM_CHAT}:{TG_DM_IN}", TG_DM_CHAT, TG_DM_IN, TG_DM_CHAT)
+        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, ?, ?, ?)",
+                 AT, TG_DM_CHAT, TG_DM_OUT, TG_DM_IN)
+        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, ?, ?, NULL)",
+                 AT, -TG_GROUP_CHAT, TG_GROUP_OUT)
 
     def gather(self):
         conn = hand.db()
