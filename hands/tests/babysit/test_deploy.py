@@ -259,5 +259,6 @@ class RuntimeFilesIgnored(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 git(Path(tmp), "init", "-q")
                 shutil.copy(checkout / ".gitignore", Path(tmp) / ".gitignore")
-                done = subprocess.run(["git", "-C", tmp, "check-ignore", "-q", f"brain/storage/{name}"])
-                self.assertEqual(done.returncode, 0)
+                # The rule that matched must be the repository's own, not a developer's global one.
+                rule = git(Path(tmp), "-c", "core.excludesFile=/dev/null", "check-ignore", "-v", f"brain/storage/{name}")
+                self.assertTrue(rule.startswith(".gitignore:"), rule)
