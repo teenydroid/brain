@@ -92,8 +92,11 @@ Don't touch them, not even to fix a typo.
 
 A test that executes generated or fuzzed input must set a memory limit and a
 timeout FIRST, every run: `resource.setrlimit(resource.RLIMIT_AS, ...)` in a
-child process (e.g. 1 GB) plus `subprocess.run(..., timeout=N)`. Cap the
-integers you feed it: sizes, ranges and repeat counts get maxima (no bare
-`10**N`), strings get length caps. An unbounded edge-value fuzzer is how one
+child process (e.g. 1 GB) plus `subprocess.run(..., timeout=N)`. Bound the
+captured output too: `capture_output=True` buffers every byte in the parent,
+which no child rlimit or timeout protects, so write stdout/stderr to a file
+or DEVNULL and read back at most a capped number of bytes. Cap the integers
+you feed it: sizes, ranges and repeat counts get maxima (no bare `10**N`),
+strings get length caps. An unbounded edge-value fuzzer is how one
 `10**100` ate 80 GB of this box on 2026-11-24 (portcheck vs demo/multi.py,
 swap, spine down, other work killed).
