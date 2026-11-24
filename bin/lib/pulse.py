@@ -183,11 +183,13 @@ def _num(value: float) -> int | float:
     return int(value) if value.is_integer() else value
 
 
-def _value(row: Any) -> int | float | None:
-    """A stats value as a number, or None when the row holds something else."""
+def _value(row: Any) -> float | None:
+    """A stats value as a raw number, or None when the row holds something
+    else. Rounded only when shown, so a change is worked out from the raw
+    values."""
     if row is None or isinstance(row[0], bool) or not isinstance(row[0], (int, float)):
         return None
-    return _num(row[0])
+    return float(row[0])
 
 
 def audience() -> list[Json]:
@@ -214,7 +216,7 @@ def audience() -> list[Json]:
             value = _value(latest)
             if value is None:
                 continue
-            row: Json = {"metric": f"{source}.{metric}", "value": value,
+            row: Json = {"metric": f"{source}.{metric}", "value": _num(value),
                          "read_at": _iso(latest[2] * 1000) if isinstance(latest[2], (int, float)) else None}
             try:
                 day = dt.datetime.strptime(str(latest[1]), "%Y-%m-%d")
@@ -224,7 +226,7 @@ def audience() -> list[Json]:
                 before = None if day is None else _value(conn.execute(
                     "SELECT value FROM stats WHERE source = ? AND metric = ? AND date <= ? ORDER BY date DESC LIMIT 1",
                     (source, metric, (day - dt.timedelta(days=back)).strftime("%Y-%m-%d"))).fetchone())
-                row[was] = before
+                row[was] = None if before is None else _num(before)
                 row[change] = None if before is None else _num(value - before)
             out.append(row)
     except sqlite3.Error:
