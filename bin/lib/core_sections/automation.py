@@ -336,7 +336,7 @@ def tables(root: Path) -> dict[str, str]:
 
     overrides = ", ".join(f'{{ id = {_s(m)}, source = "linked" }}' for m in LINKED_MODULES)
 
-    # The sandboxed shell's jail (brain/agents/mind.toml, builder.toml) reads
+    # The sandboxed shell's jail (brain/agents/mind.toml) reads
     # the same code folders the file tools do, and nothing closed to them:
     # the core adds these to the jail beside the run's own workspace
     # (tinyhumansai/openhuman#8776). /proc stays shut: it shows the core's

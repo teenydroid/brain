@@ -55,12 +55,11 @@ oh() { "${TEENY_OH:-$TEENY_ROOT/bin/oh}" "$@"; }
 # How long one cron agent turn may run (OpenHuman `[agent] agent_timeout_secs`).
 # The core bounds a whole scheduled agent turn by this one value, not just one
 # tool call, and ignores an agent definition's own `timeout_secs` there
-# (cron/scheduler/agent_run.rs). Its default of 120 s let the builder make six
-# model calls and no test run (2026-11-12). 900 s was then enough for a
-# small build and too short for a feature: on 2026-11-22 the builder timed
-# out three runs in a row on one. 1800 s gives the builder and the mind
-# (brain/agents/mind.toml) a real working session; a build still on the desk
-# when build-ship collects is simply collected at the next half hour.
+# (cron/scheduler/agent_run.rs). Its default of 120 s let the builder (retired
+# 2026-11-24) make six model calls and no test run (2026-11-12). 900 s was
+# then enough for a small build and too short for a feature: on 2026-11-22
+# the builder timed out three runs in a row on one. 1800 s gives the mind
+# (brain/agents/mind.toml) and the operator a real working session.
 # It also caps any single tool call, which the turn deadline bounds anyway.
 # bin/spine sets it at boot; `bin/doctor --live` checks it.
 # shellcheck disable=SC2034 # read by bin/spine and bin/doctor, which source this file

@@ -17,7 +17,7 @@
 # turn that cron starts may only use read-only tools (docs/architecture.md,
 # §1), so the scripts act and the models only draft. The exception is an
 # agent job (`agent` and `prompt`) for an agent written to act on a schedule
-# (`scheduled_actions = true`, named tools: the builder and the operator);
+# (`scheduled_actions = true`, named tools: the operator and the mind);
 # OpenHuman runs those as CronActions turns ("Scheduled agents"). Teeny owns
 # brain/cron.toml; what its jobs may run, how often, and which jobs it cannot
 # drop are bin/lib/cron_policy.py's rules, and the pinned jobs in
@@ -36,7 +36,7 @@
 #
 # Re-arming drops the slot it missed. For a job run every few minutes that is
 # right; for a daily one it loses the day: on 2026-11-13 and 11-14 a deploy cut
-# off teeny.self-improve mid-run, and this re-arm moved it to the next day both
+# off teeny.self-improve (since retired) mid-run, and this re-arm moved it to the next day both
 # times, without an alarm (bin/health never saw it stale). So a job whose
 # schedule says `catch_up = true` has its latest missed slot run once now
 # (`cron_run`) when it is recent enough (bin/lib/catch_up.py: one job per

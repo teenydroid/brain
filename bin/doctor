@@ -113,8 +113,9 @@ cron_current() {
   fi
   echo "no enabled job is more than $STALE_NEXT_RUN_MINUTES minutes behind"
 }
-# A cron agent turn (the builder, the operator) gets the budget bin/spine sets,
-# not the core's default 120 s, which ended every build before its tests.
+# A cron agent turn (the operator, the mind) gets the budget bin/spine sets,
+# not the core's default 120 s, which ended every build of the (since retired)
+# builder before its tests.
 agent_turn_budget() {
   local secs
   secs="$(oh config_get_agent_settings | jq -r '.agent_timeout_secs // .result.agent_timeout_secs // empty')" || return 1
@@ -228,7 +229,7 @@ for path in "$brain"/playbooks/*.md; do
 done
 
 # --- agents: each definition parses; the drafting agents have no tools, and only
-# the scheduled agents (builder, operator) act from cron, with named tools -----
+# the scheduled agents (operator, mind) act from cron, with named tools --------
 for path in "$brain"/agents/*.toml; do
   [ -e "$path" ] || continue
   run "agent $(basename "$path")" python3 "$TEENY_ROOT/bin/lib/agent_check.py" "$path"
