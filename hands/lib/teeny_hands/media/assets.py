@@ -404,7 +404,11 @@ def _walk(api: Surplus, body_of, tried: list[str], label: str = "",
                 refused.append(model)
             # One seller's content filter turning a scene down is that
             # seller's answer, not the scene's: the next model reads it afresh.
-            if exc.status in FALLBACK_STATUSES or exc.status is None or _content_refusal(exc):
+            # A 400 or 422 is that model turning this body down (qwen-edit-
+            # uncensored answered a three-image edit "must include a valid
+            # 'model' field", media_assets 163 and 166): the next may take it.
+            # Only no credit (402) and the like fail the same on every model.
+            if exc.status in FALLBACK_STATUSES or exc.status in (400, 422) or exc.status is None:
                 continue
             raise _Failed(model, exc) from None
         item = (answer.get("data") or [{}])[0]
