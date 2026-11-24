@@ -175,7 +175,12 @@ class _Audit:
                             ("branch", self.pr.get("head_ref"))):
             if not isinstance(text, str) or not text:
                 continue
-            self.injected(injection.scan(text, where), self.author, self.author_tier, self._prose_severity)
+            # CodeRabbit appends its release notes to the body between its
+            # markers; on teenydroid/brain those markers alone are spared
+            # `hidden_comment`, by content (the author wrote the body).
+            markers = injection.BODY_MARKERS if where == "body" and policy.is_brain(self.repo) else None
+            self.injected(injection.scan(text, where, markers=markers), self.author, self.author_tier,
+                          self._prose_severity)
             if where != "branch":
                 found = _screen(text)
                 if found is not None:
