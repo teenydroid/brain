@@ -103,7 +103,7 @@ def github_user() -> str:
 
 
 def shipped_builds(since: float, until: float) -> list[Json]:
-    from ..build import jobs
+    from ..build import ledger as jobs
 
     conn = jobs.db()
     try:
