@@ -93,7 +93,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `WALLET_MIND_ACTIONS` | `secrets/teeny.env` | the mind's wallet intents | off |
 | `GIVEAWAYS` | `secrets/teeny.env` | Tiny Drops: every giveaway round opened, drawn or paid from the giveaway pool (wallet index 1) | off |
 | `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY` | `secrets/teeny.env` | the mind opening issues, queueing browser tasks, starting mail | `0` |
-| `MIND_BUILDS_PER_DAY` | `secrets/teeny.env` | the mind filing a change to itself (`propose_change`, a pull request the operator merges or closes) | `1` (at most 2) |
+| `MIND_BUILDS_PER_DAY` | `secrets/teeny.env` | the mind filing a change to itself (`propose_change`, after the guard: a note in the mind's inbox it decides on later) | `1` (at most 2) |
 | `MIND` | `secrets/teeny.env` | the agentic mind: its pinned half-hourly wake, the broker `bin/spine` starts for it, and the tick's `hand_to_mind` notes (`docs/mind.md`) | off |
 | `MIND_DRY_RUN` | `secrets/teeny.env` | the agentic mind's own rehearsal: every hand its broker runs is a dry run and no wake is created | on (rehearsal) unless `0` |
 | `BOX` | `secrets/teeny.env` | Teeny's own tools: `bin/box` running `home/tools/<name>/` in its jail, for a brain cron job or by hand (`docs/mind.md`) | off |
