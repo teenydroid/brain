@@ -498,14 +498,32 @@ class IssueTest(Scratch):
         if open_issues is not None:
             self.gh.route("GET", "/search/issues", {"total_count": open_issues, "items": []})
 
-    def test_an_issue_elsewhere_is_off_until_the_operator_sets_a_cap(self):
+    def test_five_issues_elsewhere_a_day_by_default_each_disclosed_and_the_sixth_refused(self):
+        """The operator, 2026-11-24: "allow 5 external prs and issues"."""
+        self.gh.route("GET", "/search/issues", {"total_count": 0, "items": []})
+        for n in range(1, 7):
+            self.gh.route("POST", f"/repos/o{n}/p/issues", {"number": n, "html_url": f"u{n}"}, status=201)
+        for n in range(1, 6):
+            actions.open_issue({"repo": f"o{n}/p", "title": "crash", "body": "steps."})
+            self.assertEqual(self.gh.requests("POST", f"/repos/o{n}/p/issues")[0].json()["body"],
+                             "steps.\n\n" + actions.DISCLOSURE)
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "o6/p", "title": "crash", "body": "steps."})
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertIn("5", caught.exception.reason)
+        self.assertEqual(self.gh.requests("POST", "/repos/o6/p/issues"), [])
+        self.assertEqual(actions.max_external_issues(), 5)
+
+    def test_zero_turns_issues_elsewhere_off_and_says_which_setting(self):
         self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
-        for value in (None, "0", "nope"):
-            self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY=value)
-            with self.assertRaises(hand.Refused) as caught:
-                actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
-            self.assertEqual(caught.exception.detail["rule"], "owner", value)
+        self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "off")
+        self.assertIn("GH_MAX_EXTERNAL_ISSUES_PER_DAY=0", caught.exception.reason)
         self.assertEqual(self.gh.writes(), [])
+        self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="nope")
+        self.assertEqual(actions.max_external_issues(), 5)
 
     def test_an_issue_elsewhere_says_what_opened_it(self):
         self.external_issue()
