@@ -183,12 +183,20 @@ def _num(value: float) -> int | float:
     return int(value) if value.is_integer() else value
 
 
+def _value(row: Any) -> int | float | None:
+    """A stats value as a number, or None when the row holds something else."""
+    if row is None or isinstance(row[0], bool) or not isinstance(row[0], (int, float)):
+        return None
+    return _num(row[0])
+
+
 def audience() -> list[Json]:
     """Each AUDIENCE number's latest `stats` value, when it was read, and
-    where it stood about a day and a week before (null when no snapshot is
-    that old), from hands/stats' own board reading. Only the fixed metrics
-    are listed and only numbers are given; a row that is not one is passed
-    over. [] when there is none."""
+    where it stood about a day and a week before that reading (null when no
+    snapshot is that old), as the stats board reads it (stats/board.py,
+    `audience`). Only the fixed metrics are listed and only numbers are
+    given: a latest row that is not a number leaves its metric out, an older
+    one only its comparison. [] when there is none."""
     path = hand.state_dir() / "hands.db"
     if not path.is_file():
         return []
@@ -198,24 +206,29 @@ def audience() -> list[Json]:
     except sqlite3.Error:
         return []
     try:
-        conn.row_factory = sqlite3.Row
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stats'").fetchone():
+            return []
         for source, metric in AUDIENCE:
-            try:
-                found = board.audience(conn, ((source, metric),))
-                if not found:
-                    continue
-                item = found[0]
-                at = conn.execute("SELECT at FROM stats WHERE source = ? AND metric = ? AND date = ?",
-                                  (source, metric, item["date"])).fetchone()
-                row: Json = {"metric": item["metric"], "value": item["value"],
-                             "read_at": _iso(at[0] * 1000) if at and isinstance(at[0], (int, float)) else None}
-                for was, change, key in (("day_before", "change_1d", "d1"), ("week_before", "change_7d", "d7")):
-                    delta = item.get(key)
-                    row[was] = None if delta is None else _num(item["value"] - delta)
-                    row[change] = delta
-            except (sqlite3.Error, ValueError, TypeError):
+            latest = conn.execute("SELECT value, date, at FROM stats WHERE source = ? AND metric = ?"
+                                  " ORDER BY date DESC LIMIT 1", (source, metric)).fetchone()
+            value = _value(latest)
+            if value is None:
                 continue
+            row: Json = {"metric": f"{source}.{metric}", "value": value,
+                         "read_at": _iso(latest[2] * 1000) if isinstance(latest[2], (int, float)) else None}
+            try:
+                day = dt.datetime.strptime(str(latest[1]), "%Y-%m-%d")
+            except ValueError:
+                day = None
+            for was, change, back in (("day_before", "change_1d", 1), ("week_before", "change_7d", 7)):
+                before = None if day is None else _value(conn.execute(
+                    "SELECT value FROM stats WHERE source = ? AND metric = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+                    (source, metric, (day - dt.timedelta(days=back)).strftime("%Y-%m-%d"))).fetchone())
+                row[was] = before
+                row[change] = None if before is None else _num(value - before)
             out.append(row)
+    except sqlite3.Error:
+        return out
     finally:
         conn.close()
     return out
