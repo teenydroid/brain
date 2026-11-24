@@ -1,0 +1,1346 @@
+==================== CODE: <module> args: () ====================
+consts:
+  [0] 'hands/chart: candles from a fake public endpoint, a PNG out of the\nstandard library, and the numbers a post may quote.'
+  [1] 0
+  [2] ('annotations',)
+  [3] None
+  [4] ('Path',)
+  [5] 1
+  [6] 'lib'
+  [7] ('hand',)
+  [8] ('candles', 'render')
+  [9] 1789369200.0
+  [10] 'chart'
+  [12] 'FakeChart'
+  [14] 'ChartTest'
+  [15] '__main__'
+  0           0 RESUME                   0
+
+  1           2 LOAD_CONST               0 ('hands/chart: candles from a fake public endpoint, a PNG out of the\nstandard library, and the numbers a post may quote.')
+              4 STORE_NAME               0 (__doc__)
+
+  4           6 LOAD_CONST               1 (0)
+              8 LOAD_CONST               2 (('annotations',))
+             10 IMPORT_NAME              1 (__future__)
+             12 IMPORT_FROM              2 (annotations)
+             14 STORE_NAME               2 (annotations)
+             16 POP_TOP
+
+  6          18 LOAD_CONST               1 (0)
+             20 LOAD_CONST               3 (None)
+             22 IMPORT_NAME              3 (json)
+             24 STORE_NAME               3 (json)
+
+  7          26 LOAD_CONST               1 (0)
+             28 LOAD_CONST               3 (None)
+             30 IMPORT_NAME              4 (os)
+             32 STORE_NAME               4 (os)
+
+  8          34 LOAD_CONST               1 (0)
+             36 LOAD_CONST               3 (None)
+             38 IMPORT_NAME              5 (subprocess)
+             40 STORE_NAME               5 (subprocess)
+
+  9          42 LOAD_CONST               1 (0)
+             44 LOAD_CONST               3 (None)
+             46 IMPORT_NAME              6 (sys)
+             48 STORE_NAME               6 (sys)
+
+ 10          50 LOAD_CONST               1 (0)
+             52 LOAD_CONST               3 (None)
+             54 IMPORT_NAME              7 (tempfile)
+             56 STORE_NAME               7 (tempfile)
+
+ 11          58 LOAD_CONST               1 (0)
+             60 LOAD_CONST               3 (None)
+             62 IMPORT_NAME              8 (unittest)
+             64 STORE_NAME               8 (unittest)
+
+ 12          66 LOAD_CONST               1 (0)
+             68 LOAD_CONST               4 (('Path',))
+             70 IMPORT_NAME              9 (pathlib)
+             72 IMPORT_FROM             10 (Path)
+             74 STORE_NAME              10 (Path)
+             76 POP_TOP
+
+ 14          78 LOAD_NAME                6 (sys)
+             80 LOAD_ATTR               11 (path)
+             90 LOAD_METHOD             12 (insert)
+            112 LOAD_CONST               1 (0)
+            114 PUSH_NULL
+            116 LOAD_NAME               13 (str)
+            118 PUSH_NULL
+            120 LOAD_NAME               10 (Path)
+            122 LOAD_NAME               14 (__file__)
+            124 PRECALL                  1
+            128 CALL                     1
+            138 LOAD_METHOD             15 (resolve)
+            160 PRECALL                  0
+            164 CALL                     0
+            174 LOAD_ATTR               16 (parents)
+            184 LOAD_CONST               5 (1)
+            186 BINARY_SUBSCR
+            196 LOAD_CONST               6 ('lib')
+            198 BINARY_OP               11 (/)
+            202 PRECALL                  1
+            206 CALL                     1
+            216 PRECALL                  2
+            220 CALL                     2
+            230 POP_TOP
+
+ 16         232 LOAD_CONST               1 (0)
+            234 LOAD_CONST               7 (('hand',))
+            236 IMPORT_NAME             17 (teeny_hands)
+            238 IMPORT_FROM             18 (hand)
+            240 STORE_NAME              18 (hand)
+            242 POP_TOP
+
+ 17         244 LOAD_CONST               1 (0)
+            246 LOAD_CONST               8 (('candles', 'render'))
+            248 IMPORT_NAME             19 (teeny_hands.chart)
+            250 IMPORT_FROM             20 (candles)
+            252 STORE_NAME              20 (candles)
+            254 IMPORT_FROM             21 (render)
+            256 STORE_NAME              21 (render)
+            258 POP_TOP
+
+ 19         260 LOAD_CONST               9 (1789369200.0)
+            262 STORE_NAME              22 (T0)
+
+ 20         264 PUSH_NULL
+            266 LOAD_NAME               10 (Path)
+            268 LOAD_NAME               14 (__file__)
+            270 PRECALL                  1
+            274 CALL                     1
+            284 LOAD_METHOD             15 (resolve)
+            306 PRECALL                  0
+            310 CALL                     0
+            320 LOAD_ATTR               16 (parents)
+            330 LOAD_CONST               5 (1)
+            332 BINARY_SUBSCR
+            342 LOAD_CONST              10 ('chart')
+            344 BINARY_OP               11 (/)
+            348 STORE_NAME              23 (CHART)
+
+ 23         350 PUSH_NULL
+            352 LOAD_BUILD_CLASS
+            354 LOAD_CONST              11 (<code object FakeChart at 0x74f1fe15c810, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 23>)
+            356 MAKE_FUNCTION            0
+            358 LOAD_CONST              12 ('FakeChart')
+            360 PRECALL                  2
+            364 CALL                     2
+            374 STORE_NAME              24 (FakeChart)
+
+ 62         376 PUSH_NULL
+            378 LOAD_BUILD_CLASS
+            380 LOAD_CONST              13 (<code object ChartTest at 0x74f1fe2e6030, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 62>)
+            382 MAKE_FUNCTION            0
+            384 LOAD_CONST              14 ('ChartTest')
+            386 LOAD_NAME                8 (unittest)
+            388 LOAD_ATTR               25 (TestCase)
+            398 PRECALL                  3
+            402 CALL                     3
+            412 STORE_NAME              26 (ChartTest)
+
+144         414 LOAD_NAME               27 (__name__)
+            416 LOAD_CONST              15 ('__main__')
+            418 COMPARE_OP               2 (==)
+            424 POP_JUMP_FORWARD_IF_FALSE    17 (to 460)
+
+145         426 PUSH_NULL
+            428 LOAD_NAME                8 (unittest)
+            430 LOAD_ATTR               28 (main)
+            440 PRECALL                  0
+            444 CALL                     0
+            454 POP_TOP
+            456 LOAD_CONST               3 (None)
+            458 RETURN_VALUE
+
+144     >>  460 LOAD_CONST               3 (None)
+            462 RETURN_VALUE
+==================== CODE: FakeChart args: () ====================
+consts:
+  [0] 'FakeChart'
+  [1] 'The public candle endpoint, served from localhost.'
+  [4] 8
+  [5] 'count'
+  [6] 'int'
+  [8] None
+  [9] (8,)
+  [10] ('count', 'int')
+ 23           0 RESUME                   0
+              2 LOAD_NAME                0 (__name__)
+              4 STORE_NAME               1 (__module__)
+              6 LOAD_CONST               0 ('FakeChart')
+              8 STORE_NAME               2 (__qualname__)
+
+ 24          10 LOAD_CONST               1 ('The public candle endpoint, served from localhost.')
+             12 STORE_NAME               3 (__doc__)
+
+ 26          14 LOAD_CONST               2 (<code object __init__ at 0x74f1fe2de430, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 26>)
+             16 MAKE_FUNCTION            0
+             18 STORE_NAME               4 (__init__)
+
+ 53          20 LOAD_CONST               3 (<code object close at 0x74f1fe378e70, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 53>)
+             22 MAKE_FUNCTION            0
+             24 STORE_NAME               5 (close)
+
+ 57          26 LOAD_CONST               9 ((8,))
+             28 LOAD_CONST              10 (('count', 'int'))
+             30 LOAD_CONST               7 (<code object candles at 0x74f1fe2e5530, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 57>)
+             32 MAKE_FUNCTION            5 (defaults, annotations)
+             34 STORE_NAME               6 (candles)
+             36 LOAD_CONST               8 (None)
+             38 RETURN_VALUE
+==================== CODE: __init__ args: ('self',) ====================
+consts:
+  [0] None
+  [1] 0
+  [3] 'Handler'
+  [4] 200
+  [5] ('127.0.0.1', 0)
+  [6] 'http://127.0.0.1:'
+  [7] True
+  [8] ('target', 'daemon')
+              0 MAKE_CELL                4 (outer)
+
+ 26           2 RESUME                   0
+
+ 27           4 LOAD_CONST               1 (0)
+              6 LOAD_CONST               0 (None)
+              8 IMPORT_NAME              0 (http.server)
+             10 STORE_FAST               1 (http)
+
+ 28          12 LOAD_CONST               1 (0)
+             14 LOAD_CONST               0 (None)
+             16 IMPORT_NAME              1 (threading)
+             18 STORE_FAST               2 (threading)
+
+ 30          20 LOAD_FAST                0 (self)
+             22 STORE_DEREF              4 (outer)
+
+ 32          24 PUSH_NULL
+             26 LOAD_BUILD_CLASS
+             28 LOAD_CLOSURE             4 (outer)
+             30 BUILD_TUPLE              1
+             32 LOAD_CONST               2 (<code object Handler at 0x74f1fe15c730, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 32>)
+             34 MAKE_FUNCTION            8 (closure)
+             36 LOAD_CONST               3 ('Handler')
+             38 LOAD_FAST                1 (http)
+             40 LOAD_ATTR                2 (server)
+             50 LOAD_ATTR                3 (BaseHTTPRequestHandler)
+             60 PRECALL                  3
+             64 CALL                     3
+             74 STORE_FAST               3 (Handler)
+
+ 47          76 BUILD_LIST               0
+             78 LOAD_FAST                0 (self)
+             80 STORE_ATTR               4 (rows)
+
+ 48          90 LOAD_CONST               4 (200)
+             92 LOAD_FAST                0 (self)
+             94 STORE_ATTR               5 (status)
+
+ 49         104 LOAD_FAST                1 (http)
+            106 LOAD_ATTR                2 (server)
+            116 LOAD_METHOD              6 (HTTPServer)
+            138 LOAD_CONST               5 (('127.0.0.1', 0))
+            140 LOAD_FAST                3 (Handler)
+            142 PRECALL                  2
+            146 CALL                     2
+            156 LOAD_FAST                0 (self)
+            158 STORE_ATTR               2 (server)
+
+ 50         168 LOAD_CONST               6 ('http://127.0.0.1:')
+            170 LOAD_FAST                0 (self)
+            172 LOAD_ATTR                2 (server)
+            182 LOAD_ATTR                7 (server_port)
+            192 FORMAT_VALUE             0
+            194 BUILD_STRING             2
+            196 LOAD_FAST                0 (self)
+            198 STORE_ATTR               8 (base)
+
+ 51         208 LOAD_FAST                2 (threading)
+            210 LOAD_METHOD              9 (Thread)
+            232 LOAD_FAST                0 (self)
+            234 LOAD_ATTR                2 (server)
+            244 LOAD_ATTR               10 (serve_forever)
+            254 LOAD_CONST               7 (True)
+            256 KW_NAMES                 8
+            258 PRECALL                  2
+            262 CALL                     2
+            272 LOAD_METHOD             11 (start)
+            294 PRECALL                  0
+            298 CALL                     0
+            308 POP_TOP
+            310 LOAD_CONST               0 (None)
+            312 RETURN_VALUE
+==================== CODE: Handler args: () ====================
+consts:
+  [0] 'FakeChart.__init__.<locals>.Handler'
+  [3] None
+              0 COPY_FREE_VARS           1
+
+ 32           2 RESUME                   0
+              4 LOAD_NAME                0 (__name__)
+              6 STORE_NAME               1 (__module__)
+              8 LOAD_CONST               0 ('FakeChart.__init__.<locals>.Handler')
+             10 STORE_NAME               2 (__qualname__)
+
+ 33          12 LOAD_CLOSURE             0 (outer)
+             14 BUILD_TUPLE              1
+             16 LOAD_CONST               1 (<code object do_GET at 0x35c3f780, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 33>)
+             18 MAKE_FUNCTION            8 (closure)
+             20 STORE_NAME               3 (do_GET)
+
+ 44          22 LOAD_CONST               2 (<code object log_message at 0x74f1fe2e8c30, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 44>)
+             24 MAKE_FUNCTION            0
+             26 STORE_NAME               4 (log_message)
+             28 LOAD_CONST               3 (None)
+             30 RETURN_VALUE
+==================== CODE: do_GET args: ('self',) ====================
+consts:
+  [0] None
+  [1] '/coins/tiny/ohlc'
+  [2] 'Content-Type'
+  [3] 'application/json'
+  [4] 404
+              0 COPY_FREE_VARS           1
+
+ 33           2 RESUME                   0
+
+ 34           4 LOAD_FAST                0 (self)
+              6 LOAD_ATTR                0 (path)
+             16 LOAD_METHOD              1 (startswith)
+             38 LOAD_CONST               1 ('/coins/tiny/ohlc')
+             40 PRECALL                  1
+             44 CALL                     1
+             54 POP_JUMP_FORWARD_IF_FALSE   139 (to 334)
+
+ 35          56 LOAD_GLOBAL              5 (NULL + json)
+             68 LOAD_ATTR                3 (dumps)
+             78 LOAD_DEREF               2 (outer)
+             80 LOAD_ATTR                4 (rows)
+             90 PRECALL                  1
+             94 CALL                     1
+            104 LOAD_METHOD              5 (encode)
+            126 PRECALL                  0
+            130 CALL                     0
+            140 STORE_FAST               1 (body)
+
+ 36         142 LOAD_FAST                0 (self)
+            144 LOAD_METHOD              6 (send_response)
+            166 LOAD_DEREF               2 (outer)
+            168 LOAD_ATTR                7 (status)
+            178 PRECALL                  1
+            182 CALL                     1
+            192 POP_TOP
+
+ 37         194 LOAD_FAST                0 (self)
+            196 LOAD_METHOD              8 (send_header)
+            218 LOAD_CONST               2 ('Content-Type')
+            220 LOAD_CONST               3 ('application/json')
+            222 PRECALL                  2
+            226 CALL                     2
+            236 POP_TOP
+
+ 38         238 LOAD_FAST                0 (self)
+            240 LOAD_METHOD              9 (end_headers)
+            262 PRECALL                  0
+            266 CALL                     0
+            276 POP_TOP
+
+ 39         278 LOAD_FAST                0 (self)
+            280 LOAD_ATTR               10 (wfile)
+            290 LOAD_METHOD             11 (write)
+            312 LOAD_FAST                1 (body)
+            314 PRECALL                  1
+            318 CALL                     1
+            328 POP_TOP
+            330 LOAD_CONST               0 (None)
+            332 RETURN_VALUE
+
+ 41     >>  334 LOAD_FAST                0 (self)
+            336 LOAD_METHOD              6 (send_response)
+            358 LOAD_CONST               4 (404)
+            360 PRECALL                  1
+            364 CALL                     1
+            374 POP_TOP
+
+ 42         376 LOAD_FAST                0 (self)
+            378 LOAD_METHOD              9 (end_headers)
+            400 PRECALL                  0
+            404 CALL                     0
+            414 POP_TOP
+            416 LOAD_CONST               0 (None)
+            418 RETURN_VALUE
+==================== CODE: log_message args: ('self',) ====================
+consts:
+  [0] None
+ 44           0 RESUME                   0
+
+ 45           2 LOAD_CONST               0 (None)
+              4 RETURN_VALUE
+==================== CODE: close args: ('self',) ====================
+consts:
+  [0] None
+ 53           0 RESUME                   0
+
+ 54           2 LOAD_FAST                0 (self)
+              4 LOAD_ATTR                0 (server)
+             14 LOAD_METHOD              1 (shutdown)
+             36 PRECALL                  0
+             40 CALL                     0
+             50 POP_TOP
+
+ 55          52 LOAD_FAST                0 (self)
+             54 LOAD_ATTR                0 (server)
+             64 LOAD_METHOD              2 (server_close)
+             86 PRECALL                  0
+             90 CALL                     0
+            100 POP_TOP
+            102 LOAD_CONST               0 (None)
+            104 RETURN_VALUE
+==================== CODE: candles args: ('self', 'count') ====================
+consts:
+  [0] None
+ 57           0 RESUME                   0
+
+ 58           2 LOAD_CONST               1 (<code object <listcomp> at 0x74f1fe379a50, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 58>)
+              4 MAKE_FUNCTION            0
+
+ 59           6 LOAD_GLOBAL              1 (NULL + range)
+             18 LOAD_FAST                1 (count)
+             20 PRECALL                  1
+             24 CALL                     1
+
+ 58          34 GET_ITER
+             36 PRECALL                  0
+             40 CALL                     0
+             50 LOAD_FAST                0 (self)
+             52 STORE_ATTR               1 (rows)
+             62 LOAD_CONST               0 (None)
+             64 RETURN_VALUE
+==================== CODE: <listcomp> args: ('.0',) ====================
+consts:
+  [0] 4
+  [1] 3600
+  [2] 1000
+  [3] 1.0
+  [4] 0.1
+  [5] 1.2
+  [6] 0.9
+  [7] 1.1
+ 58           0 RESUME                   0
+              2 BUILD_LIST               0
+              4 LOAD_FAST                0 (.0)
+        >>    6 FOR_ITER                50 (to 108)
+
+ 59           8 STORE_FAST               1 (index)
+
+ 58          10 LOAD_GLOBAL              0 (T0)
+             22 LOAD_FAST                1 (index)
+             24 LOAD_CONST               0 (4)
+             26 BINARY_OP                5 (*)
+             30 LOAD_CONST               1 (3600)
+             32 BINARY_OP                5 (*)
+             36 BINARY_OP                0 (+)
+             40 LOAD_CONST               2 (1000)
+             42 BINARY_OP                5 (*)
+             46 LOAD_CONST               3 (1.0)
+             48 LOAD_FAST                1 (index)
+             50 LOAD_CONST               4 (0.1)
+             52 BINARY_OP                5 (*)
+             56 BINARY_OP                0 (+)
+             60 LOAD_CONST               5 (1.2)
+             62 LOAD_FAST                1 (index)
+             64 LOAD_CONST               4 (0.1)
+             66 BINARY_OP                5 (*)
+             70 BINARY_OP                0 (+)
+
+ 59          74 LOAD_CONST               6 (0.9)
+             76 LOAD_FAST                1 (index)
+             78 LOAD_CONST               4 (0.1)
+             80 BINARY_OP                5 (*)
+             84 BINARY_OP                0 (+)
+             88 LOAD_CONST               7 (1.1)
+             90 LOAD_FAST                1 (index)
+             92 LOAD_CONST               4 (0.1)
+             94 BINARY_OP                5 (*)
+             98 BINARY_OP                0 (+)
+
+ 58         102 BUILD_LIST               5
+            104 LIST_APPEND              2
+            106 JUMP_BACKWARD           51 (to 6)
+        >>  108 RETURN_VALUE
+==================== CODE: ChartTest args: () ====================
+consts:
+  [0] 'ChartTest'
+  [10] None
+ 62           0 RESUME                   0
+              2 LOAD_NAME                0 (__name__)
+              4 STORE_NAME               1 (__module__)
+              6 LOAD_CONST               0 ('ChartTest')
+              8 STORE_NAME               2 (__qualname__)
+
+ 63          10 LOAD_CONST               1 (<code object setUp at 0x35c1b3e0, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 63>)
+             12 MAKE_FUNCTION            0
+             14 STORE_NAME               3 (setUp)
+
+ 76          16 LOAD_CONST               2 (<code object tearDown at 0x74f1fe189c50, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 76>)
+             18 MAKE_FUNCTION            0
+             20 STORE_NAME               4 (tearDown)
+
+ 82          22 LOAD_CONST               3 (<code object configure at 0x74f1fe3703b0, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 82>)
+             24 MAKE_FUNCTION            0
+             26 STORE_NAME               5 (configure)
+
+ 88          28 LOAD_CONST               4 (<code object test_fetch_stores_one_row_per_candle_and_replaces_the_window at 0x35c3db20, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 88>)
+             30 MAKE_FUNCTION            0
+             32 STORE_NAME               6 (test_fetch_stores_one_row_per_candle_and_replaces_the_window)
+
+ 96          34 LOAD_CONST               5 (<code object test_a_bad_answer_is_an_error_and_stores_nothing at 0x35c29260, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 96>)
+             36 MAKE_FUNCTION            0
+             38 STORE_NAME               7 (test_a_bad_answer_is_an_error_and_stores_nothing)
+
+106          40 LOAD_CONST               6 (<code object test_render_draws_a_real_png_of_the_stored_candles at 0x35c2e890, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 106>)
+             42 MAKE_FUNCTION            0
+             44 STORE_NAME               8 (test_render_draws_a_real_png_of_the_stored_candles)
+
+119          46 LOAD_CONST               7 (<code object test_render_refuses_without_candles at 0x74f1fe17c1b0, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 119>)
+             48 MAKE_FUNCTION            0
+             50 STORE_NAME               9 (test_render_refuses_without_candles)
+
+123          52 LOAD_CONST               8 (<code object test_read_fetches_renders_and_answers_the_numbers at 0x35c2f020, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 123>)
+             54 MAKE_FUNCTION            0
+             56 STORE_NAME              10 (test_read_fetches_renders_and_answers_the_numbers)
+
+132          58 LOAD_CONST               9 (<code object test_the_cli_refuses_a_bad_verb_and_a_bad_coin at 0x35c41420, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 132>)
+             60 MAKE_FUNCTION            0
+             62 STORE_NAME              11 (test_the_cli_refuses_a_bad_verb_and_a_bad_coin)
+             64 LOAD_CONST              10 (None)
+             66 RETURN_VALUE
+==================== CODE: setUp args: ('self',) ====================
+consts:
+  [0] None
+  [1] 'secrets'
+  [2] 'TEENY_ROOT'
+  [3] 'TEENY_NOW'
+  [4] 'DRY_RUN'
+ 63           0 RESUME                   0
+
+ 64           2 LOAD_GLOBAL              1 (NULL + tempfile)
+             14 LOAD_ATTR                1 (TemporaryDirectory)
+             24 PRECALL                  0
+             28 CALL                     0
+             38 LOAD_FAST                0 (self)
+             40 STORE_ATTR               2 (tmp)
+
+ 65          50 LOAD_GLOBAL              7 (NULL + Path)
+             62 LOAD_FAST                0 (self)
+             64 LOAD_ATTR                2 (tmp)
+             74 LOAD_ATTR                4 (name)
+             84 PRECALL                  1
+             88 CALL                     1
+             98 LOAD_METHOD              5 (resolve)
+            120 PRECALL                  0
+            124 CALL                     0
+            134 LOAD_FAST                0 (self)
+            136 STORE_ATTR               6 (root)
+
+ 66         146 LOAD_FAST                0 (self)
+            148 LOAD_ATTR                6 (root)
+            158 LOAD_CONST               1 ('secrets')
+            160 BINARY_OP               11 (/)
+            164 LOAD_METHOD              7 (mkdir)
+            186 PRECALL                  0
+            190 CALL                     0
+            200 POP_TOP
+
+ 67         202 LOAD_GLOBAL             17 (NULL + dict)
+            214 LOAD_GLOBAL             18 (os)
+            226 LOAD_ATTR               10 (environ)
+            236 PRECALL                  1
+            240 CALL                     1
+            250 LOAD_FAST                0 (self)
+            252 STORE_ATTR              11 (_env)
+
+ 68         262 LOAD_GLOBAL             25 (NULL + str)
+            274 LOAD_FAST                0 (self)
+            276 LOAD_ATTR                6 (root)
+            286 PRECALL                  1
+            290 CALL                     1
+            300 LOAD_GLOBAL             18 (os)
+            312 LOAD_ATTR               10 (environ)
+            322 LOAD_CONST               2 ('TEENY_ROOT')
+            324 STORE_SUBSCR
+
+ 69         328 LOAD_GLOBAL             25 (NULL + str)
+            340 LOAD_GLOBAL             26 (T0)
+            352 PRECALL                  1
+            356 CALL                     1
+            366 LOAD_GLOBAL             18 (os)
+            378 LOAD_ATTR               10 (environ)
+            388 LOAD_CONST               3 ('TEENY_NOW')
+            390 STORE_SUBSCR
+
+ 70         394 LOAD_GLOBAL             18 (os)
+            406 LOAD_ATTR               10 (environ)
+            416 LOAD_METHOD             14 (pop)
+            438 LOAD_CONST               4 ('DRY_RUN')
+            440 LOAD_CONST               0 (None)
+            442 PRECALL                  2
+            446 CALL                     2
+            456 POP_TOP
+
+ 71         458 LOAD_GLOBAL             31 (NULL + FakeChart)
+            470 PRECALL                  0
+            474 CALL                     0
+            484 LOAD_FAST                0 (self)
+            486 STORE_ATTR              16 (fake)
+
+ 72         496 LOAD_FAST                0 (self)
+            498 LOAD_METHOD             17 (addCleanup)
+            520 LOAD_FAST                0 (self)
+            522 LOAD_ATTR               16 (fake)
+            532 LOAD_ATTR               18 (close)
+            542 PRECALL                  1
+            546 CALL                     1
+            556 POP_TOP
+
+ 73         558 LOAD_FAST                0 (self)
+            560 LOAD_METHOD             19 (configure)
+            582 PRECALL                  0
+            586 CALL                     0
+            596 POP_TOP
+
+ 74         598 LOAD_FAST                0 (self)
+            600 LOAD_ATTR               16 (fake)
+            610 LOAD_METHOD             20 (candles)
+            632 PRECALL                  0
+            636 CALL                     0
+            646 POP_TOP
+            648 LOAD_CONST               0 (None)
+            650 RETURN_VALUE
+==================== CODE: tearDown args: ('self',) ====================
+consts:
+  [0] None
+ 76           0 RESUME                   0
+
+ 77           2 LOAD_GLOBAL              0 (os)
+             14 LOAD_ATTR                1 (environ)
+             24 LOAD_METHOD              2 (clear)
+             46 PRECALL                  0
+             50 CALL                     0
+             60 POP_TOP
+
+ 78          62 LOAD_GLOBAL              0 (os)
+             74 LOAD_ATTR                1 (environ)
+             84 LOAD_METHOD              3 (update)
+            106 LOAD_FAST                0 (self)
+            108 LOAD_ATTR                4 (_env)
+            118 PRECALL                  1
+            122 CALL                     1
+            132 POP_TOP
+
+ 79         134 LOAD_CONST               0 (None)
+            136 LOAD_GLOBAL             10 (hand)
+            148 STORE_ATTR               6 (_ENV_CACHE)
+
+ 80         158 LOAD_FAST                0 (self)
+            160 LOAD_ATTR                7 (tmp)
+            170 LOAD_METHOD              8 (cleanup)
+            192 PRECALL                  0
+            196 CALL                     0
+            206 POP_TOP
+            208 LOAD_CONST               0 (None)
+            210 RETURN_VALUE
+==================== CODE: configure args: ('self',) ====================
+consts:
+  [0] None
+  [1] '1'
+  [2] ('CHART_API_BASE', 'DRY_RUN')
+  [3] 'secrets'
+  [4] 'teeny.env'
+  [5] ''
+ 82           0 RESUME                   0
+
+ 83           2 LOAD_FAST                0 (self)
+              4 LOAD_ATTR                0 (fake)
+             14 LOAD_ATTR                1 (base)
+             24 LOAD_CONST               1 ('1')
+             26 LOAD_CONST               2 (('CHART_API_BASE', 'DRY_RUN'))
+             28 BUILD_CONST_KEY_MAP      2
+             30 STORE_FAST               2 (values)
+
+ 84          32 LOAD_FAST                2 (values)
+             34 LOAD_METHOD              2 (update)
+             56 LOAD_FAST                1 (overrides)
+             58 PRECALL                  1
+             62 CALL                     1
+             72 POP_TOP
+
+ 85          74 LOAD_FAST                0 (self)
+             76 LOAD_ATTR                3 (root)
+             86 LOAD_CONST               3 ('secrets')
+             88 BINARY_OP               11 (/)
+             92 LOAD_CONST               4 ('teeny.env')
+             94 BINARY_OP               11 (/)
+             98 LOAD_METHOD              4 (write_text)
+            120 LOAD_CONST               5 ('')
+            122 LOAD_METHOD              5 (join)
+            144 LOAD_CONST               6 (<code object <genexpr> at 0x74f1fe3373c0, file "/srv/teeny/state/workbench/brain/hands/tests/test_chart.py", line 85>)
+            146 MAKE_FUNCTION            0
+            148 LOAD_FAST                2 (values)
+            150 LOAD_METHOD              6 (items)
+            172 PRECALL                  0
+            176 CALL                     0
+            186 GET_ITER
+            188 PRECALL                  0
+            192 CALL                     0
+            202 PRECALL                  1
+            206 CALL                     1
+            216 PRECALL                  1
+            220 CALL                     1
+            230 POP_TOP
+
+ 86         232 LOAD_CONST               0 (None)
+            234 LOAD_GLOBAL             14 (hand)
+            246 STORE_ATTR               8 (_ENV_CACHE)
+            256 LOAD_CONST               0 (None)
+            258 RETURN_VALUE
+==================== CODE: <genexpr> args: ('.0',) ====================
+consts:
+  [0] '='
+  [1] '\n'
+  [2] None
+ 85           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+              6 LOAD_FAST                0 (.0)
+        >>    8 FOR_ITER                15 (to 40)
+             10 UNPACK_SEQUENCE          2
+             14 STORE_FAST               1 (k)
+             16 STORE_FAST               2 (v)
+             18 LOAD_FAST                1 (k)
+             20 FORMAT_VALUE             0
+             22 LOAD_CONST               0 ('=')
+             24 LOAD_FAST                2 (v)
+             26 FORMAT_VALUE             0
+             28 LOAD_CONST               1 ('\n')
+             30 BUILD_STRING             4
+             32 YIELD_VALUE
+             34 RESUME                   1
+             36 POP_TOP
+             38 JUMP_BACKWARD           16 (to 8)
+        >>   40 LOAD_CONST               2 (None)
+             42 RETURN_VALUE
+==================== CODE: test_fetch_stores_one_row_per_candle_and_replaces_the_window args: ('self',) ====================
+consts:
+  [0] None
+  [1] 'tiny'
+  [2] 7
+  [3] 'candles'
+  [4] 'days'
+  [5] (8, 7)
+  [6] 8
+  [7] 4
+ 88           0 RESUME                   0
+
+ 89           2 LOAD_GLOBAL              1 (NULL + candles)
+             14 LOAD_ATTR                1 (fetch)
+             24 LOAD_CONST               1 ('tiny')
+             26 LOAD_CONST               2 (7)
+             28 PRECALL                  2
+             32 CALL                     2
+             42 STORE_FAST               1 (out)
+
+ 90          44 LOAD_FAST                0 (self)
+             46 LOAD_METHOD              2 (assertEqual)
+             68 LOAD_FAST                1 (out)
+             70 LOAD_CONST               3 ('candles')
+             72 BINARY_SUBSCR
+             82 LOAD_FAST                1 (out)
+             84 LOAD_CONST               4 ('days')
+             86 BINARY_SUBSCR
+             96 BUILD_TUPLE              2
+             98 LOAD_CONST               5 ((8, 7))
+            100 PRECALL                  2
+            104 CALL                     2
+            114 POP_TOP
+
+ 91         116 LOAD_FAST                0 (self)
+            118 LOAD_METHOD              2 (assertEqual)
+            140 LOAD_GLOBAL              7 (NULL + len)
+            152 LOAD_GLOBAL              1 (NULL + candles)
+            164 LOAD_ATTR                4 (rows)
+            174 LOAD_CONST               1 ('tiny')
+            176 LOAD_CONST               2 (7)
+            178 PRECALL                  2
+            182 CALL                     2
+            192 PRECALL                  1
+            196 CALL                     1
+            206 LOAD_CONST               6 (8)
+            208 PRECALL                  2
+            212 CALL                     2
+            222 POP_TOP
+
+ 92         224 LOAD_FAST                0 (self)
+            226 LOAD_ATTR                5 (fake)
+            236 LOAD_METHOD              0 (candles)
+            258 LOAD_CONST               7 (4)
+            260 PRECALL                  1
+            264 CALL                     1
+            274 POP_TOP
+
+ 93         276 LOAD_GLOBAL              1 (NULL + candles)
+            288 LOAD_ATTR                1 (fetch)
+            298 LOAD_CONST               1 ('tiny')
+            300 LOAD_CONST               2 (7)
+            302 PRECALL                  2
+            306 CALL                     2
+            316 POP_TOP
+
+ 94         318 LOAD_FAST                0 (self)
+            320 LOAD_METHOD              2 (assertEqual)
+            342 LOAD_GLOBAL              7 (NULL + len)
+            354 LOAD_GLOBAL              1 (NULL + candles)
+            366 LOAD_ATTR                4 (rows)
+            376 LOAD_CONST               1 ('tiny')
+            378 LOAD_CONST               2 (7)
+            380 PRECALL                  2
+            384 CALL                     2
+            394 PRECALL                  1
+            398 CALL                     1
+            408 LOAD_CONST               7 (4)
+            410 PRECALL                  2
+            414 CALL                     2
+            424 POP_TOP
+            426 LOAD_CONST               0 (None)
+            428 RETURN_VALUE
+==================== CODE: test_a_bad_answer_is_an_error_and_stores_nothing args: ('self',) ====================
+consts:
+  [0] None
+  [1] 'nope'
+  [2] 'tiny'
+  [3] 7
+  [4] 500
+ 96           0 RESUME                   0
+
+ 97           2 LOAD_CONST               1 ('nope')
+              4 BUILD_LIST               1
+              6 LOAD_FAST                0 (self)
+              8 LOAD_ATTR                0 (fake)
+             18 STORE_ATTR               1 (rows)
+
+ 98          28 LOAD_FAST                0 (self)
+             30 LOAD_METHOD              2 (assertRaises)
+             52 LOAD_GLOBAL              6 (hand)
+             64 LOAD_ATTR                4 (HandError)
+             74 PRECALL                  1
+             78 CALL                     1
+             88 BEFORE_WITH
+             90 POP_TOP
+
+ 99          92 LOAD_GLOBAL             11 (NULL + candles)
+            104 LOAD_ATTR                6 (fetch)
+            114 LOAD_CONST               2 ('tiny')
+            116 LOAD_CONST               3 (7)
+            118 PRECALL                  2
+            122 CALL                     2
+            132 POP_TOP
+
+ 98         134 LOAD_CONST               0 (None)
+            136 LOAD_CONST               0 (None)
+            138 LOAD_CONST               0 (None)
+            140 PRECALL                  2
+            144 CALL                     2
+            154 POP_TOP
+            156 JUMP_FORWARD            11 (to 180)
+        >>  158 PUSH_EXC_INFO
+            160 WITH_EXCEPT_START
+            162 POP_JUMP_FORWARD_IF_TRUE     4 (to 172)
+            164 RERAISE                  2
+        >>  166 COPY                     3
+            168 POP_EXCEPT
+            170 RERAISE                  1
+        >>  172 POP_TOP
+            174 POP_EXCEPT
+            176 POP_TOP
+            178 POP_TOP
+
+100     >>  180 LOAD_FAST                0 (self)
+            182 LOAD_METHOD              7 (assertEqual)
+            204 LOAD_GLOBAL             11 (NULL + candles)
+            216 LOAD_ATTR                1 (rows)
+            226 LOAD_CONST               2 ('tiny')
+            228 LOAD_CONST               3 (7)
+            230 PRECALL                  2
+            234 CALL                     2
+            244 BUILD_LIST               0
+            246 PRECALL                  2
+            250 CALL                     2
+            260 POP_TOP
+
+101         262 LOAD_CONST               4 (500)
+            264 LOAD_FAST                0 (self)
+            266 LOAD_ATTR                0 (fake)
+            276 STORE_ATTR               8 (status)
+
+102         286 LOAD_FAST                0 (self)
+            288 LOAD_METHOD              2 (assertRaises)
+            310 LOAD_GLOBAL             18 (Exception)
+            322 PRECALL                  1
+            326 CALL                     1
+            336 BEFORE_WITH
+            338 POP_TOP
+
+103         340 LOAD_GLOBAL             11 (NULL + candles)
+            352 LOAD_ATTR                6 (fetch)
+            362 LOAD_CONST               2 ('tiny')
+            364 LOAD_CONST               3 (7)
+            366 PRECALL                  2
+            370 CALL                     2
+            380 POP_TOP
+
+102         382 LOAD_CONST               0 (None)
+            384 LOAD_CONST               0 (None)
+            386 LOAD_CONST               0 (None)
+            388 PRECALL                  2
+            392 CALL                     2
+            402 POP_TOP
+            404 JUMP_FORWARD            11 (to 428)
+        >>  406 PUSH_EXC_INFO
+            408 WITH_EXCEPT_START
+            410 POP_JUMP_FORWARD_IF_TRUE     4 (to 420)
+            412 RERAISE                  2
+        >>  414 COPY                     3
+            416 POP_EXCEPT
+            418 RERAISE                  1
+        >>  420 POP_TOP
+            422 POP_EXCEPT
+            424 POP_TOP
+            426 POP_TOP
+
+104     >>  428 LOAD_FAST                0 (self)
+            430 LOAD_METHOD              7 (assertEqual)
+            452 LOAD_GLOBAL             11 (NULL + candles)
+            464 LOAD_ATTR                1 (rows)
+            474 LOAD_CONST               2 ('tiny')
+            476 LOAD_CONST               3 (7)
+            478 PRECALL                  2
+            482 CALL                     2
+            492 BUILD_LIST               0
+            494 PRECALL                  2
+            498 CALL                     2
+            508 POP_TOP
+            510 LOAD_CONST               0 (None)
+            512 RETURN_VALUE
+ExceptionTable:
+  90 to 132 -> 158 [1] lasti
+  158 to 164 -> 166 [3] lasti
+  172 to 172 -> 166 [3] lasti
+  338 to 380 -> 406 [1] lasti
+  406 to 412 -> 414 [3] lasti
+  420 to 420 -> 414 [3] lasti
+==================== CODE: test_render_draws_a_real_png_of_the_stored_candles args: ('self',) ====================
+consts:
+  [0] None
+  [1] 'tiny'
+  [2] 7
+  [3] 'path'
+  [4] 8
+  [5] b'\x89PNG\r\n\x1a\n'
+  [6] 500
+  [7] 'width'
+  [8] 'height'
+  [9] 'candles'
+  [10] (780, 360, 8)
+  [11] 'last_close'
+  [12] 1.8
+  [13] 'change_pct'
+  [14] 80.0
+  [15] 'high'
+  [16] 1.9
+  [17] 'low'
+  [18] 0.9
+106           0 RESUME                   0
+
+107           2 LOAD_GLOBAL              1 (NULL + candles)
+             14 LOAD_ATTR                1 (fetch)
+             24 LOAD_CONST               1 ('tiny')
+             26 LOAD_CONST               2 (7)
+             28 PRECALL                  2
+             32 CALL                     2
+             42 POP_TOP
+
+108          44 LOAD_GLOBAL              5 (NULL + render)
+             56 LOAD_ATTR                2 (render)
+             66 LOAD_GLOBAL              1 (NULL + candles)
+             78 LOAD_ATTR                3 (rows)
+             88 LOAD_CONST               1 ('tiny')
+             90 LOAD_CONST               2 (7)
+             92 PRECALL                  2
+             96 CALL                     2
+            106 LOAD_GLOBAL              5 (NULL + render)
+            118 LOAD_ATTR                4 (path_for)
+            128 LOAD_CONST               1 ('tiny')
+            130 LOAD_CONST               2 (7)
+            132 PRECALL                  2
+            136 CALL                     2
+            146 PRECALL                  2
+            150 CALL                     2
+            160 STORE_FAST               1 (out)
+
+109         162 LOAD_GLOBAL             11 (NULL + Path)
+            174 LOAD_FAST                1 (out)
+            176 LOAD_CONST               3 ('path')
+            178 BINARY_SUBSCR
+            188 PRECALL                  1
+            192 CALL                     1
+            202 STORE_FAST               2 (path)
+
+110         204 LOAD_FAST                2 (path)
+            206 LOAD_METHOD              6 (read_bytes)
+            228 PRECALL                  0
+            232 CALL                     0
+            242 STORE_FAST               3 (raw)
+
+111         244 LOAD_FAST                0 (self)
+            246 LOAD_METHOD              7 (assertEqual)
+            268 LOAD_FAST                3 (raw)
+            270 LOAD_CONST               0 (None)
+            272 LOAD_CONST               4 (8)
+            274 BUILD_SLICE              2
+            276 BINARY_SUBSCR
+            286 LOAD_CONST               5 (b'\x89PNG\r\n\x1a\n')
+            288 PRECALL                  2
+            292 CALL                     2
+            302 POP_TOP
+
+112         304 LOAD_FAST                0 (self)
+            306 LOAD_METHOD              8 (assertGreater)
+            328 LOAD_GLOBAL             19 (NULL + len)
+            340 LOAD_FAST                3 (raw)
+            342 PRECALL                  1
+            346 CALL                     1
+            356 LOAD_CONST               6 (500)
+            358 PRECALL                  2
+            362 CALL                     2
+            372 POP_TOP
+
+113         374 LOAD_FAST                0 (self)
+            376 LOAD_METHOD              7 (assertEqual)
+            398 LOAD_FAST                1 (out)
+            400 LOAD_CONST               7 ('width')
+            402 BINARY_SUBSCR
+            412 LOAD_FAST                1 (out)
+            414 LOAD_CONST               8 ('height')
+            416 BINARY_SUBSCR
+            426 LOAD_FAST                1 (out)
+            428 LOAD_CONST               9 ('candles')
+            430 BINARY_SUBSCR
+            440 BUILD_TUPLE              3
+            442 LOAD_CONST              10 ((780, 360, 8))
+            444 PRECALL                  2
+            448 CALL                     2
+            458 POP_TOP
+
+114         460 LOAD_FAST                0 (self)
+            462 LOAD_METHOD              7 (assertEqual)
+            484 LOAD_FAST                1 (out)
+            486 LOAD_CONST              11 ('last_close')
+            488 BINARY_SUBSCR
+            498 LOAD_CONST              12 (1.8)
+            500 PRECALL                  2
+            504 CALL                     2
+            514 POP_TOP
+
+115         516 LOAD_FAST                0 (self)
+            518 LOAD_METHOD              7 (assertEqual)
+            540 LOAD_FAST                1 (out)
+            542 LOAD_CONST              13 ('change_pct')
+            544 BINARY_SUBSCR
+            554 LOAD_CONST              14 (80.0)
+            556 PRECALL                  2
+            560 CALL                     2
+            570 POP_TOP
+
+116         572 LOAD_FAST                0 (self)
+            574 LOAD_METHOD              7 (assertEqual)
+            596 LOAD_FAST                1 (out)
+            598 LOAD_CONST              15 ('high')
+            600 BINARY_SUBSCR
+            610 LOAD_CONST              16 (1.9)
+            612 PRECALL                  2
+            616 CALL                     2
+            626 POP_TOP
+
+117         628 LOAD_FAST                0 (self)
+            630 LOAD_METHOD              7 (assertEqual)
+            652 LOAD_FAST                1 (out)
+            654 LOAD_CONST              17 ('low')
+            656 BINARY_SUBSCR
+            666 LOAD_CONST              18 (0.9)
+            668 PRECALL                  2
+            672 CALL                     2
+            682 POP_TOP
+            684 LOAD_CONST               0 (None)
+            686 RETURN_VALUE
+==================== CODE: test_render_refuses_without_candles args: ('self',) ====================
+consts:
+  [0] None
+  [1] 'tiny'
+  [2] 7
+119           0 RESUME                   0
+
+120           2 LOAD_FAST                0 (self)
+              4 LOAD_METHOD              0 (assertRaises)
+             26 LOAD_GLOBAL              2 (hand)
+             38 LOAD_ATTR                2 (Refused)
+             48 PRECALL                  1
+             52 CALL                     1
+             62 BEFORE_WITH
+             64 POP_TOP
+
+121          66 LOAD_GLOBAL              7 (NULL + render)
+             78 LOAD_ATTR                3 (render)
+             88 BUILD_LIST               0
+             90 LOAD_GLOBAL              7 (NULL + render)
+            102 LOAD_ATTR                4 (path_for)
+            112 LOAD_CONST               1 ('tiny')
+            114 LOAD_CONST               2 (7)
+            116 PRECALL                  2
+            120 CALL                     2
+            130 PRECALL                  2
+            134 CALL                     2
+            144 POP_TOP
+
+120         146 LOAD_CONST               0 (None)
+            148 LOAD_CONST               0 (None)
+            150 LOAD_CONST               0 (None)
+            152 PRECALL                  2
+            156 CALL                     2
+            166 POP_TOP
+            168 LOAD_CONST               0 (None)
+            170 RETURN_VALUE
+        >>  172 PUSH_EXC_INFO
+            174 WITH_EXCEPT_START
+            176 POP_JUMP_FORWARD_IF_TRUE     4 (to 186)
+            178 RERAISE                  2
+        >>  180 COPY                     3
+            182 POP_EXCEPT
+            184 RERAISE                  1
+        >>  186 POP_TOP
+            188 POP_EXCEPT
+            190 POP_TOP
+            192 POP_TOP
+            194 LOAD_CONST               0 (None)
+            196 RETURN_VALUE
+ExceptionTable:
+  64 to 144 -> 172 [1] lasti
+  172 to 178 -> 180 [3] lasti
+  186 to 186 -> 180 [3] lasti
+==================== CODE: test_read_fetches_renders_and_answers_the_numbers args: ('self',) ====================
+consts:
+  [0] None
+  [1] '-I'
+  [2] '-B'
+  [3] 'read'
+  [4] True
+  [5] 60
+  [6] ('capture_output', 'text', 'env', 'timeout', 'stdin')
+  [7] 'ok'
+  [8] 'candles'
+  [9] 8
+  [10] 'last_close'
+  [11] 1.8
+  [12] 'path'
+123           0 RESUME                   0
+
+124           2 LOAD_GLOBAL              1 (NULL + json)
+             14 LOAD_ATTR                1 (loads)
+             24 LOAD_GLOBAL              5 (NULL + subprocess)
+             36 LOAD_ATTR                3 (run)
+
+125          46 LOAD_GLOBAL              8 (sys)
+             58 LOAD_ATTR                5 (executable)
+             68 LOAD_CONST               1 ('-I')
+             70 LOAD_CONST               2 ('-B')
+             72 LOAD_GLOBAL             13 (NULL + str)
+             84 LOAD_GLOBAL             14 (CHART)
+             96 PRECALL                  1
+            100 CALL                     1
+            110 LOAD_CONST               3 ('read')
+            112 BUILD_LIST               5
+            114 LOAD_CONST               4 (True)
+            116 LOAD_CONST               4 (True)
+
+126         118 LOAD_GLOBAL             16 (os)
+            130 LOAD_ATTR                9 (environ)
+            140 LOAD_CONST               5 (60)
+            142 LOAD_GLOBAL              4 (subprocess)
+            154 LOAD_ATTR               10 (DEVNULL)
+
+124         164 KW_NAMES                 6
+            166 PRECALL                  6
+            170 CALL                     6
+
+126         180 LOAD_ATTR               11 (stdout)
+
+124         190 PRECALL                  1
+            194 CALL                     1
+            204 STORE_FAST               1 (out)
+
+127         206 LOAD_FAST                0 (self)
+            208 LOAD_METHOD             12 (assertTrue)
+            230 LOAD_FAST                1 (out)
+            232 LOAD_CONST               7 ('ok')
+            234 BINARY_SUBSCR
+            244 PRECALL                  1
+            248 CALL                     1
+            258 POP_TOP
+
+128         260 LOAD_FAST                0 (self)
+            262 LOAD_METHOD             13 (assertEqual)
+            284 LOAD_FAST                1 (out)
+            286 LOAD_CONST               8 ('candles')
+            288 BINARY_SUBSCR
+            298 LOAD_CONST               9 (8)
+            300 PRECALL                  2
+            304 CALL                     2
+            314 POP_TOP
+
+129         316 LOAD_FAST                0 (self)
+            318 LOAD_METHOD             13 (assertEqual)
+            340 LOAD_FAST                1 (out)
+            342 LOAD_CONST              10 ('last_close')
+            344 BINARY_SUBSCR
+            354 LOAD_CONST              11 (1.8)
+            356 PRECALL                  2
+            360 CALL                     2
+            370 POP_TOP
+
+130         372 LOAD_FAST                0 (self)
+            374 LOAD_METHOD             12 (assertTrue)
+            396 LOAD_GLOBAL             29 (NULL + Path)
+            408 LOAD_FAST                1 (out)
+            410 LOAD_CONST              12 ('path')
+            412 BINARY_SUBSCR
+            422 PRECALL                  1
+            426 CALL                     1
+            436 LOAD_METHOD             15 (exists)
+            458 PRECALL                  0
+            462 CALL                     0
+            472 PRECALL                  1
+            476 CALL                     1
+            486 POP_TOP
+            488 LOAD_CONST               0 (None)
+            490 RETURN_VALUE
+==================== CODE: test_the_cli_refuses_a_bad_verb_and_a_bad_coin args: ('self',) ====================
+consts:
+  [0] None
+  [1] '-I'
+  [2] '-B'
+  [3] 'nope'
+  [4] True
+  [5] 60
+  [6] ('capture_output', 'text', 'env', 'timeout', 'stdin')
+  [7] 1
+  [8] 'bad arguments'
+  [9] 'read'
+  [10] '--coin'
+  [11] '../etc'
+132           0 RESUME                   0
+
+134           2 LOAD_GLOBAL              1 (NULL + subprocess)
+             14 LOAD_ATTR                1 (run)
+             24 LOAD_GLOBAL              4 (sys)
+             36 LOAD_ATTR                3 (executable)
+             46 LOAD_CONST               1 ('-I')
+             48 LOAD_CONST               2 ('-B')
+             50 LOAD_GLOBAL              9 (NULL + str)
+             62 LOAD_GLOBAL             10 (CHART)
+             74 PRECALL                  1
+             78 CALL                     1
+             88 LOAD_CONST               3 ('nope')
+             90 BUILD_LIST               5
+             92 LOAD_CONST               4 (True)
+             94 LOAD_CONST               4 (True)
+
+135          96 LOAD_GLOBAL             12 (os)
+            108 LOAD_ATTR                7 (environ)
+            118 LOAD_CONST               5 (60)
+            120 LOAD_GLOBAL              0 (subprocess)
+            132 LOAD_ATTR                8 (DEVNULL)
+
+134         142 KW_NAMES                 6
+            144 PRECALL                  6
+            148 CALL                     6
+            158 STORE_FAST               1 (done)
+
+136         160 LOAD_FAST                0 (self)
+            162 LOAD_METHOD              9 (assertEqual)
+            184 LOAD_FAST                1 (done)
+            186 LOAD_ATTR               10 (returncode)
+            196 LOAD_CONST               7 (1)
+            198 PRECALL                  2
+            202 CALL                     2
+            212 POP_TOP
+
+137         214 LOAD_FAST                0 (self)
+            216 LOAD_METHOD             11 (assertIn)
+            238 LOAD_CONST               8 ('bad arguments')
+            240 LOAD_FAST                1 (done)
+            242 LOAD_ATTR               12 (stdout)
+            252 PRECALL                  2
+            256 CALL                     2
+            266 POP_TOP
+
+138         268 LOAD_GLOBAL              1 (NULL + subprocess)
+            280 LOAD_ATTR                1 (run)
+            290 LOAD_GLOBAL              4 (sys)
+            302 LOAD_ATTR                3 (executable)
+            312 LOAD_CONST               1 ('-I')
+            314 LOAD_CONST               2 ('-B')
+            316 LOAD_GLOBAL              9 (NULL + str)
+            328 LOAD_GLOBAL             10 (CHART)
+            340 PRECALL                  1
+            344 CALL                     1
+            354 LOAD_CONST               9 ('read')
+            356 LOAD_CONST              10 ('--coin')
+            358 LOAD_CONST              11 ('../etc')
+            360 BUILD_LIST               7
+            362 LOAD_CONST               4 (True)
+
+139         364 LOAD_CONST               4 (True)
+            366 LOAD_GLOBAL             12 (os)
+            378 LOAD_ATTR                7 (environ)
+            388 LOAD_CONST               5 (60)
+            390 LOAD_GLOBAL              0 (subprocess)
+            402 LOAD_ATTR                8 (DEVNULL)
+
+138         412 KW_NAMES                 6
+            414 PRECALL                  6
+            418 CALL                     6
+            428 STORE_FAST               1 (done)
+
+140         430 LOAD_FAST                0 (self)
+            432 LOAD_METHOD              9 (assertEqual)
+            454 LOAD_FAST                1 (done)
+            456 LOAD_ATTR               10 (returncode)
+            466 LOAD_CONST               7 (1)
+            468 PRECALL                  2
+            472 CALL                     2
+            482 POP_TOP
+
+141         484 LOAD_FAST                0 (self)
+            486 LOAD_METHOD             11 (assertIn)
+            508 LOAD_CONST               8 ('bad arguments')
+            510 LOAD_FAST                1 (done)
+            512 LOAD_ATTR               12 (stdout)
+            522 PRECALL                  2
+            526 CALL                     2
+            536 POP_TOP
+            538 LOAD_CONST               0 (None)
+            540 RETURN_VALUE
