@@ -1132,6 +1132,7 @@ class SelfCloneSyncTest(unittest.TestCase):
 
         token = lambda name, default=None: "ghp_x" if name == "GITHUB_TOKEN" else default  # noqa: E731
         with unittest.mock.patch.object(evolve, "source", return_value=self.source("checkout")), \
+                unittest.mock.patch.object(evolve, "dry_run", return_value=False), \
                 unittest.mock.patch.object(hand, "setting", side_effect=token), \
                 unittest.mock.patch.object(selfclone, "sync", return_value={"state": "cloned", "commit": "abc"}) as sync:
             got = evolve.sync_self_clone()

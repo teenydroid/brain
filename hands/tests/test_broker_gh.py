@@ -284,6 +284,26 @@ class GhPushTest(GhCase):
         self.assertEqual(self.staged(), [])
         self.assertEqual(list((self.root / "state" / "workbench").glob("mind/*")), [])
 
+    def test_folders_and_links_count_toward_the_cap_and_depth_is_bounded(self):
+        """Greptile on #550: empty folders and links were not counted, so a
+        tree of them could be walked without end."""
+        top = self.folder(files={"README.md": "hi"})
+        for n in range(30):
+            (top / f"d{n}").mkdir()
+        self.start(env={"TEENY_BROKER_PUSH_MAX_FILES": "20"})
+        code, out = self.gh("push", self.PUSH)
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("20 files", out["reason"])
+        deep = self.folder("work/deep", {"README.md": "hi"})
+        here = deep
+        for n in range(70):
+            here = here / "d"
+        here.mkdir(parents=True)
+        code, out = self.gh("push", {**self.PUSH, "workdir": "work/deep"})
+        self.assertEqual((code, out["status"]), (403, "refused"), out)
+        self.assertIn("deep", out["reason"])
+        self.assertEqual(self.staged(), [])
+
     def test_your_own_repository_is_changed_by_teeny_pr_never_pushed(self):
         self.folder()
         self.start()

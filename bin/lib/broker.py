@@ -939,6 +939,7 @@ GH_HELD = "the guard held it: say something else or nothing; never reword it to 
 #: The folder `push` copies: at most this many files and bytes (env seams for the tests).
 PUSH_MAX_FILES = 5000
 PUSH_MAX_BYTES = 200 * 1024 * 1024
+PUSH_MAX_DEPTH = 64
 
 
 def _gh_shape(verb: str, why: str) -> Refused:
@@ -1040,7 +1041,7 @@ class _Copy:
                                   f"home, never through a link; " + GH_EXAMPLES["push"]) from None
                 os.close(top)
                 top = nxt
-            self._copy(top, self.dest, self.rel)
+            self._copy(top, self.dest, self.rel, 0)
         finally:
             if top >= 0:
                 os.close(top)
@@ -1048,14 +1049,34 @@ class _Copy:
             raise Refused(f"{self.rel} holds no files to push")
         return self.dest
 
-    def _copy(self, fd: int, dest: Path, shown: str) -> None:
+    def _count(self, size: int = 0) -> None:
+        """One more entry (a file, a folder or a link) and SIZE more bytes,
+        or Refused once the folder is bigger than a push takes."""
+        self.files += 1
+        self.bytes += size
+        if self.files > self.max_files or self.bytes > self.max_bytes:
+            raise Refused(f"{self.rel} is bigger than a push takes (at most {self.max_files} files and folders and "
+                          f"{self.max_bytes // (1024 * 1024)} MB): push the project's own files, not its "
+                          "builds, dependencies or downloads")
+
+    def _copy(self, fd: int, dest: Path, shown: str, depth: int) -> None:
+        if depth > PUSH_MAX_DEPTH:
+            raise Refused(f"{shown} is nested too deep (more than {PUSH_MAX_DEPTH} folders): a push carries a "
+                          "project's own files")
+        names = []
         with os.scandir(fd) as entries:
-            names = sorted(e.name for e in entries)
-        for name in names:
+            for entry in entries:
+                names.append(entry.name)
+                if len(names) > self.max_files:
+                    self._count(0)  # refuses: one folder alone holds more than a push takes
+                    break
+        for name in sorted(names):
             if name == ".git":
                 continue
             where = f"{shown}/{name}"
             found = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISREG(found.st_mode):
+                self._count(0)
             if stat.S_ISLNK(found.st_mode):
                 # A project's own link (docs -> README.md) goes as git keeps
                 # one, its text only: never followed here, and the hand
@@ -1074,18 +1095,13 @@ class _Copy:
                     raise Refused(f"{where} changed while it was read: push again") from None
                 try:
                     (dest / name).mkdir(mode=0o700)
-                    self._copy(sub, dest / name, where)
+                    self._copy(sub, dest / name, where, depth + 1)
                 finally:
                     os.close(sub)
                 continue
             if not stat.S_ISREG(found.st_mode):
                 raise Refused(f"{where} is not a plain file: a push carries plain files only")
-            self.files += 1
-            self.bytes += found.st_size
-            if self.files > self.max_files or self.bytes > self.max_bytes:
-                raise Refused(f"{self.rel} is bigger than a push takes (at most {self.max_files} files and "
-                              f"{self.max_bytes // (1024 * 1024)} MB): push the project's own files, not its "
-                              "builds, dependencies or downloads")
+            self._count(found.st_size)
             try:
                 src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=fd)
             except OSError:
@@ -1093,9 +1109,16 @@ class _Copy:
             try:
                 if not stat.S_ISREG(os.fstat(src).st_mode):
                     raise Refused(f"{where} is not a plain file: a push carries plain files only")
-                data = b""
-                while chunk := os.read(src, 1 << 20):
-                    data += chunk
+                # Read to the size it had, and one byte more: a file that grew
+                # since (the mind's own process writing it) is refused, never
+                # read without end while every other request waits.
+                chunks, left = [], found.st_size + 1
+                while left > 0 and (chunk := os.read(src, min(left, 1 << 20))):
+                    chunks.append(chunk)
+                    left -= len(chunk)
+                data = b"".join(chunks)
+                if len(data) > found.st_size:
+                    raise Refused(f"{where} changed while it was read: push again once nothing is writing it")
             finally:
                 os.close(src)
             if self.token and self.token in data:

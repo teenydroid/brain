@@ -1289,7 +1289,7 @@ def sync_self_clone() -> Json | None:
     from teeny_hands import hand
 
     kind = source().kind
-    if kind != "self-clone" and not (kind == "checkout" and hand.setting("GITHUB_TOKEN")):
+    if kind != "self-clone" and not (kind == "checkout" and hand.setting("GITHUB_TOKEN") and not dry_run()):
         return None
     try:
         from teeny_hands.build import selfclone
