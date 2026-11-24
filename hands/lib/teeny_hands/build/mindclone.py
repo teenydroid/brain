@@ -51,7 +51,9 @@ saying so), only from a tree taken at that branch's current head
 (`prepare(pr=N)` or `prepare(branch=slug)`, which check out the head detached,
 main untouched), as one plain commit on top of it pushed without force,
 after every rule above; title and body are optional and, when given, set on
-the pull request through hands/gh edit_pr. `close(number, comment)` closes
+the pull request through hands/gh edit_pr. The pull-request babysitter's
+agent works on a clone of its own with the same code (build/sitterclone.py):
+`at(PLACE)` says which clone the functions here work on. `close(number, comment)` closes
 such a pull request (hands/gh close_pr, never a merge), and `reviews(number)`
 reads the review threads and verdicts of one of Teeny's own as data.
 """
@@ -64,8 +66,11 @@ import re
 import secrets
 import shutil
 import stat
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .. import git, hand
 from ..gh import gitpush, reads
@@ -80,12 +85,37 @@ ORIGIN_BASE = selfclone.ORIGIN_BASE
 PLACE_TRIES = 3
 
 
+@dataclass(frozen=True)
+class Place:
+    """One clone: its working tree and the folder of its git directory and
+    half-made trees (both under state/), and whether a tree moved aside with
+    edits in it is kept."""
+
+    tree: str
+    scratch: str
+    keep: bool = True
+
+
+MIND = Place("home/repo", "mind")
+_PLACE: ContextVar[Place] = ContextVar("teeny_clone", default=MIND)
+
+
+@contextmanager
+def at(place: Place) -> Iterator[None]:
+    """Everything here works on PLACE's clone inside the block."""
+    token = _PLACE.set(place)
+    try:
+        yield
+    finally:
+        _PLACE.reset(token)
+
+
 def worktree() -> Path:
-    return hand.state_dir() / "home" / "repo"
+    return hand.state_dir() / _PLACE.get().tree
 
 
 def scratch() -> Path:
-    return hand.state_dir() / "mind"
+    return hand.state_dir() / _PLACE.get().scratch
 
 
 def gitdir() -> Path:
@@ -198,9 +228,10 @@ def _keep(displaced: Path) -> str:
     return str(kept)
 
 
-def _fresh(commit: str, snapshot: str | None = None, detached: bool = False) -> list[str]:
+def _fresh(commit: str, snapshot: str | None = None, detached: bool = False, tree: str | None = None) -> list[str]:
     """The tree replaced by a checkout of COMMIT on main (DETACHED: at COMMIT
-    itself, a pull request's head, main untouched), made in state/mind/ and
+    itself, a pull request's head, main untouched; its files those of TREE, a
+    merge not committed yet, when given), made in state/mind/ and
     renamed into place. The tree it replaces is read once it is out of the
     mind's reach: if it differs from SNAPSHOT (the commit it was a clean copy
     of; none keeps any tree there was), it is kept in state/mind/kept-* and
@@ -213,12 +244,15 @@ def _fresh(commit: str, snapshot: str | None = None, detached: bool = False) -> 
     fresh = scratch() / f"fresh-{secrets.token_hex(6)}"
     fresh.mkdir(mode=0o755)
     (gitdir() / "index").unlink(missing_ok=True)
-    _git("reset", "-q", "--hard", "HEAD", tree=fresh)
+    if tree is not None:
+        _git("read-tree", "--reset", "-u", tree, tree=fresh)
+    else:
+        _git("reset", "-q", "--hard", "HEAD", tree=fresh)
     worktree().parent.mkdir(parents=True, exist_ok=True)
     kept: list[str] = []
     for _ in range(PLACE_TRIES):
         moved = _aside()
-        if moved is not None and _differs(moved, snapshot):
+        if _PLACE.get().keep and moved is not None and _differs(moved, snapshot):
             kept.append(_keep(moved))
         try:
             os.rename(fresh, worktree())
@@ -226,7 +260,7 @@ def _fresh(commit: str, snapshot: str | None = None, detached: bool = False) -> 
         except OSError:
             continue  # something was put there again: move it aside and retry
     else:
-        raise hand.HandError("could not put a fresh checkout at state/home/repo: something keeps replacing it")
+        raise hand.HandError("could not put a fresh checkout in place: something keeps replacing it")
     _sweep()
     return kept
 
@@ -418,8 +452,13 @@ def _same_head(found: Json, head: str) -> None:
 
 
 def _own_mind_pr(found: Json) -> str:
-    """The branch of FOUND when it is an open pull request Teeny wrote, from
-    a teeny/mind-* branch of its own repository; else Refused, saying why."""
+    return own_pr(found, MIND_BRANCH_PREFIX)
+
+
+def own_pr(found: Json, prefix: str) -> str:
+    """The branch of FOUND when it is an open pull request into main Teeny
+    wrote, from a PREFIX* branch of its own repository; else Refused, saying
+    why."""
     from ..gh.client import is_own
 
     number = found.get("number")
@@ -431,8 +470,8 @@ def _own_mind_pr(found: Json) -> str:
     if not is_own(head.partition(":")[0]):
         raise hand.Refused(f"#{number} comes from a fork ({head}), not from your own repository", rule="fork")
     branch = found.get("head_ref")
-    if not isinstance(branch, str) or not branch.startswith(MIND_BRANCH_PREFIX):
-        raise hand.Refused(f"#{number} is on {branch}, not one of your {MIND_BRANCH_PREFIX}* branches",
+    if not isinstance(branch, str) or not branch.startswith(prefix):
+        raise hand.Refused(f"#{number} is on {branch}, not one of your {prefix}* branches",
                            rule="branch")
     if found.get("base") != BASE:
         raise hand.Refused(f"#{number} goes into {found.get('base')}, not {BASE}", rule="base")
@@ -620,14 +659,14 @@ def _blob_id(data: bytes, like: str) -> str:
     return algo(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def _only_plain_files(head: str) -> None:
-    """Every path the commit adds or changes is a plain file whose blob is
+def _only_plain_files(head: str, base: str = "HEAD") -> None:
+    """Every path HEAD adds or changes against BASE is a plain file whose blob is
     the bytes the tree holds, read here without following a link. Refuses a
     link (wherever it points: `brain/x -> ../secrets/teeny.env` stays in the
     tree and still reads the secret once merged), a nested repository, a
     hard link, and a file git read differently from what is there (swapped
     for a link while git read it, or converted by an attribute)."""
-    for mode, blob, path in _entries("HEAD", head):
+    for mode, blob, path in _entries(base, head):
         if mode == "000000":
             continue
         if mode == "120000":

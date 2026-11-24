@@ -20,9 +20,11 @@ rules, DRY_RUN, GitHub, and the ledger (`babysit_actions`).
           merging on green CI), the caps are BABYSIT_MERGES_PER_DAY and
           BABYSIT_SELF_MERGES_PER_DAY at 12 each by default, 48 at most.
   sweep   with BABYSIT_SELF_MERGE_ALL, first the last deploy judged
-          (rollback.py); then both, for every open pull request on the
-          watched repositories; then the pending deploy, last: a restart
-          ends this process.
+          (rollback.py) and the report of the babysitter's agent carried out
+          (sitter.collect); then both, for every open pull request on the
+          watched repositories; then the agent's next pull request laid out
+          (sitter.queue); then the pending deploy, last: a restart ends this
+          process.
 
 The comment is the babysitter's own words: rules, places and check names.
 It never quotes the pull request, so a payload is not repeated back where a
@@ -37,7 +39,7 @@ from typing import Any, Mapping
 from .. import hand
 from ..gh import actions as gh_actions
 from . import audit as auditing
-from . import deploy, ledger, policy, rollback
+from . import deploy, ledger, policy, rollback, sitter
 from .api import PullsApi
 
 Json = dict[str, Any]
@@ -58,7 +60,7 @@ _HEADLINES = {
     "needs_operator": "needs the operator: an operator has to approve this exact head before it can merge.",
     "needs_review": "needs a review: a maintainer has to approve this exact head before it can merge.",
     "waiting": "waiting: checks are running or GitHub is still working it out.",
-    "ready": "ready: approved at this head (or, for Teeny's evolve pull request, teeny/eval passed at it), green, nothing flagged.",
+    "ready": "ready: approved at this head (or Teeny's own pull request with what stands in for that), green, nothing flagged.",
 }
 
 
@@ -97,7 +99,11 @@ def report(result: Mapping[str, Any]) -> str:
     lines = [f"**babysitter** · {_HEADLINES.get(str(result['verdict']), str(result['verdict']))}", ""]
     sha = str(result.get("head_sha") or "")[:12]
     lines.append(f"head `{sha}` · author tier `{result.get('tier')}`")
-    if result.get("self_merge") and result.get("gate") == "checks":
+    if result.get("self_merge") and result.get("sitter"):
+        lines.append("no person approved this head: Teeny's own pull request, every required check is green at this "
+                     "head, no review thread is open and the babysitter's agent said merge at it "
+                     "(`BABYSIT_SELF_MERGE_ALL`)")
+    elif result.get("self_merge") and result.get("gate") == "checks":
         lines.append("no person approved this head: Teeny's own pull request, every required check is green "
                      "at this head and nothing else is flagged (`BABYSIT_SELF_MERGE_ALL`)")
     elif result.get("self_merge"):
@@ -116,7 +122,7 @@ def report(result: Mapping[str, Any]) -> str:
     if result.get("injections"):
         lines += ["", f"{result['injections']} prompt-injection pattern(s) found and logged. "
                       "the babysitter does not quote them; an operator reads the pull request itself."]
-    lines += ["", "_automated audit by hands/babysit. a person approves; the babysitter only presses the button._"]
+    lines += ["", "_automated audit by hands/babysit: code reads it, code merges it, by rules only the operator changes._"]
     return "\n".join(lines)
 
 
@@ -263,6 +269,15 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
         judged = rollback.check(api)
     except (hand.Refused, hand.HandError) as exc:
         judged = {"error": str(exc)}
+    def agent(step: Any) -> Any:
+        try:
+            return step()
+        except (hand.Refused, hand.HandError) as exc:
+            return {"error": str(exc)}
+
+    # What the agent left is carried out before the audits, so a merge it
+    # decided is this sweep's.
+    collected = agent(lambda: sitter.collect(api))
     listed = auditing.queue(None, max_results, api)
     triaged, merged, errors = [], [], []
     for result in listed["pulls"]:
@@ -284,6 +299,9 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
                  "errors": errors}
     if judged is not None:
         out["rollback"] = judged
+    laid = agent(lambda: sitter.queue(listed["pulls"], api))
+    if collected is not None or laid is not None:
+        out["sitter"] = {"collected": collected, "queued": laid}
     try:
         out["deploy"] = deploy.run()
     except hand.HandError as exc:

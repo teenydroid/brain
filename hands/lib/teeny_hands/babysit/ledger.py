@@ -14,7 +14,13 @@
                       after it (rollback.py: `deploy_ok`, `deploy_bad` with
                       the paths it changed, `deploy_revert` and
                       `deploy_revert_held` for its revert issue,
-                      `rollback_dry_run`)
+                      `rollback_dry_run`); and the babysitter's agent
+                      (sitter.py): `sitter_job` laid out, `sitter_merge`,
+                      `sitter_wait` and `sitter_close` decided, `sitter_push`
+                      (its head_sha is the new commit), `sitter_reply`,
+                      `sitter_resolve`, `sitter_failed`, `sitter_left` to the
+                      operator and `sitter_left_comment`. What it wrote is in
+                      state/sitter/decisions.jsonl, not here
 
 No row carries a pull request's words. The dream and the audit read these
 tables, and a payload kept here would reach the model it was written for.
@@ -126,6 +132,31 @@ def acted(verb: str, repo: str, number: int, head_sha: str | None) -> bool:
             (verb, repo, number, head_sha),
         ).fetchone()
         return row is not None
+    finally:
+        conn.close()
+
+
+def sitter_decision(repo: str, number: int, head_sha: str | None) -> str | None:
+    """What the babysitter's agent last decided on this pull request at this
+    head: `merge`, `wait`, `close`, or None."""
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT verb FROM babysit_actions WHERE verb IN ('sitter_merge', 'sitter_wait', 'sitter_close')"
+            " AND repo = ? AND number = ? AND head_sha = ? ORDER BY id DESC LIMIT 1", (repo, number, head_sha)).fetchone()
+        return row["verb"].removeprefix("sitter_") if row else None
+    finally:
+        conn.close()
+
+
+def sitter_rows(repo: str, number: int) -> list[dict[str, Any]]:
+    """Every `sitter_*` row of a pull request, newest first."""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT at, verb, head_sha, detail FROM babysit_actions WHERE substr(verb, 1, 7) = 'sitter_'"
+            " AND repo = ? AND number = ? ORDER BY id DESC", (repo, number)).fetchall()
+        return [{**dict(row), "detail": json.loads(row["detail"] or "{}")} for row in rows]
     finally:
         conn.close()
 

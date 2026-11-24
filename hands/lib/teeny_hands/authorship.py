@@ -42,7 +42,12 @@ Json = dict[str, Any]
 #: head and line 106 for the closing line). hands/tests/test_authorship.py
 #: renders report() and fails if either stops matching.
 BABYSIT_HEAD = "**babysitter** · "
-BABYSIT_FOOT = "_automated audit by hands/babysit. a person approves; the babysitter only presses the button._"
+BABYSIT_FOOT = "_automated audit by hands/babysit: code reads it, code merges it, by rules only the operator changes._"
+#: The closing lines it has had: a hold filed under an older one is still the babysitter's.
+BABYSIT_FEET = (
+    BABYSIT_FOOT,
+    "_automated audit by hands/babysit. a person approves; the babysitter only presses the button._",
+)
 
 
 @dataclass(frozen=True)
@@ -60,7 +65,7 @@ class Recogniser:
 def _babysit_audit(context: Mapping[str, Any], fields: Mapping[str, Any]) -> bool:
     body = fields.get("body")
     return (context.get("surface") == "github" and context.get("post_kind") == "comment"
-            and isinstance(body, str) and body.startswith(BABYSIT_HEAD) and body.rstrip().endswith(BABYSIT_FOOT))
+            and isinstance(body, str) and body.startswith(BABYSIT_HEAD) and body.rstrip().endswith(BABYSIT_FEET))
 
 
 #: Every generator of text posted under Teeny's name that Teeny's model did

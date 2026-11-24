@@ -27,6 +27,8 @@ GITHUB_API_BASE = "https://api.github.com"
 DEFAULT_USER = "teenydroid"
 TIMEOUT_SECONDS = 30.0
 _MESSAGE_CHARS = 200
+#: The most of a job's log that is read.
+MAX_LOG_BYTES = 8 * 1024 * 1024
 
 Json = dict[str, Any]
 
@@ -70,6 +72,11 @@ def _message(body: bytes) -> str | None:
     if isinstance(parsed, Mapping) and isinstance(parsed.get("message"), str) and parsed["message"].strip():
         return parsed["message"].strip()[:_MESSAGE_CHARS]
     return None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
 
 
 class GitHubApi:
@@ -190,11 +197,36 @@ class GitHubApi:
         return dict(got["data"])
 
     def check_runs(self, owner: str, name: str, ref: str) -> list[Json]:
-        """The check runs on a commit: `{name, status, conclusion}` each."""
+        """The check runs on a commit: `{id, name, status, conclusion}` each."""
         got = self.call("GET", self._path("repos", owner, name, "commits", ref, "check-runs"), [("per_page", "100")])
         runs = got.get("check_runs") if isinstance(got, Mapping) else None
-        return [{"name": r.get("name"), "status": r.get("status"), "conclusion": r.get("conclusion")}
+        return [{"id": r.get("id"), "name": r.get("name"), "status": r.get("status"), "conclusion": r.get("conclusion")}
                 for r in (runs if isinstance(runs, list) else []) if isinstance(r, Mapping)]
+
+    def job_log(self, owner: str, name: str, job_id: int) -> str:
+        """An Actions job's log (its id is its check run's). GitHub answers
+        with a redirect to a signed address elsewhere, fetched without the
+        token, which must not go there. Needs the token's Actions read."""
+        request = urllib.request.Request(
+            self._base + self._path("repos", owner, name, "actions", "jobs", str(job_id), "logs"),
+            headers={"authorization": f"Bearer {self._token}", "accept": "application/vnd.github+json",
+                     "x-github-api-version": "2022-11-28", "user-agent": "teeny-hands-gh"})
+        status: int | None = None
+        where = ""
+        try:
+            try:
+                with urllib.request.build_opener(_NoRedirect).open(request, timeout=TIMEOUT_SECONDS) as response:
+                    return response.read(MAX_LOG_BYTES).decode("utf-8", "replace")
+            except urllib.error.HTTPError as exc:
+                status, where = exc.code, exc.headers.get("location") or ""
+                exc.close()
+            if status in (301, 302, 307, 308) and where.startswith(("https://", self._base + "/")):
+                plain = urllib.request.Request(where, headers={"user-agent": "teeny-hands-gh"})
+                with urllib.request.urlopen(plain, timeout=TIMEOUT_SECONDS) as response:
+                    return response.read(MAX_LOG_BYTES).decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        raise GitHubError("the job's log could not be read", status)
 
     def file(self, owner: str, name: str, path: str) -> str | None:
         """A file's text from the default branch; None when there is none."""
@@ -249,6 +281,20 @@ class GitHubApi:
         got = self.call("POST", self._path("repos", owner, name, "statuses", sha),
                         body={"state": state, "context": context, "description": description})
         return {"id": got.get("id"), "state": got.get("state"), "context": got.get("context")}
+
+    def reply_thread(self, thread_id: str, body: str) -> Json:
+        got = self.graphql(
+            "mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: "
+            "{pullRequestReviewThreadId: $id, body: $body}) { comment { id url } } }", {"id": thread_id, "body": body})
+        made = (got.get("addPullRequestReviewThreadReply") or {}).get("comment") or {}
+        return {"id": made.get("id"), "html_url": made.get("url")}
+
+    def resolve_thread(self, thread_id: str) -> Json:
+        got = self.graphql(
+            "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } } }",
+            {"id": thread_id})
+        thread = (got.get("resolveReviewThread") or {}).get("thread") or {}
+        return {"id": thread.get("id"), "resolved": bool(thread.get("isResolved"))}
 
     def edit_pr(self, owner: str, name: str, number: int, fields: Mapping[str, str]) -> Json:
         got = self.call("PATCH", self._path("repos", owner, name, "pulls", str(number)), body=dict(fields))
