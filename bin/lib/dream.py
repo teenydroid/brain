@@ -189,8 +189,9 @@ def builder() -> list[str]:
     if not rows:
         return []
     lines = ["## where the builder stands", "",
-             "Your last builds, newest first, whenever they moved. What the page says about your builds "
-             "must agree with these.", ""]
+             "Your builder's last builds, newest first. The builder is retired since 2026-11-24 (your agentic "
+             "mind ships things itself now), so nothing here is still being built. What the page says about these "
+             "builds must agree with them.", ""]
     for n, repo, status, summary, link in rows:
         first = (summary or "").strip().splitlines()[0] if (summary or "").strip() else ""
         lines.append(f"- build #{n} {repo or ''}: {status}{', ' + link if link else ''}"

@@ -63,7 +63,7 @@ OWN_CHARS = 300
 MAX_PROFILES = 8
 #: Where a pain was voiced, at most; also the threads answered when it ships.
 MAX_VOICES = 3
-#: Pains filed in the last 24 hours, at most: the builder makes one thing at a time.
+#: Pains filed in the last 24 hours, at most.
 PAINS_PER_DAY = 1
 ASK_MIN, ASK_MAX = 40, 1500
 SOURCE = "moltbook"
