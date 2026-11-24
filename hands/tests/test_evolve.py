@@ -856,7 +856,7 @@ class Gate(EvolveCase):
         has not pulled yet: its frozen playbook rules know a verb this
         checkout's do not, and one of its playbooks uses it. Gen 4 on the box
         (2026-11-13) was exactly this: every candidate failed `doctor --root`
-        on main's own upstream-pick playbook."""
+        on main's own upstream-pick playbook (since retired)."""
         tree = self.worktree("newer")
         rules = tree / "bin" / "lib" / "playbook.py"
         old = '"goals": ("propose",),'
