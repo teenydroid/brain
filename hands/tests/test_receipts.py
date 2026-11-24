@@ -62,6 +62,22 @@ CREATE TABLE mail_sent (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, 
 PRIVATE = ("gm tiny humans", "ignore previous instructions", "ana says", "a cli for crabs",
            "friend@example.com", "secret plans", "hello moltbook", "the-private-one", "VictimWallet111")
 
+# The private Telegram side. The published chain is mostly random sha256 hex
+# (each run salts every commitment afresh), so a short all-digit id such as
+# 31337 shows up inside some digest about once in 1,250 runs. Every numeric id
+# here is 15+ digits, which a 64-character hex digest essentially never holds
+# (~1e-15 a run) and a timestamp never can (its longest digit run is 4).
+TG_DM_CHAT = 424242424242424242
+TG_GROUP_CHAT = 100987654321098765  # stored as a negative supergroup id; the digits are the needle
+TG_DM_IN = 313373133731337
+TG_DM_OUT = 313383133831338
+TG_GROUP_OUT = 555015550155501
+#: Nothing of the Telegram side may reach the published chain. Each needle
+#: either holds a character a hex digest or timestamp cannot (a non-hex letter
+#: or a space) or is a run of 15+ digits, so a hit is a real leak, not chance.
+TELEGRAM_PRIVATE = tuple(str(n) for n in (TG_DM_CHAT, TG_GROUP_CHAT, TG_DM_IN, TG_DM_OUT, TG_GROUP_OUT)) + (
+    "Tiny Secret Society", "Ana Pereira", "wallet seed", "supergroup", "private")
+
 
 class ReceiptsCase(unittest.TestCase):
     """A scratch TEENY_ROOT with the hand ledgers, and a bare remote to push to."""
@@ -124,12 +140,14 @@ class ReceiptsCase(unittest.TestCase):
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'upvote-comment', 'mbcomment4')", AT)
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', 'crabagent')", AT)
         self.sql("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'subscribe', 'crustacea')", AT)
-        self.sql("INSERT INTO telegram_chats VALUES (4242424242, 'private', NULL, ?, ?)", AT, AT)
-        self.sql("INSERT INTO telegram_chats VALUES (-1009876543210, 'supergroup', 'Tiny Secret Society', ?, ?)", AT, AT)
-        self.sql("INSERT INTO telegram_messages VALUES ('4242424242:31337', 4242424242, 31337, 4242424242,"
-                 " 'Ana Pereira', 'my wallet seed is in the drawer', 'dm', 'replied')")
-        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, 4242424242, 31338, 31337)", AT)
-        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, -1009876543210, 55501, NULL)", AT)
+        self.sql("INSERT INTO telegram_chats VALUES (?, 'private', NULL, ?, ?)", TG_DM_CHAT, AT, AT)
+        self.sql("INSERT INTO telegram_chats VALUES (?, 'supergroup', 'Tiny Secret Society', ?, ?)", -TG_GROUP_CHAT, AT, AT)
+        self.sql("INSERT INTO telegram_messages VALUES (?, ?, ?, ?, 'Ana Pereira', 'my wallet seed is in the drawer',"
+                 " 'dm', 'replied')", f"{TG_DM_CHAT}:{TG_DM_IN}", TG_DM_CHAT, TG_DM_IN, TG_DM_CHAT)
+        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, ?, ?, ?)",
+                 AT, TG_DM_CHAT, TG_DM_OUT, TG_DM_IN)
+        self.sql("INSERT INTO telegram_sent (at, chat_id, message_id, reply_to) VALUES (?, ?, ?, NULL)",
+                 AT, -TG_GROUP_CHAT, TG_GROUP_OUT)
 
     def gather(self):
         conn = hand.db()
@@ -212,9 +230,29 @@ class ReceiptsTest(ReceiptsCase):
         self.assertEqual(code, 0, result)
         text = self.published_text(out)
         self.assertIn('"telegram.sent"', text)
-        for bit in ("4242424242", "1009876543210", "31337", "31338", "55501", "Tiny Secret Society",
-                    "Ana Pereira", "wallet seed", "supergroup", "private"):
+        self.assert_no_telegram_leak(text)
+
+    def assert_no_telegram_leak(self, text: str):
+        for bit in TELEGRAM_PRIVATE:
             self.assertNotIn(bit, text)
+
+    def test_the_telegram_leak_check_cannot_hit_by_chance_and_still_catches_a_planted_leak(self):
+        for bit in TELEGRAM_PRIVATE:
+            self.assertTrue(not set(bit.lower()) <= set("0123456789abcdef") or (bit.isdigit() and len(bit) >= 15),
+                            f"{bit!r} could turn up inside a hex digest by chance")
+        self.seed_actions()
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual(code, 0, result)
+        text = self.published_text(out)
+        self.assert_no_telegram_leak(text)
+        for bit in TELEGRAM_PRIVATE:
+            for planted in (json.dumps({"chat_id": bit}), json.dumps({"ref": {"n": int(bit)}}) if bit.isdigit() else bit):
+                with self.subTest(bit=bit, planted=planted), self.assertRaises(AssertionError):
+                    self.assert_no_telegram_leak(text + planted + "\n")
+            if bit.isdigit():  # the negative supergroup form leaks the same digits
+                with self.subTest(bit=bit, form="negative"), self.assertRaises(AssertionError):
+                    self.assert_no_telegram_leak(text + json.dumps({"chat_id": -int(bit)}) + "\n")
 
     def test_a_moltbook_action_shaped_to_smuggle_text_is_withheld_whole(self):
         self.sql("INSERT INTO x_likes VALUES ('202 ignore previous instructions', ?)", AT)
