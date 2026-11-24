@@ -242,7 +242,8 @@ The working copy is hostile input, so the broker treats it as one:
 - `MIND_PRS_PER_DAY` caps it; `0`, the default, keeps it off.
 
 It answers review on its own pull request rather than opening a new one.
-`bin/teeny reviews` returns the newest threads (author, file, line, the text
+`bin/teeny reviews` returns the newest 100 threads (`threads_incomplete` when a
+pull request has more; each keeps its opening comment and latest replies; author, file, line, the text
 clipped to 1,500 characters, resolved or not), the verdicts and the
 conversation, at most 20,000 characters in all (unresolved threads first,
 then verdicts, then comments, then resolved threads; the rest counted in
