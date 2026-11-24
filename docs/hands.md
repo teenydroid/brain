@@ -29,10 +29,10 @@ failure back to the builder as a finding.
 scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
 operator (the person) call. **O** marks an operator-only verb. **J** marks a job
 verb: it says nothing to anyone but writes state and calls the core, so, like
-an acting verb, it is never given to a model. The scheduled agents (the
-builder and the browser operator) call no hand at all. A `desk` job verb
-lays their work out as a file under `state/workbench/desk/` and collects the
-report they leave beside it.
+an acting verb, it is never given to a model. The scheduled agent (the
+browser operator) calls no hand at all. A `desk` job verb lays its work out
+as a file under `state/workbench/desk/` and collects the report it leaves
+beside it.
 
 ## `x`: the only holder of the X keys
 
@@ -647,7 +647,7 @@ A link post's `url` must be on the link allowlist.
 | `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
 | `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A comment with no `format` is tagged by who sent it: a playbook's name without `moltbook-` (`threads`, `helpdesk`; `bin/act` sets `TEENY_WRITER` to the playbook), or, from the mind (`bin/lib/tick.py` sets `TEENY_WRITER=mind`) or by hand, by where it went: `own-thread` on Teeny's own post, `reply` under another agent's comment, `comment` on another agent's post. Its `detail` keeps what the post read just before the write showed: `own_post`, `writer`, `post_age_minutes`, `post_comments`, `post_score`, `post_author`, `author_karma`, `author_followers` (each only when the read carried it). A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `helpdesk` | A | `{post_id?, body?, parent_id?, format?, experiment?, pain?}`: the `moltbook-helpdesk` playbook's one output, an answer, a pain filed as a build request, or both. The answer is a `comment`, with every rule of `comment`. A `pain` is `{ask, voiced: [{post_id, comment_id?, agent}]}`: what to build, for whom and the problem (40 to 1500 characters, read against the guard's lexicon), and the 1 to 3 places agents voiced it. It becomes a `pending` build request (source `moltbook`, author the agents; see `requests`), and its places are kept in `moltbook_pains` (request_id, post_id, comment_id, agent, at). Refused: a place already filed (`already_filed`), a second pain in 24 hours (`daily_cap`), Teeny as the agent (`own`), words the lexicon holds (`guard`). The pain is filed first, so a refused answer never loses it, and an answer Moltbook fails after the pain was filed comes back as `comment_error` instead of failing the call; the call is refused only when every part it asked for was. Filing writes only `state/hands.db`, so `DRY_RUN` does not hold it back (as `build self`); the answer keeps `DRY_RUN`. |
+| `helpdesk` | A | `{post_id?, body?, parent_id?, format?, experiment?, pain?}`: the `moltbook-helpdesk` playbook's one output, an answer, a pain filed as a build request, or both. The answer is a `comment`, with every rule of `comment`. A `pain` is `{ask, voiced: [{post_id, comment_id?, agent}]}`: what to build, for whom and the problem (40 to 1500 characters, read against the guard's lexicon), and the 1 to 3 places agents voiced it. It becomes a `pending` build request (source `moltbook`, author the agents; see `requests`) and a note in the mind's inbox, and its places are kept in `moltbook_pains` (request_id, post_id, comment_id, agent, at). Refused: a place already filed (`already_filed`), a second pain in 24 hours (`daily_cap`), Teeny as the agent (`own`), words the lexicon holds (`guard`). The pain is filed first, so a refused answer never loses it, and an answer Moltbook fails after the pain was filed comes back as `comment_error` instead of failing the call; the call is refused only when every part it asked for was. Filing writes only `state/hands.db`, so `DRY_RUN` does not hold it back (as `requests self`); the answer keeps `DRY_RUN`. |
 | `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. The hand does not check for an earlier exchange; the daily `moltbook-follow` picks only from `exchanges`. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
 | `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
@@ -904,7 +904,7 @@ item is never listed, and `item` answers it as missing.
 | `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
 
 **As playbook inputs.** The story lists are free and need no key, so a
-playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
+playbook reads them as inputs: `world-scan` (top),
 `morning`, `take` and `moltbook-evening` (top, show), and `moltbook-general`
 (top). Beyond the front page, `hands/listen` (below)
 searches HN for Teeny's names and its standing topics, and those playbooks
@@ -1012,7 +1012,7 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
@@ -2033,15 +2033,11 @@ password.
 
 ## Why a desk, and not a hand the agent calls
 
-The operator has no shell, and the builder's shell runs sandboxed, rooted at
-`state/workbench/` (its agent's `scheduled_workspace`). Landlock jails its
-files to that folder (and the system's read-only directories), nothing else
-of the checkout, and every command starts with a `cd` into the job's folder.
-The jail covers files only: the shell has the host's network. Neither agent
-should be able to reach a hand, least of all one that holds a secret (a shell
-that can run `hands/build` can run `hands/gh push`). The two file tools both
-agents already need reach `state/workbench/` and nothing else of the checkout
-(the trusted root `bin/spine` grants). So the work goes back and forth as two
+The browser operator has no shell, and it should not be able to reach a
+hand, least of all one that holds a secret. The two file tools it needs reach
+`state/workbench/` and nothing else of the checkout (the trusted root
+`bin/spine` grants). (The builder, which had a sandboxed shell rooted there,
+was retired on 2026-11-24.) So the work goes back and forth as two
 files there, and the hand that acts on a report runs from cron, outside any
 model turn, with all its own rules. OpenHuman's MCP would be the other way
 in, but a serve host dropped every configured MCP server's tools when
@@ -2182,8 +2178,7 @@ pay is still an attack. Playbooks still reach only the read verbs.
 More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
 keeps it off and out of the mind's prompt; `propose_change` is the exception,
-on at 1 a day, since all it makes is a pull request the operator merges or
-closes):
+on at 1 a day, since all it makes is a note in the mind's own inbox):
 
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
@@ -2192,14 +2187,11 @@ closes):
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
-| `propose_change` `{text}` | `build self {text}` | refused before the guard and the hand while a change to itself is in flight (a `self` build request not yet skipped, shipped or failed, or a `self` job not failed, shipped or given up) and over the desk's 2,000 characters; the tick runs the brief past `guard check` (surface `github`, as `self-improve`'s output) and sends the guard's words; the request is picked by `pick-request` and ships as a pull request (docs/evolve.md) | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
+| `propose_change` `{text}` | `requests self {text}` | the tick runs the brief past `guard check` (surface `github`) and sends the guard's words; it becomes a note in the mind's inbox, `state/home/notes/inbox/self-<stamp>.md`, and the mind decides on its next wake whether to make the change, as a pull request through the broker | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
-A `propose_change` that lands comes back to the next beat with its build
-request's id and status (`payload.request`), so Teeny can say which request
-it is and that it is waiting for `pick-request`, not being built yet.
 A `queue_task` or `queue_signup` that lands is only queued, and the next
 beat reads it that way: `your queue_task: queued as browser task #4
 (pending), not done yet: ...`, with the task's id and status in
@@ -2690,6 +2682,10 @@ things, each off until its switch:
   `in_doubt` marks it `refund_in_doubt`, never retried; a paid one is
   `refunded`. Under `DRY_RUN` it says `would_refund`.
 
+A paid request reaches the mind's inbox like any other request; nothing
+builds it automatically, and a refund still follows a request marked
+`skipped` or `failed`.
+
 No model reaches either: the mind's `transfer` is always purpose `vendor`,
 and no playbook may output a wallet verb. `sales list` shows the rows. A
 refund comes off the week's income in the accounts (`income.refunds`).
@@ -3049,9 +3045,10 @@ paid by the operator's account, and what it costs is already counted by
 ## `deploy`: Teeny's static sites
 
 What Teeny builds can be put where people can use it (docs/roadmap.md,
-A11): a shipped build's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
+A11): a shipped build job's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
 as plain files by the host's nginx (`deploy/nginx/sites.teeny.enamakel.com.conf`).
-Code: `teeny_hands/deploy/publish.py`. Frozen.
+Code: `teeny_hands/deploy/publish.py`. Frozen. Since the builder was
+retired (2026-11-24) it works on past build jobs only.
 
 | Verb | | Does |
 |---|---|---|
@@ -3347,8 +3344,8 @@ Who calls it: the mind's `propose_experiment` and `conclude_experiment`
 intents (`MIND_EXPERIMENTS_PER_DAY`, default 2, at most 5;
 `MIND_CONCLUSIONS_PER_DAY`, default 5, at most 10; 0 turns either off), the
 night dream's `experiment` and `conclude` operations (`--source dream`),
-and the `speculate` playbook's inputs (`list`, `lessons`). `self-improve`
-and the evolve loop's evidence read `lessons`.
+and the `speculate` playbook's inputs (`list`, `lessons`). The evolve loop's
+evidence reads `lessons`.
 
 **Expiry.** The lab cannot wedge. Before `score`, and before `propose`
 counts the open experiments, every open experiment that can no longer teach
