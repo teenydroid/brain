@@ -222,7 +222,7 @@ bin/teeny repo                 a fresh checkout of main (left alone while it hol
 bin/teeny pr '{"branch": "calmer-mornings", "title": "...", "body": "..."}'
 bin/teeny reviews '{"pr": 529}'          the review threads and verdicts on its pull request
 bin/teeny repo '{"pr": 529}'             the head of its open pull request, to revise it
-bin/teeny pr '{"branch": "calmer-mornings"}'   the revision, as one more commit on that pull request
+bin/teeny pr '{"pr": 529}'               the revision, as one more commit on that pull request
 bin/teeny close-pr '{"pr": 529, "comment": "..."}'   gives one up
 ```
 
