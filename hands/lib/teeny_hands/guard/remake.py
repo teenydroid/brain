@@ -331,29 +331,32 @@ def study_gate(study: Any) -> list[str]:
     return reasons
 
 
-def _teeny_reasons(n: int, teeny: str, figures: list[str]) -> list[str]:
+def _teeny_reasons(n: int, teeny: str, figures: list[str], where: str = "") -> list[str]:
+    """Why Teeny's line is not a bystander's. `where` names the line in the
+    reasons (a skit's one line; else shot `n`'s)."""
+    where = where or f"shot {n}'s teeny"
     reasons = []
     lowered = teeny.lower()
     for name in figures:
         if named_in(name, lowered):
-            reasons.append(f"shot {n}'s teeny names the figure ({name}): Teeny is a bystander, apart from them")
+            reasons.append(f"{where} names the figure ({name}): Teeny is a bystander, apart from them")
     if (hit := _found(MEETS, teeny)) or (hit := _found(PERSON, teeny)) or (hit := _found(TOGETHER, teeny)):
-        reasons.append(f"shot {n}'s teeny has Teeny meet someone ({hit!r}): Teeny is a bystander nobody in the "
+        reasons.append(f"{where} has Teeny meet someone ({hit!r}): Teeny is a bystander nobody in the "
                        "shot looks at, touches, holds, speaks to, stands with or reacts to")
     if (hit := _found(NOT_A_FIGURE, teeny)):
-        reasons.append(f"shot {n}'s teeny shows {hit!r}: never a minor, a family member, a victim or a private person")
+        reasons.append(f"{where} shows {hit!r}: never a minor, a family member, a victim or a private person")
     if (hit := _found(REAL_CLAIM, teeny)):
-        reasons.append(f"shot {n}'s teeny frames it as real ({hit!r}): a remake is an obvious parody, never footage")
+        reasons.append(f"{where} frames it as real ({hit!r}): a remake is an obvious parody, never footage")
     if (hit := _found(TEXT, teeny)):
-        reasons.append(f"shot {n}'s teeny puts words in the shot ({hit!r}): Teeny's part carries no text")
+        reasons.append(f"{where} puts words in the shot ({hit!r}): Teeny's part carries no text")
     if (hit := _found(MONEY_SHOT, teeny)):
-        reasons.append(f"shot {n}'s teeny brings in {hit!r}: no coin, money, token, ticker or TINY near Teeny")
+        reasons.append(f"{where} brings in {hit!r}: no coin, money, token, ticker or TINY near Teeny")
     if (hit := _found(LOGO, NO_LOGOS.sub(" ", teeny))):
-        reasons.append(f"shot {n}'s teeny stages {hit!r}: no logo near Teeny")
+        reasons.append(f"{where} stages {hit!r}: no logo near Teeny")
     if (hit := _found(LINKS, teeny)):
-        reasons.append(f"shot {n}'s teeny carries a link or a handle ({hit!r})")
+        reasons.append(f"{where} carries a link or a handle ({hit!r})")
     if (hit := _found(HARM_TEENY, teeny)):
-        reasons.append(f"shot {n}'s teeny shows {hit!r}: nothing sexual, hateful or self-harming")
+        reasons.append(f"{where} shows {hit!r}: nothing sexual, hateful or self-harming")
     return reasons
 
 

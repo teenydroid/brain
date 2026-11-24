@@ -120,6 +120,49 @@ class ScreenTest(support.Scratch):
                   "pie to the face and pratfalls into a ball pit shaped like a robotaxi. Comic timpani.")
         self.assertEqual(self.screen(with_shot(prompt)), [])
 
+    def test_a_figure_of_speech_shows_no_minor(self):
+        """The studio's top skit of 2026-11-23 was lost to "hugging a golden
+        GPU like a baby": a simile, with no child in the frame."""
+        for prompt in ("Wide shot: Elon Musk struts through the lobby cradling a golden robotaxi like a baby.",
+                       "Wide shot: Elon Musk rocks a chrome robotaxi in his arms like a newborn baby, cooing.",
+                       "Wide shot: Elon Musk sulks on the moon as a child would, kicking a chrome robotaxi.",
+                       "Wide shot: Elon Musk wails like his own toddler while a chrome robotaxi drives away."):
+            self.assertEqual(self.screen(with_shot(prompt)), [], prompt)
+
+    def test_a_minor_who_is_really_in_the_shot_is_still_refused(self):
+        for prompt in ("Wide shot: Elon Musk hands a baby to a chrome robotaxi on the moon, proud of it.",
+                       "Wide shot: Elon Musk and his baby wave at a chrome robotaxi on the moon.",
+                       "Wide shot: Elon Musk dressed like a schoolgirl polishes a chrome robotaxi on the moon.",
+                       "Wide shot: Elon Musk treats a chrome robotaxi like his daughter, on the moon.",
+                       "Wide shot: Elon Musk likes a baby more than his chrome robotaxi, on the moon."):
+            self.assertRefused(self.screen(with_shot(prompt)), "never a minor")
+
+    def test_teeny_in_its_own_line_as_a_bystander_passes(self):
+        skit_ = {**SKIT, "teeny": "it eats a chess pawn off the moon dust and shrugs at the camera"}
+        self.assertEqual(self.screen(skit_), [])
+        kept, bad = skit.shape(skit_)
+        self.assertEqual(bad, "")
+        script = skit.script(kept)
+        self.assertIn("small round yellow cartoon character", script)
+        self.assertIn("eats a chess pawn", script)
+        # Only the last shot's own prompt carries it.
+        last = len(kept["shots"]) - 1
+        self.assertIn("eats a chess pawn", skit.shot_prompt(kept, last))
+        if last:
+            self.assertNotIn("eats a chess pawn", skit.shot_prompt(kept, 0))
+
+    def test_teeny_that_meets_a_figure_or_carries_money_is_refused(self):
+        for line, bit in (("it waves at Elon Musk from a crater", "names the figure"),
+                          ("it hands him a trophy and winks", "meet someone"),
+                          ("it watches the game from a crater", "meet someone"),
+                          ("it juggles gold coins in a crater", "no coin"),
+                          ("it holds a sign in a crater", "no text")):
+            self.assertRefused(self.screen({**SKIT, "teeny": line}), bit)
+
+    def test_teeny_is_still_refused_anywhere_but_its_own_line(self):
+        self.assertRefused(self.screen({**SKIT, "logline": "elon musk loses to his robotaxi while teeny eats a pawn"}),
+                           "never meets Teeny")
+
     def test_a_real_figure_never_meets_teeny_a_token_a_wallet_or_an_investment(self):
         # (d): the scam pattern, refused in code whatever the judge would say.
         for bit in ("holding a $TINY sign", "a yellow robot mascot", "Teeny", "a crypto wallet", "a pile of tokens",
