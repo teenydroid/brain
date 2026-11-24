@@ -69,13 +69,15 @@ class FakeRpc:
             def do_POST(self) -> None:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 fake.calls.append(body)
-                status, reply = fake._answer(body)
+                status, reply, headers = fake._answer(body)
                 if fake.delay.get(body.get("method")):
                     time.sleep(fake.delay[body["method"]])
                 data = json.dumps(reply).encode()
                 self.send_response(status)
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(data)))
+                for name, value in headers.items():
+                    self.send_header(name, value)
                 self.end_headers()
                 try:
                     self.wfile.write(data)
@@ -99,20 +101,20 @@ class FakeRpc:
     def params(self, method: str) -> list[dict[str, Any]]:
         return [c.get("params") for c in self.calls if c.get("method") == method]
 
-    def _answer(self, body: dict[str, Any]) -> tuple[int, Any]:
+    def _answer(self, body: dict[str, Any]) -> tuple[int, Any, dict[str, str]]:
         method = body.get("method")
         if method not in self.answers:
-            return 200, {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32601, "message": f"unknown method {method}"}}
+            return 200, {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32601, "message": f"unknown method {method}"}}, {}
         answer = self.answers[method]
         if isinstance(answer, Sequence):
             answer = answer.pop(0) if len(answer) > 1 else answer[0]
         if callable(answer) and not isinstance(answer, (Failure, HttpStatus)):
             answer = answer(body.get("params"))
         if isinstance(answer, HttpStatus):
-            return answer.status, {"error": "fake"}
+            return answer.status, {"error": "fake"}, dict(answer.headers)
         if isinstance(answer, Failure):
-            return 200, {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32000, "message": answer.message}}
-        return 200, {"jsonrpc": "2.0", "id": body.get("id"), "result": answer}
+            return 200, {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32000, "message": answer.message}}, {}
+        return 200, {"jsonrpc": "2.0", "id": body.get("id"), "result": answer}, {}
 
 
 class Sequence(list):
@@ -125,8 +127,12 @@ class Failure:
 
 
 class HttpStatus:
-    def __init__(self, status: int) -> None:
+    """An HTTP error status instead of a JSON-RPC answer, with any headers
+    (a 429's Retry-After, say)."""
+
+    def __init__(self, status: int, headers: dict[str, str] | None = None) -> None:
         self.status = status
+        self.headers = headers or {}
 
 
 def status_with(address: str = OWN) -> dict[str, Any]:

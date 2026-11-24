@@ -1200,10 +1200,14 @@ OWN_THREAD = ("Comments on your own Moltbook posts come first: every agent there
               "details) until it is answered or declined.")
 
 #: Said once a batch holds a mention in a thread under one of Teeny's own X
-#: posts. The rule the operator wrote into playbooks/mentions.md (940e51c5),
-#: which only the older core path reads: since mentions go to the mind
-#: (597a798f) nothing carried it, and from 2026-11-17 to 11-19 19 of 30
-#: comments under Teeny's own posts were let go as "hype, silence".
+#: posts. The rule the operator wrote into playbooks/mentions.md (940e51c5):
+#: since mentions go to the mind (597a798f) nothing carried it, and from
+#: 2026-11-17 to 11-19 19 of 30 comments under Teeny's own posts were let go
+#: as "hype, silence". The playbook now reaches the beat too
+#: (reply_guidance), but its one line on own threads stays there to edit;
+#: this block is the operator's, said only when such a comment is in the
+#: batch, and carries what the line does not (this beat, even when running
+#: low, and the only reasons to let one go).
 X_OWN_THREAD = ("Replies under your own X posts come first on X: these people answered something you posted, and "
                 "a comment left unanswered under your own post reads as nobody home. Answer each one in this beat, "
                 "alongside your Moltbook threads rather than after them, even when you are running low. A reply has "
@@ -1213,6 +1217,60 @@ X_OWN_THREAD = ("Replies under your own X posts come first on X: these people an
                 "a spray of another token's contract or ticker ($TINY's own address or ticker is never a spray), "
                 "abuse, the same point you already answered, or from someone you have answered three times today "
                 "with nothing new asked; then say which in your thought.")
+
+#: How Teeny answers on X, said once a batch holds an X mention: the body of
+#: brain/playbooks/mentions.md, read every beat. It is Teeny's own page (not
+#: frozen), the same one the core's queue drafts from (TEENY_INBOX=core,
+#: bin/lib/inbound_config.py), so one edit steers both. Before 2026-11-23 only
+#: that queue read it, and on the default path (the mind) an edit to it
+#: (#529) changed nothing. Which mentions reach a beat, in what order, and
+#: every cap and guard stay in code (stimuli.take, hands/x, hands/guard);
+#: the page steers what the model decides: which of them to answer, and how.
+REPLY_PLAYBOOK = Path("playbooks") / "mentions.md"
+#: The most of the page a beat carries, so a page that grows cannot crowd
+#: the batch out: it is cut at a paragraph and says so.
+REPLY_GUIDANCE_MAX_CHARS = 4_000
+REPLY_GUIDANCE_CUT = f"[...the rest of brain/playbooks/mentions.md was cut: it runs past {REPLY_GUIDANCE_MAX_CHARS:,} characters]"
+#: Said when the page is missing, empty, or its front matter never closes.
+REPLY_GUIDANCE_FALLBACK = ("Answer the mentions that deserve an answer: replies under your own posts first, then real "
+                           "questions ahead of greetings and hype. A reply answers what was said, in the words they "
+                           "used, under 240 characters, in your own voice. $TINY talk always gets a short line back. "
+                           "Skip spam, bots, abuse and anyone you already answered.")
+REPLY_GUIDANCE_HEAD = ("## how you answer on X (brain/playbooks/mentions.md)\n\n"
+                       "Your own playbook for X mentions, yours to edit. Where it says inputs, it means the X "
+                       "messages in this beat; a reply is a reply_x to that message's ref.")
+
+
+def _brain() -> Path:
+    return Path(os.environ.get("TEENY_ROOT") or CODE) / "brain"
+
+
+def reply_guidance(brain: Path | None = None) -> str:
+    """The body of brain/playbooks/mentions.md, after its +++ front matter,
+    clipped to REPLY_GUIDANCE_MAX_CHARS at a paragraph; REPLY_GUIDANCE_FALLBACK
+    when there is no body to read."""
+    try:
+        text = ((brain or _brain()) / REPLY_PLAYBOOK).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return REPLY_GUIDANCE_FALLBACK
+    lines = text.lstrip().splitlines()
+    if lines and lines[0].strip() == "+++":
+        # Only a +++ line of its own closes it; one inside a value does not.
+        close = next((n for n, line in enumerate(lines[1:], 1) if line.strip() == "+++"), None)
+        if close is None:
+            return REPLY_GUIDANCE_FALLBACK  # front matter that never closes: none of it is prose
+        text = "\n".join(lines[close + 1:])
+    body = text.strip()
+    if not body:
+        return REPLY_GUIDANCE_FALLBACK
+    if len(body) <= REPLY_GUIDANCE_MAX_CHARS:
+        return body
+    room = REPLY_GUIDANCE_MAX_CHARS - len(REPLY_GUIDANCE_CUT) - 2
+    head = body[:room]
+    cut = head.rfind("\n\n")
+    head = head[:cut] if cut > room // 2 else head[:head.rfind(" ")] if " " in head else head
+    return head.rstrip() + "\n\n" + REPLY_GUIDANCE_CUT
+
 
 #: Said once a batch holds something from Hacker News, where Teeny cannot write.
 HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn comment can be talked "
@@ -1253,6 +1311,8 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
            for s in batch):
         lines += [OWN_THREAD, ""]
     people = _x_people(batch)
+    if any((s["surface"], s["kind"]) == ("x", "mention") for s in batch):
+        lines += [REPLY_GUIDANCE_HEAD, "", reply_guidance(), ""]
     if any(_x_own_thread(s) for s in batch if _x_handle(s)):
         lines += [X_OWN_THREAD, ""]
     turned: list[str] = []

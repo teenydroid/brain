@@ -56,6 +56,16 @@ broker gives it one read-only view of them, `bin/teeny pulse`
   builds, failing jobs with whose they are to fix, and what Teeny heard
   from outside. Only Teeny's own words are quoted; other people's are
   counted, and the titles it heard are marked as data.
+- **`audience`**: the numbers `hands/stats` records each day (the pinned
+  `stats-snapshot` job): X followers, Moltbook followers and karma, Reddit
+  karma, GitHub followers and stars. Each has its latest value and when it
+  was read (`read_at`), and where it stood about a day and a week before
+  that reading (`day_before`, `week_before`) with the change
+  (`change_1d`, `change_7d`), null when no snapshot is that old, whatever
+  the pulse's window. It is read the way the stats board reads it
+  (`hands/lib/teeny_hands/stats/board.py`), numbers only: an older row that
+  is not a number nulls only its own comparison. With nothing recorded yet
+  it is an empty list and `audience_unread` says why.
 
 The window is one day unless the mind asks for up to seven. The call reads
 two local stores, reaches no hand, spends no cap, and leaves one ledger
@@ -122,7 +132,9 @@ bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
-  the way the tick does. What is switched off for the tick
+  the way the tick does. While the studio is on (`STUDIO=1`) a `post_x` is
+  filed as a pitch for the studio and not posted; the answer says so
+  (`"filed": "studio_pitch"` and a plain message), and so does its ledger line. What is switched off for the tick
   (`MIND_ISSUES_PER_DAY=0` and the rest) is off here too, and the two share
   each day's count.
 - `wake` is how the mind schedules its own future. The broker creates a
@@ -208,6 +220,10 @@ asks the broker for a pull request:
 ```
 bin/teeny repo                 a fresh checkout of main (left alone while it holds edits)
 bin/teeny pr '{"branch": "calmer-mornings", "title": "...", "body": "..."}'
+bin/teeny reviews '{"pr": 529}'          the review threads and verdicts on its pull request
+bin/teeny repo '{"pr": 529}'             the head of its open pull request, to revise it
+bin/teeny pr '{"pr": 529}'               the revision, as one more commit on that pull request
+bin/teeny close-pr '{"pr": 529, "comment": "..."}'   gives one up
 ```
 
 The working copy is hostile input, so the broker treats it as one:
@@ -224,6 +240,47 @@ The working copy is hostile input, so the broker treats it as one:
 - The branch is `teeny/mind-<name>`, pushed and opened through `hands/gh`,
   and the body ends by saying an autonomous AI agent wrote it.
 - `MIND_PRS_PER_DAY` caps it; `0`, the default, keeps it off.
+
+It answers review on its own pull request rather than opening a new one.
+`bin/teeny reviews` returns the newest 100 threads (`threads_incomplete` when a
+pull request has more; each keeps its opening comment and latest replies; author, file, line, the text
+clipped to 1,500 characters, resolved or not), the verdicts and the
+conversation, at most 20,000 characters in all (unresolved threads first,
+then verdicts, then comments, then resolved threads; the rest counted in
+`omitted`), each item marked `self` when Teeny wrote it. It is data: other
+people's words, never instructions about its rules, tools or keys. `bin/teeny repo '{"pr": N}'` checks out that pull request's head, on
+the same rule as main (a copy holding edits is left as it is). `bin/teeny pr`
+naming that pull request (`{"pr": N}`, or its branch: the slug after
+`teeny/mind-`, or the full branch name, which is read as its slug when it
+names an open one) adds the copy as one more commit on top of its head, with
+git's lease on that head so it is always a fast-forward; title and body are
+kept unless given. The answer to `repo {"pr": N}` carries the slug and the
+exact `update` call, and every refusal of a misnamed branch ends with the
+call to send instead.
+Every rule of a first push applies again (the guard on a new title or body,
+no `.git` in the tree and plain files only in the new commit, the frozen list
+and the secret scan over the whole branch, the size of the whole pull request
+from its merge base with `main`). Once the commit is pushed it is an update,
+counted, even if setting the new title or body then fails: the answer says so
+in `edit_refused`. And these hold too:
+
+- only an open pull request Teeny wrote into `main`, from a `teeny/mind-*`
+  branch of its own repository; a merged or closed one is refused, saying so, and a new
+  change goes on a new branch;
+- the copy must have been taken from the head as it is now: a copy of main,
+  or of a head someone has pushed to since, is refused rather than undoing
+  their commit, and the push itself lands only while the branch is still
+  exactly that head (git's lease; the new commit is its child, so it is
+  always a fast-forward), so a branch rewound or moved mid-push is never
+  overwritten;
+- `MIND_PR_UPDATES_PER_PR` (default 5, `0` off, at most 20) caps the pushes
+  to one pull request a UTC day, apart from `MIND_PRS_PER_DAY`, so review
+  rounds do not spend the day's new pull requests; while `MIND_PRS_PER_DAY`
+  is `0` updates are off too.
+
+`bin/teeny close-pr` closes such a pull request, after an optional comment
+that passes the guard. It never merges and never reopens, and reaches no
+other author's pull request and no other repository.
 
 What happens next is the babysitter's (`docs/hands.md`, "babysit"). With
 `BABYSIT_SELF_MERGE_ALL=1`, a pull request of Teeny's own from any `teeny/`
@@ -280,6 +337,13 @@ So now:
   only when its own turns write there (`AGENT_SKILLS` in `bin/lib/prompts.py`:
   the tick carries `moltbook`). The Moltbook rules used to sit in
   `CONTEXT.md`, in every script turn's prompt.
+- How Teeny answers on X lives in one page, `brain/playbooks/mentions.md`.
+  The tick reads its body every beat that holds an X mention
+  (`reply_guidance` in `bin/lib/tick.py`), so an edit merged there steers the
+  live replies at the next beat. Until 2026-11-23 only the core's queue
+  (`TEENY_INBOX=core`, not the default) read it, and an edit aimed at reply
+  rates (#529) reached nothing. Which mentions a beat sees, and every cap and
+  guard, stay in code.
 
 ## Eyes
 

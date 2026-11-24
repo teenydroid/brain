@@ -3,7 +3,7 @@ one take (one text-to-video job for the whole film) or, when that cannot be
 had, one job a shot cut together with each shot's own sound, always with a
 burned-in label (docs/hands.md, "video").
 
-  hands/video skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, wait_seconds?, bed?}
+  hands/video skit {shots, aspect?, story, figures?, logline, look?, setting?, score?, teeny?, wait_seconds?, bed?}
 
 bin/studio's `skit` format calls this only after the skit passed its hard
 lines (`hands/guard skit`: code's screen, then the judge), and looks at the
@@ -156,7 +156,7 @@ MAX_SHOTS = 4
 MAX_PROMPT = 900
 MAX_LOGLINE = 300
 MAX_FIGURES = 3
-MAX_LOOK, MAX_SETTING, MAX_SCORE = 200, 300, 200
+MAX_LOOK, MAX_SETTING, MAX_SCORE, MAX_TEENY = 200, 300, 200, 120
 LABEL = "AI parody"
 
 
@@ -183,7 +183,7 @@ def job_of(body: Any) -> Json:
     if not isinstance(body, dict):
         raise hand.Refused("skit takes a JSON object", rule="body")
     unknown = sorted(set(body) - {"shots", "aspect", "story", "figures", "logline", "wait_seconds", "bed", "look",
-                                  "setting", "score"})
+                                  "setting", "score", "teeny"})
     if unknown:
         raise hand.Refused(f"not taken here: {', '.join(unknown)}", rule="body")
     shots = body.get("shots")
@@ -232,7 +232,8 @@ def job_of(body: Any) -> Json:
     return {"shots": kept, "aspect": aspect, "story": _text(body, "story", 80), "figures": figures,
             "logline": _text(body, "logline", MAX_LOGLINE), "wait": wait, "bed": bed, "look": looks,
             "setting": _text(body, "setting", MAX_SETTING, required=False),
-            "score": _text(body, "score", MAX_SCORE, required=False)}
+            "score": _text(body, "score", MAX_SCORE, required=False),
+            "teeny": _text(body, "teeny", MAX_TEENY, required=False)}
 
 
 def _held(job: Json) -> Json:
@@ -240,7 +241,7 @@ def _held(job: Json) -> Json:
     and `shot_prompt`): the same function the guard's screen runs, so what
     is screened is what is sent."""
     out: Json = {"figures": job["figures"], "shots": job["shots"]}
-    for key in ("look", "setting", "score"):
+    for key in ("look", "setting", "score", "teeny"):
         if job.get(key):
             out[key] = job[key]
     return out

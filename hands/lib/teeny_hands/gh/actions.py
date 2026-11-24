@@ -244,12 +244,15 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"pushed": repo, "branch": ref, "commit": sha}
 
 
-def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None) -> Json:
+def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None,
+                expect: str | None = None) -> Json:
     """Pushes BRANCH of the clone whose git directory is GIT_DIR (under
     state/) to the same branch of an own repository, for a pull request. Only
     a teeny/* branch, never forced, and refused when what it adds to SINCE
     looks like a secret. In-process only (Teeny's own clone,
-    teeny_hands.build.selfclone): no verb takes a git directory."""
+    teeny_hands.build.selfclone): no verb takes a git directory. EXPECT, the
+    branch's head as the caller read it, makes the push land only while the
+    branch is still there (gitpush.push_ref)."""
     owner, name = split_repo(repo)
     repo = f"{owner}/{name}"
     if not is_own(owner):
@@ -268,7 +271,7 @@ def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: Git
     gh = gh or GitHubApi.from_settings()
     login = _own_identity(gh)
     with hand.lock(f"gh-push-{name.lower()}"):
-        sha = gitpush.push_ref(path, owner, name, ref, hand.require("GITHUB_TOKEN"), login)
+        sha = gitpush.push_ref(path, owner, name, ref, hand.require("GITHUB_TOKEN"), login, expect=expect)
     _record("push", repo, False, sha, branch=ref)
     return {"pushed": repo, "branch": ref, "commit": sha}
 
@@ -511,6 +514,47 @@ def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -
     closed = gh.close_issue(owner, name, number)
     _record("close-issue", repo, False, number, url=closed.get("html_url"))
     return {"closed_issue": repo, "number": number, "html_url": closed.get("html_url")}
+
+
+def edit_pr(body: Any, gh: GitHubApi | None = None) -> Json:
+    """A new title or body (or both) on a pull request of an own repository,
+    through the guard. In-process only (the mind's clone revising its own
+    pull request, teeny_hands.build.mindclone): no verb edits one."""
+    body = _body(body, ("repo", "number"), ("title", "body"))
+    owner, name, repo = _own_repo(body["repo"], "edits pull requests")
+    number = _number(body, "number")
+    given = {key: _string(body, key) for key in ("title", "body") if key in body}
+    if not given:
+        raise hand.HandError('an edit sets "title", "body" or both')
+    fields = guarded(given, "pr", {"repo": repo, "number": number})
+    if hand.dry_run():
+        return {"dry_run": True, "would_edit_pr": repo, "number": number, **fields}
+    gh = gh or GitHubApi.from_settings()
+    edited = gh.edit_pr(owner, name, number, fields)
+    _record("edit-pr", repo, False, number, fields=sorted(fields), url=edited.get("html_url"))
+    return {"edited_pr": repo, "number": number, "html_url": edited.get("html_url")}
+
+
+def close_pr(body: Any, gh: GitHubApi | None = None) -> Json:
+    """Closes a pull request of an own repository, never merging it, after an
+    optional last comment through the guard. In-process only (the mind
+    closing its own pull request, teeny_hands.build.mindclone, which also
+    holds who wrote it and which branch it is on)."""
+    body = _body(body, ("repo", "number"), ("comment",))
+    owner, name, repo = _own_repo(body["repo"], "closes pull requests")
+    number = _number(body, "number")
+    text = None
+    if "comment" in body:
+        text = guarded({"body": _string(body, "comment")}, "comment", {"repo": repo, "number": number})["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_close_pr": repo, "number": number, "comment": text}
+    gh = gh or GitHubApi.from_settings()
+    if text is not None:
+        made = gh.comment(owner, name, number, text)
+        _record("comment", repo, False, made.get("id"), number=number, url=made.get("html_url"))
+    closed = gh.close_pr(owner, name, number)
+    _record("close-pr", repo, False, number, url=closed.get("html_url"))
+    return {"closed_pr": repo, "number": number, "html_url": closed.get("html_url")}
 
 
 def fork(body: Any, gh: GitHubApi | None = None) -> Json:

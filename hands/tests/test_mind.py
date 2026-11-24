@@ -138,6 +138,46 @@ class MindAgentTest(unittest.TestCase):
         self.assertNotIn("`..` anywhere in it", prompt)
 
 
+    def test_the_prompt_gives_it_a_self_to_keep_and_a_growth_move_every_wake(self):
+        # Operator, 2026-11-23: the mind followed goals a script proposed and
+        # never set one, and nothing carried what it wanted or felt from one
+        # wake to the next or into SOUL.md. The how lives in a skill so the
+        # prompt stays short.
+        prompt = (MIND.parent / "mind.md").read_text()
+        for needle in ("notes/SELF.md", "one move meant to grow you", "into your soul by pull request", "library/self.md"):
+            self.assertIn(needle, prompt)
+        skill = (REPO / "brain" / "skills" / "self" / "SKILL.md").read_text()
+        for needle in ("**Want.**", "**Believe.**", "**Felt.**", "drew nobody on two measured tries", "the move is pending", "no buy calls or price",
+                       "a private\nperson is never the target", "stood in `SELF.md` for a week"):
+            self.assertIn(needle, skill)
+
+    def test_the_spine_container_has_a_memory_ceiling_and_no_swap_on_top(self):
+        # The jail confines a shell's files, not its memory. On 2026-11-24 a
+        # daily build's own test grew to 80 GB in ten minutes inside the
+        # spine's container, which had no limit, and the box went into swap
+        # until health checks timed out.
+        text = (REPO / "deploy" / "compose.yaml").read_text()
+        spine = text[text.index("\n  spine:"):text.index("\n  cortexdb:")]
+        limits = dict(re.findall(r"^    (mem_limit|memswap_limit): (\S+)$", spine, re.M))
+        self.assertEqual(set(limits), {"mem_limit", "memswap_limit"})
+        self.assertEqual(limits["mem_limit"], limits["memswap_limit"], "no swap on top of the ceiling")
+        self.assertRegex(limits["mem_limit"], r"^\d+g$")
+        gigabytes = int(limits["mem_limit"][:-1])
+        self.assertGreater(gigabytes, 0, "Docker reads 0 as no limit at all")
+        self.assertLessEqual(gigabytes, 32)
+
+    def test_the_prompt_has_the_journal_appended_with_teeny_journal_never_file_write(self):
+        # On 2026-11-24 02:36 UTC a journal entry written with file_write
+        # replaced about 19 KB of history (its own LEARNINGS line, at its third
+        # recurrence); the earlier entries of 2026-11-23 were lost the same
+        # way. "Append only" did not say how; `teeny journal` (bin/lib/
+        # broker_client.py) appends under a lock with a stamp of its own, and
+        # notes/.keep/ holds the snapshots to read a lost file back from.
+        prompt = (MIND.parent / "mind.md").read_text()
+        line = next(l for l in prompt.splitlines() if l.startswith("- `notes/JOURNAL.md`"))
+        for needle in ('bin/teeny journal "', "`file_write` replaces the whole file", "notes/.keep/"):
+            self.assertIn(needle, line)
+
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 
 

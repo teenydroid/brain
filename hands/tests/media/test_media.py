@@ -382,6 +382,20 @@ class MediaTest(unittest.TestCase):
         self.assertEqual(out["model"], "qwen-edit-uncensored")
         self.assertEqual(self.api.models("/v1/images/edits"), ["gpt-image-2-5-flare-edit", "qwen-edit-uncensored"])
 
+    def test_a_model_that_turns_the_body_down_falls_to_the_next_model(self):
+        # 2026-11-23 (media_assets 163, 166): flare refused a two-figure scene,
+        # qwen-edit-uncensored answered 400 "Request body must include a valid
+        # 'model' field." to the same request, and the picture failed without
+        # nano-banana or muse ever being asked.
+        self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError(
+            "Surplus answered 400: Your prompt violates the content policy of Venice.ai or the model provider.", 400)
+        self.api.fail["qwen-edit-uncensored"] = SurplusError(
+            "Surplus answered 400: Request body must include a valid 'model' field.", 400)
+        out = self.image()["asset"]
+        self.assertEqual(out["model"], "nano-banana-2-1-edit")
+        self.assertEqual(self.api.models("/v1/images/edits"),
+                         ["gpt-image-2-5-flare-edit", "qwen-edit-uncensored", "nano-banana-2-1-edit"])
+
     def test_a_bad_request_does_not_burn_through_every_model(self):
         self.api.fail["gpt-image-2-5-flare-edit"] = SurplusError("Surplus answered 402: insufficient credit", 402)
         with self.assertRaises(hand.HandError):

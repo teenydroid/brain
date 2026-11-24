@@ -7,6 +7,8 @@
 #   bin/broker serve     # run the daemon (only with MIND=1 in secrets/teeny.env)
 #   bin/broker install   # write the token, the url and the `teeny` client into
 #                        # state/home/ and exit
+#   bin/broker keep      # snapshot state/home/notes/ now (serve does it every
+#                        # ten minutes; bin/lib/notes_keep.py)
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

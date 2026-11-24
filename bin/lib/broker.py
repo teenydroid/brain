@@ -25,6 +25,11 @@ the jail cannot read either; docs/mind.md, "A lean prompt").
 `serve` runs only with MIND=1 in secrets/teeny.env; `install` only writes
 those files and exits (and rotates the token a running broker holds).
 
+While it serves, the broker also keeps the mind's notes: every
+notes_keep.EVERY_SECS it snapshots state/home/notes/*.md into
+notes/.keep/<UTC stamp>/ when anything changed, and reports a journal that
+shrank (bin/lib/notes_keep.py; `bin/broker keep` takes one by hand).
+
 The mind rehearses on a switch of its own. Unless secrets/teeny.env says
 MIND_DRY_RUN=0, `serve` forces DRY_RUN on for itself and so for every hand it
 runs: the mind's wakes, its notes and what it would have done (the ledger)
@@ -56,14 +61,27 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
               each redirect one,
               counted in state/broker/fetches.json as each is sent. A fetch
               says nothing, so a rehearsal fetches too. Never a tick route
-- /repo       teeny_hands.build.mindclone.prepare: a checkout of origin/main
-              at state/home/repo/ (its git directory outside the jail), left
-              alone while it holds edits; answers its path and the head
+- /repo       `{}` | `{"pr": N}` | `{"branch"}`:
+              teeny_hands.build.mindclone.prepare: a checkout of origin/main
+              at state/home/repo/ (its git directory outside the jail), or of
+              the head of an open pull request of Teeny's own from
+              teeny/mind-*, left alone while it holds edits; answers its path
+              and the head
 - /pr         `{"branch", "title", "body"}`: the tree as a pull request from
               teeny/mind-<branch> (mindclone.ship: the guard, the frozen
               paths, the secret scan, the size), at most MIND_PRS_PER_DAY
               (default 0, off) a UTC day, counted in
-              state/broker/prs-opened.json when one is opened
+              state/broker/prs-opened.json when one is opened. When that
+              branch has an open pull request of Teeny's own, the tree goes
+              to it as one more commit (never forced), title and body
+              optional; at most MIND_PR_UPDATES_PER_PR (default 5, 0 off) a
+              pull request a UTC day, counted in state/broker/pr-updates.json,
+              never against MIND_PRS_PER_DAY, and off while that is 0
+- /close-pr   `{"pr": N, "comment"?}`: closes an open pull request of
+              Teeny's own from teeny/mind-* in its own repository, after the
+              comment passes the guard. Never merges, never reopens
+- /reviews    `{"pr": N}`: the review threads, verdicts and conversation of
+              a pull request of Teeny's own, as data. Reads only
 
 The answer is `{"status": "ok" | "refused" | "error", ...}` with HTTP 200,
 403 or 500 (401 unauthorised, 404 no such path, 405 not POST), and each
@@ -96,6 +114,7 @@ from teeny_hands.build import mindclone  # noqa: E402
 
 import cron_policy  # noqa: E402
 import mind_home  # noqa: E402
+import notes_keep  # noqa: E402
 import pulse as pulse_lib  # noqa: E402
 import tick  # noqa: E402
 import webfetch  # noqa: E402
@@ -229,12 +248,14 @@ def _ledger(entry: Json, answer: Json) -> None:
         "path": entry.get("path"),
         "verb": entry.get("verb"),
         "status": answer.get("status"),
-        "message": _clipped(answer.get("reason") or answer.get("error")),
+        "message": _clipped(answer.get("reason") or answer.get("error") or entry.get("message")),
         "dry_run": hand.dry_run(),
         "exit": entry.get("exit"),
     }
     if "intent" in entry:
         line["intent"] = entry["intent"]
+    if "filed" in entry:
+        line["filed"] = entry["filed"]
     path = _ledger_path()
     with _ledger_lock:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -265,10 +286,46 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
 REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit", "rent"})
 
 
+#: What the mind reads when its intent was filed for the studio, not sent.
+PITCH_MESSAGE = ("filed as a pitch for the studio (STUDIO=1), not posted: the studio decides at its next slot "
+                 "whether anything comes of it")
+PITCH_AGAIN = ("already filed as a pitch for the studio (STUDIO=1) with the same words, not posted and not filed "
+               "twice: the studio decides at its next slot whether anything comes of it")
+PITCH_REHEARSED = ("would be filed as a pitch for the studio (STUDIO=1), not posted; this is a rehearsal, so "
+                   "nothing was filed")
+
+
+def _filed_pitch(name: str, hand_body: Any) -> bool:
+    """Whether the route turned the intent into a studio pitch (tick._pitch_x:
+    a `studio` stimulus of kind `pitch`), as a post_x is while STUDIO=1."""
+    return (name == "stimuli" and isinstance(hand_body, dict) and hand_body.get("surface") == "studio"
+            and hand_body.get("kind") == "pitch")
+
+
+def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
+    """An answer for a pitch says in plain words that nothing was posted,
+    and its ledger line records it."""
+    if answer.get("status") == "ok" and _filed_pitch(name, hand_body):
+        result = answer.get("result") if isinstance(answer.get("result"), dict) else {}
+        if not hand.dry_run() and result.get("added") is False:
+            answer["filed"] = entry["filed"] = "studio_pitch_already_filed"
+            answer["message"] = entry["message"] = PITCH_AGAIN
+        elif hand.dry_run():
+            answer["would_file"] = "studio_pitch"
+            entry["filed"] = "studio_pitch (rehearsed: not filed)"
+            answer["message"] = entry["message"] = PITCH_REHEARSED
+        else:
+            answer["filed"] = entry["filed"] = "studio_pitch"
+            answer["message"] = entry["message"] = PITCH_MESSAGE
+    return answer
+
+
 def do(body: Json, entry: Json) -> Json:
     """One intent, the way a beat carries it out (tick.carry_out): the route
     (its fields, and its daily cap where one applies), the cap counted once
-    the call reaches the hand, then the hand, once."""
+    the call reaches the hand, then the hand, once. An intent the route files
+    as a studio pitch (a post_x while STUDIO=1) is answered as filed, not
+    posted."""
     entry["intent"] = _clipped(body)
     verb = body.get("do")
     entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
@@ -284,15 +341,15 @@ def do(body: Json, entry: Json) -> Json:
         # This hand has no dry run of its own: what it writes is real, and a
         # live worker would act on it (a queued browser task, a build
         # request). In a rehearsal it is not run and nothing is counted.
-        return {"status": "ok", "dry_run": True, "would": {"hand": name, "argv": argv},
-                "note": "rehearsal: checked, not sent"}
+        return _say_filed({"status": "ok", "dry_run": True, "would": {"hand": name, "argv": argv},
+                           "note": "rehearsal: checked, not sent"}, entry, name, hand_body)
     # A deadline already past: a hand's "not yet" (pacing) comes straight back
     # as its refusal, with its wait, rather than holding the broker.
     if hand.dry_run():
         # A rehearsal spends nothing of the day: the hand says what it would
         # send, and the live allowance is still there for the real one.
         code, out = tick._run_hand(name, argv, hand_body)
-        return _hand_answer(code, out, entry)
+        return _say_filed(_hand_answer(code, out, entry), entry, name, hand_body)
     try:
         code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
     except ValueError as exc:  # the day's cap, spent between the check and the count
@@ -300,7 +357,7 @@ def do(body: Json, entry: Json) -> Json:
     answer = _hand_answer(code, out, entry)
     if held:
         answer["held"] = {k: held[k] for k in ("rule", "wait_seconds") if k in held}
-    return answer
+    return _say_filed(answer, entry, name, hand_body)
 
 
 def goals(body: Json, entry: Json) -> Json:
@@ -522,9 +579,13 @@ def drop_wake(body: Json, entry: Json) -> Json:
 # change itself (the guard, the frozen paths, the secret scan, the size, the
 # hostile tree); the broker adds the day's count, which is its own.
 
-PR_FIELDS = ("branch", "title", "body")
+PR_FIELDS = ("branch", "title", "body", "pr")
 #: The most MIND_PRS_PER_DAY may be set to.
 MAX_PRS_PER_DAY = 12
+#: Pushes to one open pull request a UTC day (MIND_PR_UPDATES_PER_PR): enough
+#: for a few review rounds, apart from the day's new pull requests.
+DEFAULT_PR_UPDATES = 5
+MAX_PR_UPDATES = 20
 
 
 def _prs_path() -> Path:
@@ -551,6 +612,54 @@ def _count_pr() -> None:
     _write(path, json.dumps(today) + "\n", 0o600)
 
 
+def _updates_path() -> Path:
+    return hand.state_dir() / "broker" / "pr-updates.json"
+
+
+def _updates_today() -> Json:
+    """The updates pushed today (UTC), by pull request number."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_updates_path().read_text())
+    except (OSError, ValueError):
+        saved = None
+    if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("counts"), dict):
+        return saved
+    return {"day": day, "counts": {}}
+
+
+def _count_update(number: Any, day: str | None = None) -> None:
+    """One update to NUMBER, charged to DAY (the UTC day its allowance was
+    checked; today when not given), never to a later day's allowance."""
+    today = _updates_today()
+    if day is not None and day != today["day"]:
+        try:
+            saved = json.loads(_updates_path().read_text())
+        except (OSError, ValueError):
+            saved = None
+        if isinstance(saved, dict) and str(saved.get("day", "")) > day:
+            return  # a later day is already counting: this one is past
+        ok = isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("counts"), dict)
+        today = saved if ok else {"day": day, "counts": {}}
+    today["counts"][str(number)] = int(today["counts"].get(str(number), 0)) + 1
+    path = _updates_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write(path, json.dumps(today) + "\n", 0o600)
+
+
+def _update_allowance(number: Any, updates: int) -> str:
+    """Refuses an update to NUMBER when MIND_PR_UPDATES_PER_PR (UPDATES) is
+    0 or today's are spent; else the UTC day it was checked on, to charge it
+    to. One read of the day's record, so the check and the charge are the
+    same day even across midnight."""
+    if updates == 0:
+        raise hand.Refused("updates to your open pull requests are off (MIND_PR_UPDATES_PER_PR=0)")
+    today = _updates_today()
+    if int(today["counts"].get(str(number), 0)) >= updates:
+        raise hand.Refused(f"today's {updates} update(s) to #{number} are spent (MIND_PR_UPDATES_PER_PR)")
+    return today["day"]
+
+
 def _clone_call(fn: Callable[[], Json]) -> Json:
     """A mindclone call; its rule's refusal as the broker's."""
     try:
@@ -559,32 +668,80 @@ def _clone_call(fn: Callable[[], Json]) -> Json:
         raise Refused(exc.reason) from None
 
 
+def _fields(body: Json, allowed: tuple[str, ...], required: tuple[str, ...], shape: str) -> None:
+    unknown = sorted(str(k)[:LEDGER_CLIP] for k in set(body) - set(allowed))
+    if unknown or any(k not in body for k in required):
+        raise Refused(shape + (f"; not {', '.join(unknown)}" if unknown else ""))
+
+
 def pr(body: Json, entry: Json) -> Json:
     """The mind's tree as a pull request from teeny/mind-<branch>, within
-    the day's MIND_PRS_PER_DAY, counted once one is opened."""
+    the day's MIND_PRS_PER_DAY, counted once one is opened; or, to the open
+    pull request of its own on that branch, one more commit, within
+    MIND_PR_UPDATES_PER_PR for that pull request, counted once pushed."""
     if isinstance(body.get("branch"), str):
         entry["verb"] = body["branch"][:LEDGER_CLIP]
+    elif isinstance(body.get("pr"), int) and not isinstance(body.get("pr"), bool):
+        entry["verb"] = f"#{body['pr']}"
     entry["intent"] = _clipped(body)
-    unknown = sorted(str(k)[:LEDGER_CLIP] for k in set(body) - set(PR_FIELDS))
-    if unknown or any(k not in body for k in PR_FIELDS):
-        raise Refused(f"a pull request is {{{', '.join(repr(k) for k in PR_FIELDS)}}}"
-                      + (f"; not {', '.join(unknown)}" if unknown else ""))
+    shape = ('a new pull request is {"branch", "title", "body"} (the branch is the part after teeny/mind-); an update '
+             'to your open one is {"pr": N} or {"branch"}, title and body optional')
+    _fields(body, PR_FIELDS, (), shape)
+    if not ({"branch", "pr"} & set(body)) or any(body.get(k, "") is None for k in PR_FIELDS):
+        raise Refused(shape)
     limit = hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY)
     if limit == 0:
         raise Refused("pull requests from your clone are off (MIND_PRS_PER_DAY=0)")
-    if _prs_today()["count"] >= limit:
-        raise Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
-    out = _clone_call(lambda: mindclone.ship(body["branch"], body["title"], body["body"]))
+    updates = hand.number("MIND_PR_UPDATES_PER_PR", DEFAULT_PR_UPDATES, 0, MAX_PR_UPDATES)
+
+    checked: Json = {}
+
+    def allow(kind: str, number: int | None) -> None:
+        if kind == "open" and _prs_today()["count"] >= limit:
+            raise hand.Refused(f"today's {limit} pull request(s) from your clone are spent (MIND_PRS_PER_DAY)")
+        if kind == "update":
+            checked["day"] = _update_allowance(number, updates)
+
+    out = _clone_call(lambda: mindclone.ship(body.get("branch"), body.get("title"), body.get("body"), allow=allow,
+                                             pr=body.get("pr")))
     if not out.get("dry_run"):
-        _count_pr()
+        if out.get("updated"):
+            _count_update(out["number"], checked.get("day"))
+        else:
+            _count_pr()
     return {"status": "ok", **out}
 
 
 def repo(body: Json, entry: Json) -> Json:
-    """A fresh checkout of origin/main at state/home/repo/, unless the tree
-    holds edits (delete it for a fresh one): its path and the upstream head."""
+    """A fresh checkout of origin/main at state/home/repo/, or with `pr` (a
+    number) or `branch`, of the head of an open pull request of the mind's
+    own from teeny/mind-*, unless the tree holds edits (delete it for a fresh
+    one): its path and the head."""
     entry["verb"] = "repo"
-    return {"status": "ok", **_clone_call(mindclone.prepare)}
+    entry["intent"] = _clipped(body)
+    shape = 'a copy is {} for main, or {"pr": N} or {"branch"} for your open pull request'
+    _fields(body, ("pr", "branch"), (), shape)
+    if len(body) > 1 or any(v is None for v in body.values()):
+        raise Refused(shape + ": one of them, not null")
+    return {"status": "ok", **_clone_call(lambda: mindclone.prepare(pr=body.get("pr"), branch=body.get("branch")))}
+
+
+def close_pr(body: Json, entry: Json) -> Json:
+    """Closes an open pull request of the mind's own (mindclone.close holds
+    whose and which); never merges, never reopens."""
+    entry["verb"] = "close-pr"
+    entry["intent"] = _clipped(body)
+    _fields(body, ("pr", "comment"), ("pr",), 'a close is {"pr": N, "comment"?: "..."}')
+    return {"status": "ok", **_clone_call(lambda: mindclone.close(body["pr"], body.get("comment")))}
+
+
+def reviews(body: Json, entry: Json) -> Json:
+    """The review threads and verdicts of a pull request of the mind's own,
+    as data (mindclone.reviews). Reads only, no cap."""
+    entry["verb"] = "reviews"
+    entry["intent"] = _clipped(body)
+    _fields(body, ("pr",), ("pr",), 'a review read is {"pr": N}')
+    return {"status": "ok", **_clone_call(lambda: mindclone.reviews(body["pr"]))}
 
 
 # --- the web, read: /fetch -----------------------------------------------------------
@@ -643,8 +800,9 @@ def fetch(body: Json, entry: Json) -> Json:
 
 def pulse(body: Json, entry: Json) -> Json:
     """What the scripts did lately (bin/lib/pulse.py): every job's last run
-    and failures, and what became of what they made. Read-only, no cap: it
-    reads two local stores and sends nothing."""
+    and failures, what became of what they made, and the audience numbers
+    hands/stats recorded. Read-only, no cap: it reads two local stores and
+    sends nothing."""
     entry["verb"] = "pulse"
     try:
         days = pulse_lib.days_of(body.get("days"))
@@ -669,6 +827,8 @@ PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/fetch": fetch,
     "/pr": pr,
     "/repo": repo,
+    "/close-pr": close_pr,
+    "/reviews": reviews,
 }
 
 
@@ -773,7 +933,7 @@ def bind(port: int, token: str) -> ThreadingHTTPServer:
 
 # --- entry ----------------------------------------------------------------------------
 
-USAGE = "usage: bin/broker serve | install | enabled | sweep | operator-note REF"
+USAGE = "usage: bin/broker serve | install | enabled | sweep | keep | operator-note REF"
 OPERATOR_REF = re.compile(r"host-[0-9]{1,12}-[0-9a-f]{1,12}")
 MAX_OPERATOR_NOTE = 20000
 
@@ -842,6 +1002,25 @@ def _prepare_clone(server: ThreadingHTTPServer) -> None:
         print(f"[broker] the mind's clone could not be prepared: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
 
 
+def _keep_once() -> None:
+    """One snapshot of the mind's notes; a failure is said, never fatal."""
+    try:
+        out = notes_keep.snapshot()
+        for alert in out["shrunk"]:
+            print(f"[broker] notes/{alert['file']} shrank from {alert['lines_before']} to {alert['lines_now']} "
+                  f"lines; the last full copy is {alert['last_full_copy']}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a snapshot that fails never stops the broker
+        print(f"[broker] the notes snapshot failed: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
+
+
+def _keep_notes(stop: threading.Event) -> None:
+    """Snapshots the notes at start and every notes_keep.EVERY_SECS after."""
+    while True:
+        _keep_once()
+        if stop.wait(notes_keep.EVERY_SECS):
+            return
+
+
 def serve() -> int:
     if not mind_on():
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
@@ -859,6 +1038,7 @@ def serve() -> int:
         print(f"[broker] serving the mind on http://{HOST}:{server.server_address[1]}", file=sys.stderr)
         if hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY) > 0:
             threading.Thread(target=_prepare_clone, args=(server,), daemon=True).start()
+        threading.Thread(target=_keep_notes, args=(threading.Event(),), daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -878,6 +1058,9 @@ def main(argv: list[str]) -> int:
         return 0 if mind_on() else 1
     if argv == ["sweep"]:
         return sweep()
+    if argv == ["keep"]:
+        print(json.dumps(notes_keep.snapshot()))
+        return 0
     if len(argv) == 2 and argv[0] == "operator-note":
         return operator_note(argv[1])
     print(USAGE, file=sys.stderr)

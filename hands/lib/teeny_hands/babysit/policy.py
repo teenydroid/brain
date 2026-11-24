@@ -119,6 +119,12 @@ EVAL_CONTEXT = "teeny/eval"
 #: the workflow's GITHUB_TOKEN). Still a stranger (`tier`: every [bot] is);
 #: only its PR-Agent markers are spared `hidden_comment` (audit._markers).
 PR_AGENT_LOGIN = "github-actions[bot]"
+#: The review bots installed on teenydroid/brain. Strangers too; only their
+#: own markers are spared `hidden_comment` (injection.CODERABBIT_MARKERS,
+#: injection.GREPTILE_MARKERS). A login ending in [bot] belongs to that
+#: GitHub App alone, so nobody else can post as one.
+CODERABBIT_LOGIN = "coderabbitai[bot]"
+GREPTILE_LOGIN = "greptile-apps[bot]"
 
 
 def self_merge_on() -> bool:
