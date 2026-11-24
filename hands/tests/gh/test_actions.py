@@ -193,6 +193,28 @@ class PushTest(Scratch):
         with self.assertRaises(hand.HandError):
             actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="x", parent="nope"))
 
+    def test_a_branch_moved_between_the_read_and_the_push_is_refused_never_restored(self):
+        """CodeRabbit on #550: the push carries git's lease on the head it
+        read (or on there being no such branch yet), so a rewind or a new
+        branch made in between fails the push instead of being undone."""
+        from teeny_hands.gh import gitpush
+
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        first = self.seed("teenydroid/lib", {"README.md": "# lib\n", "B.md": "b\n"}, branch="fix")
+        self.workdir("lib", {"README.md": "# lib, better\n", "B.md": "b\n"})
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        real = gitpush.Staged.commit_and_push
+
+        def rewound(staged, message):
+            git("--git-dir", remote, "update-ref", "refs/heads/fix", git("--git-dir", remote, "rev-parse", "main").strip())
+            return real(staged, message)
+
+        with mock.patch.object(gitpush.Staged, "commit_and_push", rewound), self.assertRaises(hand.Refused) as caught:
+            actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix"))
+        self.assertEqual(caught.exception.detail["rule"], "moved")
+        self.assertNotEqual(git("--git-dir", remote, "rev-parse", "fix").strip(), first)
+
     def test_a_folders_own_git_history_is_never_published(self):
         self.me()
         remote = self.remote("teenydroid/hello")

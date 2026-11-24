@@ -162,10 +162,22 @@ class Staged:
 
     def commit_and_push(self, message: str) -> str:
         """Commits the staged change (as git.identity()) and pushes it to the
-        branch. Never forces. Returns the commit."""
+        branch, with git's lease on what was read: the branch's head when the
+        commit builds on it, else no branch at all, so a branch rewound or
+        made in between fails the push and is never overwritten or restored.
+        The commit descends from that head, so it is a fast-forward of it.
+        Returns the commit."""
         self._git("commit", "-q", "-m", message)
         sha = self._git("rev-parse", "HEAD").stdout.decode().strip()
-        self._git("push", "-q", remote_url(self.owner, self.name), f"HEAD:refs/heads/{self.ref}", token=True)
+        held = self.parent if self.onto == self.ref else ""
+        try:
+            self._git("push", "-q", f"--force-with-lease=refs/heads/{self.ref}:{held}",
+                      remote_url(self.owner, self.name), f"HEAD:refs/heads/{self.ref}", token=True)
+        except hand.HandError as exc:
+            if any(w in str(exc) for w in ("stale info", "rejected", "failed to push some refs")):
+                raise hand.Refused(f"{self.ref} moved on GitHub since it was read; nothing was pushed: push again",
+                                   rule="moved") from None
+            raise
         return sha
 
     def close(self) -> None:
