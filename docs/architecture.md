@@ -1262,14 +1262,16 @@ doctor fails. See [`evolve.md`](evolve.md).
   one finished job; each git call capped at 120 s, under the `build-ship`
   lock), `bin/tasks-desk` (local files only), and the inbound jobs.
 
-## 6a. Scheduled agents: the builder and the browser operator
+## 6a. Scheduled agents: the browser operator
 
-Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
-`bin/lib/cron_policy.py`):
+The browser operator acts from cron with tools, and so does the agentic mind
+(docs/mind.md), and no other agent (`AGENT_JOB_AGENTS` in
+`bin/lib/cron_policy.py`). The builder, which wrote and shipped code from a
+desk of its own, was retired on 2026-11-24: the mind ships things itself, as
+pull requests through the broker.
 
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
-| `builder` (`brain/agents/builder.toml`) | `builder` in `brain/cron.toml`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks, the mind, `hands/reddit` and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
@@ -1284,68 +1286,42 @@ a browser task gets a few tries from TinyComputer's captcha solver first
 (Jev's image questions on TypeSafe, `[computer] captcha_solver`); only one it
 cannot pass ends the task `needs_human`. `bin/doctor`
 and `bin/lib/cron_policy.py` refuse a definition that loses the opt-in or
-its named tools, gives the builder the browser or a wallet tool, or gives
-the operator the shell or file writes. The drafting agents (`act`, `judge`,
+its named tools, or gives the operator the shell or file writes. The drafting agents (`act`, `judge`,
 `reviewer`, `querier`, `teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
 
-**How they reach the hands: a desk, not a call.** The core's workspace is
+**How it reaches the hands: a desk, not a call.** The core's workspace is
 `brain/` and its action directory is the checkout, so `workspace_only` alone
 would let a file tool reach `brain/` and nothing of `state/`. `bin/spine`
 therefore grants exactly `state/workbench/` as a trusted root (read and
 write) and forbids Teeny's brain files (agents, playbooks, cron, storage)
-and `secrets/`. The agents call no hand. A cron shell job runs the hand's
-`desk` verb, which collects the report the agent left in
-`state/workbench/desk/<name>-done.json`, passes it to the hand's own `done`
-(every rule applies; a refused report is set aside with the reason, which
-the next offer carries), then writes the next job or task to
-`state/workbench/desk/<name>.json`. The agent reads one file and writes one.
+and `secrets/`. The operator calls no hand. A cron shell job
+(`bin/tasks-desk`, every 15 minutes) runs `hands/tasks desk`, which collects
+the report it left in `state/workbench/desk/task-done.json`, passes it to the
+hand's own `done` (every rule applies; a refused report is set aside with the
+reason, which the next offer carries), then writes the next task to
+`state/workbench/desk/task.json`. The agent reads one file and writes one.
 
 ```
-                  shell job: bin/build-ship (*/30)       shell job: bin/tasks-desk (*/15)
-                             │                                      │
-                             ▼                                      ▼
-                     hands/build desk                       hands/tasks desk
-   1. settle: read <name>-done.json, run the hand's own `done` (every rule applies);
+ shell job: bin/tasks-desk (*/15) ──► hands/tasks desk
+   1. settle: read task-done.json, run the hand's own `done` (every rule applies);
       a refused report is set aside with its reason; the outcome goes to hands/stimuli
-   2. offer: write the next job or task to <name>.json
-                             │                                      │
-                             ▼                                      ▼
-              state/workbench/desk/build.json        state/workbench/desk/task.json
-                             │                                      │
-   agent job: builder (10 */2)                      agent job: operator (*/20)
-   shell (Landlock: writes state/workbench/ only),  browser (public web minus deploy/browser-deny.txt),
-   file tools                                       file_read, file_write
-                             │                                      │
-                             ▼                                      ▼
-            state/workbench/desk/build-done.json   state/workbench/desk/task-done.json
-                             │                                      │
-                             └──── read by the next desk run ───────┘
-   builder only: hands/build ship ──► hands/gh create-repo, push (guard, owner rule,
-                                      workbench rule, secret scan, DRY_RUN)
+   2. offer: write the next task to task.json
+                             │
+                             ▼
+              state/workbench/desk/task.json
+                             │
+   agent job: operator (*/20): browser (public web minus deploy/browser-deny.txt),
+                               file_read, file_write
+                             │
+                             ▼
+              state/workbench/desk/task-done.json ──► read by the next desk run
 ```
 
 A desk is the simplest safe choice, and the one that works at this pin:
 
 - The operator has no shell, so a shell wrapper could not serve it.
-- The builder's shell runs sandboxed, and the sandbox jails its files, not
-  its network. In the spine's container (Docker defaults, no user
-  namespaces) TinyBox's only jail is Landlock: the shell can write
-  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`)
-  and read the system's own directories, and nothing else of the checkout,
-  so it can reach neither `hands/` nor `secrets/` (a shell that could run
-  `hands/build` could also run `hands/gh push`). **The shell has the host's
-  network.** Landlock enforces no network rule and claims no process
-  isolation, so TinySecurity plans onto it only because the builder asks for
-  files only (`sandbox_filesystem_only = true`, TinySecurity contract 2.2,
-  openhuman#8678). A kernel jail (bubblewrap) is still preferred where one
-  exists, and without any jail the shell refuses. The shell cannot be
-  rooted at the checkout: the checkout is the core's action dir and holds
-  `brain/`, the core workspace, and TinySecurity refuses any grant that
-  overlaps it (every call failed with `denial=Path` until openhuman#8674 let
-  a cron run carry its own root). OpenHuman resolves the root at each run
-  and refuses to start one over `brain/` or the keyring.
-- The file tools are ones both agents need anyway, scoped by OpenHuman's own
-  path policy to the workbench.
+- The file tools are ones it needs anyway, scoped by OpenHuman's own path
+  policy to the workbench.
 - The hand that acts on a report runs outside any model turn.
 - An MCP server wrapping the hands' read verbs would be the cleaner call.
   Gap G11 (a serve host dropping every configured MCP server's tools when
@@ -1359,15 +1335,6 @@ the core's config, replacing each table whole. `automation.py` owns `[cron]`
 (`allowed_domains` from `deploy/browser-allow.txt`) and `[modules]` (tinywallet, the
 linked module). `context.py` owns `[context]` and `secrets.py` owns
 `[secrets]`.
-
-**What the builder may not do.** It has no token (its shell cannot read
-`secrets/` and gets an allowlisted environment), and it publishes nothing.
-Its shell does have the host's network, but what it may build and push is
-decided outside it. `hands/build ship` runs from cron, outside any model
-turn, and pushes only the job's folder through `hands/gh`: the guard on the
-commit message and description, the owner rule, the workbench rule and the
-secret scan. A refused push is retried twice more, then the job fails and
-its request is marked `failed`.
 
 ## 7. Two walkthroughs
 
