@@ -28,9 +28,10 @@ needs; exits non-zero with the reason otherwise:
   final message is a failed run to the harness, every time the cron fires);
 - the evolver (EDITORS) names its tools, only file tools, and never acts
   on a schedule: it runs on bin/evolve's lab spine over a worktree;
-- the builder's runs are rooted at the workbench (`scheduled_workspace`),
-  so its sandboxed shell is granted that folder and never the checkout
-  that holds brain/ and secrets/; no other agent picks a root;
+- the mind's runs are rooted at its home (`scheduled_workspace`), so its
+  sandboxed shell is granted that folder and never the checkout that holds
+  brain/ and secrets/; no other agent picks a root (the builder, retired
+  2026-11-24, was rooted at the workbench);
 - an agent whose prompt is a file has its instructions beside it
   (brain/agents/<id>.md), which bin/lib/prompts.py builds the file from.
 """
@@ -69,7 +70,6 @@ MAX_ITERATIONS = {"teeny": 3, "act": 3}
 NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 #: agent -> (tools it must have, tool name prefixes it must not have)
 SCHEDULED = {
-    "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
     # The mind works in its own home with a shell and no key (docs/mind.md).
     # Nothing that schedules (a cron shell job runs outside any jail), spawns
@@ -105,7 +105,7 @@ HELPERS = {
 VIEW_ONLY = ("mind", "worker")
 BROWSER_TOOL = "browser"
 #: The scheduled agents whose shell must stay jailed to files in their workspace.
-JAILED = ("builder", "mind", "worker")
+JAILED = ("mind", "worker")
 
 #: agent -> the only tools it may have. The evolver edits a lab worktree
 #: and answers JSON; bin/evolve gates what it wrote.
@@ -113,11 +113,10 @@ EDITORS = {"evolver": ("file_read", "file_write", "edit", "glob", "grep", "list"
 
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
-WORKSPACE = {"builder": "state/workbench", "mind": "state/home"}
+WORKSPACE = {"mind": "state/home"}
 
 #: agent -> the exact final message of a run with nothing queued.
 NOTHING_TO_DO = {
-    "builder": "nothing to do: no job waiting",
     "operator": "nothing to do: no task waiting",
 }
 
