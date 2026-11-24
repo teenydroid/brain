@@ -94,42 +94,34 @@ class SnapshotTest(KeepCase):
         self.assertEqual(self.stamps(), [])
 
     def test_pruning_keeps_six_hours_whole_then_one_an_hour_to_48_hours_then_one_a_day_to_14_days(self):
-        now = T0 + 30 * DAY
-        ages = [0, 600, 5 * HOUR,                    # recent: all kept
-                7 * HOUR, 7 * HOUR + 600,           # one hour: the newer kept
-                47 * HOUR, 49 * HOUR, 50 * HOUR,    # 49h and 50h share a day? no: a day's newest within 14 days
-                3 * DAY + 10, 3 * DAY + 2 * HOUR,   # one day: the newer kept
-                15 * DAY]                           # past 14 days: gone
-        for age in ages:
+        now = T0 + 30 * DAY  # a midnight, UTC
+        kept_ages = [0, 600, 5 * HOUR,  # the last six hours: every one
+                     7 * HOUR + 600,    # 16:50 kept over 16:40, the same hour
+                     47 * HOUR,         # its own hour, inside 48 hours
+                     49 * HOUR,         # 23:00 kept over 22:00, the same day
+                     3 * DAY + 10]      # 23:59:50 kept over 22:00, the same day
+        gone_ages = [7 * HOUR + 1200, 50 * HOUR, 3 * DAY + 2 * HOUR, 15 * DAY]
+        for age in kept_ages + gone_ages:
             folder = self.keep / stamp(now - age)
             folder.mkdir(parents=True)
-            (folder / "JOURNAL.md").write_text(f"age {age}\n")
+            (folder / "JOURNAL.md").write_text("age 0\n" if age == 0 else f"age {age}\n")
         (self.keep / ".partial-20261101T000000Z").mkdir()
         (self.keep / "not-a-stamp").mkdir()
         self.at(now)
-        self.journal(1)
-        self.journal(0)
         (self.notes / "JOURNAL.md").write_text("age 0\n")
         out = notes_keep.snapshot()
         self.assertIsNone(out["taken"])
-        kept = set(self.stamps())
-        want = {stamp(now - a) for a in (0, 600, 5 * HOUR, 7 * HOUR, 47 * HOUR)}
-        days = {}
-        for a in (49 * HOUR, 50 * HOUR, 3 * DAY + 10, 3 * DAY + 2 * HOUR):
-            day = stamp(now - a)[:8]
-            days[day] = max(days.get(day, ""), stamp(now - a))
-        want |= set(days.values())
-        self.assertEqual(kept, want | {"not-a-stamp"})
-        self.assertNotIn(stamp(now - 15 * DAY), kept)
+        self.assertEqual(set(self.stamps()), {stamp(now - a) for a in kept_ages} | {"not-a-stamp"})
+        self.assertEqual(sorted(out["pruned"]), sorted(stamp(now - a) for a in gone_ages))
         self.assertFalse((self.keep / ".partial-20261101T000000Z").exists())
 
     def test_the_history_is_bounded(self):
-        self.at(T0)
         for i in range(24 * 20):  # twenty days of a change every hour
             self.at(T0 + i * HOUR)
             self.journal(i + 1)
             notes_keep.snapshot()
-        self.assertLessEqual(len(self.stamps()), 6 + 42 + 14 + 1)
+        # 48 hourly ones (the six-hour window lies inside them) and about 13 daily ones.
+        self.assertLessEqual(len(self.stamps()), 48 + 15)
 
 
 class SymlinkTest(KeepCase):
