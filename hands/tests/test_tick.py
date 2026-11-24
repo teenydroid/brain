@@ -1279,9 +1279,9 @@ class TickTest(unittest.TestCase):
         are dry runs."""
         os.environ["TEENY_HANDS"] = str(REPO / "hands")
         (self.root / "deploy").symlink_to(REPO / "deploy")
-        self.caps(MIND_ISSUES_PER_DAY=5, MIND_TASKS_PER_DAY=5, MIND_MAILS_PER_DAY=5, DRY_RUN=1, SAFETY_JUDGE=0,
-                  GITHUB_USER="teenydroid", GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", AGENTMAIL_API_KEY="k", AGENTMAIL_INBOX="i@x",
-                  GH_MAX_EXTERNAL_ISSUES_PER_DAY=0)
+        self.caps(GH_MAX_EXTERNAL_ISSUES_PER_DAY=0,
+                  MIND_ISSUES_PER_DAY=5, MIND_TASKS_PER_DAY=5, MIND_MAILS_PER_DAY=5, DRY_RUN=1, SAFETY_JUDGE=0,
+                  GITHUB_USER="teenydroid", GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", AGENTMAIL_API_KEY="k", AGENTMAIL_INBOX="i@x")
         self.answer({"thought": "", "intents": [
             {**self.ISSUE, "repo": "tinyhumansai/openhuman"},
             {**self.TASK, "start_url": "https://evil.example/login"},
