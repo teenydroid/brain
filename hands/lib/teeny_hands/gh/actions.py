@@ -238,8 +238,10 @@ def create_repo(body: Any, gh: GitHubApi | None = None) -> Json:
 def push(body: Any, gh: GitHubApi | None = None) -> Json:
     """A folder under state/workbench/ as the next commit of BRANCH of an own
     repository (gitpush.Staged): on top of what that branch has, or for a new
-    branch on top of BASE when given (a fork's main, for a pull request)."""
-    body = _body(body, ("workdir", "repo", "branch", "message"), ("base",))
+    branch on top of BASE when given (a fork's main, for a pull request).
+    PARENT, when given, is the commit the folder was made from: a branch (or
+    base) that has moved since is refused, never laid over."""
+    body = _body(body, ("workdir", "repo", "branch", "message"), ("base", "parent"))
     path = gitpush.workdir(body["workdir"])
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
@@ -247,13 +249,17 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
         raise hand.Refused(f"Teeny pushes only to its own repositories ({user()}/...), not {repo}", rule="owner")
     ref = gitpush.branch(body["branch"])
     base = gitpush.branch(body["base"]) if "base" in body else None
+    expect = body.get("parent")
+    if expect is not None and not (isinstance(expect, str) and _SHA.match(expect.lower())):
+        raise hand.HandError('"parent" is the full 40-character commit the folder was made from')
+    expect = expect.lower() if expect else None
     message = guarded({"message": _string(body, "message")}, "commit", {"repo": repo, "branch": ref})["message"]
     rehearsal = hand.dry_run()
     # Reading the branch needs the token for a private repository, and the
     # push needs it; a rehearsal reads with it when it is there.
     token = hand.setting("GITHUB_TOKEN") if rehearsal else hand.require("GITHUB_TOKEN")
     with hand.lock(f"gh-push-{name.lower()}"):
-        staged = gitpush.Staged(path, owner, name, ref, base, token, None, rehearsal)
+        staged = gitpush.Staged(path, owner, name, ref, base, token, None, rehearsal, expect)
         try:
             if staged.findings:
                 raise hand.Refused("the push would publish what looks like a secret", rule="secrets",

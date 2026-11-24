@@ -74,16 +74,21 @@ the branch has, never forced.
 A fix to someone else's project (fork, branch, pull request):
 
     bin/teeny gh contributing '{"repo": "someone/lib"}'      # forbids_ai: true means stop here
+    bin/teeny gh repo '{"repo": "someone/lib"}'              # its default_branch: say it is "main"
     bin/teeny gh fork '{"repo": "someone/lib"}'
-    git clone --depth 1 https://github.com/someone/lib work/lib    # your shell has the network
+    git clone --depth 1 --branch main https://github.com/teenydroid/lib work/lib   # the fork, at that branch
+    git -C work/lib rev-parse HEAD                            # the parent: the commit your folder is made from
     # edit work/lib, run its tests (bounded, below)
-    bin/teeny gh push '{"workdir": "work/lib", "repo": "teenydroid/lib", "branch": "fix-empty-input", "base": "main", "message": "handle an empty file"}'
+    bin/teeny gh push '{"workdir": "work/lib", "repo": "teenydroid/lib", "branch": "fix-empty-input", "base": "main", "parent": "<that sha>", "message": "handle an empty file"}'
     bin/teeny gh open-pr '{"repo": "someone/lib", "head": "fix-empty-input", "base": "main", "title": "Handle an empty input file", "body": "What broke, what changed, how it was tested."}'
 
-`"base"` starts the new branch from the fork's `main`, so the pull request
-shows only your change; files you deleted in the folder are deleted in the
-commit. Then watch it: `teeny gh checks` and `teeny gh pr`, and answer review
-with `teeny gh comment`.
+Use one branch for all three: the clone, `"base"` and the pull request's
+`"base"`. Clone the fork, not the upstream, so the folder is made from the
+very commit the push builds on, and pass that commit as `"parent"`: if the
+branch moved since, the push is refused instead of undoing what came in
+between. Files you deleted in the folder are deleted in the commit. Then
+watch it: `teeny gh checks` and `teeny gh pr`, and answer review with
+`teeny gh comment`.
 
 ## Bound what you run
 

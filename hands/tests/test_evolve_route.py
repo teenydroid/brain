@@ -118,7 +118,7 @@ class Routed(EvolveCase):
         self.assertNotIn(fid, [f.id for f in evolve.open_findings(self.entries(), evolve.read_findings(cfg))])
 
         got = wants.file_one(wants.load_settings())
-        note = "notes/inbox/want-w-f-refusals-brief-duplicate.md"
+        note = "notes/inbox/want-w-f-refusals-brief-duplicate-356ee3e3.md"
         self.assertEqual(got, {"ok": True, "filed": "w:f:refusals:brief:duplicate", "note": note})
         self.assertEqual([c[0] for c in self.calls], ["guard"])
         text = (evolve.state_dir() / "home" / note).read_text()

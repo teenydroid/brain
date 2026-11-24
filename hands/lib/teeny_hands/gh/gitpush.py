@@ -97,8 +97,8 @@ class Staged:
     (the branch's head is a read) and pushes nothing."""
 
     def __init__(self, path: Path, owner: str, name: str, ref: str, base: str | None,
-                 token: str | None, user: str | None, rehearsal: bool) -> None:
-        self.path, self.owner, self.name, self.ref = path, owner, name, ref
+                 token: str | None, user: str | None, rehearsal: bool, expect: str | None = None) -> None:
+        self.path, self.owner, self.name, self.ref, self.expect = path, owner, name, ref, expect
         self.token, self.user = token, user
         self._tmp = Path(tempfile.mkdtemp(prefix="gh-push-", dir=hand.state_dir()))
         try:
@@ -123,12 +123,21 @@ class Staged:
             return None, None, f"{repo} could not be read (not created yet, in a rehearsal?): pushed as a first commit"
         onto = self.ref if self.ref in heads else base
         if onto is None:
+            if self.expect is not None:
+                raise hand.Refused(f"{repo} has no branch {self.ref} or base to hold parent {self.expect[:12]}: "
+                                   "name the \"base\" the folder was cloned from", rule="moved")
             return None, None, None
         if onto not in heads:
             raise hand.Refused(f"{repo} has no branch {onto} to start {self.ref} from", rule="base")
         self._git("fetch", "-q", "--depth=1", "--no-tags", remote_url(self.owner, self.name), f"refs/heads/{onto}",
                   token=True)
         parent = self._git("rev-parse", "FETCH_HEAD").stdout.decode().strip()
+        if self.expect is not None and parent != self.expect:
+            # The folder was made from EXPECT; laid over a branch that moved
+            # since, it would delete what came in between.
+            raise hand.Refused(f"{onto} on {repo} is at {parent[:12]}, not {self.expect[:12]} the folder was made "
+                               f"from: clone {onto} again, redo the change on it, and push with its new parent",
+                               rule="moved")
         self._git("reset", "-q", parent)
         return onto, parent, None
 
@@ -140,8 +149,12 @@ class Staged:
                              self.parent).stdout
         else:
             every = kept = self._git("ls-files", "-z", "--cached").stdout
-        changed = sorted({p for p in every.decode("utf-8", "replace").split("\0") if p})
-        paths = sorted({p for p in kept.decode("utf-8", "replace").split("\0") if p})
+        try:
+            changed = sorted({p for p in every.decode("utf-8").split("\0") if p})
+            paths = sorted({p for p in kept.decode("utf-8").split("\0") if p})
+        except UnicodeDecodeError:
+            # A name the scan could not open as it is, it could not vouch for.
+            raise hand.Refused("a file name in the folder is not UTF-8: rename it", rule="name") from None
         if not changed:
             what = f"what {self.onto} already has" if self.onto else "an empty folder"
             raise hand.Refused(f"there is nothing to push: the folder holds {what}", rule="empty")
@@ -178,9 +191,14 @@ def scan(path: Path, paths: list[str]) -> list[dict[str, str]]:
             findings.append(secretscan.Finding(rel, f"a file over {MAX_SCAN_BYTES // (1024 * 1024)} MB"))
             continue
         try:
-            contents[rel] = file.read_bytes().decode("utf-8", "replace")
+            data = file.read_bytes()
         except OSError:
             continue
+        text = data.decode("utf-8", "replace")
+        if b"\0" in data:
+            # UTF-16 or -32 text: a NUL between the letters of a token.
+            text += "\n" + data.replace(b"\0", b"").decode("utf-8", "replace")
+        contents[rel] = text
     findings.extend(secretscan.scan(paths, contents))
     unique: dict[str, secretscan.Finding] = {}
     for item in findings:

@@ -884,7 +884,7 @@ GH_READS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 #: The writing verbs: (required, optional) fields of the body the hand takes.
 GH_WRITES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "create-repo": (("name",), ("description", "private")),
-    "push": (("workdir", "repo", "branch", "message"), ("base",)),
+    "push": (("workdir", "repo", "branch", "message"), ("base", "parent")),
     "fork": (("repo",), ()),
     "open-pr": (("repo", "head", "base", "title", "body"), ()),
     "open-issue": (("repo", "title", "body"), ("labels",)),
@@ -933,11 +933,13 @@ GH_NEXT = {
     "empty": "the folder holds exactly what the branch already has: change something first",
     "base": "name a branch the repository has as \"base\" (teeny gh repo '{\"repo\": ...}' shows default_branch)",
     "identity": "the token is not Teeny's: nothing you can fix; write it in your journal for the operator",
-    "moved": "the branch moved on GitHub since it was read: push again",
+    "moved": ("the branch moved since your folder was made from it: clone it again (git clone --branch <base>), "
+              "redo the change there, and push with \"parent\": the new clone's git rev-parse HEAD"),
 }
 GH_HELD = "the guard held it: say something else or nothing; never reword it to get past"
 #: The fields of a gh call the ledger keeps: what it names, never what it says.
-GH_LEDGER_KEYS = ("repo", "number", "name", "head", "base", "branch", "workdir", "label", "max", "days", "private")
+GH_LEDGER_KEYS = ("repo", "number", "name", "head", "base", "branch", "parent", "workdir", "label", "max", "days",
+                  "private")
 #: The folder `push` copies: at most this many files and bytes (env seams for the tests).
 PUSH_MAX_FILES = 5000
 PUSH_MAX_BYTES = 200 * 1024 * 1024

@@ -157,6 +157,42 @@ class PushTest(Scratch):
                                        base="develop"), "base")
         self.assertIn("develop", error.reason)
 
+    def test_a_utf16_secret_is_found(self):
+        """CodeRabbit on #550: a token in UTF-16 has a NUL between its letters."""
+        self.remote("teenydroid/hello")
+        self.workdir("u16", {"README.md": "hi"})
+        (self.root / "state/workbench/u16/key.txt").write_bytes(("t = ghp_" + "a" * 36).encode("utf-16"))
+        error = self.refused(self.body(workdir="state/workbench/u16"), "secrets")
+        self.assertEqual(error.detail["findings"][0]["path"], "key.txt")
+
+    def test_a_file_name_that_is_not_utf8_is_refused(self):
+        import os
+
+        self.remote("teenydroid/hello")
+        path = self.workdir("bytes", {"README.md": "hi"})
+        with open(os.path.join(os.fsencode(path), b"k\xffey.txt"), "wb") as fh:
+            fh.write(b"x")
+        self.refused(self.body(workdir="state/workbench/bytes"), "name")
+
+    def test_a_parent_given_must_be_what_the_branch_or_base_has(self):
+        """CodeRabbit on #550: a folder made from commit A, pushed onto a branch
+        that moved to B, would delete B's change. With "parent" (the commit the
+        folder was made from) a moved branch is refused, never undone."""
+        self.me()
+        old = self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib, better\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main",
+                                     parent=old))
+        self.assertEqual(out["parent"], old)
+        self.seed("teenydroid/lib", {"README.md": "# lib\n", "NEW.md": "theirs\n"}, branch="main2")
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        git("--git-dir", remote, "update-ref", "refs/heads/main", git("--git-dir", remote, "rev-parse", "main2").strip())
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix2",
+                                       base="main", parent=old), "moved")
+        self.assertIn("clone", error.reason)
+        with self.assertRaises(hand.HandError):
+            actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="x", parent="nope"))
+
     def test_a_folders_own_git_history_is_never_published(self):
         self.me()
         remote = self.remote("teenydroid/hello")
