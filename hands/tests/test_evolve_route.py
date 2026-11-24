@@ -5,8 +5,9 @@ On 2026-11-22, 18 of the 19 evolve pull requests were 1-5 line prompt rules
 and `f:refusals:upvote_moltbook:duplicate` stood at 116 events after three
 candidates on duplicate refusals of the moltbook hand. A finding whose family
 has had EVOLVE_ROUTE_AFTER prompt-level tries that did not help is no longer
-offered to the text proposer: it is filed once as a builder want of kind
-`finding`, or, when the fix needs a frozen path, as one public issue."""
+offered to the text proposer: it is handed once to the agentic mind as a want
+of kind `finding` (a note in its inbox), or, when the fix needs a frozen
+path, as one public issue."""
 
 import json
 import os
@@ -96,11 +97,6 @@ class Routed(EvolveCase):
         self.calls.append((name, list(args), body))
         if name == "guard":
             return 0, {"ok": True, "text": body["text"]}
-        if name == "build" and args == ["self"]:
-            with sqlite3.connect(self.ledger.db) as conn:
-                cur = conn.execute("INSERT INTO build_requests (source, source_id, text, created_at) VALUES "
-                                   "('self', ?, ?, ?)", (f"want:{body.get('want')}:{T0:.6f}", body["text"], T0))
-                return 0, {"ok": True, "id": cur.lastrowid, "status": "pending", "want": body.get("want")}
         if name == "gh" and args[:1] == ["pr"]:
             return 0, {"ok": True, "pr": {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 + DAY)}}
         raise AssertionError(f"unexpected hand call: {name} {args}")
@@ -111,9 +107,9 @@ class Routed(EvolveCase):
     def status_row(self, fid):
         return next(r for r in evolve.status()["findings"]["current"] if r["id"] == fid)
 
-    # --- (c) the builder ------------------------------------------------------------------------
+    # --- (c) the agentic mind ------------------------------------------------------------------
 
-    def test_a_finding_two_prompt_fixes_did_not_move_goes_to_the_builder_once(self):
+    def test_a_finding_two_prompt_fixes_did_not_move_goes_to_the_mind_once(self):
         fid = "f:refusals:brief:duplicate"
         self.refusals("brief", 6)
         self.tried_twice(fid)
@@ -122,9 +118,13 @@ class Routed(EvolveCase):
         self.assertNotIn(fid, [f.id for f in evolve.open_findings(self.entries(), evolve.read_findings(cfg))])
 
         got = wants.file_one(wants.load_settings())
-        self.assertEqual(got, {"ok": True, "filed": "w:f:refusals:brief:duplicate", "request_id": 1})
-        brief = [c[2]["text"] for c in self.calls if c[0] == "build"][0]
-        self.assertTrue(brief.startswith("want: w:f:refusals:brief:duplicate\n"))
+        note = "notes/inbox/want-w-f-refusals-brief-duplicate.md"
+        self.assertEqual(got, {"ok": True, "filed": "w:f:refusals:brief:duplicate", "note": note})
+        self.assertEqual([c[0] for c in self.calls], ["guard"])
+        text = (evolve.state_dir() / "home" / note).read_text()
+        brief = text[text.index("want: w:f:refusals:brief:duplicate\n\n"):]
+        self.assertIn("you decide whether to build it", text)
+        self.assertNotIn("builder", text)
         for part in ("[f:refusals:brief:duplicate] 6 over 7 days", "g1c1 (parked, at 5 events)",
                      "g2c1 (merged, scored no-effect, at 6 events)", "brain/playbooks/brief.md", "hands/brief",
                      "refusals: duplicate refusals in brief, should fall", "no new hand is needed"):
@@ -134,21 +134,26 @@ class Routed(EvolveCase):
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)  # the next day: one want a day is not what stops it
         again = wants.file_one(wants.load_settings())
         self.assertEqual(again, {"ok": True, "skipped": "no open want"})
-        self.assertEqual(len([c for c in self.calls if c[0] == "build"]), 1)
+        self.assertEqual(len([c for c in self.calls if c[0] == "guard"]), 1)
         filed = (evolve.state_dir() / "wants" / "filed.jsonl").read_text().splitlines()
         self.assertEqual(len(filed), 1)
         self.assertEqual(json.loads(filed[0])["check"]["rule"], "duplicate")
 
-        self.ledger.sql("INSERT INTO build_jobs (kind, request_id, slug, status) VALUES ('self', 1, 'self-1', 'claimed')")
         row = self.status_row(fid)
         self.assertEqual(row["state"], "routed")
-        self.assertEqual(row["routed"]["said"], "routed to builder (job 1)")
+        self.assertEqual(row["routed"]["said"], f"handed to the agentic mind ({note})")
 
     def test_a_merged_fix_is_scored_on_the_findings_own_count_a_week_on(self):
+        """A fix the retired builder built from a filing before 2026-11-24 is
+        still scored on its finding's own count."""
         fid = "f:refusals:brief:duplicate"
         self.refusals("brief", 6)
         self.tried_twice(fid)
-        self.assertEqual(wants.file_one(wants.load_settings())["filed"], "w:f:refusals:brief:duplicate")
+        route = next(r for r in evolve.finding_routes(self.entries(), evolve.read_findings(evolve.load_config()),
+                                                      evolve.load_config()) if r["want"] == "w:f:refusals:brief:duplicate")
+        self.ledger.sql("INSERT INTO build_requests (source, source_id, text, created_at) VALUES ('self', 'w', 'x', 0)")
+        wants._append("filed.jsonl", {"want": route["want"], "hash": "h", "text": "t", "at": T0, "request_id": 1,
+                                      "kind": "finding", "check": route["check"]})
         self.ledger.sql("INSERT INTO build_jobs (kind, request_id, slug, status, pr_url, rubric) VALUES "
                         "('self', 1, 'self-1', 'shipped', 'https://github.com/teenydroid/brain/pull/9', ?)",
                         json.dumps({"ok": True, "kind": "fix", "hands": [], "tests": ["hands/tests/test_x.py"]}))
@@ -240,7 +245,7 @@ class Routed(EvolveCase):
         self.tried_twice("f:refusals:moltbook-curate:duplicate", events=(4, 5), gen=3)
         cfg = evolve.load_config()
         routes = evolve.finding_routes(self.entries(), evolve.read_findings(cfg), cfg)
-        self.assertEqual(sorted(r["to"] for r in routes), ["builder", "issue"])
+        self.assertEqual(sorted(r["to"] for r in routes), ["issue", "mind"])
         for route in routes:
             for word in ("STRANGER", "@somebody", "evil.example"):
                 self.assertNotIn(word, route["text"] + route["title"], route["family"])

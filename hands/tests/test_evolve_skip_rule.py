@@ -4,7 +4,7 @@
 wants to build ("the first thing i build myself is a chart renderer ... not
 built yet") settled by a skip of `already` whose only ground was that the
 item sits on the memory page. Writing an intention down is not carrying it
-out. Build intents now leave this loop for the builder (bin/wants), and a
+out. Build intents now leave this loop for the agentic mind (bin/wants), and a
 skip that rests on the memory page is refused in code: research goes on to
 the build, the proposer is sent the refusal as a finding, and an archived
 skip of that kind no longer settles its learning (bin/lib/wants_rules.py)."""
@@ -44,7 +44,7 @@ class BuildIntents(LoopCase):
         with redirect_stderr(err):
             out = self.run_with(proposer, n=2)
         self.assertEqual([c["learning"] for c in out["candidates"]], ["m62"])
-        self.assertIn("1 learning(s) are things to build: they go to the builder (bin/wants), not here",
+        self.assertIn("1 learning(s) are things to build: they go to the agentic mind (bin/wants), not here",
                       err.getvalue())
         # A rule beside it is picked as before; the full page minus m15 too.
         self.page(PAGE)
