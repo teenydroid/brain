@@ -1700,5 +1700,151 @@ class CloneClientTest(MindCloneCase):
         self.assertEqual(proc.returncode, 2, proc.stdout)
 
 
+
+#: The line `teeny journal` and `teeny note` write above each entry.
+STAMP_LINE = r"^### (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)$"
+
+
+class NotesAppendTest(BrokerCase):
+    """`teeny journal` and `teeny note`: append one timestamped entry to a
+    notes file, in the jail, under a lock, never replacing the file
+    (file_write replaced JOURNAL.md twice, 2026-11-23 and 2026-11-24)."""
+
+    def setUp(self):
+        super().setUp()
+        self.settings()
+        self.assertEqual(self.broker("install").returncode, 0)
+        self.notes = self.home / "notes"
+
+    def client(self, *argv, stdin=None):
+        # No broker url or token is needed: appending is done in the jail.
+        return subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True, text=True, timeout=60,
+                              env={"PATH": os.environ["PATH"]}, input=stdin)
+
+    def entries(self, text):
+        import re
+        lines = text.splitlines()
+        return [(m.group(1), lines[i + 1]) for i, line in enumerate(lines) if (m := re.match(STAMP_LINE, line))]
+
+    def test_journal_appends_one_entry_under_a_stamp_the_tool_writes_and_never_shortens_the_file(self):
+        import datetime as dt
+        old = "2026-11-24T02:36Z — an old line\nno newline at the end"
+        (self.notes / "JOURNAL.md").write_text(old)
+        before = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+        proc = self.client("journal", "picked the follower-quality thread")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        answer = json.loads(proc.stdout)
+        self.assertEqual((answer["status"], answer["file"]), ("ok", "notes/JOURNAL.md"))
+        text = (self.notes / "JOURNAL.md").read_text()
+        self.assertTrue(text.startswith(old + "\n"), text)
+        [(stamp, body)] = self.entries(text)
+        self.assertEqual(body, "picked the follower-quality thread")
+        self.assertEqual(answer["at"], stamp)
+        at = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        self.assertLessEqual(abs((at - before).total_seconds()), 60)
+        size = len(text)
+        self.assertEqual(self.client("journal", "a second entry").returncode, 0)
+        text = (self.notes / "JOURNAL.md").read_text()
+        self.assertGreater(len(text), size)
+        self.assertEqual([b for _, b in self.entries(text)], ["picked the follower-quality thread", "a second entry"])
+
+    def test_journal_reads_a_multi_line_entry_from_stdin(self):
+        proc = self.client("journal", "-", stdin="line one\nline two\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        text = (self.notes / "JOURNAL.md").read_text()
+        self.assertTrue(text.rstrip("\n").endswith("line one\nline two"), text)
+
+    def test_note_appends_to_a_named_notes_file_and_makes_it_when_missing(self):
+        for name in ("LEARNINGS", "LEARNINGS.md", "self"):
+            proc = self.client("note", json.dumps({"file": name, "text": f"via {name}"}))
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual([b for _, b in self.entries((self.notes / "LEARNINGS.md").read_text())],
+                         ["via LEARNINGS", "via LEARNINGS.md"])
+        self.assertEqual([b for _, b in self.entries((self.notes / "SELF.md").read_text())], ["via self"])
+
+    def test_two_overlapping_wakes_appending_at_once_both_land_intact(self):
+        texts = [f"wake {w} entry {i} " + (chr(65 + w) * 6000) for w in range(2) for i in range(12)]
+        procs = [subprocess.Popen([str(self.home / "bin" / "teeny"), "journal", t], stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, env={"PATH": os.environ["PATH"]}) for t in texts]
+        for proc in procs:
+            out, err = proc.communicate(timeout=60)
+            self.assertEqual(proc.returncode, 0, out + err)
+        got = [b for _, b in self.entries((self.notes / "JOURNAL.md").read_text())]
+        self.assertEqual(sorted(got), sorted(texts))
+
+    def test_a_path_an_unknown_name_or_a_bad_entry_is_refused_and_writes_nothing(self):
+        outside = self.scratch / "outside.md"
+        outside.write_text("keep me\n")
+        for name in ("../outside", "notes/JOURNAL.md", "/etc/passwd", str(outside), "inbox/x", "FOO", "README.md",
+                     ".keep", "JOURNAL.md/", "", 7):
+            proc = self.client("note", json.dumps({"file": name, "text": "x"}))
+            self.assertEqual(proc.returncode, 2, f"{name!r}: {proc.stdout}")
+            self.assertEqual(json.loads(proc.stdout)["status"], "refused")
+        for body in ({"file": "TASKS"}, {"file": "TASKS", "text": "  \n"}, {"file": "TASKS", "text": "a\x00b"},
+                     {"file": "TASKS", "text": "x" * 17000}, {"file": "TASKS", "text": "x", "mode": "w"}):
+            proc = self.client("note", json.dumps(body))
+            self.assertEqual(proc.returncode, 2, f"{body!r}: {proc.stdout}")
+        self.assertEqual(self.client("journal").returncode, 1)
+        self.assertEqual(self.client("journal", "a", "b").returncode, 1)
+        self.assertEqual(outside.read_text(), "keep me\n")
+        self.assertEqual(sorted(p.name for p in self.notes.iterdir()), ["inbox"])
+
+    def test_a_planted_symlink_or_hard_link_is_refused_and_its_target_untouched(self):
+        outside = self.scratch / "outside.md"
+        outside.write_text("keep me\n")
+        (self.notes / "JOURNAL.md").symlink_to(outside)
+        proc = self.client("journal", "x")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("link", json.loads(proc.stdout)["reason"])
+        other = self.home / "work.md"
+        other.write_text("mine\n")
+        os.link(other, self.notes / "TASKS.md")
+        proc = self.client("note", json.dumps({"file": "TASKS", "text": "x"}))
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertEqual((outside.read_text(), other.read_text()), ("keep me\n", "mine\n"))
+
+    def test_a_notes_folder_turned_into_a_link_is_refused(self):
+        elsewhere = self.scratch / "elsewhere"
+        elsewhere.mkdir()
+        os.rename(self.notes, self.scratch / "moved")
+        self.notes.symlink_to(elsewhere)
+        proc = self.client("journal", "x")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_help_names_the_append_verbs_and_the_snapshots(self):
+        out = self.client("help").stdout
+        for text in ("teeny journal", "teeny note", "notes/.keep/"):
+            self.assertIn(text, out)
+
+
+class NotesKeepTest(BrokerCase):
+    """The broker snapshots the mind's notes as it starts and every ten
+    minutes after (bin/lib/notes_keep.py, tested in test_notes_keep.py)."""
+
+    def test_serve_takes_a_snapshot_of_the_notes_at_start(self):
+        notes = self.home / "notes"
+        notes.mkdir(parents=True)
+        (notes / "JOURNAL.md").write_text("- an entry\n")
+        self.start()
+        copy = self.home / "notes" / ".keep"
+        deadline = time.monotonic() + 20
+        while not any(copy.glob("*/JOURNAL.md")):
+            self.assertLess(time.monotonic(), deadline, "no snapshot was taken")
+            time.sleep(0.05)
+        [kept] = copy.glob("*/JOURNAL.md")
+        self.assertEqual(kept.read_text(), "- an entry\n")
+
+    def test_keep_takes_one_by_hand_and_skips_an_unchanged_one(self):
+        self.settings()
+        self.assertEqual(self.broker("install").returncode, 0)
+        (self.home / "notes" / "TASKS.md").write_text("- a task\n")
+        proc = self.broker("keep")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["taken"].startswith("notes/.keep/2026"))
+        proc = self.broker("keep", env={"TEENY_NOW": str(T0 + 600)})
+        self.assertIsNone(json.loads(proc.stdout)["taken"])
+
+
 if __name__ == "__main__":
     unittest.main()

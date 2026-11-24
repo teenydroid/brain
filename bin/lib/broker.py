@@ -25,6 +25,11 @@ the jail cannot read either; docs/mind.md, "A lean prompt").
 `serve` runs only with MIND=1 in secrets/teeny.env; `install` only writes
 those files and exits (and rotates the token a running broker holds).
 
+While it serves, the broker also keeps the mind's notes: every
+notes_keep.EVERY_SECS it snapshots state/home/notes/*.md into
+notes/.keep/<UTC stamp>/ when anything changed, and reports a journal that
+shrank (bin/lib/notes_keep.py; `bin/broker keep` takes one by hand).
+
 The mind rehearses on a switch of its own. Unless secrets/teeny.env says
 MIND_DRY_RUN=0, `serve` forces DRY_RUN on for itself and so for every hand it
 runs: the mind's wakes, its notes and what it would have done (the ledger)
@@ -109,6 +114,7 @@ from teeny_hands.build import mindclone  # noqa: E402
 
 import cron_policy  # noqa: E402
 import mind_home  # noqa: E402
+import notes_keep  # noqa: E402
 import pulse as pulse_lib  # noqa: E402
 import tick  # noqa: E402
 import webfetch  # noqa: E402
@@ -927,7 +933,7 @@ def bind(port: int, token: str) -> ThreadingHTTPServer:
 
 # --- entry ----------------------------------------------------------------------------
 
-USAGE = "usage: bin/broker serve | install | enabled | sweep | operator-note REF"
+USAGE = "usage: bin/broker serve | install | enabled | sweep | keep | operator-note REF"
 OPERATOR_REF = re.compile(r"host-[0-9]{1,12}-[0-9a-f]{1,12}")
 MAX_OPERATOR_NOTE = 20000
 
@@ -996,6 +1002,25 @@ def _prepare_clone(server: ThreadingHTTPServer) -> None:
         print(f"[broker] the mind's clone could not be prepared: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
 
 
+def _keep_once() -> None:
+    """One snapshot of the mind's notes; a failure is said, never fatal."""
+    try:
+        out = notes_keep.snapshot()
+        for alert in out["shrunk"]:
+            print(f"[broker] notes/{alert['file']} shrank from {alert['lines_before']} to {alert['lines_now']} "
+                  f"lines; the last full copy is {alert['last_full_copy']}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a snapshot that fails never stops the broker
+        print(f"[broker] the notes snapshot failed: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
+
+
+def _keep_notes(stop: threading.Event) -> None:
+    """Snapshots the notes at start and every notes_keep.EVERY_SECS after."""
+    while True:
+        _keep_once()
+        if stop.wait(notes_keep.EVERY_SECS):
+            return
+
+
 def serve() -> int:
     if not mind_on():
         print("[broker] the mind agent is off: set MIND=1 in secrets/teeny.env to serve it", file=sys.stderr)
@@ -1013,6 +1038,7 @@ def serve() -> int:
         print(f"[broker] serving the mind on http://{HOST}:{server.server_address[1]}", file=sys.stderr)
         if hand.number("MIND_PRS_PER_DAY", 0, 0, MAX_PRS_PER_DAY) > 0:
             threading.Thread(target=_prepare_clone, args=(server,), daemon=True).start()
+        threading.Thread(target=_keep_notes, args=(threading.Event(),), daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -1032,6 +1058,9 @@ def main(argv: list[str]) -> int:
         return 0 if mind_on() else 1
     if argv == ["sweep"]:
         return sweep()
+    if argv == ["keep"]:
+        print(json.dumps(notes_keep.snapshot()))
+        return 0
     if len(argv) == 2 and argv[0] == "operator-note":
         return operator_note(argv[1])
     print(USAGE, file=sys.stderr)

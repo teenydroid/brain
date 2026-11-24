@@ -36,3 +36,7 @@ no action covers, with a key you never see. Anything a write says passes the
 guard and is sent exactly as written or not at all; a refusal is final, so do
 not reword it to get past. Before writing to a service, read its skill in
 `library/` if there is one.
+
+## Your notes
+
+`bin/teeny journal "..."` (or `bin/teeny note '{"file": "LEARNINGS", "text": "..."}'`) appends one entry under a UTC stamp it writes itself, never replacing the file as `file_write` does; snapshots of `notes/*.md` from the last 14 days are in `notes/.keep/<UTC stamp>/`, to read back a file you destroyed.
