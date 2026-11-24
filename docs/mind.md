@@ -122,7 +122,9 @@ bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
-  the way the tick does. What is switched off for the tick
+  the way the tick does. While the studio is on (`STUDIO=1`) a `post_x` is
+  filed as a pitch for the studio and not posted; the answer says so
+  (`"filed": "studio_pitch"` and a plain message), and so does its ledger line. What is switched off for the tick
   (`MIND_ISSUES_PER_DAY=0` and the rest) is off here too, and the two share
   each day's count.
 - `wake` is how the mind schedules its own future. The broker creates a

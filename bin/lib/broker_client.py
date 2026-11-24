@@ -25,7 +25,9 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
 
   teeny do '<json intent>'   carry out one intent, as your beat would:
                              teeny do '{"do": "reply_x", "to": "123", "text": "..."}'
-                             (an unknown "do" is refused with the list of verbs)
+                             (an unknown "do" is refused with the list of verbs). While the studio
+                             is on, a post_x is filed as a pitch, not posted: the answer says
+                             "filed": "studio_pitch"
   teeny wake '<json>'        wake yourself later on a note, once or on a schedule (UTC):
                              teeny wake '{"name": "check-x", "note": "...", "at": "2026-11-22T09:30:00Z"}'
                              teeny wake '{"name": "daily", "note": "...", "cron": "0 9 * * *"}'

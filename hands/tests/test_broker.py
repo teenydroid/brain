@@ -102,7 +102,7 @@ class BrokerCase(unittest.TestCase):
         self.hands = self.scratch / "hands"
         self.hands.mkdir()
         for name in ("x", "moltbook", "mail", "gh", "guard", "telegram", "wallet", "tasks", "people", "hn", "x402",
-                     "lab", "build", "reddit", "goals", "call"):
+                     "lab", "build", "reddit", "goals", "call", "stimuli"):
             _exe(self.hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.jobs_file = self.scratch / "jobs.json"
@@ -400,6 +400,38 @@ class DoTest(BrokerCase):
         self.assertEqual((code, out["status"]), (200, "ok"))
         self.assertEqual(out["result"]["goals"], [{"id": 1, "title": "be famous"}])
         self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls()], [("goals", ["list"])])
+
+
+class StudioPitchTest(BrokerCase):
+    """With the studio on, a post_x is filed as a pitch (tick._post_x), never
+    posted: the broker's answer says so, so the mind does not record a post."""
+
+    def test_a_post_x_while_the_studio_is_on_is_answered_as_a_filed_pitch(self):
+        self.start(STUDIO="1")
+        code, out = self.post("/do", {"do": "post_x", "text": "a thought about the news"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(out["filed"], "studio_pitch")
+        self.assertIn("not posted", out["message"])
+        self.assertIn("STUDIO=1", out["message"])
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["stimuli"])
+        line = self.ledger()[-1]
+        self.assertEqual((line["filed"], line["verb"]), ("studio_pitch", "post_x"))
+        self.assertIn("not posted", line["message"])
+
+    def test_a_rehearsed_post_x_while_the_studio_is_on_says_it_would_be_a_pitch(self):
+        self.start(STUDIO="1", MIND_DRY_RUN=None)
+        code, out = self.post("/do", {"do": "post_x", "text": "a thought about the news"})
+        self.assertEqual((code, out["status"], out["dry_run"], out["filed"]), (200, "ok", True, "studio_pitch"), out)
+        self.assertIn("not posted", out["message"])
+
+    def test_a_post_x_while_the_studio_is_off_is_answered_as_before(self):
+        self.start()
+        code, out = self.post("/do", {"do": "post_x", "text": "a thought about the news"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertNotIn("filed", out)
+        self.assertNotIn("message", out)
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        self.assertNotIn("filed", self.ledger()[-1])
 
 
 class RehearsalTest(BrokerCase):

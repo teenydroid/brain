@@ -242,12 +242,14 @@ def _ledger(entry: Json, answer: Json) -> None:
         "path": entry.get("path"),
         "verb": entry.get("verb"),
         "status": answer.get("status"),
-        "message": _clipped(answer.get("reason") or answer.get("error")),
+        "message": _clipped(answer.get("reason") or answer.get("error") or entry.get("message")),
         "dry_run": hand.dry_run(),
         "exit": entry.get("exit"),
     }
     if "intent" in entry:
         line["intent"] = entry["intent"]
+    if "filed" in entry:
+        line["filed"] = entry["filed"]
     path = _ledger_path()
     with _ledger_lock:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -278,10 +280,33 @@ def _hand_answer(code: int, out: Json, entry: Json) -> Json:
 REHEARSING_HANDS = frozenset({"x", "moltbook", "mail", "telegram", "gh", "reddit", "rent"})
 
 
+#: What the mind reads when its intent was filed for the studio, not sent.
+PITCH_MESSAGE = ("filed as a pitch for the studio (STUDIO=1), not posted: the studio decides at its next slot "
+                 "whether anything comes of it")
+
+
+def _filed_pitch(name: str, hand_body: Any) -> bool:
+    """Whether the route turned the intent into a studio pitch (tick._pitch_x:
+    a `studio` stimulus of kind `pitch`), as a post_x is while STUDIO=1."""
+    return (name == "stimuli" and isinstance(hand_body, dict) and hand_body.get("surface") == "studio"
+            and hand_body.get("kind") == "pitch")
+
+
+def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
+    """An answer for a pitch says in plain words that nothing was posted,
+    and its ledger line records it."""
+    if answer.get("status") == "ok" and _filed_pitch(name, hand_body):
+        answer["filed"] = entry["filed"] = "studio_pitch"
+        answer["message"] = entry["message"] = PITCH_MESSAGE
+    return answer
+
+
 def do(body: Json, entry: Json) -> Json:
     """One intent, the way a beat carries it out (tick.carry_out): the route
     (its fields, and its daily cap where one applies), the cap counted once
-    the call reaches the hand, then the hand, once."""
+    the call reaches the hand, then the hand, once. An intent the route files
+    as a studio pitch (a post_x while STUDIO=1) is answered as filed, not
+    posted."""
     entry["intent"] = _clipped(body)
     verb = body.get("do")
     entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
@@ -297,15 +322,15 @@ def do(body: Json, entry: Json) -> Json:
         # This hand has no dry run of its own: what it writes is real, and a
         # live worker would act on it (a queued browser task, a build
         # request). In a rehearsal it is not run and nothing is counted.
-        return {"status": "ok", "dry_run": True, "would": {"hand": name, "argv": argv},
-                "note": "rehearsal: checked, not sent"}
+        return _say_filed({"status": "ok", "dry_run": True, "would": {"hand": name, "argv": argv},
+                           "note": "rehearsal: checked, not sent"}, entry, name, hand_body)
     # A deadline already past: a hand's "not yet" (pacing) comes straight back
     # as its refusal, with its wait, rather than holding the broker.
     if hand.dry_run():
         # A rehearsal spends nothing of the day: the hand says what it would
         # send, and the live allowance is still there for the real one.
         code, out = tick._run_hand(name, argv, hand_body)
-        return _hand_answer(code, out, entry)
+        return _say_filed(_hand_answer(code, out, entry), entry, name, hand_body)
     try:
         code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
     except ValueError as exc:  # the day's cap, spent between the check and the count
@@ -313,7 +338,7 @@ def do(body: Json, entry: Json) -> Json:
     answer = _hand_answer(code, out, entry)
     if held:
         answer["held"] = {k: held[k] for k in ("rule", "wait_seconds") if k in held}
-    return answer
+    return _say_filed(answer, entry, name, hand_body)
 
 
 def goals(body: Json, entry: Json) -> Json:
