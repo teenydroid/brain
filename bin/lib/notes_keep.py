@@ -167,8 +167,20 @@ def _keep_fd() -> int:
     return mind_home._open((NOTES, KEEP))
 
 
+def _is_stamp(name: str) -> bool:
+    """A snapshot folder's name: stamp-shaped and a real UTC time (a folder
+    named 20261301T000000Z is left alone, never parsed again)."""
+    if not STAMP.fullmatch(name):
+        return False
+    try:
+        _time_of(name)
+    except ValueError:
+        return False
+    return True
+
+
 def _stamps(keep: int) -> list[str]:
-    return sorted(n for n in os.listdir(keep) if STAMP.fullmatch(n))
+    return sorted(n for n in os.listdir(keep) if _is_stamp(n))
 
 
 # --- removing without following a link ---------------------------------------------------
@@ -206,7 +218,7 @@ def _load_alerts(keep: int) -> list[Json]:
     except ValueError:
         return []
     return [a for a in value if isinstance(a, dict) and isinstance(a.get("file"), str)
-            and isinstance(a.get("stamp"), str) and STAMP.fullmatch(a["stamp"])] if isinstance(value, list) else []
+            and isinstance(a.get("stamp"), str) and _is_stamp(a["stamp"])] if isinstance(value, list) else []
 
 
 def _save_alerts(alerts: list[Json]) -> None:
@@ -295,9 +307,25 @@ def keep_set(stamps: list[str], now: float, pinned: set[str]) -> set[str]:
 # --- the snapshot ------------------------------------------------------------------------
 
 
+def _seen(alert: Json) -> float:
+    """When an alert was raised; its lifetime counts from then, not from the
+    copy it names, which may be far older after a quiet spell."""
+    try:
+        return dt.datetime.strptime(str(alert.get("seen_at")), "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=dt.timezone.utc).timestamp()
+    except ValueError:
+        return _time_of(alert["stamp"])
+
+
 def snapshot() -> Json:
     """Takes one snapshot of notes/ when anything changed, reports a shrunken
-    journal or a vanished notes file, and prunes. Answers what it did."""
+    journal or a vanished notes file, and prunes. Answers what it did.
+
+    One run at a time: an exclusive lock on the .keep/ folder spans the whole
+    of it (the broker's timer and `bin/broker keep` may overlap). A run that
+    finds it held does nothing and answers `busy`. An alert is saved before
+    the shortened snapshot becomes the newest, and its inbox note is retried
+    at every run until it is written."""
     t = hand.now()
     notes = _notes_fd()
     try:
@@ -305,13 +333,18 @@ def snapshot() -> Json:
     finally:
         os.close(notes)
     keep = _keep_fd()
-    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": skipped}
+    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": skipped, "busy": False}
     try:
+        try:
+            fcntl.flock(keep, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            out["busy"] = True
+            return out
         for name in os.listdir(keep):
             if name.startswith(PARTIAL):
-                _remove(keep, name)  # an interrupted snapshot
+                _remove(keep, name)  # an interrupted snapshot: no other run holds the lock
         stamps = _stamps(keep)
-        prev = None
+        prev, before = None, {}
         for s in reversed(stamps):
             fd = _open_dir(keep, s)
             if fd is not None:
@@ -320,10 +353,25 @@ def snapshot() -> Json:
                 finally:
                     os.close(fd)
                 break
-        open_alerts = _load_alerts(keep)
+        saved = _load_alerts(keep)
+        open_alerts = [dict(a) for a in saved]
         if prev is not None and before == current:
             out["unchanged_since"] = f"{NOTES}/{KEEP}/{prev}"
-        elif current:
+        elif prev is not None:
+            have = {a["file"] for a in open_alerts}
+            for alert in _shrunk(before, current, prev, t):
+                if alert["file"] in have:  # the first full copy is the one to keep
+                    continue
+                alert["notified"] = False
+                open_alerts.append(alert)
+                out["shrunk"].append(alert)
+        # An alert closes when its file is back to its old length, or DAILY_SECS after it was raised.
+        open_alerts = [a for a in open_alerts
+                       if _lines(current.get(a["file"], "")) < a.get("lines_before", 0) and t - _seen(a) <= DAILY_SECS]
+        if open_alerts != saved:
+            _save_alerts(open_alerts)
+            saved = [dict(a) for a in open_alerts]
+        if current and out.get("unchanged_since") is None:
             name = stamp_of(t)
             if name not in stamps:
                 partial = PARTIAL + name
@@ -333,24 +381,17 @@ def snapshot() -> Json:
                 stamps.append(name)
                 stamps.sort()
                 out["taken"] = f"{NOTES}/{KEEP}/{name}"
-            if prev is not None:
-                have = {a["file"] for a in open_alerts}
-                for alert in _shrunk(before, current, prev, t):
-                    out["shrunk"].append(alert)
-                    if alert["file"] not in have:  # the first full copy is the one to keep
-                        open_alerts.append(alert)
-                        _inbox(alert)
-        # An alert closes when its file is back to its old length, or after DAILY_SECS.
-        still = [a for a in open_alerts
-                 if _lines(current.get(a["file"], "")) < a.get("lines_before", 0)
-                 and t - _time_of(a["stamp"]) <= DAILY_SECS]
-        if still != _load_alerts(keep):
-            _save_alerts(still)
-        kept = keep_set(stamps, t, {a["stamp"] for a in still})
+        for alert in open_alerts:
+            if not alert.get("notified", True):
+                _inbox(alert)
+                alert["notified"] = True
+        if open_alerts != saved:
+            _save_alerts(open_alerts)
+        kept = keep_set(stamps, t, {a["stamp"] for a in open_alerts})
         for s in stamps:
             if s not in kept:
                 _remove(keep, s)
                 out["pruned"].append(s)
     finally:
-        os.close(keep)
+        os.close(keep)  # and the lock with it
     return out

@@ -237,5 +237,83 @@ class ShrinkTest(KeepCase):
         json.dumps(out)
 
 
+class ReviewFindingsTest(KeepCase):
+    """The review of #545: what an empty notes/, an overlapping run, a long
+    quiet spell, a malformed stamp or a failed inbox write must not lose."""
+
+    def test_every_notes_file_gone_is_still_reported(self):
+        self.journal(10)
+        (self.notes / "TASKS.md").write_text("- a task\n")
+        notes_keep.snapshot()
+        self.at(T0 + 600)
+        (self.notes / "JOURNAL.md").unlink()
+        (self.notes / "TASKS.md").unlink()
+        out = notes_keep.snapshot()
+        self.assertIsNone(out["taken"], "an empty notes/ makes no empty snapshot")
+        self.assertEqual(sorted(a["file"] for a in out["shrunk"]), ["JOURNAL.md", "TASKS.md"])
+        self.assertEqual(sorted(a["file"] for a in notes_keep.alerts()), ["JOURNAL.md", "TASKS.md"])
+        self.assertTrue((self.notes / "inbox" / "keep-JOURNAL.md").exists())
+
+    def test_a_run_while_another_holds_the_keep_lock_touches_nothing(self):
+        import fcntl
+        self.journal(3)
+        notes_keep.snapshot()
+        partial = self.keep / ".partial-20261130T001000Z"
+        partial.mkdir()
+        (partial / "JOURNAL.md").write_text("being written\n")
+        fd = os.open(self.keep, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            self.at(T0 + 600)
+            self.journal(4)
+            out = notes_keep.snapshot()
+            self.assertTrue(out["busy"])
+            self.assertIsNone(out["taken"])
+            self.assertTrue((partial / "JOURNAL.md").exists(), "another run's staging folder is left alone")
+        finally:
+            os.close(fd)
+        self.assertIsNotNone(notes_keep.snapshot()["taken"])
+
+    def test_an_alert_after_a_long_quiet_spell_stays_open_and_pins_its_copy(self):
+        self.journal(40)
+        notes_keep.snapshot()
+        self.at(T0 + 20 * DAY)  # nothing changed for twenty days
+        self.journal(1)
+        [alert] = notes_keep.snapshot()["shrunk"]
+        self.assertEqual(alert["stamp"], stamp(T0))
+        self.assertEqual([a["file"] for a in notes_keep.alerts()], ["JOURNAL.md"])
+        self.at(T0 + 20 * DAY + 600)
+        self.journal(2)
+        notes_keep.snapshot()
+        self.assertIn(stamp(T0), self.stamps())
+        self.assertTrue((self.keep / stamp(T0) / "JOURNAL.md").exists())
+
+    def test_a_stamp_shaped_name_that_is_no_date_is_ignored(self):
+        (self.keep / "20261301T000000Z").mkdir(parents=True)
+        (self.keep / "20261301T000000Z" / "JOURNAL.md").write_text("bogus\n")
+        self.journal(3)
+        out = notes_keep.snapshot()
+        self.assertEqual(out["taken"], f"notes/.keep/{stamp(T0)}")
+        self.at(T0 + 600)
+        self.journal(4)
+        self.assertIsNotNone(notes_keep.snapshot()["taken"])
+        self.assertTrue((self.keep / "20261301T000000Z").exists())
+
+    def test_an_inbox_write_that_fails_keeps_the_alert_and_is_retried(self):
+        self.journal(40)
+        notes_keep.snapshot()
+        self.at(T0 + 600)
+        self.journal(1)
+        with mock.patch.object(notes_keep, "_inbox", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                notes_keep.snapshot()
+        self.assertEqual([a["file"] for a in notes_keep.alerts()], ["JOURNAL.md"])
+        self.assertFalse((self.notes / "inbox" / "keep-JOURNAL.md").exists())
+        self.at(T0 + 1200)
+        notes_keep.snapshot()
+        self.assertIn(f"notes/.keep/{stamp(T0)}/JOURNAL.md", (self.notes / "inbox" / "keep-JOURNAL.md").read_text())
+        self.assertIn(stamp(T0), self.stamps())
+
+
 if __name__ == "__main__":
     unittest.main()
