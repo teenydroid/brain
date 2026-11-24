@@ -73,7 +73,6 @@ the sync set deliberately if 0.58.x is meant to be frozen — the history says
 it is not meant to be. Either way, wire the verifier into a push-triggered
 `main` workflow (none exists today: `ci-fast-hosted.yml` runs on pull_request
 events only, `test.yml` is dispatch-only, `ci-gate.yml` reacts to those two; `ci-full.yml` triggers on pushes to
-  `release` only, so adding the verifier there without widening its push
-  filter to include `main` would still miss day-to-day drift) so the next
-  drift is caught the day it lands, not at release time or a manual Android
-  dispatch.
+  `release` only, so its push filter would need widening to `main` before it
+  could carry the verifier) so the next drift is caught the day it lands,
+  not at release time or a manual Android dispatch.
