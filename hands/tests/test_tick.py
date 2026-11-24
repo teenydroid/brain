@@ -1120,7 +1120,7 @@ class TickTest(unittest.TestCase):
         self.assertEqual(json.loads(done["payload"])["note"], "notes/inbox/self-20260914T070000Z-0a1b2c3d.md")
 
     def test_the_propose_change_line_no_longer_promises_a_builder(self):
-        line = _tick_module().INTENT_LINES["propose_change"]
+        line = _tick_module().CAPPED_SHAPES["propose_change"]
         for gone in ("builder", "pick-request", "Picked at", "built at"):
             self.assertNotIn(gone, line)
         self.assertIn("agentic mind", line)
