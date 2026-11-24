@@ -1,6 +1,6 @@
 ---
 name: home-tools
-description: How to write a tool of your own in home/tools/, run it on a schedule with bin/box, and read pages through the broker. Read when a thing you do by hand needs no thinking each time.
+description: How to write a tool of your own in home/tools/, run it on a schedule with bin/box, read pages through the broker, ship your own repositories and pull requests with teeny gh, and bound every test you run. Read when you make, ship or run something.
 ---
 
 # Your own tools
