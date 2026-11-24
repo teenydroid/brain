@@ -135,7 +135,8 @@ query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       number state headRefName author { login }
       reviewThreads(last: 100) { totalCount nodes { isResolved isOutdated path line
-        comments(first: 20) { nodes { author { login } body createdAt } } } }
+        opening: comments(first: 1) { totalCount nodes { id author { login } body createdAt } }
+        latest: comments(last: 19) { nodes { id author { login } body createdAt } } } }
       reviews(last: 50) { nodes { author { login } state body submittedAt } }
       comments(last: 50) { nodes { author { login } body createdAt } }
     }
@@ -160,6 +161,19 @@ def _nodes(parent: Any, key: str) -> list[dict]:
     return [n for n in (nodes if isinstance(nodes, list) else []) if isinstance(n, dict)]
 
 
+def _total(connection: Any) -> int | None:
+    got = connection.get("totalCount") if isinstance(connection, dict) else None
+    return got if isinstance(got, int) and not isinstance(got, bool) else None
+
+
+def _thread_comments(thread: dict) -> list[dict]:
+    """A thread's opening comment (the finding) and its latest replies,
+    each once."""
+    opening = _nodes(thread, "opening")
+    seen = {c.get("id") for c in opening if c.get("id") is not None}
+    return opening + [c for c in _nodes(thread, "latest") if c.get("id") is None or c.get("id") not in seen]
+
+
 def _said(node: dict, at: str) -> Json:
     who = _author(node)
     return {"author": who, "self": isinstance(who, str) and who.lower() == user().lower(),
@@ -180,8 +194,8 @@ def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | N
     if not isinstance(pull, dict):
         return None
     threads = [{"path": t.get("path"), "line": t.get("line"), "resolved": bool(t.get("isResolved")),
-                "outdated": bool(t.get("isOutdated")),
-                "comments": [_said(c, "createdAt") for c in _nodes(t, "comments")]}
+                "outdated": bool(t.get("isOutdated")), "comments_total": _total(t.get("opening")),
+                "comments": [_said(c, "createdAt") for c in _thread_comments(t)]}
                for t in reversed(_nodes(pull, "reviewThreads"))]  # newest first
     reviews = [{**_said(r, "submittedAt"), "state": r.get("state")} for r in reversed(_nodes(pull, "reviews"))]
     comments = [_said(c, "createdAt") for c in reversed(_nodes(pull, "comments"))]
@@ -212,12 +226,14 @@ def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | N
     resolved_kept = kept_threads(True)
     omitted["reviews"] = len(reviews) - len(reviews_kept)
     omitted["comments"] = len(comments) - len(comments_kept)
-    total = pull.get("reviewThreads", {}).get("totalCount") if isinstance(pull.get("reviewThreads"), dict) else None
+    total = _total(pull.get("reviewThreads"))
     return {
         "repo": f"{owner}/{name}", "number": pull.get("number"), "state": pull.get("state"),
         "branch": pull.get("headRefName"), "author": _author(pull),
         "open_threads": sum(1 for t in threads if not t["resolved"]),
-        "threads_total": total if isinstance(total, int) else len(threads),
+        "threads_total": total if total is not None else len(threads),
+        # Only the newest 100 threads are read: open_threads counts those.
+        "threads_incomplete": total is not None and total > len(threads),
         "threads": open_kept + resolved_kept,
         "reviews": reviews_kept,
         "comments": comments_kept,

@@ -371,7 +371,8 @@ def _own_mind_pr(found: Json) -> str:
                            rule="branch")
     if found.get("base") != BASE:
         raise hand.Refused(f"#{number} goes into {found.get('base')}, not {BASE}", rule="base")
-    if found.get("merged"):
+    # GitHub's list of pull requests carries merged_at, not `merged`.
+    if found.get("merged") or found.get("merged_at"):
         raise hand.Refused(f"#{number} ({branch}) is merged: a new change is a new pull request on a new branch",
                            rule="merged")
     if found.get("state") != "open":

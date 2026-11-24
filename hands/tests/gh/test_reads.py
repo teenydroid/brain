@@ -128,7 +128,7 @@ class FeedbackTest(Scratch):
         self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": {
             "number": 4, "state": "OPEN", "headRefName": "teeny/mind-x", "author": {"login": "teenydroid"},
             "reviewThreads": {"nodes": [{"isResolved": False, "isOutdated": False, "path": "a.md", "line": 3,
-                                         "comments": {"nodes": [{"author": {"login": "bot"}, "body": long}]}}]},
+                                         "opening": {"nodes": [{"author": {"login": "bot"}, "body": long}]}}]},
             "reviews": {"nodes": [{"author": {"login": "op"}, "state": "APPROVED", "body": ""}]},
             "comments": {"nodes": []}}}}})
         out = reads.pr_feedback("teenydroid/brain", 4)
