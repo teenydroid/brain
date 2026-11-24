@@ -244,7 +244,7 @@ def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | No
     if prose:
         for comment in _HTML_COMMENT.finditer(folded):
             inner = comment.group(1)
-            if markers is not None and markers.fullmatch(inner):
+            if markers is not None and markers.exempt(inner):
                 continue
             if _COMMENT_HINT.search(inner):
                 hits.append(Hit("hidden_comment", where, _digest(inner)))
