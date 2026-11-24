@@ -59,8 +59,11 @@ its `merge` at the exact head (the ledger) is needed besides the checks:
 Two more waits: `open_threads`, an unresolved review thread of a review bot
 or a trusted person, and `threads_unreadable`. With it on, these are notes
 on a candidate rather than the operator's: `too_large`, `removes_test`,
-`unreadable_diff`, `lexicon`, and an injection in somebody's comment or
-review (a comment is not what merges, and anybody may leave one). Nothing is
+`unreadable_diff` (once the file's content at the head was read and scanned;
+the operator's when it could not be), `lexicon`, an injection in somebody's
+comment or review (a comment is not what merges, and anybody may leave one),
+and one in a commit message of Teeny's (ordinary ones read as such, and a
+pushed one cannot be reworded; bidi and tag characters block). Nothing is
 `outside_the_jail`; `module_shadow` (operator) is what stays of it.
 """
 
@@ -255,7 +258,9 @@ class _Audit:
             patch = f.get("patch")
             if patch is None:
                 if status != "removed" and (f.get("additions") or f.get("deletions") or status == "added"):
-                    self.add("unreadable_diff", self._judgement(), path, "binary or too large for GitHub to show")
+                    read = self.sitter and self._whole_file(raw, path)
+                    self.add("unreadable_diff", "note" if read else "operator", path,
+                             "binary or too large for GitHub to show")
                 continue
             added = "\n".join(line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
             secret = secretscan.content_finding(path, added)
@@ -263,6 +268,26 @@ class _Audit:
                 self.add("secret", "block", path, secret.rule)
             self.injected(injection.scan(added, f"diff:{path}", prose=False), self.author, self.author_tier,
                           self._diff_severity)
+
+    def _whole_file(self, raw: str, path: str) -> bool:
+        """A changed file whose patch GitHub left out, read whole at the head
+        and scanned as added lines are. False when it could not be read."""
+        try:
+            data = self.api.content_at(self.owner, self.name, raw, str(self.head_sha))
+        except hand.HandError:
+            return False
+        if data is None:
+            return False
+        text = data.decode("utf-8", "replace")
+        if b"\0" in data:  # binary: its text, as a push reads it, for secrets alone
+            text += "\n" + data.replace(b"\0", b"").decode("utf-8", "replace")
+        secret = secretscan.content_finding(path, text)
+        if secret is not None:
+            self.add("secret", "block", path, secret.rule)
+        if b"\0" not in data:
+            self.injected(injection.scan(text, f"diff:{path}", prose=False), self.author, self.author_tier,
+                          self._diff_severity)
+        return True
 
     def _frozen_list(self) -> str | None:
         try:
@@ -323,7 +348,7 @@ class _Audit:
             who = c.get("author") or self.author
             who_tier = self.tier(who) if who != self.author else self.author_tier
             self.injected(injection.scan(c.get("message") or "", f"commit:{sha}"), who, who_tier,
-                          lambda rule, t=who_tier: "block" if t == policy.STRANGER else "operator")
+                          lambda rule, t=who_tier: self._message_severity(rule, t))
             secret = secretscan.content_finding(f"commit:{sha}", c.get("message") or "")
             if secret is not None:
                 self.add("secret", "block", f"commit:{sha}", secret.rule)
@@ -333,6 +358,11 @@ class _Audit:
                 self.add("foreign_commit", "operator", f"commit:{sha}", "a commit by someone untrusted")
         if unverified:
             self.add("unsigned_commits", "note", "commits", f"{unverified} without a verified signature")
+
+    def _message_severity(self, rule: str, who_tier: str) -> str:
+        if who_tier == policy.STRANGER or (self.sitter and rule in injection.ALWAYS_HOSTILE):
+            return "block"
+        return "note" if self.sitter and who_tier == policy.TEENY else "operator"
 
     def _conversation(self) -> None:
         """Comments and review comments, by anyone. Trusted people's words are

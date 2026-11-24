@@ -27,8 +27,9 @@ GITHUB_API_BASE = "https://api.github.com"
 DEFAULT_USER = "teenydroid"
 TIMEOUT_SECONDS = 30.0
 _MESSAGE_CHARS = 200
-#: The most of a job's log that is read.
-MAX_LOG_BYTES = 8 * 1024 * 1024
+#: The most of a job's log that is kept, and how many times that is read.
+MAX_LOG_BYTES = 2 * 1024 * 1024
+MAX_LOG_CHUNKS = 50
 
 Json = dict[str, Any]
 
@@ -72,6 +73,17 @@ def _message(body: bytes) -> str | None:
     if isinstance(parsed, Mapping) and isinstance(parsed.get("message"), str) and parsed["message"].strip():
         return parsed["message"].strip()[:_MESSAGE_CHARS]
     return None
+
+
+def _tail(response: Any) -> str:
+    """The end of a log, where it says what failed: its last MAX_LOG_BYTES."""
+    kept = b""
+    for _ in range(MAX_LOG_CHUNKS):
+        chunk = response.read(MAX_LOG_BYTES)
+        if not chunk:
+            break
+        kept = (kept + chunk)[-MAX_LOG_BYTES:]
+    return kept.decode("utf-8", "replace")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -216,14 +228,14 @@ class GitHubApi:
         try:
             try:
                 with urllib.request.build_opener(_NoRedirect).open(request, timeout=TIMEOUT_SECONDS) as response:
-                    return response.read(MAX_LOG_BYTES).decode("utf-8", "replace")
+                    return _tail(response)
             except urllib.error.HTTPError as exc:
                 status, where = exc.code, exc.headers.get("location") or ""
                 exc.close()
             if status in (301, 302, 307, 308) and where.startswith(("https://", self._base + "/")):
                 plain = urllib.request.Request(where, headers={"user-agent": "teeny-hands-gh"})
                 with urllib.request.urlopen(plain, timeout=TIMEOUT_SECONDS) as response:
-                    return response.read(MAX_LOG_BYTES).decode("utf-8", "replace")
+                    return _tail(response)
         except (urllib.error.URLError, OSError, ValueError):
             pass
         raise GitHubError("the job's log could not be read", status)

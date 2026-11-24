@@ -24,7 +24,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
         pageInfo { hasNextPage endCursor }
         nodes { id isResolved isOutdated path line
           opening: comments(first: 1) { nodes { id author { __typename login } body } }
-          latest: comments(last: 10) { nodes { id author { __typename login } body } } }
+          latest: comments(last: 30) { nodes { id author { __typename login } body } } }
       }
     }
   }
@@ -65,8 +65,9 @@ def _nodes(value: Any) -> list[Json]:
 def unresolved(gh: Any, owner: str, name: str, number: int,
                tier: Callable[[str | None], str]) -> tuple[list[Json], bool]:
     """Each `{id, path, line, outdated, opened_by, who, last, comments}`, and
-    whether there were more threads than were read. `last` is the id of the
-    newest comment, whoever wrote it but Teeny."""
+    whether there were more threads than were read. `who` is `trusted` when a
+    trusted person opened it or spoke in it, else `bot`; `last` is the id of
+    the newest comment by either (a stranger's counts for nothing)."""
     out: list[Json] = []
     after = None
     for _ in range(MAX_PAGES):
@@ -78,17 +79,17 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
             if t.get("isResolved") or not opening or not isinstance(t.get("id"), str):
                 continue
             opener = _who(opening[0])
-            kind = heard(opener, tier)
-            if kind is None:
+            if heard(opener, tier) is None:
                 continue
             seen = {opening[0].get("id")}
             said = opening + [c for c in _nodes(t.get("latest")) if c.get("id") not in seen]
             shown = [{"author": _who(c), "body": words(c.get("body"))} for c in said
                      if heard(_who(c), tier) or tier(_who(c)) == policy.TEENY]
-            others = [c.get("id") for c in said if tier(_who(c)) != policy.TEENY]
+            counted = [(c.get("id"), kind) for c in said if (kind := heard(_who(c), tier))]
             out.append({"id": t["id"], "path": t.get("path"), "line": t.get("line"),
-                        "outdated": bool(t.get("isOutdated")), "opened_by": opener, "who": kind,
-                        "last": others[-1] if others else None, "comments": shown})
+                        "outdated": bool(t.get("isOutdated")), "opened_by": opener,
+                        "who": "trusted" if any(k == "trusted" for _, k in counted) else "bot",
+                        "last": counted[-1][0], "comments": shown})
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):
             return out, False

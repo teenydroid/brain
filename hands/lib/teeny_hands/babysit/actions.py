@@ -272,8 +272,8 @@ def sweep(max_results: int = 20, api: PullsApi | None = None) -> Json:
     def agent(step: Any) -> Any:
         try:
             return step()
-        except (hand.Refused, hand.HandError) as exc:
-            return {"error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - nothing of the agent's may stop the sweep
+            return {"error": f"{type(exc).__name__}: {exc}"[:300]}
 
     # What the agent left is carried out before the audits, so a merge it
     # decided is this sweep's.

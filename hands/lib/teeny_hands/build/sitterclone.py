@@ -4,10 +4,12 @@ way that checkout becomes a commit on the pull request's branch. The clone
 is mindclone's code on another place, so nothing in the tree is trusted
 here either:
 
-  state/sitter/home/repo/    the working tree, the agent's to write
-  state/sitter/git/repo.git  its git directory, outside the agent's jail
+  state/sitter/home/repo-<job>/  a job's working tree, the agent's to write.
+                             Each job has its own, so what a late run of an
+                             older one still writes lands in no other's
+  state/sitter/git/repo.git  the git directory, outside the agent's jail
 
-`prepare(branch, head, merge_main)` checks out HEAD, with main merged in
+`prepare(job, branch, head, merge_main)` checks out HEAD, with main merged in
 when asked (a merge not committed yet; a conflict is left in the files as
 its markers for the agent to resolve). `ship(prepared, message)` refuses
 what mindclone.ship refuses (a `.git`, anything but plain files, over the
@@ -29,7 +31,13 @@ from .mindclone import _bare, _git
 
 Json = dict[str, Any]
 
-PLACE = mindclone.Place("sitter/home/repo", "sitter/git", keep=False)
+SCRATCH = "sitter/git"
+
+
+def place(job: str) -> mindclone.Place:
+    return mindclone.Place(f"sitter/home/repo-{job}", SCRATCH, keep=False)
+
+
 PREFIX = selfclone.BRANCH_PREFIX
 #: A line git writes where a merge conflicts.
 MARKER = re.compile(rb"^(<<<<<<< |>>>>>>> )", re.MULTILINE)
@@ -49,11 +57,13 @@ def _merge(head: str, main: str) -> tuple[str, list[str]]:
     return tree.strip(), sorted({n for n in names if n})
 
 
-def prepare(branch: str, head: str, merge_main: bool) -> Json:
+def prepare(job: str, branch: str, head: str, merge_main: bool) -> Json:
     """The tree at HEAD of BRANCH, main merged in when MERGE_MAIN and there
     is something to merge: {branch, head, tree, main, conflicts, behind,
-    since, diff}; `diff` is the pull request's whole change as a patch."""
-    with mindclone.at(PLACE), locked():
+    unmarked, diff}; `diff` is the pull request's whole change as a patch,
+    `unmarked` the conflicts git leaves no marker in (deleted on one side,
+    changed on the other; binary)."""
+    with mindclone.at(place(job)), locked():
         origin = mindclone._fetch_origin()
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved while it was read", rule="moved")
@@ -63,11 +73,23 @@ def prepare(branch: str, head: str, merge_main: bool) -> Json:
         if merge_main and behind:
             main = origin
             tree, conflicts = _merge(head, origin)
+        unmarked = [path for path in conflicts if not _marked(tree, path)]
         mindclone._fresh(head, detached=True, tree=tree)
         since = _bare("merge-base", origin, head).stdout.decode().strip()
         diff = _bare("diff", "--no-renames", since, head).stdout.decode("utf-8", "replace")
-        return {"branch": branch, "head": head, "tree": tree, "main": main, "conflicts": conflicts, "behind": behind,
-                "since": since, "diff": diff}
+        return {"job": job, "branch": branch, "head": head, "tree": tree, "main": main, "conflicts": conflicts,
+                "unmarked": unmarked, "behind": behind, "diff": diff}
+
+
+def _marked(tree: str, path: str) -> bool:
+    found = _bare("cat-file", "blob", f"{tree}:{path}", check=False)
+    return found.returncode == 0 and MARKER.search(found.stdout) is not None
+
+
+def _ignored() -> list[str]:
+    """The files the agent made that an ignore rule keeps out of the commit."""
+    raw = _git("ls-files", "-z", "--others", "--ignored", "--exclude-standard").stdout.decode("utf-8", "replace")
+    return sorted(p for p in raw.split("\0") if p and "__pycache__/" not in p and not p.endswith(".pyc"))[:20]
 
 
 def _tree_now(base: str) -> str:
@@ -78,23 +100,30 @@ def _tree_now(base: str) -> str:
     return _bare("write-tree").stdout.decode().strip()
 
 
-def ship(prepared: Json, message: str, gh: Any = None) -> Json:
-    """The edited tree as one commit on PREPARED's branch; see the module."""
+def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False) -> Json:
+    """The edited tree as one commit on PREPARED's branch; see the module.
+    AS_LAID: the tree as it was laid out, whatever the agent did to it (an
+    empty commit, or main merged in), to have the checks run again."""
     branch, head, base, main = prepared["branch"], prepared["head"], prepared["tree"], prepared.get("main")
-    with mindclone.at(PLACE), locked():
+    with mindclone.at(place(prepared["job"])), locked():
         mindclone._fetch_origin()
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved on GitHub since it was taken; nothing was pushed", rule="moved")
-        if mindclone._tree_kind() == "missing" or mindclone._rev("HEAD") != head:
-            raise hand.Refused("the copy is not the one that was laid out", rule="base")
-        mindclone._no_git_inside()
-        tree = _tree_now(base)
+        ignored: list[str] = []
+        if as_laid:
+            tree = base
+        else:
+            if mindclone._tree_kind() == "missing" or mindclone._rev("HEAD") != head:
+                raise hand.Refused("the copy is not the one that was laid out", rule="base")
+            mindclone._no_git_inside()
+            tree = _tree_now(base)
+            ignored = _ignored()
         files = mindclone._changed(base, tree)
-        if not files and main is None:
-            raise hand.Refused("nothing changed against the pull request's head", rule="empty")
+        if not files and main is None and not as_laid:
+            raise hand.Refused("nothing changed against the pull request's head"
+                               + (f"; .gitignore keeps out {', '.join(ignored)}" if ignored else ""), rule="empty")
         for path in prepared.get("conflicts") or ():
-            found = _bare("cat-file", "blob", f"{tree}:{path}", check=False)
-            if found.returncode == 0 and MARKER.search(found.stdout):
+            if _marked(tree, path):
                 raise hand.Refused(f"{path} still has conflict markers", rule="conflict_markers", path=path)
         mindclone._within_limits(base, tree, files)
         mindclone._only_plain_files(tree, base)
@@ -107,5 +136,5 @@ def ship(prepared: Json, message: str, gh: Any = None) -> Json:
                                          expect=head)
         finally:
             _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
-    return {"branch": branch, "commit": commit, "files": files, "merged_main": bool(main),
+    return {"branch": branch, "commit": commit, "files": files, "merged_main": bool(main), "ignored": ignored,
             **({"dry_run": True} if pushed.get("dry_run") else {})}

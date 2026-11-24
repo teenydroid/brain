@@ -80,6 +80,8 @@ def run(cwd: Path | None, *args: str, token: str | None = None, user: str | None
                               timeout=timeout, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise hand.HandError("git is not installed") from None
+    except subprocess.TimeoutExpired:
+        raise hand.HandError(f"git took over {int(timeout)} s") from None
     if check and done.returncode != 0:
         detail = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
         message = detail[0][:300]
