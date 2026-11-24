@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -165,17 +166,24 @@ class PaywallTest(Scratch):
         self.assertEqual(self.get(header())[0], 502)
 
     def test_the_service_answers_over_http(self):
-        port = 39000 + os.getpid() % 500
+        # A port the OS says is free, and a wait by the clock: on a loaded CI
+        # runner the service took longer than 100 quick refusals to come up.
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
         server = subprocess.Popen([sys.executable, str(Path(__file__).resolve().parents[3] / "bin" / "paywall"),
                                    "--host", "127.0.0.1", "--port", str(port)], env=os.environ,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
         self.addCleanup(server.kill)
-        for _ in range(100):
+        deadline = time.monotonic() + 30
+        while True:
+            self.assertIsNone(server.poll(), "bin/paywall exited before it answered")
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1).close()
                 break
             except (urllib.error.URLError, OSError):
+                self.assertLess(time.monotonic(), deadline, "bin/paywall did not answer /health within 30 s")
                 time.sleep(0.05)
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/stats", timeout=5)

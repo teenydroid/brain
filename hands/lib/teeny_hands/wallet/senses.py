@@ -16,7 +16,10 @@ switched-off job is not a failed one), and skipped the same way while the
 core holds no wallet yet (bin/wallet-setup has not run). A deposit older
 than a day when first seen (the first scan looks back 30 days) is recorded
 but files no stimulus, so turning the watch on does not flood the inbox; at
-most MAX_PER_RUN stimuli a run, the rest on the next.
+most MAX_PER_RUN stimuli a run, the rest on the next. A run the RPC cuts
+short (HTTP 429 that waiting does not clear) files what it read, answers
+`rate_limited` with how many are `left`, and exits 0; the next run goes on
+from there. Only a run the RPC refuses from its first read fails.
 
 A deposit below the dust floor (WALLET_DUST_SOL, default 0.0001 SOL;
 WALLET_DUST_USDC, default 0.01 USDC; 0 switches a floor off) files nothing,
@@ -141,7 +144,8 @@ def watch() -> Json:
     finally:
         conn.close()
     return {"scanned": scanned["count"], "filed": len(filed), "dust": dust, "unreadable": scanned["unreadable"],
-            "through": scanned["through"]}
+            "through": scanned["through"], "truncated": scanned["truncated"], "rate_limited": scanned["rate_limited"],
+            "left": scanned["left"]}
 
 
 # --- $TINY: Teeny's balance and the holder count ---------------------------------------------------
