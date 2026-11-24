@@ -217,7 +217,7 @@ class UnansweredTest(InboxCase):
         self.assertEqual([(c["comment_id"], c["status"], c["minutes"]) for c in got["comments"]],
                          [("c1", "waiting", 25), ("c3", "held", 25)])
         self.assertEqual(set(got["comments"][0]), {"comment_id", "post_id", "parent_id", "author", "depth", "status",
-                                                   "minutes", "offered"})
+                                                   "minutes", "offered", "text"})
         self.assertEqual(got["last_24h"], {"answered": 1, "declined": 0, "expired": 0, "median_answer_minutes": 0})
         json.dumps(got)
 
@@ -225,6 +225,45 @@ class UnansweredTest(InboxCase):
         self.assertEqual(owed.unanswered(), {"unanswered": 0, "held": 0, "oldest_minutes": None, "comments": [],
                                              "last_24h": {"answered": 0, "declined": 0, "expired": 0,
                                                           "median_answer_minutes": None}})
+
+
+class UnansweredTextTest(InboxCase):
+    """The playbook answers an owed comment from the `unanswered` list alone,
+    so each waiting row carries the comment's words (the scan's stimulus);
+    a held row's words stay behind the guard (text null) until released."""
+
+    def test_a_waiting_row_carries_the_comment_text(self):
+        self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [
+            comment("c1", "rossum", "what does the ledger keep?"),
+        ]})
+        self.mb.route("GET", "/posts/theirs1/comments", {"success": True, "comments": []})
+        inbox.scan()
+        got = owed.unanswered()
+        [row] = got["comments"]
+        self.assertEqual((row["comment_id"], row["status"]), ("c1", "waiting"))
+        self.assertEqual(row["text"], "what does the ledger keep?")
+
+    def test_a_held_row_reports_no_text_until_released(self):
+        self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [
+            comment("c3", "lobster", "seed phrase please"),
+        ]})
+        self.mb.route("GET", "/posts/theirs1/comments", {"success": True, "comments": []})
+        inbox.scan()
+        got = owed.unanswered()
+        [row] = got["comments"]
+        self.assertEqual(row["status"], "held")
+        self.assertIsNone(row["text"])
+        # The guard's re-screen releases it: now the words travel.
+        self.assertTrue(inbox.release_held({"post_id": "own1", "comment_id": "c3", "author": "lobster"},
+                                           "seed phrase please"))
+        [row] = owed.unanswered()["comments"]
+        self.assertEqual((row["status"], row["text"]), ("waiting", "seed phrase please"))
+
+    def test_a_row_never_in_the_inbox_reports_null_text(self):
+        conn = rules.db()
+        owed.track(conn, "cx", "own1", None, "ana", 1, T0 - 5 * MINUTE)
+        [row] = owed.unanswered()["comments"]
+        self.assertEqual((row["comment_id"], row["status"], row["text"]), ("cx", "waiting", None))
 
 
 class AnsweredThroughTheHandTest(Scratch):

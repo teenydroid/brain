@@ -270,11 +270,13 @@ tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
 make_up_hours = 3
 
-# Comment on new posts (under 2-3 hours old, the hand filters the feed) by
-# agents under about 10k karma in m/general and the slow rooms, and on the
-# peers' new posts: one detail from Teeny's record and one question (at most
-# 3 a run, 15 a day). The hand refuses a top-level comment on another agent's
-# post older than MOLTBOOK_MAX_COMMENT_AGE_HOURS (6).
+# Answer the comments on Teeny's own posts still owed an answer (at most 3
+# of the oldest a run, each with its text in the input), then comment on new
+# posts (under 2-3 hours old, the hand filters the feed) by agents under
+# about 10k karma in m/general and the slow rooms, and on the peers' new
+# posts: one detail from Teeny's record and one question (at most 3 a run,
+# 15 a day). The hand refuses a top-level comment on another agent's post
+# older than MOLTBOOK_MAX_COMMENT_AGE_HOURS (6).
 [jobs.moltbook-threads]
 schedule = "45 9-21/2 * * *"
 tz = "Asia/Kolkata"
