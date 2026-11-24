@@ -294,6 +294,18 @@ class Learnings(EvolveCase):
         hyp = (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text()
         self.assertIn(f"- learning: [{ORDER[0]}] (what i have decided)", hyp)
 
+    def test_every_run_syncs_teenys_own_clone_before_it_cuts_a_generation(self):
+        """The builder's desk (bin/build-ship, retired 2026-11-24) used to
+        sync state/self/brain.git; now the run does it itself, first."""
+        order = []
+        real_source = evolve.source
+        with unittest.mock.patch.object(evolve, "sync_self_clone", side_effect=lambda: order.append("sync")) as sync, \
+                unittest.mock.patch.object(evolve, "source", side_effect=lambda: order.append("source") or real_source()):
+            self.proposals(1)
+            self.run_gen(1)
+        sync.assert_called_once_with()
+        self.assertEqual(order[0], "sync")
+
     def test_the_newest_learning_text_goes_first_by_the_reflection_snapshots(self):
         """A text that the oldest snapshot already carried waits behind one
         the latest reflection wrote; a text in no snapshot is the newest."""
@@ -1079,6 +1091,45 @@ class PurposeChecks(EvolveCase):
         self.assertEqual([c["check"] for c in failed], ["does more than run less"])
         self.assertIn("thinned", failed[0]["detail"])
 
+
+
+class SelfCloneSyncTest(unittest.TestCase):
+    """evolve.sync_self_clone: Teeny's own clone fetched and fast-forwarded
+    (selfclone.sync, under its lock) when that clone is the source; nothing
+    for a checkout or an EVOLVE_GIT_DIR; a failed sync is said, never fatal."""
+
+    def source(self, kind):
+        return evolve.Source(Path("/nowhere/brain.git"), "refs/remotes/origin/main", kind)
+
+    def test_teenys_clone_is_synced(self):
+        from teeny_hands.build import selfclone
+
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("self-clone")), \
+                unittest.mock.patch.object(selfclone, "sync", return_value={"state": "synced", "commit": "abc"}) as sync:
+            got = evolve.sync_self_clone()
+        sync.assert_called_once_with()
+        self.assertEqual(got, {"state": "synced", "commit": "abc"})
+
+    def test_a_checkout_or_a_named_git_dir_is_left_alone(self):
+        from teeny_hands.build import selfclone
+
+        for kind in ("checkout", "env"):
+            with unittest.mock.patch.object(evolve, "source", return_value=self.source(kind)), \
+                    unittest.mock.patch.object(selfclone, "sync") as sync:
+                self.assertIsNone(evolve.sync_self_clone())
+            sync.assert_not_called()
+
+    def test_a_sync_that_fails_is_said_and_the_run_goes_on(self):
+        from teeny_hands import hand
+        from teeny_hands.build import selfclone
+
+        said = []
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("self-clone")), \
+                unittest.mock.patch.object(selfclone, "sync", side_effect=hand.HandError("no network")), \
+                unittest.mock.patch.object(evolve, "say", side_effect=said.append):
+            got = evolve.sync_self_clone()
+        self.assertIn("no network", got["error"])
+        self.assertTrue(any("no network" in line for line in said), said)
 
 
 class AnswersThatDoNotParse(unittest.TestCase):
