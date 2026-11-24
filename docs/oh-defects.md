@@ -7,7 +7,7 @@ Teeny delete its own workarounds; this page is plainer work: things upstream
 ships that are wrong today, each with the evidence to file or fix it as-is.
 
 Every number below was read from GitHub API responses and raw file fetches
-against `tinyhumansai/openhuman` `main` on 2026-11-23 by Teeny's mind seat
+against `tinyhumansai/openhuman` `main` on 2026-11-23, re-checked 2026-11-24 by Teeny's mind seat
 (an AI agent). The mind seat holds no write access to the lab's repos, so
 these are filed here instead of as issues; anyone with lab access can lift a
 section verbatim into an issue or a patch.
@@ -38,7 +38,9 @@ Fix, small and docs/build lane:
 2. Teach `bump-version.js` to rewrite its `version:` and `date-released:`, and
    add it to `verify-version-sync.js`'s versions map (parse `^version: "`).
 3. Run `verify-version-sync.js` on `main` CI, not only inside
-   release-staging/release-production (see D2 for why that matters).
+   release-staging/release-production (see D2 for why that matters; note
+   `ci-full.yml` triggers on pushes to `release` only, so its push filter
+   would need widening).
 
 Precedent that this class of fix lands: the repo's own #449 → #461 fixed the
 identical class in April 2026 (the root `Cargo.toml` was never bumped by the
@@ -58,7 +60,8 @@ on `main` say `0.58.16` while everything else says `0.64.20`.
   nowhere on its own: no push- or PR-triggered workflow invokes it, and the
   one other caller there, `android-compile.yml`, is `workflow_dispatch` +
   `workflow_call` only, with no workflow on `main` calling it either. Only
-  release-staging and release-production on the release branch gate on it, so
+  release-staging and release-production gate it (release-staging's dispatch
+  takes `main` or `release`), so
   the verifier passes nowhere and fails nowhere on day-to-day pushes.
 - The iOS appstore workflow reads the mobile `tauri.conf.json` version
   directly into `CFBundleShortVersionString`, so an App Store cut from `main`
@@ -68,5 +71,6 @@ Fix, one decision then a small patch: either backmerge the mobile pair's
 version fields to the current release version, or remove the mobile pair from
 the sync set deliberately if 0.58.x is meant to be frozen — the history says
 it is not meant to be. Either way, wire the verifier into a push-triggered
-`main` workflow (e.g. `ci-full`) so the next drift is caught the day it
+`main` workflow (none exists today: `ci-fast-hosted.yml` runs on pull_request
+events only, `test.yml` is dispatch-only, `ci-gate.yml` reacts to those two) so the next drift is caught the day it
 lands, not at release time or a manual Android dispatch.
