@@ -43,8 +43,8 @@
 #   agent = "mind"
 #   prompt = "Read this week's agent papers and write what is worth trying."
 #
-# At most 240 agent runs a day across every job; the builder, the browser
-# operator and the mind's own half-hourly wake use 132 of them.
+# At most 240 agent runs a day across every job; the browser operator and
+# the mind's own half-hourly wake use 120 of them.
 
 # Proves cron fires in this checkout.
 [jobs.heartbeat]
@@ -58,8 +58,8 @@ command = "bin/heartbeat"
 # The box is redeployed several times a day, and a restart that cuts off a run
 # (or comes while a slot passes) used to drop that slot until the next one: on
 # 2026-11-13 and 11-14 self-improve lost both days that way. The daily jobs
-# that only read, propose or tend (self-improve, build-idea, pick-request,
-# goals, speculate, world-scan, moltbook-follow, moltbook-curate) catch up
+# that only read, propose or tend (goals, speculate, world-scan,
+# moltbook-follow, moltbook-curate) catch up
 # instead. The posts do not: X is at most three original posts a day five hours
 # apart, and a post hours late is the wrong post, so the X slots (the studio),
 # brief and peer-quote (and the Moltbook posts) keep waiting for their next slot. A playbook never
@@ -186,34 +186,6 @@ schedule = "10 23 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shiplog"
 
-# Choose what the builder makes next when nobody has a request waiting
-# (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
-# the need shows (people's asks, and what the ears heard: hands/listen
-# digest), kept with hands/build idea. The daily job is made at the first desk
-# run after UTC midnight (05:30 here), so the idea is drafted the evening
-# before, when Hacker News is busiest. It took the slot of the roast job, which
-# was off; brain/playbooks/roast.md is still in the tree. 22:50, not 23:00:
-# the 23:00 studio slot owns that minute, and two jobs on one schedule have lost one
-# (`shipped` beside `moltbook-evening` at 19:30 never ran on the box,
-# 11-11 to 11-13, while moltbook-evening ran every day).
-[jobs.build-idea]
-schedule = "50 22 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act build-idea"
-catch_up = true
-
-# Propose one change to myself (a prompt, a playbook, a skill or a new hand),
-# once a day. The pipeline also takes the wants job's filings, which come in
-# as build requests from myself too. It goes in as a build request from myself; pick-request picks it
-# like any other, the builder makes it in my own clone, and it ships as a pull
-# request the operator merges or closes (docs/evolve.md). Ten past, off the
-# 15:00 studio slot's minute (see build-idea), and still before pick-request's 15:20.
-[jobs.self-improve]
-schedule = "10 15 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act self-improve"
-catch_up = true
-
 # Propose one goal of my own, once a week (brain/playbooks/goals.md): in the
 # learnability band, naming the W component it moves, with a check from the
 # fixed kinds that the pinned goals-check job runs. At most three tries a day,
@@ -230,7 +202,7 @@ catch_up = true
 # with the HN front page and Moltbook's hot page, and I get it as a nudge
 # (brain/playbooks/world-scan.md). It feeds the posts, never takes an X slot:
 # 13:05 lands before the 15:00 studio slot, 22:05 (the US working day, when Hacker
-# News is busiest) before `build-idea` and the 23:00 slot, which read what
+# News is busiest) before the 23:00 slot, which reads what
 # was heard (hands/listen digest), as do the Moltbook posts. It
 # took the place of news-scan, which queued a browser task to read the HN
 # front page; that playbook is still in the tree, unscheduled.
@@ -240,21 +212,10 @@ tz = "Asia/Kolkata"
 command = "bin/act world-scan"
 catch_up = true
 
-# Pick the next build request for the builder, one at a time: people's asks
-# and my own self-improve proposals. Twenty past, so a proposal made at the
-# hour is picked the same afternoon and built at the builder's next run.
-[jobs.pick-request]
-schedule = "20 9,15 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act pick-request"
-catch_up = true
-catch_up_hours = 3
-
 # Answer the questions agents ask on Moltbook (at most 12 a day), and file a
 # problem agents keep naming as a build request (hands/moltbook helpdesk, at
-# most one a day). pick-request picks it like any other ask; when the builder
-# ships it, the mind is told where it was voiced and announces it in m/builds
-# and in those threads (build/jobs.py, `builder · shipped`).
+# most one a day). Like every ask, it reaches the agentic mind as a note in its
+# inbox (teeny_hands.requests), which decides whether to make it.
 [jobs.moltbook-helpdesk]
 schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
@@ -363,12 +324,14 @@ command = "bin/act reddit-browse"
 
 # --- the pipelines that are yours to move (docs/mind.md) ---------------------------
 #
-# Until 2026-11-22 (the dreams, the builder, the episode, the prune) and
-# 2026-11-23 (evolve, evolve-credit, wants, build-ship, tasks-desk) these were
-# pinned in evals/cron.pinned.toml. They are yours now: reschedule one, pause
-# it (`enabled = false`) or drop it, in a pull request like any other change
-# to yourself. bin/dream, bin/moltbook-prune, bin/evolve, bin/wants,
-# bin/build-ship and bin/tasks-desk run only with the arguments written here
+# Until 2026-11-22 (the dreams, the episode, the prune) and 2026-11-23
+# (evolve, evolve-credit, wants, tasks-desk) these were pinned in
+# evals/cron.pinned.toml. They are yours now: reschedule one, pause it
+# (`enabled = false`) or drop it, in a pull request like any other change to
+# yourself. The builder and its desk (builder, build-ship) are retired since
+# 2026-11-24: the agentic mind ships things itself. bin/dream,
+# bin/moltbook-prune, bin/evolve, bin/wants and bin/tasks-desk run only with
+# the arguments written here
 # (bin/lib/cron_policy.py, BRAIN_SCRIPTS), and each still checks its own
 # switch in secrets/ (EVOLVE, WANTS): a job here never turns one on. What
 # watches you (evolve-watch among them, which rolls a bad change back), what
@@ -397,16 +360,6 @@ schedule = "0 14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --light --detach"
 
-# The builder (brain/agents/builder.toml), an agent job: it reads one job
-# from its desk (state/workbench/desk/build.json: the oldest picked build
-# request, or a small daily thing of its own), writes and tests it in
-# state/workbench/<job>/, and leaves its report on the desk. It publishes
-# nothing itself. Ten past, so build-ship has laid the desk out at the hour.
-[jobs.builder]
-schedule = "10 */2 * * *"
-agent = "builder"
-prompt = "Build the job on your desk, following your instructions."
-
 # A lore episode when something real happened (docs/roadmap.md, A13): once a
 # day, `bin/act episode` reads the day's proof events (hands/lore events: a
 # generation merged, a pull request merged elsewhere, a bounty paid) and,
@@ -417,14 +370,6 @@ prompt = "Build the job on your desk, following your instructions."
 schedule = "50 17 * * *"
 command = "bin/act episode"
 enabled = false
-
-# The builder's desk and shipping (bin/build-ship): collect its report, lay
-# out its next job, and push what it finished to GitHub through hands/gh
-# (the guard, the owner rule, the secret scan, DRY_RUN). The builder's job
-# above starts ten minutes after the hour, once this has laid the desk out.
-[jobs.build-ship]
-schedule = "*/30 * * * *"
-command = "bin/build-ship"
 
 # The browser operator's desk (bin/tasks-desk): collect its report, lay out
 # its next task. The operator's own job is pinned (evals/cron.pinned.toml).
@@ -465,10 +410,9 @@ command = "bin/evolve credit"
 # What you said you would build (bin/wants run; docs/evolve.md, "1c. Wants"):
 # the build-intent items of your memory page ("the first thing i build myself
 # is ... not built yet"), drawn in code, no model. Scores each merged feature
-# a week after it merged (did a scheduled playbook run its hand?), then files
-# at most one want a day as a `self` build request, through the guard, for
-# the builder. 09:00 (CALENDAR_TZ, else UTC) is after the morning pick and
-# before self-improve and pick-request's second slot. Off unless WANTS=1 in
+# a week after it merged (did a scheduled playbook run its hand?), then hands
+# at most one want a day to the agentic mind, through the guard, as a note in
+# its inbox; the mind decides whether to build it. Off unless WANTS=1 in
 # secrets/evolve.env: the operator's switch, which no job here turns on.
 [jobs.wants]
 schedule = "0 9 * * *"
