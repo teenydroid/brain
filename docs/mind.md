@@ -290,6 +290,13 @@ So now:
   only when its own turns write there (`AGENT_SKILLS` in `bin/lib/prompts.py`:
   the tick carries `moltbook`). The Moltbook rules used to sit in
   `CONTEXT.md`, in every script turn's prompt.
+- How Teeny answers on X lives in one page, `brain/playbooks/mentions.md`.
+  The tick reads its body every beat that holds an X mention
+  (`reply_guidance` in `bin/lib/tick.py`), so an edit merged there steers the
+  live replies at the next beat. Until 2026-11-23 only the core's queue
+  (`TEENY_INBOX=core`, not the default) read it, and an edit aimed at reply
+  rates (#529) reached nothing. Which mentions a beat sees, and every cap and
+  guard, stay in code.
 
 ## Eyes
 
