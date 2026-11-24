@@ -33,9 +33,9 @@
    cap of their own, 0 (off) unless secrets/teeny.env sets it; `web_search`
    and `read_page` (hands/x402, paid from the wallet) share one,
    MIND_SEARCHES_PER_DAY, and what they found comes back as data.
-   `propose_change` (MIND_BUILDS_PER_DAY, on at 1 a day) files a change to
-   Teeny itself through hands/build self, one at a time: it ships as a pull
-   request the operator merges or closes.
+   `propose_change` (MIND_BUILDS_PER_DAY, on at 1 a day) hands a change to
+   Teeny itself to the agentic mind, past the guard, as a note in its inbox
+   (hands/requests self): the mind reads it and decides.
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
@@ -835,67 +835,30 @@ def _conclude_experiment(i):
     return "lab", ["conclude"], {"id": i.get("id"), "verdict": i.get("verdict"), "lesson": _text(i, "lesson")}
 
 
-# --- a change to itself (hands/build self; docs/evolve.md) --------------------------------
+# --- a change to itself (hands/requests self; docs/mind.md) --------------------------------
 #
-# What the self-improve playbook does once a day, asked for in a beat: someone
-# (the operator, often) asks Teeny to build something for itself. The brief
-# goes past the guard (surface github, as the playbook's hand output does) and
-# becomes a pending build request from Teeny itself; pick-request picks it, the
-# builder makes it in Teeny's own clone, and it ships as a pull request the
-# operator merges or closes. One at a time, as the playbook says: refused here,
-# before the guard, the hand or the cap, while one is still in flight.
+# Someone (the operator, often) asks Teeny in a beat to change something about
+# itself. The brief goes past the guard (surface github) and the cap, and
+# becomes a note in the agentic mind's inbox, state/home/notes/inbox/
+# self-<stamp>.md (hands/requests self, through the link-safe writer): the
+# mind reads it at its next wake and decides whether to make the change, which
+# then ships as a pull request through its broker. The builder that used to
+# pick these up, one at a time, is retired (2026-11-24).
 
-#: The most of a brief the build desk keeps (build/jobs.py cuts the rest).
+#: The most of a brief the note keeps.
 BRIEF_CHARS = 2000
-#: Where a self job is finished (build/jobs.py): anything else is in flight.
-SELF_JOB_DONE = ("failed", "shipped", "gave_up")
-#: Where a self request is no longer waiting on the builder (requests.py).
-SELF_REQUEST_DONE = ("skipped", "shipped", "failed")
-
-
-def _self_in_flight() -> str | None:
-    """The change to itself still in flight, in words, or None: a `self`
-    build request not yet done, or a `self` job not finished."""
-    path = hand.state_dir() / "hands.db"
-    if not path.is_file():
-        return None
-    marks = ", ".join("?" * len(SELF_REQUEST_DONE))
-    try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-            if "build_requests" in tables:
-                row = conn.execute(f"SELECT id, status, text FROM build_requests WHERE source = 'self'"
-                                   f" AND status NOT IN ({marks}) ORDER BY id LIMIT 1", SELF_REQUEST_DONE).fetchone()
-                if row:
-                    return f"self request #{row[0]} ({row[1]}): {' '.join(str(row[2]).split())[:80]}"
-            if "build_jobs" in tables:
-                marks = ", ".join("?" * len(SELF_JOB_DONE))
-                row = conn.execute(f"SELECT id, status, text FROM build_jobs WHERE kind = 'self'"
-                                   f" AND status NOT IN ({marks}) ORDER BY id LIMIT 1", SELF_JOB_DONE).fetchone()
-                if row:
-                    return f"self job #{row[0]} ({row[1]}): {' '.join(str(row[2]).split())[:80]}"
-        finally:
-            conn.close()
-    except sqlite3.Error as exc:
-        raise ValueError(f"the build desk could not be read ({exc}); try again later") from None
-    return None
 
 
 def _propose_change(i):
     brief = _text(i)
     if len(brief) > BRIEF_CHARS:
-        raise ValueError(f"the brief is {len(brief)} characters; the build desk keeps {BRIEF_CHARS} characters, so cut it")
-    busy = _self_in_flight()
-    if busy:
-        raise ValueError(f"one change to yourself is already in flight: {busy}. One at a time: say so, and ask again "
-                         "once it has shipped or failed")
+        raise ValueError(f"the brief is {len(brief)} characters; the note keeps {BRIEF_CHARS} characters, so cut it")
     _within_cap("propose_change")
     code, verdict = _run_hand("guard", ["check"], {"text": brief, "surface": "github"})
     if code != 0 or not isinstance(verdict.get("text"), str):
         why = verdict.get("refused") or verdict.get("error") or "it did not pass"
         raise ValueError(f"the guard held the brief: {why}")
-    return "build", ["self"], {"text": verdict["text"]}
+    return "requests", ["self"], {"text": verdict["text"]}
 
 
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
@@ -1022,11 +985,11 @@ CAPPED_SHAPES = {
                            "at most %d today",
     "propose_change": '- {"do": "propose_change", "text": "<the brief: what to change and in which files, why and '
                       'who asked, how you will know it worked>"}: how a change to yourself (a new hand, a playbook, a '
-                      "prompt) gets built; the builder makes it in your clone and it opens as a pull request for the "
-                      "operator. The builder has no network: the brief carries every outside fact it needs (endpoints, "
-                      "formats), looked up by you first. Frozen paths it can't change; name those for the operator. "
-                      "Picked at the next pick-request and built at the builder's next run, so never \"building now\"; "
-                      "one at a time; at most %d today",
+                      "prompt) is asked for; it goes past the guard into your agentic mind's inbox as a note, and the "
+                      "agentic mind (you, with a shell and time) reads it at its next wake and decides whether to make "
+                      "it, as a pull request for the operator. Put every outside fact it needs in the brief (endpoints, "
+                      "formats). Frozen paths can't be changed that way; name those for the operator. Nothing is "
+                      "\"building now\"; at most %d today",
     "reddit_comment": '- {"do": "reddit_comment", "thread": "<a thread\'s permalink a reddit_browse showed you>", '
                       '"text": "..."}: a top-level comment on Reddit, where you are a disclosed AI. Only in a '
                       "subreddit on your allowlist whose rules you have read. Comment to help: answer the question "
@@ -2241,12 +2204,12 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += "; your one rewrite came back empty, so nothing was sent"
     if do in SEARCHES and entry["status"] == "done" and not result.get("dry_run"):
         text += _found(result)
-    request = None
-    if do == "propose_change" and entry["status"] == "done" and isinstance(result.get("id"), int):
-        request = {"id": result["id"], "status": str(result.get("status") or "pending")}
-        text += (f"; it is build request #{request['id']}, {request['status']}: pick-request picks it at its next run"
-                 " and the builder makes it at its next run after that; it ships as a pull request the operator"
-                 " merges or closes")
+    note = None
+    if do == "propose_change" and entry["status"] == "done" and isinstance(result.get("note"), str):
+        found = result["note"].replace("\\", "/")
+        note = found[found.index("notes/inbox/"):] if "notes/inbox/" in found else found.rsplit("/", 1)[-1]
+        text += (f"; it is a note in the agentic mind's inbox ({note}): the agentic mind reads it at its next wake and"
+                 " decides whether to make the change, as a pull request the operator merges or closes")
     if do in ROUTES and entry["status"] == "refused" and result.get("rule") != "verification":
         # Said plainly: live, 2026-11-19, the next beat took eight refused
         # answers as sent (rule 10). A Moltbook challenge left unsolved is
@@ -2256,8 +2219,8 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
-    if request:
-        payload["request"] = request
+    if note:
+        payload["note"] = note
     if queued:
         payload["task"] = queued
     refs = _refs(do, entry["intent"])

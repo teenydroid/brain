@@ -1,33 +1,34 @@
-"""Teeny's own clone: a working copy of GITHUB_USER/brain that the builder
-may change in a `self` job (docs/evolve.md, "Teeny's own clone").
+"""Teeny's own clone: a working copy of GITHUB_USER/brain (docs/evolve.md,
+"Teeny's own clone"), the base every evolve generation is cut from and the
+babysitter's reverts are made in.
 
-  state/workbench/brain/   the working tree, where the builder edits (its
-                           file tools reach state/workbench/ and no further)
+  state/workbench/brain/   the working tree
   state/self/brain.git     its git directory, kept outside the workbench. Git
-                           reads its config from there, and a config the
-                           builder could write could send a push (and its
-                           token) somewhere else, or run a program when the
-                           ship commits. Every git run here names both paths,
-                           so nothing in the working tree can redirect it.
+                           reads its config from there; every git run here
+                           names both paths, so nothing in the working tree
+                           can redirect it (a push, and its token, somewhere
+                           else, or a program run on commit).
   state/self/sync.json     the last sync: when, origin/main's commit, the
                            clone's branch and state
 
-`sync` runs from cron (bin/build-ship, every 30 minutes), outside the
-builder's sandbox, which has no network. It fetches origin's main and
+`sync` runs at the start of every bin/evolve run, under the `self-clone`
+lock, and on demand (`hands/build self-sync`). It fetches origin's main and
 teeny/* branches, moves the local main ref to origin/main whenever that is a
 fast-forward, and then leaves the working tree in one of these states:
 
   cloned    there was no clone, so one is made at origin/main
   synced    main was checked out with nothing uncommitted, and now matches
-            origin/main. A teeny/<slug> branch whose self job shipped or
-            failed is parked first: anything left uncommitted on it is
+            origin/main. A teeny/<slug> branch left checked out (the retired
+            builder's) is parked first: anything left uncommitted on it is
             committed to it (as Teeny), and main is checked out (`parked`)
   dirty     main has uncommitted edits: left as they are
   diverged  main has commits origin/main lacks: left as they are
-  busy      another branch is checked out (a teeny/<slug> with unshipped
-            work): left as it is, and its distance from main is reported
+  busy      another branch is checked out: left as it is, and its distance
+            from main is reported
 
-It never resets, never forces and never deletes a branch.
+It never resets, never forces and never deletes a branch. The builder that
+edited this clone in `self` jobs is retired (2026-11-24): the agentic mind
+changes Teeny in a clone of its own (build/mindclone.py).
 """
 
 from __future__ import annotations
@@ -140,10 +141,9 @@ def _branches() -> list[Json]:
 
 
 def _finished(branch: str) -> bool:
-    """The branch's self job shipped or failed: nothing on it is in progress."""
-    from . import jobs
-
-    return jobs.self_status(branch) in ("shipped", "failed")
+    """Nothing is in progress on a teeny/* branch of this clone: the builder
+    that worked on them is retired, so one left checked out is parked."""
+    return branch.startswith(BRANCH_PREFIX)
 
 
 def _park(branch: str) -> None:
@@ -211,103 +211,7 @@ def sync() -> Json:
         return _sync_locked()
 
 
-def start(branch: str) -> str:
-    """Syncs, then starts BRANCH from the fresh origin/main for a self job.
-    Refused while the clone is not free: anything but a clean main."""
-    with hand.lock("self-clone"):
-        record = _sync_locked()
-        if record["state"] not in ("cloned", "synced"):
-            raise hand.Refused(f"the clone is not free ({record['state']} on {record['branch']})", rule="busy")
-        _git("checkout", "-q", "-b", branch, ORIGIN_BASE)
-        return record["commit"]
-
-
-def resume(branch: str) -> str:
-    """Syncs, then checks out BRANCH as origin has it, for a fix job on a
-    pull request already open (docs/roadmap.md, A7). Refused while the
-    clone is not free, or when origin has no such branch."""
-    with hand.lock("self-clone"):
-        record = _sync_locked()
-        if record["state"] not in ("cloned", "synced"):
-            raise hand.Refused(f"the clone is not free ({record['state']} on {record['branch']})", rule="busy")
-        remote = f"refs/remotes/origin/{branch}"
-        sha = _rev(remote)
-        if sha is None or not branch.startswith(BRANCH_PREFIX):
-            raise hand.Refused(f"origin has no branch {branch}", rule="no_branch")
-        _git("checkout", "-q", "-B", branch, remote)
-        return sha
-
-
-def base_of(branch: str) -> str | None:
-    """Where BRANCH left origin/main."""
-    done = _git("merge-base", ORIGIN_BASE, f"refs/heads/{branch}", check=False)
-    if done.returncode != 0:
-        return None
-    return done.stdout.decode().strip() or None
-
-
-def has_changes(since: str = ORIGIN_BASE) -> bool:
-    """The checked-out branch differs from SINCE (origin/main by default):
-    edits, or commits."""
-    return dirty() or int(_out("rev-list", "--count", f"{since}..HEAD")) > 0
-
-
-_STATUS = {"A": "A", "C": "A", "M": "M", "T": "M", "D": "D", "R": "R", "?": "A"}
-
-
-def _status_entries(raw: bytes, porcelain: bool) -> list[tuple[str, str, str | None]]:
-    """(status, path, old path) from `git diff --name-status -z` or `git
-    status --porcelain -z`. A rename names its old path after the new one in
-    the porcelain and before it in the diff; a copy is an add."""
-    parts = raw.decode("utf-8", "replace").split("\0")
-    out: list[tuple[str, str, str | None]] = []
-    i = 0
-    while i < len(parts) and parts[i]:
-        if porcelain:
-            code, path = parts[i][:2], parts[i][3:]
-            letter = "?" if "?" in code else next((c for c in "RCDAMT" if c in code), "M")
-            old = parts[i + 1] if letter in "RC" else None
-            i += 2 if old is not None else 1
-        else:
-            letter = parts[i][0]
-            if letter in "RC":
-                old, path, i = parts[i + 1], parts[i + 2], i + 3
-            else:
-                old, path, i = None, parts[i + 1], i + 2
-        out.append((_STATUS.get(letter, "M"), path, old))
-    return out
-
-
-def changed_paths(since: str = ORIGIN_BASE) -> list[tuple[str, str]]:
-    """What the checked-out branch changes against SINCE (origin/main by
-    default): the commits since it left SINCE plus the working tree, each
-    path once as (status, path), the status A, M, D or R. A path the branch
-    added stays an add through later edits, and an added path deleted again
-    is no change at all."""
-    changes: dict[str, str] = {}
-    # --no-renames: a new hands/<name> beside a deleted file is an add and a
-    # delete, never a rename that hides the new hand (build/feature.py).
-    committed = _git("diff", "--name-status", "-z", "--no-renames", f"{since}...HEAD").stdout
-    for status, path, _ in _status_entries(committed, porcelain=False):
-        changes[path] = status
-    live = _git("status", "--porcelain", "-z", "--untracked-files=all").stdout
-    for status, path, old in _status_entries(live, porcelain=True):
-        before = changes.get(path)
-        if old is not None and changes.get(old) == "A":
-            del changes[old]
-            status = "A"  # moved a file the branch itself added
-        if status == "D" and before == "A":
-            del changes[path]
-        elif status == "A" and before == "D":
-            changes[path] = "M"
-        elif before is not None and status in ("A", "M"):
-            continue  # what the commits said stands: an add stays an add
-        else:
-            changes[path] = status
-    return [(status, path) for path, status in sorted(changes.items())]
-
-
-# --- shipping a self job ----------------------------------------------------------------------
+# --- the frozen paths ----------------------------------------------------------------------------
 
 #: The frozen-path check (bin/lib/frozen.py), the operator's copy beside this
 #: code: never the clone's, which the change being checked could have edited.
@@ -327,140 +231,10 @@ def _frozen():
 
 def frozen_listing() -> Json:
     """`hands/build frozen`: the operator's frozen list and the map of the
-    frozen things a self change most often wants (frozen.OFTEN_WANTED), so a
-    proposal skips them up front instead of the builder finding out."""
+    frozen things a change to Teeny most often wants (frozen.OFTEN_WANTED),
+    so a proposal skips them up front."""
     frozen = _frozen()
     try:
         return frozen.listing()
     except frozen.FrozenError as exc:
         raise hand.HandError(f"the frozen list cannot be read: {exc}") from None
-
-
-def frozen_paths(branch: str) -> list[str]:
-    """Every frozen path BRANCH touches against origin/main, with the list as
-    of origin/main (frozen.check). A check that cannot run refuses."""
-    frozen = _frozen()
-    try:
-        hits = frozen.check(gitdir(), ORIGIN_BASE, f"refs/heads/{branch}")
-    except frozen.FrozenError as exc:
-        raise hand.Refused(f"the frozen-path check could not run: {exc}", rule="frozen_check") from None
-    return sorted({hit.path for hit in hits})
-
-
-def _tests_lines(tests: Any) -> list[str]:
-    if isinstance(tests, list):
-        return [str(t) for t in tests]
-    return [str(tests)] if tests else []
-
-
-def _rubric_lines(rubric: Any) -> list[str]:
-    """The feature rubric block of a pull request (build/feature.py): for
-    each new hand what the desk found, and when it is counted as used. Empty
-    for a job that is not a feature."""
-    if not isinstance(rubric, dict) or not isinstance(rubric.get("hands"), list):
-        return []
-    if rubric.get("kind") == "fix":
-        return ["", "**Fix rubric** (a finding prompt rules did not fix; checked by the desk before it took the "
-                "report)", "", "- tests: " + (", ".join(rubric.get("tests") or []) or "none"),
-                "- checked: bin/wants counts the finding 7 days after merge (it should fall)"]
-    lines = ["", "**Feature rubric** (checked by the desk before it took the report)", ""]
-    for found in rubric["hands"]:
-        ran = found.get("ran") or {}
-        where = "in the jail" if ran.get("jailed") else "not in the jail"
-        books = ", ".join(found.get("callers") or []) or "nothing"
-        runs = ", ".join(f"bin/act {b}" for b in found.get("scheduled") or []) or "nothing"
-        lines.append(f"- hands/{found.get('name')}: {ran.get('ran', 0)} tests ran {where}; called by {books}; "
-                     f"scheduled as {runs}; docs/hands.md section: {'yes' if found.get('docs') else 'no'}")
-    lines.append("- used: counted by bin/wants 7 days after merge (scheduled playbook runs that call it)")
-    return lines
-
-
-def pr_text(job: Json) -> tuple[str, str]:
-    """The pull request's title (the summary's first line) and body."""
-    summary = (job.get("summary") or job["slug"]).strip()
-    title = summary.splitlines()[0].strip()[:100] or job["slug"]
-    lines = [summary, "", "**Tests** (run offline by Teeny's builder, in its clone)", ""]
-    lines += [f"- {t}" for t in _tests_lines(job.get("tests"))] or ["- none reported"]
-    lines += _rubric_lines(job.get("rubric"))
-    lines += [
-        "",
-        "**Checks**",
-        "",
-        f"- frozen paths (evals/frozen.txt as of {BASE}): none touched",
-        f"- asked for: {job['text'][:500]}",
-        f"- build job {job['id']}. Teeny never merges its own pull requests.",
-    ]
-    return title, "\n".join(lines)
-
-
-def ship(job: Json, gh: Any = None) -> Json:
-    """Ships a self job: its branch committed as Teeny, checked for frozen
-    paths against origin/main, pushed (hands/gh push_branch) and opened as a
-    pull request into main (hands/gh open_pr). The guard reads the title and
-    body before anything is committed or pushed. Never merges."""
-    from ..gh import actions
-    from ..gh.client import GitHubApi
-
-    branch = BRANCH_PREFIX + job["slug"]
-    full = repo()
-    with hand.lock("self-clone"):
-        fetch()
-        on = current_branch()
-        if on != branch:
-            raise hand.HandError(f"the clone is on {on}, not {branch}")
-        title, body = pr_text(job)
-        fields = actions.guarded({"title": title, "body": body}, "pr", {"repo": full, "head": branch})
-        if dirty():
-            _git("add", "-A")
-            _git("commit", "-q", "-m", fields["title"])
-        if not has_changes():
-            raise hand.Refused("the branch changes nothing", rule="empty")
-        paths = frozen_paths(branch)
-        if paths:
-            raise hand.Refused(f"it touches frozen path(s): {', '.join(paths)} (evals/frozen.txt)", rule="frozen",
-                               paths=paths)
-        if gh is None and not hand.dry_run():
-            gh = GitHubApi.from_settings()
-        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
-        opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
-                                  "body": fields["body"]}, gh=gh)
-    if pushed.get("dry_run"):
-        return {"job_id": job["id"], "dry_run": True, "branch": branch, "would_push": pushed["would_push"],
-                "would_open_pr": opened.get("would_open_pr"), "title": fields["title"]}
-    return {"job_id": job["id"], "repo": full, "branch": branch, "commit": pushed["commit"],
-            "pr_url": opened.get("html_url"), "number": opened.get("number"),
-            "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}
-
-
-def ship_fix(job: Json, gh: Any = None) -> Json:
-    """Ships a fix job (docs/roadmap.md, A7): its commits on top of the open
-    pull request's branch, checked for frozen paths against origin/main and
-    pushed to the same branch, never forced. No new pull request: the one
-    already open picks the commits up and its checks run again."""
-    from ..gh import actions
-    from ..gh.client import GitHubApi
-
-    branch = job["branch"]
-    since = f"refs/remotes/origin/{branch}"
-    full = repo()
-    with hand.lock("self-clone"):
-        fetch()
-        on = current_branch()
-        if on != branch:
-            raise hand.HandError(f"the clone is on {on}, not {branch}")
-        if dirty():
-            _git("add", "-A")
-            _git("commit", "-q", "-m", f"fix: make the failing checks pass ({job['slug']})")
-        if not has_changes(since):
-            raise hand.Refused("the fix changes nothing", rule="empty")
-        paths = frozen_paths(branch)
-        if paths:
-            raise hand.Refused(f"it touches frozen path(s): {', '.join(paths)} (evals/frozen.txt)", rule="frozen",
-                               paths=paths)
-        if gh is None and not hand.dry_run():
-            gh = GitHubApi.from_settings()
-        pushed = actions.push_branch(gitdir(), full, branch, since, gh=gh)
-    if pushed.get("dry_run"):
-        return {"job_id": job["id"], "dry_run": True, "branch": branch, "would_push": pushed["would_push"]}
-    return {"job_id": job["id"], "repo": full, "branch": branch, "commit": pushed["commit"], "pr_url": job.get("pr_url"),
-            "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}

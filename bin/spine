@@ -202,7 +202,7 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || boot_failed "the core did
 # the core's own keys and subtables under it. The scheduler reads the stored
 # config on every tick.
 oh config_update_agent_settings "$(jq -cn --argjson s "$TEENY_AGENT_TURN_SECS" '{agent_timeout_secs: $s}')" >/dev/null ||
-  boot_failed "the core did not take a ${TEENY_AGENT_TURN_SECS}s agent turn budget; the builder and the operator would stop at 120s"
+  boot_failed "the core did not take a ${TEENY_AGENT_TURN_SECS}s agent turn budget; the mind and the operator would stop at 120s"
 log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
 
 # The model and the memory store, from secrets/spine.env when it exists. Set
@@ -225,7 +225,7 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
     # Native tool calls, on unless SPINE_NATIVE_TOOLS=0. The core treats a
     # local-openai endpoint as unable to take `tools` and otherwise prompts a
     # JSON-in-tag text protocol, which Surplus (glm-5.3-flash) breaks: its
-    # server reads each <tool_call> body as the tool's name, so the builder's
+    # server reads each <tool_call> body as the tool's name, so a scheduled agent's
     # every call after the first failed as `unknown tool `{"arguments":…}``.
     # Set it to 0 only for an endpoint whose model cannot take `tools`.
     native_tools=true

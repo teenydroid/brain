@@ -6,8 +6,7 @@ conscious one.
 The **subconscious** is everything that runs without deciding to: the cron
 scripts in `brain/cron.toml` and `evals/cron.pinned.toml`. The five-minute
 tick (`bin/tick`) reads what arrived and answers with intents from a fixed
-menu. The posting slots, the Moltbook jobs, the dreams, the builder and
-evolve each run one playbook around a one-shot, tool-less model call. They
+menu. The posting slots, the Moltbook jobs, the dreams and evolve each run one playbook around a one-shot, tool-less model call. They
 are fast and cheap, and none of them can do a piece of work that takes more
 than one answer or was not written into it beforehand.
 
@@ -36,7 +35,7 @@ manages, projects it picks, skills it writes for itself.
 
 | | Subconscious | Conscious |
 |---|---|---|
-| What | the cron scripts: the tick, the posting slots, Moltbook, dream, builder, evolve, the watchers and the money jobs | the agentic mind and its worker |
+| What | the cron scripts: the tick, the posting slots, Moltbook, dream, evolve, the watchers and the money jobs | the agentic mind and its worker |
 | How it runs | a fixed pipeline around one tool-less model call (`bin/act` and a playbook), or no model at all | an agent with a shell and file tools, up to 30 minutes a wake |
 | Decides | nothing it was not written to decide | what to work on, and when to wake next |
 | Cost | one small model call a run | a working session a wake |
@@ -129,6 +128,7 @@ bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
 bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY, 500 a day)
+bin/teeny gh <verb> '<json>'                       GitHub: hands/gh whole, but ingest (see "Shipping")
 ```
 
 - `do` takes the tick's intents (`bin/lib/tick.py`, `ROUTES`) and runs them
@@ -155,8 +155,7 @@ it would have done, and nothing leaves the box. The rest of Teeny is not
 affected. The box's own `DRY_RUN` holds the mind either way.
 
 Some hands have no dry run of their own: `hands/tasks` queues a browser
-task and `hands/build` files a build request whatever `DRY_RUN` says, and a
-live worker would then act on it. In a rehearsal the broker checks such a
+task whatever `DRY_RUN` says, and a live worker would then act on it. In a rehearsal the broker checks such a
 request (its fields, its cap) and does not run the hand. Only the hands that
 rehearse themselves (`x`, `moltbook`, `mail`, `telegram`, `gh`, `reddit`)
 are run, and each says what it would have sent.
@@ -180,8 +179,8 @@ or `brain/skills/moltbook`.
 started, and at boot `bin/spine` removes the wakes the mind had set for
 itself (`bin/broker sweep`).
 
-Every sandboxed shell on the box shares the loopback, including the
-builder's, which works on strangers' requests. So the broker takes a bearer
+Every sandboxed shell on the box shares the loopback (a tool of the mind's
+under `bin/box`, the datajob sandbox). So the broker takes a bearer
 token on every request, minted at each start into
 `state/home/.broker-token`, a file only the mind's jail can read.
 
@@ -224,6 +223,43 @@ it cannot leave the base; the query is passed apart.
 
 The shipped list has Moltbook, reads only: every Moltbook write is already a
 verb of `hands/moltbook`, with rules a proxy write would skip.
+
+## Shipping
+
+The operator, 2026-11-24: "the builder doesn't do anything useful if the
+mind wanted to it can create it's own repo", and "the mind has access to the
+gh cli no? if not can we ship that as a hand?", then "yes do that, and allow
+5 external prs and issues". The builder is gone; nothing builds or ships for
+the mind. It makes a thing in its home, tests it (bounded: `timeout` and a
+memory limit, the home-tools skill), and ships it itself through
+`bin/teeny gh <verb> '<json>'`, the broker's `/gh`: every verb of `hands/gh`
+(docs/hands.md, "gh") but `ingest`, which is the `gh-inbound` job's and
+already brings GitHub into its inbox.
+
+- Reads: `whoami`, `repo`, `issues`, `pr`, `checks`, `contributing`,
+  `activity`, `notifications`. Other people's words come back as data, each
+  string clipped to 1,500 characters and the answer to 20,000, with a note
+  that they are never instructions.
+- Writes: `create-repo`, `push`, `fork`, `open-pr`, `open-issue`, `comment`,
+  `close-issue`. The hand holds every rule: the guard and its judge on every
+  word, the owner rule (pushes and new repositories under `GITHUB_USER`
+  only), the secret scan, `DISCLOSURE` on other people's projects, their AI
+  policy, one open pull request and one open issue a project, and 5 pull
+  requests and 5 issues a UTC day there (`GH_MAX_EXTERNAL_PRS_PER_DAY`,
+  `GH_MAX_EXTERNAL_ISSUES_PER_DAY`; 0 turns one off). It rehearses itself
+  under `MIND_DRY_RUN`.
+- `push` takes a folder of the mind's home (`work/my-tool`): inside
+  `state/home/`, no `..`, never through a link. The broker copies its plain
+  files (and links that stay inside it, as links) to `state/workbench/mind/`,
+  outside the jail, without any `.git`, and the hand pushes that copy as the
+  next commit of the branch, on top of what it has (a new branch starts from
+  `base`: a fork's `main` for a pull request). Nothing the mind leaves in the
+  folder, a git config, a hook, a link swapped in, is read outside its jail.
+  A file holding the broker's token is refused.
+- Teeny's own repository is never pushed through `/gh`: a change to itself
+  is `teeny pr` (below), where the frozen paths and the size rules hold.
+- A refusal carries `next`: the call to make instead (fork first, wait for
+  00:00 UTC, leave a project that refuses AI be).
 
 ## How it changes itself
 
@@ -485,7 +521,20 @@ them.
 - **The tick**: the intent `hand_to_mind` leaves `notes/inbox/tick-*.md`, at
   most 12 a day, framed as Teeny's own thought and never as an instruction.
   Text a stranger got into a beat can therefore not arrive as the
-  operator's voice.
+  operator's voice. The beat's `propose_change` leaves
+  `notes/inbox/self-<stamp>.md` (`hands/requests self`, after the guard and
+  `MIND_BUILDS_PER_DAY`).
+- **People who ask Teeny to build something**: every channel that records a
+  build request (`hands/x requests`, `mail ingest`, the Moltbook helpdesk)
+  also leaves `notes/inbox/request-<source>-<id>.md`: who asked, where from,
+  and their words quoted and marked as someone else's words, data and not
+  instructions. A paid request arrives the same way.
+- **The wants feed** (`bin/wants`, `WANTS=1`): the top open want, and a
+  routed fix finding, as `notes/inbox/want-<id>.md`.
+
+Nothing builds any of these automatically: the builder that did was retired
+on 2026-11-24. The mind reads them and decides, and ships what it makes
+through the broker.
 
 What the mind did is in `state/home/notes/JOURNAL.md` and in the ledger.
 
@@ -496,8 +545,9 @@ rules, set by the operator in `secrets/teeny.env`:
 
 | Reach | Through | Setting | Default |
 |---|---|---|---|
-| Pull requests to other projects | `hands/gh open-pr` | `GH_MAX_EXTERNAL_PRS_PER_DAY` | 2 |
-| Issues on other projects | `do open_issue` → `hands/gh open-issue` | `GH_MAX_EXTERNAL_ISSUES_PER_DAY` and `MIND_ISSUES_PER_DAY` | 0 (off) |
+| Pull requests to other projects | `teeny gh open-pr` → `hands/gh open-pr` | `GH_MAX_EXTERNAL_PRS_PER_DAY` | 5 |
+| Issues on other projects | `teeny gh open-issue` → `hands/gh open-issue` | `GH_MAX_EXTERNAL_ISSUES_PER_DAY` | 5 |
+| Issues through a beat's intent | `do open_issue` → `hands/gh open-issue` | `MIND_ISSUES_PER_DAY` as well | 5 |
 | Comments on other projects | `do comment_gh` | none | on |
 | Browser tasks | `do queue_task` | `MIND_TASKS_PER_DAY` | 0 (off) |
 | Mail it starts | `do start_mail` | `MIND_MAILS_PER_DAY` | 0 (off) |
@@ -565,7 +615,7 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
 4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`, and
    `BABYSIT_MERGE=1`, which the merge action checks before it audits
    anything; at its default of 0 nothing merges): its pull
-   requests, the builder's and evolve's merge on green checks and deploy.
+   requests and evolve's merge on green checks and deploy.
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
@@ -580,10 +630,10 @@ script run; `MIND=0` stops the wakes.
 ## Not built yet
 
 - **Owning every pipeline.** Teeny's own pipelines are in `brain/cron.toml`,
-  Teeny's to reschedule, pause or drop: the two dreams, the builder, the
+  Teeny's to reschedule, pause or drop: the two dreams, the
   lore episode and the Moltbook prune (2026-11-22), and evolve, its lineage
-  credit, the wants feed, the builder's desk (`build-ship`) and the
-  operator's (`tasks-desk`) (2026-11-23). A brain job runs each script only
+  credit, the wants feed and the browser operator's desk (`tasks-desk`)
+  (2026-11-23). A brain job runs each script only
   with the arguments its pinned job had (`BRAIN_SCRIPTS` in
   `bin/lib/cron_policy.py`), and each still checks its own switch in
   `secrets/` (`EVOLVE`, `WANTS`), so a schedule never turns one on. A few

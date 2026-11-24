@@ -218,7 +218,7 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # so a refusal counted in the hundreds never starves them. 0: no reserve.
     "EVOLVE_GROWTH_SLOTS": ("1", int, 0, 8),
     # A fix finding whose family has had this many prompt-level candidates
-    # that did not help goes to code: a builder want, or a public issue when
+    # that did not help goes to code: a want for the agentic mind, or a public issue when
     # the fix needs a frozen path (evolve_route). 0: never routed.
     "EVOLVE_ROUTE_AFTER": ("2", int, 0, 10),
     # Two: the pinned job runs after the night's dream and after midday's.
@@ -1056,7 +1056,7 @@ def finding_routes(entries: Mapping[str, Json], findings: list[Any], cfg: "Confi
 def route_findings(cfg: "Config", entries: Mapping[str, Json], findings: list[Any],
                    publisher: "Publisher | None") -> list[Json]:
     """File the one public issue of each routed family whose fix needs a
-    frozen path; a family for the builder waits for bin/wants. Under
+    frozen path; a family for the agentic mind waits for bin/wants. Under
     DRY_RUN it says what it would open."""
     out = []
     for route in finding_routes(entries, findings, cfg):
@@ -1152,8 +1152,8 @@ def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None
 
 
 def split_wants(learnings: list[Learning]) -> tuple[list[Learning], list[Learning]]:
-    """The learnings this loop picks, and those it leaves to the builder
-    (bin/wants): an item in a WANT_SECTION that says Teeny will build a
+    """The learnings this loop picks, and those it leaves to the agentic
+    mind (bin/wants): an item in a WANT_SECTION that says Teeny will build a
     thing (wants_rules.is_build_intent). 2026-11-19: m15, "the first thing i
     build myself is a chart renderer", was settled here as `already` on the
     memory page; a feature is a build, not a delta edit to a playbook."""
@@ -1258,8 +1258,8 @@ class Source:
 
 def source() -> Source:
     """Teeny's own clone (state/self/brain.git) when it exists: its
-    origin/main is what a pull request targets, fetched by hands/build
-    self-sync, and its config sits outside every tree a model writes, so
+    origin/main is what a pull request targets, fetched at the start of
+    every run (sync_self_clone), and its config sits outside every tree a model writes, so
     nothing a candidate holds can redirect a push. Otherwise the checkout's
     main, which can be gated but not shipped (push_branch takes only a git
     directory under state/)."""
@@ -1273,6 +1273,34 @@ def source() -> Source:
     if common.returncode != 0:
         raise EvolveError("no git directory: neither Teeny's clone (state/self/brain.git) nor a checkout")
     return Source(Path(common.stdout.strip()), os.environ.get("EVOLVE_BASE", "main"), "checkout")
+
+
+def sync_self_clone() -> Json | None:
+    """Teeny's own clone fetched and fast-forwarded to origin/main
+    (teeny_hands.build.selfclone.sync, under the `self-clone` lock) when it
+    is this run's source, so a generation is cut from a main at most one run
+    old. The builder's desk (bin/build-ship) did this every half hour until
+    the builder was retired (2026-11-24). Nothing for a checkout or an
+    EVOLVE_GIT_DIR. A sync that fails is said and the run goes on from what
+    the clone has. A box with GITHUB_TOKEN and no clone yet (a fresh
+    deploy: nothing else makes one since build-ship went) has it cloned, so
+    the run that follows ships from it rather than from the checkout, which
+    can be gated but not shipped."""
+    from teeny_hands import hand
+
+    kind = source().kind
+    if kind != "self-clone" and not (kind == "checkout" and hand.setting("GITHUB_TOKEN") and not dry_run()):
+        return None
+    try:
+        from teeny_hands.build import selfclone
+
+        got = selfclone.sync()
+    except Exception as exc:  # noqa: BLE001 - a stale base is better than no run
+        why = f"{type(exc).__name__}: {str(exc)[:200]}"
+        say(f"syncing Teeny's own clone failed ({why}); going on from what it has")
+        return {"error": why}
+    say(f"Teeny's own clone: {got.get('state')} at {str(got.get('commit') or '')[:12]}")
+    return got
 
 
 def git_env() -> dict[str, str]:
@@ -5189,7 +5217,8 @@ class HandsPublisher:
 
     def open_pr(self, src: Source, tree: Path, branch: str, base: str, title: str, body: str) -> Json:
         if src.kind != "self-clone":
-            raise EvolveError("a generation ships only from Teeny's own clone (state/self/brain.git; hands/build self-sync)")
+            raise EvolveError("a generation ships only from Teeny's own clone (state/self/brain.git; synced at the start"
+                              " of every run, or by hands/build self-sync)")
         actions = self._actions()
         repo = self._repo()
         actions.push_branch(src.git_dir, repo, branch, base)
@@ -6865,16 +6894,17 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     if skips:
         return {"ok": True, "skipped": "skipped this run: " + ", ".join(s.kind for s in skips),
                 "skips": [s.brief() for s in skips], **({"problems": problems} if problems else {})}
+    sync_self_clone()
     entries = archive()
     if not dry_run():
         refresh_prs(entries, publisher)
     learnings, routed = split_wants(read_learnings())
     if routed:
-        say(f"{len(routed)} learning(s) are things to build: they go to the builder (bin/wants), not here")
+        say(f"{len(routed)} learning(s) are things to build: they go to the agentic mind (bin/wants), not here")
     # The second source: what the run logs and ledgers count as not working.
     findings = read_findings(cfg)
     # A fix finding prompt rules kept failing to fix goes to code: its public
-    # issue is filed here, once; a builder's want, by bin/wants.
+    # issue is filed here, once; a want for the agentic mind, by bin/wants.
     try:
         route_findings(cfg, entries, findings, publisher)
     except Exception as exc:  # noqa: BLE001 - the generation goes ahead; the next run files it

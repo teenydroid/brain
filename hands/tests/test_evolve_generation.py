@@ -49,14 +49,14 @@ def ledgers(state: Path) -> None:
     os.environ["TEENY_ROOT"] = str(state.parent)
     from teeny_hands import requests as build_requests
     from teeny_hands import stimuli
-    from teeny_hands.build import ideas, jobs
+    from teeny_hands.build import ledger as build_ledger
     from teeny_hands.guard import holds
     from teeny_hands.listen import ledger
     from teeny_hands.moltbook import rules as moltbook
     from teeny_hands.stats import collect
     from teeny_hands.x import mentions, metrics  # mentions' makes x_posts too
 
-    for make in (build_requests._db, stimuli.db, ideas.db, jobs.db, ledger.db, moltbook.db, collect.db, mentions._db,
+    for make in (build_requests._db, stimuli.db, build_ledger.db, ledger.db, moltbook.db, collect.db, mentions._db,
                  metrics.db):
         make().close()
     with holds._store():

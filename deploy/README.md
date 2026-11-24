@@ -346,11 +346,12 @@ docker compose -f deploy/compose.yaml logs -f xhook
   `state/browser/downloads/`, so a logged-in session survives restarts.
   Delete `state/browser/profile/` (with the spine stopped) to log everything
   out.
-- The builder's queue is `hands/build jobs` and the operator's is
-  `hands/tasks list`. `hands/tasks list --status needs_human` is what the
-  browser left for you (a payment, a login, a CAPTCHA its own tries did not
-  pass). Nothing the builder
-  makes leaves the box while `DRY_RUN=1`.
+- The browser operator's queue is `hands/tasks list`. `hands/tasks list
+  --status needs_human` is what the browser left for you (a payment, a
+  login, a CAPTCHA its own tries did not pass). What people asked Teeny to
+  build is `hands/requests list`; each request is also a note in the mind's
+  inbox, and nothing builds it automatically. Nothing the mind makes leaves
+  the box while `DRY_RUN=1`.
 - To tell it what to post:
   `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.
 

@@ -104,12 +104,13 @@ hands/mail list --unread                              # recent mail
 hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
 
 hands/requests list --status pending                  # what people asked Teeny to build
-echo '{"id":4,"reason":"small and useful"}' | hands/requests pick   # the one to build next (one at a time)
-hands/requests reset 4 --note 'builder crashed'       # back to pending (operator)
-hands/build jobs --status ok                          # built and tested, waiting for bin/build-ship
+echo '{"id":4,"reason":"small and useful"}' | hands/requests pick   # record that Teeny takes it on (the mind decides from its inbox note)
+hands/requests reset 4 --note 'picked by mistake'     # back to pending (operator)
+hands/build jobs                                      # the old builder's jobs, history only
+hands/build self-sync                                 # sync Teeny's own clone with origin/main
 echo '{"goal":"read the latest release notes","start_url":"https://github.com/tinyhumansai/openhuman/releases","done_when":"you can name the newest version","kind":"research"}' | hands/tasks add --source operator
 hands/tasks list --status needs_human                 # what the browser left for a person
-bin/oh cron_run '{"job_id":"<id of teeny.builder>"}'  # run the builder now (bin/crons lists the ids)
+bin/oh cron_run '{"job_id":"<id of teeny.operator>"}' # run the browser operator now (bin/crons lists the ids)
 
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
 hands/stats report --days 7                           # latest values and their change
@@ -155,7 +156,7 @@ command = "bin/act morning"
 A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
 often than every 5 minutes, there can be at most 60 brain jobs, and `bin/act`
 can run at most 400 times a day. The jobs in `evals/cron.pinned.toml` (the
-inbound jobs, `tick`, `reflect`, the builder and operator, and the rest) are
+inbound jobs, `tick`, `reflect`, the browser operator, and the rest) are
 always added and do not count toward the 24. These rules live in
 `bin/lib/cron_policy.py`.
 
@@ -208,7 +209,7 @@ environment forces a rehearsal.
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
 | `X402_FUND`, `X402_FUND_*`, `X402_EXA_MAX_USD`, `X402_FIRECRAWL`, `X402_FIRECRAWL_MAX_USD`, `X402_TEXT_CHARS`, `X402_CACHE` | `hands/x402`: the top-up of USDC on Base (off unless `X402_FUND=1`, then its floor, target and daily cap are required) and paid web search. `bin/doctor` refuses unusable values. [`hands.md`](hands.md#x402-the-x402-rail-kept-funded-and-spent-on-web-search) lists each with its ceiling. |
 | `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY`, `MIND_SEARCHES_PER_DAY` | How many issues, browser tasks, new mails and paid web searches or page reads (together) the mind may send a UTC day. 0, the default, keeps each off. |
-| `MIND_BUILDS_PER_DAY` | How many changes to itself the mind may file a UTC day (`propose_change` -> `hands/build self`, one in flight at a time). 1 by default, at most 2; 0 turns it off. |
+| `MIND_BUILDS_PER_DAY` | How many changes to itself the mind may file a UTC day (`propose_change` -> `hands/requests self`: after the guard and this cap, a note in the mind's inbox it decides on). 1 by default, at most 2; 0 turns it off. |
 | `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
 | `GUARD_REVIEW`, `GUARD_REVIEW_MODEL` | Off unless `1`: the hold reviewer (`hands/guard review`) may release held drafts in the categories `evals/guard-review.toml` allows. The model must not be the drafter's or the judge's. |
 | `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |
@@ -258,7 +259,7 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library); src/ has the wallet quote backend (wallet_backend.rs, lifi.rs, debridge.rs), giveaway_tx.rs and browser_pictures.rs
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
-bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
+bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
                      bin/lib/studio.py the studio (feed, write, pick), bin/lib/studio_feed.py its cards, bin/lib/studio_room.py its Room,
                      bin/lib/formats/ one module per studio video format (skit, remake) and REGISTRY
 hands/               one launcher per hand (x, guard, gh, moltbook, hn, chan, trend, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, giveaway, bounty, slopcash, and more; hands/README.md lists them): Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
@@ -278,7 +279,7 @@ These are gitignored and created at run time:
 - `state/`: what the hands keep. `hands.db` holds the ledgers, caches, holds,
   pacing, the inbox and the queues. Beside it: `locks/`, `core.url` (where the
   core answers), `tick/` and `reflect/` (the mind's runs), `journal/`, `diary/`,
-  `workbench/` (what the builder builds; `workbench/brain/` is Teeny's own
+  `workbench/` (the browser operator's desk; `workbench/brain/` is Teeny's own
   clone of this repository, with its git directory in `self/`), `browser/`
   (the browser's profile and downloads), `media/` (what a post may attach) and
   `evolve/` (each generation of `bin/evolve` with its lab spines' folders,
@@ -311,7 +312,7 @@ OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 
 The live test boots a real spine over a scratch copy of the checkout, against
 a stub model. It covers first boot, cron seeding, `bin/ask`, `bin/act`,
-`bin/eval`, `bin/tick`, `bin/reflect`, the builder and operator agent jobs,
+`bin/eval`, `bin/tick`, `bin/reflect`, the operator agent job,
 the doctor, and the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above,

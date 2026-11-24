@@ -17,7 +17,7 @@ Once a week, let the people who talk to you choose what you build next.
 
 If `vote` shows a vote still `open`, skip. If fewer than two pending requests would pass the rules below, skip and say so.
 
-Choose two to four pending requests you would be glad to build, by the same rules as the pick-request playbook: small enough to build and ship in a day, useful to strangers, made with public code and no accounts. Never offer one that could hurt or spy on someone, spam, scrape private data, needs a secret, a password, an API key, money or a wallet, names or targets a real third party, or touches trading, tokens or wallets.
+Choose two to four pending requests you would be glad to build, by these rules: small enough to build and ship in a day, useful to strangers, made with public code and no accounts. Never offer one that could hurt or spy on someone, spam, scrape private data, needs a secret, a password, an API key, money or a wallet, names or targets a real third party, or touches trading, tokens or wallets.
 
 Write one post that asks which to build, numbered from 1 in the order of `options`, each described in your own words in a few words (never quote the person, never name who asked). Say people vote by replying with the number, one vote each, that the count is done by code, and that it picks your next build and nothing else. No @mentions at all, no hashtags, no price or token talk, no promise of a date.
 

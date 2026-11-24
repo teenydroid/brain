@@ -67,12 +67,12 @@ class Drawn(EvolveCase):
 
     def test_a_playbook_that_keeps_failing_for_its_own_reasons_is_a_finding(self):
         for k in range(5):
-            self.fail("self-improve", T0 - (k + 1) * 20 * HOUR)
-        got = self.by_id()["f:act_failed:self-improve"]
+            self.fail("goals", T0 - (k + 1) * 20 * HOUR)
+        got = self.by_id()["f:act_failed:goals"]
         self.assertEqual(got.kind, "act_failed")
         self.assertEqual(got.events, 5)
-        self.assertEqual(got.files, ["brain/playbooks/self-improve.md"])
-        self.assertEqual(got.check, {"kind": "act_failed", "playbook": "self-improve", "direction": "fall"})
+        self.assertEqual(got.files, ["brain/playbooks/goals.md"])
+        self.assertEqual(got.check, {"kind": "act_failed", "playbook": "goals", "direction": "fall"})
         self.assertIn("5", got.text)
         self.assertIn("7 days", got.text)
         self.assertIn("Prompt flagged for security review", got.text)
@@ -80,19 +80,19 @@ class Drawn(EvolveCase):
 
     def test_provider_and_infrastructure_failures_are_never_a_finding(self):
         for k in range(5):
-            self.fail("self-improve", T0 - (k + 1) * HOUR, stderr=PAID, failure="provider")
+            self.fail("goals", T0 - (k + 1) * HOUR, stderr=PAID, failure="provider")
             self.fail("take", T0 - (k + 1) * HOUR, stderr=PAID, failure=None)  # before bin/act marked it
         self.assertEqual(self.draw(), [])
 
     def test_fewer_events_than_a_check_can_score_is_no_finding(self):
         for k in range(3):
-            self.fail("self-improve", T0 - (k + 1) * HOUR)
+            self.fail("goals", T0 - (k + 1) * HOUR)
         self.assertEqual(self.draw(min_events=4), [])
-        self.assertEqual([f.id for f in self.draw(min_events=3)], ["f:act_failed:self-improve"])
+        self.assertEqual([f.id for f in self.draw(min_events=3)], ["f:act_failed:goals"])
 
     def test_runs_older_than_the_window_do_not_count(self):
         for k in range(5):
-            self.fail("self-improve", T0 - 8 * DAY - k * HOUR)
+            self.fail("goals", T0 - 8 * DAY - k * HOUR)
         self.assertEqual(self.draw(days=7), [])
 
     def test_a_run_log_with_no_playbook_in_the_repository_is_no_finding(self):
@@ -206,7 +206,7 @@ class Drawn(EvolveCase):
         """`worked` must mean the finding's number moved: the count a
         finding states is the count its check is scored on."""
         for k in range(5):
-            self.fail("self-improve", T0 - (k + 1) * 20 * HOUR)
+            self.fail("goals", T0 - (k + 1) * 20 * HOUR)
             self.ledger.act("moltbook-curate", T0 - (k + 1) * DAY, actions=[refused("duplicate")])
             self.ledger.tick(T0 - (k + 1) * HOUR, [{"do": "upvote_moltbook", "status": "refused",
                                                     "result": {"rule": "duplicate"}}])
@@ -221,8 +221,8 @@ class Drawn(EvolveCase):
         for k in range(4):
             self.ledger.act("moltbook-curate", T0 - (k + 1) * HOUR, actions=[refused("duplicate")])
         for k in range(6):
-            self.fail("self-improve", T0 - (k + 1) * HOUR)
-        self.assertEqual([f.id for f in self.draw()], ["f:act_failed:self-improve",
+            self.fail("goals", T0 - (k + 1) * HOUR)
+        self.assertEqual([f.id for f in self.draw()], ["f:act_failed:goals",
                                                        "f:refusals:moltbook-curate:duplicate"])
 
     def test_no_strangers_words_reach_a_finding(self):
@@ -242,13 +242,13 @@ class Drawn(EvolveCase):
 
     def test_a_finding_ref_has_a_learnings_shape(self):
         for k in range(5):
-            self.fail("self-improve", T0 - (k + 1) * HOUR)
+            self.fail("goals", T0 - (k + 1) * HOUR)
         got = self.draw()[0]
         ref = got.ref()
         for key in ("id", "hash", "section", "text", "kind", "events", "days", "check", "files", "examples"):
             self.assertIn(key, ref)
         # The id is the finding: its hash does not move with its numbers.
-        self.fail("self-improve", T0 - 7 * HOUR)
+        self.fail("goals", T0 - 7 * HOUR)
         self.assertEqual(self.draw()[0].hash, got.hash)
 
 
@@ -288,15 +288,15 @@ class Settled(EvolveCase):
 
     def fails(self, n, start=1):
         for k in range(start, start + n):
-            path = self.ledger.state / "act" / "self-improve" / "runs.jsonl"
+            path = self.ledger.state / "act" / "goals" / "runs.jsonl"
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a") as fh:
-                fh.write(json.dumps({"at": evolve.iso(T0 - k * HOUR), "ok": False, "playbook": "self-improve",
+                fh.write(json.dumps({"at": evolve.iso(T0 - k * HOUR), "ok": False, "playbook": "goals",
                                      "error": "the draft turn failed", "stderr": FLAGGED,
                                      "failure": "playbook"}) + "\n")
 
     def finding(self):
-        return next(f for f in evolve.read_findings(evolve.load_config()) if f.id == "f:act_failed:self-improve")
+        return next(f for f in evolve.read_findings(evolve.load_config()) if f.id == "f:act_failed:goals")
 
     def attempt(self, verdict, events=5, gen=1, **kw):
         ref = {**self.finding().ref(), "events": events}
@@ -315,11 +315,11 @@ class Settled(EvolveCase):
 
     def test_a_merged_attempt_holds_it_until_its_check_is_scored(self):
         self.attempt("opened", pr_number=3, merged_at=evolve.iso(T0 - DAY),
-                     check={"kind": "act_failed", "playbook": "self-improve", "direction": "fall"})
+                     check={"kind": "act_failed", "playbook": "goals", "direction": "fall"})
         self.assertEqual(self.state(), "settled")
 
     def test_a_merged_attempt_that_worked_holds_it_until_the_number_grows_past_its_old_level(self):
-        check = {"kind": "act_failed", "playbook": "self-improve", "direction": "fall"}
+        check = {"kind": "act_failed", "playbook": "goals", "direction": "fall"}
         self.attempt("opened", pr_number=3, merged_at=evolve.iso(T0 - 3 * DAY), check=check,
                      outcome_2d={"verdict": "worked", "before": 6, "after": 0})
         self.assertEqual(self.state(), "settled")
@@ -327,7 +327,7 @@ class Settled(EvolveCase):
         self.assertEqual(self.state(), "open")
 
     def test_a_merged_attempt_with_no_effect_raises_it_again_with_the_attempt_and_its_outcome(self):
-        check = {"kind": "act_failed", "playbook": "self-improve", "direction": "fall"}
+        check = {"kind": "act_failed", "playbook": "goals", "direction": "fall"}
         self.attempt("opened", pr_number=3, merged_at=evolve.iso(T0 - 3 * DAY), check=check, title="soften words",
                      outcome_2d={"verdict": "no-effect", "before": 5, "after": 5})
         self.assertEqual(self.state(), "open")
@@ -337,7 +337,7 @@ class Settled(EvolveCase):
         self.assertEqual(tried[-1]["outcome"], "no-effect")
 
     def test_an_already_skip_cools_off_like_a_learnings(self):
-        self.attempt("skipped", skip={"why": "already", "where": "brain/playbooks/self-improve.md"})
+        self.attempt("skipped", skip={"why": "already", "where": "brain/playbooks/goals.md"})
         self.assertEqual(self.state(), "settled")  # 3 days into a 7-day cool-off
         os.environ["EVOLVE_NOW"] = str(T0 + 5 * DAY)  # the same five failures, still in the window
         self.assertEqual(self.state(), "open")
@@ -352,7 +352,7 @@ class Settled(EvolveCase):
         self.attempt("opened", pr_number=3)
         got = evolve.status()["findings"]
         self.assertEqual(got["slots"], 2)
-        row = next(r for r in got["current"] if r["id"] == "f:act_failed:self-improve")
+        row = next(r for r in got["current"] if r["id"] == "f:act_failed:goals")
         self.assertEqual(row["events"], 5)
         self.assertEqual(row["state"], "settled")
         self.assertEqual(row["by"], "g1c1")

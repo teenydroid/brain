@@ -63,7 +63,7 @@ This folder is frozen to Teeny's own pull requests (`evals/frozen.txt`).
 
 | Script | What it does |
 |---|---|
-| `build-ship`, `tasks-desk` | The desks the scheduled builder and browser operator agents read and write; a shell job settles each. |
+| `tasks-desk` | The desk the scheduled browser operator agent reads and writes; a shell job settles it. (`build-ship`, the builder's desk, was retired on 2026-11-24: the mind ships things itself.) |
 | `babysit` | Reviews and merges pull requests on Teeny's own repositories. |
 | `evolve`, `evolve-gate`, `frozen-check`, `wants` | Teeny acting on what it learned: one candidate and one pull request per learning, the gate that refuses a bad candidate, the frozen-path check and the build intents drawn from `MEMORY.md`. |
 | `eval`, `autonomy` | Scoring a brain against `evals/`, and the autonomy ladder. |

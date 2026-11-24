@@ -62,7 +62,7 @@ The mind's queues, ledgers and senses:
 | Hand | What it holds |
 |---|---|
 | `stimuli`, `people`, `goals`, `lab`, `ladder`, `stats`, `world` | The one inbox, who Teeny talks to, the goal ledger, experiments, the autonomy ladder, real numbers, the world score. |
-| `requests`, `build`, `tasks` | What people asked Teeny to build, the builder's queue, and the browser operator's queue. |
+| `requests`, `build`, `tasks` | What people asked Teeny to build (each also a note in the mind's inbox), Teeny's own clone and the retired builder's job history, and the browser operator's queue. |
 
 Read-only sources:
 

@@ -5,14 +5,19 @@ the body's shape, the guard on every word it would publish
 
 The rules:
 - Teeny creates and pushes to repositories it owns (`GITHUB_USER`) only, and
-  pushes only from a folder under state/workbench/, and never anything that
-  looks like a secret (`gitpush.scan`).
+  pushes only from a folder under state/workbench/ (bin/broker stages a copy
+  of a folder of the mind's home there), only that folder's files (never its
+  own git history or config), as a commit on top of what the branch has, and
+  never anything that looks like a secret (`gitpush.Staged`, `gitpush.scan`).
 - A branch of its own clone (`push_branch`) goes only to a teeny/* branch,
   never main, so nothing Teeny pushes there is merged by pushing it.
 - A pull request to somebody else's repository carries DISCLOSURE, and is
   refused when that project's policy forbids AI contributions
   (`contributing`), when Teeny already has an open pull request there, or when
-  today's `GH_MAX_EXTERNAL_PRS_PER_DAY` (UTC) are spent.
+  today's `GH_MAX_EXTERNAL_PRS_PER_DAY` (UTC, default 5, 0 off) are spent. An
+  issue there is held to the same rules and `GH_MAX_EXTERNAL_ISSUES_PER_DAY`
+  (default 5, 0 off): the operator, 2026-11-24, "allow 5 external prs and
+  issues".
 - Under DRY_RUN nothing is written anywhere: GitHub, git or the ledger. The
   answer says what would have happened (`would_*`), after every rule ran.
 """
@@ -45,7 +50,11 @@ DISCLOSURE = (
     "—\nopened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel."
     " close it if it's not useful."
 )
-DEFAULT_MAX_EXTERNAL_PRS_PER_DAY = 2
+#: Pull requests and issues a UTC day on other people's projects, each (the
+#: operator, 2026-11-24: "allow 5 external prs and issues"); 0 turns one off.
+DEFAULT_MAX_EXTERNAL_PRS_PER_DAY = 5
+DEFAULT_MAX_EXTERNAL_ISSUES_PER_DAY = 5
+MAX_EXTERNAL_CEILING = 20
 #: The only branches `push_branch` writes: a pull request's head, never main.
 PR_BRANCH_PREFIX = "teeny/"
 
@@ -152,17 +161,19 @@ def external_prs_today() -> int:
     return int(row[0])
 
 
-def max_external_prs() -> int:
-    raw = hand.setting("GH_MAX_EXTERNAL_PRS_PER_DAY")
+def _cap(name: str, default: int) -> int:
+    """A daily cap from secrets/teeny.env: DEFAULT when unset or unreadable,
+    0 (off) to MAX_EXTERNAL_CEILING."""
+    raw = hand.setting(name)
     try:
-        value = int(raw) if raw is not None else DEFAULT_MAX_EXTERNAL_PRS_PER_DAY
+        value = int(raw) if raw is not None else default
     except ValueError:
-        return DEFAULT_MAX_EXTERNAL_PRS_PER_DAY
-    return max(0, min(value, 20))
+        return default
+    return max(0, min(value, MAX_EXTERNAL_CEILING))
 
 
-#: Issues on other people's projects: off until the operator sets a cap.
-MAX_EXTERNAL_ISSUES_CEILING = 5
+def max_external_prs() -> int:
+    return _cap("GH_MAX_EXTERNAL_PRS_PER_DAY", DEFAULT_MAX_EXTERNAL_PRS_PER_DAY)
 
 
 def external_issues_today() -> int:
@@ -177,14 +188,16 @@ def external_issues_today() -> int:
 
 
 def max_external_issues() -> int:
-    """`GH_MAX_EXTERNAL_ISSUES_PER_DAY`: 0 (the default, and anything
-    unreadable) keeps issues to Teeny's own repositories."""
-    raw = hand.setting("GH_MAX_EXTERNAL_ISSUES_PER_DAY")
-    try:
-        value = int(raw) if raw is not None else 0
-    except ValueError:
-        return 0
-    return max(0, min(value, MAX_EXTERNAL_ISSUES_CEILING))
+    return _cap("GH_MAX_EXTERNAL_ISSUES_PER_DAY", DEFAULT_MAX_EXTERNAL_ISSUES_PER_DAY)
+
+
+def _spend_external(kind: str, cap: int, setting: str, used: int) -> None:
+    """Refuses when the day's KIND on other projects are off (CAP 0) or spent."""
+    if cap == 0:
+        raise hand.Refused(f"{kind} on other people's projects are off ({setting}=0)", rule="off")
+    if used >= cap:
+        raise hand.Refused(f"today's {cap} {kind} on other people's projects are spent ({setting}, UTC day); "
+                           "the next opens at 00:00 UTC", rule="daily_cap")
 
 
 # --- the actions --------------------------------------------------------------------------------
@@ -223,25 +236,45 @@ def create_repo(body: Any, gh: GitHubApi | None = None) -> Json:
 
 
 def push(body: Any, gh: GitHubApi | None = None) -> Json:
-    body = _body(body, ("workdir", "repo", "branch", "message"))
+    """A folder under state/workbench/ as the next commit of BRANCH of an own
+    repository (gitpush.Staged): on top of what that branch has, or for a new
+    branch on top of BASE when given (a fork's main, for a pull request).
+    PARENT, when given, is the commit the folder was made from: a branch (or
+    base) that has moved since is refused, never laid over."""
+    body = _body(body, ("workdir", "repo", "branch", "message"), ("base", "parent"))
     path = gitpush.workdir(body["workdir"])
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
     if not is_own(owner):
         raise hand.Refused(f"Teeny pushes only to its own repositories ({user()}/...), not {repo}", rule="owner")
     ref = gitpush.branch(body["branch"])
+    base = gitpush.branch(body["base"]) if "base" in body else None
+    expect = body.get("parent")
+    if expect is not None and not (isinstance(expect, str) and _SHA.match(expect.lower())):
+        raise hand.HandError('"parent" is the full 40-character commit the folder was made from')
+    expect = expect.lower() if expect else None
     message = guarded({"message": _string(body, "message")}, "commit", {"repo": repo, "branch": ref})["message"]
-    findings = gitpush.scan(path)
-    if findings:
-        raise hand.Refused("the push would publish what looks like a secret", rule="secrets", findings=findings)
-    if hand.dry_run():
-        return {"dry_run": True, "would_push": repo, "branch": ref, "message": message, "workdir": str(path)}
-    gh = gh or GitHubApi.from_settings()
-    login = _own_identity(gh)
+    rehearsal = hand.dry_run()
+    # Reading the branch needs the token for a private repository, and the
+    # push needs it; a rehearsal reads with it when it is there.
+    token = hand.setting("GITHUB_TOKEN") if rehearsal else hand.require("GITHUB_TOKEN")
     with hand.lock(f"gh-push-{name.lower()}"):
-        sha = gitpush.commit_and_push(path, owner, name, ref, message, hand.require("GITHUB_TOKEN"), login)
-    _record("push", repo, False, sha, branch=ref)
-    return {"pushed": repo, "branch": ref, "commit": sha}
+        staged = gitpush.Staged(path, owner, name, ref, base, token, None, rehearsal, expect)
+        try:
+            if staged.findings:
+                raise hand.Refused("the push would publish what looks like a secret", rule="secrets",
+                                   findings=staged.findings)
+            where = {"onto": staged.onto, "parent": staged.parent, "changed": staged.changed,
+                     **({"note": staged.note} if staged.note else {})}
+            if rehearsal:
+                return {"dry_run": True, "would_push": repo, "branch": ref, "message": message, "workdir": str(path),
+                        **where}
+            staged.user = _own_identity(gh or GitHubApi.from_settings())
+            sha = staged.commit_and_push(message)
+        finally:
+            staged.close()
+    _record("push", repo, False, sha, branch=ref, onto=staged.onto)
+    return {"pushed": repo, "branch": ref, "commit": sha, **where}
 
 
 def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None,
@@ -280,9 +313,7 @@ def _check_external(gh: GitHubApi, owner: str, name: str) -> None:
     """The rules for a pull request on somebody else's project, cheapest
     first: the day's cap, one open PR at a time, the project's policy."""
     repo = f"{owner}/{name}"
-    cap = max_external_prs()
-    if external_prs_today() >= cap:
-        raise hand.Refused(f"today's {cap} pull request(s) to other projects are spent", rule="daily_cap")
+    _spend_external("pull requests", max_external_prs(), "GH_MAX_EXTERNAL_PRS_PER_DAY", external_prs_today())
     open_prs = gh.search_issues(f"repo:{repo} author:{user()} type:pr state:open", 5)
     if int(open_prs.get("total_count") or 0) > 0:
         raise hand.Refused(f"Teeny already has an open pull request in {repo}; one at a time", rule="open_pr")
@@ -434,8 +465,6 @@ def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) ->
     body = _body(body, ("repo", "title", "body"), ("labels",))
     owner, name = split_repo(body["repo"])
     if not is_own(owner):
-        if max_external_issues() == 0:
-            _own_repo(body["repo"], "opens issues")  # refuses, saying so
         return _open_external_issue(body, owner, name, gh, judge)
     owner, name, repo = _own_repo(body["repo"], "opens issues")
     labels = body.get("labels")
@@ -469,6 +498,8 @@ def _open_external_issue(body: Mapping[str, Any], owner: str, name: str, gh: Git
     the project's own policy on AI contributions. No labels: those are the
     maintainers'. A rehearsal asks GitHub nothing."""
     repo = f"{owner}/{name}"
+    if max_external_issues() == 0:
+        _spend_external("issues", 0, "GH_MAX_EXTERNAL_ISSUES_PER_DAY", 0)  # refuses, saying so
     fields = guarded({"title": _string(body, "title"), "body": _string(body, "body")}, "issue", {"repo": repo}, judge)
     text = fields["body"].rstrip() + "\n\n" + DISCLOSURE
     if hand.dry_run():
@@ -476,9 +507,7 @@ def _open_external_issue(body: Mapping[str, Any], owner: str, name: str, gh: Git
     # The cap and the one-open-issue rule are read, then spent: one lock across
     # both, the one open_pr holds, so two calls cannot both pass.
     with hand.lock("gh-pr"):
-        cap = max_external_issues()
-        if external_issues_today() >= cap:
-            raise hand.Refused(f"today's {cap} issue(s) on other projects are spent", rule="daily_cap")
+        _spend_external("issues", max_external_issues(), "GH_MAX_EXTERNAL_ISSUES_PER_DAY", external_issues_today())
         gh = gh or GitHubApi.from_settings()
         open_issues = gh.search_issues(f"repo:{repo} author:{user()} type:issue state:open", 5)
         if open_issues.get("incomplete_results"):

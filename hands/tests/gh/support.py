@@ -29,7 +29,11 @@ T0 = 1_789_369_200.0  # 2026-09-14T07:00:00Z
 def git(*args: str) -> str:
     """git as the tests' own setup runs it: no user or system config, so a
     box with commit signing or hooks set globally changes nothing here."""
-    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    # Nor a repository a hook or a runner pointed git at (GIT_DIR and the rest).
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                        "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     return subprocess.run(["git", *args], env=env, check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
 
 

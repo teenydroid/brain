@@ -294,6 +294,18 @@ class Learnings(EvolveCase):
         hyp = (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text()
         self.assertIn(f"- learning: [{ORDER[0]}] (what i have decided)", hyp)
 
+    def test_every_run_syncs_teenys_own_clone_before_it_cuts_a_generation(self):
+        """The builder's desk (bin/build-ship, retired 2026-11-24) used to
+        sync state/self/brain.git; now the run does it itself, first."""
+        order = []
+        real_source = evolve.source
+        with unittest.mock.patch.object(evolve, "sync_self_clone", side_effect=lambda: order.append("sync")) as sync, \
+                unittest.mock.patch.object(evolve, "source", side_effect=lambda: order.append("source") or real_source()):
+            self.proposals(1)
+            self.run_gen(1)
+        sync.assert_called_once_with()
+        self.assertEqual(order[0], "sync")
+
     def test_the_newest_learning_text_goes_first_by_the_reflection_snapshots(self):
         """A text that the oldest snapshot already carried waits behind one
         the latest reflection wrote; a text in no snapshot is the newest."""
@@ -844,13 +856,14 @@ class Gate(EvolveCase):
         has not pulled yet: its frozen playbook rules know a verb this
         checkout's do not, and one of its playbooks uses it. Gen 4 on the box
         (2026-11-13) was exactly this: every candidate failed `doctor --root`
-        on main's own upstream-pick playbook."""
+        on main's own upstream-pick playbook (since retired)."""
         tree = self.worktree("newer")
         rules = tree / "bin" / "lib" / "playbook.py"
-        rules.write_text(rules.read_text().replace('"build": ("self", "upstream", "idea"),',
-                                                   '"build": ("self", "upstream", "idea", "kettle"),'))
+        old = '"goals": ("propose",),'
+        self.assertIn(old, rules.read_text())
+        rules.write_text(rules.read_text().replace(old, '"goals": ("propose", "kettle"),'))
         (tree / "brain" / "playbooks" / "kettle.md").write_text(
-            '+++\ndescription = "brew"\noutput = "hand:build kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
+            '+++\ndescription = "brew"\noutput = "hand:goals kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
             "Brew one thing.\n")
         evolve.git(evolve.in_tree(tree), "add", "-A")
         evolve.git(evolve.in_tree(tree), "commit", "-q", "--no-verify", "-m", "newer main")
@@ -1079,6 +1092,69 @@ class PurposeChecks(EvolveCase):
         self.assertEqual([c["check"] for c in failed], ["does more than run less"])
         self.assertIn("thinned", failed[0]["detail"])
 
+
+
+class SelfCloneSyncTest(unittest.TestCase):
+    """evolve.sync_self_clone: Teeny's own clone fetched and fast-forwarded
+    (selfclone.sync, under its lock) when that clone is the source; nothing
+    for a checkout or an EVOLVE_GIT_DIR; a failed sync is said, never fatal."""
+
+    def source(self, kind):
+        return evolve.Source(Path("/nowhere/brain.git"), "refs/remotes/origin/main", kind)
+
+    def test_teenys_clone_is_synced(self):
+        from teeny_hands.build import selfclone
+
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("self-clone")), \
+                unittest.mock.patch.object(selfclone, "sync", return_value={"state": "synced", "commit": "abc"}) as sync:
+            got = evolve.sync_self_clone()
+        sync.assert_called_once_with()
+        self.assertEqual(got, {"state": "synced", "commit": "abc"})
+
+    def test_a_checkout_or_a_named_git_dir_is_left_alone(self):
+        from teeny_hands import hand
+        from teeny_hands.build import selfclone
+
+        for kind in ("checkout", "env"):
+            with unittest.mock.patch.object(evolve, "source", return_value=self.source(kind)), \
+                    unittest.mock.patch.object(hand, "setting", return_value=None), \
+                    unittest.mock.patch.object(selfclone, "sync") as sync:
+                self.assertIsNone(evolve.sync_self_clone())
+            sync.assert_not_called()
+
+    def test_a_fresh_box_with_a_token_makes_the_clone_it_ships_from(self):
+        """Greptile on #550: with bin/build-ship gone nothing made
+        state/self/brain.git, and from a checkout a generation can be gated
+        but never shipped. A box with GITHUB_TOKEN and no clone clones it
+        (selfclone.sync clones when missing); a named EVOLVE_GIT_DIR never."""
+        from teeny_hands import hand
+        from teeny_hands.build import selfclone
+
+        token = lambda name, default=None: "ghp_x" if name == "GITHUB_TOKEN" else default  # noqa: E731
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("checkout")), \
+                unittest.mock.patch.object(evolve, "dry_run", return_value=False), \
+                unittest.mock.patch.object(hand, "setting", side_effect=token), \
+                unittest.mock.patch.object(selfclone, "sync", return_value={"state": "cloned", "commit": "abc"}) as sync:
+            got = evolve.sync_self_clone()
+        sync.assert_called_once_with()
+        self.assertEqual(got["state"], "cloned")
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("env")), \
+                unittest.mock.patch.object(hand, "setting", side_effect=token), \
+                unittest.mock.patch.object(selfclone, "sync") as sync:
+            self.assertIsNone(evolve.sync_self_clone())
+        sync.assert_not_called()
+
+    def test_a_sync_that_fails_is_said_and_the_run_goes_on(self):
+        from teeny_hands import hand
+        from teeny_hands.build import selfclone
+
+        said = []
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("self-clone")), \
+                unittest.mock.patch.object(selfclone, "sync", side_effect=hand.HandError("no network")), \
+                unittest.mock.patch.object(evolve, "say", side_effect=said.append):
+            got = evolve.sync_self_clone()
+        self.assertIn("no network", got["error"])
+        self.assertTrue(any("no network" in line for line in said), said)
 
 
 class AnswersThatDoNotParse(unittest.TestCase):
@@ -1678,7 +1754,7 @@ class AskProposerTurn(EvolveCase):
         self.assertNotIn("money, capability", message.split("## file: ")[0])
         self.assertIn("Doing less of yourself to save money", message)
         self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
-        self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
+        self.assertIn("evals/cron.pinned.toml", message)
         self.assertLess(message.index("## what you learned"), message.index("## evidence"))
         self.assertIn("context for it, not a reason of its own", message)
 

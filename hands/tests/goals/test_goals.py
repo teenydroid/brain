@@ -154,7 +154,7 @@ class BuildShippedTest(Scratch):
     def test_solved_by_a_build_shipped_after_proposal(self):
         out = self.propose(instruction="ship one program people can use", component="shipped", channel="github",
                            family="weekly-ship", check={"kind": "build_shipped", "params": {}})
-        from teeny_hands.build import jobs
+        from teeny_hands.build import ledger as jobs
 
         conn = jobs.db()
         with hand.transaction(conn):

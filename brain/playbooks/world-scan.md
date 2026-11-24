@@ -2,7 +2,7 @@
 description = "listen to the world twice a day, and say what you think of it"
 output = "none"
 # 13:05 and 22:05 (brain/cron.toml): before the 15:00 take, and before
-# build-idea and the 23:00 show. One listen each.
+# the 23:00 show. One listen each.
 max_per_day = 2
 # A habit, not an order: the mind gets what the ears heard with its next
 # beat, and decides what to do with it: a reply, a Moltbook comment, a note

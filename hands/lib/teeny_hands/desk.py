@@ -1,7 +1,7 @@
 """The desk: how a scheduled agent takes and hands back its work with
 nothing but file tools.
 
-A cron shell job (bin/build-ship, bin/tasks-desk) runs a hand's `desk`
+A cron shell job (bin/tasks-desk) runs a hand's `desk`
 verb outside any model turn. It first settles: reads the report the agent
 left in state/workbench/desk/<name>-done.json and passes it to the hand's
 own `done`, with every rule that applies there. Then it claims: the hand's
@@ -19,7 +19,7 @@ removed and noted in the desk's result as `discarded`, never refused, never
 put on the next offer and never told to the mind.
 
 Either way the outcome goes into Teeny's mind's inbox (teeny_hands.stimuli)
-as a `builder` or `operator` report: the mind asked for the work, so it
+as an `operator` report: the mind asked for the work, so it
 hears how it went. A settled report that already wrote its own stimulus
 (`stimulus` in what `done` answered, as a finished news task does) is not
 told twice.
@@ -36,10 +36,11 @@ from typing import Any, Callable, Mapping
 from . import hand
 
 #: The desk's name -> who reports, as the mind's inbox names them.
-REPORTERS = {"build": "builder", "task": "operator"}
+#: (The builder's `build` desk is retired, 2026-11-24.)
+REPORTERS = {"task": "operator"}
 #: The desk's name -> the key its offer puts the work under; the report
 #: names it as `<key>_id`.
-OFFERED = {"build": "job", "task": "task"}
+OFFERED = {"task": "task"}
 
 
 def folder() -> Path:
@@ -64,8 +65,8 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     to `<name>.json`, telling the agent where and how to report. `turned_away`
     is True when this pass refused the report the run left: that run did
     report, so its claim is still the agent's to resume. `present`, when
-    given, rewrites the offer into what the agent is shown (the builder gets
-    its paths relative to its own root)."""
+    given, rewrites the offer into what the agent is shown (paths relative
+    to its own root, for an agent rooted below the checkout)."""
     desk = folder()
     offer_path, report_path = desk / f"{name}.json", desk / f"{name}-done.json"
     rejected_path = desk / f"{name}-done.rejected.json"
@@ -89,15 +90,15 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             _write(reason_path, {"reason": rejected})
     if rejected is None and not rejected_path.exists():
         # A reason with no refused report beside it is about an earlier job.
-        # The agent lists this folder, and on 2026-11-22 the builder took a
+        # The agent lists this folder, and on 2026-11-22 the (since retired) builder took a
         # reason eight days old as the verdict on the job in front of it.
         reason_path.unlink(missing_ok=True)
     _tell_the_mind(name, settled, rejected)
     offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
     # The same file, absolute, for an agent rooted at the checkout. A
-    # `present` that roots the agent elsewhere (the builder, at
-    # state/workbench/) drops it, so the agent has one path and no second form.
+    # `present` that roots the agent elsewhere (as the retired builder was,
+    # at state/workbench/) drops it, so the agent has one path and no second form.
     offer["report_to_path"] = str(report_path.resolve())
     offer["report_shape"] = shape
     if rejected:

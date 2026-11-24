@@ -19,7 +19,7 @@ written here, in code it cannot edit:
   file in the brain's playbooks/; anything new it wants to do is a
   playbook over a hand, never a new script for cron to run. It may also
   run one of the pipelines in BRAIN_SCRIPTS (the dreams, the Moltbook prune,
-  evolve and its credit, wants, the builder's and the operator's desks),
+  evolve and its credit, wants, the operator's desk),
   each only with the exact arguments listed there;
 - no job fires more often than every MIN_GAP_MINUTES;
 - at most MAX_JOBS jobs of the brain's own (the pinned ones do not count),
@@ -95,15 +95,15 @@ BRAIN_SCRIPTS = {
     "bin/evolve": (("run", "--scheduled", "--detach"), ("credit",)),
     "bin/wants": (("run",),),
     "bin/tasks-desk": ((),),
-    "bin/build-ship": ((),),
 }
 #: Commands that speak on X however they are scheduled: never caught up.
 SPEAKING_COMMANDS = ("bin/studio",)
 SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 #: The agents a cron job may run. Each acts unattended, so each is written
-#: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
-AGENT_JOB_AGENTS = ("builder", "operator", "mind")
-#: The builder runs 12 times a day and the operator 72. The rest is the mind's:
+#: for it (brain/agents/<id>.toml) and reviewed; a new one is added here. The
+#: builder is retired (2026-11-24): the mind ships things itself.
+AGENT_JOB_AGENTS = ("operator", "mind")
+#: The operator runs 72 times a day. The rest is the mind's:
 #: its pinned wake (48) and the agent jobs it schedules in brain/cron.toml.
 MAX_AGENT_RUNS_PER_DAY = 240
 #: A pinned job may name a switch: it is enabled only while that setting is

@@ -3,7 +3,7 @@
 
 A memory-page item that says something to build ("the first thing i build
 myself is a chart renderer ... not built yet") is a feature, not a "don't do
-X" rule: it goes to the builder (bin/wants), and evolve no longer picks it.
+X" rule: it goes to the agentic mind (bin/wants), and evolve no longer picks it.
 And a skip that rests on the memory page is no skip: the page says what Teeny
 decided, not what it does, so an `already` has to name a file that runs.
 

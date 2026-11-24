@@ -84,20 +84,158 @@ class PushTest(Scratch):
             if path.is_file():
                 self.assertNotIn(TOKEN.encode(), path.read_bytes(), path)
 
-    def test_never_forces(self):
+    def test_never_forces_a_push_builds_on_what_the_branch_already_has(self):
         self.me()
         self.workdir()
         remote = self.remote("teenydroid/hello")
         actions.push(self.body())
-        # Somebody else moved the remote on; an unrelated local history cannot overwrite it.
+        # Somebody else moved the remote on: the next push is a commit on top
+        # of theirs, never a rewrite of it.
         other = self.workdir("other", {"x.txt": "x"})
         git("init", "-q", "-b", "main", str(other))
         git("-C", str(other), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q",
                         "--allow-empty", "-m", "theirs")
         git("-C", str(other), "push", "-q", "-f", str(remote), "main")
         (self.root / "state/workbench/hello/new.txt").write_text("new")
+        out = actions.push(self.body(message="second"))
+        self.assertEqual(git("-C", str(remote), "log", "--format=%s", "main").split(), ["second", "theirs"])
+        self.assertEqual(out["onto"], "main")
+        # The folder is left as it was: no git of the hand's is left in it.
+        self.assertFalse((self.root / "state/workbench/hello/.git").exists())
+
+    def seed(self, repo: str, files: dict[str, str], branch: str = "main") -> str:
+        """REPO's BRANCH on its bare remote holding FILES; its head."""
+        remote = self.root / "remotes" / f"{repo}.git"
+        if not remote.exists():
+            self.remote(repo)
+        src = self.root / "seed" / repo / branch
+        src.mkdir(parents=True)
+        git("init", "-q", "-b", branch, str(src))
+        for rel, text in files.items():
+            (src / rel).parent.mkdir(parents=True, exist_ok=True)
+            (src / rel).write_text(text)
+        git("-C", str(src), "add", "-A")
+        git("-C", str(src), "-c", "user.name=up", "-c", "user.email=up@x", "commit", "-q", "-m", "upstream")
+        git("-C", str(src), "push", "-q", str(remote), f"HEAD:refs/heads/{branch}")
+        return git("-C", str(src), "rev-parse", "HEAD").strip()
+
+    def test_a_new_branch_starts_from_base_and_only_its_change_is_scanned(self):
+        """A fork's branch for a pull request: the folder is the project's
+        tree with a change, and what the project already has (an
+        .env.example, say) is not this push's to vouch for."""
+        self.me()
+        upstream = {"README.md": "# lib\n", ".env.example": "KEY=\n", "src/a.py": "a = 1\n", "old.txt": "gone\n"}
+        head = self.seed("teenydroid/lib", upstream)
+        self.workdir("lib", {**{k: v for k, v in upstream.items() if k != "old.txt"}, "src/a.py": "a = 2\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix-a",
+                                     base="main", message="fix a"))
+        self.assertEqual((out["pushed"], out["branch"], out["onto"]), ("teenydroid/lib", "fix-a", "main"))
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        self.assertEqual(git("--git-dir", remote, "rev-parse", "fix-a~1").strip(), head)
+        changed = git("--git-dir", remote, "diff", "--name-status", "main", "fix-a").split("\n")
+        self.assertEqual(sorted(line for line in changed if line), ["D\told.txt", "M\tsrc/a.py"])
+        self.assertEqual(git("--git-dir", remote, "rev-parse", "main").strip(), head)
+
+    def test_a_secret_added_on_top_of_base_is_refused(self):
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib\n", ".env": "X=1\n"})
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix",
+                                       base="main"), "secrets")
+        self.assertEqual(error.detail["findings"], [{"path": ".env", "rule": "an env file"}])
+
+    def test_a_push_that_changes_nothing_is_refused(self):
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib\n"})
+        self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main"), "empty")
+
+    def test_a_base_the_repository_lacks_is_refused(self):
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# changed\n"})
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix",
+                                       base="develop"), "base")
+        self.assertIn("develop", error.reason)
+
+    def test_a_utf16_secret_is_found(self):
+        """CodeRabbit on #550: a token in UTF-16 has a NUL between its letters."""
+        self.remote("teenydroid/hello")
+        self.workdir("u16", {"README.md": "hi"})
+        (self.root / "state/workbench/u16/key.txt").write_bytes(("t = ghp_" + "a" * 36).encode("utf-16"))
+        error = self.refused(self.body(workdir="state/workbench/u16"), "secrets")
+        self.assertEqual(error.detail["findings"][0]["path"], "key.txt")
+
+    def test_a_file_name_that_is_not_utf8_is_refused(self):
+        import os
+
+        self.remote("teenydroid/hello")
+        path = self.workdir("bytes", {"README.md": "hi"})
+        with open(os.path.join(os.fsencode(path), b"k\xffey.txt"), "wb") as fh:
+            fh.write(b"x")
+        self.refused(self.body(workdir="state/workbench/bytes"), "name")
+
+    def test_a_parent_given_must_be_what_the_branch_or_base_has(self):
+        """CodeRabbit on #550: a folder made from commit A, pushed onto a branch
+        that moved to B, would delete B's change. With "parent" (the commit the
+        folder was made from) a moved branch is refused, never undone."""
+        self.me()
+        old = self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib, better\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main",
+                                     parent=old))
+        self.assertEqual(out["parent"], old)
+        self.seed("teenydroid/lib", {"README.md": "# lib\n", "NEW.md": "theirs\n"}, branch="main2")
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        git("--git-dir", remote, "update-ref", "refs/heads/main", git("--git-dir", remote, "rev-parse", "main2").strip())
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix2",
+                                       base="main", parent=old), "moved")
+        self.assertIn("clone", error.reason)
         with self.assertRaises(hand.HandError):
-            actions.push(self.body(message="second"))
+            actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="x", parent="nope"))
+
+    def test_a_branch_moved_between_the_read_and_the_push_is_refused_never_restored(self):
+        """CodeRabbit on #550: the push carries git's lease on the head it
+        read (or on there being no such branch yet), so a rewind or a new
+        branch made in between fails the push instead of being undone."""
+        from teeny_hands.gh import gitpush
+
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        first = self.seed("teenydroid/lib", {"README.md": "# lib\n", "B.md": "b\n"}, branch="fix")
+        self.workdir("lib", {"README.md": "# lib, better\n", "B.md": "b\n"})
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        real = gitpush.Staged.commit_and_push
+
+        def rewound(staged, message):
+            git("--git-dir", remote, "update-ref", "refs/heads/fix", git("--git-dir", remote, "rev-parse", "main").strip())
+            return real(staged, message)
+
+        with mock.patch.object(gitpush.Staged, "commit_and_push", rewound), self.assertRaises(hand.Refused) as caught:
+            actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix"))
+        self.assertEqual(caught.exception.detail["rule"], "moved")
+        self.assertNotEqual(git("--git-dir", remote, "rev-parse", "fix").strip(), first)
+
+    def test_a_folders_own_git_history_is_never_published(self):
+        self.me()
+        remote = self.remote("teenydroid/hello")
+        path = self.workdir()
+        git("init", "-q", "-b", "main", str(path))
+        git("-C", str(path), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty",
+            "-m", "the folder's own")
+        actions.push(self.body())
+        self.assertEqual(git("--git-dir", str(remote), "log", "--format=%s", "main").split("\n")[:1], ["first commit"])
+        self.assertEqual(git("--git-dir", str(remote), "rev-list", "--count", "main").strip(), "1")
+
+    def test_a_rehearsal_with_a_base_reads_it_and_pushes_nothing(self):
+        head = self.seed("teenydroid/lib", {"README.md": "# lib\n", ".env.example": "KEY=\n"})
+        self.configure(DRY_RUN="1")
+        path = self.workdir("lib", {"README.md": "# better\n", ".env.example": "KEY=\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main"))
+        self.assertEqual((out["dry_run"], out["would_push"], out["onto"], out["parent"], out["changed"]),
+                         (True, "teenydroid/lib", "main", head, 1))
+        self.assertNotIn("fix", git("--git-dir", str(self.root / "remotes/teenydroid/lib.git"), "branch"))
+        self.assertFalse((path / ".git").exists())
+        self.assertEqual(self.gh.seen, [])
 
     def test_dry_run_scans_but_commits_nothing(self):
         self.configure(DRY_RUN="1")
@@ -121,6 +259,7 @@ class PushTest(Scratch):
         self.refused(self.body(repo="tinyhumansai/openhuman"), "owner")
 
     def test_refuses_secret_paths_and_names_them(self):
+        self.remote("teenydroid/hello")
         for rel in (".env", ".env.local", "secrets/teeny.env", "state/hands.db", "deploy/key.pem", "id_ed25519"):
             with self.subTest(rel=rel):
                 self.workdir(f"p{abs(hash(rel))}", {"README.md": "hi", rel: "x"})
@@ -128,6 +267,7 @@ class PushTest(Scratch):
                 self.assertEqual(error.detail["findings"][0]["path"], rel)
 
     def test_refuses_secret_contents_without_repeating_them(self):
+        self.remote("teenydroid/hello")
         cases = {
             "ghp_" + "a" * 36: "ghp_",
             "github_pat_" + "b" * 30: "github_pat_",
@@ -144,23 +284,13 @@ class PushTest(Scratch):
                 self.assertEqual(error.detail["findings"][0]["path"], "config.py")
                 self.assertNotIn(secret, str(error.detail))
 
-    def test_refuses_a_secret_already_in_the_history(self):
-        path = self.workdir()
-        git("init", "-q", "-b", "main", str(path))
-        (path / "leak.txt").write_text("token = ghp_" + "z" * 36 + "\n")
-        git("-C", str(path), "add", "-A")
-        git("-C", str(path), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "x")
-        (path / "leak.txt").unlink()
-        error = self.refused(self.body(), "secrets")
-        self.assertEqual(error.detail["findings"][0]["path"], "(history)")
-
     def test_an_ignored_secret_is_not_published_so_not_refused(self):
         self.me()
-        path = self.workdir(files={"README.md": "hi", ".gitignore": ".env\n", ".env": "X=ghp_" + "q" * 36})
-        git("init", "-q", "-b", "main", str(path))
-        self.remote("teenydroid/hello")
+        self.workdir(files={"README.md": "hi", ".gitignore": ".env\n", ".env": "X=ghp_" + "q" * 36})
+        remote = self.remote("teenydroid/hello")
         # .gitignore itself matches ".env*"? No: it is ".gitignore". The ignored .env is not published.
         actions.push(self.body())
+        self.assertNotIn(".env\n", git("--git-dir", str(remote), "ls-tree", "-r", "--name-only", "main") + "\n")
 
     def test_a_held_message_pushes_nothing(self):
         self.workdir()
@@ -294,6 +424,29 @@ class OpenPrTest(Scratch):
         os.environ["TEENY_NOW"] = str(T0 + 86400)
         actions.open_pr(self.body(repo="c/d"))
 
+    def test_five_external_prs_a_day_by_default_each_disclosed_and_the_sixth_refused(self):
+        """The operator, 2026-11-24: "allow 5 external prs and issues"."""
+        for n in range(1, 7):
+            self.gh.route("POST", f"/repos/o{n}/p/pulls", {"number": n, "html_url": f"u{n}"}, status=201)
+        for n in range(1, 6):
+            self.assertTrue(actions.open_pr(self.body(repo=f"o{n}/p"))["external"])
+            self.assertTrue(self.gh.requests("POST", f"/repos/o{n}/p/pulls")[0].json()["body"]
+                            .endswith("\n\n" + actions.DISCLOSURE))
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_pr(self.body(repo="o6/p"))
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertIn("5", caught.exception.reason)
+        self.assertEqual(self.gh.requests("POST", "/repos/o6/p/pulls"), [])
+        self.assertEqual(actions.max_external_prs(), 5)
+
+    def test_zero_turns_external_prs_off_and_says_which_setting(self):
+        self.configure(GH_MAX_EXTERNAL_PRS_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_pr(self.body())
+        self.assertEqual(caught.exception.detail["rule"], "off")
+        self.assertIn("GH_MAX_EXTERNAL_PRS_PER_DAY=0", caught.exception.reason)
+        self.assertEqual(self.created_requests(), [])
+
     def test_dry_run_runs_the_rules_and_opens_nothing(self):
         self.configure(DRY_RUN="1")
         out = actions.open_pr(self.body())
@@ -325,6 +478,40 @@ class OpenPrTest(Scratch):
     def test_refuses_a_head_from_somebody_elses_fork(self):
         with self.assertRaises(hand.Refused):
             actions.open_pr(self.body(head="evil:main"))
+
+
+class TheJudgeReadsEveryMindWriteTest(Scratch):
+    """The mind reaches every writing verb through bin/broker /gh, which runs
+    the hand as its command line does: the guard's model judge (whose lines
+    hold harassment of a private individual, a threat, doxxing) reads every
+    word of each, on the github surface. Only an operator script's own fixed
+    text skips it (`judge=False`), and no verb can ask for that."""
+
+    def test_every_writing_verb_asks_the_judge(self):
+        self.me()
+        self.gh.route("GET", "/search/issues", {"total_count": 0, "items": []})
+        self.gh.route("POST", "/repos/a/b/pulls", {"number": 1}, status=201)
+        self.gh.route("POST", "/repos/a/b/issues", {"number": 2}, status=201)
+        self.gh.route("POST", "/repos/a/b/issues/2/comments", {"id": 3}, status=201)
+        self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/x"}, status=201)
+        self.gh.route("GET", "/repos/a/b/pulls/2", {"number": 2, "user": {"login": "someone"}, "state": "open"})
+        self.remote("teenydroid/hello")
+        self.workdir()
+        seen = []
+
+        def guard(fields, **kw):
+            seen.append((kw["kind"], kw["surface"], kw["judge"]))
+            return SimpleNamespace(kind="allow", fields=dict(fields))
+
+        with mock.patch.object(actions, "check_fields", guard):
+            actions.open_pr({"repo": "a/b", "head": "x", "base": "main", "title": "t", "body": "b"})
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+            actions.comment({"repo": "a/b", "number": 2, "body": "b"})
+            actions.create_repo({"name": "x", "description": "d"})
+            actions.push({"workdir": "state/workbench/hello", "repo": "teenydroid/hello", "branch": "main",
+                          "message": "m"})
+        self.assertEqual(seen, [("pr", "github", True), ("issue", "github", True), ("comment", "github", True),
+                                ("repo", "github", True), ("commit", "github", True)])
 
 
 class CommentAndForkTest(Scratch):
@@ -414,12 +601,6 @@ class IssueTest(Scratch):
         with self.assertRaises(hand.HandError):
             actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": "help wanted"})
 
-    def test_opens_issues_on_own_repos_only(self):
-        with self.assertRaises(hand.Refused) as caught:
-            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
-        self.assertEqual(caught.exception.detail["rule"], "owner")
-        self.assertEqual(self.gh.seen, [])
-
     # --- issues on other people's projects (docs/mind.md, "Reach") -----------------------------
 
     def external_issue(self, open_issues: int | None = 0, **settings) -> None:
@@ -428,14 +609,32 @@ class IssueTest(Scratch):
         if open_issues is not None:
             self.gh.route("GET", "/search/issues", {"total_count": open_issues, "items": []})
 
-    def test_an_issue_elsewhere_is_off_until_the_operator_sets_a_cap(self):
+    def test_five_issues_elsewhere_a_day_by_default_each_disclosed_and_the_sixth_refused(self):
+        """The operator, 2026-11-24: "allow 5 external prs and issues"."""
+        self.gh.route("GET", "/search/issues", {"total_count": 0, "items": []})
+        for n in range(1, 7):
+            self.gh.route("POST", f"/repos/o{n}/p/issues", {"number": n, "html_url": f"u{n}"}, status=201)
+        for n in range(1, 6):
+            actions.open_issue({"repo": f"o{n}/p", "title": "crash", "body": "steps."})
+            self.assertEqual(self.gh.requests("POST", f"/repos/o{n}/p/issues")[0].json()["body"],
+                             "steps.\n\n" + actions.DISCLOSURE)
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "o6/p", "title": "crash", "body": "steps."})
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertIn("5", caught.exception.reason)
+        self.assertEqual(self.gh.requests("POST", "/repos/o6/p/issues"), [])
+        self.assertEqual(actions.max_external_issues(), 5)
+
+    def test_zero_turns_issues_elsewhere_off_and_says_which_setting(self):
         self.gh.route("POST", "/repos/a/b/issues", {"number": 7, "html_url": "u"}, status=201)
-        for value in (None, "0", "nope"):
-            self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY=value)
-            with self.assertRaises(hand.Refused) as caught:
-                actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
-            self.assertEqual(caught.exception.detail["rule"], "owner", value)
+        self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "off")
+        self.assertIn("GH_MAX_EXTERNAL_ISSUES_PER_DAY=0", caught.exception.reason)
         self.assertEqual(self.gh.writes(), [])
+        self.configure(GH_MAX_EXTERNAL_ISSUES_PER_DAY="nope")
+        self.assertEqual(actions.max_external_issues(), 5)
 
     def test_an_issue_elsewhere_says_what_opened_it(self):
         self.external_issue()

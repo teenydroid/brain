@@ -1106,3 +1106,67 @@ class ReviewsTest(ReviseCase):
         self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}}})
         with self.assertRaises(hand.Refused):
             mindclone.reviews(9)
+
+
+class StaleCopyTest(MindScratch):
+    """2026-11-24 07:39Z: the mind opened teenydroid/brain#546, titled for a
+    fuzz bound, whose diff instead deleted 48 lines of docs/oh-defects.md: its
+    copy held edits, so `prepare` left an old tree alone, and `ship` sent it
+    blind. Now `prepare` says plainly that it left a copy alone and how far
+    behind it is, `ship` answers what it shipped against origin/main with
+    counts, and a new pull request whose change would undo what main merged
+    since the copy was taken is refused."""
+
+    def test_repo_says_it_left_a_copy_with_edits_alone_and_how_far_behind_it_is(self):
+        first = mindclone.prepare()["commit"]
+        self.edit({"brain/SOUL.md": "mine\n", "brain/new.md": "new\n"})
+        self.upstream({"docs/a.md": "a\n"}, "one")
+        self.upstream({"docs/b.md": "b\n"}, "two")
+        out = mindclone.prepare()
+        self.assertEqual(out["state"], "dirty")
+        self.assertEqual((out["left_alone"], out["base"], out["behind"]), (True, first, 2))
+        self.assertEqual(out["changed"], ["brain/SOUL.md", "brain/new.md"])
+        self.assertIn("left as it is", out["note"])
+        self.assertIn("2 commits behind origin/main", out["note"])
+        self.assertIn("rm -rf repo", out["note"])
+        self.assertIn("bin/teeny repo", out["note"])
+
+    def test_a_current_copy_says_nothing_was_left(self):
+        out = mindclone.prepare()
+        self.assertNotIn("left_alone", out)
+
+    def test_ship_answers_what_it_shipped_against_main_with_counts(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nsmall, kind, brief\nand quick\n", "brain/new.md": "one\ntwo\n"})
+        out = mindclone.ship("fix-morning-post", "a briefer soul", "The old one rambled.")
+        self.assertEqual(out["diff"]["against"], "origin/main")
+        self.assertEqual(out["diff"]["files"], [{"path": "brain/SOUL.md", "added": 2, "deleted": 1},
+                                                {"path": "brain/new.md", "added": 2, "deleted": 0}])
+        self.assertEqual((out["diff"]["added"], out["diff"]["deleted"]), (4, 1))
+
+    def test_a_rehearsal_answers_the_diff_too(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.configure(DRY_RUN="1")
+        out = mindclone.ship("fix-morning-post", "a briefer soul", "The old one rambled.")
+        self.assertEqual(out["diff"]["files"], [{"path": "brain/SOUL.md", "added": 1, "deleted": 1}])
+
+    def test_a_change_that_would_undo_what_main_merged_since_the_copy_is_refused(self):
+        mindclone.prepare()
+        self.edit({"docs/oh-defects.md": "old view\n", "brain/SOUL.md": "# soul\nbrief\n"})
+        self.upstream({"docs/oh-defects.md": "48 lines merged on main\n"}, "defects")
+        with self.assertRaises(hand.Refused) as caught:
+            mindclone.ship("fuzz-bound", "bound the fuzz sink", "...")
+        self.assertEqual(caught.exception.detail["rule"], "stale")
+        self.assertIn("docs/oh-defects.md", caught.exception.reason)
+        self.assertIn("rm -rf repo", caught.exception.reason)
+        self.assertIn("bin/teeny repo", caught.exception.reason)
+        self.assertIsNone(self.origin_ref("refs/heads/teeny/mind-fuzz-bound"))
+        self.assertEqual(self.pulls(), [])
+
+    def test_a_copy_behind_main_on_other_files_still_ships(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.upstream({"docs/elsewhere.md": "x\n"}, "elsewhere")
+        out = mindclone.ship("fix-morning-post", "a briefer soul", "The old one rambled.")
+        self.assertEqual([f["path"] for f in out["diff"]["files"]], ["brain/SOUL.md"])

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # What Teeny said it would build (docs/evolve.md, "1c. Wants"): the build-intent
-# items of its memory page, drawn in code, filed at most one a day as a `self`
-# build request through the guard, and scored seven days after the feature
-# merges. Off unless WANTS=1 in secrets/evolve.env. The work is
-# bin/lib/wants.py.
+# items of its memory page, drawn in code, handed at most one a day to the
+# agentic mind through the guard, as a note in its inbox
+# (state/home/notes/inbox/want-<id>.md), and a feature the retired builder
+# built scored seven days after it merged. Off unless WANTS=1 in
+# secrets/evolve.env. The work is bin/lib/wants.py.
 #
 #   bin/wants draw      the wants and where each stands (read-only)
-#   bin/wants file      file the top open want, if any
+#   bin/wants file      hand the top open want to the mind, if any
 #   bin/wants watch     score each merged feature, once its week is over
 #   bin/wants run       watch, then file: the `wants` job in brain/cron.toml
 #                       (Teeny's to move; WANTS still gates every run)

@@ -31,9 +31,10 @@ Teeny-side code that would remove.
   without a person's approval, while the autonomy tier, `workspace_only`,
   TinySecurity's floor, the sandbox, the allowed websites and the browser's
   payment checkpoint still apply. `[browser] unattended_actions` lists the
-  clicks and typing any cron turn may take. Teeny uses it for exactly two
-  agents, the builder and the browser operator
-  ([`architecture.md`](architecture.md) §6a). Every other scheduled job is
+  clicks and typing any cron turn may take. Teeny uses it for the browser
+  operator and the agentic mind ([`architecture.md`](architecture.md) §6a;
+  the builder, the other agent it was first used for, was retired on
+  2026-11-24). Every other scheduled job is
   still a shell job, and every agent that reads strangers' text is still
   tool-less. The read-only rule stays the default, and the opt-in is per
   agent rather than a blanket allowlist.
@@ -43,7 +44,7 @@ Teeny-side code that would remove.
   to the wallet hand.
 - MCP tool scanning on a serve host (openhuman#8654, gap G11). The scan
   no longer drops every configured MCP server's tools under `openhuman-core
-  serve`. The desk-file handoff stays as the builder's and the browser
+  serve`. The desk-file handoff stays as the browser
   operator's path for now; `hands/mcp` is no longer blocked on the core.
 
 ## Deliberately not asked for

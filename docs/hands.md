@@ -29,10 +29,10 @@ failure back to the builder as a finding.
 scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
 operator (the person) call. **O** marks an operator-only verb. **J** marks a job
 verb: it says nothing to anyone but writes state and calls the core, so, like
-an acting verb, it is never given to a model. The scheduled agents (the
-builder and the browser operator) call no hand at all. A `desk` job verb
-lays their work out as a file under `state/workbench/desk/` and collects the
-report they leave beside it.
+an acting verb, it is never given to a model. The scheduled agent (the
+browser operator) calls no hand at all. A `desk` job verb lays its work out
+as a file under `state/workbench/desk/` and collects the report it leaves
+beside it.
 
 ## `x`: the only holder of the X keys
 
@@ -435,11 +435,11 @@ surface `github`) first, and what goes out is the guard's rewrite.
 | `checks OWNER/REPO NUMBER` | R | A pull request's `state`, `merged`, head ref and sha, and the check runs on its head by name: `red` (failure, timed out, cancelled, action required), `pending` and `green`. Names only, never logs. Not cached (docs/roadmap.md, A7). |
 | `activity [--days N]` | R | Teeny's own pull requests opened and merged and its commits over the last N days (default 7), for the ship log (10 minutes). |
 | `create-repo` | A | `{name, description?, private?}`. Under `GITHUB_USER` only, and only when the token is that account's. The description is screened. |
-| `push` | A | `{workdir, repo, branch, message}`. Commits everything git would add in a folder under `state/workbench/` (symlinks resolved) as Teeny (`GIT_NAME` / `GIT_EMAIL`, default `teeny@agentmail.to`; see "git") and pushes `HEAD` to `branch` on an own repo. Never forces, ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when the files or the history hold a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`) or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block). The token reaches git only through the environment of that one command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
-| `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch and the disclosure footer is appended (a line holding one em dash, U+2014, then "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."). It is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
+| `push` | A | `{workdir, repo, branch, message, base?}`. A folder under `state/workbench/` (symlinks resolved; bin/broker stages a copy of a folder of the mind's home there) as the next commit of `branch` on an own repo, as Teeny (`GIT_NAME` / `GIT_EMAIL`, default `teeny@agentmail.to`; see "git"). The commit is made in a git directory of the hand's own, never in the folder: only the folder's files as `git add -A` sees them (its `.gitignore` kept), never its own `.git`, history or config. It builds on what `branch` already has on the repo (a fast-forward, never forced); a new branch starts from `base` when given (a fork's `main`, for a pull request; refused `base` when the repo lacks it), or from nothing. Files missing from the folder are deleted in the commit; a push that changes nothing is refused (`empty`). Ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when what the push adds or changes holds a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`), a link, a file over 2 MB, or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block); what the branch or base already has is not the push's to vouch for. A rehearsal reads the branch's head too and pushes nothing (`onto`, `parent`, `changed`). The token reaches git only through the environment of each command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
+| `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch and the disclosure footer is appended (a line holding one em dash, U+2014, then "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."). It is refused (`rule`) when `GH_MAX_EXTERNAL_PRS_PER_DAY` is 0 (`off`), when the day's (default 5, UTC; the operator, 2026-11-24: "allow 5 external prs and issues") are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
 | `comment` | A | `{repo, number, body}`. On somebody else's repository, a live comment first reads the target: when it is a pull request of Teeny's that was closed without being merged, the guard is told so (context `rejection`, the repository's owner as the person involved), and a body that names anybody (an @handle, or the owner's login) is held for a person, category `rejection` (evals/invariants.md, `no-reprisal`). A rehearsal asks GitHub nothing and so cannot tell. |
 | `fork` | A | `{repo}`, somebody else's. |
-| `open-issue` | A | `{repo, title, body, labels?}`, on an own repo only (`owner`). `labels` (up to 5) are added once it is open; a label the repository refuses leaves it open, unlabelled (`labelled` says what stuck). |
+| `open-issue` | A | `{repo, title, body, labels?}`. On an own repo, `labels` (up to 5) are added once it is open; a label the repository refuses leaves it open, unlabelled (`labelled` says what stuck). On somebody else's, no labels, the disclosure footer is appended, and it is refused (`rule`) when `GH_MAX_EXTERNAL_ISSUES_PER_DAY` is 0 (`off`), when the day's (default 5, UTC) are spent (`daily_cap`), when Teeny already has an open issue there (`open_issue`), or when `contributing` forbids AI (`contributing`). |
 | `close-issue` | A | `{repo, number, comment?}`, on an own repo only: the comment first, then the issue closed as completed. |
 | `ingest` | | GitHub into the mind's inbox (the pinned `gh-inbound` job, every 15 minutes; docs/roadmap.md, A1). Off unless `GH_INBOUND=1`. Reads `GET /notifications` from a cursor (the first read looks back a day) and, for each issue or pull request notification, the newest comment it points at (the issue or PR itself when nothing was said after it opened), fetched only from the API's own host. On Teeny's own repositories every issue, PR, comment and review comment counts; elsewhere only a `mention`. Teeny's own words, bots (`[bot]`) and other subjects (releases, CI) are `skipped`. The rest goes past `guard inbound` (surface `github`): a hold never reaches the mind; what passes becomes one `gh · issue\|pr\|comment\|review\|mention` stimulus, ref `<owner/repo>#<n>:<comment id or "opened">`, once (`gh_notifications` is keyed by it). Then the star counts of the token's own repositories (`gh_stars`): a count that rose is one `gh · star` stimulus with the numbers only; the first read is a baseline. Writes nothing to GitHub (notifications are not marked read). Two comments between reads reach the mind as the newer one. The token must be able to read notifications (a classic token with the `notifications` scope). |
 | `notifications [--max N]` | R | What `ingest` read, newest first, and what became of each (`offered`, `held`, `skipped`, with why). |
@@ -448,6 +448,17 @@ Under `DRY_RUN`, every acting verb answers `would_*` after every rule ran and
 writes nothing anywhere: not GitHub, git or the ledger. Done actions are
 recorded in `gh_actions` (which also counts the daily cap), reads in
 `gh_cache`.
+
+The mind reaches every verb but `ingest` (the `gh-inbound` job's) through
+bin/broker's `/gh`, `teeny gh <verb> '<json>'` (docs/mind.md, "Shipping"):
+the hand stays the enforcement point, and the broker adds only the verb's
+shape, the mind-home rule for `push` (a folder inside `state/home/`, no `..`,
+never through a link; its plain files, and links that stay inside it, are
+copied to `state/workbench/mind/` and that copy is pushed; a file holding the
+broker's token is refused), a ledger line, reads of other people's words as
+data (each string clipped to 1,500 characters, the answer to 20,000), and a
+`next` on a refusal that names the call to make instead. A push or pull
+request to Teeny's own repository goes by `teeny pr`, never `/gh`.
 
 ## `babysit`: reviews, triages and merges pull requests on Teeny's own repositories
 
@@ -647,7 +658,7 @@ A link post's `url` must be on the link allowlist.
 | `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
 | `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A comment with no `format` is tagged by who sent it: a playbook's name without `moltbook-` (`threads`, `helpdesk`; `bin/act` sets `TEENY_WRITER` to the playbook), or, from the mind (`bin/lib/tick.py` sets `TEENY_WRITER=mind`) or by hand, by where it went: `own-thread` on Teeny's own post, `reply` under another agent's comment, `comment` on another agent's post. Its `detail` keeps what the post read just before the write showed: `own_post`, `writer`, `post_age_minutes`, `post_comments`, `post_score`, `post_author`, `author_karma`, `author_followers` (each only when the read carried it). A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `helpdesk` | A | `{post_id?, body?, parent_id?, format?, experiment?, pain?}`: the `moltbook-helpdesk` playbook's one output, an answer, a pain filed as a build request, or both. The answer is a `comment`, with every rule of `comment`. A `pain` is `{ask, voiced: [{post_id, comment_id?, agent}]}`: what to build, for whom and the problem (40 to 1500 characters, read against the guard's lexicon), and the 1 to 3 places agents voiced it. It becomes a `pending` build request (source `moltbook`, author the agents; see `requests`), and its places are kept in `moltbook_pains` (request_id, post_id, comment_id, agent, at). Refused: a place already filed (`already_filed`), a second pain in 24 hours (`daily_cap`), Teeny as the agent (`own`), words the lexicon holds (`guard`). The pain is filed first, so a refused answer never loses it, and an answer Moltbook fails after the pain was filed comes back as `comment_error` instead of failing the call; the call is refused only when every part it asked for was. Filing writes only `state/hands.db`, so `DRY_RUN` does not hold it back (as `build self`); the answer keeps `DRY_RUN`. |
+| `helpdesk` | A | `{post_id?, body?, parent_id?, format?, experiment?, pain?}`: the `moltbook-helpdesk` playbook's one output, an answer, a pain filed as a build request, or both. The answer is a `comment`, with every rule of `comment`. A `pain` is `{ask, voiced: [{post_id, comment_id?, agent}]}`: what to build, for whom and the problem (40 to 1500 characters, read against the guard's lexicon), and the 1 to 3 places agents voiced it. It becomes a `pending` build request (source `moltbook`, author the agents; see `requests`) and a note in the mind's inbox, and its places are kept in `moltbook_pains` (request_id, post_id, comment_id, agent, at). Refused: a place already filed (`already_filed`), a second pain in 24 hours (`daily_cap`), Teeny as the agent (`own`), words the lexicon holds (`guard`). The pain is filed first, so a refused answer never loses it, and an answer Moltbook fails after the pain was filed comes back as `comment_error` instead of failing the call; the call is refused only when every part it asked for was. Filing writes only `state/hands.db`, so `DRY_RUN` does not hold it back (as `requests self`); the answer keeps `DRY_RUN`. |
 | `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. The hand does not check for an earlier exchange; the daily `moltbook-follow` picks only from `exchanges`. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
 | `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
@@ -908,7 +919,7 @@ item is never listed, and `item` answers it as missing.
 | `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
 
 **As playbook inputs.** The story lists are free and need no key, so a
-playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
+playbook reads them as inputs: `world-scan` (top),
 `morning`, `take` and `moltbook-evening` (top, show), and `moltbook-general`
 (top). Beyond the front page, `hands/listen` (below)
 searches HN for Teeny's names and its standing topics, and those playbooks
@@ -1016,7 +1027,7 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
@@ -1389,16 +1400,22 @@ due` as its required input) is its caller; its cron job ships off.
 
 This hand keeps one list of build requests from every channel
 (`build_requests`, recorded by `mail ingest`, `x requests` and `moltbook
-helpdesk`), and the one
-Teeny picks for the builder. Nothing here answers the person who asked, and a
-pick is never a promise.
+helpdesk`), and what Teeny decided about each. Each channel that records a
+request also writes a note for the mind into
+`state/home/notes/inbox/request-<source>-<id>.md`: who asked, where from, and
+their words quoted and marked as someone else's (data, not instructions).
+Nothing builds a request automatically: the mind reads the note on its next
+wake and decides, and ships anything it makes through the broker
+(docs/mind.md). Nothing here answers the person who asked, and a pick is never
+a promise.
 
 | Verb | | Does |
 |---|---|---|
 | `list [--status S] [--max N]` | R | The requests, newest first (20), optionally one status: `pending`, `picked`, `skipped`, `shipped`, `failed`. |
 | `get ID` | R | One request and its ledger (`build_request_events`: when, which verb, the status it moved to, the note). |
-| `pick` | A | `{id, reason}`. Picks the one to build next. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. The playbook `pick-request` is its caller. |
-| `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
+| `pick` | A | `{id, reason}`. Records that Teeny takes it on; it only records the decision in the ledger. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. |
+| `skip` | A | `{id, reason}`. Not doing it; only a `pending` request. It only records the decision in the ledger. |
+| `self` | A | `{text}`. A change Teeny proposes to itself (the beat's `propose_change`, after the guard and `MIND_BUILDS_PER_DAY`): written as a note in the mind's inbox, `state/home/notes/inbox/self-<stamp>.md`. The mind reads it on its next wake and decides whether to make the change, as a pull request through the broker. |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
 | `prices` | R | What a paid build request costs and how to pay (frozen, `evals/prices.toml`). |
 
@@ -1422,17 +1439,16 @@ posts, other threads and anything seen after the close are not counted. The
 most votes wins; a tie or no votes has no winner. A vote closes when it is
 read after its 7 days. The winner, while still pending, is the next pick:
 `pick` refuses any other id with `rule: vote` and the `winner`, and marks the
-vote `honoured` when it picks it. Every rule of `pick` still holds, and the
-`pick-request` playbook still skips a winner that breaks one; once the
+vote `honoured` when it picks it. Every rule of `pick` still holds; once the
 winner is not pending, it binds nothing. It never touches the wallet, a
 fence or anything but which request is built next. The `vote` playbook
 drafts the post; it has no cron job yet (brain/cron.toml is at its 24-job
 limit).
 
 `pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
-does not stop them. Whatever is built from a pick goes out through hands that
-keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
-`shipped` or `failed` when it is done.
+does not stop them. Whatever the mind makes of a request goes out through the
+broker and hands that keep `DRY_RUN` themselves. The builder that used to take
+a `picked` request was retired on 2026-11-24: the mind ships things itself.
 
 ## `stimuli`: the one inbox Teeny's mind reads
 
@@ -1444,7 +1460,7 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
 - `hn inbox`: direct replies to Teeny's own HN stories and comments, and new
   comments on the threads it watches (read only: the mind never answers on HN);
-- the builder's and operator's desks: their reports. A finished `news` task
+- the browser operator's desk: its reports. A finished `news` task
   arrives as `world · news` instead (its notes, framed as what web pages
   said; see `tasks`);
 - `goals check`: `self · goal` when a goal is solved or fails;
@@ -1850,192 +1866,26 @@ draft cannot reach it (`bin/lib/playbook.py`, `NOT_OUTPUTS`). To post one: `hand
 upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
 on `hands/x post`.
 
-## `build`: the builder's work queue
+## `build`: Teeny's own clone and the old build ledgers
 
-The builder (`brain/agents/builder.toml`, the `builder` agent job in `brain/cron.toml`,
-every 2 hours) builds one job at a time in its own folder,
-`state/workbench/<slug>/`. It reads its job from
-`state/workbench/desk/build.json`, leaves its report in `build-done.json`
-beside it, and holds no token. `desk` and `ship` run from cron
-(`bin/build-ship`), collect the report and publish what it made through
-hands/gh's own actions.
+The builder (the `builder` agent job, its desk, `bin/build-ship`, the daily
+job, `build-idea`, `pick-request`, `self-improve` and `upstream-pick`) was
+retired on 2026-11-24: the mind ships things itself, as pull requests
+through the broker (docs/mind.md), and may make a repository of its own.
+What is left of the hand is three verbs.
 
 | Verb | | Does |
 |---|---|---|
-| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`, `workdir` relative to the checkout. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
-| `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name, a short name for the tool). A request or daily report with no `repo` ships under the name its summary leads with, the text before the first `:` (`statediff: a referee CLI` ships as `statediff`), when that is a plain name, not Teeny's own repository's, no other job's and not a repository the account already has (GitHub is asked; when it cannot say, the slug stays); otherwise under the job's slug. Self, fix and upstream jobs ship where they always do. `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
-| `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to` and `report_shape`, every path as the builder must use it: relative to the workbench, where its tools are rooted (`workdir` is `brain` or `daily-<date>`, `report_to` is `desk/build-done.json`), with no absolute or checkout-relative second form and a `paths` line saying so. When files sit under the nested mirror `state/workbench/state/workbench/<workdir>/` (a path written with `state/workbench/` in front), the job carries a `note` naming them and the right workdir, and a refused empty-workdir report says the same; nothing is moved. A report with a field beyond `job_id, status, summary, tests, repo` is refused naming those. The reason is also kept as `build-done.rejected.reason.json`, for as long as the refused report beside it; a reason with no refused report (one left by an earlier job) is removed on the next pass, since the builder lists the folder and on 2026-11-22 took a reason eight days old as the verdict on a new job. A resumed job (`resumed: true`: the last run ended without a report) carries `last_run: {about, said}`, the final message of the newest ended `teeny.builder` cron run since the claim (read-only from the core's `storage.db`, as `bin/crons` reads it; at most 4000 characters), because a resumed run remembers nothing. An idle run's message (`nothing to do: ...`) is left out, and a store that cannot be read only leaves the field out. |
-| `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
-| `self` | A | `{text, want?}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). **One at a time**, enforced here since 2026-11-19: inside its transaction it refuses (exit 2, `rule: one_at_a_time`, `active` naming what is in flight) while a `self` request is not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`, `shipped` or `gave_up` (the same test as the mind's `propose_change`). Any other field is an error. `want` is the id `bin/wants` gives (`w:` then 1 to 60 of `a-z 0-9 : _ -`; anything else is an error): the request's `source_id` becomes `want:<id>:<time>` instead of `<time>`, the answer carries `want`, and the job is a feature ("Feature jobs", below). |
+| `jobs [--status S] [--limit N]` | R | The old build jobs (`build_jobs`), newest first. Read-only history. |
+| `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). |
 | `self-sync` | J | Keeps Teeny's own clone (docs/evolve.md, "Teeny's own clone") current. Clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing; otherwise fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
-| `babysit` | J | Teeny's own red pull requests back on the builder's desk (docs/roadmap.md, A7; `bin/build-ship` runs it before `desk`). Off unless `BUILD_BABYSIT=1`. For each shipped self job whose pull request is open, has a red check on its head (`gh checks`), has no fix in progress and has had fewer than 3: the clone checks out the PR's branch as origin has it (`selfclone.resume`, only when the clone is free) and a `fix` job is claimed there, its text naming the red checks and the attempt, never a log or a reviewer's words (the builder holds tools). One job on the desk at a time. After 3 fixes the PR is `left_to_a_person`. A `fix` job ships to the same branch (`selfclone.ship_fix`: frozen-path check against main, pushed on top, never forced, no new PR) and the mind hears `builder · fix_pushed`. |
-| `upstream` | A | `{gap, text}`: one gap of `docs/oh-gaps.md` to close in `tinyhumansai/openhuman`, and how (docs/roadmap.md, A8; `build/upstream.py`). Off unless `BUILD_UPSTREAM=1`. Refused for a gap that is unknown, solved (the row says solved, resolved or landed, or its change starts "Done"), already in flight or opened, or tried in the last 30 days. Becomes a build request from source `upstream` (its text built from the gap's own row plus Teeny's brief), picked at once when nothing else is in flight. The weekly picker playbook is `brain/playbooks/upstream-pick.md`. |
-| `idea` | A | `{title, who, source, pitch}`, each one line, nothing else: the one build idea Teeny keeps a UTC day (`build_ideas`). `who` is who asked or who wants it, `source` the link or stimulus ref where the need shows. Refused `one_a_day` when today already has one (the answer carries it, and nothing is replaced), and `guard` when the guard's lexicon holds its words. It writes only to the ledger, so `DRY_RUN` does not hold it back. The playbook `build-idea` is its caller, and `bin/act` puts the title through the guard first. |
-| `ideas [--limit N]` | R | `today` (today's idea, or null) and `ideas`, the ones kept, newest first, each with the `job_id` made from it. |
-| `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
-| `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the builder's daily brief, the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). The self-improve playbook reads it. |
-| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, its request is `shipped` with the repository as its note, and the mind hears `builder · shipped` once (ref `build:<id>`): which build, its summary's first line and the repository's exact URL (`payload.url`), with the line that this is the link to use, never one guessed from the build's name. When the request came from a problem agents named on Moltbook (`moltbook helpdesk`, `moltbook_pains`), the stimulus also names the threads where it was voiced (`payload.moltbook`, at most 3) and asks for the announcement: one post in `m/builds` (format `shipped`) with what it does, the repository, a five-minute setup and one open issue someone could take, then one comment in each of those threads asking for a case where it fails. The mind writes them through `post_moltbook` and `comment_moltbook`, so the hand's caps, its comment rules and the guard all hold. The builder's own `builder · report` comes before shipping and carries no URL. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
-`build_jobs` has one row per job (`kind`, `request_id` unique, `slug` unique,
-`repo`, `status`: `claimed`, `ok`, `failed`, `shipped`, `gave_up`, and `rubric`,
-the feature rubric as JSON, below; the column is added to an older table when
-the hand opens it). This hand only reads
-`build_requests`. It writes back only to a request it built, and only while
-that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the `build-ship` job in `brain/cron.toml` (every 30 minutes):
-`self-sync`, `desk`, then `ship`. The builder runs at ten past every second
-hour, after a desk.
-
-**The daily job.** With no request waiting, `next` makes one `daily` job a
-UTC day. Its text is the newest idea no job was made from, if one was kept in
-the last 48 hours (`build/ideas.py`): the title, the pitch, who wants it and
-where the need shows, then the standing rules. The idea is then marked with
-the job. The daily job is made at the first desk run after UTC midnight, so
-it builds the idea the `build-idea` job kept the evening before. With no idea
-waiting the text is `DAILY_BRIEF`, which holds the same bar: something a
-named person or a linked thread shows a need for, or that Teeny would use
-every day; not a generic utility every package index has; extending a
-shipped build first. Both ask for the Python standard library only, a
-README, passing tests, and a report of what was built, for whom, and what it
-could not do. Both end with the builds already shipped (request and daily
-jobs, the newest 20, each repository and the first line of its summary) and
-"Don't build any of these again."
-
-How the builder and cron hand work back and forth, and the states a job
-moves through (`teeny_hands/build/jobs.py`):
-
-```
- builder agent (every 2 h)                    bin/build-ship (cron, every 30 min)
- shell rooted at state/workbench/             self-sync ─► desk ─► ship
-        │                                                   │        │
-        │ reads   desk/build.json ◄──── desk writes `next` ─┤        │
-        │ writes  desk/build-done.json ── desk settles it ──┘        │
-        │         through `done`                                     │
-        ▼                                                            ▼
- state/workbench/<slug>/ ────────────────────────────► gh create-repo, gh push
-                                                      (self job: push_branch, open_pr)
-
- next ─► claimed ── done ok ──► ok ── ship ──► shipped (repo_url, commit_url | pr_url)
-            │                    │
-            │                    └─ refused or error: ship_error kept, retried next run;
-            │                       after 3 tries (self job: a frozen path at once) ─► failed
-            └─ done failed, or claim older than 6 h ─────────────────────────────────► failed
-```
-
-A self job comes from a picked request with source `self`. `next` syncs
-the clone and starts `teeny/<slug>` from the fresh `origin/main`. While the
-clone isn't free, the request waits (`waiting` in the answer) and the queue
-moves on. Its offer adds `branch`, `base` and `instructions` (Teeny's own
-`brain/agents/builder-self.md`), with rules of its own. `done` with `ok` needs
-a change in the clone. `ship` takes these steps:
-
-1. The guard reads the pull request's title (the summary's first line) and
-   body (the summary, the tests, the checks).
-2. It commits the branch as Teeny.
-3. `frozen.check` runs against `origin/main`. A frozen path fails the job at
-   once, with `paths`.
-4. `gh`'s `push_branch` sends only a `teeny/*` branch, never `main`, with the
-   secret scan on what the branch adds.
-5. `open_pr` opens the pull request into `main`.
-
-The job is then `shipped` with `pr_url`, and the mind gets a `builder`
-stimulus (`pull_request`, or `ship_refused` when it gives up). Under
-`DRY_RUN` it answers `would_push`/`would_open_pr`. Nothing merges.
-
-**Feature jobs** (since 2026-11-19; `teeny_hands/build/feature.py`). A self
-request whose `source_id` is `want:<id>:<time>` makes a feature job: a new hand
-with everything that makes it used, not an edit. On 2026-11-19 the lane had
-made three self jobs ever, and the one that shipped (`dripsplan`) is a hand
-nothing calls (docs/evolve.md, "1c. Wants"). The offer adds `feature:
-{want, requires}`, where `requires` lists the five parts below, and its rules
-are the self rules plus one sentence: report ok only when all of it is in the
-clone, and the desk sends the report back with what is missing. A job that
-names no want is a plain self job and is unchanged.
-
-The offer also carries `feature.pattern` (`feature.PATTERN`): every file a
-feature needs, as text with `NAME` for the hand's name, in the shape the rubric
-checks, and `pattern_note` saying how to use it. On 2026-11-22 the first
-feature job (want `w:m15`, the chart renderer) spent all 40 of its tool calls
-reading other hands to learn that shape and wrote no file. The pattern's test
-file puts `hands/lib` on the path itself, because the desk runs it alone and
-isolated (`python3 -I`), where a bare `from teeny_hands...` does not import.
-`hands/tests/build/test_feature.py` (`PatternTest`) writes the pattern under a
-name and holds it to the rubric, so the two cannot drift apart.
-
-When the builder reports `ok`, `done` first holds the clone to the rubric
-(`feature.rubric`) against `origin/main`. It runs **before** `done`'s
-transaction, because the jailed test run can take up to 300 s, and what it
-found is stored in the same UPDATE as the report. `failed` and `gave_up`
-reports are not checked, and a clone with no change is refused by `done`
-as before. The new hands are the paths `hands/<name>` (one level) the branch
-adds. For each one:
-
-| Part | Missing-message |
-|---|---|
-| any new hand | `no new hand: a feature adds hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py` |
-| `hands/<name>` is an executable file | `hands/<name> is not an executable entry point` |
-| the entry point's text names its package (`teeny_hands.<name>`, or `from teeny_hands import <name>`) | `hands/<name> does not run its package teeny_hands.<name>` |
-| a module of `hands/lib/teeny_hands/<name>/` really calls the contract's `run`, read from its syntax tree: `hand.run(...)` with `hand` imported from `teeny_hands`, or `run` imported from `teeny_hands.hand`. A comment, a docstring or a string that says it does not count. A module that does not parse is named | `... does not run through hand.run (the hand contract)`, or `... <module> does not parse` |
-| `hands/tests/test_<name>.py` parses | `no hands/tests/test_<name>.py that parses` |
-| and asserts something: an `assert` statement or a call of a method named `assert*` | `hands/tests/test_<name>.py asserts nothing (no assert statement or self.assert* call)` |
-| those tests pass when the desk runs them itself, in the same Landlock jail as `ship` (`verify.run` with `start`, `top` and `pattern`, so only that file runs; no jail, no run, no pass) | `the tests of hands/<name> did not pass when the desk ran them: <the last 400 characters>` |
-| a playbook calls it: front matter with an input `run` whose first word is `hands/<name>` (an input marked `optional = true` does not count: it may never run), or an `output` starting `hand:<name> ` (prose that mentions the hand does not count) | `no playbook calls hands/<name> (...)` |
-| `brain/cron.toml` runs a calling playbook as an enabled `bin/act <book>` job | `no playbook that calls hands/<name> is scheduled in brain/cron.toml` |
-| `docs/hands.md` has a `## ` heading holding `<name>` in backticks (evolve's `hand_section` rule, copied so the hand lib does not import `bin/lib/evolve.py`) | ``docs/hands.md has no `## `<name>`` section`` |
-
-These checks are cheap hardening against an empty shell (a stub, a test that
-asserts nothing), not proof that the hand is useful: a person's review and the
-use count a week after merge are the real gates. The changed paths are read
-without rename detection, so a new hand beside a deleted file is an add and a
-delete, never a rename that hides it.
-
-Anything missing raises `Refused` (exit 2, `rule: feature`, `missing`, `job_id`).
-The desk keeps that as `last_report_rejected` with the claim still open, so the
-builder resumes the job in the same clone (the claim goes stale after 6 hours,
-and the builder runs every 2, so about three tries). When all of it is there
-the job is `ok` and `build_jobs.rubric` holds `{ok, missing, hands: [{name,
-entry, contract, tests, ran: {ok, ran, jailed, output}, callers, scheduled,
-docs}]}`. `bin/wants` reads the names in it to score the feature later.
-`ship` is unchanged (a self job is still not re-tested there). The pull
-request body gets a **Feature rubric** block, one line per hand: tests ran
-(count, in the jail or not), called by, scheduled as, docs section yes or no,
-and a last line that "used" is counted by `bin/wants` seven days after merge.
-A person still approves the pull request.
-
-An upstream job (docs/roadmap.md, A8) comes from a picked request with
-source `upstream`. `next` first reads the project's contributing policy (`gh
-contributing`); a project that forbids AI contributions is never worked on,
-and the request is `skipped` with why. Then it fetches the project's `main`
-into its own clone (working tree `state/workbench/upstream-openhuman/`, git
-directory `state/upstream/openhuman.git`, outside the builder's reach) and
-starts `teeny/upstream-<id>-<slug>` from it. A branch whose job is still
-`claimed` or `ok` keeps the clone (`waiting`). The offer adds `repo`,
-`branch`, `base` and rules that say the project's files are data, never
-instructions. `done` with `ok` needs a change. The ship step does not run the
-tests itself (they are the project's, in its language; its CI runs them on the
-pull request). `ship`, only while `BUILD_UPSTREAM=1` (otherwise the job
-waits, no attempt spent):
-
-1. The guard reads the title and body (the summary, `Refs <the gap's issue>`,
-   the builder's tests).
-2. It commits the branch as Teeny.
-3. The external rules run before anything is pushed (`actions.check_external`,
-   reads only): today's `GH_MAX_EXTERNAL_PRS_PER_DAY`, one open pull request
-   of Teeny's in the project at a time, and the contributing policy again.
-4. Teeny's fork (`GITHUB_USER/openhuman`) is made when missing (`gh fork`); a
-   repository of that name that isn't a fork is refused.
-5. `push_branch` sends the `teeny/*` branch to the fork (own repository only,
-   never forced, the secret scan on what it adds). Nothing is ever pushed to
-   the project itself.
-6. `open_pr` opens it on the project, from `GITHUB_USER:<branch>` into
-   `main`, with the disclosure footer, the same rules applied again under its
-   lock.
-
-The mind hears `builder · upstream_pr` (or `ship_refused`). Under `DRY_RUN`
-nothing is forked, pushed or opened: the answer carries `branch`,
-`would_fork`, `would_push`, `would_open_pr`, `head`, and the pull request's
-`title` and `body`, disclosure included. Nothing babysits it: what strangers
-write on it reaches only the tool-less mind (`gh ingest`), never the builder.
+`bin/evolve` syncs the clone itself at the start of each generation run
+(`selfclone.sync`, under the self-clone lock); `self-sync` stays for the
+operator. The old ledgers' schema (`build_jobs`, `build_ideas`) lives in
+`hands/lib/teeny_hands/build/ledger.py`, so their history stays readable; no
+table was dropped. `build/mindclone.py` (the broker's `/repo` and `/pr`),
+`build/selfclone.py` and `build/verify.py` stay.
 
 ## `tasks`: the browser operator's queue
 
@@ -2198,15 +2048,11 @@ password.
 
 ## Why a desk, and not a hand the agent calls
 
-The operator has no shell, and the builder's shell runs sandboxed, rooted at
-`state/workbench/` (its agent's `scheduled_workspace`). Landlock jails its
-files to that folder (and the system's read-only directories), nothing else
-of the checkout, and every command starts with a `cd` into the job's folder.
-The jail covers files only: the shell has the host's network. Neither agent
-should be able to reach a hand, least of all one that holds a secret (a shell
-that can run `hands/build` can run `hands/gh push`). The two file tools both
-agents already need reach `state/workbench/` and nothing else of the checkout
-(the trusted root `bin/spine` grants). So the work goes back and forth as two
+The browser operator has no shell, and it should not be able to reach a
+hand, least of all one that holds a secret. The two file tools it needs reach
+`state/workbench/` and nothing else of the checkout (the trusted root
+`bin/spine` grants). (The builder, which had a sandboxed shell rooted there,
+was retired on 2026-11-24.) So the work goes back and forth as two
 files there, and the hand that acts on a report runs from cron, outside any
 model turn, with all its own rules. OpenHuman's MCP would be the other way
 in, but a serve host dropped every configured MCP server's tools when
@@ -2347,8 +2193,7 @@ pay is still an attack. Playbooks still reach only the read verbs.
 More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
 keeps it off and out of the mind's prompt; `propose_change` is the exception,
-on at 1 a day, since all it makes is a pull request the operator merges or
-closes):
+on at 1 a day, since all it makes is a note in the mind's own inbox):
 
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
@@ -2357,14 +2202,11 @@ closes):
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
-| `propose_change` `{text}` | `build self {text}` | refused before the guard and the hand while a change to itself is in flight (a `self` build request not yet skipped, shipped or failed, or a `self` job not failed, shipped or given up) and over the desk's 2,000 characters; the tick runs the brief past `guard check` (surface `github`, as `self-improve`'s output) and sends the guard's words; the request is picked by `pick-request` and ships as a pull request (docs/evolve.md) | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
+| `propose_change` `{text}` | `requests self {text}` | the tick runs the brief past `guard check` (surface `github`) and sends the guard's words; it becomes a note in the mind's inbox, `state/home/notes/inbox/self-<stamp>.md`, and the mind decides on its next wake whether to make the change, as a pull request through the broker | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
-A `propose_change` that lands comes back to the next beat with its build
-request's id and status (`payload.request`), so Teeny can say which request
-it is and that it is waiting for `pick-request`, not being built yet.
 A `queue_task` or `queue_signup` that lands is only queued, and the next
 beat reads it that way: `your queue_task: queued as browser task #4
 (pending), not done yet: ...`, with the task's id and status in
@@ -2855,6 +2697,10 @@ things, each off until its switch:
   `in_doubt` marks it `refund_in_doubt`, never retried; a paid one is
   `refunded`. Under `DRY_RUN` it says `would_refund`.
 
+A paid request reaches the mind's inbox like any other request; nothing
+builds it automatically, and a refund still follows a request marked
+`skipped` or `failed`.
+
 No model reaches either: the mind's `transfer` is always purpose `vendor`,
 and no playbook may output a wallet verb. `sales list` shows the rows. A
 refund comes off the week's income in the accounts (`income.refunds`).
@@ -3214,9 +3060,10 @@ paid by the operator's account, and what it costs is already counted by
 ## `deploy`: Teeny's static sites
 
 What Teeny builds can be put where people can use it (docs/roadmap.md,
-A11): a shipped build's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
+A11): a shipped build job's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
 as plain files by the host's nginx (`deploy/nginx/sites.teeny.enamakel.com.conf`).
-Code: `teeny_hands/deploy/publish.py`. Frozen.
+Code: `teeny_hands/deploy/publish.py`. Frozen. Since the builder was
+retired (2026-11-24) it works on past build jobs only.
 
 | Verb | | Does |
 |---|---|---|
@@ -3512,8 +3359,8 @@ Who calls it: the mind's `propose_experiment` and `conclude_experiment`
 intents (`MIND_EXPERIMENTS_PER_DAY`, default 2, at most 5;
 `MIND_CONCLUSIONS_PER_DAY`, default 5, at most 10; 0 turns either off), the
 night dream's `experiment` and `conclude` operations (`--source dream`),
-and the `speculate` playbook's inputs (`list`, `lessons`). `self-improve`
-and the evolve loop's evidence read `lessons`.
+and the `speculate` playbook's inputs (`list`, `lessons`). The evolve loop's
+evidence reads `lessons`.
 
 **Expiry.** The lab cannot wedge. Before `score`, and before `propose`
 counts the open experiments, every open experiment that can no longer teach

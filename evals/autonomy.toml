@@ -72,10 +72,10 @@ switch = [{ file = "teeny.env", name = "MIND_TASKS_PER_DAY", when = "positive", 
 next = { level = 4, proofs = [{ id = "L3.browser_week" }, { id = "L3.teeny_tasks" }, { id = "L3.needs_human" }] }
 
 [capability.build]
-what = "the builder: programs in the workbench, pushed through hands/gh; issues on its own repos"
+what = "the agentic mind: programs and changes to itself, shipped through its broker as pull requests; issues on its own repos (the builder, retired 2026-11-24, did this before)"
 level = 3
 confirmed = "2026-11-12"
-roles = ["builder", "teeny"]
+roles = ["mind", "teeny"]
 drops_on = ["model-change"]
 switch = [{ file = "teeny.env", name = "MIND_ISSUES_PER_DAY", when = "positive", needs = 3 }]
 next = { level = 4, proofs = [{ id = "L3.shipped" }, { id = "L3.own_issues" }] }

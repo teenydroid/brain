@@ -15,7 +15,7 @@ number. The count is code, never a model:
 
 It is advisory and narrow: the winner becomes the next request `pick` takes,
 and that is all. Every rule `pick` keeps still holds (a request the guard
-held is skipped, one at a time, and the pick-request playbook's refusals),
+held is skipped, one at a time, and pick's other refusals),
 and nothing here touches the wallet, a fence, or anything but which request
 is built next. A winner that is no longer pending (skipped for a reason, or
 built) binds nothing.

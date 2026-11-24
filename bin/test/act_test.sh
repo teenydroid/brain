@@ -714,24 +714,20 @@ refuses "refuses the keychain as an output" $'+++\ndescription = "x"\noutput = "
 printf '%s\n' $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain list"\n+++\ngo' >"$brain/playbooks/keys.md"
 check "allows the keychain's list as an input" bash -c "'$act' --check keys >/dev/null"
 rm -f "$brain/playbooks/keys.md"
-# The builder's queue: a draft may only propose a change to Teeny itself
-# (`build self`, a pending request the operator still gates). The queue verbs
-# stay the builder's and bin/build-ship's.
+# What is left of hands/build (the retired builder's history, the frozen
+# list, the clone's sync) takes no draft at all: a change to Teeny is the
+# agentic mind's to make (2026-11-24).
 [ -e "$scratch/hands/build" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/build"
 chmod +x "$scratch/hands/build"
 refuses "refuses the builder's done as an output" $'+++\ndescription = "x"\noutput = "hand:build done"\n+++\ngo'
 refuses "refuses the builder's ship as an output" $'+++\ndescription = "x"\noutput = "hand:build ship"\n+++\ngo'
-refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\noutput = "hand:build next"\n+++\ngo'
-printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
-check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
-printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build idea"\nsurface = "github"\n+++\ngo' >"$brain/playbooks/ideaprop.md"
-check "allows keeping the day's build idea (build idea) as an output" bash -c "'$act' --check ideaprop >/dev/null"
-rm -f "$brain/playbooks/selfprop.md"
-# An upstream contribution (docs/roadmap.md, A8): a draft names one gap; the
-# hand gates the rest (BUILD_UPSTREAM, the gap list, the external PR rules).
-printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build upstream"\n+++\ngo' >"$brain/playbooks/upprop.md"
-check "allows proposing an upstream contribution (build upstream) as an output" bash -c "'$act' --check upprop >/dev/null"
-rm -f "$brain/playbooks/upprop.md"
+refuses "refuses proposing a change to itself through the retired builder (build self)" $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo'
+refuses "refuses keeping a build idea (build idea) as an output" $'+++\ndescription = "x"\noutput = "hand:build idea"\nsurface = "github"\n+++\ngo'
+refuses "refuses an upstream contribution through the builder (build upstream)" $'+++\ndescription = "x"\noutput = "hand:build upstream"\n+++\ngo'
+refuses "refuses syncing the clone as an output" $'+++\ndescription = "x"\noutput = "hand:build self-sync"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "none"\n[[inputs]]\nrun = "hands/build jobs --limit 5"\n+++\ngo' >"$brain/playbooks/buildjobs.md"
+check "allows the builder's history (build jobs) as an input" bash -c "'$act' --check buildjobs >/dev/null"
+rm -f "$brain/playbooks/buildjobs.md"
 # The goal ledger: a draft may only propose a goal. Its checks are the
 # pinned goals-check job's.
 [ -e "$scratch/hands/goals" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/goals"
@@ -860,7 +856,7 @@ done
 listens() { OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" "$act" --check "$1"; }
 check "world-scan listens through hands/listen, twice a day" \
   bash -c "$(declare -f listens); act='$act' here='$here' listens world-scan | jq -e '.inputs[0] == \"heard\" and .max_per_day == 2' >/dev/null"
-for name in morning take build-idea moltbook-daily moltbook-evening moltbook-general; do
+for name in morning take moltbook-daily moltbook-evening moltbook-general; do
   check "$name reads what was heard" \
     bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
 done

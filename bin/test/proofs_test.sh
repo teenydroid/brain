@@ -43,7 +43,7 @@ repo = Path(sys.argv[1])
 sys.path.insert(0, str(repo / "hands" / "lib"))
 from teeny_hands.x import posting_rules
 from teeny_hands.tasks import queue
-from teeny_hands.build import jobs
+from teeny_hands.build import ledger as jobs
 from teeny_hands import requests, stimuli
 from teeny_hands.stats import collect
 from teeny_hands.gh import actions as gh

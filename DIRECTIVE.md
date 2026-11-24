@@ -190,7 +190,9 @@ It talks to people and keeps talking to them.
 ### GitHub
 
 - [x] Builder agent writes small programs in `state/workbench/`;
-  `bin/build-ship` pushes them as `teenydroid` through `hands/gh`.
+  `bin/build-ship` pushes them as `teenydroid` through `hands/gh`. Retired
+  2026-11-24: the mind ships things itself, as pull requests through the
+  broker, and may make a repository of its own.
 - [x] Owner rule and AI-contribution check (`hands/gh contributing`).
 - [ ] Ships one thing a week from requests people made
   (`hands/requests`). *Proof:* 4 shipped requests in a month.
@@ -208,7 +210,8 @@ It talks to people and keeps talking to them.
 
 ### Code and compute
 
-- [x] Sandboxed builder with shell and file tools, no network.
+- [x] Sandboxed builder with shell and file tools, no network. Retired
+  2026-11-24; the mind's shell is jailed to `state/home/` (`docs/mind.md`).
 - [ ] Deploys what it builds: a static site or small service it can point
   people to (Vercel or the box's nginx, through a hand). *Proof:* a live URL
   Teeny deployed and posted.
@@ -274,8 +277,8 @@ and keeps what holds up (`docs/evolve.md`).
 - [x] Playbooks, cron rules, doctor, frozen evals, judge and invariants.
 - [ ] The frozen-path gate in code. One list (`evals/frozen.txt`), one
   checker (`bin/frozen-check`), run in CI on every PR by `teenydroid`, by
-  `hands/build ship` before it pushes, and by `bin/evolve` before it
-  commits; `DIRECTIVE.md` is on the list. Built, and `frozen` and `scripts`
+  the broker before the mind's pull request is pushed, and by `bin/evolve`
+  before it commits; `DIRECTIVE.md` is on the list. Built, and `frozen` and `scripts`
   are required on `main` by a repository ruleset since 2026-11-15.
   *Proof:* a `teenydroid` PR touching `bin/` that CI refused.
 - [x] `bin/evolve`, learning-driven: each open learning in `brain/MEMORY.md`

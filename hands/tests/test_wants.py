@@ -1,15 +1,14 @@
 """bin/lib/wants.py and bin/wants: the feed that draws what Teeny said it
-would build (docs/evolve.md, "1c. Wants") from its memory page, files at most
-one a day as a `self` build request for its builder, tracks each want's
-standing from the ledgers, and scores a merged feature used or unused after
-seven days.
+would build (docs/evolve.md, "1c. Wants") from its memory page, hands at most
+one a day to the agentic mind as a note in its inbox, tracks each want's
+standing from that and from the retired builder's ledgers, and scores a
+feature the builder merged used or unused after seven days.
 
-Apart from the last class, no test reaches a hand: `wants.run_hand` is the
-one place a hand is called, and it is replaced by a fake that answers for the
-guard, `hands/build self` and `hands/gh pr`. The last class (`EndToEnd`) runs
-the real guard and build hands through the whole lane. The scoring count (`evolve_outcomes.count`) is replaced
-too, so this file does not depend on the build hand's feature rubric or on
-the outcome kind that counts a hand's uses; it codes against their shapes."""
+No test reaches a hand: `wants.run_hand` is the one place a hand is called,
+and it is replaced by a fake that answers for the guard and `hands/gh pr`.
+The scoring count (`evolve_outcomes.count`) is replaced too; it codes
+against the shapes of the builder's feature rubric and the outcome kind that
+counts a hand's uses."""
 
 import json
 import os
@@ -31,7 +30,6 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 import evolve  # noqa: E402
 import evolve_findings  # noqa: E402
 import wants  # noqa: E402
-from build import test_selfclone as sc  # noqa: E402  (the build hand's scratch box: a fake origin and a fake GitHub)
 from teeny_hands.gh import client as gh_client  # noqa: E402
 
 T0 = 1_763_000_000.0
@@ -196,6 +194,24 @@ class WantsCase(unittest.TestCase):
     def build_calls(self):
         return [c for c in self.calls if c[0] == "build"]
 
+    def inbox(self):
+        return self.root / "state" / "home" / "notes" / "inbox"
+
+    def legacy(self):
+        """A filing as the retired builder took it (before 2026-11-24): the top
+        open want as a pending `self` build request, and its filed.jsonl line
+        naming the request. Standing and scoring still read these."""
+        db = wants._open_db()
+        try:
+            rows = wants.standings(self.cfg(), db)
+        finally:
+            db.close()
+        want = sorted(((st.tries, w.order, w) for w, st in rows if st.state == "open"), key=lambda r: r[:2])[0][2]
+        rid = self.request("pending", wants.brief(want), want.id)
+        wants._append("filed.jsonl", {"want": want.id, "hash": want.hash, "text": want.text, "at": evolve.now(),
+                                      "request_id": rid})
+        return {"ok": True, "filed": want.id, "request_id": rid}
+
     def guard_calls(self):
         return [c for c in self.calls if c[0] == "guard"]
 
@@ -250,29 +266,57 @@ class Filing(WantsCase):
         self.assertEqual(wants.file_one(self.cfg())["skipped"], "WANTS=0")
         self.assertEqual(self.calls, [])
 
-    def test_files_the_top_open_want_through_the_guard_and_build_self(self):
+    def test_hands_the_top_open_want_to_the_mind_through_the_guard(self):
         self.guard = lambda body: (0, {"ok": True, "text": body["text"] + "\n(checked)"})
         got = self.file()
-        self.assertEqual(got, {"ok": True, "filed": "w:m15", "request_id": 1})
-        guard, build = self.guard_calls(), self.build_calls()
-        self.assertEqual((len(guard), len(build)), (1, 1))
+        self.assertEqual(got, {"ok": True, "filed": "w:m15", "note": "notes/inbox/want-w-m15-3034fdee.md"})
+        guard = self.guard_calls()
+        self.assertEqual((len(guard), self.build_calls()), (1, []))
         self.assertEqual(guard[0][1], ["check"])
         self.assertEqual(set(guard[0][2]), {"text", "surface"})
         self.assertEqual(guard[0][2]["surface"], "github")
         brief = guard[0][2]["text"]
         self.assertEqual(brief.splitlines()[0], "want: w:m15")
         self.assertIn(evolve_findings.scrub(M15, 600), brief)
-        # the builder gets what the guard handed back, and the want's id
-        self.assertEqual(build[0][1], ["self"])
-        self.assertEqual(build[0][2], {"text": brief + "\n(checked)", "want": "w:m15"})
+        # the mind gets what the guard handed back, framed as its own words
+        (note,) = list(self.inbox().iterdir())
+        self.assertEqual(note.name, "want-w-m15-3034fdee.md")
+        text = note.read_text()
+        self.assertTrue(text.startswith("from: wants (bin/wants)\nwant: w:m15\n"), text)
+        self.assertIn(brief + "\n(checked)", text)
+        self.assertIn("you decide whether to build it", text)
+        self.assertNotIn("builder", text)
         record = self.filed()
         self.assertEqual(len(record), 1)
-        self.assertEqual(record[0]["want"], "w:m15")
-        self.assertEqual(record[0]["request_id"], 1)
-        self.assertEqual(record[0]["at"], T0)
+        self.assertEqual((record[0]["want"], record[0]["note"], record[0]["at"]), ("w:m15", "notes/inbox/want-w-m15-3034fdee.md", T0))
+        self.assertNotIn("request_id", record[0])
         self.assertEqual(record[0]["hash"], evolve.learning_hash(evolve_findings.scrub(M15, 600)))
         self.assertEqual(record[0]["text"], evolve_findings.scrub(M15, 600))
-        self.assertEqual(self.standing()["state"], "in-flight")
+        got = self.standing()
+        self.assertEqual((got["state"], got["by"]), ("handed", "handed to the agentic mind (notes/inbox/want-w-m15-3034fdee.md)"))
+        self.assertEqual(self.rows("SELECT count(*) FROM build_requests")[0][0], 0)
+
+    def test_a_handed_want_is_not_handed_again_until_its_text_changes(self):
+        self.assertTrue(self.file()["filed"])
+        self.next_day()
+        self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
+        self.page(pr_page("m15", "i will build a reef survey tool: log coral sightings, rank dive sites by "
+                                 "visibility, publish weekly maps. nothing like it exists yet."))
+        self.assertEqual(self.file()["filed"], "w:m15")
+        # one note per want: the new brief replaced the old one
+        self.assertEqual([p.name for p in self.inbox().iterdir()], ["want-w-m15-3034fdee.md"])
+        self.assertIn("reef survey", (self.inbox() / "want-w-m15-3034fdee.md").read_text())
+        self.assertEqual(len(self.filed()), 2)
+
+    def test_never_writes_through_a_link_the_mind_left(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.root / "state" / "home" / "notes").mkdir(parents=True)
+        os.symlink(outside, self.inbox())
+        self.assertTrue(self.file()["filed"])
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse(self.inbox().is_symlink())
+        self.assertTrue((self.inbox() / "want-w-m15-3034fdee.md").is_file())
 
     def test_no_open_want_files_nothing(self):
         self.page("# MEMORY.md\n\n## what i have decided\n\n- [m36] check first.\n")
@@ -293,45 +337,40 @@ class Filing(WantsCase):
         self.assertIn("held", self.file())
         self.assertEqual(self.build_calls(), [])
 
-    def test_one_at_a_time_refusal_waits_and_records_nothing(self):
-        self.build = lambda body: (2, {"ok": False, "refused": "one change to yourself is already in flight: x",
-                                       "rule": "one_at_a_time", "active": "self request #3 (pending)"})
-        got = self.file()
-        self.assertTrue(got["ok"])
-        self.assertIn("one change to yourself is already in flight", got["waiting"])
+    def test_an_inbox_that_cannot_be_written_is_an_error_and_not_recorded(self):
+        home = self.root / "state" / "home"
+        home.mkdir()
+        os.chmod(home, 0o500)
+        try:
+            if os.access(home, os.W_OK):
+                self.skipTest("running as a user no permission stops")
+            got = self.file()
+        finally:
+            os.chmod(home, 0o755)
+        self.assertFalse(got["ok"])
+        self.assertIn("inbox", got["error"])
         self.assertEqual(self.filed(), [])
         self.assertEqual(self.standing()["state"], "open")
-
-    def test_any_other_build_failure_is_an_error(self):
-        for answer in ((1, {"ok": False, "error": "the build desk could not be read"}),
-                       (2, {"ok": False, "refused": "no", "rule": "something_else"})):
-            self.build = lambda body, answer=answer: answer
-            got = self.file()
-            self.assertFalse(got["ok"])
-            self.assertIn("error", got)
-        self.assertEqual(self.filed(), [])
-
-    def test_an_answer_without_a_request_id_is_an_error_and_not_recorded(self):
-        self.build = lambda body: (0, {"ok": True})
-        self.assertFalse(self.file()["ok"])
-        self.assertEqual(self.filed(), [])
 
     def test_a_second_filing_the_same_day_is_skipped(self):
         self.assertTrue(self.file()["filed"])
-        self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")  # open again, with a try left
-        self.assertEqual(self.standing()["state"], "open")
+        self.page(pr_page("m15", "i will build a reef survey tool: log coral sightings, rank dive sites by "
+                                 "visibility, publish weekly maps. nothing like it exists yet."))
+        self.assertEqual(self.standing()["state"], "open")  # open again: its text changed
         os.environ["EVOLVE_NOW"] = str(T0 + 3600)  # later the same UTC day
         self.assertEqual(evolve.day(T0), evolve.day(T0 + 3600))
         self.assertEqual(self.file(), {"ok": True, "skipped": "a want was filed today"})
         self.assertEqual(len(self.filed()), 1)
-        self.assertEqual(len(self.build_calls()), 1)
+        self.assertEqual(len(self.guard_calls()), 1)
 
-    def test_the_next_day_files_again(self):
-        self.assertTrue(self.file()["filed"])
+    def test_a_want_the_builder_failed_is_handed_to_the_mind_the_next_day(self):
+        self.legacy()
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
-        self.assertTrue(self.file()["filed"])
+        self.assertEqual(self.file()["note"], "notes/inbox/want-w-m15-3034fdee.md")
         self.assertEqual(len(self.filed()), 2)
+        got = self.standing()
+        self.assertEqual((got["state"], got["tries"]), ("handed", 1))
 
     def test_the_brief_names_every_part_of_a_feature_and_stays_under_2000_chars(self):
         text = evolve_findings.scrub("i will build a chart renderer. " + "candle " * 200, 600)
@@ -347,30 +386,30 @@ class Filing(WantsCase):
 
 class Standing(WantsCase):
     def filed_then(self, request_status, job_status=None, **job):
-        self.file()
+        self.legacy()
         self.sql("UPDATE build_requests SET status = ? WHERE id = 1", request_status)
         if job_status:
             self.job(1, job_status, **job)
         self.next_day()  # the filing is yesterday's: the want's standing is all that can hold a refiling
 
-    def test_a_filed_want_is_in_flight_while_its_request_is_pending_or_picked(self):
-        for status in ("pending", "picked"):
+    def test_a_want_whose_old_request_still_waits_on_the_retired_builder_is_open_again(self):
+        """CodeRabbit on #550: a builder filing still pending or picked (or a
+        job claimed or ok) when the builder was retired would hold its want
+        in flight for ever. Nothing builds it now, so the want is open, and
+        the next run hands it to the agentic mind."""
+        for request_status, job_status in (("pending", None), ("picked", None), ("picked", "claimed"),
+                                           ("picked", "ok")):
             self.reset()
-            self.filed_then(status)
-            self.assertEqual(self.standing()["state"], "in-flight", status)
-            self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
-
-    def test_a_want_is_in_flight_while_its_job_is_claimed_or_ok(self):
-        for status in ("claimed", "ok"):
-            self.reset()
-            self.filed_then("picked", status)
-            self.assertEqual(self.standing()["state"], "in-flight", status)
+            self.filed_then(request_status, job_status)
+            got = self.standing()
+            self.assertEqual(got["state"], "open", (request_status, job_status))
+            self.assertIn("retired", got["by"])
 
     def test_a_failed_build_is_a_try_and_two_give_up(self):
         self.filed_then("failed", "failed", summary="abandoned: the builder never reported back")
         got = self.standing()
         self.assertEqual((got["state"], got["tries"]), ("open", 1))
-        self.file()
+        self.legacy()
         self.next_day()
         self.sql("UPDATE build_requests SET status = 'skipped' WHERE id = 2")
         got = self.standing()
@@ -457,7 +496,7 @@ class Standing(WantsCase):
         self.assertEqual(self.standing()["state"], "in-flight")
 
     def test_a_hands_db_that_cannot_be_read_is_in_flight_not_open(self):
-        self.file()
+        self.legacy()
         self.next_day()
         self.db.unlink()
         self.assertEqual(self.standing()["state"], "in-flight")
@@ -467,10 +506,10 @@ class Standing(WantsCase):
         self.page("# MEMORY.md\n\n## what i am in the middle of\n\n"
                   "- [m1] i will build a coral survey tool for dive sites.\n"
                   "- [m2] i will build a tide table bot for the harbour.\n")
-        self.file()
+        self.legacy()
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 1")
         self.next_day()
-        self.assertEqual(self.file()["filed"], "w:m2")
+        self.assertEqual(self.legacy()["filed"], "w:m2")
         self.sql("UPDATE build_requests SET status = 'failed' WHERE id = 2")
         self.next_day()
         drawn = {w["id"]: w["standing"]["tries"] for w in wants.draw(self.cfg())["wants"]}
@@ -482,7 +521,7 @@ class Scoring(WantsCase):
     MERGED = gh_pr_answer("closed", True, evolve.iso(T0))
 
     def merged_feature(self, hands=("tidetable",)):
-        self.file()
+        self.legacy()
         self.sql("UPDATE build_requests SET status = 'shipped' WHERE id = 1")
         self.job(1, "shipped", pr_url=PR_URL, rubric=json.dumps({"ok": True, "hands": [{"name": h} for h in hands]}))
         self.pr = self.MERGED
@@ -545,7 +584,7 @@ class Scoring(WantsCase):
         self.assertEqual(len(self.rows("SELECT 1 FROM stimuli")), 1)
 
     def test_a_job_with_no_rubric_is_no_data(self):
-        self.file()
+        self.legacy()
         self.sql("UPDATE build_requests SET status = 'shipped' WHERE id = 1")
         self.job(1, "shipped", pr_url=PR_URL)
         self.pr = self.MERGED
@@ -628,11 +667,18 @@ class Running(WantsCase):
         code, status = self.cli("status")
         self.assertEqual(code, 0)
         self.assertEqual(status["last"]["file"]["filed"], "w:m15")
-        self.assertEqual(status["wants"][0]["standing"]["state"], "in-flight")
+        self.assertEqual(status["wants"][0]["standing"]["state"], "handed")
 
-    def test_run_with_a_hand_that_fails_exits_1(self):
-        self.build = lambda body: (1, {"ok": False, "error": "broken"})
-        code, got = self.cli("run")
+    def test_run_with_an_inbox_that_fails_exits_1(self):
+        home = self.root / "state" / "home"
+        home.mkdir()
+        os.chmod(home, 0o500)
+        try:
+            if os.access(home, os.W_OK):
+                self.skipTest("running as a user no permission stops")
+            code, got = self.cli("run")
+        finally:
+            os.chmod(home, 0o755)
         self.assertEqual(code, 1)
         self.assertFalse(got["ok"])
 
@@ -664,165 +710,16 @@ class Wrapper(unittest.TestCase):
             self.assertEqual([w["id"] for w in json.loads(done.stdout)["wants"]], ["w:m15"])
 
 
-class EndToEnd(sc.SelfJobScratch):
-    """The whole lane in one scratch box, with the real code at every step: a
-    want drawn from a memory page, filed through the real `hands/guard check`
-    and the real `hands/build self` (each its own process), picked, built as a
-    feature job by the desk, sent back for what it lacked, settled with its
-    rubric, shipped as a pull request through the real ship step, and scored a
-    week after it merged by the real `hand_used` count over playbook runs.
-
-    Patched: GitHub, in two places. `hands/gh pr`, the one wants.run_hand call
-    that is not the guard or the build hand, answers open and then merged; and
-    the ship step (run in this process, not patched) pushes to a local bare
-    repository and opens its pull request on hands/x's fake server, as in the
-    other build tests. The memory page, the playbook runs and the checkout
-    that says who calls a hand (the clone) are the scratch box's. The clock
-    is the scratch box's (TEENY_NOW and EVOLVE_NOW), moved by the test. The
-    jail is real where the kernel has Landlock; where it has none
-    `verify.run` answers for it (and the test says so)."""
-
-    def setUp(self):
-        super().setUp()
-        for key in ("TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "OPENHUMAN_WORKSPACE", "WANTS", "WANTS_MAX_TRIES",
-                    "WANTS_USED_DAYS", "WANTS_MIN_USES"):
-            os.environ.pop(key, None)
-        os.environ["EVOLVE_NOW"] = str(sc.T0)
-        (self.root / "brain" / "MEMORY.md").write_text(PAGE)
-        (self.root / "secrets" / "evolve.env").write_text("WANTS=1\n")
-        self.me()
-        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 7, "html_url": sc.PR_URL}, status=201)
-        self.merged_at = None
-        self.gh_reads = []
-        real = wants.run_hand
-        self.real_run_hand = real
-
-        def run_hand(name, args, body):
-            if name != "gh":
-                return real(name, args, body)
-            self.gh_reads.append(list(args))
-            if self.merged_at is None:
-                return gh_pr_answer("open")
-            return gh_pr_answer("closed", True, evolve.iso(self.merged_at))
-
-        for patcher in (
-            unittest.mock.patch.object(wants, "run_hand", side_effect=run_hand),
-            # The checkout whose playbooks say who calls a hand is the merged one: the clone.
-            unittest.mock.patch.object(
-                evolve, "outcome_sources",
-                side_effect=lambda cfg, real=evolve.outcome_sources: dataclasses.replace(real(cfg), tree=self.tree)),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-    def clock(self, at):
-        os.environ["TEENY_NOW"] = os.environ["EVOLVE_NOW"] = str(at)
-
-    def state_of(self, cfg):
-        (item,) = wants.draw(cfg)["wants"]
-        return item["standing"]["state"]
-
-    def test_end_to_end_a_want_becomes_a_feature_job_and_its_rubric_is_scored(self):
-        from teeny_hands import hand, requests as build_requests, stimuli
-        from teeny_hands.build import jobs, verify
-
-        cfg = wants.load_settings()
-        self.assertEqual(self.state_of(cfg), "open")
-
-        # 1. The want is filed: through the real guard and the real build hand.
-        filed = wants.file_one(cfg)
-        self.assertEqual(filed["filed"], "w:m15", filed)
-        rid = filed["request_id"]
-        request = build_requests.get(rid)["request"]
-        self.assertEqual((request["source"], request["status"]), ("self", "pending"))
-        self.assertRegex(request["source_id"], r"^want:w:m15:\d+\.\d{6}$")
-        self.assertTrue(request["text"].startswith("want: w:m15\n"), request["text"][:40])
-        self.assertIn("chart renderer", request["text"])
-        self.assertEqual(self.state_of(cfg), "in-flight")
-        # The hand refuses a second change at once, and the feed reads that as waiting.
-        code, refusal = self.real_run_hand("build", ["self"], {"text": "something else"})
-        self.assertEqual((code, refusal["rule"]), (2, "one_at_a_time"))
-
-        # 2. It is picked and lands on the desk as a feature.
-        build_requests.pick({"id": rid, "reason": "something i said i would build"})
-        offer = jobs.next_job()
-        job = offer["job"]
-        self.assertEqual((job["kind"], job["feature"]["want"]), ("self", "w:m15"))
-        self.assertEqual(offer["rules"], jobs.SELF_FEATURE_RULES)
-
-        # 3. A report with no tests is sent back, naming what is missing, and the claim stays open.
-        files = sc.feature_files()
-        tests = files.pop("hands/tests/test_gizmo.py")
-        report = {"job_id": job["job_id"], "status": "ok", "summary": "gizmo: looks at things",
-                  "tests": "python3 -m unittest: 1 passed"}
-        for rel, text in files.items():
-            target = self.tree / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text)
-        (self.tree / "hands" / "gizmo").chmod(0o755)
-        with self.assertRaises(hand.Refused) as caught:
-            jobs.done(report)
-        self.assertEqual(caught.exception.detail["rule"], "feature")
-        self.assertIn("no hands/tests/test_gizmo.py that parses", caught.exception.reason)
-        self.assertEqual(jobs.listing("ok")["jobs"], [])
-
-        # 4. With its tests, run by the desk itself, it is settled with its rubric.
-        (self.tree / "hands" / "tests").mkdir(parents=True, exist_ok=True)
-        (self.tree / "hands" / "tests" / "test_gizmo.py").write_text(tests)
-        if verify.landlock_abi() > 0:
-            jobs.done(report)
-        else:  # no jail on this kernel: what verify.run would say of a passing run
-            with unittest.mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": 1,
-                                                                         "output": "OK"}):
-                jobs.done(report)
-        (row,) = jobs.listing("ok")["jobs"]
-        self.assertTrue(row["rubric"]["ok"], row["rubric"])
-        (found,) = row["rubric"]["hands"]
-        self.assertEqual((found["name"], found["callers"], found["scheduled"]), ("gizmo", ["gizmo-look"], ["gizmo-look"]))
-
-        # 5. The ship step opens the pull request, and its body shows the rubric.
-        shipped = jobs.ship()["shipped"]
-        self.assertEqual(len(shipped), 1, shipped)
-        (pr,) = self.gh.requests("POST", "/repos/teenydroid/brain/pulls")
-        self.assertIn("**Feature rubric**", pr.json()["body"])
-        self.assertIn("hands/gizmo", pr.json()["body"])
-        self.assertEqual(self.state_of(cfg), "in-flight")  # the pull request is open
-        self.assertEqual(self.gh_reads[-1], ["pr", "teenydroid/brain", "7"])
-
-        # 6. A person merges it. The want is merged, and nothing more is filed for it.
-        self.merged_at = sc.T0 + 3600
-        self.clock(self.merged_at + DAY)  # a day on: the standing alone refuses a second filing
-        self.assertEqual(self.state_of(cfg), "merged")
-        self.assertEqual(wants.file_one(cfg), {"ok": True, "skipped": "no open want"})
-
-        # 7. Scheduled runs of the playbook that calls the hand: five inside the week, one the budget
-        # skipped, one after it, and another playbook's, which calls nothing of it.
-        def runs(book, *at, **extra):
-            path = self.root / "state" / "act" / book
-            path.mkdir(parents=True, exist_ok=True)
-            with open(path / "runs.jsonl", "a") as fh:
-                for when in at:
-                    fh.write(json.dumps({"at": evolve.iso(when), "ok": True, **extra}) + "\n")
-
-        day = 86400.0
-        runs("gizmo-look", *(self.merged_at + n * day + 100 for n in range(5)))
-        runs("gizmo-look", self.merged_at + 5 * day, skipped="daily budget spent")
-        runs("gizmo-look", self.merged_at + 8 * day)
-        runs("other-book", self.merged_at + day)
-
-        self.clock(self.merged_at + 6 * day)
-        self.assertEqual(wants.watch(cfg)["scored"], [])  # the week is not over
-        self.clock(self.merged_at + 7 * day + 60)
-        (record,) = wants.watch(cfg)["scored"]
-        self.assertEqual((record["want"], record["request_id"], record["hands"], record["uses"], record["verdict"]),
-                         ("w:m15", rid, ["gizmo"], 5, "used"))
-        self.assertEqual(record["pr_url"], sc.PR_URL)
-        (told,) = [s for s in stimuli.take(max_items=50, max_chars=50_000)["stimuli"]
-                   if (s["surface"], s["kind"]) == ("self", "outcome")]
-        self.assertIn("gizmo", told["text"])
-        self.assertIn("5 times", told["text"])
-        self.assertEqual(wants.watch(cfg)["scored"], [])  # scored once
-
-
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoteNameTest(unittest.TestCase):
+    """CodeRabbit on #550: `w:f:act_failed:foo-bar` and `w:f:act_failed:foo_bar`
+    are different finding families and must not share (and overwrite) one note."""
+
+    def test_distinct_ids_have_distinct_notes_and_one_id_keeps_its_name(self):
+        a, b = wants.note_name("w:f:act_failed:foo-bar"), wants.note_name("w:f:act_failed:foo_bar")
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, wants.note_name("w:f:act_failed:foo-bar"))
+        self.assertRegex(a, r"^want-w-f-act-failed-foo-bar-[0-9a-f]{8}\.md$")

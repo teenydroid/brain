@@ -64,21 +64,14 @@ SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
 # itself, and a draft must not reach the guard's own admin verbs (a playbook
 # may still queue a browser task with hand:tasks add). The keychain is made
-# and read by code only (the operator's desk and the browser's fill).
-NOT_OUTPUTS = ("guard", "image", "video", "reel", "meme", "keychain")
-# Hands a draft reaches only through the verbs named here. The builder's
-# queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
-# draft may only propose a change to Teeny itself (`self`), which files a
-# pending request that pick-request, the builder, the frozen-path check and
-# the operator's merge all still stand between and main, or keep the day's
-# build idea (`idea`). The goal ledger
+# and read by code only (the operator's desk and the browser's fill). What is
+# left of hands/build (the retired builder's history, the frozen list, the
+# clone's sync) takes no draft: a change to Teeny is the agentic mind's to
+# make (docs/mind.md).
+NOT_OUTPUTS = ("guard", "image", "video", "reel", "meme", "keychain", "build")
+# Hands a draft reaches only through the verbs named here. The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
-    # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
-    # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
-    # `idea` keeps the one build idea of the day (build/ideas.py): a note in
-    # the ledger the next daily job is made from, never a job claimed here.
-    "build": ("self", "upstream", "idea"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
     # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a

@@ -76,8 +76,8 @@ So **models draft, and operator-written scripts act.** In practice:
 None of this changes OpenHuman's security model.
 
 **The one exception is the scheduled agents.** Two jobs need a model in the
-loop that acts: the builder writes and tests code, and the browser operator
-clicks through websites. OpenHuman allows that per agent. A cron job that
+loop that acts: the agentic mind (docs/mind.md), and the browser operator,
+which clicks through websites. OpenHuman allows that per agent. A cron job that
 targets an agent whose definition sets `scheduled_actions = true` and names
 its tools explicitly runs as a `CronActions` turn, and may use those tools
 without a person's approval (§6a). Nothing else is lifted, and nothing
@@ -90,17 +90,18 @@ difference: `command = ...` for a shell job, `agent = ...` for an agent job):
 ```
  cron, in the spine
   │
-  ├── shell job (command = "bin/...")             every job except builder and operator
+  ├── shell job (command = "bin/...")             every job except the agent jobs
   │     │
   │     └─► bin/<script> ──► bin/ask ──► tool-less agent ──► JSON draft
   │              │                                              │
   │              │ ◄────────────────────────────────────────────┘
   │              └─► hands/<name> <verb> ──► guard, caps, DRY_RUN ──► the outside world
   │
-  └── agent job (agent = "builder" | "operator")  a CronActions turn, named tools only
+  └── agent job (agent = "operator" | "mind")     a CronActions turn, named tools only
         │
-        └─► the agent reads one desk file and writes one report;
-            it calls no hand (a shell job settles the desk, §6a)
+        └─► the operator reads one desk file and writes one report;
+            it calls no hand (a shell job settles the desk, §6a);
+            the mind acts only through the broker (docs/mind.md)
 ```
 
 ## 2. Spine
@@ -115,7 +116,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` and `bin/*` resolve. |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
 | Model | The core's `local-openai` runtime, which needs no TinyHumans account. `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL`. The core does not ask a `local-openai` endpoint for the model's context window, and budgets an unknown model at a few thousand tokens, so `bin/spine` registers the window with `inference_update_model_settings`, from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models`. |
-| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). Only the agents that speak as Teeny (`teeny`, `act`, `teeny-mentions`, `teeny-mail`) log their turns there; every agent that recalls nothing (`omit_memory_context`) also sets `omit_memory_log = true`, so a helper's turn (the studio's writer and editor, the evals' judge, the querier, the reviewer, the builder, the operator) never reaches memory (`bin/lib/agent_check.py`; on 2026-11-23, 1,236 such turns sat in CortexDB, recalled by nobody and turning up in recall). Embeddings: CortexDB pins its embedding model (`venice-embed-1`, 1024 dims, on Surplus) on the first memory and has no second source (v0.10.4 reads one `CORTEX_EMBEDDING_URL`). A fallback must serve the same model with the same vectors, which no other seller is known to; any other model means a re-embed of everything stored (`CORTEX_EMBEDDING_ALLOW_REPIN=1` with `CORTEX_EMBEDDING_REBUILD_VECTORS=1`), a person's call. So when the seller is down (`503 no_healthy_sellers`, for hours on 2026-11-20..23) the embeddings retry twice, a second and then two apart (`deploy/compose.yaml`), and `bin/health` reads CortexDB's `/v1/admin/ready`: no embedding for 15 minutes, two checks in a row, opens `memory_alarm` (a `health · alarm` stimulus and one issue), closed by the first success. |
+| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). Only the agents that speak as Teeny (`teeny`, `act`, `teeny-mentions`, `teeny-mail`) log their turns there; every agent that recalls nothing (`omit_memory_context`) also sets `omit_memory_log = true`, so a helper's turn (the studio's writer and editor, the evals' judge, the querier, the reviewer, the operator) never reaches memory (`bin/lib/agent_check.py`; on 2026-11-23, 1,236 such turns sat in CortexDB, recalled by nobody and turning up in recall). Embeddings: CortexDB pins its embedding model (`venice-embed-1`, 1024 dims, on Surplus) on the first memory and has no second source (v0.10.4 reads one `CORTEX_EMBEDDING_URL`). A fallback must serve the same model with the same vectors, which no other seller is known to; any other model means a re-embed of everything stored (`CORTEX_EMBEDDING_ALLOW_REPIN=1` with `CORTEX_EMBEDDING_REBUILD_VECTORS=1`), a person's call. So when the seller is down (`503 no_healthy_sellers`, for hours on 2026-11-20..23) the embeddings retry twice, a second and then two apart (`deploy/compose.yaml`), and `bin/health` reads CortexDB's `/v1/admin/ready`: no embedding for 15 minutes, two checks in a row, opens `memory_alarm` (a `health · alarm` stimulus and one issue), closed by the first success. |
 | Keyring | File store: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key`. Every secret OpenHuman holds is a row in `storage.db`, encrypted under that key. Back up `storage.db` and the key file together. |
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
@@ -290,7 +291,7 @@ generation stays on disk.
   memo only through the inbound guard) and one `wallet · tiny` a day ($TINY
   held and the holder count), from `hands/wallet watch` (the pinned
   `wallet-watch` and `wallet-daily` jobs, off until `WALLET_WATCH=1`);
-- the builder's and operator's reports (their desks).
+- the browser operator's reports (its desk).
 
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
@@ -299,9 +300,10 @@ agent answers with a `thought` and JSON intents (`reply_x`,
 `comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
 "The mind's issues, browser tasks and new mail"). `propose_change` files a
-change to Teeny itself through `hands/build self` (one a day by default,
-`MIND_BUILDS_PER_DAY`, and one at a time); it ships as a pull request the
-operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
+change to Teeny itself through `hands/requests self` (one a day by default,
+`MIND_BUILDS_PER_DAY`, after the guard): a note in the mind's inbox,
+`state/home/notes/inbox/self-<stamp>.md`, and the mind decides on its next
+wake whether to make it, as a pull request through the broker. Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). A `reply_x` that went out to an X regular
@@ -333,7 +335,7 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
  hands/mail ingest ──────────┤   (bin/mail, every 5 min)
  hands/moltbook inbox ───────┤   (from the beat, at most every 10 min)
  hands/telegram ingest ──────┼──► hands/stimuli, the one inbox
- desk reports ───────────────┤   (builder, operator)
+ desk reports ───────────────┤   (the browser operator)
  due follow-ups ─────────────┤
  last beat's outcomes ───────┘
                                    │
@@ -595,8 +597,8 @@ The night dream concludes what is due and proposes the next ones through
 two more operations, `experiment` and `conclude` (at most 2 and 5 a night),
 carried out through `hands/lab` after the page is written. The daily
 `speculate` playbook nudges the mind to search how small accounts grow on
-the surface that did worst and to propose an experiment. `self-improve` and
-the evolve loop's `evidence.json` read `hands/lab lessons`.
+the surface that did worst and to propose an experiment. The evolve loop's
+`evidence.json` reads `hands/lab lessons`.
 
 The message is at most 60 KiB (`reflect.MAX_PROMPT_BYTES`): the core holds
 any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
@@ -787,13 +789,6 @@ How the day's beats become the page every prompt carries:
   keep for the next X post, and what else it does with what it heard. It
   never posts on X itself: `take` (15:00) and `show` (23:00) read the same
   ledger back.
-- The daily build comes from signal. The `build-idea` playbook (22:50 India
-  time) reads Show HN, what the ears heard over two days, the pending requests, the people Teeny knows,
-  its issues, what it shipped and what came in lately, and keeps one idea
-  with `hands/build idea`: what to build, who wants it, and where the need
-  shows. The next daily job is made from it (docs/hands.md, `build`, "The
-  daily job"). A day with nothing that clears the bar keeps no idea, and the
-  builder gets the standing brief.
 - A `post_x` or `reply_x` intent may carry pictures of Teeny: `image` (one) or
   `images` (a list, at most 4), each made through the same guard →
   `hands/image` → `hands/x upload` path `bin/act` uses. The ids travel as one
@@ -1044,7 +1039,6 @@ are built at boot (§4a).
 | `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, each editor turn on a fresh `studio:<run id>:editor:<n>`, since a turn with no thread resumes the agent's newest transcript) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
-| `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
 | `operator` | the pinned `operator` cron job (§6a) | `browser`, `file_read`, `file_write` |
 | `evolver` | `bin/evolve` with `EVOLVE_PROPOSER=evolver`, on a lab spine over one candidate's worktree ([`evolve.md`](evolve.md)) | file tools only, rooted in that worktree |
 
@@ -1193,9 +1187,9 @@ Every scheduled job is in one of two files:
   whoever schedules it (docs/mind.md, "Not built yet"):
   - `dream` (`bin/dream --detach`, 02:00 IST) and `dream-midday`
     (`bin/dream --light --detach`, 14:00 IST);
-  - `builder` (the agent job) and `build-ship` (`bin/build-ship`, every 30
-    minutes), the builder's desk and shipping; `tasks-desk`
-    (`bin/tasks-desk`, every 15 minutes), the browser operator's desk;
+  - `tasks-desk` (`bin/tasks-desk`, every 15 minutes), the browser
+    operator's desk (the builder's jobs, `builder` and `build-ship`, were
+    retired on 2026-11-24);
   - `evolve` (`bin/evolve run --scheduled --detach`, 02:40 and 14:40 IST,
     off until `EVOLVE=1` in `secrets/evolve.env`) and `evolve-credit`
     (`bin/evolve credit`, 03:50 IST); `evolve-watch`, the watcher that rolls
@@ -1203,7 +1197,7 @@ Every scheduled job is in one of two files:
   - `wants` (`bin/wants run`, 09:00), what Teeny said on its memory page
     it will build: it scores each merged feature a week after it merged (did
     a scheduled playbook run its hand?), then files at most one want as a
-    `self` build request through the guard, for the builder. Drawn in code,
+    note for the mind, `state/home/notes/inbox/want-<id>.md`. Drawn in code,
     no model; off until `WANTS=1` in `secrets/evolve.env` (docs/evolve.md,
     "1c. Wants"; docs/hands.md, "`build`");
   - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
@@ -1258,18 +1252,18 @@ doctor fails. See [`evolve.md`](evolve.md).
   detached (`bin/tick --detach`, `bin/reflect --detach`; §4a) and keeps its
   own record. The other shell jobs stay in the foreground, where cron
   sees their outcome and retries a failure: `bin/receipts` (one push, each
-  git call capped at 90 s, under its own lock), `bin/build-ship` (normally
-  one finished job; each git call capped at 120 s, under the `build-ship`
-  lock), `bin/tasks-desk` (local files only), and the inbound jobs.
+  git call capped at 90 s, under its own lock), `bin/tasks-desk` (local files only), and the inbound jobs.
 
-## 6a. Scheduled agents: the builder and the browser operator
+## 6a. Scheduled agents: the browser operator
 
-Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
-`bin/lib/cron_policy.py`):
+The browser operator acts from cron with tools, and so does the agentic mind
+(docs/mind.md), and no other agent (`AGENT_JOB_AGENTS` in
+`bin/lib/cron_policy.py`). The builder, which wrote and shipped code from a
+desk of its own, was retired on 2026-11-24: the mind ships things itself, as
+pull requests through the broker.
 
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
-| `builder` (`brain/agents/builder.toml`) | `builder` in `brain/cron.toml`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks, the mind, `hands/reddit` and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
@@ -1284,68 +1278,42 @@ a browser task gets a few tries from TinyComputer's captcha solver first
 (Jev's image questions on TypeSafe, `[computer] captcha_solver`); only one it
 cannot pass ends the task `needs_human`. `bin/doctor`
 and `bin/lib/cron_policy.py` refuse a definition that loses the opt-in or
-its named tools, gives the builder the browser or a wallet tool, or gives
-the operator the shell or file writes. The drafting agents (`act`, `judge`,
+its named tools, or gives the operator the shell or file writes. The drafting agents (`act`, `judge`,
 `reviewer`, `querier`, `teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
 
-**How they reach the hands: a desk, not a call.** The core's workspace is
+**How it reaches the hands: a desk, not a call.** The core's workspace is
 `brain/` and its action directory is the checkout, so `workspace_only` alone
 would let a file tool reach `brain/` and nothing of `state/`. `bin/spine`
 therefore grants exactly `state/workbench/` as a trusted root (read and
 write) and forbids Teeny's brain files (agents, playbooks, cron, storage)
-and `secrets/`. The agents call no hand. A cron shell job runs the hand's
-`desk` verb, which collects the report the agent left in
-`state/workbench/desk/<name>-done.json`, passes it to the hand's own `done`
-(every rule applies; a refused report is set aside with the reason, which
-the next offer carries), then writes the next job or task to
-`state/workbench/desk/<name>.json`. The agent reads one file and writes one.
+and `secrets/`. The operator calls no hand. A cron shell job
+(`bin/tasks-desk`, every 15 minutes) runs `hands/tasks desk`, which collects
+the report it left in `state/workbench/desk/task-done.json`, passes it to the
+hand's own `done` (every rule applies; a refused report is set aside with the
+reason, which the next offer carries), then writes the next task to
+`state/workbench/desk/task.json`. The agent reads one file and writes one.
 
 ```
-                  shell job: bin/build-ship (*/30)       shell job: bin/tasks-desk (*/15)
-                             │                                      │
-                             ▼                                      ▼
-                     hands/build desk                       hands/tasks desk
-   1. settle: read <name>-done.json, run the hand's own `done` (every rule applies);
+ shell job: bin/tasks-desk (*/15) ──► hands/tasks desk
+   1. settle: read task-done.json, run the hand's own `done` (every rule applies);
       a refused report is set aside with its reason; the outcome goes to hands/stimuli
-   2. offer: write the next job or task to <name>.json
-                             │                                      │
-                             ▼                                      ▼
-              state/workbench/desk/build.json        state/workbench/desk/task.json
-                             │                                      │
-   agent job: builder (10 */2)                      agent job: operator (*/20)
-   shell (Landlock: writes state/workbench/ only),  browser (public web minus deploy/browser-deny.txt),
-   file tools                                       file_read, file_write
-                             │                                      │
-                             ▼                                      ▼
-            state/workbench/desk/build-done.json   state/workbench/desk/task-done.json
-                             │                                      │
-                             └──── read by the next desk run ───────┘
-   builder only: hands/build ship ──► hands/gh create-repo, push (guard, owner rule,
-                                      workbench rule, secret scan, DRY_RUN)
+   2. offer: write the next task to task.json
+                             │
+                             ▼
+              state/workbench/desk/task.json
+                             │
+   agent job: operator (*/20): browser (public web minus deploy/browser-deny.txt),
+                               file_read, file_write
+                             │
+                             ▼
+              state/workbench/desk/task-done.json ──► read by the next desk run
 ```
 
 A desk is the simplest safe choice, and the one that works at this pin:
 
 - The operator has no shell, so a shell wrapper could not serve it.
-- The builder's shell runs sandboxed, and the sandbox jails its files, not
-  its network. In the spine's container (Docker defaults, no user
-  namespaces) TinyBox's only jail is Landlock: the shell can write
-  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`)
-  and read the system's own directories, and nothing else of the checkout,
-  so it can reach neither `hands/` nor `secrets/` (a shell that could run
-  `hands/build` could also run `hands/gh push`). **The shell has the host's
-  network.** Landlock enforces no network rule and claims no process
-  isolation, so TinySecurity plans onto it only because the builder asks for
-  files only (`sandbox_filesystem_only = true`, TinySecurity contract 2.2,
-  openhuman#8678). A kernel jail (bubblewrap) is still preferred where one
-  exists, and without any jail the shell refuses. The shell cannot be
-  rooted at the checkout: the checkout is the core's action dir and holds
-  `brain/`, the core workspace, and TinySecurity refuses any grant that
-  overlaps it (every call failed with `denial=Path` until openhuman#8674 let
-  a cron run carry its own root). OpenHuman resolves the root at each run
-  and refuses to start one over `brain/` or the keyring.
-- The file tools are ones both agents need anyway, scoped by OpenHuman's own
-  path policy to the workbench.
+- The file tools are ones it needs anyway, scoped by OpenHuman's own path
+  policy to the workbench.
 - The hand that acts on a report runs outside any model turn.
 - An MCP server wrapping the hands' read verbs would be the cleaner call.
   Gap G11 (a serve host dropping every configured MCP server's tools when
@@ -1359,15 +1327,6 @@ the core's config, replacing each table whole. `automation.py` owns `[cron]`
 (`allowed_domains` from `deploy/browser-allow.txt`) and `[modules]` (tinywallet, the
 linked module). `context.py` owns `[context]` and `secrets.py` owns
 `[secrets]`.
-
-**What the builder may not do.** It has no token (its shell cannot read
-`secrets/` and gets an allowlisted environment), and it publishes nothing.
-Its shell does have the host's network, but what it may build and push is
-decided outside it. `hands/build ship` runs from cron, outside any model
-turn, and pushes only the job's folder through `hands/gh`: the guard on the
-commit message and description, the owner rule, the workbench rule and the
-secret scan. A refused push is retried twice more, then the job fails and
-its request is marked `failed`.
 
 ## 7. Two walkthroughs
 
