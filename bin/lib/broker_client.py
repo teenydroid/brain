@@ -89,9 +89,10 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
                                notifications {max?}
                              writes (every word passes the guard; a refusal is final):
                                create-repo {name, description?, private?}   under teenydroid
-                               push {workdir, repo, branch, message, base?}  a folder of your home
-                                 (its plain files, never its .git) as the next commit of branch on
-                                 your own repo; a new branch starts from "base"
+                               push {workdir, repo, branch, message, base?, parent?}  a folder of
+                                 your home (its plain files, never its .git) as the next commit of
+                                 branch on your own repo; a new branch starts from "base"; "parent"
+                                 (the commit you cloned) refuses a branch that moved since
                                fork {repo}
                                open-pr {repo, head, base, title, body}
                                open-issue {repo, title, body}
