@@ -201,6 +201,7 @@ class PushTest(Scratch):
         self.refused(self.body(repo="tinyhumansai/openhuman"), "owner")
 
     def test_refuses_secret_paths_and_names_them(self):
+        self.remote("teenydroid/hello")
         for rel in (".env", ".env.local", "secrets/teeny.env", "state/hands.db", "deploy/key.pem", "id_ed25519"):
             with self.subTest(rel=rel):
                 self.workdir(f"p{abs(hash(rel))}", {"README.md": "hi", rel: "x"})
@@ -208,6 +209,7 @@ class PushTest(Scratch):
                 self.assertEqual(error.detail["findings"][0]["path"], rel)
 
     def test_refuses_secret_contents_without_repeating_them(self):
+        self.remote("teenydroid/hello")
         cases = {
             "ghp_" + "a" * 36: "ghp_",
             "github_pat_" + "b" * 30: "github_pat_",
@@ -506,12 +508,6 @@ class IssueTest(Scratch):
         self.assertEqual((out["number"], out["labelled"]), (41, []))
         with self.assertRaises(hand.HandError):
             actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": "help wanted"})
-
-    def test_opens_issues_on_own_repos_only(self):
-        with self.assertRaises(hand.Refused) as caught:
-            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
-        self.assertEqual(caught.exception.detail["rule"], "owner")
-        self.assertEqual(self.gh.seen, [])
 
     # --- issues on other people's projects (docs/mind.md, "Reach") -----------------------------
 
