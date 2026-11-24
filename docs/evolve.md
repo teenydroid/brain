@@ -1325,11 +1325,11 @@ text names the family and the code, not the numbers, which move every hour,
 so its standing follows its filings like a memory want's (filed once; a
 failed build reopens it up to `WANTS_MAX_TRIES`). Its brief is
 `evolve_route`'s, not the feature brief: the counts, the tries, the files and
-the check, starting `want: w:f:...`. The build hand treats a `w:f:` want as a
-fix, not a feature (`hands/lib/teeny_hands/build/jobs.py`, `FIX_REQUIRES`):
-the desk takes "ok" only when the change holds a test under `hands/tests/`
-and something that is not a test (`feature.fix_rubric`), and the pull
-request shows a **Fix rubric**. `bin/wants watch` scores it, once its
+the check, starting `want: w:f:...`. Until 2026-11-24 the build hand treated
+a `w:f:` want as a fix, not a feature (a test under `hands/tests/` and
+something that is not a test, and a **Fix rubric** on the pull request); since
+the builder was retired it reaches the mind's inbox like any other want.
+`bin/wants watch` scores it, once its
 `WANTS_USED_DAYS` after the merge are over, on the finding's own check (the
 count over those days against as many before, `evolve_outcomes.verdict`),
 recorded with `kind: finding` and one `self · outcome` stimulus. Memory wants
@@ -1343,7 +1343,7 @@ on 2026-11-19 for every source that was proposed:
 | Build-intent items on the memory page | m15, the chart renderer; m68 is a status note, m92 and m93 are promises to analyse | yes: the only real source |
 | Failed or abandoned build jobs | 5 failed: two dailies abandoned before the desk fixes, the canary (an infra `git push`), self jobs 3 and 13 (frozen) | no: they are failures of the lane, not things to build. `self-improve` already reads them (`builds`). They count as tries on a want |
 | Self jobs that failed on a frozen path | jobs 3 and 13; no `frozen` skip among the 14 skips | no: the only remedy is a frozen file, and a want made from one fails at ship the same way |
-| Pending stranger requests (`moltbook`, `x:mentions`) | #3 (already shipped as the daily `hedgediff`), #6 ("write an article", not a build) | no: they reach lane 2 already, as `request` jobs through `pick-request`. As `self` briefs they would put a stranger's words in front of a tooled agent working on Teeny's own repository |
+| Pending stranger requests (`moltbook`, `x:mentions`) | #3 (already shipped as the daily `hedgediff`), #6 ("write an article", not a build) | no: they reached lane 2 already, as `request` jobs through `pick-request` (since 2026-11-24, as notes in the mind's inbox). As `self` briefs they would put a stranger's words in front of a tooled agent working on Teeny's own repository |
 | Browser tasks | 39 rows; 31 of the 33 not-ok ones are `reddit_browse` hitting Reddit's network block; the notes are the operator agent's reading of web pages | no: external blocks, not a hand's job, and the notes carry page text |
 | Beats naming an intent with no hand | 1,479 beats in `state/tick/runs.jsonl`, no `no such intent` refusal | no: no signal |
 
@@ -1382,22 +1382,17 @@ tries goes first, then page order.
    hand (`hands/<name>` through `hand.run`, its package, tests that need no
    network, a `docs/hands.md` section) and a scheduled playbook that calls it,
    read-only public data only (no wallet, key, trade or account), and the
-   builder picks the name. It tells the builder the desk checks every part
-   and that a week after merge the code counts how often a scheduled playbook
-   ran the hand.
+   mind picks the name. It says that a week after merge the code counts how
+   often a scheduled playbook ran the hand.
 3. The brief goes through `hands/guard check` (surface `github`). A refusal
    or no answer is not filed: the run says it was held.
-4. `hands/build self` gets `{text, want}`. A refusal with rule
-   `one_at_a_time` is `waiting` and nothing is recorded; any other failure is
-   an error (exit 1); success appends `state/wants/filed.jsonl`.
+4. Since 2026-11-24 the want is written as a note for the mind,
+   `state/home/notes/inbox/want-<id>.md`, and is `handed` to the mind; a
+   failure is an error (exit 1); success appends `state/wants/filed.jsonl`.
+   Until then it went to `hands/build self` as a `self` build request for the
+   builder, picked by `pick-request`.
 
-`pick-request` still chooses: it is a judgement, not code. Its playbook now
-says that a `self` request whose text starts `want:` is something Teeny said
-it would build, and that for such a request only, reading public data such as
-a price chart is not touching tokens (trading, holding or moving them, or a
-wallet, still is). A request from anyone else keeps the old rule. It also
-picks twice a day now (`max_per_day = 2`), so a want filed after the morning
-pick does not wait for the next day.
+The mind chooses: it is a judgement, not code.
 
 **Scoring** (`bin/wants watch`). Once a want's pull request has merged and
 `WANTS_USED_DAYS` have passed, the code counts, for each hand named in the
