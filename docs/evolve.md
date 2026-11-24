@@ -31,7 +31,7 @@ The research behind it is in [`research/`](research/README.md), starting with
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), the money hands (`wallet`, `x402`, `vps`, and `surplus` with its tests, which sweeps spare SOL to the surplus wallet), and the existing `hands/lib/teeny_hands/**` listed in `evals/frozen.txt` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml` and `querier.toml`, the tool-less agents `bin/evolve` reviews each candidate and writes its research queries with |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `operator`, `evolver`), and `reviewer.toml` and `querier.toml`, the tool-less agents `bin/evolve` reviews each candidate and writes its research queries with |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
 | `brain/DRIVE.md` and `brain/CHARTER.md` (since 2026-11-22): the drive and the charter's short version, which ride in every prompt. Teeny rewords them in a pull request; the sentences anchored in `invariants.md` must stay, or `bin/doctor` refuses the brain | |
@@ -1807,8 +1807,7 @@ that copy in one of two sandboxes, tried in order:
 2. **the `sandbox` compose service** (`deploy/compose.yaml`,
    `bin/sandbox-runner`). `bin/evolve` runs inside the spine's container,
    where Docker's default seccomp profile (and the host's AppArmor) give it
-   no user namespaces, so bubblewrap cannot start there (the builder's shell
-   falls back to Landlock for the same reason, docs/architecture.md). The
+   no user namespaces, so bubblewrap cannot start there. The
    service is the same image with `network_mode: none`, a read-only root,
    `no-new-privileges`, a pid and memory limit, and nothing of the checkout
    mounted but `state/sandbox/` and the runner's two frozen files,
@@ -2457,7 +2456,7 @@ and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
   |---|---|
   | `brain/playbooks/<name>.md` | `bin/act <name>` |
   | the studio writer's instructions | `bin/studio` |
-  | a prompt file every draft reads (`brain/SOUL.md`, `IDENTITY.md`, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, `narrative/ARCS.md`, the act agent's files, `AGENTS.md`) | every job that reads that prompt (`reads_prompt`): `bin/act`, `bin/dream`, `bin/mail`, `bin/mentions`, `bin/studio`, `bin/tick` and the agent jobs (the builder, the operator) |
+  | a prompt file every draft reads (`brain/SOUL.md`, `IDENTITY.md`, `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, `narrative/ARCS.md`, the act agent's files, `AGENTS.md`) | every job that reads that prompt (`reads_prompt`): `bin/act`, `bin/dream`, `bin/mail`, `bin/mentions`, `bin/studio`, `bin/tick` and the agent jobs (the operator, the mind) |
   | anything else (code, a hand, a skill, the core), or no patch on record | every job |
 
   A prompt the core's guard refuses still counts (a playbook's wording can
@@ -2655,17 +2654,7 @@ gen-0).
   to them: what Teeny writes is the proposer's.
 - **Thawing anything.** `evals/frozen.txt` is unchanged: no frozen path and
   no existing hand was thawed. A want whose only remedy is a frozen file
-  fails at ship, and the feed gives it up at once. The builder's iteration
-  limit (`builder.toml`, 40) is untouched too, so a whole feature in one
-  run is tight; the desk's sent-back report gives it about three runs inside
-  the 6-hour claim.
-- **A code pick.** `pick-request` still chooses by judgement, so it may skip a
-  want that reads as touching tokens. A `skipped` request counts as a failed
-  try, and after `WANTS_MAX_TRIES` the want gives up (visible in `bin/wants
-  status`).
-- **A repair of request #3.** The `hedgediff` request stays `pending` after
-  the daily idea built it, because the idea path never marks the request;
-  `pick-request` lost 11-16 and 11-17 to it. Not touched.
+  fails at ship, and the feed gives it up at once.
 - **A real lab boot at scale.** No four labs have run at once on the box.
 - **Watching every merge.** evolve-watch watches the newest merged change;
   when two merge within 72 hours, the older one's watch ends early.
