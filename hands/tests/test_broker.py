@@ -970,6 +970,23 @@ class PulseTest(BrokerCase):
         ])
         self.assertNotIn("STRANGER", json.dumps(answer["audience"]))
 
+    def test_a_change_is_worked_out_from_the_raw_values_not_the_rounded_ones(self):
+        self.stores()
+        self.stats([("2026-09-07", "moltbook", "karma", 18.04, T0 - 7 * 86400),
+                    ("2026-09-13", "moltbook", "karma", 19.46, T0 - 86400),
+                    ("2026-09-14", "moltbook", "karma", 19.54, T0),
+                    ("2026-09-13", "x", "followers", 330, T0 - 86400),
+                    ("2026-09-14", "x", "followers", 334, T0)])
+        self.start()
+        _, answer = self.post("/pulse")
+        got = {a["metric"]: a for a in answer["audience"]}
+        karma = got["moltbook.karma"]
+        self.assertEqual((karma["value"], karma["day_before"], karma["change_1d"]), (19.5, 19.5, 0.1))
+        self.assertEqual((karma["week_before"], karma["change_7d"]), (18, 1.5))
+        followers = got["x.followers"]
+        self.assertEqual((followers["value"], followers["day_before"], followers["change_1d"]), (334, 330, 4))
+        self.assertIsInstance(followers["change_1d"], int)
+
     def test_the_client_reaches_it(self):
         self.stores()
         self.start()
