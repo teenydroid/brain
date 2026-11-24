@@ -218,7 +218,7 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # so a refusal counted in the hundreds never starves them. 0: no reserve.
     "EVOLVE_GROWTH_SLOTS": ("1", int, 0, 8),
     # A fix finding whose family has had this many prompt-level candidates
-    # that did not help goes to code: a builder want, or a public issue when
+    # that did not help goes to code: a want for the agentic mind, or a public issue when
     # the fix needs a frozen path (evolve_route). 0: never routed.
     "EVOLVE_ROUTE_AFTER": ("2", int, 0, 10),
     # Two: the pinned job runs after the night's dream and after midday's.
@@ -1056,7 +1056,7 @@ def finding_routes(entries: Mapping[str, Json], findings: list[Any], cfg: "Confi
 def route_findings(cfg: "Config", entries: Mapping[str, Json], findings: list[Any],
                    publisher: "Publisher | None") -> list[Json]:
     """File the one public issue of each routed family whose fix needs a
-    frozen path; a family for the builder waits for bin/wants. Under
+    frozen path; a family for the agentic mind waits for bin/wants. Under
     DRY_RUN it says what it would open."""
     out = []
     for route in finding_routes(entries, findings, cfg):
@@ -1152,8 +1152,8 @@ def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None
 
 
 def split_wants(learnings: list[Learning]) -> tuple[list[Learning], list[Learning]]:
-    """The learnings this loop picks, and those it leaves to the builder
-    (bin/wants): an item in a WANT_SECTION that says Teeny will build a
+    """The learnings this loop picks, and those it leaves to the agentic
+    mind (bin/wants): an item in a WANT_SECTION that says Teeny will build a
     thing (wants_rules.is_build_intent). 2026-11-19: m15, "the first thing i
     build myself is a chart renderer", was settled here as `already` on the
     memory page; a feature is a build, not a delta edit to a playbook."""

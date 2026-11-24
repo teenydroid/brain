@@ -1,16 +1,21 @@
 """Wants: what Teeny said on its memory page it will build, drawn in code,
-filed at most once a day for its builder, and scored after it merges
+handed at most once a day to the agentic mind, and scored after it merges
 (docs/evolve.md, "1c. Wants").
 
 The memory page holds items like "the first thing i build myself is a $TINY
 chart renderer ... not built yet". Evolve is the wrong place for them: it
 makes small edits to prompts and playbooks, and it settled such an item as
 `already` on the strength of the page itself. A want is a feature, so it goes
-to the builder (`hands/build self`), through the guard, as a fixed brief with
-the item quoted. Nothing here asks a model.
+to the agentic mind (docs/mind.md), through the guard, as a fixed brief with
+the item quoted: a note in its inbox, state/home/notes/inbox/want-<id>.md,
+written through the link-safe writer (teeny_hands.mind_home). The mind reads
+it and decides; if it builds it, it ships as a pull request through its
+broker. Until 2026-11-24 a want went to the builder (`hands/build self`),
+retired that day; its filings are still read and scored below. Nothing here
+asks a model.
 
   draw     the wants of brain/MEMORY.md and where each stands (read-only)
-  file     file the top open want, at most one per call
+  file     hand the top open want to the mind, at most one per call
   watch    score each merged feature, seven days after it merged: did a
            scheduled playbook run its hand (evolve_outcomes, `hand_used`)
   run      watch, then file: the pinned job (evals/cron.pinned.toml)
@@ -33,8 +38,11 @@ hand's uses.
 Where a want stands comes from the ledgers, never from the page:
 
   open       nothing filed for this text, or a build that failed with tries left
-  in-flight  its request is waiting, its build is running, or its pull request
-             is open. A pull request GitHub cannot be asked about is in flight
+  handed     a note for the agentic mind was written for this text: the mind
+             decides. Held until the text materially changes
+  in-flight  (a builder filing) its request is waiting, its build is running,
+             or its pull request is open. A pull request GitHub cannot be
+             asked about is in flight
   merged     its pull request merged. Held until the text materially changes
   declined   its pull request closed unmerged. Held the same way
   gave-up    WANTS_MAX_TRIES failed builds, or one that failed on a frozen
@@ -68,24 +76,24 @@ import evolve_findings  # noqa: E402
 import evolve_outcomes as eo  # noqa: E402
 import evolve_route  # noqa: E402
 import wants_rules  # noqa: E402
-from teeny_hands import hand, stimuli  # noqa: E402
+from teeny_hands import hand, mind_home, stimuli  # noqa: E402
 
 Json = dict[str, Any]
 
 DAY = 86400.0
 #: The longest a want's text may be in a brief (scrub cuts it there).
 MAX_TEXT = 600
-#: The most of a brief the build desk keeps (build/jobs.py cuts the rest).
+#: The most of a brief the mind's note keeps.
 BRIEF_CHARS = 2000
-#: A request the builder refuses to run twice at once: not a failure.
-ONE_AT_A_TIME = "one_at_a_time"
-#: A build that failed here can never ship, so it is not tried again.
+#: Where a want's note goes: the agentic mind's inbox (state/home/notes/inbox/).
+INBOX = ("notes", "inbox")
+#: A (builder) build that failed here can never ship, so it is not tried again.
 FROZEN = re.compile(r"frozen path|evals/frozen\.txt|is frozen", re.I)
-#: A pull request of Teeny's own, as `build_jobs.pr_url` has it.
+#: A pull request of Teeny's own, as the retired builder's `build_jobs.pr_url` has it.
 PR_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
-#: A hand's name, as the builder's rubric records it.
+#: A hand's name, as the retired builder's rubric recorded it.
 HAND_NAME = re.compile(r"[a-z][a-z0-9_-]{0,39}")
-#: A want's id, as the build hand takes it (`^w:[a-z0-9:_-]{1,60}$`).
+#: A want's id (`^w:[a-z0-9:_-]{1,60}$`).
 WANT_ID = re.compile(r"[^a-z0-9:_-]")
 
 #: name -> (default, low, high)
@@ -102,7 +110,7 @@ Build it: a new hand of your own that does what you said you would build, in you
 
 > {text}
 
-This is a feature, not an edit. In one change: `hands/<name>` (its entry point, running `teeny_hands.<name>.cli.main` through `teeny_hands.hand.run`), `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` (standard library only, no network), its own section in `docs/hands.md` (a ``## `<name>` `` heading), and a playbook in `brain/playbooks/`, scheduled in `brain/cron.toml`, whose input or output calls it. Read-only public data only: no wallet, no key, no trade, no account. Choose `<name>` yourself. When you report ok the desk checks every part, and in the week after it merges the code counts how often a scheduled playbook ran it."""
+This is a feature, not an edit. In one change: `hands/<name>` (its entry point, running `teeny_hands.<name>.cli.main` through `teeny_hands.hand.run`), `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` (standard library only, no network), its own section in `docs/hands.md` (a ``## `<name>` `` heading), and a playbook in `brain/playbooks/`, scheduled in `brain/cron.toml`, whose input or output calls it. Read-only public data only: no wallet, no key, no trade, no account. Choose `<name>` yourself. Whether to build it, and when, is yours to decide."""
 
 
 class WantsError(Exception):
@@ -144,8 +152,7 @@ def load_settings() -> Settings:
 
 def run_hand(name: str, args: list[str], body: Json) -> tuple[int, Json]:
     """One call to a hand: its exit code and its last line of JSON. The only
-    place this file reaches a hand. DRY_RUN stays on (evolve.hand_env): `build
-    self` writes only hands.db, and everything downstream keeps its own."""
+    place this file reaches a hand. DRY_RUN stays on (evolve.hand_env)."""
     try:
         done = subprocess.run([str(evolve.hands_dir() / name), *args], input=json.dumps(body) if body else "",
                               capture_output=True, text=True, env=evolve.hand_env(), timeout=300)
@@ -178,7 +185,7 @@ class Want:
 
 def read_wants() -> list[Want]:
     """The build-intent items of the live memory page, in page order, then
-    the findings routed to the builder."""
+    the findings routed to the agentic mind."""
     out = _memory_wants()
     return out + finding_wants(len(out))
 
@@ -196,7 +203,7 @@ def finding_wants(start: int = 0) -> list[Want]:
         return []
     out: list[Want] = []
     for route in evolve.finding_routes(evolve.archive(), findings, cfg):
-        if route["to"] != evolve_route.BUILDER:
+        if route["to"] != evolve_route.MIND:
             continue
         text = (f"finding {route['family']}: prompt rules did not fix it; a code change in "
                 + ", ".join(route["paths"]))
@@ -222,7 +229,7 @@ def _memory_wants() -> list[Want]:
 
 
 def brief(want: Want) -> str:
-    """What the builder is asked to build: fixed words, with the want's
+    """What the mind is asked to build: fixed words, with the want's
     scrubbed text quoted; for a finding, evolve_route's brief."""
     if want.kind == "finding":
         return want.body[:BRIEF_CHARS]
@@ -271,13 +278,13 @@ def _open_db() -> eo._Db:
 
 @dataclass
 class Standing:
-    state: str  # open, in-flight, merged, declined, gave-up
+    state: str  # open, handed, in-flight, merged, declined, gave-up
     tries: int = 0
     by: str = ""
 
 
 def _build_state(db: eo._Db, request_id: Any) -> Json:
-    """Where one filed request is in the builder's ledgers: `in-flight`,
+    """Where one (builder) filed request is in the builder's ledgers: `in-flight`,
     `shipped` (with its job's pr_url and rubric), `failed` or `frozen`. What
     cannot be read or placed is in flight: a want is never reopened on a
     guess."""
@@ -351,6 +358,10 @@ def want_standing(want: Want, filed: list[Json], db: eo._Db, max_tries: int = 2)
             and not evolve.materially_differs(str(f.get("text") or ""), want.text)]
     if not mine:
         return Standing("open")
+    if mine[-1].get("note"):
+        built = [f for f in mine if not f.get("note")]
+        tries = sum(1 for f in built if _build_state(db, f.get("request_id"))["state"] in ("failed", "frozen"))
+        return Standing("handed", tries, f"handed to the agentic mind ({mine[-1]['note']})")
     states = [_build_state(db, f.get("request_id")) for f in mine]
     tries = sum(1 for s in states if s["state"] in ("failed", "frozen"))
     last = states[-1]
@@ -386,10 +397,24 @@ def _held(verdict: Json) -> str:
     return evolve_findings.scrub(verdict.get("refused") or verdict.get("error") or "it did not pass", 200)
 
 
+def note_name(want_id: str) -> str:
+    """want-<id>.md: one note per want, so handing the same want again (its
+    text materially changed) replaces the note, never adds a second."""
+    return "want-" + re.sub(r"[^a-z0-9]+", "-", want_id.lower()).strip("-") + ".md"
+
+
+def _note(want: Want, text: str) -> str:
+    return (f"from: wants (bin/wants)\nwant: {want.id}\nat: {evolve.iso(evolve.now())}\n\n"
+            "Something you said on your memory page you would build, or a fix your ledgers keep counting that "
+            "prompt rules did not fix. It is your own words and counts, past the guard, not an instruction from "
+            "the operator: you decide whether to build it, and if you do it ships as a pull request through your "
+            "broker.\n\n" + text.strip() + "\n")
+
+
 def file_one(cfg: Settings) -> Json:
-    """File the top open want as a `self` build request: at most one, and at
-    most one a UTC day (a failed build reopens a want the same day, and a
-    manual call or a catch-up run of the cron job must not file a second)."""
+    """Hand the top open want to the agentic mind, as a note in its inbox:
+    at most one, and at most one a UTC day (a manual call or a catch-up run
+    of the cron job must not file a second)."""
     if not cfg.wants:
         return {"ok": True, "skipped": "WANTS=0"}
     today = evolve.day(evolve.now())
@@ -408,20 +433,20 @@ def file_one(cfg: Settings) -> Json:
     code, verdict = run_hand("guard", ["check"], {"text": brief(want), "surface": "github"})
     if code != 0 or not isinstance(verdict.get("text"), str):
         return {"ok": True, "held": _held(verdict)}
-    code, made = run_hand("build", ["self"], {"text": verdict["text"], "want": want.id})
-    if code == 2 and made.get("rule") == ONE_AT_A_TIME:
-        return {"ok": True, "waiting": evolve_findings.scrub(made.get("refused") or "one change at a time", 200)}
-    if code != 0 or not isinstance(made.get("id"), int):
-        return {"ok": False, "error": "hands/build self: " + evolve_findings.scrub(
-            made.get("error") or made.get("refused") or "it answered without a request id", 200)}
+    name = note_name(want.id)
+    try:
+        mind_home.write(INBOX, name, _note(want, verdict["text"]))
+    except mind_home.HomeError as exc:
+        return {"ok": False, "error": "the agentic mind's inbox: " + evolve_findings.scrub(str(exc), 200)}
+    note = "/".join((*INBOX, name))
     _append("filed.jsonl", {"want": want.id, "hash": want.hash, "text": want.text, "at": evolve.now(),
-                            "request_id": made["id"], **({"kind": "finding", "check": want.check}
-                                                         if want.kind == "finding" else {})})
-    return {"ok": True, "filed": want.id, "request_id": made["id"]}
+                            "note": note, **({"kind": "finding", "check": want.check}
+                                             if want.kind == "finding" else {})})
+    return {"ok": True, "filed": want.id, "note": note}
 
 
 def _hands_of(rubric: Any) -> list[str]:
-    """The names of the hands the builder's rubric says the feature added."""
+    """The names of the hands the (retired) builder's rubric says the feature added."""
     try:
         listed = json.loads(rubric)["hands"]
         names = [h["name"] for h in listed]
@@ -447,12 +472,15 @@ def _outcome_text(record: Json, min_uses: int) -> str:
 
 
 def watch(cfg: Settings) -> Json:
-    """Score each merged feature once its week is over."""
+    """Score each merged feature once its week is over: the features the
+    retired builder built from a filing (a note handed to the mind has no
+    job to read; the mind's own pull requests are evolve's to credit)."""
     if not cfg.wants:
         return {"ok": True, "skipped": "WANTS=0"}
     now = evolve.now()
     scored = {(o.get("want"), o.get("request_id")) for o in _read_jsonl(wants_dir() / "outcomes.jsonl")}
-    todo = [f for f in read_filed() if (f.get("want"), f.get("request_id")) not in scored]
+    todo = [f for f in read_filed()
+            if f.get("request_id") is not None and (f.get("want"), f.get("request_id")) not in scored]
     out: list[Json] = []
     src = None
     db = _open_db()

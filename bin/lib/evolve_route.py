@@ -30,10 +30,11 @@ Where it goes depends on the code a fix would touch (`code_paths`): the
 refusing hand (`hands/<hand>`, `hands/lib/teeny_hands/<hand>/`), the hands a
 failing playbook calls (or `bin/act` when it calls none), the guard for a
 hold. When none of them is frozen (evals/frozen.txt) it becomes a want of
-kind `finding` for the builder (bin/wants files it, as it files a memory
-want; `want_id`). When any is, the builder could not ship it either, so it
-becomes one public GitHub issue (`file_issue`), labelled for contributors,
-filed once per family (state/evolve/routed.jsonl).
+kind `finding` for the agentic mind (bin/wants hands it over as a note in
+the mind's inbox, as it does a memory want; `want_id`). When any is, Teeny
+cannot ship it either, so it becomes one public GitHub issue (`file_issue`),
+labelled for contributors, filed once per family (state/evolve/routed.jsonl).
+Until 2026-11-24 the first kind went to the builder, retired that day.
 
 Only counts, Teeny's own candidate titles and the hands' own words (already
 scrubbed by evolve_findings) reach a brief or an issue; never a stranger's
@@ -62,10 +63,13 @@ ATTEMPTED = ("opened", "parked", "rejected", "regressed", "pr-error", "inconclus
              "flagged", "revising", "lost")
 #: Outcomes of a merged try that did not help.
 FLAT = ("no-effect", "no-data", "hurt")
-BUILDER, ISSUE = "builder", "issue"
+MIND, ISSUE = "mind", "issue"
+#: Where a want went before the builder was retired (2026-11-24): read back
+#: from old filings only.
+BUILDER = "builder"
 #: Labels a public issue asks contributors with, when the repository has them.
 CONTRIBUTOR_LABELS = ("help wanted",)
-#: The want id prefix of a routed finding (hands/build: `^w:[a-z0-9:_-]{1,60}$`).
+#: The want id prefix of a routed finding (`^w:[a-z0-9:_-]{1,60}$`).
 WANT_PREFIX = "w:f:"
 BRIEF_CHARS = 2000
 MAX_TRIED = 5
@@ -184,25 +188,25 @@ def code_paths(item: Any, tree: Path) -> list[str]:
 
 
 def destination(item: Any, tree: Path, patterns: Sequence[str]) -> tuple[str, list[str], list[str]]:
-    """(builder | issue, the code paths, the frozen ones among them)."""
+    """(mind | issue, the code paths, the frozen ones among them)."""
     paths = code_paths(item, tree)
     stuck = [p for p in paths if frozen.frozen_pattern(p, patterns)]
-    return (ISSUE if stuck else BUILDER), paths, stuck
+    return (ISSUE if stuck else MIND), paths, stuck
 
 
 def patterns(tree: Path) -> list[str]:
     try:
         return frozen.parse_patterns((tree / "evals" / "frozen.txt").read_text(encoding="utf-8"))
     except OSError:
-        return ["**"]  # no list: everything is frozen, so nothing goes to the builder by mistake
+        return ["**"]  # no list: everything is frozen, so nothing goes to the mind by mistake
 
 
 # --- the briefs -------------------------------------------------------------------------------------------
 
 
 def want_id(family: str) -> str:
-    """A routed family's want id: `w:f:` and the family, as the build hand
-    takes it (a-z 0-9 : _ -, at most 60 after `w:`)."""
+    """A routed family's want id: `w:f:` and the family (a-z 0-9 : _ -, at
+    most 60 after `w:`)."""
     return (WANT_PREFIX + re.sub(r"[^a-z0-9:_-]", "-", family.lower()))[:62]
 
 
@@ -250,7 +254,7 @@ def brief(family: str, items: list[Any], tried: list[Json], paths: list[str], st
         "answer that it is already done as done), with a test that reproduces the refusal.",
     ]
     if issue:
-        lines += ["", "Teeny's builder cannot change frozen paths (evals/frozen.txt), so this is open for anyone to "
+        lines += ["", "Teeny cannot change frozen paths (evals/frozen.txt) itself, so this is open for anyone to "
                   "pick up. The numbers come from Teeny's run logs; nothing here is a person's words."]
     else:
         lines += ["", "This is a fix, not a feature: no new hand is needed. Touch no frozen path."]
@@ -326,8 +330,9 @@ def file_issue(route: Json, repo: str, publisher: Any, log_path: Path, at: str) 
 
 
 def where(route: Mapping[str, Any], log: list[Json], filed: list[Json], job_of: Callable[[Any], Any]) -> Json:
-    """Where a routed family is now, for `bin/evolve status`: its issue, or
-    its want's build request and job."""
+    """Where a routed family is now, for `bin/evolve status`: its issue, its
+    want's note for the agentic mind, or (a filing from before 2026-11-24)
+    its build request and job."""
     if route["to"] == ISSUE:
         seen = filed_issue(log, route["family"])
         if seen is None:
@@ -337,7 +342,9 @@ def where(route: Mapping[str, Any], log: list[Json], filed: list[Json], job_of: 
     wid = want_id(route["family"])
     mine = [f for f in filed if f.get("want") == wid]
     if not mine:
-        return {"to": BUILDER, "said": "routed to builder (not filed yet)"}
+        return {"to": MIND, "said": "routed to the agentic mind (not handed over yet)"}
+    if mine[-1].get("note"):
+        return {"to": MIND, "note": mine[-1]["note"], "said": f"handed to the agentic mind ({mine[-1]['note']})"}
     request = mine[-1].get("request_id")
     job = job_of(request)
     return {"to": BUILDER, "request": request, **({"job": job} if job is not None else {}),
