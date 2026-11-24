@@ -62,6 +62,22 @@ CREATE TABLE mail_sent (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, 
 PRIVATE = ("gm tiny humans", "ignore previous instructions", "ana says", "a cli for crabs",
            "friend@example.com", "secret plans", "hello moltbook", "the-private-one", "VictimWallet111")
 
+# The private Telegram side. The published chain is mostly random sha256 hex
+# (each run salts every commitment afresh), so a short all-digit id such as
+# 31337 shows up inside some digest about once in 1,250 runs. Every numeric id
+# here is 15+ digits, which a 64-character hex digest essentially never holds
+# (~1e-15 a run) and a timestamp never can (its longest digit run is 4).
+TG_DM_CHAT = 424242424242424242
+TG_GROUP_CHAT = 100987654321098765  # stored as a negative supergroup id; the digits are the needle
+TG_DM_IN = 313373133731337
+TG_DM_OUT = 313383133831338
+TG_GROUP_OUT = 555015550155501
+#: Nothing of the Telegram side may reach the published chain. Each needle
+#: either holds a character a hex digest or timestamp cannot (a non-hex letter
+#: or a space) or is a run of 15+ digits, so a hit is a real leak, not chance.
+TELEGRAM_PRIVATE = tuple(str(n) for n in (TG_DM_CHAT, TG_GROUP_CHAT, TG_DM_IN, TG_DM_OUT, TG_GROUP_OUT)) + (
+    "Tiny Secret Society", "Ana Pereira", "wallet seed", "supergroup", "private")
+
 
 class ReceiptsCase(unittest.TestCase):
     """A scratch TEENY_ROOT with the hand ledgers, and a bare remote to push to."""
