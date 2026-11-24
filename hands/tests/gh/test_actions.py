@@ -84,20 +84,100 @@ class PushTest(Scratch):
             if path.is_file():
                 self.assertNotIn(TOKEN.encode(), path.read_bytes(), path)
 
-    def test_never_forces(self):
+    def test_never_forces_a_push_builds_on_what_the_branch_already_has(self):
         self.me()
         self.workdir()
         remote = self.remote("teenydroid/hello")
         actions.push(self.body())
-        # Somebody else moved the remote on; an unrelated local history cannot overwrite it.
+        # Somebody else moved the remote on: the next push is a commit on top
+        # of theirs, never a rewrite of it.
         other = self.workdir("other", {"x.txt": "x"})
         git("init", "-q", "-b", "main", str(other))
         git("-C", str(other), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q",
                         "--allow-empty", "-m", "theirs")
         git("-C", str(other), "push", "-q", "-f", str(remote), "main")
         (self.root / "state/workbench/hello/new.txt").write_text("new")
-        with self.assertRaises(hand.HandError):
-            actions.push(self.body(message="second"))
+        out = actions.push(self.body(message="second"))
+        self.assertEqual(git("-C", str(remote), "log", "--format=%s", "main").split(), ["second", "theirs"])
+        self.assertEqual(out["onto"], "main")
+        # The folder is left as it was: no git of the hand's is left in it.
+        self.assertFalse((self.root / "state/workbench/hello/.git").exists())
+
+    def seed(self, repo: str, files: dict[str, str], branch: str = "main") -> str:
+        """REPO's BRANCH on its bare remote holding FILES; its head."""
+        remote = self.root / "remotes" / f"{repo}.git"
+        if not remote.exists():
+            self.remote(repo)
+        src = self.root / "seed" / repo / branch
+        src.mkdir(parents=True)
+        git("init", "-q", "-b", branch, str(src))
+        for rel, text in files.items():
+            (src / rel).parent.mkdir(parents=True, exist_ok=True)
+            (src / rel).write_text(text)
+        git("-C", str(src), "add", "-A")
+        git("-C", str(src), "-c", "user.name=up", "-c", "user.email=up@x", "commit", "-q", "-m", "upstream")
+        git("-C", str(src), "push", "-q", str(remote), f"HEAD:refs/heads/{branch}")
+        return git("-C", str(src), "rev-parse", "HEAD").strip()
+
+    def test_a_new_branch_starts_from_base_and_only_its_change_is_scanned(self):
+        """A fork's branch for a pull request: the folder is the project's
+        tree with a change, and what the project already has (an
+        .env.example, say) is not this push's to vouch for."""
+        self.me()
+        upstream = {"README.md": "# lib\n", ".env.example": "KEY=\n", "src/a.py": "a = 1\n", "old.txt": "gone\n"}
+        head = self.seed("teenydroid/lib", upstream)
+        self.workdir("lib", {**{k: v for k, v in upstream.items() if k != "old.txt"}, "src/a.py": "a = 2\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix-a",
+                                     base="main", message="fix a"))
+        self.assertEqual((out["pushed"], out["branch"], out["onto"]), ("teenydroid/lib", "fix-a", "main"))
+        remote = str(self.root / "remotes/teenydroid/lib.git")
+        self.assertEqual(git("--git-dir", remote, "rev-parse", "fix-a~1").strip(), head)
+        changed = git("--git-dir", remote, "diff", "--name-status", "main", "fix-a").split("\n")
+        self.assertEqual(sorted(line for line in changed if line), ["D\told.txt", "M\tsrc/a.py"])
+        self.assertEqual(git("--git-dir", remote, "rev-parse", "main").strip(), head)
+
+    def test_a_secret_added_on_top_of_base_is_refused(self):
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib\n", ".env": "X=1\n"})
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix",
+                                       base="main"), "secrets")
+        self.assertEqual(error.detail["findings"], [{"path": ".env", "rule": "an env file"}])
+
+    def test_a_push_that_changes_nothing_is_refused(self):
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# lib\n"})
+        self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main"), "empty")
+
+    def test_a_base_the_repository_lacks_is_refused(self):
+        self.me()
+        self.seed("teenydroid/lib", {"README.md": "# lib\n"})
+        self.workdir("lib", {"README.md": "# changed\n"})
+        error = self.refused(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix",
+                                       base="develop"), "base")
+        self.assertIn("develop", error.reason)
+
+    def test_a_folders_own_git_history_is_never_published(self):
+        self.me()
+        remote = self.remote("teenydroid/hello")
+        path = self.workdir()
+        git("init", "-q", "-b", "main", str(path))
+        git("-C", str(path), "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty",
+            "-m", "the folder's own")
+        actions.push(self.body())
+        self.assertEqual(git("--git-dir", str(remote), "log", "--format=%s", "main").split("\n")[:1], ["first commit"])
+        self.assertEqual(git("--git-dir", str(remote), "rev-list", "--count", "main").strip(), "1")
+
+    def test_a_rehearsal_with_a_base_reads_it_and_pushes_nothing(self):
+        head = self.seed("teenydroid/lib", {"README.md": "# lib\n", ".env.example": "KEY=\n"})
+        self.configure(DRY_RUN="1")
+        path = self.workdir("lib", {"README.md": "# better\n", ".env.example": "KEY=\n"})
+        out = actions.push(self.body(workdir="state/workbench/lib", repo="teenydroid/lib", branch="fix", base="main"))
+        self.assertEqual((out["dry_run"], out["would_push"], out["onto"], out["parent"], out["changed"]),
+                         (True, "teenydroid/lib", "main", head, 1))
+        self.assertNotIn("fix", git("--git-dir", str(self.root / "remotes/teenydroid/lib.git"), "branch"))
+        self.assertFalse((path / ".git").exists())
+        self.assertEqual(self.gh.seen, [])
 
     def test_dry_run_scans_but_commits_nothing(self):
         self.configure(DRY_RUN="1")
