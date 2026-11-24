@@ -755,8 +755,9 @@ def fetch(body: Json, entry: Json) -> Json:
 
 def pulse(body: Json, entry: Json) -> Json:
     """What the scripts did lately (bin/lib/pulse.py): every job's last run
-    and failures, and what became of what they made. Read-only, no cap: it
-    reads two local stores and sends nothing."""
+    and failures, what became of what they made, and the audience numbers
+    hands/stats recorded. Read-only, no cap: it reads two local stores and
+    sends nothing."""
     entry["verb"] = "pulse"
     try:
         days = pulse_lib.days_of(body.get("days"))

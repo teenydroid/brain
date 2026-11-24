@@ -6,8 +6,10 @@ answer, dream, build and evolve, each a fixed pipeline around a one-shot
 model call. They are cheap, and they are Teeny's subconscious. The mind is
 jailed to its home and cannot read their ledgers, so the broker hands it
 this instead (`teeny pulse`): every job with its last run and how often it
-failed, and what became of what the scripts made, which is the same reading
-bin/evolve proposes from (bin/lib/evolve_evidence.py).
+failed, what became of what the scripts made, which is the same reading
+bin/evolve proposes from (bin/lib/evolve_evidence.py), and the audience
+numbers hands/stats records each day, with where each stood a day and a
+week before.
 
 Read-only. Only Teeny's own words are quoted; other people's are counted.
 """
@@ -28,6 +30,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.stats import board  # noqa: E402
 
 import evolve_evidence  # noqa: E402
 
@@ -37,6 +40,9 @@ Json = dict[str, Any]
 MIN_DAYS, MAX_DAYS, DEFAULT_DAYS = 1, 7, 1
 #: The mind's own wakes are its own doing, not the scripts'.
 MIND_JOB, MIND_WAKES = "teeny.mind", ("mind.", "teeny.mind.")
+#: The audience numbers: the stats board's own, and GitHub's.
+AUDIENCE = (*board.AUDIENCE, ("github", "followers"), ("github", "stars"))
+NO_AUDIENCE = "no audience number recorded yet: the pinned stats-snapshot job (hands/stats snapshot) has not written one"
 
 JOBS_SQL = """
 with jobs as materialized (
@@ -172,6 +178,64 @@ def _act_failures(since: float) -> Json:
     return out
 
 
+def _num(value: float) -> int | float:
+    value = round(float(value), 1)
+    return int(value) if value.is_integer() else value
+
+
+def _value(row: Any) -> float | None:
+    """A stats value as a raw number, or None when the row holds something
+    else. Rounded only when shown, so a change is worked out from the raw
+    values."""
+    if row is None or isinstance(row[0], bool) or not isinstance(row[0], (int, float)):
+        return None
+    return float(row[0])
+
+
+def audience() -> list[Json]:
+    """Each AUDIENCE number's latest `stats` value, when it was read, and
+    where it stood about a day and a week before that reading (null when no
+    snapshot is that old), as the stats board reads it (stats/board.py,
+    `audience`). Only the fixed metrics are listed and only numbers are
+    given: a latest row that is not a number leaves its metric out, an older
+    one only its comparison. [] when there is none."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return []
+    out: list[Json] = []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stats'").fetchone():
+            return []
+        for source, metric in AUDIENCE:
+            latest = conn.execute("SELECT value, date, at FROM stats WHERE source = ? AND metric = ?"
+                                  " ORDER BY date DESC LIMIT 1", (source, metric)).fetchone()
+            value = _value(latest)
+            if value is None:
+                continue
+            row: Json = {"metric": f"{source}.{metric}", "value": _num(value),
+                         "read_at": _iso(latest[2] * 1000) if isinstance(latest[2], (int, float)) else None}
+            try:
+                day = dt.datetime.strptime(str(latest[1]), "%Y-%m-%d")
+            except ValueError:
+                day = None
+            for was, change, back in (("day_before", "change_1d", 1), ("week_before", "change_7d", 7)):
+                before = None if day is None else _value(conn.execute(
+                    "SELECT value FROM stats WHERE source = ? AND metric = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+                    (source, metric, (day - dt.timedelta(days=back)).strftime("%Y-%m-%d"))).fetchone())
+                row[was] = None if before is None else _num(before)
+                row[change] = None if before is None else _num(value - before)
+            out.append(row)
+    except sqlite3.Error:
+        return out
+    finally:
+        conn.close()
+    return out
+
+
 def days_of(value: Any) -> int:
     if value is None:
         return DEFAULT_DAYS
@@ -195,4 +259,7 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
         out["jobs_unreadable"] = "the core's cron store could not be read"
     else:
         out["jobs"] = listed
+    out["audience"] = audience()
+    if not out["audience"]:
+        out["audience_unread"] = NO_AUDIENCE
     return out

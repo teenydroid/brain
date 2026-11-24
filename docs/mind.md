@@ -56,6 +56,16 @@ broker gives it one read-only view of them, `bin/teeny pulse`
   builds, failing jobs with whose they are to fix, and what Teeny heard
   from outside. Only Teeny's own words are quoted; other people's are
   counted, and the titles it heard are marked as data.
+- **`audience`**: the numbers `hands/stats` records each day (the pinned
+  `stats-snapshot` job): X followers, Moltbook followers and karma, Reddit
+  karma, GitHub followers and stars. Each has its latest value and when it
+  was read (`read_at`), and where it stood about a day and a week before
+  that reading (`day_before`, `week_before`) with the change
+  (`change_1d`, `change_7d`), null when no snapshot is that old, whatever
+  the pulse's window. It is read the way the stats board reads it
+  (`hands/lib/teeny_hands/stats/board.py`), numbers only: an older row that
+  is not a number nulls only its own comparison. With nothing recorded yet
+  it is an empty list and `audience_unread` says why.
 
 The window is one day unless the mind asks for up to seven. The call reads
 two local stores, reaches no hand, spends no cap, and leaves one ledger
@@ -318,6 +328,13 @@ So now:
   only when its own turns write there (`AGENT_SKILLS` in `bin/lib/prompts.py`:
   the tick carries `moltbook`). The Moltbook rules used to sit in
   `CONTEXT.md`, in every script turn's prompt.
+- How Teeny answers on X lives in one page, `brain/playbooks/mentions.md`.
+  The tick reads its body every beat that holds an X mention
+  (`reply_guidance` in `bin/lib/tick.py`), so an edit merged there steers the
+  live replies at the next beat. Until 2026-11-23 only the core's queue
+  (`TEENY_INBOX=core`, not the default) read it, and an edit aimed at reply
+  rates (#529) reached nothing. Which mentions a beat sees, and every cap and
+  guard, stay in code.
 
 ## Eyes
 
