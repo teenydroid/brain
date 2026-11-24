@@ -270,6 +270,53 @@ class ReserveTest(Scratch, Refusing):
         # An answer on Teeny's own post still goes.
         actions.comment({"post_id": OWN, "parent_id": C1, "body": "an answer"})
 
+    def fill_backlog(self, n: int, said_at: float) -> None:
+        conn = rules.db()
+        for i in range(n):
+            owed.track(conn, f"backlog-{i}", OWN, None, f"agent{i}", 1, said_at)
+        conn.commit()
+
+    def spend(self, n: int) -> None:
+        conn = rules.db()
+        conn.execute("DELETE FROM moltbook_comments")
+        for i in range(n):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'elsewhere', ?, 'posted')",
+                         (f"spent{i}", T0 - HOUR - i * MINUTE))
+        conn.commit()
+
+    def test_a_backlog_larger_than_the_cap_holds_back_only_half_of_it(self):
+        # Live, 2026-11-24: 114 waiting against a cap of 50 refused every
+        # other comment at every count, all day. The reserve is at most half
+        # the cap: with 20 of 50 spent, 30 left, a comment elsewhere goes.
+        self.fill_backlog(60, T0 - HOUR)
+        self.spend(20)
+        actions.comment({"post_id": THEIRS, "body": "a thought"})
+        # With 25 spent, the last 25 are the reserve and are kept.
+        self.spend(25)
+        self.at(T0 + MINUTE)
+        err = self.refused(actions.comment, {"post_id": "a1b2c3d4-0000-4000-8000-000000000001", "body": "another"},
+                           "own_thread_reserve")
+        self.assertEqual((err.detail["waiting"], err.detail["reserve"], err.detail["left"]), (62, 25, 25))
+        self.assertIn("25 of 50", str(err))
+        self.assertIn("62", str(err))
+
+    def test_fresh_answers_still_keep_the_last_slots(self):
+        # 48 of 50 spent and 2 fresh comments wait: the last two are theirs.
+        self.spend(48)
+        err = self.refused(actions.comment, {"post_id": THEIRS, "body": "a thought"}, "own_thread_reserve")
+        self.assertEqual((err.detail["waiting"], err.detail["reserve"], err.detail["left"]), (2, 2, 2))
+        actions.comment({"post_id": OWN, "parent_id": C1, "body": "an answer"})
+
+    def test_a_waiting_comment_older_than_the_comment_age_limit_holds_nothing_back(self):
+        # Waiting 7 hours (MOLTBOOK_MAX_COMMENT_AGE_HOURS is 6): still owed,
+        # still offered again, but it no longer keeps a slot from the rest.
+        conn = rules.db()
+        conn.execute("UPDATE moltbook_owed SET said_at = ?", (T0 - 7 * HOUR,))
+        conn.commit()
+        self.fill_backlog(40, T0 - 7 * HOUR)
+        self.spend(48)
+        actions.comment({"post_id": THEIRS, "body": "a thought"})
+
     def test_no_reserve_when_nothing_waits(self):
         conn = rules.db()
         conn.execute("UPDATE moltbook_owed SET status = 'answered'")

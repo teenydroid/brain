@@ -25,7 +25,8 @@ offered once: when the mind put the answer off to a later beat, or the guard
 held its draft during a judge outage, it was never seen again, and 31 of 58
 went unanswered.
 
-While any wait, they keep a reserve of the day's comment allowance
+While any said within MOLTBOOK_MAX_COMMENT_AGE_HOURS wait, they keep a
+reserve of the day's comment allowance, at most half the cap
 (rules.check_comment, `own_thread_reserve`).
 """
 
