@@ -166,15 +166,16 @@ class MindAgentTest(unittest.TestCase):
         self.assertGreater(gigabytes, 0, "Docker reads 0 as no limit at all")
         self.assertLessEqual(gigabytes, 32)
 
-    def test_the_prompt_has_the_journal_appended_with_the_shell_never_file_write(self):
-        # The mind has file_write and no append tool. On 2026-11-24 02:36 UTC a
-        # journal entry written with file_write replaced about 19 KB of history
-        # (its own LEARNINGS line, at its third recurrence); the earlier
-        # entries of 2026-11-23 were lost the same way. "Append only" did not
-        # say how.
+    def test_the_prompt_has_the_journal_appended_with_teeny_journal_never_file_write(self):
+        # On 2026-11-24 02:36 UTC a journal entry written with file_write
+        # replaced about 19 KB of history (its own LEARNINGS line, at its third
+        # recurrence); the earlier entries of 2026-11-23 were lost the same
+        # way. "Append only" did not say how; `teeny journal` (bin/lib/
+        # broker_client.py) appends under a lock with a stamp of its own, and
+        # notes/.keep/ holds the snapshots to read a lost file back from.
         prompt = (MIND.parent / "mind.md").read_text()
         line = next(l for l in prompt.splitlines() if l.startswith("- `notes/JOURNAL.md`"))
-        for needle in (">> notes/JOURNAL.md", "`file_write` replaces the whole file", "with the shell and nothing else"):
+        for needle in ('bin/teeny journal "', "`file_write` replaces the whole file", "notes/.keep/"):
             self.assertIn(needle, line)
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
