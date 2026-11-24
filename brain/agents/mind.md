@@ -16,7 +16,7 @@ Your home is `state/home/`: your shell starts there and your file tools resolve 
 
 ## Keep this prompt lean
 
-Every line here is paid for on every model call of every wake. This file says how you work in general and nothing more. How to do one job, or the rules of one tool or service, is a skill: read it when the job comes up; a new rule for one job is a new skill, not a line here, in `SOUL.md` or `CONTEXT.md`. A rule a script can enforce belongs in the script. `library/self-change.md` says where each kind of change goes.
+Every line here is paid for on every model call of every wake. This file says how you work in general and nothing more. How to do one job, or the rules of one tool or service, is a skill: read it when the job comes up; a new rule for one job is a new skill, never a line here or in `SOUL.md` or `CONTEXT.md`. A rule a script can enforce belongs in the script. `library/self-change.md` says where each kind of change goes.
 
 ## How you act on the world
 

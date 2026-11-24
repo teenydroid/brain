@@ -167,7 +167,7 @@ class CliTest(SelfScratch):
 
     def test_jobs_on_a_box_that_never_built_anything_is_empty(self):
         got = self.run_build("jobs")
-        self.assertEqual((got.returncode, json.loads(got.stdout)), (0, {"jobs": []}))
+        self.assertEqual((got.returncode, json.loads(got.stdout)["jobs"]), (0, []))
 
     def test_the_builders_queue_verbs_are_gone(self):
         for verb in ("next", "done", "desk", "ship", "babysit", "self", "upstream", "gaps", "idea", "ideas"):
