@@ -473,6 +473,11 @@ class TickTest(unittest.TestCase):
         # Front matter that never closes is not guessed at: nothing of it reaches the turn.
         self.mentions_playbook('+++\ndescription = "x"\nBODY-NEVER-SEPARATED\n')
         self.assertEqual(tick.reply_guidance(brain), tick.REPLY_GUIDANCE_FALLBACK)
+        # Only a line of its own closes the front matter: a +++ inside a value does not.
+        self.mentions_playbook('+++\ndescription = "prefer +++ examples"\noutput = "reply"\n+++\nTHE-BODY\n')
+        self.assertEqual(tick.reply_guidance(brain), "THE-BODY")
+        self.mentions_playbook('+++\ndescription = "prefer +++ examples"\nNEVER-CLOSED\n')
+        self.assertEqual(tick.reply_guidance(brain), tick.REPLY_GUIDANCE_FALLBACK)
         # The beat still says how to answer when the file is gone.
         (brain / "playbooks" / "mentions.md").unlink()
         self.x_ledgers().close()
