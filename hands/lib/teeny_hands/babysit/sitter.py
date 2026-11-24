@@ -13,8 +13,15 @@ carries out what it reports, in two steps of each sweep:
            `actions.merge` still do the merging, and CI still has to pass
 
   state/sitter/home/       the agent's folder, all it can write: `brief.json`,
-                           `diff.patch`, `logs/`, `repo/`, and `report.json`,
-                           which it writes. Everything in it is hostile input
+                           which names the job's own `diff-<job>.patch`,
+                           `logs-<job>/`, `repo-<job>/` and
+                           `report-<job>.json`, the one it writes. Everything
+                           in it is hostile input. Each job has its own names,
+                           so what a late run of an older one still writes (the
+                           core may try a run again long after the job lapsed)
+                           is read for no other. All at the top of the folder:
+                           the folder itself is outside the jail, and no name
+                           below it can be swapped for a link on the way
   state/sitter/job.json    what is laid out, outside its jail: what a report
                            is checked against
   state/sitter/decisions.jsonl  what it decided and its words for it. Never
@@ -27,15 +34,19 @@ replies?}`. `decision` is
   merge  nothing to change: merge this head once the rules allow
   close  comment the reason and close it, unmerged
   wait   leave it as it is for WAIT_AGAIN, or until something about it changes
+  retry  a red check that is not this change's doing: its failed jobs run
+         again (an empty commit when the token may not)
 
 and a reply `{thread_id, outcome: fixed|declined, body}` names a thread of
 the brief; it goes out through the guard and the thread is resolved, a
 `fixed` one only after a push, a `declined` one not when a trusted person
-opened it: that objection is theirs to withdraw. A report that does not
+spoke in it: that objection is theirs to withdraw. A thread someone has added
+to since the brief is left open for the next one. A report that does not
 read, a push that is refused and a run that leaves no report each count as
 one try; MAX_TRIES at one head, or MAX_FIXES pushed without getting there,
 and the pull request is left to the operator, with one comment. Nothing is
-laid out or carried out under DRY_RUN.
+laid out or carried out under DRY_RUN. Nothing the agent writes may stop the
+sweep: whatever else goes wrong with its job counts as a try too.
 """
 
 from __future__ import annotations
@@ -46,6 +57,7 @@ import os
 import re
 import shutil
 import stat
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -58,7 +70,9 @@ from .api import PullsApi
 
 Json = dict[str, Any]
 
-#: Fixes pushed to one pull request before it is left to the operator.
+#: Fixes pushed on top of one another, before it is left to the operator. A
+#: commit somebody else pushes starts the count over; main merged in with no
+#: change of the agent's is not one.
 MAX_FIXES = 5
 #: Tries at one head that came to nothing before it is.
 MAX_TRIES = 3
@@ -66,8 +80,14 @@ MAX_TRIES = 3
 LAPSE_SECS = 45 * 60
 #: How long a `wait` stands while nothing about the pull request changes.
 WAIT_AGAIN_SECS = 6 * 3600
-DECISIONS = ("merge", "fix", "close", "wait")
+DECISIONS = ("merge", "fix", "close", "wait", "retry")
 OUTCOMES = ("fixed", "declined")
+#: Times the failed jobs of one head are run again.
+MAX_RETRIES = 2
+#: How long after that the red checks of before may still show.
+RETRY_SETTLES_SECS = 15 * 60
+#: A report this fresh may still be being written.
+SETTLE_SECS = 10
 MAX_REPORT_BYTES = 64 * 1024
 MAX_DIFF_CHARS = 200_000
 MAX_LOGS = 4
@@ -117,10 +137,14 @@ def _save(value: Json) -> None:
 
 
 def _drop() -> None:
-    """No job: the agent finds an empty desk."""
+    """No job: the agent finds an empty desk. The rest of its folder goes when
+    the next one is laid out."""
     _job_path().unlink(missing_ok=True)
-    for name in ("brief.json", "report.json"):
-        _remove(home() / name)
+    _remove(home() / "brief.json")
+
+
+def _report_path(now: Json) -> Path:
+    return home() / f"report-{now['job']}.json"
 
 
 def _remove(path: Path) -> None:
@@ -155,40 +179,38 @@ def _movable(path: Path) -> None:
 
 
 def _scratch() -> Path:
-    path = hand.state_dir() / sitterclone.PLACE.scratch
+    path = hand.state_dir() / sitterclone.SCRATCH
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
 
 def _put(name: str, text: str | dict[str, str]) -> None:
-    """A file in the agent's folder (a folder of files for a dict), made
-    outside it and renamed in."""
+    """A file at the top of the agent's folder (a folder of files for a
+    dict), made outside it and renamed in."""
     tmp = _scratch() / f"fresh-{os.urandom(6).hex()}"
     if isinstance(text, str):
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_text(text, encoding="utf-8", errors="backslashreplace")
     else:
         tmp.mkdir()
         for leaf, body in text.items():
-            (tmp / leaf).write_text(body, encoding="utf-8")
+            (tmp / leaf).write_text(body, encoding="utf-8", errors="backslashreplace")
     home().mkdir(parents=True, exist_ok=True)
     _remove(home() / name)
     os.replace(tmp, home() / name)
 
 
 def _clear_home() -> None:
-    """The agent's folder emptied, but for the checkout (prepare replaces it)."""
+    """The agent's folder emptied: every older job's things."""
     home().mkdir(parents=True, exist_ok=True)
-    _movable(home() / "repo")
     for entry in sorted(home().iterdir()):
-        if entry.name != "repo":
-            _remove(entry)
+        _remove(entry)
 
 
 def _wrote(now: Json, decision: str, words: str) -> None:
     """The agent's words for what it decided, kept beside the job."""
     row = {"at": hand.now(), "number": now["number"], "head_sha": now["head_sha"], "decision": decision, "reason": words}
     folder().mkdir(mode=0o700, parents=True, exist_ok=True)
-    with open(folder() / "decisions.jsonl", "a", encoding="utf-8") as fh:
+    with open(folder() / "decisions.jsonl", "a", encoding="utf-8", errors="backslashreplace") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
@@ -223,6 +245,9 @@ def need(result: Json, rows: list[Json]) -> list[str]:
     head = result.get("head_sha")
     if any(r["verb"] == "sitter_left" and r["head_sha"] == head for r in rows):
         return []
+    if any(r["verb"] == "sitter_retry" and r["head_sha"] == head and r["at"] > hand.now() - RETRY_SETTLES_SECS
+           for r in rows):
+        return []
     why = sorted(bad)
     if "behind_base" in rules:
         why.append("behind_base")
@@ -240,8 +265,19 @@ def need(result: Json, rows: list[Json]) -> list[str]:
     return why
 
 
-def fixes(rows: Iterable[Json]) -> int:
-    return sum(1 for r in rows if r["verb"] == "sitter_push")
+def fixes(rows: Iterable[Json], head: Any) -> int:
+    """The agent's own pushes HEAD is made of, back to the newest commit it
+    did not push, main merged in and nothing else left out."""
+    onto = {r["head_sha"]: r["detail"] for r in rows if r["verb"] == "sitter_push"}
+    count = 0
+    while (push := onto.pop(head, None)) is not None:
+        count += 1 if push.get("files") or push.get("retry") else 0
+        head = push.get("onto")
+    return count
+
+
+def retries(rows: Iterable[Json], head: Any) -> int:
+    return sum(1 for r in rows if r["verb"] == "sitter_retry" and r["head_sha"] == head)
 
 
 def tries(rows: Iterable[Json], head: Any) -> int:
@@ -269,16 +305,16 @@ def queue(results: list[Json], api: PullsApi | None = None) -> Json | None:
             return {"busy": now["number"], "waiting": len(waiting)}
         errors = []
         for _, number, result, rows, why in waiting:
-            left = MAX_FIXES - fixes(rows)
+            left = MAX_FIXES - fixes(rows, result["head_sha"])
             if left <= 0 and set(why) - {"open_threads", "decision"}:
                 _leave(_stub(result), f"{MAX_FIXES} fixes have been pushed and it is still not right")
                 continue
             try:
                 return {**_lay(result, max(left, 0), why, api or PullsApi()), "waiting": len(waiting),
                         **({"errors": errors} if errors else {})}
-            except (hand.Refused, hand.HandError, OSError) as exc:
-                # This one could not be laid out now; it must not stop the others.
-                errors.append({"number": number, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001 - it could not be laid out now; it must not stop the others
+                _drop()
+                errors.append({"number": number, "error": f"{type(exc).__name__}: {exc}"[:300]})
     return {"errors": errors} if errors else None
 
 
@@ -289,7 +325,7 @@ def _stub(result: Json) -> Json:
 
 # --- the brief ----------------------------------------------------------------------------------
 
-_STAMP = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ", re.MULTILINE)
+_STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ", re.MULTILINE)
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _TELLS = re.compile(r"\b(?:FAIL(?:ED|URE)?|ERROR|Error|Traceback|AssertionError|not ok|panicked|SC\d{4})\b|##\[error\]")
 
@@ -318,7 +354,7 @@ def _red(api: PullsApi, owner: str, name: str, result: Json) -> list[Json]:
         if isinstance(ids.get(check), int) and n < MAX_LOGS + 1 and sum("log" in r for r in out) < MAX_LOGS:
             try:
                 log = _ANSI.sub("", _STAMP.sub("", api.gh.job_log(owner, name, ids[check])))
-                row["excerpt"], row["log"] = excerpt(log), f"logs/{n}.txt"
+                row["excerpt"], row["log"] = excerpt(log), f"{n}.txt"
                 row["text"] = log[-LOG_FILE_CHARS:]
             except hand.HandError:
                 row["log_unreadable"] = True
@@ -338,6 +374,14 @@ def _said(api: PullsApi, owner: str, name: str, number: int, tier: Any) -> list[
     return out[-MAX_SAID:]
 
 
+def _last_ignored(result: Json) -> list[str]:
+    """The new files .gitignore kept out of the push that made this head."""
+    for r in ledger.sitter_rows(result["repo"], result["number"]):
+        if r["verb"] == "sitter_push" and r["head_sha"] == result["head_sha"]:
+            return list(r["detail"].get("ignored") or [])
+    return []
+
+
 def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     owner, name, repo = policy.watched(result["repo"])
     number, head, branch = result["number"], result["head_sha"], str(result["branch"])
@@ -347,7 +391,8 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     # main moves all day, and each merge of it is another round of CI.
     mend = bool(set(why) - {"open_threads", "decision"}) and fixes_left > 0
     _clear_home()
-    prepared = sitterclone.prepare(branch, head, mend)
+    name_ = f"{number}-{os.urandom(4).hex()}"
+    prepared = sitterclone.prepare(name_, branch, head, mend)
     diff = prepared.pop("diff")
     red = _red(api, owner, name, result)
     files, _ = api.files(owner, name, number)
@@ -355,20 +400,24 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
         "number": number, "head_sha": head, "branch": branch, "why": why, "fixes_left": fixes_left,
         "title": result.get("title"), "base": result.get("base"),
         "findings": [f for f in result["findings"] if f["rule"] != "sitter_pending"],
-        "red_checks": [{k: v for k, v in r.items() if k != "text"} for r in red],
-        "main_merged_in": bool(prepared["main"]), "conflicts": prepared["conflicts"], "behind_main": prepared["behind"],
+        "repo": f"repo-{name_}", "report_to": f"report-{name_}.json",
+        "red_checks": [{**{k: v for k, v in r.items() if k != "text"},
+                        **({"log": f"logs-{name_}/{r['log']}"} if "log" in r else {})} for r in red],
+        "main_merged_in": bool(prepared["main"]), "conflicts": prepared["conflicts"],
+        "conflicts_without_markers": prepared["unmarked"], "behind_main": prepared["behind"],
+        "gitignored_last_push": _last_ignored(result),
         "threads": [{k: t[k] for k in ("id", "path", "line", "outdated", "opened_by", "comments")}
                     for t in open_threads],
         "said": _said(api, owner, name, number, role),
         "files": [{"path": f["filename"], "status": f["status"], "added": f["additions"], "deleted": f["deletions"]}
                   for f in files[:100]],
-        "diff": "diff.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS, "note": NOTE,
+        "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS, "note": NOTE,
     }
-    _put("diff.patch", diff[:MAX_DIFF_CHARS])
-    _put("logs", {r["log"].removeprefix("logs/"): r["text"] for r in red if "log" in r})
+    _put(brief["diff"], diff[:MAX_DIFF_CHARS])
+    _put(f"logs-{name_}", {r["log"]: r["text"] for r in red if "log" in r})
     now: Json = {**prepared, "repo": repo, "number": number, "head_sha": head, "laid_at": hand.now(),
                  "fixes_left": fixes_left, "fp": fingerprint(result), "brief": brief,
-                 "threads": {t["id"]: t["who"] for t in open_threads}}
+                 "threads": {t["id"]: {"who": t["who"], "last": t["last"]} for t in open_threads}}
     _save(now)
     _row(now, "sitter_job", why=why)
     _put("brief.json", json.dumps(brief, indent=2, ensure_ascii=False) + "\n")
@@ -386,28 +435,37 @@ class _Bad(Exception):
         self.rule = rule
 
 
-def _read_report() -> Any:
-    """The report as JSON; None without one. Opened without following a
+def _read_report(now: Json) -> Any:
+    """The report as JSON; None without one (or one so fresh it may be half
+    written). Opened without following a
     link; anything that is not a small plain file does not read."""
     try:
-        fd = os.open(home() / "report.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(_report_path(now), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return None
     except OSError:
-        raise _Bad("report.json is not a plain file") from None
+        raise _Bad("the report is not a plain file") from None
     with os.fdopen(fd, "rb") as fh:
         found = os.fstat(fh.fileno())
         if not stat.S_ISREG(found.st_mode) or found.st_nlink != 1 or found.st_size > MAX_REPORT_BYTES:
-            raise _Bad("report.json is not a small plain file")
+            raise _Bad("the report is not a small plain file")
+        if 0 <= time.time() - found.st_mtime < SETTLE_SECS:
+            return None
         data = fh.read(MAX_REPORT_BYTES + 1)
     try:
         return json.loads(data)
-    except (ValueError, UnicodeDecodeError):
-        raise _Bad("report.json is not JSON") from None
+    except (ValueError, RecursionError):
+        raise _Bad("the report is not JSON") from None
 
 
 def _string(value: Any, name: str, most: int, least: int = 1) -> str:
     text = value.strip() if isinstance(value, str) else ""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise _Bad(f"{name} holds a character that is not text") from None
+    if "\0" in text:
+        raise _Bad(f"{name} holds a NUL")
     if not least <= len(text) <= most:
         raise _Bad(f"{name} is {least} to {most} characters")
     return text
@@ -416,8 +474,6 @@ def _string(value: Any, name: str, most: int, least: int = 1) -> str:
 def _checked(report: Any, now: Json) -> Json:
     if not isinstance(report, dict):
         raise _Bad("the report is a JSON object")
-    if report.get("number") != now["number"] or report.get("head_sha") != now["head_sha"]:
-        raise _Bad("the report's number and head_sha are not the brief's", "stale")
     decision = report.get("decision")
     if decision not in DECISIONS:
         raise _Bad(f"decision is one of {', '.join(DECISIONS)}")
@@ -429,7 +485,7 @@ def _checked(report: Any, now: Json) -> Json:
         raise _Bad("replies is a list of at most 100")
     seen: set[str] = set()
     for r in replies:
-        if not isinstance(r, dict) or r.get("thread_id") not in now["threads"]:
+        if not isinstance(r, dict) or not isinstance(r.get("thread_id"), str) or r["thread_id"] not in now["threads"]:
             raise _Bad("a reply's thread_id is one of the brief's threads")
         if r["thread_id"] in seen:
             raise _Bad("one reply a thread")
@@ -471,7 +527,7 @@ def _failed(now: Json, rule: str, words: str, again: bool) -> Json:
     if not again:
         _drop()
         return out
-    _remove(home() / "report.json")
+    _remove(_report_path(now))
     now["laid_at"] = hand.now()
     now["errors"] = 0
     now["brief"]["last_report_refused"] = words
@@ -481,8 +537,8 @@ def _failed(now: Json, rule: str, words: str, again: bool) -> Json:
 
 
 def _decided(now: Json, verb: str, reason: str) -> None:
-    _row(now, verb)
     _wrote(now, verb.removeprefix("sitter_"), reason)
+    _row(now, verb)
     _drop()
 
 
@@ -501,7 +557,7 @@ def collect(api: PullsApi | None = None) -> Json | None:
             # An outage is nobody's try; but a job that always errors must
             # not hold the queue.
             return _errored(job() or now, exc, False)
-        except (hand.Refused, hand.HandError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001 - whatever the agent left, the sweep goes on
             return _errored(job() or now, exc, True)
 
 
@@ -511,8 +567,8 @@ def _errored(now: Json, exc: Exception, counts: bool) -> Json:
     now["errors"] = int(now.get("errors") or 0) + 1
     if now["errors"] < MAX_TRIES:
         _save(now)
-        return {"number": now["number"], "error": str(exc)}
-    if now.get("replies") is not None:
+        return {"number": now["number"], "error": f"{type(exc).__name__}: {exc}"[:300]}
+    if counts and now.get("replies") is not None:
         # Answers that cannot be posted: not asked for again at once.
         _decided(now, "sitter_wait", "the review threads could not be answered")
         return {"number": now["number"], "dropped": "replies"}
@@ -538,7 +594,11 @@ def _collect(now: Json, api: PullsApi) -> Json:
         _drop()
         return {"number": number, "dropped": "head_moved"}
     try:
-        raw = _read_report()
+        raw = _read_report(now)
+        if isinstance(raw, dict) and (raw.get("number"), raw.get("head_sha")) != (now["number"], now["head_sha"]):
+            # Another job's, or no job's: not this one's doing.
+            _remove(_report_path(now))
+            return {"number": number, "ignored": "stale_report"}
         if raw is None:
             if hand.now() - now["laid_at"] < LAPSE_SECS:
                 return {"number": number, "waiting": "report"}
@@ -550,6 +610,8 @@ def _collect(now: Json, api: PullsApi) -> Json:
     if decision == "wait":
         _decided(now, "sitter_wait", reason)
         return {"number": number, "decision": "wait"}
+    if decision == "retry" and not now.get("main"):
+        return _retry(now, api, report)
     if decision == "close":
         return _close(now, api, reason)
     if decision == "merge" and not now.get("main"):
@@ -560,8 +622,13 @@ def _collect(now: Json, api: PullsApi) -> Json:
 
 
 def _close(now: Json, api: PullsApi, reason: str) -> Json:
+    at = {"repo": now["repo"], "number": now["number"]}
     try:
-        gh_actions.close_pr({"repo": now["repo"], "number": now["number"], "comment": reason}, api.gh)
+        if not now.get("said_why"):
+            gh_actions.comment({**at, "body": reason}, api.gh)
+            now["said_why"] = True
+            _save(now)
+        gh_actions.close_pr(at, api.gh)
     except hand.Refused as refused:
         return _failed(now, "close_refused", f"the closing comment was refused: {refused.reason}", again=True)
     _decided(now, "sitter_close", reason)
@@ -586,8 +653,9 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
         _wrote(now, "fix", report["reason"])
         _drop()
         return {"number": number, "left": True}
+    again = report["decision"] == "retry"
     try:
-        shipped = sitterclone.ship(now, _message(now, report.get("message")), api.gh)
+        shipped = sitterclone.ship(now, _message(now, report.get("message")), api.gh, as_laid=again)
     except hand.Refused as refused:
         rule = str(refused.detail.get("rule") or "refused")
         if rule == "moved":
@@ -603,37 +671,89 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
     now.update(replies=replies, then=None, reason=report["reason"], pushed=shipped["commit"])
     _save(now)
     ledger.record_action("sitter_push", now["repo"], number, shipped["commit"], onto=now["head_sha"],
-                         files=len(shipped["files"]), merged_main=shipped["merged_main"])
+                         files=len(shipped["files"]), merged_main=shipped["merged_main"],
+                         **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
+                         **({"retry": True} if again else {}))
     _wrote(now, "fix", report["reason"])
-    return {"decision": "fix", "pushed": shipped["commit"], **_replies(now, api)}
+    return {"decision": report["decision"], "pushed": shipped["commit"],
+            **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}), **_replies(now, api)}
+
+
+def _retry(now: Json, api: PullsApi, report: Json) -> Json:
+    """The failed jobs of the red checks run again, at this same head."""
+    owner, name, _ = policy.watched(now["repo"])
+    if retries(ledger.sitter_rows(now["repo"], now["number"]), now["head_sha"]) >= MAX_RETRIES:
+        return _failed(now, "retries", f"the failed jobs were run again {MAX_RETRIES} times at this head already: "
+                       "find the cause, or wait", again=True)
+    red = {r["check"] for r in now["brief"]["red_checks"]}
+    ids = [r["id"] for r in api.check_runs(owner, name, now["head_sha"])
+           if r["name"] in red and isinstance(r.get("id"), int)]
+    runs: set[int] = set()
+    for check in ids:
+        try:
+            runs.add(api.rerun_failed(owner, name, check))
+        except GitHubError as exc:
+            if exc.status is None or exc.status >= 500:
+                raise
+            # 403: no permission, or the run was started again just now for
+            # another of its jobs. 404 and 422: not an Actions job.
+    if not runs:
+        return _fix(now, api, report)
+    _wrote(now, "retry", report["reason"])
+    _row(now, "sitter_retry", runs=len(runs))
+    _drop()
+    return {"number": now["number"], "decision": "retry", "runs": len(runs)}
 
 
 def _replies(now: Json, api: PullsApi) -> Json:
-    """The answers still owed, then what they were owed before. A reply the
-    guard will not pass leaves its thread open."""
-    number, posted, held = now["number"], 0, 0
-    while now["replies"]:
-        r = now["replies"][0]
-        at = {"repo": now["repo"], "number": number, "thread_id": r["thread_id"]}
+    """The answers still owed, then what they were owed before. A thread that
+    is gone, or was resolved meanwhile, is skipped; one somebody added to
+    since the brief is left open, and takes the merge back with it; a reply
+    the guard holds, or GitHub refuses MAX_TRIES times, leaves its thread open
+    and costs no other."""
+    owner, name, repo = policy.watched(now["repo"])
+    number, posted, held, moved = now["number"], 0, 0, 0
+    error = None
+    if now["replies"]:
+        # Read as of now, not as of the brief.
+        role = lambda who: policy.tier(who, lambda login: api.permission(owner, name, login))  # noqa: E731
+        current = {t["id"]: t for t in threads.unresolved(api.gh, owner, name, number, role)[0]}
+    for r in list(now["replies"]):
+        tid, was = r["thread_id"], now["threads"].get(r["thread_id"]) or {}
+        at = {"repo": repo, "number": number, "thread_id": tid}
         try:
-            if not r.get("posted"):
-                gh_actions.reply_thread({**at, "body": r["body"]}, api.gh)
-                _row(now, "sitter_reply", thread=r["thread_id"], outcome=r["outcome"])
-                r["posted"] = True
-                _save(now)
-            if r["outcome"] == "fixed" or now["threads"].get(r["thread_id"]) != "trusted":
-                gh_actions.resolve_thread(at, api.gh)
-                _row(now, "sitter_resolve", thread=r["thread_id"])
-            posted += 1
+            if tid not in current:
+                pass
+            elif current[tid]["last"] != was.get("last"):
+                moved += 1
+                now["moved"] = True
+            else:
+                if not r.get("posted"):
+                    gh_actions.reply_thread({**at, "body": r["body"]}, api.gh)
+                    _row(now, "sitter_reply", thread=tid, outcome=r["outcome"])
+                    r["posted"] = True
+                    _save(now)
+                if r["outcome"] == "fixed" or "trusted" not in (was.get("who"), current[tid]["who"]):
+                    gh_actions.resolve_thread(at, api.gh)
+                    _row(now, "sitter_resolve", thread=tid)
+                posted += 1
         except hand.Refused:
             held += 1
-        now["replies"].pop(0)
+        except GitHubError as exc:
+            r["errors"] = int(r.get("errors") or 0) + 1
+            error = str(exc)
+            if r["errors"] < MAX_TRIES:
+                _save(now)
+                continue
+            held += 1
+        now["replies"].remove(r)
         _save(now)
-    out: Json = {"number": number, "replied": posted, **({"held": held} if held else {})}
-    if now.get("then"):
-        _decided(now, now["then"], now["reason"])
-    elif not now.get("pushed"):
-        _decided(now, "sitter_wait", now["reason"])
+    out: Json = {"number": number, "replied": posted, **({"held": held} if held else {}),
+                 **({"moved": moved} if moved else {})}
+    if now["replies"]:
+        return {**out, "error": error, "owed": len(now["replies"])}
+    if now.get("moved") or now.get("pushed"):
+        _drop()  # the next brief, at this head or the new one, asks again
     else:
-        _drop()
+        _decided(now, now.get("then") or "sitter_wait", now["reason"])
     return out
