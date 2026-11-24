@@ -1,15 +1,14 @@
 """bin/lib/wants.py and bin/wants: the feed that draws what Teeny said it
-would build (docs/evolve.md, "1c. Wants") from its memory page, files at most
-one a day as a `self` build request for its builder, tracks each want's
-standing from the ledgers, and scores a merged feature used or unused after
-seven days.
+would build (docs/evolve.md, "1c. Wants") from its memory page, hands at most
+one a day to the agentic mind as a note in its inbox, tracks each want's
+standing from that and from the retired builder's ledgers, and scores a
+feature the builder merged used or unused after seven days.
 
-Apart from the last class, no test reaches a hand: `wants.run_hand` is the
-one place a hand is called, and it is replaced by a fake that answers for the
-guard, `hands/build self` and `hands/gh pr`. The last class (`EndToEnd`) runs
-the real guard and build hands through the whole lane. The scoring count (`evolve_outcomes.count`) is replaced
-too, so this file does not depend on the build hand's feature rubric or on
-the outcome kind that counts a hand's uses; it codes against their shapes."""
+No test reaches a hand: `wants.run_hand` is the one place a hand is called,
+and it is replaced by a fake that answers for the guard and `hands/gh pr`.
+The scoring count (`evolve_outcomes.count`) is replaced too; it codes
+against the shapes of the builder's feature rubric and the outcome kind that
+counts a hand's uses."""
 
 import json
 import os
