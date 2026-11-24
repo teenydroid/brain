@@ -859,10 +859,11 @@ class Gate(EvolveCase):
         on main's own upstream-pick playbook."""
         tree = self.worktree("newer")
         rules = tree / "bin" / "lib" / "playbook.py"
-        rules.write_text(rules.read_text().replace('"build": ("self", "upstream", "idea"),',
-                                                   '"build": ("self", "upstream", "idea", "kettle"),'))
+        old = '"goals": ("propose",),'
+        self.assertIn(old, rules.read_text())
+        rules.write_text(rules.read_text().replace(old, '"goals": ("propose", "kettle"),'))
         (tree / "brain" / "playbooks" / "kettle.md").write_text(
-            '+++\ndescription = "brew"\noutput = "hand:build kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
+            '+++\ndescription = "brew"\noutput = "hand:goals kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
             "Brew one thing.\n")
         evolve.git(evolve.in_tree(tree), "add", "-A")
         evolve.git(evolve.in_tree(tree), "commit", "-q", "--no-verify", "-m", "newer main")
