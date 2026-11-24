@@ -512,7 +512,11 @@ def _errored(now: Json, exc: Exception, counts: bool) -> Json:
     if now["errors"] < MAX_TRIES:
         _save(now)
         return {"number": now["number"], "error": str(exc)}
-    if counts and not now.get("pushed"):
+    if now.get("replies") is not None:
+        # Answers that cannot be posted: not asked for again at once.
+        _decided(now, "sitter_wait", "the review threads could not be answered")
+        return {"number": now["number"], "dropped": "replies"}
+    if counts:
         return _failed(now, "error", str(exc)[:300], again=False)
     _drop()
     return {"number": now["number"], "dropped": "errors"}

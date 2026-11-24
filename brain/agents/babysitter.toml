@@ -1,0 +1,51 @@
+# The pull-request babysitter's agent (docs/hands.md, "babysit"): the pinned
+# `babysitter` cron job runs it on the one pull request of Teeny's own that
+# hands/babysit laid out for it in state/sitter/home/. It reads why the pull
+# request is not merged, fixes it in a checkout, and writes a report; code
+# (hands/lib/teeny_hands/babysit/sitter.py) pushes the fix, answers the
+# review threads, records a merge decision or closes the pull request.
+#
+# It holds no key and no token and calls no hand and no broker. Its shell is
+# jailed to state/sitter/home/, apart from the mind's home (and so from the
+# broker's token), and reads the system's folders and the checkout's code. It
+# has no browser, no memory, nothing that schedules, spends or connects, and
+# no helpers: review text and logs are other people's words.
+#
+# Frozen like mind.toml; its prompt (babysitter.md) is Teeny's to change.
+# bin/doctor checks the posture (bin/lib/agent_check.py).
+id = "babysitter"
+display_name = "Teeny (babysitter)"
+when_to_use = "Works one of Teeny's own pull requests until it can merge, on a schedule. Not a chat delegate."
+temperature = 0.2
+# GLM, the operator's choice (2026-11-24): the one GLM this box is known to be
+# served. Pinned rather than inherited from SPINE_MODEL, so moving the scripts
+# does not move it. bin/spine registers its window (bin/lib/model_windows.sh)
+# and writes the pin as `[teams.babysitter]`.
+model = "glm-5.3-flash"
+# Set above what the turn deadline (bin/lib/teeny.sh, 1800 s) lets through, as
+# for the mind: a run that reaches this count is recorded as failed.
+max_iterations = 200
+sandbox_mode = "sandboxed"
+sandbox_filesystem_only = true
+scheduled_actions = true
+scheduled_workspace = "state/sitter/home"
+omit_identity = true
+omit_memory_context = true
+# Nor logged: a turn of this agent never reaches the core's memory, where
+# nobody would recall it and it would crowd the mind's recall (agent_check.py).
+omit_memory_log = true
+omit_safety_preamble = false
+
+[system_prompt]
+file = { path = "babysitter.md" }
+
+[tools]
+named = [
+    "shell",
+    "file_read",
+    "file_write",
+    "edit",
+    "glob",
+    "grep",
+    "list",
+]

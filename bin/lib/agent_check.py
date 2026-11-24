@@ -22,15 +22,15 @@ needs; exits non-zero with the reason otherwise:
 - the mind and its worker (VIEW_ONLY) set `browser_view_only`: their browser
   opens and reads pages on a throwaway profile and never acts as Teeny;
 - each scheduled agent has the tools its desk needs (it reads its work from
-  state/workbench/desk/ and writes its report there) and its role's own;
+  its folder and writes its report there) and its role's own;
 - each scheduled agent's prompt says how a run with nothing queued ends:
   no report, and its NOTHING_TO_DO line as the final message (an empty
   final message is a failed run to the harness, every time the cron fires);
 - the evolver (EDITORS) names its tools, only file tools, and never acts
   on a schedule: it runs on bin/evolve's lab spine over a worktree;
-- the mind's runs are rooted at its home (`scheduled_workspace`), so its
-  sandboxed shell is granted that folder and never the checkout that holds
-  brain/ and secrets/; no other agent picks a root (the builder, retired
+- the mind's runs are rooted at its home, the babysitter's at its own folder
+  (`scheduled_workspace`), so a sandboxed shell is granted that folder and
+  never the checkout that holds brain/ and secrets/; no other agent picks a root (the builder, retired
   2026-11-24, was rooted at the workbench);
 - an agent whose prompt is a file has its instructions beside it
   (brain/agents/<id>.md), which bin/lib/prompts.py builds the file from.
@@ -78,6 +78,11 @@ SCHEDULED = {
     "mind": (("shell", "file_read", "file_write", "memory"),
              ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry", "run_workflow",
               *NEVER)),
+    # The pull-request babysitter works a checkout in a folder of its own with
+    # a shell and no key. No browser, no memory: it reads reviewers' words.
+    "babysitter": (("shell", "file_read", "file_write"),
+                   ("browser", "cron", "schedule", "spawn", "create_skill", "install", "skill_registry",
+                    "run_workflow", "memory", *NEVER)),
 }
 #: agent -> the only agents its [subagents] allowlist may name, all of them.
 #: An agent listed here has `spawn_subagent` (the one exception to a banned
@@ -105,7 +110,7 @@ HELPERS = {
 VIEW_ONLY = ("mind", "worker")
 BROWSER_TOOL = "browser"
 #: The scheduled agents whose shell must stay jailed to files in their workspace.
-JAILED = ("mind", "worker")
+JAILED = ("mind", "worker", "babysitter")
 
 #: agent -> the only tools it may have. The evolver edits a lab worktree
 #: and answers JSON; bin/evolve gates what it wrote.
@@ -113,11 +118,12 @@ EDITORS = {"evolver": ("file_read", "file_write", "edit", "glob", "grep", "list"
 
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
-WORKSPACE = {"mind": "state/home"}
+WORKSPACE = {"mind": "state/home", "babysitter": "state/sitter/home"}
 
 #: agent -> the exact final message of a run with nothing queued.
 NOTHING_TO_DO = {
     "operator": "nothing to do: no task waiting",
+    "babysitter": "nothing to do: no pull request waiting",
 }
 
 
@@ -232,6 +238,8 @@ def check(path: Path) -> str:
     if agent not in NOTHING_TO_DO:
         return agent
     prompt = source.get("inline", "") if isinstance(source, dict) else ""
+    if isinstance(source, dict) and "file" in source:
+        prompt = (path.parent / f"{agent}.md").read_text(encoding="utf-8")
     line = NOTHING_TO_DO[agent]
     if f"`{line}`" not in prompt or "write no report" not in prompt or "Never end a run with an empty message." not in prompt:
         raise SystemExit(f"the {agent} agent's prompt must end a run with nothing to do on `{line}`, write no report, "

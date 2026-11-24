@@ -102,10 +102,14 @@ SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 #: The agents a cron job may run. Each acts unattended, so each is written
 #: for it (brain/agents/<id>.toml) and reviewed; a new one is added here. The
 #: builder is retired (2026-11-24): the mind ships things itself.
-AGENT_JOB_AGENTS = ("operator", "mind")
-#: The operator runs 72 times a day. The rest is the mind's:
-#: its pinned wake (48) and the agent jobs it schedules in brain/cron.toml.
-MAX_AGENT_RUNS_PER_DAY = 240
+AGENT_JOB_AGENTS = ("operator", "mind", "babysitter")
+#: The agents only a pinned job may run: the brain cannot give one a prompt
+#: of its own, or another hour.
+PINNED_AGENTS = ("babysitter",)
+#: The operator runs 72 times a day and the babysitter 144 (most end at once:
+#: nothing laid out). The rest is the mind's: its pinned wake (48) and the
+#: agent jobs it schedules in brain/cron.toml.
+MAX_AGENT_RUNS_PER_DAY = 384
 #: A pinned job may name a switch: it is enabled only while that setting is
 #: "1" in secrets/teeny.env. Never read from the environment, and never
 #: Teeny's to set: secrets/ is outside every agent's reach.
@@ -254,7 +258,7 @@ def _studio_legacy(argv: list[str], command: str, where: str) -> str | None:
     return argv[4]
 
 
-def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
+def _agent_job(job: dict, brain: Path, where: str, pinned: bool) -> tuple[str, str]:
     """An agent job's agent and prompt, after the rules: an agent written to
     act unattended, defined in the brain the core boots, with a prompt."""
     agent = job.get("agent")
@@ -263,6 +267,8 @@ def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
         raise PolicyError(f"{where}: an agent job needs both agent and prompt, as strings")
     if agent not in AGENT_JOB_AGENTS:
         raise PolicyError(f"{where}: agent {agent!r} may not run from cron (only {', '.join(AGENT_JOB_AGENTS)})")
+    if agent in PINNED_AGENTS and not pinned:
+        raise PolicyError(f"{where}: agent {agent!r} runs only from a pinned job")
     prompt = prompt.strip()
     if not prompt or len(prompt) > MAX_PROMPT_CHARS:
         raise PolicyError(f"{where}: prompt must be 1..{MAX_PROMPT_CHARS} characters")
@@ -398,7 +404,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         if "agent" in job or "prompt" in job:
             if "command" in job:
                 raise PolicyError(f"{where}: a job runs a command or an agent, not both")
-            agent, prompt = _agent_job(job, brain, where)
+            agent, prompt = _agent_job(job, brain, where, pinned)
             command = None
         else:
             agent = prompt = None
