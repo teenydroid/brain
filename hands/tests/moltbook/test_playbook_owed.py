@@ -22,9 +22,10 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 
 import cron_policy  # noqa: E402
 import playbook  # noqa: E402
+from .support import Scratch  # noqa: E402
 
 
-class OwedInputTest(unittest.TestCase):
+class OwedInputTest(Scratch):
     def test_the_playbook_parses_and_carries_the_owed_list_first(self):
         got = playbook.load(REPO / "brain", "moltbook-threads", REPO / "hands")
         self.assertEqual((got["output"], got["surface"]), ("hand:moltbook comment", "moltbook"))
@@ -50,6 +51,16 @@ class OwedInputTest(unittest.TestCase):
         self.assertNotIn("its `text` already carries", prompt)
         self.assertIn("never its words", prompt)
         self.assertIn("offers it again", prompt)
+
+    def test_the_prompt_keeps_held_rows_unanswered_and_exempts_owed_replies(self):
+        # coderabbit on PR 554: a held row must not be answered, and the
+        # once-per-post rule must not make an owed reply look forbidden.
+        got = playbook.load(REPO / "brain", "moltbook-threads", REPO / "hands")
+        prompt = got["prompt"]
+        self.assertIn("Never answer an entry whose `status` is `held`", prompt)
+        self.assertIn("except a reply on your own post", prompt)
+        raw = (REPO / "brain" / "playbooks" / "moltbook-threads.md").read_text()
+        self.assertNotIn("each with its text", raw)
 
     def test_the_verb_the_input_runs_exists(self):
         from teeny_hands.moltbook import cli  # noqa: F401  (registers the verbs)
