@@ -261,4 +261,4 @@ class RuntimeFilesIgnored(unittest.TestCase):
                 shutil.copy(checkout / ".gitignore", Path(tmp) / ".gitignore")
                 # The rule that matched must be the repository's own, not a developer's global one.
                 rule = git(Path(tmp), "-c", "core.excludesFile=/dev/null", "check-ignore", "-v", f"brain/storage/{name}")
-                self.assertTrue(rule.startswith(".gitignore:"), rule)
+                self.assertRegex(rule, r"^\.gitignore:\d+:[^!]")
