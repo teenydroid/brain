@@ -47,7 +47,6 @@ import json, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ANSWER = "teeny spine says hello"
-SHELL_RAN = "teeny-shell-2-ran"
 
 class Model(BaseHTTPRequestHandler):
     def log_message(self, *args):
