@@ -341,7 +341,8 @@ class DoTest(BrokerCase):
         code, out = self.post("/do", {"do": "run_shell", "cmd": "id"})
         self.assertEqual((code, out["status"]), (403, "refused"))
         self.assertIn("reply_x", out["reason"])
-        self.assertIn("comment_moltbook", out["reason"])
+        # Moltbook's writes are the scripts', so they are not offered here.
+        self.assertNotIn("comment_moltbook", out["reason"])
         for body in ({"text": "no verb"}, {"do": 7}):
             code, out = self.post("/do", body)
             self.assertEqual((code, out["status"]), (403, "refused"))
@@ -383,11 +384,11 @@ class DoTest(BrokerCase):
         self.assertEqual([c["hand"] for c in self.hand_calls()], ["gh"])
 
     def test_a_hands_refusal_and_error_keep_their_exit_codes(self):
-        self.start(env={"FAKE_EXIT_X": "2", "FAKE_EXIT_MOLTBOOK": "1"})
+        self.start(env={"FAKE_EXIT_X": "2", "FAKE_EXIT_TELEGRAM": "1"})
         code, out = self.post("/do", {"do": "like_x", "id": "9"})
         self.assertEqual((code, out["status"], out["exit"]), (403, "refused", 2))
         self.assertEqual(out["result"]["refused"], "daily cap")
-        code, out = self.post("/do", {"do": "follow_moltbook", "name": "bot"})
+        code, out = self.post("/do", {"do": "say_telegram", "chat_id": 42, "text": "hi"})
         self.assertEqual((code, out["status"], out["exit"]), (500, "error", 1))
 
     def test_an_own_post_goes_to_hands_x_as_a_beats_does(self):
@@ -402,6 +403,56 @@ class DoTest(BrokerCase):
         self.assertEqual((code, out["status"]), (200, "ok"))
         self.assertEqual(out["result"]["goals"], [{"id": 1, "title": "be famous"}])
         self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls()], [("goals", ["list"])])
+
+
+class MoltbookIsTheScriptsTest(BrokerCase):
+    """Moltbook belongs to the scripts (the operator, 2026-11-24): the beat
+    and the moltbook playbooks answer and post there, and the mind's writes
+    there are refused before any hand runs. Live, 25 of the mind's 44
+    journal lines that day were about Moltbook comment slots."""
+
+    WRITES = (
+        {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+        {"do": "post_moltbook", "submolt": "general", "title": "a blunt claim about my retries", "text": "body",
+         "format": "claim"},
+        {"do": "follow_moltbook", "name": "rossum"},
+        {"do": "upvote_moltbook", "post_id": "p1"},
+        {"do": "upvote_moltbook", "comment_id": "c1"},
+        {"do": "decline_moltbook", "comment_id": "c1", "reason": "spam"},
+    )
+
+    def test_every_moltbook_write_is_refused_and_reaches_no_hand(self):
+        self.start(MIND_DRY_RUN="0")
+        for intent in self.WRITES:
+            code, out = self.post("/do", intent)
+            self.assertEqual((code, out["status"]), (403, "refused"), intent)
+            self.assertIn("Moltbook belongs to the scripts", out["reason"])
+            self.assertIn("Nothing was sent", out["reason"])
+            self.assertIn("brain/playbooks/moltbook-", out["reason"])
+        self.assertEqual(self.hand_calls(), [])
+        self.assertEqual(self.caps(), {})
+        self.assertEqual([line["verb"] for line in self.ledger()], [i["do"] for i in self.WRITES])
+
+    def test_a_rehearsing_mind_is_refused_the_same(self):
+        self.start(MIND_DRY_RUN=None)
+        code, out = self.post("/do", self.WRITES[0])
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("Moltbook belongs to the scripts", out["reason"])
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_x_is_untouched(self):
+        self.start()
+        code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+
+    def test_the_library_says_the_moltbook_skill_is_the_scripts(self):
+        self.settings()
+        self.assertEqual(self.broker("install").returncode, 0)
+        index = (self.home / "library" / "INDEX.md").read_text()
+        [line] = [line for line in index.splitlines() if line.startswith("- `library/moltbook.md`: ")]
+        self.assertIn("the scripts'", line)
+        self.assertIn("pull request", line)
 
 
 class StudioPitchTest(BrokerCase):
@@ -1057,14 +1108,14 @@ class ClientTest(BrokerCase):
             self.assertIn(verb, proc.stdout)
 
     def test_do_round_trips_and_maps_statuses_to_exit_codes(self):
-        self.start(env={"FAKE_EXIT_MOLTBOOK": "1"})
+        self.start(env={"FAKE_EXIT_TELEGRAM": "1"})
         proc = self.client("do", json.dumps({"do": "like_x", "id": "9"}))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout)["status"], "ok")
         proc = self.client("do", json.dumps({"do": "nope"}))
         self.assertEqual(proc.returncode, 2)
         self.assertEqual(json.loads(proc.stdout)["status"], "refused")
-        proc = self.client("do", json.dumps({"do": "follow_moltbook", "name": "bot"}))
+        proc = self.client("do", json.dumps({"do": "say_telegram", "chat_id": 42, "text": "hi"}))
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(json.loads(proc.stdout)["status"], "error")
 

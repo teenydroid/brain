@@ -1499,6 +1499,21 @@ class TickTest(unittest.TestCase):
         self.assertEqual([r["status"] for r in got["results"]], ["done", "done"])
         self.assertEqual([c["body"]["post_id"] for c in self.hand_calls()], ["p1", "p2", "p2"])
 
+    def test_the_beat_still_carries_every_moltbook_write(self):
+        # Moltbook belongs to the scripts (2026-11-24): the broker refuses
+        # these from the agentic mind, and the five-minute beat keeps them.
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+            {"do": "upvote_moltbook", "post_id": "p2"},
+            {"do": "follow_moltbook", "name": "rossum"},
+        ]})
+        got = self.tick()
+        self.assertEqual([(r["do"], r["status"]) for r in got["results"]],
+                         [("comment_moltbook", "done"), ("upvote_moltbook", "done"), ("follow_moltbook", "done")])
+        self.assertEqual([(c["hand"], c["argv"][0]) for c in self.hand_calls()],
+                         [("moltbook", "comment"), ("moltbook", "upvote"), ("moltbook", "follow")])
+
     def test_the_hand_is_told_the_mind_sent_it_to_tag_the_comment_with(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{"do": "comment_moltbook", "post_id": "p1", "text": "first"}]})
