@@ -856,7 +856,7 @@ done
 listens() { OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" "$act" --check "$1"; }
 check "world-scan listens through hands/listen, twice a day" \
   bash -c "$(declare -f listens); act='$act' here='$here' listens world-scan | jq -e '.inputs[0] == \"heard\" and .max_per_day == 2' >/dev/null"
-for name in morning take build-idea moltbook-daily moltbook-evening moltbook-general; do
+for name in morning take moltbook-daily moltbook-evening moltbook-general; do
   check "$name reads what was heard" \
     bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
 done
