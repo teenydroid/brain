@@ -26,14 +26,14 @@ instructions.
 through `actions.comment` and every rule there), a problem filed as a build
 request (`pain`), or both. A pain is {ask, voiced: [{post_id, comment_id?,
 agent}]}: what to build and for whom, and where it was voiced (1 to
-MAX_VOICES places). It is recorded in `build_requests` (source `moltbook`,
-picked by pick-request like any other ask) and its places in
-`moltbook_pains`, so the builder's ship can name the threads to answer
-(`voiced`, read by build/jobs.py when a build ships). Refused: a place
+MAX_VOICES places). It is recorded in `build_requests` (source `moltbook`)
+and, like any other ask, handed to the agentic mind as a note in its inbox
+(teeny_hands.requests), and its places in `moltbook_pains` (`voiced`), the
+threads to answer if the mind makes it. Refused: a place
 already filed (`already_filed`), more than PAINS_PER_DAY in 24 hours
 (`daily_cap`), Teeny as the agent (`own`), words the guard's lexicon holds
 (`guard`). Filing writes only state/hands.db and reaches nobody, so DRY_RUN
-does not hold it back (like `build self` and `build idea`); the comment
+does not hold it back; the comment
 keeps DRY_RUN as always.
 """
 
@@ -299,7 +299,7 @@ def file_pain(body: Any, api: RestApi | None = None) -> Json:
             recent = conn.execute("SELECT count(DISTINCT request_id) FROM moltbook_pains WHERE at >= ?",
                                   (hand.now() - DAY,)).fetchone()[0]
             if recent >= PAINS_PER_DAY:
-                raise hand.Refused(f"at most {PAINS_PER_DAY} pain filed a day; the builder makes one thing at a time",
+                raise hand.Refused(f"at most {PAINS_PER_DAY} pain filed a day",
                                    rule="daily_cap")
             first = voiced[0]
             source_id = first["post_id"] + (f":{first['comment_id']}" if first.get("comment_id") else "")
