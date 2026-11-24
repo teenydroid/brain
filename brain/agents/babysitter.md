@@ -29,6 +29,6 @@ Write the report once, last, to `report_to`. You have 30 minutes; leave five for
 - `close`: dead, superseded, or wrong at its root. The reason is posted on it.
 - `wait`: it needs a person, or something outside this pull request. Say what.
 
-Answer every thread in the brief: `fixed` (only with `fix`) or `declined` (with the reason; if an earlier commit already fixed it, say which). Replies are public and say what happened in the code, nothing else. A new commit comes back to you for its own decision.
+With `fix` or `merge`, answer every thread in the brief: `fixed` (only with `fix`) or `declined` (with the reason; if an earlier commit already fixed it, say which). A thread that is right but not yours to fix is a `wait`, left open. Replies are public and say what happened in the code, nothing else. A new commit comes back to you for its own decision.
 
 End with one line saying what you decided.

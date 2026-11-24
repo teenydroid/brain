@@ -6,6 +6,8 @@ open one. Reads only; the words in it are other people's.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any, Callable
 
@@ -68,8 +70,9 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
     """Each `{id, path, line, outdated, opened_by, who, last, comments}`, and
     whether there were more threads than were read. `who` is `trusted` when a
     trusted person opened it or spoke in it (or may have: too long to read
-    whole), else `bot`; `last` is the id of
-    the newest comment by either (a stranger's counts for nothing)."""
+    whole), else `bot`; `last` is a digest
+    of what either said there (a stranger's counts for nothing), so it changes
+    when one adds a comment or edits one."""
     out: list[Json] = []
     after = None
     for _ in range(MAX_PAGES):
@@ -90,13 +93,14 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
             said = opening + [c for c in _nodes(t.get("latest")) if c.get("id") not in seen]
             shown = [{"author": author(c), "body": words(c.get("body"))} for c in said[:1] + said[1:][-19:]
                      if heard(author(c), tier) or tier(author(c)) == policy.TEENY]
-            counted = [(c.get("id"), kind) for c in said if (kind := heard(author(c), tier))]
+            counted = [([c.get("id"), c.get("body")], kind) for c in said if (kind := heard(author(c), tier))]
             total = (t.get("latest") or {}).get("totalCount")
             whole = not isinstance(total, int) or total <= len(said)
             out.append({"id": t["id"], "path": t.get("path"), "line": t.get("line"),
                         "outdated": bool(t.get("isOutdated")), "opened_by": opener,
                         "who": "trusted" if not whole or any(k == "trusted" for _, k in counted) else "bot",
-                        "last": counted[-1][0], "comments": shown})
+                        "last": hashlib.sha256(json.dumps([c for c, _ in counted]).encode()).hexdigest()[:16],
+                        "comments": shown})
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):
             return out, False

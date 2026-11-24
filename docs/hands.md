@@ -609,7 +609,8 @@ request is left to the operator with one comment. A GitHub outage is not a
 try. The agent's words are in `state/sitter/decisions.jsonl`, never in the
 ledger. Under `DRY_RUN` nothing is laid out or carried out.
 
-With `BABYSIT_SITTER=0` a self-change merges on green checks alone, as before,
+With `BABYSIT_SITTER=0` a self-change merges on green checks with no decision
+of the agent's, as before, every finding above as it was before the agent,
 and `outside_the_jail` (a path outside `brain/`, `docs/` and `home/`) needs
 the operator.
 

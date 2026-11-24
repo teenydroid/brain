@@ -112,6 +112,9 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved on GitHub since it was taken; nothing was pushed", rule="moved")
         ignored: list[str] = []
+        if as_laid and prepared.get("conflicts"):
+            raise hand.Refused("main was merged in with conflicts: decide them and send \"fix\", not \"retry\"",
+                               rule="undecided")
         if as_laid:
             tree = base
         else:

@@ -697,16 +697,18 @@ class OddReportTest(SitterScratch):
                 conn.close()
             sitter._drop()
             self.lay(**RED)
+            laid = sitter.job()["job"]
             for _ in range(sitter.MAX_TRIES):
                 self.write(text)
                 out = actions.sweep()
                 self.assertEqual(out["audited"], 1, text[:60])
                 self.assertIn("deploy", out)
-                if sitter.job() is None:
+                if (sitter.job() or {}).get("job") != laid:
                     break
             else:
                 self.later(sitter.LAPSE_SECS + 1)  # only a stale one is not charged: it lapses instead
                 actions.sweep()
+            self.assertNotEqual((sitter.job() or {}).get("job"), laid, text[:60])
             waits = self.verbs().count("sitter_wait")
             self.assertEqual(waits, 0, text[:60])
             self.assertEqual(self.tip(), self.head)
@@ -783,6 +785,13 @@ class LateRunTest(SitterScratch):
         self.assertFalse(self.report_path.exists())
         self.assertNotIn("sitter_failed", self.verbs())
         self.assertIsNotNone(sitter.job())
+
+    def test_a_job_that_gets_only_stale_reports_lapses(self):
+        self.lay(**RED)
+        self.later(sitter.LAPSE_SECS + 1)
+        self.report("merge", head_sha="0" * 40)
+        self.assertEqual(sitter.collect()["failed"], "no_report")
+        self.assertIsNone(sitter.job())
 
 
 class MessageTest(SitterScratch):
@@ -941,6 +950,14 @@ class AnswerTest(SitterScratch):
         sitter.collect()
         self.assertFalse(self.threads[0]["isResolved"])
 
+    def test_an_edited_objection_is_a_new_one(self):
+        self.threads = [thread("T1")]
+        self.lay()
+        self.threads = [thread("T1", body="this leaks, and worse")]
+        self.declined("T1")
+        self.assertEqual(sitter.collect()["moved"], 1)
+        self.assertFalse(self.threads[0]["isResolved"])
+
     def test_a_strangers_word_changes_nothing(self):
         self.threads = [thread("T1")]
         self.lay()
@@ -1002,6 +1019,8 @@ class TreeTest(SitterScratch):
             self.lay(mergeable=False, mergeable_state="dirty")
             self.report(decision)
             self.assertEqual(sitter.collect()["failed"], "undecided", decision)
+        self.report("retry", resolved=["brain/SOUL.md"])  # would publish git's guess
+        self.assertEqual(sitter.collect()["failed"], "undecided")
         (self.repo / "brain/SOUL.md").unlink()
         self.report("fix", resolved=["brain/SOUL.md"])
         self.assertIn("pushed", sitter.collect())

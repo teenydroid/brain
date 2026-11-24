@@ -621,7 +621,9 @@ def _collect(now: Json, api: PullsApi) -> Json:
         if isinstance(raw, dict) and (raw.get("number"), raw.get("head_sha")) != (now["number"], now["head_sha"]):
             # Another job's, or no job's: not this one's doing.
             _remove(_report_path(now))
-            return {"number": number, "ignored": "stale_report"}
+            if hand.now() - now["laid_at"] < LAPSE_SECS:
+                return {"number": number, "ignored": "stale_report"}
+            raw = NONE_YET
         if raw is NONE_YET:
             if hand.now() - now["laid_at"] < LAPSE_SECS:
                 return {"number": number, "waiting": "report"}
