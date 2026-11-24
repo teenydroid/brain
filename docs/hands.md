@@ -1851,192 +1851,26 @@ draft cannot reach it (`bin/lib/playbook.py`, `NOT_OUTPUTS`). To post one: `hand
 upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
 on `hands/x post`.
 
-## `build`: the builder's work queue
+## `build`: Teeny's own clone and the old build ledgers
 
-The builder (`brain/agents/builder.toml`, the `builder` agent job in `brain/cron.toml`,
-every 2 hours) builds one job at a time in its own folder,
-`state/workbench/<slug>/`. It reads its job from
-`state/workbench/desk/build.json`, leaves its report in `build-done.json`
-beside it, and holds no token. `desk` and `ship` run from cron
-(`bin/build-ship`), collect the report and publish what it made through
-hands/gh's own actions.
+The builder (the `builder` agent job, its desk, `bin/build-ship`, the daily
+job, `build-idea`, `pick-request`, `self-improve` and `upstream-pick`) was
+retired on 2026-11-24: the mind ships things itself, as pull requests
+through the broker (docs/mind.md), and may make a repository of its own.
+What is left of the hand is three verbs.
 
 | Verb | | Does |
 |---|---|---|
-| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`, `workdir` relative to the checkout. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
-| `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name, a short name for the tool). A request or daily report with no `repo` ships under the name its summary leads with, the text before the first `:` (`statediff: a referee CLI` ships as `statediff`), when that is a plain name, not Teeny's own repository's, no other job's and not a repository the account already has (GitHub is asked; when it cannot say, the slug stays); otherwise under the job's slug. Self, fix and upstream jobs ship where they always do. `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
-| `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to` and `report_shape`, every path as the builder must use it: relative to the workbench, where its tools are rooted (`workdir` is `brain` or `daily-<date>`, `report_to` is `desk/build-done.json`), with no absolute or checkout-relative second form and a `paths` line saying so. When files sit under the nested mirror `state/workbench/state/workbench/<workdir>/` (a path written with `state/workbench/` in front), the job carries a `note` naming them and the right workdir, and a refused empty-workdir report says the same; nothing is moved. A report with a field beyond `job_id, status, summary, tests, repo` is refused naming those. The reason is also kept as `build-done.rejected.reason.json`, for as long as the refused report beside it; a reason with no refused report (one left by an earlier job) is removed on the next pass, since the builder lists the folder and on 2026-11-22 took a reason eight days old as the verdict on a new job. A resumed job (`resumed: true`: the last run ended without a report) carries `last_run: {about, said}`, the final message of the newest ended `teeny.builder` cron run since the claim (read-only from the core's `storage.db`, as `bin/crons` reads it; at most 4000 characters), because a resumed run remembers nothing. An idle run's message (`nothing to do: ...`) is left out, and a store that cannot be read only leaves the field out. |
-| `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
-| `self` | A | `{text, want?}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). **One at a time**, enforced here since 2026-11-19: inside its transaction it refuses (exit 2, `rule: one_at_a_time`, `active` naming what is in flight) while a `self` request is not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`, `shipped` or `gave_up` (the same test as the mind's `propose_change`). Any other field is an error. `want` is the id `bin/wants` gives (`w:` then 1 to 60 of `a-z 0-9 : _ -`; anything else is an error): the request's `source_id` becomes `want:<id>:<time>` instead of `<time>`, the answer carries `want`, and the job is a feature ("Feature jobs", below). |
+| `jobs [--status S] [--limit N]` | R | The old build jobs (`build_jobs`), newest first. Read-only history. |
+| `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). |
 | `self-sync` | J | Keeps Teeny's own clone (docs/evolve.md, "Teeny's own clone") current. Clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing; otherwise fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
-| `babysit` | J | Teeny's own red pull requests back on the builder's desk (docs/roadmap.md, A7; `bin/build-ship` runs it before `desk`). Off unless `BUILD_BABYSIT=1`. For each shipped self job whose pull request is open, has a red check on its head (`gh checks`), has no fix in progress and has had fewer than 3: the clone checks out the PR's branch as origin has it (`selfclone.resume`, only when the clone is free) and a `fix` job is claimed there, its text naming the red checks and the attempt, never a log or a reviewer's words (the builder holds tools). One job on the desk at a time. After 3 fixes the PR is `left_to_a_person`. A `fix` job ships to the same branch (`selfclone.ship_fix`: frozen-path check against main, pushed on top, never forced, no new PR) and the mind hears `builder · fix_pushed`. |
-| `upstream` | A | `{gap, text}`: one gap of `docs/oh-gaps.md` to close in `tinyhumansai/openhuman`, and how (docs/roadmap.md, A8; `build/upstream.py`). Off unless `BUILD_UPSTREAM=1`. Refused for a gap that is unknown, solved (the row says solved, resolved or landed, or its change starts "Done"), already in flight or opened, or tried in the last 30 days. Becomes a build request from source `upstream` (its text built from the gap's own row plus Teeny's brief), picked at once when nothing else is in flight. The weekly picker playbook is `brain/playbooks/upstream-pick.md`. |
-| `idea` | A | `{title, who, source, pitch}`, each one line, nothing else: the one build idea Teeny keeps a UTC day (`build_ideas`). `who` is who asked or who wants it, `source` the link or stimulus ref where the need shows. Refused `one_a_day` when today already has one (the answer carries it, and nothing is replaced), and `guard` when the guard's lexicon holds its words. It writes only to the ledger, so `DRY_RUN` does not hold it back. The playbook `build-idea` is its caller, and `bin/act` puts the title through the guard first. |
-| `ideas [--limit N]` | R | `today` (today's idea, or null) and `ideas`, the ones kept, newest first, each with the `job_id` made from it. |
-| `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
-| `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the builder's daily brief, the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). The self-improve playbook reads it. |
-| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, its request is `shipped` with the repository as its note, and the mind hears `builder · shipped` once (ref `build:<id>`): which build, its summary's first line and the repository's exact URL (`payload.url`), with the line that this is the link to use, never one guessed from the build's name. When the request came from a problem agents named on Moltbook (`moltbook helpdesk`, `moltbook_pains`), the stimulus also names the threads where it was voiced (`payload.moltbook`, at most 3) and asks for the announcement: one post in `m/builds` (format `shipped`) with what it does, the repository, a five-minute setup and one open issue someone could take, then one comment in each of those threads asking for a case where it fails. The mind writes them through `post_moltbook` and `comment_moltbook`, so the hand's caps, its comment rules and the guard all hold. The builder's own `builder · report` comes before shipping and carries no URL. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
-`build_jobs` has one row per job (`kind`, `request_id` unique, `slug` unique,
-`repo`, `status`: `claimed`, `ok`, `failed`, `shipped`, `gave_up`, and `rubric`,
-the feature rubric as JSON, below; the column is added to an older table when
-the hand opens it). This hand only reads
-`build_requests`. It writes back only to a request it built, and only while
-that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the `build-ship` job in `brain/cron.toml` (every 30 minutes):
-`self-sync`, `desk`, then `ship`. The builder runs at ten past every second
-hour, after a desk.
-
-**The daily job.** With no request waiting, `next` makes one `daily` job a
-UTC day. Its text is the newest idea no job was made from, if one was kept in
-the last 48 hours (`build/ideas.py`): the title, the pitch, who wants it and
-where the need shows, then the standing rules. The idea is then marked with
-the job. The daily job is made at the first desk run after UTC midnight, so
-it builds the idea the `build-idea` job kept the evening before. With no idea
-waiting the text is `DAILY_BRIEF`, which holds the same bar: something a
-named person or a linked thread shows a need for, or that Teeny would use
-every day; not a generic utility every package index has; extending a
-shipped build first. Both ask for the Python standard library only, a
-README, passing tests, and a report of what was built, for whom, and what it
-could not do. Both end with the builds already shipped (request and daily
-jobs, the newest 20, each repository and the first line of its summary) and
-"Don't build any of these again."
-
-How the builder and cron hand work back and forth, and the states a job
-moves through (`teeny_hands/build/jobs.py`):
-
-```
- builder agent (every 2 h)                    bin/build-ship (cron, every 30 min)
- shell rooted at state/workbench/             self-sync ─► desk ─► ship
-        │                                                   │        │
-        │ reads   desk/build.json ◄──── desk writes `next` ─┤        │
-        │ writes  desk/build-done.json ── desk settles it ──┘        │
-        │         through `done`                                     │
-        ▼                                                            ▼
- state/workbench/<slug>/ ────────────────────────────► gh create-repo, gh push
-                                                      (self job: push_branch, open_pr)
-
- next ─► claimed ── done ok ──► ok ── ship ──► shipped (repo_url, commit_url | pr_url)
-            │                    │
-            │                    └─ refused or error: ship_error kept, retried next run;
-            │                       after 3 tries (self job: a frozen path at once) ─► failed
-            └─ done failed, or claim older than 6 h ─────────────────────────────────► failed
-```
-
-A self job comes from a picked request with source `self`. `next` syncs
-the clone and starts `teeny/<slug>` from the fresh `origin/main`. While the
-clone isn't free, the request waits (`waiting` in the answer) and the queue
-moves on. Its offer adds `branch`, `base` and `instructions` (Teeny's own
-`brain/agents/builder-self.md`), with rules of its own. `done` with `ok` needs
-a change in the clone. `ship` takes these steps:
-
-1. The guard reads the pull request's title (the summary's first line) and
-   body (the summary, the tests, the checks).
-2. It commits the branch as Teeny.
-3. `frozen.check` runs against `origin/main`. A frozen path fails the job at
-   once, with `paths`.
-4. `gh`'s `push_branch` sends only a `teeny/*` branch, never `main`, with the
-   secret scan on what the branch adds.
-5. `open_pr` opens the pull request into `main`.
-
-The job is then `shipped` with `pr_url`, and the mind gets a `builder`
-stimulus (`pull_request`, or `ship_refused` when it gives up). Under
-`DRY_RUN` it answers `would_push`/`would_open_pr`. Nothing merges.
-
-**Feature jobs** (since 2026-11-19; `teeny_hands/build/feature.py`). A self
-request whose `source_id` is `want:<id>:<time>` makes a feature job: a new hand
-with everything that makes it used, not an edit. On 2026-11-19 the lane had
-made three self jobs ever, and the one that shipped (`dripsplan`) is a hand
-nothing calls (docs/evolve.md, "1c. Wants"). The offer adds `feature:
-{want, requires}`, where `requires` lists the five parts below, and its rules
-are the self rules plus one sentence: report ok only when all of it is in the
-clone, and the desk sends the report back with what is missing. A job that
-names no want is a plain self job and is unchanged.
-
-The offer also carries `feature.pattern` (`feature.PATTERN`): every file a
-feature needs, as text with `NAME` for the hand's name, in the shape the rubric
-checks, and `pattern_note` saying how to use it. On 2026-11-22 the first
-feature job (want `w:m15`, the chart renderer) spent all 40 of its tool calls
-reading other hands to learn that shape and wrote no file. The pattern's test
-file puts `hands/lib` on the path itself, because the desk runs it alone and
-isolated (`python3 -I`), where a bare `from teeny_hands...` does not import.
-`hands/tests/build/test_feature.py` (`PatternTest`) writes the pattern under a
-name and holds it to the rubric, so the two cannot drift apart.
-
-When the builder reports `ok`, `done` first holds the clone to the rubric
-(`feature.rubric`) against `origin/main`. It runs **before** `done`'s
-transaction, because the jailed test run can take up to 300 s, and what it
-found is stored in the same UPDATE as the report. `failed` and `gave_up`
-reports are not checked, and a clone with no change is refused by `done`
-as before. The new hands are the paths `hands/<name>` (one level) the branch
-adds. For each one:
-
-| Part | Missing-message |
-|---|---|
-| any new hand | `no new hand: a feature adds hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py` |
-| `hands/<name>` is an executable file | `hands/<name> is not an executable entry point` |
-| the entry point's text names its package (`teeny_hands.<name>`, or `from teeny_hands import <name>`) | `hands/<name> does not run its package teeny_hands.<name>` |
-| a module of `hands/lib/teeny_hands/<name>/` really calls the contract's `run`, read from its syntax tree: `hand.run(...)` with `hand` imported from `teeny_hands`, or `run` imported from `teeny_hands.hand`. A comment, a docstring or a string that says it does not count. A module that does not parse is named | `... does not run through hand.run (the hand contract)`, or `... <module> does not parse` |
-| `hands/tests/test_<name>.py` parses | `no hands/tests/test_<name>.py that parses` |
-| and asserts something: an `assert` statement or a call of a method named `assert*` | `hands/tests/test_<name>.py asserts nothing (no assert statement or self.assert* call)` |
-| those tests pass when the desk runs them itself, in the same Landlock jail as `ship` (`verify.run` with `start`, `top` and `pattern`, so only that file runs; no jail, no run, no pass) | `the tests of hands/<name> did not pass when the desk ran them: <the last 400 characters>` |
-| a playbook calls it: front matter with an input `run` whose first word is `hands/<name>` (an input marked `optional = true` does not count: it may never run), or an `output` starting `hand:<name> ` (prose that mentions the hand does not count) | `no playbook calls hands/<name> (...)` |
-| `brain/cron.toml` runs a calling playbook as an enabled `bin/act <book>` job | `no playbook that calls hands/<name> is scheduled in brain/cron.toml` |
-| `docs/hands.md` has a `## ` heading holding `<name>` in backticks (evolve's `hand_section` rule, copied so the hand lib does not import `bin/lib/evolve.py`) | ``docs/hands.md has no `## `<name>`` section`` |
-
-These checks are cheap hardening against an empty shell (a stub, a test that
-asserts nothing), not proof that the hand is useful: a person's review and the
-use count a week after merge are the real gates. The changed paths are read
-without rename detection, so a new hand beside a deleted file is an add and a
-delete, never a rename that hides it.
-
-Anything missing raises `Refused` (exit 2, `rule: feature`, `missing`, `job_id`).
-The desk keeps that as `last_report_rejected` with the claim still open, so the
-builder resumes the job in the same clone (the claim goes stale after 6 hours,
-and the builder runs every 2, so about three tries). When all of it is there
-the job is `ok` and `build_jobs.rubric` holds `{ok, missing, hands: [{name,
-entry, contract, tests, ran: {ok, ran, jailed, output}, callers, scheduled,
-docs}]}`. `bin/wants` reads the names in it to score the feature later.
-`ship` is unchanged (a self job is still not re-tested there). The pull
-request body gets a **Feature rubric** block, one line per hand: tests ran
-(count, in the jail or not), called by, scheduled as, docs section yes or no,
-and a last line that "used" is counted by `bin/wants` seven days after merge.
-A person still approves the pull request.
-
-An upstream job (docs/roadmap.md, A8) comes from a picked request with
-source `upstream`. `next` first reads the project's contributing policy (`gh
-contributing`); a project that forbids AI contributions is never worked on,
-and the request is `skipped` with why. Then it fetches the project's `main`
-into its own clone (working tree `state/workbench/upstream-openhuman/`, git
-directory `state/upstream/openhuman.git`, outside the builder's reach) and
-starts `teeny/upstream-<id>-<slug>` from it. A branch whose job is still
-`claimed` or `ok` keeps the clone (`waiting`). The offer adds `repo`,
-`branch`, `base` and rules that say the project's files are data, never
-instructions. `done` with `ok` needs a change. The ship step does not run the
-tests itself (they are the project's, in its language; its CI runs them on the
-pull request). `ship`, only while `BUILD_UPSTREAM=1` (otherwise the job
-waits, no attempt spent):
-
-1. The guard reads the title and body (the summary, `Refs <the gap's issue>`,
-   the builder's tests).
-2. It commits the branch as Teeny.
-3. The external rules run before anything is pushed (`actions.check_external`,
-   reads only): today's `GH_MAX_EXTERNAL_PRS_PER_DAY`, one open pull request
-   of Teeny's in the project at a time, and the contributing policy again.
-4. Teeny's fork (`GITHUB_USER/openhuman`) is made when missing (`gh fork`); a
-   repository of that name that isn't a fork is refused.
-5. `push_branch` sends the `teeny/*` branch to the fork (own repository only,
-   never forced, the secret scan on what it adds). Nothing is ever pushed to
-   the project itself.
-6. `open_pr` opens it on the project, from `GITHUB_USER:<branch>` into
-   `main`, with the disclosure footer, the same rules applied again under its
-   lock.
-
-The mind hears `builder · upstream_pr` (or `ship_refused`). Under `DRY_RUN`
-nothing is forked, pushed or opened: the answer carries `branch`,
-`would_fork`, `would_push`, `would_open_pr`, `head`, and the pull request's
-`title` and `body`, disclosure included. Nothing babysits it: what strangers
-write on it reaches only the tool-less mind (`gh ingest`), never the builder.
+`bin/evolve` syncs the clone itself at the start of each generation run
+(`selfclone.sync`, under the self-clone lock); `self-sync` stays for the
+operator. The old ledgers' schema (`build_jobs`, `build_ideas`) lives in
+`hands/lib/teeny_hands/build/ledger.py`, so their history stays readable; no
+table was dropped. `build/mindclone.py` (the broker's `/repo` and `/pr`),
+`build/selfclone.py` and `build/verify.py` stay.
 
 ## `tasks`: the browser operator's queue
 

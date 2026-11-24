@@ -1,20 +1,22 @@
 """The verbs of hands/requests (docs/hands.md, "requests"): the build
-requests every channel records (teeny_hands.requests), and the one Teeny
-picks for the builder.
+requests every channel records (teeny_hands.requests), each one handed to
+the agentic mind as a note in its inbox, and Teeny's decisions on them.
 
   R  list [--status S] [--max N]   the requests, newest first
   R  get ID                        one request and its ledger
-  A  pick  {id, reason}            the one to build next; one at a time
+  A  pick  {id, reason}            the one Teeny chose to make; one at a time
   A  skip  {id, reason}            not doing it
   O  reset ID [--note T]           back to pending, whatever it was
   R  vote                          the weekly vote: open with the count so far,
                                    or its result, and the winner pick takes next
   A  vote-open {text, options}     post a vote on 2-4 pending requests (hands/x)
   R  prices                        what a paid build request costs (evals/prices.toml)
+  A  self {text}                   a change Teeny wants made to itself (the beat's
+                                   propose_change), as a note in the mind's inbox
 
 `pick` and `skip` write only state/hands.db and tell nobody, so DRY_RUN does
-not stop them; whatever is built from a pick goes out through hands that keep
-DRY_RUN. Nothing here answers the person who asked.
+not stop them; nor does `self`, which writes only the mind's inbox. Nothing
+here answers the person who asked.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ def _bounded(low: int, high: int, what: str):
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="hands/requests", description="Build requests, and the one Teeny picked.")
+    root = argparse.ArgumentParser(prog="hands/requests", description="Build requests, and Teeny's decisions on them.")
     verbs = root.add_subparsers(dest="verb")
 
     def verb(name: str, handler, help: str, body: bool = False) -> argparse.ArgumentParser:
@@ -50,7 +52,7 @@ def parser() -> argparse.ArgumentParser:
     verb("get", lambda a, _: requests.get(a.id), "one request and its ledger").add_argument(
         "id", type=_bounded(1, 2**62, "ID"), metavar="ID"
     )
-    verb("pick", lambda a, body: requests.pick(body), "pick a pending request to build (JSON on stdin)", body=True)
+    verb("pick", lambda a, body: requests.pick(body), "pick a pending request to make (JSON on stdin)", body=True)
     verb("skip", lambda a, body: requests.skip(body), "skip a pending request (JSON on stdin)", body=True)
     verb("vote", lambda a, _: votes.current(), "the weekly vote and its count")
     verb("vote-open", lambda a, body: votes.open_vote(body), "post a weekly vote (JSON on stdin)", body=True)
@@ -60,6 +62,8 @@ def parser() -> argparse.ArgumentParser:
         return sales.price_list()
 
     verb("prices", price_list, "what a paid build request costs, and how to pay")
+    verb("self", lambda a, body: requests.self_note(body),
+         "a change to itself, as a note for the agentic mind (JSON on stdin: text)", body=True)
     resetting = verb("reset", lambda a, _: requests.reset(a.id, a.note), "put a request back to pending (operator)")
     resetting.add_argument("id", type=_bounded(1, 2**62, "ID"), metavar="ID")
     resetting.add_argument("--note", default=None)
