@@ -285,7 +285,8 @@ class Standing:
 
 def _build_state(db: eo._Db, request_id: Any) -> Json:
     """Where one (builder) filed request is in the builder's ledgers: `in-flight`,
-    `shipped` (with its job's pr_url and rubric), `failed` or `frozen`. What
+    `stranded` (waiting on the retired builder), `shipped` (with its job's
+    pr_url and rubric), `failed` or `frozen`. What
     cannot be read or placed is in flight: a want is never reopened on a
     guess."""
     unknown: Json = {"state": "in-flight", "by": "the build desk could not be read"}
@@ -302,7 +303,7 @@ def _build_state(db: eo._Db, request_id: Any) -> Json:
         job_id, job, pr_url, summary, ship_error, rubric_json = jobs[0]
         found = {"job_id": job_id, "pr_url": pr_url, "rubric": rubric_json}
         if job in ("claimed", "ok"):
-            return {**found, "state": "in-flight", "by": f"job {job_id} is {job}"}
+            return {**found, "state": "stranded", "by": f"job {job_id} was {job} when the builder was retired"}
         if job == "shipped":
             if pr_url:
                 return {**found, "state": "shipped", "by": f"job {job_id} shipped"}
@@ -313,7 +314,7 @@ def _build_state(db: eo._Db, request_id: Any) -> Json:
             return {**found, "state": "failed", "by": f"job {job_id} {job}"}
         return {**found, "state": "in-flight", "by": f"job {job_id} is {job}"}
     if status in ("pending", "picked"):
-        return {"state": "in-flight", "by": f"request {request_id} is {status}"}
+        return {"state": "stranded", "by": f"request {request_id} was {status} when the builder was retired"}
     if status in ("failed", "skipped"):
         return {"state": "failed", "by": f"request {request_id} was {status}"}
     return unknown
@@ -369,6 +370,10 @@ def want_standing(want: Want, filed: list[Json], db: eo._Db, max_tries: int = 2)
         return Standing("gave-up", tries, last["by"])
     if last["state"] == "failed":
         return Standing("gave-up" if tries >= max_tries else "open", tries, last["by"])
+    if last["state"] == "stranded":
+        # Filed for the builder, retired 2026-11-24 before it built this:
+        # nothing will, so the want is open and goes to the mind.
+        return Standing("open", tries, last["by"])
     if last["state"] == "shipped":
         pr = read_pr(last["pr_url"])
         return Standing({"merged": "merged", "declined": "declined"}.get(pr["state"], "in-flight"), tries,

@@ -392,18 +392,18 @@ class Standing(WantsCase):
             self.job(1, job_status, **job)
         self.next_day()  # the filing is yesterday's: the want's standing is all that can hold a refiling
 
-    def test_a_filed_want_is_in_flight_while_its_request_is_pending_or_picked(self):
-        for status in ("pending", "picked"):
+    def test_a_want_whose_old_request_still_waits_on_the_retired_builder_is_open_again(self):
+        """CodeRabbit on #550: a builder filing still pending or picked (or a
+        job claimed or ok) when the builder was retired would hold its want
+        in flight for ever. Nothing builds it now, so the want is open, and
+        the next run hands it to the agentic mind."""
+        for request_status, job_status in (("pending", None), ("picked", None), ("picked", "claimed"),
+                                           ("picked", "ok")):
             self.reset()
-            self.filed_then(status)
-            self.assertEqual(self.standing()["state"], "in-flight", status)
-            self.assertEqual(self.file(), {"ok": True, "skipped": "no open want"})
-
-    def test_a_want_is_in_flight_while_its_job_is_claimed_or_ok(self):
-        for status in ("claimed", "ok"):
-            self.reset()
-            self.filed_then("picked", status)
-            self.assertEqual(self.standing()["state"], "in-flight", status)
+            self.filed_then(request_status, job_status)
+            got = self.standing()
+            self.assertEqual(got["state"], "open", (request_status, job_status))
+            self.assertIn("retired", got["by"])
 
     def test_a_failed_build_is_a_try_and_two_give_up(self):
         self.filed_then("failed", "failed", summary="abandoned: the builder never reported back")
