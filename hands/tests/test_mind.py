@@ -162,7 +162,9 @@ class MindAgentTest(unittest.TestCase):
         self.assertEqual(set(limits), {"mem_limit", "memswap_limit"})
         self.assertEqual(limits["mem_limit"], limits["memswap_limit"], "no swap on top of the ceiling")
         self.assertRegex(limits["mem_limit"], r"^\d+g$")
-        self.assertLessEqual(int(limits["mem_limit"][:-1]), 32)
+        gigabytes = int(limits["mem_limit"][:-1])
+        self.assertGreater(gigabytes, 0, "Docker reads 0 as no limit at all")
+        self.assertLessEqual(gigabytes, 32)
 
 WORKER = REPO / "brain" / "agents" / "worker.toml"
 
