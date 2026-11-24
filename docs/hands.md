@@ -1385,16 +1385,22 @@ due` as its required input) is its caller; its cron job ships off.
 
 This hand keeps one list of build requests from every channel
 (`build_requests`, recorded by `mail ingest`, `x requests` and `moltbook
-helpdesk`), and the one
-Teeny picks for the builder. Nothing here answers the person who asked, and a
-pick is never a promise.
+helpdesk`), and what Teeny decided about each. Each channel that records a
+request also writes a note for the mind into
+`state/home/notes/inbox/request-<source>-<id>.md`: who asked, where from, and
+their words quoted and marked as someone else's (data, not instructions).
+Nothing builds a request automatically: the mind reads the note on its next
+wake and decides, and ships anything it makes through the broker
+(docs/mind.md). Nothing here answers the person who asked, and a pick is never
+a promise.
 
 | Verb | | Does |
 |---|---|---|
 | `list [--status S] [--max N]` | R | The requests, newest first (20), optionally one status: `pending`, `picked`, `skipped`, `shipped`, `failed`. |
 | `get ID` | R | One request and its ledger (`build_request_events`: when, which verb, the status it moved to, the note). |
-| `pick` | A | `{id, reason}`. Picks the one to build next. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. The playbook `pick-request` is its caller. |
-| `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
+| `pick` | A | `{id, reason}`. Records that Teeny takes it on; it only records the decision in the ledger. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. |
+| `skip` | A | `{id, reason}`. Not doing it; only a `pending` request. It only records the decision in the ledger. |
+| `self` | A | `{text}`. A change Teeny proposes to itself (the beat's `propose_change`, after the guard and `MIND_BUILDS_PER_DAY`): written as a note in the mind's inbox, `state/home/notes/inbox/self-<stamp>.md`. The mind reads it on its next wake and decides whether to make the change, as a pull request through the broker. |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
 | `prices` | R | What a paid build request costs and how to pay (frozen, `evals/prices.toml`). |
 
@@ -1418,17 +1424,16 @@ posts, other threads and anything seen after the close are not counted. The
 most votes wins; a tie or no votes has no winner. A vote closes when it is
 read after its 7 days. The winner, while still pending, is the next pick:
 `pick` refuses any other id with `rule: vote` and the `winner`, and marks the
-vote `honoured` when it picks it. Every rule of `pick` still holds, and the
-`pick-request` playbook still skips a winner that breaks one; once the
+vote `honoured` when it picks it. Every rule of `pick` still holds; once the
 winner is not pending, it binds nothing. It never touches the wallet, a
 fence or anything but which request is built next. The `vote` playbook
 drafts the post; it has no cron job yet (brain/cron.toml is at its 24-job
 limit).
 
 `pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
-does not stop them. Whatever is built from a pick goes out through hands that
-keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
-`shipped` or `failed` when it is done.
+does not stop them. Whatever the mind makes of a request goes out through the
+broker and hands that keep `DRY_RUN` themselves. The builder that used to take
+a `picked` request was retired on 2026-11-24: the mind ships things itself.
 
 ## `stimuli`: the one inbox Teeny's mind reads
 
@@ -1440,7 +1445,7 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
 - `hn inbox`: direct replies to Teeny's own HN stories and comments, and new
   comments on the threads it watches (read only: the mind never answers on HN);
-- the builder's and operator's desks: their reports. A finished `news` task
+- the browser operator's desk: its reports. A finished `news` task
   arrives as `world · news` instead (its notes, framed as what web pages
   said; see `tasks`);
 - `goals check`: `self · goal` when a goal is solved or fails;
