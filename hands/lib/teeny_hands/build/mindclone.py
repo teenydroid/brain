@@ -301,7 +301,8 @@ def prepare(pr: Any = None, branch: Any = None, gh: Any = None) -> Json:
             state = "current"
         out: Json = {"path": str(worktree()), "repo": selfclone.repo(), "commit": origin, "head": _rev("HEAD"),
                      "state": state, "branch": head_branch, "number": found.get("number"),
-                     "pr_url": found.get("html_url"), "pr_head": head}
+                     "pr_url": found.get("html_url"), "pr_head": head, "slug": _slug_of(head_branch),
+                     "update": f"""bin/teeny pr '{{"pr": {found.get('number')}}}'"""}
     if state == "dirty":
         out["note"] = ("your copy holds edits, so it is left as it is and is not the pull request's head: finish "
                        "or drop them (delete repo/), then ask again")
@@ -420,11 +421,66 @@ def _text(value: Any, name: str, most: int) -> str:
     return text
 
 
+#: What a branch is sent as, most likely, besides its slug: stripped only
+#: when what is left names a branch of the mind's that is there (`_named`).
+SENT_PREFIXES = ("refs/heads/" + MIND_BRANCH_PREFIX, MIND_BRANCH_PREFIX, selfclone.BRANCH_PREFIX)
+
+
+def _send(slug: str) -> str:
+    """The literal call that sends the copy to teeny/mind-SLUG."""
+    return f"""bin/teeny pr '{{"branch": "{slug}"}}'"""
+
+
 def _branch(slug: Any) -> str:
     if not isinstance(slug, str) or not SLUG.fullmatch(slug):
-        raise hand.Refused("the branch is 1 to 41 lowercase letters, digits and dashes, starting with a letter or "
-                           "digit", rule="branch")
+        hint = ""
+        if isinstance(slug, str):
+            rest = next((slug[len(p):] for p in SENT_PREFIXES if slug.startswith(p)), None)
+            if rest is not None and SLUG.fullmatch(rest):
+                hint = f": for {MIND_BRANCH_PREFIX}{rest} send {_send(rest)}"
+        raise hand.Refused("the branch is the part after teeny/mind-: 1 to 41 lowercase letters, digits and dashes, "
+                           'starting with a letter or digit, or name an open pull request with {"pr": N}' + hint,
+                           rule="branch")
     return MIND_BRANCH_PREFIX + slug
+
+
+def _slug_of(branch: str) -> str:
+    return branch[len(MIND_BRANCH_PREFIX):]
+
+
+def _copy_branch(origin: str) -> str | None:
+    """The teeny/mind-* branch the copy was taken from, when it was taken
+    from one and not from main."""
+    head = _rev("HEAD")
+    if head is None or _is_ancestor(head, origin):
+        return None
+    return _branch_at(head)
+
+
+def _named(sent: Any, origin: str) -> Any:
+    """SENT as the slug it most likely means. A full branch name
+    (teeny/mind-x, refs/heads/teeny/mind-x, teeny/x) is read as its slug, and
+    a slug `mind-x` as `x`, only when that names a mind branch on GitHub (or
+    the one the copy was taken from) and SENT itself names none; else SENT
+    as it is, to be checked as a slug."""
+    if not isinstance(sent, str):
+        return sent
+    on_github = lambda slug: SLUG.fullmatch(slug) is not None and _rev(  # noqa: E731
+        f"refs/remotes/origin/{MIND_BRANCH_PREFIX}{slug}") is not None
+    if on_github(sent):
+        return sent
+    copy = _copy_branch(origin)
+    for prefix in (*SENT_PREFIXES, "mind-"):
+        rest = sent[len(prefix):] if sent.startswith(prefix) else None
+        if rest is None or not SLUG.fullmatch(rest):
+            continue
+        if prefix == "mind-":
+            # A slug may start with mind-: read it so only for the copy's own branch.
+            if copy == MIND_BRANCH_PREFIX + rest:
+                return rest
+        elif on_github(rest) or copy == MIND_BRANCH_PREFIX + rest:
+            return rest
+    return sent
 
 
 def _commit(message: str) -> str:
@@ -589,36 +645,57 @@ def _branch_at(commit: str) -> str | None:
 Allow = Callable[[str, "int | None"], None]
 
 
-def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None = None) -> Json:
+def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None = None, pr: Any = None) -> Json:
     """The mind's tree as a pull request from teeny/mind-<slug> into main,
     after every rule; under DRY_RUN every rule runs and nothing is sent.
     When teeny/mind-<slug> is already on GitHub with an open pull request of
     Teeny's own, the tree is pushed to it as one more commit instead
     (`_update`). ALLOW(kind, number), "open" or "update", is asked once the
-    kind is known and before anything is pushed: the caller's caps."""
+    kind is known and before anything is pushed: the caller's caps. PR (a
+    number) names the open pull request to update instead of SLUG, or with
+    it, when they agree; SLUG may be sent as the full branch name
+    (`_named`)."""
     from ..gh import actions
     from ..gh.client import GitHubApi
 
-    branch = _branch(slug)
+    if pr is None and slug is None:
+        raise hand.Refused('name the branch {"branch": "<the part after teeny/mind->"} or the pull request '
+                           '{"pr": N}', rule="shape")
+    number = None if pr is None else _pr_number(pr)
     title = None if title is None else _text(title, "title", MAX_TITLE)
     body = None if body is None else _text(body, "body", MAX_BODY)
     full = selfclone.repo()
     with hand.lock("mind-clone"):
         origin = _fetch_origin()
+        if number is not None:
+            gh = _client(gh)
+            branch = _own_mind_pr(_pr_by_number(gh, number))
+            if slug is not None and _named(slug, origin) != _slug_of(branch):
+                raise hand.Refused(f"#{number} is on {branch}, not the branch you named: send {{\"pr\": {number}}} "
+                                   "alone, or the branch alone", rule="disagree")
+            return _update(branch, title, body, origin, gh, allow)
+        branch = _branch(_named(slug, origin))
         if _rev(f"refs/remotes/origin/{branch}") is not None:
             return _update(branch, title, body, origin, _client(gh), allow)
+        copy = _copy_branch(origin)
         if title is None or body is None:
+            where = (f"; {branch} is a new branch, and your copy was taken from {copy}: to update that pull request, "
+                     f"send it there: {_send(_slug_of(copy))}") if copy else ""
             raise hand.Refused(f"a new pull request needs a title (1 to {MAX_TITLE} characters) and a body (1 to "
-                               f"{MAX_BODY}); only an update to an open one may leave them out", rule="title")
+                               f"{MAX_BODY}); only an update to an open one may leave them out" + where, rule="title")
         if allow is not None:
             # Before the copy is touched: a spent allowance changes nothing.
             allow("open", None)
         _settle(origin)
         head = _rev("HEAD")
         if head is not None and not _is_ancestor(head, origin):
-            other = _branch_at(head) or "a pull request's head"
-            raise hand.Refused(f"your copy was taken from {other}, not from {BASE}: send it to that branch, or "
-                               "delete repo/ and run bin/teeny repo for a fresh copy", rule="base")
+            other = _branch_at(head)
+            if other is not None:
+                raise hand.Refused(f"your copy was taken from {other}, not from {BASE}; for a new pull request delete "
+                                   f"repo/ and run bin/teeny repo for a fresh copy of {BASE}; to update that one, "
+                                   f"send it there: {_send(_slug_of(other))}", rule="base")
+            raise hand.Refused(f"your copy was taken from a pull request's head, not from {BASE}: delete repo/ and "
+                               "run bin/teeny repo for a fresh copy", rule="base")
         fields = _guarded({"title": title, "body": body}, branch)
         _no_git_inside()
         commit = _commit(fields["title"])
