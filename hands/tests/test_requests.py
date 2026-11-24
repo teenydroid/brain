@@ -4,6 +4,7 @@ at a time, never one the guard held, every decision in the ledger."""
 
 import json
 import os
+from unittest import mock
 import subprocess
 import sys
 import tempfile
@@ -292,6 +293,27 @@ class MindNoteTest(Scratch):
         row = hand.db().execute("SELECT status FROM build_requests WHERE source_id = '9'").fetchone()
         self.assertEqual(row["status"], "pending")
         self.assertFalse((home / "notes").exists())
+
+    def test_a_note_that_could_not_be_written_is_written_when_the_request_comes_again(self):
+        """Greptile on #550: a failed first write left the ask out of the
+        mind's inbox for good, since a repeat is not new. A pending request
+        seen again whose note is in neither inbox/ nor inbox/done/ gets it."""
+        home = self.root / "state" / "home"
+        with mock.patch.object(requests, "note_for_mind", side_effect=OSError("disk full")):
+            self.assertTrue(requests.record("x:mentions", "9", "fren", "build me a thing"))
+        self.assertFalse(requests.record("x:mentions", "9", "fren", "build me a thing"))
+        self.assertEqual(self.notes(), ["request-x-mentions-9.md"])
+        # dealt with: moved to done/, and never written again
+        (self.inbox() / "done").mkdir()
+        (self.inbox() / "request-x-mentions-9.md").rename(self.inbox() / "done" / "request-x-mentions-9.md")
+        requests.record("x:mentions", "9", "fren", "build me a thing")
+        self.assertEqual(self.notes(), ["done"])
+        # an old request, or one no longer pending, is left alone
+        hand.db().execute("UPDATE build_requests SET status = 'skipped' WHERE source_id = '9'")
+        (self.inbox() / "done" / "request-x-mentions-9.md").unlink()
+        requests.record("x:mentions", "9", "fren", "build me a thing")
+        self.assertEqual(self.notes(), ["done"])
+        self.assertTrue(home.is_dir())
 
 
 class SelfNoteTest(Scratch):

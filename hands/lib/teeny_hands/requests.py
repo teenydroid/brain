@@ -122,16 +122,35 @@ def record(source: str, source_id: str, author: str | None, text: str, conn: sql
             (source, source_id, author, (text or "")[:_TEXT_CHARS], hand.now()),
         )
         new = cursor.rowcount > 0
+        owed = new or _note_owed(conn, source, str(source_id))
     finally:
         if own:
             conn.close()
-    if new:
+    if owed:
         try:
             note_for_mind(source, source_id, author, text)
         except (mind_home.HomeError, OSError) as exc:
             # A side channel: the request is kept in the ledger either way.
             print(f"requests: could not hand request {source}/{source_id} to the mind: {exc}", file=sys.stderr)
     return new
+
+
+#: How long a pending request whose note never reached the inbox is retried.
+NOTE_RETRY_SECS = 7 * 86400
+
+
+def _note_owed(conn: sqlite3.Connection, source: str, source_id: str) -> bool:
+    """A request seen again that is still pending, recent, and whose note is in
+    neither inbox/ nor inbox/done/: the first write failed (a full disk, a
+    home not made yet), so it is written now. One the mind dealt with (moved
+    to done/) is never written again."""
+    row = conn.execute("SELECT status, created_at FROM build_requests WHERE source = ? AND source_id = ?",
+                       (source, source_id)).fetchone()
+    if row is None or row[0] != "pending" or float(row[1] or 0) < hand.now() - NOTE_RETRY_SECS:
+        return False
+    name = note_name(source, source_id)
+    inbox = mind_home.home().joinpath(*INBOX)
+    return not any(os.path.lexists(folder / name) for folder in (inbox, inbox / "done"))
 
 
 # --- the mind's inbox ---------------------------------------------------------------------
