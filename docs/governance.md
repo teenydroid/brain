@@ -109,7 +109,8 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `BABYSIT_SELF_MERGE_ALL` | `secrets/teeny.env` | every self-change: the babysitter merging any `teeny/` pull request of Teeny's own on `teenydroid/brain` on green CI, without `teeny/eval`, when it touches only `brain/`, `docs/` and `home/` (needs `BABYSIT_SELF_MERGE` too) | off |
 | `MIND_PRS_PER_DAY` | `secrets/teeny.env` | the agentic mind opening pull requests from its own clone | `0` (at most 12) |
 | `MIND_PR_UPDATES_PER_PR` | `secrets/teeny.env` | pushes a UTC day to one of the mind's open pull requests (`teeny pr` to its branch), never counted against `MIND_PRS_PER_DAY` and off while that is `0` | `5` (`0` is off; at most 20) |
-| `GH_MAX_EXTERNAL_ISSUES_PER_DAY` | `secrets/teeny.env` | issues on other people's projects | `0` (at most 5) |
+| `GH_MAX_EXTERNAL_PRS_PER_DAY` | `secrets/teeny.env` | pull requests on other people's projects (the mind's `teeny gh open-pr` among them) | `5` (`0` is off; at most 20) |
+| `GH_MAX_EXTERNAL_ISSUES_PER_DAY` | `secrets/teeny.env` | issues on other people's projects (the mind's `teeny gh open-issue` among them) | `5` (`0` is off; at most 20) |
 | A wallet key | `secrets/teeny.env` (remove `WALLET_*`) | the wallet entirely | none set |
 | A cron job | `brain/cron.toml` (`enabled = false`), or `evals/cron.pinned.toml` for a pinned one | that job | per job |
 | `state/spine-fallback.json` | the box | nothing in evolve: a last-good boot files a public issue, and generations go on from Teeny's clone of main | absent |
