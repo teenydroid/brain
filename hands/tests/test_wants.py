@@ -31,7 +31,6 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 import evolve  # noqa: E402
 import evolve_findings  # noqa: E402
 import wants  # noqa: E402
-from build import test_selfclone as sc  # noqa: E402  (the build hand's scratch box: a fake origin and a fake GitHub)
 from teeny_hands.gh import client as gh_client  # noqa: E402
 
 T0 = 1_763_000_000.0
