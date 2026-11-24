@@ -343,7 +343,7 @@ class DoTest(BrokerCase):
         self.assertIn("reply_x", out["reason"])
         # Moltbook's writes are the scripts', so they are not offered here.
         self.assertNotIn("comment_moltbook", out["reason"])
-        for body in ({"text": "no verb"}, {"do": 7}):
+        for body in ({"text": "no verb"}, {"do": 7}, {"do": []}, {"do": {}}):
             code, out = self.post("/do", body)
             self.assertEqual((code, out["status"]), (403, "refused"))
         self.assertEqual(self.hand_calls(), [])

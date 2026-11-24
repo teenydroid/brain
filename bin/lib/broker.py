@@ -359,7 +359,7 @@ def do(body: Json, entry: Json) -> Json:
     entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
     if verb in tick.OWN:
         raise Refused(f"{verb!r} is not a broker verb: it is the beat's own")
-    if verb in SCRIPTS_ONLY:
+    if isinstance(verb, str) and verb in SCRIPTS_ONLY:
         raise Refused(SCRIPTS_ONLY_MESSAGE)
     if not isinstance(verb, str) or verb not in tick.ROUTES:
         raise Refused(f"no such verb {_clipped(verb)!r}; the broker verbs are {', '.join(mind_verbs())}")
