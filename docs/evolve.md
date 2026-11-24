@@ -60,8 +60,8 @@ them.
 ```
  a change Teeny wrote
    │
-   ├──► hands/build ship ──► frozen.check(clone, origin/main, branch)        built
-   │                           a frozen path fails the job; nothing is pushed
+   ├──► the broker (/pr) ──► the frozen list as of main, on the mind's clone  built
+   │                           a frozen path refuses the change; nothing is pushed
    │
    ├──► CI `frozen` job ───► bin/frozen-check, checker and list from the base  built
    │      (.github/workflows/check.yml: PRs opened by teenydroid,
@@ -91,96 +91,47 @@ comes from) are frozen for the same reason.
 
 ## What starts a self change (built)
 
-Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
-reads Teeny's recent build jobs, the stimuli it got, its open issues and the
-requests already pending, plus its world score (`hands/world report` and
-`history`) and the archive of its shipped self changes. It proposes the one
-change that would help most, and names the W component it moves, by how much,
-and the flywheel step it turns. The playbook says whether it is an **edit** (one
-bullet in one file of an existing prompt, playbook or skill) or a **feature** (a
-new hand with its tests, its section in `docs/hands.md` and the playbook line
-that calls it, all in one change). Until 2026-11-19 it could only ask for the
-edit (see "1c. Wants", why). It goes through `hand:build self`, the only
-`hands/build` verb a draft may reach (`bin/lib/playbook.py`, `VERB_OUTPUTS`).
-The proposal becomes a `pending` build request with source `self`.
-`pick-request` (09:20 and 15:20, two picks a day since 2026-11-19) picks it
-like any other, the builder makes it in the clone below at its next run, and
-it ships as a pull request. The playbook steers toward prompts, playbooks,
-skills and new hands; the OpenHuman core stays the operator's.
+The builder is retired (2026-11-24): the `self-improve` and `pick-request`
+playbooks, the builder agent and `bin/build-ship` went with it. A self change
+outside the evolve loop is now the agentic mind's (docs/mind.md). It reads
+what reaches its inbox, `state/home/notes/inbox/`, decides, and ships
+anything it makes as a pull request through the broker (`/repo` and `/pr`,
+`hands/lib/teeny_hands/build/mindclone.py`), past the guard, the frozen list
+as of `main`, the secret scan and the size limits. Nothing builds a note
+automatically. Three things write one:
 
-A second source files the same kind of request: the `wants` job (`bin/wants
-run`, 09:00 UTC) reads what Teeny said on its memory page it will build, and
-files at most one a day as a feature (see "1c. Wants"). Its request carries a
-want id, and the builder's report for it is held to a rubric before the desk
-takes it (docs/hands.md, "`build`").
-
-A beat can file one too, when somebody asks Teeny to build something for
-itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
-`MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
-the same `hands/build self`. It is refused before the hand while a self
-request is still pending or picked, or a self job is unfinished, the same
-one-at-a-time rule the playbook follows. Since 2026-11-19 `hands/build self`
-enforces that rule too, inside its transaction: it refuses (exit 2, rule
-`one_at_a_time`, `active` naming what is in flight) while a `self` request is
-not `skipped`, `shipped` or `failed`, or a `self` job is not `failed`,
-`shipped` or `gave_up`. Before it, only the playbook's text and the mind's
-route held it, so a second caller could queue a second change.
-
-The whole path, with the cron job that drives each step:
+- the beat's `propose_change` intent (`bin/lib/tick.py`), when somebody asks
+  Teeny to change itself: the guard and `MIND_BUILDS_PER_DAY` (1 a day by
+  default, at most 2), then `hands/requests self` writes
+  `self-<stamp>.md`;
+- the `wants` job (`bin/wants run`, 09:00 UTC, off until `WANTS=1`): what
+  Teeny said on its memory page it will build, the top open want as
+  `want-<id>.md` (see "1c. Wants");
+- every channel that records a build request (`hands/x requests`, `mail
+  ingest`, the Moltbook helpdesk): `request-<source>-<id>.md`, the asker's
+  words quoted and marked as data.
 
 ```
-self-improve   15:00 IST   bin/act self-improve ──► hand:build self
-                             └─► build request: pending, source self
-wants          09:00 UTC   bin/wants run ──► scores merged features, then
-                             files one want ─► guard ─► hands/build self {text, want}
-                             └─► build request: pending, source self, want:<id>:<time>
-pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
-build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
-                           hands/build desk      ──► the job on the builder's desk
-builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
-                                                     runs the offline tests
-build-ship     every 30 m  hands/build desk      ──► a feature's ok report is held to the
-                                                     rubric, or sent back with what is missing
-build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
-                                                     ─► push ─► ready PR into main
-GitHub                     CI `frozen` job       ──► the operator merges or closes
+beat       every 5 m   propose_change ─► guard, cap ─► hands/requests self ─► inbox/self-<stamp>.md
+wants      09:00 UTC   bin/wants run ─► scores merged features, files one want ─► inbox/want-<id>.md
+requests   as they come build_requests row ─► inbox/request-<source>-<id>.md
+mind       its wake    reads its inbox and decides ─► broker /repo, /pr ─► guard ─► frozen list
+                                                       ─► secret scan ─► teeny/mind-<name> PR
+GitHub                 CI `frozen` job ─► merged under docs/governance.md's rules, or closed
 ```
 
 ## Teeny's own clone (built)
 
-The clone is the first step toward a human-gated `bin/evolve`. Teeny keeps a
-working copy of its own repository and proposes changes to itself as pull
-requests that the operator merges or closes.
-
-`state/workbench/brain/` holds the working tree, where the builder's file
-tools reach. Its git directory, `state/self/brain.git`, is out of their reach,
-and every git command names both paths, so nothing the builder writes can
-redirect a push or its token.
-
-The `build-ship` job (every 30 minutes, in `brain/cron.toml`) keeps the clone current by
-running `hands/build self-sync` first. It fetches `main` and `teeny/*` and
-fast-forwards a clean `main` to `origin/main`. It never touches unshipped work
-(edits, or a branch whose job is still open). It parks a branch whose pull
-request is open or whose job failed, and reports how far behind it is.
-`state/self/sync.json` says when it last ran and at which commit.
-
-`hands/build self` records a change Teeny proposes to itself as a build
-request, picked like any other. That is a self job. The builder gets it on its
-desk with `brain/agents/builder-self.md` (its own instructions, the table
-above) and edits the clone on `teeny/<slug>`, started from a freshly pulled
-main. It runs the tests that need no network and never commits.
-
-`hands/build ship` ships a finished self job in five steps:
-
-1. The guard reads the pull request's text.
-2. The branch is committed as Teeny.
-3. `frozen.check(clone, origin/main, branch)` runs. A frozen path refuses the
-   change, names the path and fails the job.
-4. The branch is pushed as `teenydroid` (only `teeny/*`, never `main`).
-5. A ready pull request is opened into `main`.
-
-CI's `frozen` job checks it again. `DRY_RUN` pushes nothing. Nothing merges on
-its own: the operator does that.
+Teeny keeps a working copy of its own repository: the working tree
+`state/workbench/brain/`, its git directory `state/self/brain.git` out of
+reach of any model's file tools, and every git command names both paths.
+`bin/evolve` builds its candidates from it ("The build", below) and syncs it
+at the start of each generation run (`selfclone.sync`, under the self-clone
+lock); `hands/build self-sync` does the same for the operator. A sync
+fetches `main` and `teeny/*` and fast-forwards a clean `main` to
+`origin/main`. It never touches unshipped work, parks a branch whose pull
+request is open, and reports how far behind it is. `state/self/sync.json`
+says when it last ran and at which commit.
 
 ## Lore is the objective
 
@@ -289,7 +240,7 @@ runs when its playbook runs, so on that playbook's cron schedule.
   exist) or `bin/studio`; or one of the pipelines that are Teeny's to
   schedule since 2026-11-22, with exactly the arguments the policy lists
   (`BRAIN_SCRIPTS`: `bin/dream --detach`, `bin/dream --light --detach`,
-  `bin/moltbook-prune`); or the `builder` or `mind` agent with a prompt
+  `bin/moltbook-prune`); or the `mind` agent with a prompt
   (`docs/mind.md`). At most 240 agent runs a day across every job.
 - No job fires more often than every 5 minutes, computed from the minute and
   hour fields with wraparound included.
@@ -302,7 +253,7 @@ runs when its playbook runs, so on that playbook's cron schedule.
   tools, or one of its pipelines exactly as `BRAIN_SCRIPTS` in
   `bin/lib/cron_policy.py` lists them: since 2026-11-23 these include
   `evolve` (`bin/evolve run --scheduled --detach`), `evolve-credit`
-  (`bin/evolve credit`), `wants` (`bin/wants run`), `build-ship` and
+  (`bin/evolve credit`), `wants` (`bin/wants run`) and
   `tasks-desk`, which Teeny may reschedule, pause or drop. Each script
   still checks its own switch in `secrets/` (`EVOLVE`, `WANTS`), so a
   schedule never turns one on.
@@ -1295,9 +1246,10 @@ Where it goes is the code a fix would touch: the refusing hand
 (`hands/<hand>`, `hands/lib/teeny_hands/<hand>/`), the hands a failing
 playbook calls (`bin/act` when it calls none), the guard for a hold.
 
-- **None of it frozen**: a want of kind `finding` for the builder, id
-  `w:f:<family>` ("1c. Wants"), one per family.
-- **Any of it frozen** (`evals/frozen.txt`): the builder could not ship it
+- **None of it frozen**: a want of kind `finding` for the mind (route
+  `mind`, formerly `builder`), id `w:f:<family>` ("1c. Wants"), one per
+  family; it reaches the mind's inbox like any other want.
+- **Any of it frozen** (`evals/frozen.txt`): the mind could not ship it
   either, so `bin/evolve run` opens one public issue on `EVOLVE_ISSUE_REPO`
   through the guard's judge (`HandsPublisher.open_issue`), asking for the
   `help wanted` label (`hands/gh` adds it once the issue is open; a label the
@@ -1310,9 +1262,8 @@ The brief and the issue are fixed words with the findings' own statements
 outcome, the number it stood at, its title and pull request), the files the
 words live in, the code (and which of it is frozen) and the check that says
 it worked (the count falls). `bin/evolve status` shows a routed finding as
-`state: routed` with `routed.said`: "routed to builder (job N)", "routed to
-builder (request N, not picked yet)", "routed to an issue (#N)" or "not
-filed yet". On the box on 2026-11-22 one family is routed:
+`state: routed` with `routed.said`: whether it was handed to the mind,
+"routed to an issue (#N)", or "not filed yet". On the box on 2026-11-22 one family is routed:
 `refusals:moltbook:duplicate` (`f:refusals:upvote_moltbook:duplicate`, 116;
 tries g16c3, g17c3, g18c3), to an issue, since
 `hands/lib/teeny_hands/moltbook/` is frozen. `f:refusals:moltbook-curate:
@@ -1664,7 +1615,7 @@ Each learning gets a candidate: a git worktree
 `state/evolve/<gen>/cand-<i>`, detached at main, from Teeny's own clone
 (`state/self/brain.git`), and one proposer turn. Teeny's clone is the source,
 not the live checkout: its `origin/main` is exactly what a pull request
-targets, `hands/build self-sync` keeps it fresh, and its git config sits
+targets, `bin/evolve` syncs it at the start of each run, and its git config sits
 outside every tree a model writes. Without the clone, `bin/evolve` falls back
 to the checkout's `main`, where it can gate but not ship.
 
