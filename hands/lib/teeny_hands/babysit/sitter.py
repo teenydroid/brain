@@ -65,6 +65,7 @@ from .. import authorship, hand
 from ..build import mindclone, sitterclone
 from ..gh import actions as gh_actions
 from ..gh.client import GitHubError
+from ..gh.reads import RED
 from . import ledger, policy, threads
 from .api import PullsApi
 
@@ -435,14 +436,17 @@ class _Bad(Exception):
         self.rule = rule
 
 
+#: No report, or one so fresh it may be half written.
+NONE_YET = object()
+
+
 def _read_report(now: Json) -> Any:
-    """The report as JSON; None without one (or one so fresh it may be half
-    written). Opened without following a
-    link; anything that is not a small plain file does not read."""
+    """The report as JSON, or NONE_YET. Opened without following a link;
+    anything that is not a small plain file does not read."""
     try:
         fd = os.open(_report_path(now), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
-        return None
+        return NONE_YET
     except OSError:
         raise _Bad("the report is not a plain file") from None
     with os.fdopen(fd, "rb") as fh:
@@ -450,8 +454,10 @@ def _read_report(now: Json) -> Any:
         if not stat.S_ISREG(found.st_mode) or found.st_nlink != 1 or found.st_size > MAX_REPORT_BYTES:
             raise _Bad("the report is not a small plain file")
         if 0 <= time.time() - found.st_mtime < SETTLE_SECS:
-            return None
+            return NONE_YET
         data = fh.read(MAX_REPORT_BYTES + 1)
+    if len(data) > MAX_REPORT_BYTES:
+        raise _Bad("the report is not a small plain file")
     try:
         return json.loads(data)
     except (ValueError, RecursionError):
@@ -616,7 +622,7 @@ def _collect(now: Json, api: PullsApi) -> Json:
             # Another job's, or no job's: not this one's doing.
             _remove(_report_path(now))
             return {"number": number, "ignored": "stale_report"}
-        if raw is None:
+        if raw is NONE_YET:
             if hand.now() - now["laid_at"] < LAPSE_SECS:
                 return {"number": number, "waiting": "report"}
             return _failed(now, "no_report", "no report was written", again=False)
@@ -720,7 +726,7 @@ def _retry(now: Json, api: PullsApi, report: Json) -> Json:
                        "find the cause, or wait", again=True)
     red = {r["check"] for r in now["brief"]["red_checks"]}
     ids = [r["id"] for r in api.check_runs(owner, name, now["head_sha"])
-           if r["name"] in red and isinstance(r.get("id"), int)]
+           if r["name"] in red and r.get("conclusion") in RED and isinstance(r.get("id"), int)]
     runs: set[int] = set()
     for check in ids:
         try:
@@ -767,8 +773,15 @@ def _replies(now: Json, api: PullsApi) -> Json:
                     r["posted"] = True
                     _save(now)
                 if r["outcome"] == "fixed" or "trusted" not in (was.get("who"), current[tid]["who"]):
-                    gh_actions.resolve_thread(at, api.gh)
-                    _row(now, "sitter_resolve", thread=tid)
+                    done = gh_actions.resolve_thread(at, api.gh)
+                    if threads.heard(threads.author(done.get("last")), role):
+                        # Said between the read above and the resolve, which
+                        # GitHub cannot be asked to make conditional.
+                        gh_actions.reopen_thread(at, api.gh)
+                        moved += 1
+                        now["moved"] = True
+                    else:
+                        _row(now, "sitter_resolve", thread=tid)
                 posted += 1
         except hand.Refused:
             held += 1

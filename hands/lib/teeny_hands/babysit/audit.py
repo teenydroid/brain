@@ -257,7 +257,7 @@ class _Audit:
                 self._path(name, status, frozen)
             patch = f.get("patch")
             if patch is None:
-                if status != "removed" and (f.get("additions") or f.get("deletions") or status == "added"):
+                if status != "removed" and (self.sitter or f.get("additions") or f.get("deletions") or status == "added"):
                     read = self.sitter and self._whole_file(raw, path)
                     self.add("unreadable_diff", "note" if read else "operator", path,
                              "binary or too large for GitHub to show")

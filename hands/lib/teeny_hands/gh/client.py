@@ -12,6 +12,7 @@ The raw writes here run no rule. The only way to one is
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import re
 import urllib.error
@@ -83,6 +84,9 @@ def _tail(response: Any) -> str:
         if not chunk:
             break
         kept = (kept + chunk)[-MAX_LOG_BYTES:]
+    else:
+        if response.read(1):
+            kept += b"\n[the log goes on: its end was not read]\n"
     return kept.decode("utf-8", "replace")
 
 
@@ -236,7 +240,7 @@ class GitHubApi:
                 plain = urllib.request.Request(where, headers={"user-agent": "teeny-hands-gh"})
                 with urllib.request.urlopen(plain, timeout=TIMEOUT_SECONDS) as response:
                     return _tail(response)
-        except (urllib.error.URLError, OSError, ValueError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
             pass
         raise GitHubError("the job's log could not be read", status)
 
@@ -303,10 +307,15 @@ class GitHubApi:
 
     def resolve_thread(self, thread_id: str) -> Json:
         got = self.graphql(
-            "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } } }",
-            {"id": thread_id})
+            "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved "
+            "comments(last: 1) { nodes { id author { __typename login } } } } } }", {"id": thread_id})
         thread = (got.get("resolveReviewThread") or {}).get("thread") or {}
-        return {"id": thread.get("id"), "resolved": bool(thread.get("isResolved"))}
+        last = ((thread.get("comments") or {}).get("nodes") or [None])[-1]
+        return {"id": thread.get("id"), "resolved": bool(thread.get("isResolved")), "last": last}
+
+    def reopen_thread(self, thread_id: str) -> None:
+        self.graphql("mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { id } } }",
+                     {"id": thread_id})
 
     def edit_pr(self, owner: str, name: str, number: int, fields: Mapping[str, str]) -> Json:
         got = self.call("PATCH", self._path("repos", owner, name, "pulls", str(number)), body=dict(fields))

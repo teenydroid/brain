@@ -25,7 +25,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
         pageInfo { hasNextPage endCursor }
         nodes { id isResolved isOutdated path line
           opening: comments(first: 1) { nodes { id author { __typename login } body } }
-          latest: comments(last: 30) { nodes { id author { __typename login } body } } }
+          latest: comments(last: 100) { totalCount nodes { id author { __typename login } body } } }
       }
     }
   }
@@ -50,12 +50,12 @@ def heard(login: str | None, tier: Callable[[str | None], str]) -> str | None:
     return "trusted" if tier(login) in policy.TRUSTED else None
 
 
-def _who(node: Any) -> str | None:
-    author = node.get("author") if isinstance(node, dict) else None
-    if not isinstance(author, dict) or not isinstance(author.get("login"), str):
+def author(node: Any) -> str | None:
+    who = node.get("author") if isinstance(node, dict) else None
+    if not isinstance(who, dict) or not isinstance(who.get("login"), str):
         return None
     # GraphQL names an app without the [bot] only an app's login ends with.
-    return author["login"] + ("[bot]" if author.get("__typename") == "Bot" else "")
+    return who["login"] + ("[bot]" if who.get("__typename") == "Bot" else "")
 
 
 def _nodes(value: Any) -> list[Json]:
@@ -67,7 +67,8 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
                tier: Callable[[str | None], str]) -> tuple[list[Json], bool]:
     """Each `{id, path, line, outdated, opened_by, who, last, comments}`, and
     whether there were more threads than were read. `who` is `trusted` when a
-    trusted person opened it or spoke in it, else `bot`; `last` is the id of
+    trusted person opened it or spoke in it (or may have: too long to read
+    whole), else `bot`; `last` is the id of
     the newest comment by either (a stranger's counts for nothing)."""
     out: list[Json] = []
     after = None
@@ -82,17 +83,19 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
             opening = _nodes(t.get("opening"))
             if t.get("isResolved") or not opening or not isinstance(t.get("id"), str):
                 continue
-            opener = _who(opening[0])
+            opener = author(opening[0])
             if heard(opener, tier) is None:
                 continue
             seen = {opening[0].get("id")}
             said = opening + [c for c in _nodes(t.get("latest")) if c.get("id") not in seen]
-            shown = [{"author": _who(c), "body": words(c.get("body"))} for c in said
-                     if heard(_who(c), tier) or tier(_who(c)) == policy.TEENY]
-            counted = [(c.get("id"), kind) for c in said if (kind := heard(_who(c), tier))]
+            shown = [{"author": author(c), "body": words(c.get("body"))} for c in said[:1] + said[1:][-19:]
+                     if heard(author(c), tier) or tier(author(c)) == policy.TEENY]
+            counted = [(c.get("id"), kind) for c in said if (kind := heard(author(c), tier))]
+            total = (t.get("latest") or {}).get("totalCount")
+            whole = not isinstance(total, int) or total <= len(said)
             out.append({"id": t["id"], "path": t.get("path"), "line": t.get("line"),
                         "outdated": bool(t.get("isOutdated")), "opened_by": opener,
-                        "who": "trusted" if any(k == "trusted" for _, k in counted) else "bot",
+                        "who": "trusted" if not whole or any(k == "trusted" for _, k in counted) else "bot",
                         "last": counted[-1][0], "comments": shown})
         info = page.get("pageInfo") or {}
         if not info.get("hasNextPage"):
