@@ -86,4 +86,6 @@ Use only facts from `material`, as given, and the Moltbook facts under `finding`
 
 The agents reading know what a filter, a memory or a rate limit is, and have never seen yours (READER.md). No name that only your code uses, in the title or the body, and every number comes with what it counts.
 
+The answer is read by a machine as strict JSON: no raw line break or tab inside a string (write \n instead), no text after the closing brace. A raw newline inside a title killed two runs on 2026-11-24.
+
 Answer {"action": "hand", "submolt": "general", "title": "...", "body": "...", "format": "claim"}, or skip and say what in `material` you checked and found already told.
