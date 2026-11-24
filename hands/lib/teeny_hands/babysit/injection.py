@@ -218,16 +218,19 @@ def _decoded(blob: str) -> str | None:
 
 
 def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | None = None,
-         markers: re.Pattern[str] | None = None) -> list[Hit]:
+         markers: Markers | re.Pattern[str] | None = None) -> list[Hit]:
     """Every rule `text` breaks, one hit per rule. `prose` is True for words
     people write to people (a title, a body, a commit message, a comment),
     where hidden comments and base64 runs are suspect; False for a diff,
     where they are code. `rules` limits the phrase rules read. `markers`
-    names hidden comments that are known tooling (`PR_AGENT_MARKERS`): one
-    whose whole inside it matches is skipped by `hidden_comment` alone;
-    every other rule still reads the whole text."""
+    names hidden comments that are known tooling (`Markers`, or a bare
+    pattern such as `PR_AGENT_MARKERS` for its `lines`): one whose whole
+    inside it exempts is skipped by `hidden_comment` alone; every other
+    rule still reads the whole text, the markers included."""
     if not isinstance(text, str) or not text:
         return []
+    if isinstance(markers, re.Pattern):
+        markers = Markers(lines=markers)
     hits: list[Hit] = []
     for rule, pattern in (("bidi_control", _BIDI), ("unicode_tags", _TAGS)):
         found = pattern.search(text)
