@@ -385,6 +385,42 @@ class AccountsTest(Scratch):
         self.assertEqual(sorted(reads), sorted(sig(n) for n in range(1, 5)))
         self.assertEqual([r["signature"] for r in self.rows()], [sig(4)])
 
+    def test_listing_signatures_stops_at_the_scan_deadline(self):
+        # Each page of signatures here takes 200 s: the scan must not start
+        # another listing past its budget, and a scan that read nothing
+        # leaves no record of a scan.
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000), to=OWN)
+        self.deposit(2, T0 - HOUR + 1, usdc_tx(STRANGER, 1_000_000))
+        listed = self.ledger.signatures
+
+        def slow(params: list[Any]) -> Any:
+            accounts._sleep(200)
+            return listed(params)
+
+        self.chain.answers["getSignaturesForAddress"] = slow
+        with self.assertRaises(hand.HandError) as caught:
+            accounts.scan()
+        self.assertIn("out of time", str(caught.exception))
+        self.assertEqual(len(self.chain.params("getSignaturesForAddress")), 1)
+        self.assertEqual(self.chain.params("getTransaction"), [])
+        conn = accounts.db()
+        try:
+            self.assertIsNone(conn.execute("SELECT 1 FROM wallet_scan").fetchone())
+        finally:
+            conn.close()
+
+    def test_a_transaction_that_could_not_be_read_into_a_deposit_is_read_again(self):
+        # A token balance the RPC sent unreadable fails the scan; the next
+        # scan, given good data, must read it again and record the deposit.
+        bad = usdc_tx(STRANGER, 1_000_000)
+        bad["meta"]["postTokenBalances"][1]["uiTokenAmount"] = {"amount": "lots"}
+        self.deposit(1, T0 - HOUR, bad)
+        with self.assertRaises(hand.HandError):
+            accounts.scan()
+        self.ledger.txs[sig(1)] = usdc_tx(STRANGER, 1_000_000)
+        self.assertEqual(accounts.scan()["count"], 1)
+        self.assertEqual([r["signature"] for r in self.rows()], [sig(1)])
+
     def test_the_per_run_cap_never_skips_a_transaction_sharing_the_last_ones_second(self):
         # Three transactions in one block second, the cap at two: the cursor
         # may not pass that second, or the third is never read.
