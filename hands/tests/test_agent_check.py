@@ -1,4 +1,4 @@
-"""bin/lib/agent_check.py: the scheduled agents (builder, operator) always
+"""bin/lib/agent_check.py: the scheduled agent with a desk (the operator) always
 end a run with a final message. A cron run with nothing queued that ends on
 an empty message is a failed run to the harness (`The model returned an
 empty response`, every hour), so each prompt must say what to end with when
@@ -17,7 +17,6 @@ agent_check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent_check)  # type: ignore[union-attr]
 
 NOTHING_TO_DO = {
-    "builder": "`nothing to do: no job waiting`",
     "operator": "`nothing to do: no task waiting`",
 }
 
@@ -45,6 +44,17 @@ class ScheduledAgentIdleRunTest(unittest.TestCase):
                 with self.assertRaises(SystemExit) as caught:
                     agent_check.check(broken)
                 self.assertIn("nothing to do", str(caught.exception), name)
+
+
+class RetiredBuilderTest(unittest.TestCase):
+    """2026-11-24: the builder is retired; no posture is kept for it, so a
+    builder.toml put back would have to be reviewed in again."""
+
+    def test_no_builder_posture_is_left(self):
+        for table in (agent_check.SCHEDULED, agent_check.WORKSPACE, agent_check.NOTHING_TO_DO):
+            self.assertNotIn("builder", table)
+        self.assertNotIn("builder", agent_check.JAILED)
+        self.assertFalse((REPO / "brain" / "agents" / "builder.toml").exists())
 
 
 class EvolverPostureTest(unittest.TestCase):
@@ -146,7 +156,7 @@ class MemoryLogPostureTest(DraftingAgentIterationsTest):
     helper turns sat in CortexDB, recalled by nobody and turning up in the
     mind's recall. The agents that speak as Teeny log and recall both."""
 
-    QUIET = ("writer", "editor", "judge", "querier", "reviewer", "builder", "operator", "worker", "evolver")
+    QUIET = ("writer", "editor", "judge", "querier", "reviewer", "operator", "worker", "evolver")
     SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
 
     def test_every_memoryless_agent_keeps_its_turns_out_of_memory(self):
@@ -155,7 +165,7 @@ class MemoryLogPostureTest(DraftingAgentIterationsTest):
             self.assertIn("\nomit_memory_log = true\n", text, name)
 
     def test_a_memoryless_agent_that_logs_is_refused(self):
-        for name in ("writer", "judge", "builder"):
+        for name in ("writer", "judge", "operator"):
             self.refused(self.variant(name, "omit_memory_log = true\n", ""), "omit_memory_log = true")
 
     def test_a_speaking_agent_that_stops_logging_is_refused(self):
