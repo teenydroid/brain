@@ -13,6 +13,9 @@ import fcntl
 import json
 import os
 import subprocess
+import unittest
+import tempfile
+import shutil
 import sys
 from pathlib import Path
 
@@ -245,3 +248,16 @@ class PlanTest(BabysitScratch):
     def test_cron_files_reseed(self):
         self.assertTrue(deploy.plan(["brain/cron.toml"])["reseed"])
         self.assertTrue(deploy.plan(["evals/cron.pinned.toml"])["reseed"])
+
+
+class RuntimeFilesIgnored(unittest.TestCase):
+    def test_the_cores_storage_folder_is_ignored(self) -> None:
+        """A box-local commit of it left the live checkout unable to
+        fast-forward, so every deploy was refused (2026-11-24)."""
+        repo = Path(__file__).resolve().parents[3]
+        for name in ("storage.db", "storage.db-shm", "storage.db-wal"):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                git(Path(tmp), "init", "-q")
+                shutil.copy(repo / ".gitignore", Path(tmp) / ".gitignore")
+                done = subprocess.run(["git", "-C", tmp, "check-ignore", "-q", f"brain/storage/{name}"])
+                self.assertEqual(done.returncode, 0)
