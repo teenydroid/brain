@@ -585,7 +585,8 @@ brain).
    or pushes an empty commit when the token may not.
    `merge` is recorded for that exact head. `close` comments the reason
    through the guard and closes, only an open `teeny/*` pull request of
-   Teeny's own. `wait` stands six hours, or until something changes.
+   Teeny's own. `wait` stands six hours, or until there is a new head or the
+   findings or the open threads change (not for an edited description).
 
 A candidate is `ready` with no person's approval when every required check is
 green, no thread of a review bot or a trusted person is unresolved

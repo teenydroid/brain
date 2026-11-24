@@ -89,6 +89,8 @@ MAX_RETRIES = 2
 RETRY_SETTLES_SECS = 15 * 60
 #: A report this fresh may still be being written.
 SETTLE_SECS = 10
+#: Sweeps a thread that has to be reopened is tried for, before the operator.
+MAX_REOPENS = 18
 MAX_REPORT_BYTES = 64 * 1024
 MAX_DIFF_CHARS = 200_000
 MAX_LOGS = 4
@@ -412,7 +414,9 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
         "said": _said(api, owner, name, number, role),
         "files": [{"path": f["filename"], "status": f["status"], "added": f["additions"], "deleted": f["deletions"]}
                   for f in files[:100]],
-        "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS, "note": NOTE,
+        "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS,
+        **({"diff_note": "the diff is cut short; the files in repo are complete: read every changed file there "
+            "before you decide"} if len(diff) > MAX_DIFF_CHARS else {}), "note": NOTE,
     }
     _put(brief["diff"], diff[:MAX_DIFF_CHARS])
     _put(f"logs-{name_}", {r["log"]: r["text"] for r in red if "log" in r})
@@ -585,9 +589,16 @@ def _error(now: Json, exc: Exception, counts: bool) -> Json:
     """The same again next sweep, MAX_TRIES times; then dropped, as a try
     that failed when it COUNTS (git, or the tree), else only as dropped."""
     now["errors"] = int(now.get("errors") or 0) + 1
-    if now["errors"] < MAX_TRIES:
+    unsettled = any(r.get("resolving") for r in now.get("replies") or [])
+    if now["errors"] < (MAX_REOPENS if unsettled else MAX_TRIES):
         _save(now)
         return {"number": now["number"], "error": f"{type(exc).__name__}: {exc}"[:300]}
+    if unsettled:
+        # A thread may be resolved over somebody's objection: no merge here.
+        _leave(now, "a review thread was resolved as somebody added to it, and could not be reopened")
+        _wrote(now, "stuck", str(exc)[:300])
+        _drop()
+        return {"number": now["number"], "left": True}
     if counts and now.get("replies") is not None:
         # Answers that cannot be posted: not asked for again at once.
         _decided(now, "sitter_wait", "the review threads could not be answered")
@@ -609,6 +620,8 @@ def _collect(now: Json, api: PullsApi) -> Json:
         return {"number": number, "dropped": refused.detail.get("rule")}
     if now.get("pushed"):
         _pushed(now)
+    if any(r.get("resolving") for r in now.get("replies") or []):
+        _reconcile(now, api)
     if pull.get("head_sha") != (now.get("pushed") or now["head_sha"]):
         # Not what the report was about, its answers included.
         _drop()
@@ -727,8 +740,16 @@ def _retry(now: Json, api: PullsApi, report: Json) -> Json:
         return _failed(now, "retries", f"the failed jobs were run again {MAX_RETRIES} times at this head already: "
                        "find the cause, or wait", again=True)
     red = {r["check"] for r in now["brief"]["red_checks"]}
-    ids = [r["id"] for r in api.check_runs(owner, name, now["head_sha"])
-           if r["name"] in red and r.get("conclusion") in RED and isinstance(r.get("id"), int)]
+    if not red:
+        return _failed(now, "retries", "there is no red check to run again", again=True)
+    runs_now = [r for r in api.check_runs(owner, name, now["head_sha"])
+                if r["name"] in red and r.get("conclusion") in RED]
+    statuses = [s for s in api.status(owner, name, now["head_sha"])["statuses"]
+                if s.get("context") in red and s.get("state") in ("failure", "error")]
+    if not runs_now and not statuses:
+        _drop()  # what was red is not any more: nothing to run, nothing to push
+        return {"number": now["number"], "decision": "retry", "runs": 0}
+    ids = [r["id"] for r in runs_now if isinstance(r.get("id"), int)]
     runs: set[int] = set()
     for check in ids:
         try:
@@ -744,6 +765,44 @@ def _retry(now: Json, api: PullsApi, report: Json) -> Json:
     _row(now, "sitter_retry", runs=len(runs))
     _drop()
     return {"number": now["number"], "decision": "retry", "runs": len(runs)}
+
+
+def _resolve(now: Json, api: PullsApi, r: Json, role: Any) -> bool:
+    """Resolves R's thread; False when somebody heard spoke as it was, and it
+    is open again. `resolving` is saved before the first call, so a crash or
+    an error in between is settled first by the next sweep (_reconcile)."""
+    at = {"repo": now["repo"], "number": now["number"], "thread_id": r["thread_id"]}
+    r["resolving"] = True
+    _save(now)
+    done = gh_actions.resolve_thread(at, api.gh)
+    said = threads.heard(threads.author(done.get("last")), role)
+    if said:
+        # GitHub cannot be asked to resolve only what was read.
+        now["moved"] = True
+        _save(now)
+        gh_actions.reopen_thread(at, api.gh)
+    else:
+        _row(now, "sitter_resolve", thread=r["thread_id"])
+    r.pop("resolving")
+    return not said
+
+
+def _reconcile(now: Json, api: PullsApi) -> None:
+    """Every thread a resolve was begun on and not seen through: still open,
+    the ordinary path has it; resolved, it is asked again (which changes
+    nothing) who spoke last, and reopened over an objection."""
+    owner, name, _ = policy.watched(now["repo"])
+    role = lambda who: policy.tier(who, lambda login: api.permission(owner, name, login))  # noqa: E731
+    opened = {t["id"] for t in threads.unresolved(api.gh, owner, name, now["number"], role)[0]}
+    for r in list(now["replies"]):
+        if not r.get("resolving"):
+            continue
+        if r["thread_id"] in opened:
+            r.pop("resolving")
+        else:
+            _resolve(now, api, r, role)
+            now["replies"].remove(r)
+        _save(now)
 
 
 def _replies(now: Json, api: PullsApi) -> Json:
@@ -775,22 +834,21 @@ def _replies(now: Json, api: PullsApi) -> Json:
                     r["posted"] = True
                     _save(now)
                 if r["outcome"] == "fixed" or "trusted" not in (was.get("who"), current[tid]["who"]):
-                    done = gh_actions.resolve_thread(at, api.gh)
-                    if threads.heard(threads.author(done.get("last")), role):
-                        # Said between the read above and the resolve, which
-                        # GitHub cannot be asked to make conditional.
-                        gh_actions.reopen_thread(at, api.gh)
+                    # Again, after the reply: a word said just before it is
+                    # no longer the newest one.
+                    again = {t["id"]: t for t in threads.unresolved(api.gh, owner, name, number, role)[0]}
+                    if tid in again and again[tid]["last"] != was.get("last"):
                         moved += 1
                         now["moved"] = True
-                    else:
-                        _row(now, "sitter_resolve", thread=tid)
+                    elif tid in again and not _resolve(now, api, r, role):
+                        moved += 1
                 posted += 1
         except hand.Refused:
             held += 1
         except GitHubError as exc:
             r["errors"] = int(r.get("errors") or 0) + 1
             error = str(exc)
-            if r["errors"] < MAX_TRIES:
+            if r["errors"] < MAX_TRIES or r.get("resolving"):
                 _save(now)
                 continue
             held += 1

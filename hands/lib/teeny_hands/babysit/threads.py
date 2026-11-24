@@ -84,15 +84,18 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
             raise hand.HandError("GitHub did not list the review threads")
         for t in _nodes(page):
             opening = _nodes(t.get("opening"))
-            if t.get("isResolved") or not opening or not isinstance(t.get("id"), str):
+            if t.get("isResolved"):
                 continue
+            if not opening or not isinstance(t.get("id"), str) or not isinstance(t.get("latest"), dict):
+                raise hand.HandError("GitHub did not give a review thread whole")
             opener = author(opening[0])
             if heard(opener, tier) is None:
                 continue
             seen = {opening[0].get("id")}
             said = opening + [c for c in _nodes(t.get("latest")) if c.get("id") not in seen]
-            shown = [{"author": author(c), "body": words(c.get("body"))} for c in said[:1] + said[1:][-19:]
+            shown = [{"author": author(c), "body": words(c.get("body"))} for c in said
                      if heard(author(c), tier) or tier(author(c)) == policy.TEENY]
+            shown = shown[:1] + shown[1:][-19:]
             counted = [([c.get("id"), c.get("body")], kind) for c in said if (kind := heard(author(c), tier))]
             total = (t.get("latest") or {}).get("totalCount")
             whole = not isinstance(total, int) or total <= len(said)

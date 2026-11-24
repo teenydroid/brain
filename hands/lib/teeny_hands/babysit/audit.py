@@ -284,9 +284,17 @@ class _Audit:
         secret = secretscan.content_finding(path, text)
         if secret is not None:
             self.add("secret", "block", path, secret.rule)
-        if b"\0" not in data:
-            self.injected(injection.scan(text, f"diff:{path}", prose=False), self.author, self.author_tier,
-                          self._diff_severity)
+        severity = self._diff_severity
+        hits = injection.scan(text, f"diff:{path}", prose=False)
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            # Not text: a picture's bytes can spell a control character by
+            # chance, so one found here is the operator's to look at, and the
+            # phrases are noise.
+            hits = [h for h in hits if h.rule in injection.ALWAYS_HOSTILE]
+            severity = lambda rule: "operator"  # noqa: E731
+        self.injected(hits, self.author, self.author_tier, severity)
         return True
 
     def _frozen_list(self) -> str | None:
