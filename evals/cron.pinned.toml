@@ -4,9 +4,10 @@
 # the brain does not get to switch them off.
 #
 # The pipelines that only do Teeny's own work are in brain/cron.toml, Teeny's
-# to reschedule, pause or drop: the dreams, the builder, the episode and the
-# Moltbook prune since 2026-11-22; evolve, evolve-credit, wants, tasks-desk
-# and build-ship since 2026-11-23 (docs/mind.md, "Owning every pipeline").
+# to reschedule, pause or drop: the dreams, the episode and the Moltbook
+# prune since 2026-11-22; evolve, evolve-credit, wants and tasks-desk since
+# 2026-11-23 (docs/mind.md, "Owning every pipeline"). The builder and
+# build-ship were among them until they were retired on 2026-11-24.
 # Each of those scripts checks its own switch in secrets/ however it is
 # scheduled. What stays here: the inbound jobs and the beat, the watchers
 # (health, audit, babysit, the guard's jobs, goals-check and evolve-watch,
