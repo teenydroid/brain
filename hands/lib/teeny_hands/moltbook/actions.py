@@ -554,15 +554,11 @@ def _comment_detail(writer: str | None, own_post: bool, the_post: Any) -> str:
     return json.dumps(detail, sort_keys=True)
 
 
-#: The oldest post (hours) Teeny comments on at the top level, by default.
-DEFAULT_MAX_COMMENT_AGE_HOURS = 6
-
-
 def _check_age(the_post: Mapping[str, Any], me: str) -> None:
     """Refuses a top-level comment on another agent's post that is too old
     to be read (`too_old`), unless the post names Teeny: that is a mention,
     and a mention is answered whatever its age."""
-    limit = hand.number("MOLTBOOK_MAX_COMMENT_AGE_HOURS", DEFAULT_MAX_COMMENT_AGE_HOURS, 1, 24 * 30)
+    limit = rules.max_comment_age_hours()
     age = reads.age_hours(the_post)
     if age is None or age <= limit:
         return

@@ -17,10 +17,14 @@ limit on follows). A "day" is the last 24 hours, rolling.
 
 The own-thread reserve: while comments on Teeny's own posts wait for an
 answer (`moltbook_owed`, moltbook/owed.py), the day's last comments are kept
-for those answers. A comment that answers one of them may use any of the
-allowance; any other comment is refused (`own_thread_reserve`) once it would
-leave fewer than the number waiting. No cap moves: it is an order inside the
-same cap.
+for those answers. The reserve is the number waiting that were said within
+`MOLTBOOK_MAX_COMMENT_AGE_HOURS` (6), and never more than half the day's cap
+(rounded down). A comment that answers one of them may use any of the
+allowance; any other comment is refused (`own_thread_reserve`) once the
+comments left are no more than the reserve. No cap moves: it is an order
+inside the same cap. Live, 2026-11-24, the reserve was every comment waiting
+under three days old, 114 against a cap of 50, and it refused every other
+comment all day.
 
 Verification: a challenge Moltbook sets and nobody answers expires, and
 Moltbook suspends an account whose last ten challenges all failed (wrong or
@@ -69,8 +73,12 @@ DEFAULT_MAX_FOLLOWS_PER_DAY = 30
 MAX_REPLY_DEPTH = 5
 LOCKOUT_AFTER = 3
 #: A comment on Teeny's own post left unanswered this long is no longer owed
-#: an answer (owed.py marks it expired), and holds back none of the allowance.
+#: an answer (owed.py marks it expired).
 OWED_MAX_AGE = 3 * DAY
+#: The oldest post (hours) Teeny comments on at the top level, by default
+#: (actions._check_age), and the oldest waiting comment on its own posts that
+#: still holds back part of the allowance (the own-thread reserve).
+DEFAULT_MAX_COMMENT_AGE_HOURS = 6
 
 #: Ledger statuses of content Moltbook accepted (it counts against the limits
 #: whether or not its challenge was answered).
@@ -196,6 +204,10 @@ def max_comments_per_day() -> int:
 
 def max_follows_per_day() -> int:
     return hand.number("MOLTBOOK_MAX_FOLLOWS_PER_DAY", DEFAULT_MAX_FOLLOWS_PER_DAY, 0, 200)
+
+
+def max_comment_age_hours() -> int:
+    return hand.number("MOLTBOOK_MAX_COMMENT_AGE_HOURS", DEFAULT_MAX_COMMENT_AGE_HOURS, 1, 24 * 30)
 
 
 def _claimed_at_setting() -> float | None:
@@ -339,12 +351,20 @@ def check_follow(conn: sqlite3.Connection, name: str) -> None:
 
 
 def owed_waiting(conn: sqlite3.Connection) -> int:
-    """Comments on Teeny's own posts waiting for an answer, young enough to
-    still be owed one (OWED_MAX_AGE)."""
+    """Comments on Teeny's own posts waiting for an answer that were said
+    within MOLTBOOK_MAX_COMMENT_AGE_HOURS: the ones still worth answering
+    first."""
     row = conn.execute(
-        "SELECT count(*) FROM moltbook_owed WHERE status = 'waiting' AND said_at >= ?", (hand.now() - OWED_MAX_AGE,)
+        "SELECT count(*) FROM moltbook_owed WHERE status = 'waiting' AND said_at >= ?",
+        (hand.now() - max_comment_age_hours() * HOUR,),
     ).fetchone()
     return int(row[0])
+
+
+def own_thread_reserve(cap: int, waiting: int) -> int:
+    """The comments of the day kept for answers on Teeny's own posts: one
+    for each fresh comment waiting, never more than half the cap."""
+    return min(waiting, cap // 2)
 
 
 def check_comment(conn: sqlite3.Connection, own_thread: bool = False) -> dict[str, Any]:
@@ -360,12 +380,15 @@ def check_comment(conn: sqlite3.Connection, own_thread: bool = False) -> dict[st
         raise hand.Refused(f"{done} Moltbook comment(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
     if not own_thread:
         waiting = owed_waiting(conn)
-        if waiting and cap - done <= waiting:
+        reserve = own_thread_reserve(cap, waiting)
+        if reserve and cap - done <= reserve:
             raise hand.Refused(
                 f"{done} of {cap} Moltbook comments spent in the last 24 hours and {waiting} comment(s) on Teeny's own"
-                f" posts still wait for an answer; the last {cap - done} are kept for those answers",
+                f" posts from the last {max_comment_age_hours()} hours still wait for an answer; the reserve is"
+                f" {reserve} (at most half the cap) and the {cap - done} left are kept for those answers",
                 rule="own_thread_reserve",
                 waiting=waiting,
+                reserve=reserve,
                 left=cap - done,
             )
     return {"new_agent": new}

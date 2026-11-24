@@ -39,7 +39,9 @@ goes on as it is. The box's own DRY_RUN holds it either way.
 Every request is POST with a JSON object body of at most MAX_BODY bytes:
 
 - /do         one intent, `{"do": <a tick.ROUTES verb>, ...}`, carried out
-              as a beat carries it out (the route, its cap, the hand)
+              as a beat carries it out (the route, its cap, the hand). The
+              Moltbook writes (SCRIPTS_ONLY: comment, post, upvote, follow,
+              decline) are refused: Moltbook belongs to the scripts
 - /wake       `{"name", "note", "at" | "cron"}`: a core cron job that wakes
               the `mind` agent on the note, always an agent job
 - /wakes      the mind's wakes
@@ -217,6 +219,14 @@ def _summary(text: str) -> str:
     return ""
 
 
+#: Skills for work that is the scripts' alone: the index says so in place of
+#: the skill's own line, which is written for the scripts that use it.
+SCRIPTS_SKILLS = {
+    "moltbook": ("the scripts' rules for Moltbook (the 5-minute beat and the moltbook playbooks use it). Moltbook "
+                 "is not yours to work; read it only to change it by a pull request."),
+}
+
+
 def install_library() -> None:
     brain = CODE / "brain"
     lines = ["# library", "",
@@ -228,7 +238,7 @@ def install_library() -> None:
         text = skill.read_text(encoding="utf-8")
         mind_home.write((LIBRARY,), f"{name}.md", text, 0o644)
         keep.add(f"{name}.md")
-        lines.append(f"- `library/{name}.md`: {_summary(text)}")
+        lines.append(f"- `library/{name}.md`: {SCRIPTS_SKILLS.get(name) or _summary(text)}")
     lines.append("- `library/SOUL.md`: your public voice and its rules; read it before you write words anyone else will read.")
     mind_home.write((LIBRARY,), "SOUL.md", (brain / "SOUL.md").read_text(encoding="utf-8"), 0o644)
     mind_home.write((LIBRARY,), "INDEX.md", "\n".join(lines) + "\n", 0o644)
@@ -332,6 +342,24 @@ def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
     return answer
 
 
+#: Moltbook belongs to the scripts (the operator, 2026-11-24): the five-minute
+#: beat (bin/lib/tick.py) and the moltbook playbooks answer and post there,
+#: and every Moltbook write route is refused to the mind before any hand runs
+#: or any cap is counted. Live that day 25 of the mind's 44 journal lines
+#: were about Moltbook comment slots. Its reads stay: `call` to moltbook is
+#: GET only (evals/services.toml) and the pulse keeps its numbers.
+SCRIPTS_ONLY = frozenset(verb for verb in tick.ROUTES if verb.endswith("_moltbook"))
+SCRIPTS_ONLY_MESSAGE = (
+    "Moltbook belongs to the scripts now (the 5-minute beat and the moltbook playbooks answer and post there). "
+    "Nothing was sent. Spend this wake on X, GitHub, your builds or yourself. To change how the scripts behave "
+    "there, open a pull request on brain/playbooks/moltbook-*.md or brain/skills/moltbook.")
+
+
+def mind_verbs() -> list[str]:
+    """The /do verbs the mind may use, as an unknown verb's refusal names them."""
+    return sorted(set(tick.ROUTES) - SCRIPTS_ONLY)
+
+
 def do(body: Json, entry: Json) -> Json:
     """One intent, the way a beat carries it out (tick.carry_out): the route
     (its fields, and its daily cap where one applies), the cap counted once
@@ -343,8 +371,10 @@ def do(body: Json, entry: Json) -> Json:
     entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
     if verb in tick.OWN:
         raise Refused(f"{verb!r} is not a broker verb: it is the beat's own")
+    if isinstance(verb, str) and verb in SCRIPTS_ONLY:
+        raise Refused(SCRIPTS_ONLY_MESSAGE)
     if not isinstance(verb, str) or verb not in tick.ROUTES:
-        raise Refused(f"no such verb {_clipped(verb)!r}; the broker verbs are {', '.join(sorted(tick.ROUTES))}")
+        raise Refused(f"no such verb {_clipped(verb)!r}; the broker verbs are {', '.join(mind_verbs())}")
     try:
         name, argv, hand_body = tick.ROUTES[verb](body)
     except ValueError as exc:

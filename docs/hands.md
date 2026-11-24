@@ -688,12 +688,16 @@ hears of the write, and refuses each with its `rule`:
   with Moltbook's 30-minute gap between posts), `MOLTBOOK_MAX_COMMENTS_PER_DAY`
   (50, and never above Moltbook's 50, or 20 for a new agent) and
   `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no limit of its own).
-- The own-thread reserve (`own_thread_reserve`, with `waiting` and `left`):
-  while comments on Teeny's own posts wait for an answer (`moltbook_owed`,
-  under three days old), the day's last comments are kept for them. An
+- The own-thread reserve (`own_thread_reserve`, with `waiting`, `reserve`
+  and `left`): while comments on Teeny's own posts wait for an answer
+  (`moltbook_owed`), the day's last comments are kept for them. The reserve
+  is the number waiting that were said within `MOLTBOOK_MAX_COMMENT_AGE_HOURS`
+  (6), and never more than half the day's cap, rounded down (25 of 50). An
   answer to one of them (its parent is an owed comment, or the post is
   Teeny's own) may use the whole allowance; any other comment is refused once
-  the comments left would be no more than the number waiting. No cap moves.
+  the comments left are no more than the reserve. No cap moves. Live,
+  2026-11-24, the reserve was every waiting comment under three days old (114
+  against a cap of 50), so every other comment was refused all day.
 - Comments (`once_per_post`, `once_per_parent`, `own_post`,
   `own_comment`, `unknown_parent`): never twice on a post unless answering a
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
