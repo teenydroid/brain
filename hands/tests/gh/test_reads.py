@@ -122,6 +122,52 @@ class ReadsTest(Scratch):
         self.assertIn("author:teenydroid type:pr created:>=2026-09-07", queries)
 
 
+class FeedbackTest(Scratch):
+    def test_threads_reviews_and_comments_come_back_shaped_and_clipped(self):
+        long = "y" * (reads.FEEDBACK_CLIP + 50)
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": {
+            "number": 4, "state": "OPEN", "headRefName": "teeny/mind-x", "author": {"login": "teenydroid"},
+            "reviewThreads": {"nodes": [{"isResolved": False, "isOutdated": False, "path": "a.md", "line": 3,
+                                         "opening": {"nodes": [{"author": {"login": "bot"}, "body": long}]}}]},
+            "reviews": {"nodes": [{"author": {"login": "op"}, "state": "APPROVED", "body": ""}]},
+            "comments": {"nodes": []}}}}})
+        out = reads.pr_feedback("teenydroid/brain", 4)
+        self.assertEqual((out["author"], out["branch"], out["open_threads"]), ("teenydroid", "teeny/mind-x", 1))
+        (thread,) = out["threads"]
+        self.assertEqual((thread["path"], thread["line"], thread["resolved"]), ("a.md", 3, False))
+        self.assertEqual(thread["comments"][0]["body"], "y" * reads.FEEDBACK_CLIP + "…")
+        self.assertEqual(out["reviews"][0]["state"], "APPROVED")
+
+    def test_a_thread_whose_opening_finding_does_not_fit_is_left_out_whole(self):
+        from unittest import mock
+
+        def thread(path, opening, reply):
+            return {"isResolved": False, "isOutdated": False, "path": path, "line": 1,
+                    "opening": {"nodes": [{"id": path + "0", "author": {"login": "bot"}, "body": opening}]},
+                    "latest": {"nodes": [{"id": path + "1", "author": {"login": "bot"}, "body": reply}]}}
+
+        # newest last in GitHub's order: b.md is read first, a.md second
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": {
+            "number": 4, "state": "OPEN", "headRefName": "teeny/mind-x", "author": {"login": "teenydroid"},
+            "reviewThreads": {"totalCount": 2, "nodes": [thread("a.md", "o" * 50, "short"), thread("b.md", "f" * 90, "")]},
+            "reviews": {"nodes": []}, "comments": {"nodes": []}}}}})
+        with mock.patch.object(reads, "FEEDBACK_BUDGET", 100):
+            out = reads.pr_feedback("teenydroid/brain", 4)
+        self.assertEqual([t["path"] for t in out["threads"]], ["b.md"])
+        self.assertEqual(out["omitted"]["threads"], 1)
+
+    def test_no_such_pull_request_or_a_graphql_error(self):
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}}})
+        self.assertIsNone(reads.pr_feedback("teenydroid/brain", 4))
+        self.gh.route("POST", "/graphql", {"data": {"repository": {"pullRequest": None}},
+                                           "errors": [{"type": "NOT_FOUND", "message": "Could not resolve"}]})
+        self.assertIsNone(reads.pr_feedback("teenydroid/brain", 4))
+        self.gh.route("POST", "/graphql", {"errors": [{"message": "secret query text"}]})
+        with self.assertRaises(GitHubError) as caught:
+            reads.pr_feedback("teenydroid/brain", 4)
+        self.assertNotIn("secret", str(caught.exception))
+
+
 class PolicyTest(Scratch):
     def assess(self, text):
         return contributing.assess({"CONTRIBUTING.md": text})

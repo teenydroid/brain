@@ -123,3 +123,122 @@ def checks(repo: str, number: int, gh: GitHubApi | None = None) -> Json:
     return {"repo": f"{owner}/{name}", "number": number, "state": pr.get("state"), "merged": pr.get("merged"),
             "head_ref": pr.get("head_ref"), "head_sha": pr.get("head_sha"), "user": pr.get("user"),
             "red": red, "pending": pending, "green": green}
+
+
+#: The most of any one review text `pr_feedback` passes on, and of all of
+#: them together in one answer: strangers' words, kept small.
+FEEDBACK_CLIP = 1500
+FEEDBACK_BUDGET = 20000
+FEEDBACK_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number state headRefName author { login }
+      reviewThreads(last: 100) { totalCount nodes { isResolved isOutdated path line
+        opening: comments(first: 1) { totalCount nodes { id author { login } body createdAt } }
+        latest: comments(last: 19) { nodes { id author { login } body createdAt } } } }
+      reviews(last: 50) { nodes { author { login } state body submittedAt } }
+      comments(last: 50) { nodes { author { login } body createdAt } }
+    }
+  }
+}
+"""
+
+
+def _clipped(text: Any) -> str:
+    text = text if isinstance(text, str) else ""
+    return text if len(text) <= FEEDBACK_CLIP else text[:FEEDBACK_CLIP] + "…"
+
+
+def _author(node: Any) -> str | None:
+    who = node.get("author") if isinstance(node, dict) else None
+    return who.get("login") if isinstance(who, dict) else None
+
+
+def _nodes(parent: Any, key: str) -> list[dict]:
+    got = parent.get(key) if isinstance(parent, dict) else None
+    nodes = got.get("nodes") if isinstance(got, dict) else None
+    return [n for n in (nodes if isinstance(nodes, list) else []) if isinstance(n, dict)]
+
+
+def _total(connection: Any) -> int | None:
+    got = connection.get("totalCount") if isinstance(connection, dict) else None
+    return got if isinstance(got, int) and not isinstance(got, bool) else None
+
+
+def _thread_comments(thread: dict) -> list[dict]:
+    """A thread's opening comment (the finding) and its latest replies,
+    each once."""
+    opening = _nodes(thread, "opening")
+    seen = {c.get("id") for c in opening if c.get("id") is not None}
+    return opening + [c for c in _nodes(thread, "latest") if c.get("id") is None or c.get("id") not in seen]
+
+
+def _said(node: dict, at: str) -> Json:
+    who = _author(node)
+    return {"author": who, "self": isinstance(who, str) and who.lower() == user().lower(),
+            "body": _clipped(node.get("body")), "at": node.get(at)}
+
+
+def pr_feedback(repo: str, number: int, gh: GitHubApi | None = None) -> Json | None:
+    """A pull request's newest 100 review threads (resolved or not, with
+    their file and line), its reviews' verdicts and its conversation, each
+    text clipped to FEEDBACK_CLIP and all of them together to FEEDBACK_BUDGET:
+    unresolved threads first, then verdicts, then comments, then resolved
+    threads, the rest counted in `omitted`. Each item says whether Teeny
+    wrote it (`self`). None when there is no such pull request. One GraphQL
+    read, not cached: a revision needs it fresh."""
+    owner, name = split_repo(repo)
+    data = _gh(gh).graphql(FEEDBACK_QUERY, {"owner": owner, "name": name, "number": number})
+    pull = (data.get("repository") or {}).get("pullRequest") if isinstance(data.get("repository"), dict) else None
+    if not isinstance(pull, dict):
+        return None
+    threads = [{"path": t.get("path"), "line": t.get("line"), "resolved": bool(t.get("isResolved")),
+                "outdated": bool(t.get("isOutdated")), "comments_total": _total(t.get("opening")),
+                "comments": [_said(c, "createdAt") for c in _thread_comments(t)]}
+               for t in reversed(_nodes(pull, "reviewThreads"))]  # newest first
+    reviews = [{**_said(r, "submittedAt"), "state": r.get("state")} for r in reversed(_nodes(pull, "reviews"))]
+    comments = [_said(c, "createdAt") for c in reversed(_nodes(pull, "comments"))]
+    left = FEEDBACK_BUDGET
+    omitted = {"threads": 0, "thread_comments": 0, "reviews": 0, "comments": 0}
+
+    def fits(item: Json) -> bool:
+        nonlocal left
+        if len(item["body"]) > left:
+            return False
+        left -= len(item["body"])
+        return True
+
+    def kept_threads(resolved: bool) -> list[Json]:
+        out = []
+        for thread in (t for t in threads if t["resolved"] is resolved):
+            # A reply means nothing without the finding it answers: a thread
+            # whose opening comment does not fit is left out whole.
+            if not thread["comments"] or not fits(thread["comments"][0]):
+                omitted["threads"] += 1
+                omitted["thread_comments"] += len(thread["comments"])
+                continue
+            said = [thread["comments"][0], *(c for c in thread["comments"][1:] if fits(c))]
+            omitted["thread_comments"] += len(thread["comments"]) - len(said)
+            out.append({**thread, "comments": said})
+        return out
+
+    open_kept = kept_threads(False)
+    reviews_kept = [r for r in reviews if fits(r)]
+    comments_kept = [c for c in comments if fits(c)]
+    resolved_kept = kept_threads(True)
+    omitted["reviews"] = len(reviews) - len(reviews_kept)
+    omitted["comments"] = len(comments) - len(comments_kept)
+    total = _total(pull.get("reviewThreads"))
+    return {
+        "repo": f"{owner}/{name}", "number": pull.get("number"), "state": pull.get("state"),
+        "branch": pull.get("headRefName"), "author": _author(pull),
+        "open_threads": sum(1 for t in threads if not t["resolved"]),
+        "threads_total": total if total is not None else len(threads),
+        # Only the newest 100 threads are read: open_threads counts those.
+        "threads_incomplete": total is not None and total > len(threads),
+        "threads": open_kept + resolved_kept,
+        "reviews": reviews_kept,
+        "comments": comments_kept,
+        "omitted": omitted,
+    }

@@ -578,6 +578,58 @@ class IssueTest(Scratch):
                 actions.close_issue(body)
 
 
+class PullRequestEditTest(Scratch):
+    """edit_pr and close_pr: in-process only, for the mind's own pull requests
+    (teeny_hands.build.mindclone holds who wrote one and its branch)."""
+
+    def setUp(self):
+        super().setUp()
+        self.gh.route("PATCH", "/repos/teenydroid/brain/pulls/7",
+                      {"number": 7, "state": "closed", "html_url": "https://github.com/teenydroid/brain/pull/7"})
+        self.gh.route("POST", "/repos/teenydroid/brain/issues/7/comments", {"id": 3, "html_url": "c"}, status=201)
+
+    def patches(self):
+        return [s.json() for s in self.gh.requests("PATCH", "/repos/teenydroid/brain/pulls/7")]
+
+    def test_edits_the_title_and_body_through_the_guard(self):
+        out = actions.edit_pr({"repo": "teenydroid/brain", "number": 7, "title": "new — title"})
+        self.assertEqual((out["edited_pr"], out["number"]), ("teenydroid/brain", 7))
+        self.assertEqual(self.patches(), [{"title": "new, title"}])
+        self.assertEqual([r["verb"] for r in ledger()], ["edit-pr"])
+
+    def test_a_held_title_edits_nothing(self):
+        with self.assertRaises(hand.Refused):
+            actions.edit_pr({"repo": "teenydroid/brain", "number": 7, "title": "what a retard"})
+        self.assertEqual(self.patches(), [])
+
+    def test_closes_with_a_last_comment_and_never_merges(self):
+        out = actions.close_pr({"repo": "teenydroid/brain", "number": 7, "comment": "superseded"})
+        self.assertEqual((out["closed_pr"], out["number"]), ("teenydroid/brain", 7))
+        self.assertEqual(self.patches(), [{"state": "closed"}])
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/issues/7/comments")[0].json(),
+                         {"body": "superseded"})
+        self.assertEqual(self.gh.requests("PUT"), [])
+        self.assertEqual([r["verb"] for r in ledger()], ["comment", "close-pr"])
+
+    def test_own_repositories_only_and_nothing_under_dry_run(self):
+        for call in (actions.edit_pr, actions.close_pr):
+            with self.subTest(call=call.__name__), self.assertRaises(hand.Refused):
+                call({"repo": "someone/else", "number": 7, "title": "t"} if call is actions.edit_pr
+                     else {"repo": "someone/else", "number": 7})
+        self.configure(DRY_RUN="1")
+        self.assertTrue(actions.close_pr({"repo": "teenydroid/brain", "number": 7, "comment": "ok"})["dry_run"])
+        self.assertTrue(actions.edit_pr({"repo": "teenydroid/brain", "number": 7, "body": "b"})["dry_run"])
+        self.assertEqual(self.gh.seen, [])
+
+    def test_bodies(self):
+        for body in ({"repo": "teenydroid/brain", "number": 7}, {"repo": "teenydroid/brain", "number": 0, "title": "t"},
+                     {"repo": "teenydroid/brain", "number": 7, "state": "open"}):
+            with self.subTest(body=body), self.assertRaises(hand.HandError):
+                actions.edit_pr(body)
+        with self.assertRaises(hand.HandError):
+            actions.close_pr({"repo": "teenydroid/brain", "number": 7, "merge": True})
+
+
 class SetStatusTest(Scratch):
     """bin/evolve's `teeny/eval` on a candidate's head: what the babysitter
     reads before it merges a teeny/gen-* pull request."""

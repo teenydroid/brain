@@ -166,6 +166,29 @@ class GitHubApi:
             raise
         return to_pr(got)
 
+    def pulls(self, owner: str, name: str, head: str, state: str = "all", max_results: int = 10,
+              base: str | None = None) -> list[Json]:
+        """The pull requests on owner/name from HEAD (`owner:branch`), into
+        BASE when given, newest first."""
+        query = [("head", head), ("state", state), ("per_page", str(max_results))]
+        if base is not None:
+            query.append(("base", base))
+        got = self.call("GET", self._path("repos", owner, name, "pulls"), query)
+        return [to_pr(item) for item in (got if isinstance(got, list) else []) if isinstance(item, Mapping)]
+
+    def graphql(self, query: str, variables: Mapping[str, Any]) -> Json:
+        """One GraphQL read; its `data`. An answer with errors raises, naming
+        none of them (they can quote the query)."""
+        got = self.call("POST", "/graphql", body={"query": query, "variables": dict(variables)})
+        if not isinstance(got, Mapping) or not isinstance(got.get("data"), Mapping):
+            raise GitHubError("GitHub's GraphQL answered an error")
+        errors = got.get("errors") or []
+        # NOT_FOUND leaves its field null in `data`, which the caller reads as "none".
+        if not isinstance(errors, list) or any(not isinstance(e, Mapping) or e.get("type") != "NOT_FOUND"
+                                               for e in errors):
+            raise GitHubError("GitHub's GraphQL answered an error")
+        return dict(got["data"])
+
     def check_runs(self, owner: str, name: str, ref: str) -> list[Json]:
         """The check runs on a commit: `{name, status, conclusion}` each."""
         got = self.call("GET", self._path("repos", owner, name, "commits", ref, "check-runs"), [("per_page", "100")])
@@ -226,6 +249,14 @@ class GitHubApi:
         got = self.call("POST", self._path("repos", owner, name, "statuses", sha),
                         body={"state": state, "context": context, "description": description})
         return {"id": got.get("id"), "state": got.get("state"), "context": got.get("context")}
+
+    def edit_pr(self, owner: str, name: str, number: int, fields: Mapping[str, str]) -> Json:
+        got = self.call("PATCH", self._path("repos", owner, name, "pulls", str(number)), body=dict(fields))
+        return {"number": got.get("number"), "html_url": got.get("html_url")}
+
+    def close_pr(self, owner: str, name: str, number: int) -> Json:
+        got = self.call("PATCH", self._path("repos", owner, name, "pulls", str(number)), body={"state": "closed"})
+        return {"number": got.get("number"), "state": got.get("state"), "html_url": got.get("html_url")}
 
     def close_issue(self, owner: str, name: str, number: int) -> Json:
         got = self.call(
