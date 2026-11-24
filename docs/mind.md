@@ -335,10 +335,13 @@ other author's pull request and no other repository.
 What happens next is the babysitter's (`docs/hands.md`, "babysit"). With
 `BABYSIT_SELF_MERGE_ALL=1`, a pull request of Teeny's own from any `teeny/`
 branch merges with no person's approval once every job of the check
-workflow is on its head and green, as long as the audit finds nothing else
-and the change stays inside `brain/`, `docs/` and `home/`. Anything outside
-those (a hand, the site) can run outside the mind's jail, so it is opened
-and waits for a person. After a merge the babysitter deploys it; if the
+workflow is on its head and green, its review threads are settled, the
+babysitter's own agent said merge at that head and the audit finds nothing
+else. That agent (GLM, jailed, no key, in `state/sitter/home/`) is what fixes
+a red check, answers review and closes a dead one: the mind can revise its
+pull requests and need not. A hand or the site merges the same way; a
+dependency change, or a file that would shadow a module of the hands, waits
+for a person. After a merge the babysitter deploys it; if the
 doctor is red afterwards, or the spine fell back to its last good checkout,
 it records the deploy as bad, opens a "revert #N" issue and holds self-merge
 on the paths that change touched for a day. While `main` is still that
@@ -615,7 +618,8 @@ Each step is a setting in `secrets/teeny.env`, and each can be taken alone.
 4. `BABYSIT_SELF_MERGE_ALL=1` (with `BABYSIT_SELF_MERGE=1`, and
    `BABYSIT_MERGE=1`, which the merge action checks before it audits
    anything; at its default of 0 nothing merges): its pull
-   requests and evolve's merge on green checks and deploy.
+   requests and evolve's are worked by the babysitter's agent, merge once
+   green and settled, and deploy (`BABYSIT=1` too, for the agent).
 
 To watch it: `state/home/notes/JOURNAL.md`, `state/broker/ledger.jsonl`,
 and `bin/crons` for the `teeny.mind` and `mind.*` runs.
@@ -642,13 +646,12 @@ script run; `MIND=0` stops the wakes.
   `operator` job, whose profile is signed in as Teeny, where an agent job
   the brain wrote would carry a prompt of its own; and the inbound jobs, the
   beat, the mind's base wake, the other watchers and the money jobs.
-- **Self-merged hands.** Teeny's own tools merge by themselves
-  (`home/tools/`); a hand that holds a key does not. The key proxy
-  (`bin/teeny call`, "Keys it never holds") covers part of it: a jailed tool
-  can use a new endpoint of a listed service with no new hand. A new service
-  still needs the operator: a table in `evals/services.toml`, its key in
-  `secrets/`, and its caps. GitHub, X, mail, Telegram and the wallet stay
-  off the list, so their hands still change only by a person's merge.
+- **New services.** A hand of Teeny's own merges by itself now, with the
+  babysitter; the hands that speak or spend are frozen. The key proxy
+  (`bin/teeny call`, "Keys it never holds") lets a jailed tool use a new
+  endpoint of a listed service with no new hand. A new service still needs
+  the operator: a table in `evals/services.toml`, its key in `secrets/`, and
+  its caps.
 - **A browser that acts.** The mind's browser only reads. Anything that
   needs a click, a form or a login goes to the operator agent through
   `do queue_task`, and comes back in a later wake.

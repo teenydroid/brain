@@ -149,9 +149,13 @@ drops_on = ["model-change"]
 # BABYSIT_SELF_MERGE_ALL (the operator's decision of 2026-11-22, docs/mind.md)
 # widens the same rung: any pull request of Teeny's own from a teeny/ branch
 # of teenydroid/brain merges when every job of the check workflow is on its
-# head and green, with no teeny/eval, as long as it touches only brain/,
-# docs/ and home/ (anything else runs outside the mind's jail and waits for
-# a person). It counts only while BABYSIT_SELF_MERGE is on.
+# head and green, with no teeny/eval. Since 2026-11-24 ("give the teeny
+# babysitters full ability to babysit with GLM, push commits and merge or
+# close the PRs if everything is green") a hand or the site merges the same
+# way, and one thing more is asked: no open review thread, and the babysitter's
+# agent saying merge at that head (docs/hands.md, "babysit"; BABYSIT_SITTER=0
+# goes back to green checks alone, under brain/, docs/ and home/ only). It
+# counts only while BABYSIT_SELF_MERGE is on.
 switch = [
   { file = "teeny.env", name = "BABYSIT_SELF_MERGE", when = "truthy", needs = 5 },
   { file = "teeny.env", name = "BABYSIT_SELF_MERGE_ALL", when = "truthy", needs = 5 },
