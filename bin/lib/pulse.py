@@ -9,7 +9,8 @@ this instead (`teeny pulse`): every job with its last run and how often it
 failed, what became of what the scripts made, which is the same reading
 bin/evolve proposes from (bin/lib/evolve_evidence.py), and the audience
 numbers hands/stats records each day, with where each stood a day and a
-week before.
+week before, and, while one is open, a notes file that shrank since its last
+snapshot (bin/lib/notes_keep.py, `notes_shrunk`).
 
 Read-only. Only Teeny's own words are quoted; other people's are counted.
 """
@@ -33,6 +34,7 @@ from teeny_hands import hand  # noqa: E402
 from teeny_hands.stats import board  # noqa: E402
 
 import evolve_evidence  # noqa: E402
+import notes_keep  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -262,4 +264,9 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
     out["audience"] = audience()
     if not out["audience"]:
         out["audience_unread"] = NO_AUDIENCE
+    # A notes file the mind's own file_write destroyed (bin/lib/notes_keep.py):
+    # which one, by how much, and its last full copy. Only while one is open.
+    shrunk = notes_keep.alerts()
+    if shrunk:
+        out["notes_shrunk"] = shrunk
     return out

@@ -43,6 +43,7 @@ import os
 import re
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -119,8 +120,6 @@ def _read_file(folder: int, name: str) -> str | None:
                 fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
-                os.sched_yield() if hasattr(os, "sched_yield") else None
-                import time
                 time.sleep(0.05)
         data = os.read(fd, MAX_FILE + 1)
         return None if len(data) > MAX_FILE else data.decode("utf-8", errors="replace")
