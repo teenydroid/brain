@@ -210,6 +210,9 @@ brain/assets/fonts/
 # (and the template verbs' refusals) are the operator's, like the wallet's.
 deploy/memegen/
 hands/tests/meme/test_templates.py
+# The link-safe writer into the agentic mind's home (bin/lib/mind_home.py
+# loads it): the broker, the tick and the request notes write through it.
+hands/lib/teeny_hands/mind_home.py
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/
