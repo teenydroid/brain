@@ -364,6 +364,29 @@ class OpenPrTest(Scratch):
         os.environ["TEENY_NOW"] = str(T0 + 86400)
         actions.open_pr(self.body(repo="c/d"))
 
+    def test_five_external_prs_a_day_by_default_each_disclosed_and_the_sixth_refused(self):
+        """The operator, 2026-11-24: "allow 5 external prs and issues"."""
+        for n in range(1, 7):
+            self.gh.route("POST", f"/repos/o{n}/p/pulls", {"number": n, "html_url": f"u{n}"}, status=201)
+        for n in range(1, 6):
+            self.assertTrue(actions.open_pr(self.body(repo=f"o{n}/p"))["external"])
+            self.assertTrue(self.gh.requests("POST", f"/repos/o{n}/p/pulls")[0].json()["body"]
+                            .endswith("\n\n" + actions.DISCLOSURE))
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_pr(self.body(repo="o6/p"))
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+        self.assertIn("5", caught.exception.reason)
+        self.assertEqual(self.gh.requests("POST", "/repos/o6/p/pulls"), [])
+        self.assertEqual(actions.max_external_prs(), 5)
+
+    def test_zero_turns_external_prs_off_and_says_which_setting(self):
+        self.configure(GH_MAX_EXTERNAL_PRS_PER_DAY="0")
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_pr(self.body())
+        self.assertEqual(caught.exception.detail["rule"], "off")
+        self.assertIn("GH_MAX_EXTERNAL_PRS_PER_DAY=0", caught.exception.reason)
+        self.assertEqual(self.created_requests(), [])
+
     def test_dry_run_runs_the_rules_and_opens_nothing(self):
         self.configure(DRY_RUN="1")
         out = actions.open_pr(self.body())
