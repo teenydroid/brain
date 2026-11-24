@@ -57,7 +57,7 @@ command = "bin/heartbeat"
 #
 # The box is redeployed several times a day, and a restart that cuts off a run
 # (or comes while a slot passes) used to drop that slot until the next one: on
-# 2026-11-13 and 11-14 self-improve lost both days that way. The daily jobs
+# 2026-11-13 and 11-14 self-improve (since retired) lost both days that way. The daily jobs
 # that only read, propose or tend (goals, speculate, world-scan,
 # moltbook-follow, moltbook-curate) catch up
 # instead. The posts do not: X is at most three original posts a day five hours
