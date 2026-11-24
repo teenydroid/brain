@@ -52,6 +52,7 @@ from typing import Any, Iterable
 from .. import authorship, hand
 from ..build import mindclone, sitterclone
 from ..gh import actions as gh_actions
+from ..gh.client import GitHubError
 from . import ledger, policy, threads
 from .api import PullsApi
 
@@ -125,8 +126,8 @@ def _drop() -> None:
 def _remove(path: Path) -> None:
     """PATH gone from the agent's folder, moved out of its reach first, so
     nothing it planted there is followed."""
-    trash = mindclone_scratch()
-    trash.mkdir(mode=0o700, parents=True, exist_ok=True)
+    trash = _scratch()
+    _movable(path)
     moved = trash / f"old-{os.urandom(6).hex()}"
     try:
         os.rename(path, moved)
@@ -138,15 +139,37 @@ def _remove(path: Path) -> None:
         moved.unlink(missing_ok=True)
 
 
-def mindclone_scratch() -> Path:
-    return hand.state_dir() / sitterclone.PLACE.scratch
+def _movable(path: Path) -> None:
+    """A folder the agent shut to its owner cannot be renamed: opened again,
+    through a handle that follows no link."""
+    try:
+        fd = os.open(path, getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return  # not a folder, or not there
+    try:
+        os.chmod(f"/proc/self/fd/{fd}", 0o755)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
-def _put(name: str, text: str) -> None:
-    """A file in the agent's folder, made outside it and renamed in."""
-    tmp = mindclone_scratch() / f"fresh-{os.urandom(6).hex()}"
-    tmp.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp.write_text(text, encoding="utf-8")
+def _scratch() -> Path:
+    path = hand.state_dir() / sitterclone.PLACE.scratch
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
+
+
+def _put(name: str, text: str | dict[str, str]) -> None:
+    """A file in the agent's folder (a folder of files for a dict), made
+    outside it and renamed in."""
+    tmp = _scratch() / f"fresh-{os.urandom(6).hex()}"
+    if isinstance(text, str):
+        tmp.write_text(text, encoding="utf-8")
+    else:
+        tmp.mkdir()
+        for leaf, body in text.items():
+            (tmp / leaf).write_text(body, encoding="utf-8")
     home().mkdir(parents=True, exist_ok=True)
     _remove(home() / name)
     os.replace(tmp, home() / name)
@@ -155,6 +178,7 @@ def _put(name: str, text: str) -> None:
 def _clear_home() -> None:
     """The agent's folder emptied, but for the checkout (prepare replaces it)."""
     home().mkdir(parents=True, exist_ok=True)
+    _movable(home() / "repo")
     for entry in sorted(home().iterdir()):
         if entry.name != "repo":
             _remove(entry)
@@ -252,12 +276,9 @@ def queue(results: list[Json], api: PullsApi | None = None) -> Json | None:
             try:
                 return {**_lay(result, max(left, 0), why, api or PullsApi()), "waiting": len(waiting),
                         **({"errors": errors} if errors else {})}
-            except hand.HandError as exc:
-                # This one could not be laid out; it must not stop the others.
-                ledger.record_action("sitter_failed", result["repo"], number, result["head_sha"], rule="lay")
+            except (hand.Refused, hand.HandError, OSError) as exc:
+                # This one could not be laid out now; it must not stop the others.
                 errors.append({"number": number, "error": str(exc)})
-                if tries(ledger.sitter_rows(result["repo"], number), result["head_sha"]) >= MAX_TRIES:
-                    _leave(_stub(result), "it could not be checked out for the babysitter's agent")
     return {"errors": errors} if errors else None
 
 
@@ -325,6 +346,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     # Main comes in with a fix that is needed anyway, not for its own sake:
     # main moves all day, and each merge of it is another round of CI.
     mend = bool(set(why) - {"open_threads", "decision"}) and fixes_left > 0
+    _clear_home()
     prepared = sitterclone.prepare(branch, head, mend)
     diff = prepared.pop("diff")
     red = _red(api, owner, name, result)
@@ -342,12 +364,8 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
                   for f in files[:100]],
         "diff": "diff.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS, "note": NOTE,
     }
-    _clear_home()
     _put("diff.patch", diff[:MAX_DIFF_CHARS])
-    (home() / "logs").mkdir(exist_ok=True)
-    for r in red:
-        if "log" in r:
-            _put(r["log"], r["text"])
+    _put("logs", {r["log"].removeprefix("logs/"): r["text"] for r in red if "log" in r})
     now: Json = {**prepared, "repo": repo, "number": number, "head_sha": head, "laid_at": hand.now(),
                  "fixes_left": fixes_left, "fp": fingerprint(result), "brief": brief,
                  "threads": {t["id"]: t["who"] for t in open_threads}}
@@ -479,15 +497,25 @@ def collect(api: PullsApi | None = None) -> Json | None:
         api = api or PullsApi()
         try:
             return _collect(now, api)
-        except hand.HandError as exc:
-            # GitHub or git, not the agent: the same again next sweep, but a
-            # job that always errors must not hold the queue.
-            now = job() or now
-            now["errors"] = int(now.get("errors") or 0) + 1
-            if now["errors"] < MAX_TRIES:
-                _save(now)
-                return {"number": now["number"], "error": str(exc)}
-            return _failed(now, "error", str(exc)[:300], again=False)
+        except GitHubError as exc:
+            # An outage is nobody's try; but a job that always errors must
+            # not hold the queue.
+            return _errored(job() or now, exc, False)
+        except (hand.Refused, hand.HandError, OSError) as exc:
+            return _errored(job() or now, exc, True)
+
+
+def _errored(now: Json, exc: Exception, counts: bool) -> Json:
+    """The same again next sweep, MAX_TRIES times; then dropped, as a try
+    that failed when it COUNTS (git, or the tree), else only as dropped."""
+    now["errors"] = int(now.get("errors") or 0) + 1
+    if now["errors"] < MAX_TRIES:
+        _save(now)
+        return {"number": now["number"], "error": str(exc)}
+    if counts and not now.get("pushed"):
+        return _failed(now, "error", str(exc)[:300], again=False)
+    _drop()
+    return {"number": now["number"], "dropped": "errors"}
 
 
 def _collect(now: Json, api: PullsApi) -> Json:
