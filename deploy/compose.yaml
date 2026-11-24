@@ -57,9 +57,12 @@ services:
     # memory. On 2026-11-24 a daily build's own test (a fuzzer handed
     # 10**100) grew to 80 GB in ten minutes and took the box into swap until
     # health checks timed out. Normal use is under 1 GB plus Chromium. Past
-    # the ceiling the kernel ends the largest process in the container, which
-    # is the runaway, and the spine restarts by itself if it is ever the one.
-    # No swap on top, so a runaway is ended and never left to thrash.
+    # the ceiling the kernel ends a process in this container, chosen by its
+    # own score: usually the largest, never guaranteed to be the runaway, so
+    # a neighbour (a browser, the spine itself) can be the one that goes; the
+    # spine restarts by itself if it is. No swap on top, so a runaway is
+    # ended and never left to thrash. The box outside this container is safe
+    # either way.
     mem_limit: 16g
     memswap_limit: 16g
 
