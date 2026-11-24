@@ -165,10 +165,17 @@ def team_addresses(env: Mapping[str, str] | None = None) -> frozenset[str] | Non
 # --- reading the chain ---------------------------------------------------------------------------
 
 
+class OutOfTime(hand.HandError):
+    """The scan's SCAN_BUDGET_SECS ran out before this call."""
+
+
 def _call(cluster: str, method: str, params: list[Any], deadline: float | None = None) -> Any:
     """solana.rpc, with an HTTP 429 waited out and asked again, RATE_TRIES
     calls in all; the last 429 is raised (solana.RateLimited), and so is one
-    whose wait would run past `deadline` (on _clock)."""
+    whose wait would run past `deadline` (on _clock). No call starts once
+    `deadline` has passed (OutOfTime)."""
+    if deadline is not None and _clock() >= deadline:
+        raise OutOfTime(f"inflows scan: out of time before {method}")
     for attempt in range(RATE_TRIES - 1):
         try:
             return solana.rpc(cluster, method, params)
@@ -393,6 +400,8 @@ def scan() -> Json:
                 calls += 1
                 try:
                     tx = _transaction(cluster, sig, deadline)
+                except OutOfTime:
+                    break
                 except solana.RateLimited as exc:
                     limited = exc
                     break
@@ -407,21 +416,23 @@ def scan() -> Json:
                     if read:
                         _save_cursor(conn, _cursor(since, through, everything[done:]))
                     raise
-                with hand.transaction(conn):
-                    conn.execute("DELETE FROM wallet_unreadable WHERE signature = ?", (sig,))
-                    conn.execute("INSERT OR IGNORE INTO wallet_scanned (signature, at) VALUES (?, ?)", (sig, at))
                 legs = read_deposit(tx, own, mint) if isinstance(tx, Mapping) else []
                 memo, held = _screen(_memo(tx), sig) if legs else (None, 0)
-                for leg in legs:
-                    row = {"signature": sig, "cluster": cluster, "asset": leg["asset"], "amount_raw": leg["amount_raw"],
-                           "usd_micro": leg["usd_micro"], "sender": leg["sender"], "at": at, "seen_at": hand.now(),
-                           "category": _category(leg, team), "memo": memo, "memo_held": held}
-                    with hand.transaction(conn):
+                rows = [{"signature": sig, "cluster": cluster, "asset": leg["asset"], "amount_raw": leg["amount_raw"],
+                         "usd_micro": leg["usd_micro"], "sender": leg["sender"], "at": at, "seen_at": hand.now(),
+                         "category": _category(leg, team), "memo": memo, "memo_held": held} for leg in legs]
+                # The deposits and the record that this one was read, together
+                # and only once it was read through: one that failed midway is
+                # read again next time.
+                with hand.transaction(conn):
+                    for row in rows:
                         cur = conn.execute(
                             f"INSERT OR IGNORE INTO wallet_inflows ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
                             tuple(row.values()))
-                    if cur.rowcount:
-                        new.append(_public(row, int(cur.lastrowid)))
+                        if cur.rowcount:
+                            new.append(_public(row, int(cur.lastrowid)))
+                    conn.execute("DELETE FROM wallet_unreadable WHERE signature = ?", (sig,))
+                    conn.execute("INSERT OR IGNORE INTO wallet_scanned (signature, at) VALUES (?, ?)", (sig, at))
                 through = max(through, at)
                 done += 1
                 read += 1
