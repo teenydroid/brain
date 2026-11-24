@@ -364,9 +364,9 @@ class DreamTest(unittest.TestCase):
         # 2026-11-13: build 4 shipped between two runs of the switch from
         # reflect to dream, so no dream's window held it and the page kept
         # saying "build 3 failed" a day after build 5 shipped too.
-        from teeny_hands.build import jobs
+        from teeny_hands.build import ledger
 
-        conn = hand.open_db(jobs.SCHEMA)
+        conn = hand.open_db(ledger.SCHEMA)
         conn.execute("INSERT INTO build_jobs (kind, slug, repo, text, workdir, status, claimed_at, finished_at,"
                      " summary, repo_url) VALUES ('daily', 'd4', 'csvstat', 't', 'w', 'shipped', ?, ?,"
                      " 'csvstat: a stdlib-only CSV stats CLI', 'https://github.com/teenydroid/csvstat')",

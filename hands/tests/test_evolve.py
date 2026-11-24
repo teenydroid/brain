@@ -1678,7 +1678,7 @@ class AskProposerTurn(EvolveCase):
         self.assertNotIn("money, capability", message.split("## file: ")[0])
         self.assertIn("Doing less of yourself to save money", message)
         self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
-        self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
+        self.assertIn("evals/cron.pinned.toml", message)
         self.assertLess(message.index("## what you learned"), message.index("## evidence"))
         self.assertIn("context for it, not a reason of its own", message)
 

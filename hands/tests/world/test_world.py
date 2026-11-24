@@ -14,7 +14,7 @@ from pathlib import Path
 
 from wallet.support import CAPS, DAY, OWN, T0, TINY, USDC_DEVNET, Scratch, token_accounts
 from teeny_hands import hand, stimuli
-from teeny_hands.build import jobs
+from teeny_hands.build import ledger as jobs
 from teeny_hands.guard import holds
 from teeny_hands.stats import collect as stats
 from teeny_hands.world import collect, score
