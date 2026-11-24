@@ -2204,7 +2204,6 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += "; your one rewrite came back empty, so nothing was sent"
     if do in SEARCHES and entry["status"] == "done" and not result.get("dry_run"):
         text += _found(result)
-    request = None
     note = None
     if do == "propose_change" and entry["status"] == "done" and isinstance(result.get("note"), str):
         found = result["note"].replace("\\", "/")
@@ -2220,8 +2219,6 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
-    if request:
-        payload["request"] = request
     if note:
         payload["note"] = note
     if queued:
