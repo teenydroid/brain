@@ -38,36 +38,15 @@ class IntakeTest(unittest.TestCase):
             "moltbook-hot": ["hands/moltbook", "feed", "--sort", "hot", "--max", "5", "--brief"],
         })
 
-    def test_build_idea_keeps_its_idea_through_the_build_hand(self):
-        book = load("build-idea")
-        self.assertEqual((book["output"], book["surface"], book["nudge"]), ("hand:build idea", "github", False))
-        got = runs(book)
-        self.assertLessEqual(len(got), playbook.MAX_INPUTS)
-        for name in ("hn-show", "heard", "pending", "people", "issues", "shipped", "recent"):
-            self.assertIn(name, got)
-        self.assertEqual(got["heard"], ["hands/listen", "digest", "--days", "2", "--max", "6"])
-        self.assertEqual(got["shipped"], ["hands/build", "jobs", "--status", "shipped", "--limit", "30"])
-
-    def test_the_posting_playbooks_read_what_was_heard_and_self_improve_reads_people(self):
+    def test_the_posting_playbooks_read_what_was_heard(self):
         for name in ("moltbook-daily", "moltbook-evening"):
             got = runs(load(name))
             self.assertEqual((got["hn-top"][:2], got["hn-show"][:2]), (["hands/hn", "top"], ["hands/hn", "show"]), name)
         for name in ("morning", "take", "moltbook-daily", "moltbook-evening", "moltbook-general"):
             self.assertEqual(runs(load(name))["heard"][:3], ["hands/listen", "digest", "--days"], name)
-        self.assertEqual(runs(load("self-improve"))["people"], ["hands/people", "list"])
-
-    def test_self_improve_reads_the_frozen_list_before_it_proposes(self):
-        book = load("self-improve")
-        got = runs(book)
-        self.assertLessEqual(len(got), playbook.MAX_INPUTS)
-        self.assertEqual(got["frozen"], ["hands/build", "frozen"])
-        frozen_input = next(i for i in book["inputs"] if i["name"] == "frozen")
-        self.assertTrue(frozen_input["optional"])
-        self.assertIn("hands/lib/teeny_hands/build/jobs.py", book["prompt"])
 
     def test_a_read_of_somebody_elses_site_never_costs_the_run(self):
-        for name in ("world-scan", "morning", "take", "moltbook-daily", "moltbook-evening", "moltbook-general",
-                     "build-idea"):
+        for name in ("world-scan", "morning", "take", "moltbook-daily", "moltbook-evening", "moltbook-general"):
             for i in load(name)["inputs"]:
                 if i["argv"][0] in ("hands/hn", "hands/listen"):
                     self.assertTrue(i["optional"], (name, i["name"]))
@@ -79,14 +58,41 @@ class IntakeTest(unittest.TestCase):
         self.assertEqual(jobs["world-scan"]["command"], "bin/act world-scan")
         # Two listens a day from one job: the cap has no room for a second.
         self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
-        self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
-        for name in ("world-scan", "build-idea", "studio-2300"):
+        for name in ("world-scan", "studio-2300"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
         # Kept in the tree, unscheduled.
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
+
+    def test_the_builder_is_retired_and_nothing_schedules_it(self):
+        """2026-11-24: the builder is retired; the agentic mind ships things
+        itself (docs/mind.md). Its jobs, its agent and the playbooks that fed
+        it are gone, and no job or playbook left calls a verb hands/build no
+        longer has."""
+        jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
+        pinned = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
+        for gone in ("builder", "build-ship", "build-idea", "pick-request", "self-improve"):
+            self.assertNotIn(gone, jobs)
+            self.assertNotIn(gone, pinned)
+        every = {**jobs, **pinned}
+        self.assertEqual([n for n, j in every.items() if j.get("agent") not in (None, "mind", "operator")], [])
+        self.assertEqual([n for n, j in every.items() if "build-ship" in j.get("command", "")], [])
+        self.assertFalse((REPO / "bin" / "build-ship").exists())
+        self.assertFalse((BRAIN / "agents" / "builder.toml").exists())
+        self.assertFalse((BRAIN / "agents" / "builder-self.md").exists())
+        for name in ("build-idea", "pick-request", "self-improve", "upstream-pick"):
+            self.assertFalse((BRAIN / "playbooks" / f"{name}.md").exists(), name)
+        kept = ("jobs", "frozen", "self-sync")
+        for path in sorted((BRAIN / "playbooks").glob("*.md")):
+            book = load(path.stem)
+            self.assertFalse(str(book["output"]).startswith("hand:build"), path.stem)
+            for i in book["inputs"]:
+                if i["argv"][0] == "hands/build":
+                    self.assertIn(i["argv"][1], kept, (path.stem, i["argv"]))
+        self.assertNotIn("bin/build-ship", cron_policy.BRAIN_SCRIPTS)
+        self.assertNotIn("builder", cron_policy.AGENT_JOB_AGENTS)
 
     def test_x_has_three_studio_slots_five_hours_apart_and_brief_runs_just_before_one(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
