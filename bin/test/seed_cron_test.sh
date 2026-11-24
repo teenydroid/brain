@@ -526,9 +526,36 @@ check "and no reflection of its own any more" bash -c "! grep -q 'teeny.reflect'
 check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
 check "and Teeny listens to the world twice a day, before the take and before the evening" \
   grep -qE 'teeny\.world-scan +5 13,22 \* \* \* Asia/Kolkata bin/act world-scan' "$scratch/stderr"
-check "and self-improve catches up a slot a restart cut off" bash -c "
+check "and world-scan catches up a slot a restart cut off" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
+    jq -e '.[] | select(.name == \"teeny.world-scan\") | .catch_up_secs > 0' >/dev/null"
+# 2026-11-24: the builder is retired; the agentic mind ships things itself.
+check "and none of the builder's jobs is planned any more" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.builder\", \"teeny.build-ship\", \"teeny.build-idea\",
+      \"teeny.pick-request\", \"teeny.self-improve\")) ] | length == 0' >/dev/null"
+check "and the real schedule passes the check without them" \
+  "$seed" --check --file "$here/../../brain/cron.toml" --pinned "$here/../../evals/cron.pinned.toml"
+
+# --- a live core still holding the retired builder's jobs loses them at the next seed ---
+reset
+jq -c '. + [
+  {id: "old-1", name: "teeny.builder", job_type: "agent", agent_id: "builder", prompt: "Build the job on your desk",
+   session_target: "isolated", schedule: {kind: "cron", expr: "10 */2 * * *", tz: "UTC"}, enabled: true},
+  {id: "old-2", name: "teeny.build-ship", job_type: "shell", command: "bin/build-ship",
+   schedule: {kind: "cron", expr: "*/30 * * * *", tz: "UTC"}, enabled: true},
+  {id: "old-3", name: "teeny.build-idea", job_type: "shell", command: "bin/act build-idea",
+   schedule: {kind: "cron", expr: "50 22 * * *", tz: "Asia/Kolkata"}, enabled: true},
+  {id: "old-4", name: "teeny.pick-request", job_type: "shell", command: "bin/act pick-request",
+   schedule: {kind: "cron", expr: "20 9,15 * * *", tz: "Asia/Kolkata"}, enabled: true},
+  {id: "old-5", name: "teeny.self-improve", job_type: "shell", command: "bin/act self-improve",
+   schedule: {kind: "cron", expr: "10 15 * * *", tz: "Asia/Kolkata"}, enabled: true}]' "$FAKE_JOBS" >"$scratch/jobs.tmp"
+mv "$scratch/jobs.tmp" "$FAKE_JOBS"
+printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
+seed
+check "seeding removes the retired builder jobs from the core" \
+  test "$(jobs | jq -c '[.[].name] | sort')" = '["memory_background","teeny.heartbeat"]'
+check "one remove each" test "$(calls cron_remove)" = 5
 check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.studio-0430\", \"teeny.studio-1500\",
