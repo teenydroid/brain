@@ -347,5 +347,45 @@ class SecondReviewTest(KeepCase):
             os.close(fd)
 
 
+class ExcludedCarryTest(KeepCase):
+    """A fixed file left out of the copy (it grew past MAX_FILE) keeps its
+    last full copy in every later snapshot, so a later loss is still seen
+    against it and that copy is pinned (the third review of #545)."""
+
+    def grow_journal_past_the_cap_and_snapshot(self):
+        self.journal(40)
+        (self.notes / "TASKS.md").write_text("- one\n")
+        notes_keep.snapshot()
+        self.at(T0 + 600)
+        (self.notes / "JOURNAL.md").write_text("x\n" * (notes_keep.MAX_FILE // 2 + 1))
+        (self.notes / "TASKS.md").write_text("- two\n")
+        out = notes_keep.snapshot()
+        self.assertEqual(out["taken"], f"notes/.keep/{stamp(T0 + 600)}")
+        self.assertEqual(out["carried"], ["JOURNAL.md"])
+        self.assertEqual((self.keep / stamp(T0 + 600) / "JOURNAL.md").read_text(),
+                         (self.keep / stamp(T0) / "JOURNAL.md").read_text())
+
+    def test_a_file_that_vanishes_after_it_was_excluded_is_reported_against_its_last_full_copy(self):
+        self.grow_journal_past_the_cap_and_snapshot()
+        self.at(T0 + 1200)
+        (self.notes / "JOURNAL.md").unlink()
+        [alert] = notes_keep.snapshot()["shrunk"]
+        self.assertEqual((alert["file"], alert["lines_before"], alert["lines_now"]), ("JOURNAL.md", 40, 0))
+        full = self.root / "state" / "home" / alert["last_full_copy"]
+        self.assertEqual(full.read_text(), "".join(f"entry {i}\n" for i in range(40)))
+        for i in range(1, 80):
+            self.at(T0 + 1200 + i * HOUR)
+            (self.notes / "TASKS.md").write_text(f"- {i}\n")
+            notes_keep.snapshot()
+        self.assertTrue(full.exists(), "the last full copy stays pinned while the alert is open")
+
+    def test_a_file_that_shrinks_after_it_was_excluded_is_reported(self):
+        self.grow_journal_past_the_cap_and_snapshot()
+        self.at(T0 + 1200)
+        self.journal(1)
+        [alert] = notes_keep.snapshot()["shrunk"]
+        self.assertEqual((alert["file"], alert["lines_before"], alert["lines_now"]), ("JOURNAL.md", 40, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

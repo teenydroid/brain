@@ -332,7 +332,7 @@ def snapshot() -> Json:
     at every run until it is written."""
     t = hand.now()
     keep = _keep_fd()
-    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": [], "busy": False}
+    out: Json = {"taken": None, "shrunk": [], "pruned": [], "skipped_files": [], "carried": [], "busy": False}
     try:
         try:
             fcntl.flock(keep, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -360,6 +360,14 @@ def snapshot() -> Json:
                 finally:
                     os.close(fd)
                 break
+        # A fixed file still in notes/ but left out of the copy (it grew past
+        # MAX_FILE, or became a link) keeps its last full copy in every later
+        # snapshot: a later loss is then seen against that copy, and an alert
+        # pins it.
+        for name in FIXED:
+            if name in skipped and name in before:
+                current[name] = before[name]
+                out["carried"].append(name)
         saved = _load_alerts(keep)
         open_alerts = [dict(a) for a in saved]
         if prev is not None and before == current:
