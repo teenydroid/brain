@@ -298,9 +298,9 @@ def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
     """An answer for a pitch says in plain words that nothing was posted,
     and its ledger line records it."""
     if answer.get("status") == "ok" and _filed_pitch(name, hand_body):
-        if answer.get("dry_run"):
-            answer["would_file"] = entry["filed"] = "studio_pitch (rehearsed)"
+        if hand.dry_run():
             answer["would_file"] = "studio_pitch"
+            entry["filed"] = "studio_pitch (rehearsed: not filed)"
             answer["message"] = entry["message"] = PITCH_REHEARSED
         else:
             answer["filed"] = entry["filed"] = "studio_pitch"

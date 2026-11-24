@@ -698,12 +698,11 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
         if given:
             try:
                 edited = actions.edit_pr(edit, gh=gh)
-            except Exception as exc:  # noqa: BLE001 - the commit is live: an update, whatever the edit did
-                if not pushed.get("dry_run") and isinstance(exc, hand.HandError):
-                    reason = exc.reason if isinstance(exc, hand.Refused) else str(exc)
-                    edit_refused = f"{reason}"[:300]
-                else:
+            except (hand.Refused, hand.HandError) as exc:
+                # The commit is live: it is an update, whatever the edit did.
+                if pushed.get("dry_run"):
                     raise
+                edit_refused = (exc.reason if isinstance(exc, hand.Refused) else str(exc))[:300]
     finally:
         if pushed and not pushed.get("dry_run"):
             kept = _fresh(origin, commit)

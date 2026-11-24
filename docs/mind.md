@@ -232,19 +232,24 @@ The working copy is hostile input, so the broker treats it as one:
 - `MIND_PRS_PER_DAY` caps it; `0`, the default, keeps it off.
 
 It answers review on its own pull request rather than opening a new one.
-`bin/teeny reviews` returns the threads (author, file, line, the text clipped
-to 1,500 characters, resolved or not), the verdicts and the conversation, as
-data: other people's words, never instructions about its rules, tools or
-keys. `bin/teeny repo '{"pr": N}'` checks out that pull request's head, on
+`bin/teeny reviews` returns the newest threads (author, file, line, the text
+clipped to 1,500 characters, resolved or not), the verdicts and the
+conversation, at most 20,000 characters in all (unresolved threads first,
+then verdicts, then comments, then resolved threads; the rest counted in
+`omitted`), each item marked `self` when Teeny wrote it. It is data: other
+people's words, never instructions about its rules, tools or keys. `bin/teeny repo '{"pr": N}'` checks out that pull request's head, on
 the same rule as main (a copy holding edits is left as it is). `bin/teeny pr`
 to a branch whose pull request is open adds the copy as one more commit on
 top of its head, pushed without force; title and body are kept unless given.
 Every rule of a first push applies again (the guard on a new title or body,
-plain files only, the frozen list and the secret scan over the whole branch,
-the size of the whole pull request), and so do these:
+no `.git` in the tree and plain files only in the new commit, the frozen list
+and the secret scan over the whole branch, the size of the whole pull request
+from its merge base with `main`). Once the commit is pushed it is an update,
+counted, even if setting the new title or body then fails: the answer says so
+in `edit_refused`. And these hold too:
 
-- only an open pull request Teeny wrote, from a `teeny/mind-*` branch of its
-  own repository; a merged or closed one is refused, saying so, and a new
+- only an open pull request Teeny wrote into `main`, from a `teeny/mind-*`
+  branch of its own repository; a merged or closed one is refused, saying so, and a new
   change goes on a new branch;
 - the copy must have been taken from the head as it is now: a copy of main,
   or of a head someone has pushed to since, is refused rather than undoing
