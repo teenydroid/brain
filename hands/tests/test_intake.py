@@ -77,7 +77,7 @@ class IntakeTest(unittest.TestCase):
             self.assertNotIn(gone, jobs)
             self.assertNotIn(gone, pinned)
         every = {**jobs, **pinned}
-        self.assertEqual([n for n, j in every.items() if j.get("agent") not in (None, "mind", "operator")], [])
+        self.assertEqual([n for n, j in every.items() if j.get("agent") not in (None, "mind", "operator", "babysitter")], [])
         self.assertEqual([n for n, j in every.items() if "build-ship" in j.get("command", "")], [])
         self.assertFalse((REPO / "bin" / "build-ship").exists())
         self.assertFalse((BRAIN / "agents" / "builder.toml").exists())
