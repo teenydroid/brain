@@ -459,7 +459,9 @@ def _read_report(now: Json) -> Any:
 
 
 def _string(value: Any, name: str, most: int, least: int = 1) -> str:
-    text = value.strip() if isinstance(value, str) else ""
+    if not isinstance(value, str):
+        raise _Bad(f"{name} is text")
+    text = value.strip()
     try:
         text.encode("utf-8")
     except UnicodeEncodeError:
@@ -683,7 +685,7 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
                          **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
                          **({"retry": True} if again else {}))
     _wrote(now, "fix", report["reason"])
-    return {"decision": report["decision"], "pushed": shipped["commit"],
+    return {"decision": "retry" if again else "fix", "pushed": shipped["commit"],
             **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}), **_replies(now, api)}
 
 

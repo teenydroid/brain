@@ -894,7 +894,7 @@ class TreeTest(SitterScratch):
 
     def test_a_long_logs_end_is_what_is_kept(self):
         from teeny_hands.gh import client
-        self.gh.route("GET", f"/repos/{REPO}/actions/jobs/4/logs", raw=b"start " * 9000 + b"the end", content_type="text/plain")
+        self.gh.route("GET", f"/repos/{REPO}/actions/jobs/4/logs", raw=b"start " * 5000 + b"the end", content_type="text/plain")
         with mock.patch.object(client, "MAX_LOG_BYTES", 1000):
             log = PullsApi().gh.job_log("teenydroid", "brain", 4)
         self.assertEqual((len(log), log.endswith("the end")), (1000, True))
@@ -978,8 +978,8 @@ class LifecycleTest(SitterScratch):
         self.assertFalse((self.root / "state" / "mind").exists())
         self.assertFalse((self.root / "state" / "home").exists())
         self.assertEqual(mindclone.worktree(), self.root / "state" / "home" / "repo")
-        with mindclone.at(sitterclone.PLACE):
-            self.assertEqual(mindclone.worktree(), self.home / "repo")
+        with mindclone.at(sitterclone.place("7-x")):
+            self.assertEqual(mindclone.worktree(), self.home / "repo-7-x")
 
 
 class ReportTextTest(SitterScratch):
