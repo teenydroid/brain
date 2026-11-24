@@ -7,12 +7,14 @@ and the core is a stand-in (TEENY_OH)."""
 from __future__ import annotations
 
 import contextlib
+import http.server
 import io
 import json
 import os
 import random
 import socket
 import sys
+import threading
 import time
 import unittest
 import unittest.mock
@@ -23,8 +25,10 @@ sys.path.insert(0, str(HERE))
 
 from test_evolve import DAY, T0, EvolveCase, FakePublisher, Refusing, git  # noqa: E402
 
+import box  # noqa: E402
 import evolve  # noqa: E402
 import lab  # noqa: E402
+from teeny_hands import hand  # noqa: E402
 
 STUB_SPINE = r"""#!/usr/bin/env python3
 import http.server, json, os, signal, sys, threading, time
@@ -290,9 +294,88 @@ class LabSpine(LabCase):
         try:
             with self.assertRaises(lab.LabError) as caught:
                 lab.start("b", tree, self.root / "b", self.port, self.root / "secrets", 20)
-            self.assertIn("already answers", str(caught.exception))
+            self.assertIn("already in use", str(caught.exception))
         finally:
             lab.stop(held)
+
+    def test_a_listener_that_is_not_a_core_refuses_the_lab_before_it_spawns(self):
+        """Live 2026-11-23, generations 27 to 29: the mind's broker held the
+        base lab's port and answered 401, so the lab's core moved to another
+        port and bin/spine waited 120 s on the broker."""
+        class Unauthorized(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(401)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", self.port), Unauthorized)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(lab.LabError) as caught:
+                lab.start("t", self.worktree("t"), self.root / "lab", self.port, self.root / "secrets", 5)
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertIn(f"port {self.port} is already in use", str(caught.exception))
+        self.assertEqual(self.spines(), [])
+
+
+class LabPorts(LabCase):
+    #: Every offset a lab is given: main's, the 8 candidates' and their evolvers'.
+    OFFSETS = [0, *range(1, 9), *range(11, 19)]
+
+    def ports(self, base, **settings):
+        (self.root / "secrets" / "teeny.env").write_text("".join(f"{k}={v}\n" for k, v in settings.items()))
+        hand._ENV_CACHE = None
+        self.addCleanup(setattr, hand, "_ENV_CACHE", None)
+        got = [lab.port(base, n) for n in self.OFFSETS]
+        self.assertEqual(len(set(got)), len(got), "two labs share a port")
+        return got
+
+    def test_the_default_lab_ports_avoid_the_brokers_default_and_the_core_with_its_fallbacks(self):
+        base = int(evolve.SETTINGS["EVOLVE_LAB_PORT"][0])
+        self.assertTrue(set(self.ports(base)).isdisjoint({box.DEFAULT_BROKER_PORT, *range(7788, 7799)}))
+
+    def test_the_lab_ports_avoid_a_configured_broker_port_wherever_it_is(self):
+        base = int(evolve.SETTINGS["EVOLVE_LAB_PORT"][0])
+        for broker in range(base, base + 20):
+            self.assertNotIn(broker, self.ports(base, BROKER_PORT=broker))
+
+    def test_an_operators_lab_port_still_skips_the_broker_and_the_core(self):
+        os.environ["OPENHUMAN_CORE_PORT"] = "7795"
+        self.addCleanup(os.environ.pop, "OPENHUMAN_CORE_PORT", None)
+        self.assertTrue(set(self.ports(7785)).isdisjoint({7790, 7788, 7795}))
+
+    def test_every_lab_evolve_starts_gets_its_port_from_the_skipping_rule(self):
+        started = []
+
+        def refuse(name, tree, folder, port, *a, **k):
+            started.append(port)
+            raise lab.LabError("not here")
+
+        self.ports(7790, BROKER_PORT=7802)
+        cfg = {"EVOLVE_LAB_PORT": 7801, "EVOLVE_LAB_BOOT_SECS": 20, "EVOLVE_PROBES": 0}
+        tree = self.worktree("t")
+        (self.root / "g" / "lab-base" / "tree").mkdir(parents=True)
+        with unittest.mock.patch.object(lab, "start", refuse), \
+                unittest.mock.patch.object(evolve, "snapshot", lambda t: {}), \
+                unittest.mock.patch.object(evolve, "restore_tree", lambda t, b: None), \
+                unittest.mock.patch.object(evolve, "render_evolver_request", lambda r: "x"), \
+                unittest.mock.patch.object(evolve, "render_evolver_research", lambda r: "x"), \
+                unittest.mock.patch.object(evolve, "fit_request", lambda r, **k: r):
+            judge = evolve.TargetedEvaluator(cfg, None, "base", self.root / "g")
+            cand = {"cand": 1, "id": "g1c1", "worktree": "t"}
+            request = {"tree": str(tree), "gen_dir": str(self.root / "g"), "cand": 1, "gen": 1}
+            proposer = evolve.EvolverProposer(cfg)
+            for call in (judge._base_env, lambda: proposer.propose(request), lambda: proposer.research(request)):
+                with self.assertRaises(evolve.EvolveError):
+                    call()
+            with unittest.mock.patch.object(judge, "_saved_report", lambda *a: None), \
+                    self.assertRaises(evolve.EvolveError):
+                judge._one(cand, {"tasks": [], "all": False}, None, {}, 1)
+        self.assertEqual(started, [7801, 7812, 7812, 7803])
 
 
 
