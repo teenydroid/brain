@@ -85,7 +85,13 @@ PACE_SECS = 0.3
 RATE_TRIES = 4
 BACKOFF_SECS = 2.0
 MAX_WAIT_SECS = 30.0
+#: The most wall time one scan spends, waits included: the box gives a shell
+#: job 300 s (docs/architecture.md, "The shell-job timeout"). A scan that
+#: would run past it stops where it read to, as a rate-limited one does.
+SCAN_BUDGET_SECS = 180.0
+#: Both injectable, so no test waits in real time.
 _sleep = time.sleep
+_clock = time.monotonic
 #: The RPC's answer to a transaction newer than the version asked for.
 _NEWER_VERSION = re.compile(r"Transaction version \((\d{1,3})\) is not supported")
 #: A bill counts as the server when its name starts with one of these (the
@@ -117,6 +123,10 @@ CREATE TABLE IF NOT EXISTS wallet_scan (
     name        TEXT PRIMARY KEY,
     through     REAL NOT NULL,
     updated_at  REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wallet_scanned (
+    signature   TEXT PRIMARY KEY,
+    at          REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS wallet_unreadable (
     signature   TEXT PRIMARY KEY,
@@ -155,19 +165,22 @@ def team_addresses(env: Mapping[str, str] | None = None) -> frozenset[str] | Non
 # --- reading the chain ---------------------------------------------------------------------------
 
 
-def _call(cluster: str, method: str, params: list[Any]) -> Any:
+def _call(cluster: str, method: str, params: list[Any], deadline: float | None = None) -> Any:
     """solana.rpc, with an HTTP 429 waited out and asked again, RATE_TRIES
-    calls in all; the last 429 is raised (solana.RateLimited)."""
+    calls in all; the last 429 is raised (solana.RateLimited), and so is one
+    whose wait would run past `deadline` (on _clock)."""
     for attempt in range(RATE_TRIES - 1):
         try:
             return solana.rpc(cluster, method, params)
         except solana.RateLimited as exc:
-            wait = exc.retry_after if exc.retry_after is not None else BACKOFF_SECS * 2**attempt
-            _sleep(min(wait, MAX_WAIT_SECS))
+            wait = min(exc.retry_after if exc.retry_after is not None else BACKOFF_SECS * 2**attempt, MAX_WAIT_SECS)
+            if deadline is not None and _clock() + wait > deadline:
+                raise
+            _sleep(wait)
     return solana.rpc(cluster, method, params)
 
 
-def _signatures(cluster: str, address: str, since: float) -> tuple[list[tuple[float, str]], bool]:
+def _signatures(cluster: str, address: str, since: float, deadline: float | None = None) -> tuple[list[tuple[float, str]], bool]:
     """(blockTime, signature) of successful transactions touching `address`
     after `since`, and whether there were more than MAX_PAGES pages."""
     out: list[tuple[float, str]] = []
@@ -176,7 +189,7 @@ def _signatures(cluster: str, address: str, since: float) -> tuple[list[tuple[fl
         options: Json = {"limit": PAGE, "commitment": "confirmed"}
         if before:
             options["before"] = before
-        page = _call(cluster, "getSignaturesForAddress", [address, options])
+        page = _call(cluster, "getSignaturesForAddress", [address, options], deadline)
         if not isinstance(page, list):
             raise hand.HandError("Solana RPC getSignaturesForAddress sent no list")
         for entry in page:
@@ -193,21 +206,21 @@ def _signatures(cluster: str, address: str, since: float) -> tuple[list[tuple[fl
     return out, True
 
 
-def _transaction(cluster: str, signature: str) -> Any:
+def _transaction(cluster: str, signature: str, deadline: float | None = None) -> Any:
     """getTransaction at version 0; when the RPC says the transaction is a
     newer version, once more at the version it names."""
     options: Json = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0, "commitment": "confirmed"}
     try:
-        return _call(cluster, "getTransaction", [signature, options])
+        return _call(cluster, "getTransaction", [signature, options], deadline)
     except solana.RpcError as exc:
         newer = _NEWER_VERSION.search(str(exc))
         if not newer or not 0 < int(newer.group(1)) <= 255:
             raise
-    return _call(cluster, "getTransaction", [signature, {**options, "maxSupportedTransactionVersion": int(newer.group(1))}])
+    return _call(cluster, "getTransaction", [signature, {**options, "maxSupportedTransactionVersion": int(newer.group(1))}], deadline)
 
 
-def _token_accounts(cluster: str, owner: str, mint: str) -> list[str]:
-    result = _call(cluster, "getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
+def _token_accounts(cluster: str, owner: str, mint: str, deadline: float | None = None) -> list[str]:
+    result = _call(cluster, "getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}], deadline)
     accounts = result.get("value") if isinstance(result, Mapping) else None
     if not isinstance(accounts, list):
         raise hand.HandError("Solana RPC getTokenAccountsByOwner sent no account list")
@@ -321,7 +334,9 @@ def _cursor(since: float, through: float, left: list[tuple[str, float]]) -> floa
 
 
 def _save_cursor(conn, through: float) -> None:
+    """The cursor, and the reads at or before it no longer worth keeping."""
     with hand.transaction(conn):
+        conn.execute("DELETE FROM wallet_scanned WHERE at <= ?", (through,))
         conn.execute("INSERT INTO wallet_scan (name, through, updated_at) VALUES ('inflows', ?, ?)"
                      " ON CONFLICT (name) DO UPDATE SET through = excluded.through, updated_at = excluded.updated_at",
                      (through, hand.now()))
@@ -332,23 +347,28 @@ def scan() -> Json:
     Reads only: nothing is signed, and the core is asked only for the
     wallet's own address.
 
-    At most MAX_TXS transactions a scan, read PACE_SECS apart. A scan the
-    RPC cuts short (still HTTP 429 after RATE_TRIES calls) keeps what it read,
-    moves the cursor past it, and answers `rate_limited` with how many are
-    `left` for the next scan; only one that could read nothing at all fails.
-    Any other failure moves the cursor past what was read, then is raised."""
+    At most MAX_TXS transactions a scan, read PACE_SECS apart, in at most
+    SCAN_BUDGET_SECS. A scan the RPC cuts short (still HTTP 429 after
+    RATE_TRIES calls) or the budget ends keeps what it read, moves the cursor
+    past it, and answers how many are `left` for the next scan
+    (`rate_limited` when it was the RPC); only one that could read nothing
+    at all fails, and leaves the scan's record untouched. Any other failure
+    moves the cursor past what was read, then is raised. A transaction read
+    that was no deposit is kept in `wallet_scanned` until the cursor passes
+    it, so a scan cut short inside one block second never reads it again."""
     cluster = reads._cluster()
     team = team_addresses()
     own = own_address()
     mint = caps.USDC_MINTS[cluster]
     with hand.lock("wallet-inflows", timeout=60):
+        deadline = _clock() + SCAN_BUDGET_SECS
         conn = db()
         try:
             since = _through(conn)
             found: dict[str, float] = {}
             truncated = False
-            for address in [own, *_token_accounts(cluster, own, mint)]:
-                sigs, more = _signatures(cluster, address, since)
+            for address in [own, *_token_accounts(cluster, own, mint, deadline)]:
+                sigs, more = _signatures(cluster, address, since, deadline)
                 truncated = truncated or more
                 for at, sig in sigs:
                     found.setdefault(sig, at)
@@ -361,17 +381,18 @@ def scan() -> Json:
             done = calls = read = 0
             limited: solana.RateLimited | None = None
             for sig, at in everything:
-                if conn.execute("SELECT 1 FROM wallet_inflows WHERE signature = ?", (sig,)).fetchone():
+                if conn.execute("SELECT 1 FROM wallet_inflows WHERE signature = ? UNION ALL"
+                                " SELECT 1 FROM wallet_scanned WHERE signature = ?", (sig, sig)).fetchone():
                     through = max(through, at)
                     done += 1
                     continue
-                if calls >= MAX_TXS:
+                if calls >= MAX_TXS or _clock() + (PACE_SECS if calls else 0) > deadline:
                     break
                 if calls:
                     _sleep(PACE_SECS)
                 calls += 1
                 try:
-                    tx = _transaction(cluster, sig)
+                    tx = _transaction(cluster, sig, deadline)
                 except solana.RateLimited as exc:
                     limited = exc
                     break
@@ -383,10 +404,12 @@ def scan() -> Json:
                     read += 1
                     continue
                 except hand.HandError:
-                    _save_cursor(conn, _cursor(since, through, everything[done:]))
+                    if read:
+                        _save_cursor(conn, _cursor(since, through, everything[done:]))
                     raise
                 with hand.transaction(conn):
                     conn.execute("DELETE FROM wallet_unreadable WHERE signature = ?", (sig,))
+                    conn.execute("INSERT OR IGNORE INTO wallet_scanned (signature, at) VALUES (?, ?)", (sig, at))
                 legs = read_deposit(tx, own, mint) if isinstance(tx, Mapping) else []
                 memo, held = _screen(_memo(tx), sig) if legs else (None, 0)
                 for leg in legs:
@@ -402,10 +425,11 @@ def scan() -> Json:
                 through = max(through, at)
                 done += 1
                 read += 1
-            if limited is not None and read == 0:
-                # Not one read: the RPC refuses this run outright, which is a failure.
-                _save_cursor(conn, _cursor(since, through, everything[done:]))
-                raise limited
+            if read == 0 and done < len(everything):
+                # Not one read: the RPC refuses this run outright (or the time
+                # ran out first), which is a failure, and the scan's record
+                # says no scan happened.
+                raise limited or hand.HandError("inflows scan: out of time before reading a transaction")
             # A scan cut short stops where it read to; the rest is the next one's.
             left = len(everything) - done
             through = _cursor(since, through, everything[done:])

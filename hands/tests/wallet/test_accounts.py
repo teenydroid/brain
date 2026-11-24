@@ -64,11 +64,19 @@ def sol_tx(sender: str, lamports: int) -> dict[str, Any]:
 
 
 def quiet_sleep(test) -> list[float]:
-    """The scan's waits (pacing, a 429's backoff), recorded instead of slept."""
+    """The scan's waits (pacing, a 429's backoff), recorded instead of slept,
+    on a clock that moves only by what was slept: no test waits in real time."""
     slept: list[float] = []
-    patcher = mock.patch.object(accounts, "_sleep", slept.append, create=True)
-    patcher.start()
-    test.addCleanup(patcher.stop)
+    clock = [1000.0]
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        clock[0] += seconds
+
+    for name, fake in (("_sleep", sleep), ("_clock", lambda: clock[0])):
+        patcher = mock.patch.object(accounts, name, fake, create=True)
+        patcher.start()
+        test.addCleanup(patcher.stop)
     return slept
 
 
@@ -320,6 +328,62 @@ class AccountsTest(Scratch):
         self.chain.answers["getTransaction"] = lambda params: answers.pop(0) if answers else read(params)
         accounts.scan()
         self.assertEqual(self.slept, [accounts.MAX_WAIT_SECS])
+
+    def test_a_scan_that_has_read_some_stops_inside_its_time_budget(self):
+        # The box gives a shell job 300 s; every read here waits 30 s on a 429
+        # first, so the scan must stop with what it has, well before that.
+        for n in range(1, 21):
+            self.deposit(n, T0 - HOUR + n, usdc_tx(STRANGER, 1_000_000))
+        read = self.ledger.transaction
+        refused: set[str] = set()
+
+        def transaction(params: list[Any]) -> Any:
+            if params[0] not in refused:
+                refused.add(params[0])
+                return HttpStatus(429, {"Retry-After": "30"})
+            return read(params)
+
+        self.chain.answers["getTransaction"] = transaction
+        out = accounts.scan()
+        self.assertLessEqual(sum(self.slept), accounts.SCAN_BUDGET_SECS)
+        self.assertGreater(out["count"], 0)
+        self.assertEqual(out["count"] + out["left"], 20)
+        self.assertTrue(out["truncated"])
+        self.chain.answers["getTransaction"] = read
+        self.assertEqual(accounts.scan()["count"], out["left"])
+        self.assertEqual(len(self.rows()), 20)
+
+    def test_a_failed_first_read_leaves_the_scan_never_done(self):
+        # The page counts a scan as recent from wallet_scan; a run that read
+        # nothing must not look like one.
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        self.chain.answers["getTransaction"] = HttpStatus(429)
+        with self.assertRaises(hand.HandError):
+            accounts.scan()
+        conn = accounts.db()
+        try:
+            self.assertIsNone(conn.execute("SELECT 1 FROM wallet_scan").fetchone())
+        finally:
+            conn.close()
+
+    def test_transactions_that_were_no_deposit_are_not_read_again_after_a_cut_short_scan(self):
+        # Three of Teeny's own transactions and a deposit in one block second,
+        # the cap at two: the next scan reads only the two it had not.
+        own = {"meta": {"err": None, "preBalances": [10**9], "postBalances": [10**9 - 5000]},
+               "transaction": {"message": {"accountKeys": [{"pubkey": OWN, "signer": True}], "instructions": []}}}
+        for n in range(1, 4):
+            self.deposit(n, T0 - HOUR, own)
+        self.deposit(4, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        with mock.patch.object(accounts, "MAX_TXS", 2):
+            first = accounts.scan()
+            second = accounts.scan()
+            third = accounts.scan()
+        self.assertEqual((first["count"], first["left"]), (0, 2))
+        self.assertEqual((second["count"], second["left"]), (1, 0))
+        self.assertEqual(third["count"], 0)
+        reads = [p[0] for p in self.chain.params("getTransaction")]
+        self.assertEqual(sorted(reads), sorted(sig(n) for n in range(1, 5)))
+        self.assertEqual([r["signature"] for r in self.rows()], [sig(4)])
 
     def test_the_per_run_cap_never_skips_a_transaction_sharing_the_last_ones_second(self):
         # Three transactions in one block second, the cap at two: the cursor

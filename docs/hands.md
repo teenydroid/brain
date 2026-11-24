@@ -2872,8 +2872,13 @@ HTTP 429 is waited out (the `Retry-After` it gives, else 2, 4, 8 s; at most
 stops where it read to, moves its cursor past what it read (never past a
 transaction it left, even one in the same block second), and answers
 `rate_limited: true` with the number `left`; `watch` files what was read and
-exits 0, and the next run reads the rest. Only a scan the RPC refuses from
-its very first read is a failure. Live, 2026-11-23: 99 transactions behind
+exits 0, and the next run reads the rest. A scan also stops the same way
+once it has spent 180 s, waits included, inside the 300 s the box gives a
+shell job. Only a scan that read nothing at all is a failure, and it leaves
+the scan's record (what `accounts` checks for a recent scan) untouched. A
+transaction read that was no deposit is kept in `wallet_scanned` until the
+cursor passes it, so a scan cut short inside one block second never reads
+it again. Live, 2026-11-23: 99 transactions behind
 the cursor, read back to back, drew a 429 about 8 s in on every hourly run,
 and the cursor, written only at the end, never moved.
 
