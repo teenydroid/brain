@@ -100,10 +100,12 @@ def _tree_now(base: str) -> str:
     return _bare("write-tree").stdout.decode().strip()
 
 
-def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False) -> Json:
+def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, resolved: Any = ()) -> Json:
     """The edited tree as one commit on PREPARED's branch; see the module.
     AS_LAID: the tree as it was laid out, whatever the agent did to it (an
-    empty commit, or main merged in), to have the checks run again."""
+    empty commit, or main merged in), to have the checks run again. RESOLVED
+    names the unmarked conflicts the agent decided: nothing in the tree could
+    show that it did."""
     branch, head, base, main = prepared["branch"], prepared["head"], prepared["tree"], prepared.get("main")
     with mindclone.at(place(prepared["job"])), locked():
         mindclone._fetch_origin()
@@ -122,6 +124,10 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False) ->
         if not files and main is None and not as_laid:
             raise hand.Refused("nothing changed against the pull request's head"
                                + (f"; .gitignore keeps out {', '.join(ignored)}" if ignored else ""), rule="empty")
+        undecided = sorted(set(prepared.get("unmarked") or ()) - set(resolved))
+        if undecided:
+            raise hand.Refused(f"conflict(s) with no marker were not said to be decided: {', '.join(undecided)}; keep "
+                               'or delete each, and name it in the report\'s "resolved"', rule="undecided")
         for path in prepared.get("conflicts") or ():
             if _marked(tree, path):
                 raise hand.Refused(f"{path} still has conflict markers", rule="conflict_markers", path=path)

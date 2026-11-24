@@ -101,7 +101,7 @@ def report(result: Mapping[str, Any]) -> str:
     lines.append(f"head `{sha}` · author tier `{result.get('tier')}`")
     if result.get("self_merge") and result.get("sitter"):
         lines.append("no person approved this head: Teeny's own pull request, every required check is green at this "
-                     "head, no review thread is open and the babysitter's agent said merge at it "
+                     "head, no review bot's or trusted person's thread is open and the babysitter's agent said merge at it "
                      "(`BABYSIT_SELF_MERGE_ALL`)")
     elif result.get("self_merge") and result.get("gate") == "checks":
         lines.append("no person approved this head: Teeny's own pull request, every required check is green "

@@ -572,7 +572,8 @@ brain).
    run of an older job writes is read for no other.
 2. **the agent** edits the checkout, runs tests and writes its report:
    `{number, head_sha, decision: merge|fix|close|wait|retry, reason,
-   commit_message?, replies: [{thread_id, outcome: fixed|declined, body}]}`.
+   commit_message?, replies: [{thread_id, outcome: fixed|declined, body}], resolved?}`
+   (`resolved` names the conflicts git left no marker in that it decided).
 3. **collect** (the next sweep, before the audits): `fix` goes out as one
    commit on the head (two parents when main was merged in), never forced,
    under the mind's clone's rules: plain files only, the frozen list as of

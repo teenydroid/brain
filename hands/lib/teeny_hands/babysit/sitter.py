@@ -28,7 +28,7 @@ carries out what it reports, in two steps of each sweep:
                            the ledger: the dream reads that (ledger.py)
 
 The report: `{number, head_sha, decision, reason, commit_message?,
-replies?}`. `decision` is
+replies?, resolved?}`. `decision` is
 
   fix    push the tree (and answer the threads)
   merge  nothing to change: merge this head once the rules allow
@@ -482,6 +482,10 @@ def _checked(report: Any, now: Json) -> Json:
     out: Json = {"decision": decision, "reason": _string(report.get("reason"), "reason", 2000), "replies": []}
     if report.get("commit_message") is not None:
         out["message"] = _string(report["commit_message"], "commit_message", 500, 0)
+    resolved = report.get("resolved") or []
+    if not isinstance(resolved, list) or not all(isinstance(path, str) for path in resolved):
+        raise _Bad("resolved is a list of paths")
+    out["resolved"] = resolved
     replies = report.get("replies") or []
     if not isinstance(replies, list) or len(replies) > 100:
         raise _Bad("replies is a list of at most 100")
@@ -597,12 +601,15 @@ def _collect(now: Json, api: PullsApi) -> Json:
     except hand.Refused as refused:
         _drop()
         return {"number": number, "dropped": refused.detail.get("rule")}
+    if now.get("pushed"):
+        _pushed(now)
+    if pull.get("head_sha") != (now.get("pushed") or now["head_sha"]):
+        # Not what the report was about, its answers included.
+        _drop()
+        return {"number": number, "dropped": "head_moved"}
     if now.get("replies") is not None:
         # The fix is pushed; its answers were not all posted.
         return _replies(now, api)
-    if pull.get("head_sha") != now["head_sha"]:
-        _drop()
-        return {"number": number, "dropped": "head_moved"}
     try:
         raw = _read_report(now)
         if isinstance(raw, dict) and (raw.get("number"), raw.get("head_sha")) != (now["number"], now["head_sha"]):
@@ -631,6 +638,13 @@ def _collect(now: Json, api: PullsApi) -> Json:
     return _fix(now, api, report)
 
 
+def _pushed(now: Json) -> None:
+    """The push's row, once: the fix cap counts them, so one the ledger would
+    not take is written again before the job ends."""
+    if not ledger.acted("sitter_push", now["repo"], now["number"], now["pushed"]):
+        ledger.record_action("sitter_push", now["repo"], now["number"], now["pushed"], **now["push_row"])
+
+
 def _close(now: Json, api: PullsApi, reason: str) -> Json:
     at = {"repo": now["repo"], "number": now["number"]}
     try:
@@ -638,6 +652,13 @@ def _close(now: Json, api: PullsApi, reason: str) -> Json:
             gh_actions.comment({**at, "body": reason}, api.gh)
             now["said_why"] = True
             _save(now)
+        # GitHub has no close bound to a head. Read again right before it, so
+        # a commit pushed while the comment was judged is not closed unseen;
+        # one pushed in the moment between these two calls still would be.
+        owner, name, _ = policy.watched(now["repo"])
+        if (api.pull(owner, name, now["number"]) or {}).get("head_sha") != now["head_sha"]:
+            _drop()
+            return {"number": now["number"], "dropped": "head_moved"}
         gh_actions.close_pr(at, api.gh)
     except hand.Refused as refused:
         return _failed(now, "close_refused", f"the closing comment was refused: {refused.reason}", again=True)
@@ -665,7 +686,8 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
         return {"number": number, "left": True}
     again = report["decision"] == "retry"
     try:
-        shipped = sitterclone.ship(now, _message(now, report.get("message")), api.gh, as_laid=again)
+        shipped = sitterclone.ship(now, _message(now, report.get("message")), api.gh, as_laid=again,
+                                   resolved=report["resolved"])
     except hand.Refused as refused:
         rule = str(refused.detail.get("rule") or "refused")
         if rule == "moved":
@@ -678,12 +700,13 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
             return {"decision": "decline", **_replies(now, api)}
         return _failed(now, rule, refused.reason, again=True)
     # The push is live: said first, whatever comes after.
-    now.update(replies=replies, then=None, reason=report["reason"], pushed=shipped["commit"])
-    _save(now)
-    ledger.record_action("sitter_push", now["repo"], number, shipped["commit"], onto=now["head_sha"],
-                         files=len(shipped["files"]), merged_main=shipped["merged_main"],
+    now.update(replies=replies, then=None, reason=report["reason"], pushed=shipped["commit"],
+               push_row={"onto": now["head_sha"], "files": len(shipped["files"]),
+                         "merged_main": shipped["merged_main"],
                          **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
-                         **({"retry": True} if again else {}))
+                         **({"retry": True} if again else {})})
+    _save(now)
+    _pushed(now)
     _wrote(now, "fix", report["reason"])
     return {"decision": "retry" if again else "fix", "pushed": shipped["commit"],
             **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}), **_replies(now, api)}

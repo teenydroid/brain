@@ -247,6 +247,13 @@ class VerdictTest(SitterScratch):
         self.threads = [thread(login="greptile-apps", kind="User"), thread(resolved=True)]
         self.assertEqual(self.audit()["verdict"], "ready")
 
+    def test_a_null_where_the_threads_should_be_is_not_none_open(self):
+        self.decide()
+        for data in ({"repository": None}, {"repository": {"pullRequest": None}},
+                     {"repository": {"pullRequest": {"reviewThreads": None}}}):
+            self.gh.route("POST", "/graphql", {"data": data, "errors": [{"type": "NOT_FOUND"}]})
+            self.assertEqual(self.rule(self.audit(), "threads_unreadable"), "wait", data)
+
     def test_threads_that_cannot_be_read_wait(self):
         self.decide()
         self.gh.route("POST", "/graphql", {"errors": [{"type": "FORBIDDEN"}]}, status=403)
@@ -503,6 +510,50 @@ class FixTest(SitterScratch):
         self.assertEqual(self.verbs().count("sitter_push"), 1)
         self.assertEqual(len(self.mutations("addPullRequestReviewThreadReply")), 1)
         self.assertTrue(self.threads[0]["isResolved"])
+
+    def test_answers_are_not_finished_on_a_head_they_were_not_about(self):
+        from teeny_hands.gh.client import GitHubApi, GitHubError
+
+        self.threads = [thread("T1")]
+        self.lay(**RED)
+        self.edit({"brain/other.md": "x\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        with mock.patch.object(GitHubApi, "resolve_thread", side_effect=GitHubError("down", 502)):
+            sitter.collect()
+        self.pr(**{**RED, "head": "c" * 40})
+        self.assertEqual(sitter.collect()["dropped"], "head_moved")
+        self.assertFalse(self.threads[0]["isResolved"])
+
+    def test_a_push_the_ledger_would_not_take_is_counted_before_the_job_ends(self):
+        from teeny_hands.gh.client import GitHubApi, GitHubError
+
+        self.threads = [thread("T1")]
+        self.lay(**RED)
+        self.edit({"brain/other.md": "x\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        with mock.patch.object(GitHubApi, "resolve_thread", side_effect=GitHubError("down", 502)), \
+                mock.patch.object(ledger, "record_action", lambda *a, **k: None):
+            sitter.collect()
+        self.assertNotIn("sitter_push", self.verbs())
+        self.head = self.tip()
+        self.pr(**RED)
+        sitter.collect()
+        self.assertEqual(self.verbs().count("sitter_push"), 1)
+        self.assertEqual(sitter.fixes(ledger.sitter_rows(REPO, 7), self.head), 1)
+
+    def test_a_secret_a_merge_added_and_a_later_commit_took_out_is_found(self):
+        from teeny_hands.gh import gitpush
+
+        self.commit({"brain/SOUL.md": "# soul\nbold\n"}, "main")
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        who = ("-c", "user.name=op", "-c", "user.email=op@example.com")
+        git("-C", str(self.up), *who, "merge", "-q", "-s", "ours", "--no-commit", "main")
+        (self.up / "brain/SOUL.md").write_text(f"# soul\n{LEAKED}\n")
+        git("-C", str(self.up), *who, "commit", "-q", "-a", "-m", "merge")
+        (self.up / "brain/SOUL.md").write_text("# soul\nkind and bold\n")
+        git("-C", str(self.up), *who, "commit", "-q", "-a", "-m", "oops")
+        found = gitpush.scan_branch(self.up / ".git", "refs/heads/main", BRANCH)
+        self.assertEqual([f["path"] for f in found], ["brain/SOUL.md"])
 
     def test_only_findings_to_turn_down_push_nothing(self):
         self.threads = [thread("T1")]
@@ -882,6 +933,19 @@ class TreeTest(SitterScratch):
         self.commit({"brain/new.md": "x\n"})
         self.lay(mergeable=False, mergeable_state="dirty")
         self.assertEqual(self.brief()["conflicts_without_markers"], ["brain/SOUL.md"])
+        for decision in ("fix", "retry", "merge"):  # nothing in the tree says it was looked at
+            sitter._drop()
+            conn = ledger.connect()
+            conn.execute("DELETE FROM babysit_actions")
+            conn.commit()
+            conn.close()
+            self.lay(mergeable=False, mergeable_state="dirty")
+            self.report(decision)
+            self.assertEqual(sitter.collect()["failed"], "undecided", decision)
+        (self.repo / "brain/SOUL.md").unlink()
+        self.report("fix", resolved=["brain/SOUL.md"])
+        self.assertIn("pushed", sitter.collect())
+        self.assertNotIn("brain/SOUL.md", git("--git-dir", str(self.origin), "ls-tree", "-r", "--name-only", BRANCH))
 
     def test_new_files_gitignore_keeps_out_are_said(self):
         self.lay(**RED)
@@ -918,6 +982,27 @@ class CloseTest(SitterScratch):
         self.gh.route("PATCH", f"/repos/{REPO}/pulls/7", {"number": 7, "state": "closed"})
         self.assertEqual(sitter.collect()["decision"], "close")
         self.assertEqual(len(self.gh.requests("POST", f"/repos/{REPO}/issues/7/comments")), 1)
+
+    def test_a_commit_pushed_while_the_comment_went_out_is_not_closed(self):
+        self.lay(**RED)
+        self.report("close")
+        real = gh_actions.comment
+
+        def comment(body, gh=None, **kw):
+            out = real(body, gh, **kw)
+            self.pr(**{**RED, "head": "c" * 40})
+            return out
+
+        with mock.patch.object(gh_actions, "comment", comment):
+            self.assertEqual(sitter.collect()["dropped"], "head_moved")
+        self.assertEqual(self.gh.requests("PATCH"), [])
+
+    def test_a_brief_that_cannot_be_published_leaves_no_job(self):
+        self.pr(**RED)
+        real = sitter._put
+        with mock.patch.object(sitter, "_put", lambda n, t: real(n, t) if n != "brief.json" else 1 / 0):
+            self.assertIn("errors", sitter.queue([audit.audit(REPO, 7)]))
+        self.assertIsNone(sitter.job())
 
     def test_never_anybody_elses(self):
         self.lay(**RED)

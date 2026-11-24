@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from .. import hand
 from . import policy
 
 Json = dict[str, Any]
@@ -73,7 +74,10 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
     for _ in range(MAX_PAGES):
         data = gh.graphql(QUERY, {"owner": owner, "name": name, "number": number, "after": after})
         pull = (data.get("repository") or {}).get("pullRequest") or {}
-        page = pull.get("reviewThreads") or {}
+        page = pull.get("reviewThreads")
+        if not isinstance(page, dict) or not isinstance(page.get("nodes"), list):
+            # GitHub answers NOT_FOUND as a null: nothing read is not nothing open.
+            raise hand.HandError("GitHub did not list the review threads")
         for t in _nodes(page):
             opening = _nodes(t.get("opening"))
             if t.get("isResolved") or not opening or not isinstance(t.get("id"), str):
