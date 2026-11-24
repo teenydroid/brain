@@ -674,10 +674,12 @@ class Running(WantsCase):
         home = self.root / "state" / "home"
         home.mkdir()
         os.chmod(home, 0o500)
-        self.addCleanup(os.chmod, home, 0o755)
-        if os.access(home, os.W_OK):
-            self.skipTest("running as a user no permission stops")
-        code, got = self.cli("run")
+        try:
+            if os.access(home, os.W_OK):
+                self.skipTest("running as a user no permission stops")
+            code, got = self.cli("run")
+        finally:
+            os.chmod(home, 0o755)
         self.assertEqual(code, 1)
         self.assertFalse(got["ok"])
 
