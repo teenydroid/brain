@@ -137,8 +137,8 @@ def results() -> dict:
 
 
 class RegistryTest(unittest.TestCase):
-    def test_the_registry_holds_skit_remake_and_khaby_and_drives_the_video_formats(self):
-        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "khaby", "film"])
+    def test_the_registry_holds_skit_and_remake_and_drives_the_video_formats(self):
+        self.assertEqual(list(formats.REGISTRY), ["skit", "remake", "film"])
         for name, fmt in formats.REGISTRY.items():
             self.assertIsInstance(fmt, formats.Format)
             self.assertEqual(fmt.name, name)
@@ -148,10 +148,10 @@ class RegistryTest(unittest.TestCase):
         self.assertIs(formats.REGISTRY["remake"], formats.remake.FORMAT)
         self.assertEqual(studio.VIDEO_FORMATS, tuple(formats.REGISTRY))
         self.assertEqual(studio.KNOWN_FORMATS, ("post", "thread", "image", "meme", *formats.REGISTRY))
-        # A skit reads nothing before the write turn; a remake and a khaby read and study a source.
+        # A skit reads nothing before the write turn; a remake reads and studies a source.
         self.assertIsNone(formats.REGISTRY["skit"].sources)
         self.assertEqual([(f.sources_name, f.prepare_max) for f in list(formats.REGISTRY.values())[1:]],
-                         [("charts", 2), ("finds", 2), ("", 0)])
+                         [("charts", 2), ("", 0)])
 
     def test_the_format_is_slim(self):
         self.assertEqual([f.name for f in dataclasses.fields(formats.Format)],

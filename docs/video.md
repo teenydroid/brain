@@ -98,7 +98,6 @@ footage:
 | Format | What it is | Real person on screen | Status |
 |---|---|---|---|
 | **crash** (new) | A real trending short video, re-made with Teeny invading and wrecking it: it wanders into the shot, ruins the moment, ends on its stare. The source's setup, place and beat are kept. | Only the public figure the cited story names, or generic extras (§8) | to build: evolves `remake` |
-| **khaby** | A real Khaby Lame setup clip kept, with Teeny's deadpan reaction in place of his | No (the setup's people only, under the remake study gate) | built, off (`MEDIA_KHABY_MAX_PER_DAY=0`) |
 | **skit** | A cited trending story staged as an impossible scene, now **Teeny-led**: Teeny is the lead, a named public figure is at most the straight man | Optional, under the skit rules | live; Teeny-led to build |
 | **parody** (new) | Teeny alone doing a trending format badly: the keynote, the unboxing, the "get ready with me", the podcast clip, the founder's apology video | No | to build |
 
@@ -350,8 +349,7 @@ that model.
 
 - The model order, from the bake-off (§5.2), after a Surplus top-up.
 - §8.2: may a real figure react to Teeny in a crash?
-- Turn on khaby (paid sample still pending), and add crash and parody to
-  `STUDIO_FORMATS`.
+- Add crash and parody to `STUDIO_FORMATS`.
 - Whether the daily video budget ($10) and the one-a-day cadence change once the
   better models cost $3-5 a take.
 - Story films (§12): `FILM_FIGURE_MODELS` after bake-off 3, and the first paid

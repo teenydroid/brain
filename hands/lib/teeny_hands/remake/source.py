@@ -1,7 +1,6 @@
 """One video fetched through the ingest service and its files kept: the half
-of a study that is not the model, shared by hands/remake study and
-hands/khaby dissect. Each keeps its videos under its own folder root,
-state/media/<root>/ (`remake`, `khaby`), one folder per video.
+of hands/remake study that is not the model. The videos are kept under a
+folder root, state/media/<root>/ (`remake`), one folder per video.
 
   checked_fetch  the service's fetch answer held to the shape asked for, or
                  a `fetch` problem

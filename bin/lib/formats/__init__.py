@@ -87,12 +87,11 @@ def named(**given: Any) -> dict[str, Any]:
     return out
 
 
-from formats import film, khaby, remake, skit  # noqa: E402  (each builds its FORMAT from Format above)
+from formats import film, remake, skit  # noqa: E402  (each builds its FORMAT from Format above)
 
 #: The video formats, in order.
 REGISTRY: dict[str, Format] = {
     "skit": skit.FORMAT,
     "remake": remake.FORMAT,
-    "khaby": khaby.FORMAT,
     "film": film.FORMAT,
 }

@@ -127,8 +127,9 @@ def allow_reel_kinds(conn) -> None:
     `music` (a bought track), `meme` and `comic` (hands/meme's pictures with
     words drawn on), `skit` (hands/video skit's cut), `shot` (one of its
     bought text-to-video clips, or a remake's image-to-video clip), `remake`
-    (hands/video remake's cut), `key` (a remake's or a khaby video's bought
-    keyframe), `khaby` (hands/video khaby's cut), `film` (hands/film's story
+    (hands/video remake's cut), `key` (a remake's bought
+    keyframe), `khaby` (a retired format's cut: rows of it may be on a ledger
+    already, so the check still takes it), `film` (hands/film's story
     film) and `audio` (a film's bought narration, score or effect) allowed,
     and the status `unknown` (money was
     committed and the outcome is not known: it counts as spent), and the
@@ -219,18 +220,19 @@ def alt_text(body: Any) -> str | None:
     return alt
 
 
-#: A remake's (or a khaby video's) keys are rendered within this or never
+#: A remake's keys are rendered within this or never
 #: (media/remakes.py); a render begun and never finished (its process died)
 #: is let go after REMAKE_RENDER_SECONDS more.
 REMAKE_STALE_SECONDS = 2 * 3600
 REMAKE_RENDER_SECONDS = 3600
 #: The kinds whose keyframes are bought before their clips: a pending one is
-#: released as a remake is.
+#: released as a remake is. `khaby` is a retired format: nothing makes one
+#: now, and a pending row of it left on a ledger is still let go.
 KEYED_KINDS = ("remake", "khaby")
 
 
 def release_remake(conn, remake_id: int, why: str) -> int:
-    """A pending remake (or khaby video) failed and its shots let go, in one transaction:
+    """A pending remake failed and its shots let go, in one transaction:
     a shot that was never submitted gives its reservation back; one with a
     job (it may be billed: its process died while it ran) is `unknown` and
     keeps what it may cost; keys keep what they cost. The micro-USDC given
@@ -251,7 +253,7 @@ def release_remake(conn, remake_id: int, why: str) -> int:
 
 
 def release_stale(conn) -> None:
-    """Every remake or khaby video whose keys were bought and never rendered within
+    """Every remake whose keys were bought and never rendered within
     REMAKE_STALE_SECONDS (a render begun, REMAKE_RENDER_SECONDS more) let
     go, so its reservations stop holding today's budget. Run by every
     budget check (_check_caps, skits and remakes), under the media lock."""
@@ -720,8 +722,8 @@ def _await(api: Surplus, job_id: str, wait: int, sleep) -> Json:
 def listing(kind: str | None, limit: int) -> Json:
     conn = _db()
     try:
-        # hands/video lists its skits, remakes, khaby videos, their shots and keys with its clips.
-        kinds = ("video", "skit", "shot", "remake", "key", "khaby") if kind == "video" else (kind,) if kind else ()
+        # hands/video lists its skits, remakes, their shots and keys with its clips.
+        kinds = ("video", "skit", "shot", "remake", "key") if kind == "video" else (kind,) if kind else ()
         marks = ", ".join("?" for _ in kinds)
         query = "SELECT * FROM media_assets" + (f" WHERE kind IN ({marks})" if kinds else "") + " ORDER BY id DESC LIMIT ?"
         rows = conn.execute(query, (*kinds, limit)).fetchall()

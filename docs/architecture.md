@@ -963,11 +963,11 @@ cannot be turned off by an agent's config. The editor's is
 list). READER.md, VOICE.md, CANON.md and the skills' craft no longer reach
 either.
 
-**Video slots** (`STUDIO_SKIT_SLOTS`, with skit, remake or khaby in
-`STUDIO_FORMATS`; `STUDIO_VIDEO_BUDGET_SECS` when a remake or khaby may be
+**Video slots** (`STUDIO_SKIT_SLOTS`, with skit or remake in
+`STUDIO_FORMATS`; `STUDIO_VIDEO_BUDGET_SECS` when a remake may be
 made): the same three steps. Before the write, each video format that reads
-its own sources reads them (`hands/remake charts`, `hands/khaby find`) and
-the first that studies well (`hands/remake study`, `hands/khaby dissect`, at
+its own sources reads them (`hands/remake charts`) and
+the first that studies well (`hands/remake study`, at
 most two tries a run) is the one offered. The write turn asks for
 `STUDIO_VIDEO_POSTS` (3) of the posts as videos, with each format's
 mechanics in that turn; the rest are word posts the slot falls back to. A
@@ -981,7 +981,7 @@ videos out of the run (one video a day).
 ### Formats
 
 Each video format is one module in `bin/lib/formats/` (`skit.py`,
-`remake.py`, `khaby.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
+`remake.py`) that builds a `Format` (`bin/lib/formats/__init__.py`), and
 `formats.REGISTRY` lists them in order. A `Format` carries its words for the
 write turn (`ask`, `draft_shape`, `rules`: mechanics only), `shape` (the
 structural check: the piece kept on a post, from the card and the study),

@@ -4,9 +4,7 @@ with none, the loudness evened out, an optional bed, the label burned in
 for the whole length from a file), and when it takes the viewer's frames.
 A remake's cut adds `trims` (each clip cut to its source shot, to the
 frame) and `sound` (the source's audio, the only sound); without them the
-command is byte for byte what it was. A khaby cut adds `starts` (where each
-clip is taken from, 0 for a generated clip) and the dissect's own source as
-a clip, the only clip that may start past 0.
+command is byte for byte what it was.
 The module imports nothing of upstream's, so it is loaded as it runs; the
 one test that renders runs only where ffmpeg is installed (the reel image)."""
 
@@ -26,10 +24,6 @@ SPEC.loader.exec_module(skitcut)
 JOB = {"clips": ["media/skit-1-shot-1.mp4", "media/skit-1-shot-2.mp4"], "label": "AI parody · @teenydroid"}
 REMAKE = {"clips": [f"media/remake-3-shot-{n}.mp4" for n in range(1, 7)], "label": "AI parody · @teenydroid",
           "aspect": "9:16", "trims": [2.4, 4.0, 1.0, 10.0, 3, 1.5], "sound": "media/remake/s1/audio.m4a"}
-
-SOURCE = "media/khaby/tt-7/source.mp4"
-KHABY = {"clips": [SOURCE, "media/khaby-4-shot-2.mp4", SOURCE], "label": "AI parody · @teenydroid", "aspect": "9:16",
-         "trims": [12.5, 4.2, 1.3], "starts": [0, 0, 16.7], "sound": "media/khaby/tt-7/audio.m4a"}
 
 
 class CheckTest(unittest.TestCase):
@@ -70,44 +64,6 @@ class CheckTest(unittest.TestCase):
         one = {**REMAKE, "clips": REMAKE["clips"][:1], "trims": [30.0]}
         self.assertEqual(skitcut.check_cut(one)["trims"], [30.0])
         for body in ({**one, "trims": [30.5]}, {**REMAKE, "clips": REMAKE["clips"][:2], "trims": [12.0, 3.0]}):
-            with self.subTest(body=body):
-                with self.assertRaises(skitcut.CutError):
-                    skitcut.check_cut(body)
-
-    def test_a_khaby_cut_takes_starts_the_dissects_source_and_its_sound(self):
-        checked = skitcut.check_cut(KHABY)
-        self.assertEqual((checked["clips"], checked["trims"], checked["starts"], checked["sound"]),
-                         (KHABY["clips"], [12.5, 4.2, 1.3], [0.0, 0.0, 16.7], KHABY["sound"]))
-        self.assertEqual(skitcut.check_cut({**KHABY, "sound": None})["sound"], None)
-
-    def test_a_cut_without_starts_answers_none(self):
-        self.assertNotIn("starts", skitcut.check_cut(REMAKE))
-        self.assertNotIn("starts", skitcut.check_cut(JOB))
-        self.assertEqual(skitcut.check_cut({**REMAKE, "starts": [0] * 6})["starts"], [0.0] * 6)
-
-    def test_starts_and_source_clips_are_held_to_their_rules(self):
-        bad = [
-            {**KHABY, "trims": None, "sound": None},
-            {**JOB, "starts": [0, 0]},
-            {**KHABY, "starts": [0, 0]},
-            {**KHABY, "starts": [0, 0, -1]},
-            {**KHABY, "starts": [0, 0, True]},
-            {**KHABY, "starts": "0"},
-            {**KHABY, "starts": [0, 0, 141]},
-            {**KHABY, "starts": [0, 2.0, 16.7]},
-            {**REMAKE, "starts": [1.0] + [0] * 5},
-            {**{k: v for k, v in KHABY.items() if k != "starts"}},
-            {**KHABY, "clips": ["media/khaby/tt-7/shot-1.mp4", KHABY["clips"][1], SOURCE]},
-            {**KHABY, "clips": ["media/khaby/../remake/s1/source.mp4", KHABY["clips"][1], SOURCE]},
-            {**KHABY, "clips": ["media/remake/s1/source.mp4", KHABY["clips"][1], SOURCE]},
-            {**KHABY, "trims": [60.5, 4.2, 1.3]},
-            {**KHABY, "trims": [12.5, 10.5, 1.3]},
-            {**KHABY, "trims": [12.5, 4.2, 0.05]},
-            {**KHABY, "sound": "media/khaby/tt-7/../x.m4a"},
-            {**KHABY, "sound": "media/khaby/tt-7/source.mp4"},
-            {**KHABY, "clips": [SOURCE] * 7, "trims": [1.0] * 7, "starts": [0] * 7},
-        ]
-        for body in bad:
             with self.subTest(body=body):
                 with self.assertRaises(skitcut.CutError):
                     skitcut.check_cut(body)
@@ -318,48 +274,6 @@ class CommandTest(unittest.TestCase):
                                                       trims=[3.9], sound="/m/a.m4a")))
 
 
-    # --- a khaby cut's starts and the dissect's source --------------------------------------
-
-    KHABY_CLIPS = [{"path": "/k/source.mp4", "audio": True, "seconds": 20.0, "video_seconds": 20.0},
-                   {"path": "/s/2.mp4", "audio": False, "seconds": 5.04}]
-
-    def test_starts_of_zero_leave_a_remakes_command_as_it_was(self):
-        for sound in ("/m/audio.m4a", None):
-            with self.subTest(sound=sound):
-                self.assertEqual(
-                    skitcut.argv("ffmpeg", self.REMAKE_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16",
-                                 trims=[2.4, 4.0], sound=sound, starts=[0.0, 0.0]),
-                    skitcut.argv("ffmpeg", self.REMAKE_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16",
-                                 trims=[2.4, 4.0], sound=sound))
-
-    def test_a_source_clip_is_taken_from_its_start_then_normalised_like_every_clip(self):
-        argv = skitcut.argv("ffmpeg", self.KHABY_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16",
-                            trims=[3.0, 4.0], sound="/k/audio.m4a", starts=[10.0, 0.0])
-        self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-i"],
-                         ["/k/source.mp4", "/s/2.mp4", "/k/audio.m4a"])
-        graph = self.graph(argv)
-        self.assertIn("[0:v]trim=start=10.000000,setpts=PTS-STARTPTS,scale=1068:1900:force_original_aspect_ratio="
-                      "increase,crop=1068:1900,setsar=1,fps=30,format=yuv420p,trim=end_frame=90,setpts=PTS-STARTPTS[v0]",
-                      graph)
-        self.assertIn("[1:v]scale=1068:1900:force_original_aspect_ratio=increase,crop=1068:1900,setsar=1,fps=30,"
-                      "format=yuv420p,trim=end_frame=120,setpts=PTS-STARTPTS[v1]", graph)
-        self.assertIn("apad,atrim=end=7.000000,asetpts=PTS-STARTPTS[as]", graph)
-
-    def test_without_a_sound_a_source_clips_own_sound_is_taken_from_its_start(self):
-        graph = self.graph(skitcut.argv("ffmpeg", self.KHABY_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16",
-                                        trims=[3.0, 4.0], starts=[10.0, 0.0]))
-        self.assertIn("[0:a]atrim=start=10.000000,asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:"
-                      "channel_layouts=stereo,apad,atrim=end=3.000000,asetpts=PTS-STARTPTS[a0]", graph)
-
-    def test_what_is_left_after_a_start_must_cover_the_trim(self):
-        with self.assertRaises(skitcut.CutError):
-            skitcut.argv("ffmpeg", self.KHABY_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16",
-                         trims=[4.0, 4.0], sound="/k/audio.m4a", starts=[17.0, 0.0])
-        self.assertIn("trim=start=16.000000", self.graph(skitcut.argv(
-            "ffmpeg", self.KHABY_CLIPS, "/c/l.txt", "/f/f.ttf", "/c/cut.mp4", "9:16", trims=[4.0, 4.0],
-            sound="/k/audio.m4a", starts=[16.0, 0.0])))
-
-
 class RouteTest(unittest.TestCase):
     """serve.py's cut route, checked from its source (importing it needs
     upstream): a remake's sound is resolved, confined to media/remake/ with
@@ -371,12 +285,6 @@ class RouteTest(unittest.TestCase):
         source = self.SERVE.read_text()
         self.assertIn('skitcut.under(sound, os.path.join(TEENY, "media", "remake"))', source)
         self.assertIn('trims=checked.get("trims"), sound=sound)', source)
-
-    def test_the_route_confines_a_khaby_sound_and_source_and_passes_the_starts(self):
-        source = self.SERVE.read_text()
-        self.assertIn('skitcut.under(sound, os.path.join(TEENY, "media", "khaby"))', source)
-        self.assertIn('skitcut.under(path, os.path.join(TEENY, "media", "khaby"))', source)
-        self.assertIn('starts=checked.get("starts"), trims=checked.get("trims"), sound=sound)', source)
 
 
 class ClientTest(unittest.TestCase):
@@ -480,26 +388,6 @@ class RenderTest(unittest.TestCase):
             for line in lengths:
                 kind, seconds = line.split(",")
                 self.assertTrue(11.9 < float(seconds) < 12.1, (kind, seconds))
-
-    def test_a_khaby_cut_takes_the_source_from_its_start(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            src, b, out = os.path.join(tmp, "source.mp4"), os.path.join(tmp, "b.mp4"), os.path.join(tmp, "cut")
-            sound = os.path.join(tmp, "audio.m4a")
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                            "testsrc=size=576x1024:rate=25:duration=8", "-f", "lavfi", "-i",
-                            "sine=frequency=440:duration=8", "-shortest", src], check=True)
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                            "testsrc2=size=720x1280:rate=24:duration=5", b], check=True)
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=8",
-                            "-c:a", "aac", sound], check=True)
-            os.makedirs(out)
-            font = next((str(p) for p in Path("/MoneyPrinterTurbo/resource/fonts").glob("*.ttf")), None) or \
-                str(REPO / "vendor" / "moneyprinter" / "resource" / "fonts" / skitcut.FONT)
-            made = skitcut.render([src, b, src], "AI parody · @teenydroid", "9:16", out, font, trims=[3.0, 2.5, 1.5],
-                                  sound=sound, starts=[0.0, 0.0, 5.5])
-            self.assertEqual((made["sound"], made["trimmed"], made["padded"]), (True, [3.0, 2.5, 1.5], [0.0] * 3))
-            self.assertTrue(6.9 < made["seconds"] < 7.1, made["seconds"])
-
 
 
 if __name__ == "__main__":

@@ -69,7 +69,7 @@ Read-only sources:
 | Hand | What it reads |
 |---|---|
 | `hn`, `chan`, `listen`, `trend` | Hacker News, 4chan's worksafe boards, the outside world's chatter, and Digg's AI leaderboards with the X posts behind them (through `digg-pp-cli`). |
-| `remake`, `khaby` | Short videos to study and remake, and Khaby Lame videos dissected into timelines (through the `ingest` service in `deploy/`). |
+| `remake` | Short videos to study and remake (through the `ingest` service in `deploy/`). |
 
 ## Test
 

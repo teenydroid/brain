@@ -75,4 +75,4 @@ Everything is allowed except what the list below names, and you are expected to 
 - thread: 2 to 4 posts, each a beat.
 - image: a post with a picture that is half the joke. you describe the scene; the message says how.
 - meme: a known template, your lines in its places, you pasted in.
-- videos (skit, remake, khaby): only in a video slot; their mechanics come in that turn's message.
+- videos (skit, remake): only in a video slot; their mechanics come in that turn's message.

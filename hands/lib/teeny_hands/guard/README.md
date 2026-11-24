@@ -38,7 +38,7 @@ member (`SEXUAL_FAMILY`, since the studio posted one the judge passed on
 Not content, and unchanged: the link allowlist (`links.py`), the wallet and
 token-call rules (no invented money amounts, price promises or buy/sell
 calls: the truth judge in `anchor.py`, the outward-quote ticker rule and the
-skit/remake/khaby endorsement lines), the posting caps and DRY_RUN (hands/x),
+skit/remake endorsement lines), the posting caps and DRY_RUN (hands/x),
 secrets handling, and the no-reprisal hold after a rejection (`gate.py`,
 private maintainers only).
 
@@ -71,7 +71,7 @@ text ──► screen.py (lexicon.py: slurs; links.py)   deterministic, no model
 | `clarity.py` | The cold reader's old verb: always a pass, no model. |
 | `quote.py` | The outward quote's spam check (an advert, a follow/like/buy call); fails open. |
 | `viewer.py` | A vision model on pictures and video frames: on model, labelled, nothing prohibited, nothing passing for real footage. |
-| `skit.py`, `remake.py`, `khaby.py` | The list's lines for each studio video format. |
+| `skit.py`, `remake.py` | The list's lines for each studio video format. |
 
 `hands/guard` is on the frozen list (`evals/frozen.txt`). Tests are in
 `hands/tests/guard/`.

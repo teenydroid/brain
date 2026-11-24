@@ -124,10 +124,9 @@ cost), a `key` row a bought keyframe, and one `shot` row for the take
 
 DRY_RUN (on by default) answers what would be made and calls nothing.
 
-Some of the machinery is shared: a `Format` says what differs for another
-flavor that buys keyframes and animates them a clip a shot (media/khaby.py's
-khaby video, whose setup is kept from the source): the row's kind and the
-files' prefix, the settings' prefix, the verbs' names, the edit's words and
+Some of the machinery takes a `Format`, which says what would differ for
+another flavor that buys keyframes and animates them a clip a shot: the
+row's kind and the files' prefix, the settings' prefix, the verbs' names, the edit's words and
 what the render checks outside the ledger (the sound). The caps, the
 keyframe edits, the per-shot clip plan, the render's claim and the drop run
 either; the one take, and the verbs around it, are the remake's own.
@@ -471,8 +470,8 @@ def _check_on(limit: int, shared: int, fmt: Format | None = None) -> None:
         raise hand.Refused(f"{fmt.noun}s are off: {fmt.named('MAX_PER_DAY')} is 0 (the operator turns them on and sets "
                            "the budget in secrets/teeny.env)", rule="off")
     if shared == 0:
-        raise hand.Refused(f"{fmt.noun}s are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits, remakes and khaby "
-                           "videos share, is 0", rule="off")
+        raise hand.Refused(f"{fmt.noun}s are off: MEDIA_SKIT_MAX_PER_DAY, the videos a day skits and remakes share, "
+                           "is 0", rule="off")
 
 
 def _runway(fmt: Format | None = None) -> None:

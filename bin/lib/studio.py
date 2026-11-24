@@ -22,8 +22,8 @@ model turn, so a retried run never posts twice).
 2. Write: one writer turn (`write_message`) asks for STUDIO_POSTS (6)
    finished posts, each on a different card, each going at a named person or
    company when the card has one. In a video slot (STUDIO_SKIT_SLOTS) some of
-   them are videos, with the format's mechanics in the same turn; a remake or
-   a khaby's source is studied first (`study`). The answer is checked for
+   them are videos, with the format's mechanics in the same turn; a remake's
+   source is studied first (`study`). The answer is checked for
    structure only (`validate_posts`): JSON, words, a card that exists, no
    link or handle, a video's shots and fields. Nothing is cut or dropped for
    length: 280 is a target.
@@ -186,10 +186,9 @@ class Config:
     skit_secs: int = 900
     #: The run's time in a video slot (STUDIO_VIDEO_BUDGET_SECS), used there
     #: instead of budget_secs, and the most a remake's keys and video may take
-    #: together (STUDIO_REMAKE_SECS), and a khaby video's (STUDIO_KHABY_SECS).
+    #: together (STUDIO_REMAKE_SECS).
     video_budget_secs: int = 3600
     remake_secs: int = 1200
-    khaby_secs: int = 1200
     #: The longest a remake's studied shot may be (REMAKE_MAX_SHOT_SECONDS).
     remake_max_shot: float = 5.0
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), recorded only.
@@ -238,7 +237,6 @@ class Config:
         c.skit_secs = _int(get("STUDIO_SKIT_SECS"), 900, 120, 1700)
         c.video_budget_secs = _int(get("STUDIO_VIDEO_BUDGET_SECS"), 3600, 60, 3600)
         c.remake_secs = _int(get("STUDIO_REMAKE_SECS"), 1200, 540, 1700)
-        c.khaby_secs = _int(get("STUDIO_KHABY_SECS"), 1200, 540, 1700)
         try:
             shot = float(get("REMAKE_MAX_SHOT_SECONDS") or 5.0)
         except ValueError:
@@ -1036,7 +1034,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     room.preview = bool(dry and getattr(args, "pictures", False))
     room.environ = environ
     room.skit_slot = bool(args.slot) and args.slot in cfg.skit_slots and any(f in cfg.formats for f in video_formats())
-    if room.skit_slot and any(f in cfg.formats for f in ("remake", "khaby", "film")):
+    if room.skit_slot and any(f in cfg.formats for f in ("remake", "film")):
         cfg.budget_secs = cfg.video_budget_secs
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,

@@ -11,8 +11,7 @@ before the call (so two studies at once cannot both take the day's last),
 then finished with what the call reported (asks, tokens, cost in USD
 micros). It is its own table: this is research spend, not a media asset.
 A study that never reached the model is released, and so does not count.
-hands/khaby dissect books its video call here too, as `kind` `dissect`
-(a study's rows are `study`): each kind has its own day's cap.
+A row's `kind` is `study`; each kind has its own day's cap.
 """
 
 from __future__ import annotations

@@ -164,7 +164,7 @@ def _tiktok(ingest: Any, unavailable: list[Json]) -> list[Json]:
 def list_accounts(ingest: Any, names: list[str], unavailable: list[Json], per_account: int = PER_ACCOUNT) -> list[Json]:
     """Each TikTok account's recent videos, through the ingest service, as
     raw candidates (unfiltered); a bad name or a failed listing is named
-    under `unavailable`, never raised. hands/khaby find lists the same way."""
+    under `unavailable`, never raised."""
     found: list[Json] = []
     failures: list[str] = []
     for name in names:
