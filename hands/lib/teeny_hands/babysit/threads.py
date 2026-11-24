@@ -65,6 +65,11 @@ def _nodes(value: Any) -> list[Json]:
     return [n for n in nodes if isinstance(n, dict)] if isinstance(nodes, list) else []
 
 
+def _whole(value: Any) -> bool:
+    nodes = value.get("nodes") if isinstance(value, dict) else None
+    return isinstance(nodes, list) and bool(nodes) and all(isinstance(n, dict) for n in nodes)
+
+
 def unresolved(gh: Any, owner: str, name: str, number: int,
                tier: Callable[[str | None], str]) -> tuple[list[Json], bool]:
     """Each `{id, path, line, outdated, opened_by, who, last, comments}`, and
@@ -86,7 +91,7 @@ def unresolved(gh: Any, owner: str, name: str, number: int,
             opening = _nodes(t.get("opening"))
             if t.get("isResolved"):
                 continue
-            if not opening or not isinstance(t.get("id"), str) or not isinstance(t.get("latest"), dict):
+            if not opening or not isinstance(t.get("id"), str) or not _whole(t.get("latest")):
                 raise hand.HandError("GitHub did not give a review thread whole")
             opener = author(opening[0])
             if heard(opener, tier) is None:

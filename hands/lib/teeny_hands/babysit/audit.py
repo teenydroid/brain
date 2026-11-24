@@ -56,8 +56,9 @@ to babysit ... and merge or close the PRs if everything is green"; on with
 BABYSIT_SELF_MERGE_ALL, BABYSIT_SITTER=0 off) reads each such candidate, and
 its `merge` at the exact head (the ledger) is needed besides the checks:
 `sitter_pending` waits without one, unless an operator approved the head.
-Two more waits: `open_threads`, an unresolved review thread of a review bot
-or a trusted person, and `threads_unreadable`. With it on, these are notes
+More waits: `open_threads`, an unresolved review thread of a review bot
+or a trusted person, `threads_unreadable`, and `thread_unsettled`, one the
+agent's answer resolved that may have to be reopened (sitter.unsettled). With it on, these are notes
 on a candidate rather than the operator's: `too_large`, `removes_test`,
 `unreadable_diff` (once the file's content at the head was read and scanned;
 the operator's when it could not be), `lexicon`, an injection in somebody's
@@ -75,7 +76,7 @@ from .. import hand
 from ..gh import reads as gh_reads
 from ..gh import secretscan
 from ..gh.client import user
-from . import injection, ledger, policy, rollback, threads
+from . import injection, ledger, policy, rollback, sitter, threads
 from .api import PullsApi
 
 Json = dict[str, Any]
@@ -189,6 +190,9 @@ class _Audit:
         return "note" if self.sitter else "operator"
 
     def _threads(self) -> None:
+        if sitter.unsettled(self.repo, self.number):
+            # It reads as resolved until it is reopened, so nothing below sees it.
+            self.add("thread_unsettled", "wait", "threads", "a resolve or a reopen is not seen through")
         try:
             self.threads, cut = threads.unresolved(self.api.gh, self.owner, self.name, self.number, self.tier)
         except hand.HandError:
