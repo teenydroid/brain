@@ -1282,8 +1282,14 @@ def sync_self_clone() -> Json | None:
     old. The builder's desk (bin/build-ship) did this every half hour until
     the builder was retired (2026-11-24). Nothing for a checkout or an
     EVOLVE_GIT_DIR. A sync that fails is said and the run goes on from what
-    the clone has."""
-    if source().kind != "self-clone":
+    the clone has. A box with GITHUB_TOKEN and no clone yet (a fresh
+    deploy: nothing else makes one since build-ship went) has it cloned, so
+    the run that follows ships from it rather than from the checkout, which
+    can be gated but not shipped."""
+    from teeny_hands import hand
+
+    kind = source().kind
+    if kind != "self-clone" and not (kind == "checkout" and hand.setting("GITHUB_TOKEN")):
         return None
     try:
         from teeny_hands.build import selfclone

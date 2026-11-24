@@ -1112,13 +1112,36 @@ class SelfCloneSyncTest(unittest.TestCase):
         self.assertEqual(got, {"state": "synced", "commit": "abc"})
 
     def test_a_checkout_or_a_named_git_dir_is_left_alone(self):
+        from teeny_hands import hand
         from teeny_hands.build import selfclone
 
         for kind in ("checkout", "env"):
             with unittest.mock.patch.object(evolve, "source", return_value=self.source(kind)), \
+                    unittest.mock.patch.object(hand, "setting", return_value=None), \
                     unittest.mock.patch.object(selfclone, "sync") as sync:
                 self.assertIsNone(evolve.sync_self_clone())
             sync.assert_not_called()
+
+    def test_a_fresh_box_with_a_token_makes_the_clone_it_ships_from(self):
+        """Greptile on #550: with bin/build-ship gone nothing made
+        state/self/brain.git, and from a checkout a generation can be gated
+        but never shipped. A box with GITHUB_TOKEN and no clone clones it
+        (selfclone.sync clones when missing); a named EVOLVE_GIT_DIR never."""
+        from teeny_hands import hand
+        from teeny_hands.build import selfclone
+
+        token = lambda name, default=None: "ghp_x" if name == "GITHUB_TOKEN" else default  # noqa: E731
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("checkout")), \
+                unittest.mock.patch.object(hand, "setting", side_effect=token), \
+                unittest.mock.patch.object(selfclone, "sync", return_value={"state": "cloned", "commit": "abc"}) as sync:
+            got = evolve.sync_self_clone()
+        sync.assert_called_once_with()
+        self.assertEqual(got["state"], "cloned")
+        with unittest.mock.patch.object(evolve, "source", return_value=self.source("env")), \
+                unittest.mock.patch.object(hand, "setting", side_effect=token), \
+                unittest.mock.patch.object(selfclone, "sync") as sync:
+            self.assertIsNone(evolve.sync_self_clone())
+        sync.assert_not_called()
 
     def test_a_sync_that_fails_is_said_and_the_run_goes_on(self):
         from teeny_hands import hand
