@@ -1058,6 +1058,35 @@ class AnswerTest(SitterScratch):
         self.assertEqual(self.rule(audit.audit(REPO, 7), "sitter_pending"), "wait")
         self.assertEqual(self.gh.requests("PUT"), [])
 
+    def test_a_job_does_not_end_before_the_old_merge_is_taken_back(self):
+        ledger.record_action("sitter_merge", REPO, 7, self.head)
+        self.objected()
+        with mock.patch.object(ledger, "record_action", lambda *a, **k: None):
+            sitter.collect()
+            self.assertTrue(sitter.unsettled(REPO, 7))
+            self.assertEqual(self.rule(audit.audit(REPO, 7), "thread_unsettled"), "wait")
+        sitter.collect()
+        self.assertFalse(self.threads[0]["isResolved"])
+        self.assertEqual(ledger.sitter_decision(REPO, 7, self.head), "wait")
+
+    def test_a_merge_audits_and_merges_under_the_lock_a_resolve_is_made_under(self):
+        ledger.record_action("sitter_merge", REPO, 7, self.head)
+        self.pr()
+        self.gh.route("PUT", f"/repos/{REPO}/pulls/7/merge", {"merged": True, "sha": "e" * 40})
+        real, held = PullsApi.merge, []
+
+        def merge(api, *a):
+            try:
+                with hand.lock("sitter", timeout=0):
+                    held.append(False)
+            except hand.HandError:
+                held.append(True)
+            return real(api, *a)
+
+        with mock.patch.object(PullsApi, "merge", merge):
+            actions.merge({"repo": REPO, "number": 7, "head_sha": self.head})
+        self.assertEqual(held, [True])
+
     def test_a_pull_request_closed_meanwhile_still_gets_its_thread_reopened(self):
         from teeny_hands.gh.client import GitHubApi, GitHubError
         self.objected()
@@ -1071,7 +1100,7 @@ class AnswerTest(SitterScratch):
 
     def test_a_resolve_that_does_not_say_who_spoke_last_is_undone(self):
         self.objected()
-        for last in ([], None):
+        for last in ([], None, [{"id": "n", "author": None}]):
             self.last_said = last
             self.assertEqual(sitter.collect()["moved"], 1)
             self.assertFalse(self.threads[0]["isResolved"])

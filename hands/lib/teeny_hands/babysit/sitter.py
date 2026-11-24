@@ -630,6 +630,10 @@ def _unsay(now: Json) -> None:
     head = now.get("pushed") or now["head_sha"]
     if ledger.sitter_decision(now["repo"], now["number"], head) == "merge":
         ledger.record_action("sitter_wait", now["repo"], now["number"], head, taken_back=True)
+        if ledger.sitter_decision(now["repo"], now["number"], head) == "merge":
+            # The row is logged, never raised; here it has to be there before
+            # the job, which holds the merge until then, may end.
+            raise hand.HandError("the merge decision could not be taken back")
 
 
 def _collect(now: Json, api: PullsApi) -> Json:
@@ -801,7 +805,7 @@ def _resolve(now: Json, api: PullsApi, r: Json, role: Any) -> bool:
     done = gh_actions.resolve_thread(at, api.gh)
     said = threads.heard(threads.author(done.get("last")), role)
     # Resolved, and who spoke last did not come back: as good as an objection.
-    unread = bool(done.get("resolved")) and not isinstance(done.get("last"), dict)
+    unread = bool(done.get("resolved")) and threads.author(done.get("last")) is None
     if said or unread:
         # GitHub cannot be asked to resolve only what was read.
         now["moved"] = True
