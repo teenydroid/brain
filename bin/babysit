@@ -8,7 +8,12 @@
 # comments only when secrets/teeny.env sets BABYSIT=1, and merges a pull
 # request a person approved at its exact head only when BABYSIT_MERGE=1.
 # With BABYSIT_SELF_MERGE=1 as well, Teeny's own evolve pull request
-# (teeny/gen-*) merges on a passed teeny/eval status with no approval, and
+# (teeny/gen-*) merges on a passed teeny/eval status with no approval.
+# With BABYSIT_SELF_MERGE_ALL=1 too, any teeny/ pull request of Teeny's own
+# merges once it is green, its review threads are settled and the babysitter's
+# agent (brain/agents/babysitter.toml, a GLM cron job) said merge at that
+# head; the sweep carries out what the agent reports (a fix to push, threads
+# to answer, a close) and lays out its next pull request. After a self-merge
 # the sweep then deploys it to this checkout, last: fast-forward only, a
 # reseed or a spine restart as the merge needs, never while a generation
 # or an eval runs (hands/lib/teeny_hands/babysit/deploy.py).

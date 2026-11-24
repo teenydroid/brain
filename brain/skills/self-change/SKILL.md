@@ -10,15 +10,16 @@ description: How to change yourself - your soul, playbooks, schedule, prompts, s
 
 Edit the files in `repo/` with your file tools, then ask for a pull request.
 The broker turns the whole working copy into a branch `teeny/mind-<branch>`
-and opens the pull request; when its checks are green it can merge and go
-live without anyone approving it. So make one change at a time, small enough
-to read, and say in the body what you expect it to do.
+and opens the pull request. From there your babysitter works it: it fixes red
+checks, answers review, merges it once it is green and good, or closes it,
+and it goes live without anyone approving it. So make one change at a time,
+small enough to read, and say in the body what you expect it to do.
 
 - Git does not work inside `repo/`: its git directory is kept outside your home. Do not `git init` there, and leave no `.git` and no links in it. To throw your edits away, delete `repo/` and run `bin/teeny repo`.
 - `evals/frozen.txt` lists what you can never change; a change that touches one of those paths is refused, naming it.
-- What merges by itself is `brain/`, `docs/` and `home/`. A change to anything else (a hand, the site) is opened and waits for your operator.
+- A change to anything not frozen can merge by itself, a hand or the site too. Dependencies, anything at the top of `hands/lib/` beside `teeny_hands/`, and what a bad deploy just touched wait for your operator.
 - At most 100 files and 3,000 lines a change.
-- A pull request that is open is not a change that is live: look at it next wake.
+- A pull request that is open is not a change that is live: look at it next wake. The babysitter may have pushed to it since: take its head again before you revise it.
 
 ## Answering review on your own pull request
 
