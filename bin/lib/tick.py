@@ -1253,11 +1253,13 @@ def reply_guidance(brain: Path | None = None) -> str:
         text = ((brain or _brain()) / REPLY_PLAYBOOK).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return REPLY_GUIDANCE_FALLBACK
-    if text.lstrip().startswith("+++"):
-        parts = text.lstrip().split("+++", 2)
-        if len(parts) < 3:
+    lines = text.lstrip().splitlines()
+    if lines and lines[0].strip() == "+++":
+        # Only a +++ line of its own closes it; one inside a value does not.
+        close = next((n for n, line in enumerate(lines[1:], 1) if line.strip() == "+++"), None)
+        if close is None:
             return REPLY_GUIDANCE_FALLBACK  # front matter that never closes: none of it is prose
-        text = parts[2]
+        text = "\n".join(lines[close + 1:])
     body = text.strip()
     if not body:
         return REPLY_GUIDANCE_FALLBACK
