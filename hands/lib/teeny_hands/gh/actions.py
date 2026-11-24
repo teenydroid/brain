@@ -249,13 +249,11 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
     base = gitpush.branch(body["base"]) if "base" in body else None
     message = guarded({"message": _string(body, "message")}, "commit", {"repo": repo, "branch": ref})["message"]
     rehearsal = hand.dry_run()
-    if rehearsal:
-        token, login = hand.setting("GITHUB_TOKEN"), user()
-    else:
-        gh = gh or GitHubApi.from_settings()
-        token, login = hand.require("GITHUB_TOKEN"), _own_identity(gh)
+    # Reading the branch needs the token for a private repository, and the
+    # push needs it; a rehearsal reads with it when it is there.
+    token = hand.setting("GITHUB_TOKEN") if rehearsal else hand.require("GITHUB_TOKEN")
     with hand.lock(f"gh-push-{name.lower()}"):
-        staged = gitpush.Staged(path, owner, name, ref, base, token, login, rehearsal)
+        staged = gitpush.Staged(path, owner, name, ref, base, token, None, rehearsal)
         try:
             if staged.findings:
                 raise hand.Refused("the push would publish what looks like a secret", rule="secrets",
@@ -265,6 +263,7 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
             if rehearsal:
                 return {"dry_run": True, "would_push": repo, "branch": ref, "message": message, "workdir": str(path),
                         **where}
+            staged.user = _own_identity(gh or GitHubApi.from_settings())
             sha = staged.commit_and_push(message)
         finally:
             staged.close()
