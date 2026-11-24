@@ -1,6 +1,7 @@
 """BABYSIT_SELF_MERGE_ALL (the operator's decision of 2026-11-22): every
 self-change Teeny makes lands by a pull request that merges itself when CI
-is green, with no teeny/eval gate. A candidate is Teeny's own pull request
+is green, with no teeny/eval gate (here with the babysitter's agent off, as
+it was before 2026-11-24; with it on, test_sitter.py). A candidate is Teeny's own pull request
 from a teeny/<slug> branch of teenydroid/brain itself; it is `ready` with
 `self_merge` once every check in policy.REQUIRED_CHECKS is present and green
 at its head, and nothing in the audit is block, fail or operator. Off by
@@ -29,7 +30,8 @@ def green(*skip: str, **conclusions: str) -> list[dict]:
 
 class AllScratch(SelfMergeScratch):
     def on(self, **more: str) -> None:
-        self.configure(BABYSIT_SELF_MERGE="1", BABYSIT_SELF_MERGE_ALL="1", **more)
+        # The path with the babysitter's agent off (test_sitter.py pins it on).
+        self.configure(BABYSIT_SELF_MERGE="1", BABYSIT_SELF_MERGE_ALL="1", BABYSIT_SITTER="0", **more)
 
     def self_pr(self, **overrides):
         """Teeny's builder PR, no review, no teeny/eval, every required check green."""
