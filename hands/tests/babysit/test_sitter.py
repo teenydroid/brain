@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from gh.support import git
-from .support import REPO, T0, patch
+from .support import REPO, patch
 from .test_self_merge import SelfMergeScratch
 from .test_self_merge_all import green
 from teeny_hands import hand
@@ -55,7 +55,8 @@ class SitterScratch(SelfMergeScratch):
         self.head = self.commit({"brain/SOUL.md": "# soul\nsmall and kind\n"})
 
     def on(self, **more):
-        self.configure(BABYSIT="1", BABYSIT_MERGE="1", BABYSIT_SELF_MERGE="1", BABYSIT_SELF_MERGE_ALL="1", **more)
+        self.configure(BABYSIT="1", BABYSIT_MERGE="1", BABYSIT_SELF_MERGE="1", BABYSIT_SELF_MERGE_ALL="1",
+                       BABYSIT_REPOS=REPO, **more)
 
     def _graphql(self, seen):
         """Answers every GraphQL call from self.threads, by way of its route."""
