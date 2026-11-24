@@ -125,6 +125,7 @@ class CronTest(Tmp):
 
 class FolderTest(Tmp):
     def test_the_core_finds_its_folder_there_at_boot(self):
+        shutil.copytree(REPO / "deploy", self.tmp / "deploy")
         automation.tables(self.tmp)
         self.assertTrue((self.tmp / "state" / "sitter" / "home").is_dir())
 
