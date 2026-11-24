@@ -280,17 +280,18 @@ class MindNoteTest(Scratch):
         self.assertFalse((self.inbox() / "request-x-mentions-2.md").is_symlink())
 
     def test_a_home_that_cannot_be_written_never_loses_the_request(self):
-        (self.root / "state").mkdir(exist_ok=True)
-        (self.root / "state" / "home").write_text("not a folder")
-        os.chmod(self.root / "state", 0o500)
+        home = self.root / "state" / "home"
+        home.mkdir(parents=True)
+        os.chmod(home, 0o500)
         try:
-            if os.access(self.root / "state", os.W_OK):
+            if os.access(home, os.W_OK):
                 self.skipTest("running as a user no permission stops")
             self.assertTrue(requests.record("x:mentions", "9", "fren", "build me a thing"))
         finally:
-            os.chmod(self.root / "state", 0o755)
-        self.assertEqual(self.status(hand.db().execute(
-            "SELECT id FROM build_requests WHERE source_id = '9'").fetchone()["id"]), "pending")
+            os.chmod(home, 0o755)
+        row = hand.db().execute("SELECT status FROM build_requests WHERE source_id = '9'").fetchone()
+        self.assertEqual(row["status"], "pending")
+        self.assertFalse((home / "notes").exists())
 
 
 class SelfNoteTest(Scratch):

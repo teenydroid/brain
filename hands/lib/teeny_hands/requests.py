@@ -138,6 +138,8 @@ def record(source: str, source_id: str, author: str | None, text: str, conn: sql
 
 INBOX = ("notes", "inbox")
 _PLAIN = re.compile(r"[^a-z0-9]+")
+#: An id named as it is (lowercased, `:`, `.` and `_` as `-`); any other is hashed.
+_PLAIN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,59}")
 _NAME_CHARS = 60
 #: Where a request came from, as a link the mind can open, by source.
 _LINKS = {
@@ -155,7 +157,7 @@ def note_name(source: str, source_id: str) -> str:
     same request written twice is one note. An id that is not a short plain
     name (a mail Message-ID) is cut and named by a hash of the whole."""
     sid = _plain(source_id)
-    if sid != source_id.lower() or len(sid) > _NAME_CHARS or not sid:
+    if not _PLAIN_ID.fullmatch(source_id) or ".." in source_id or not sid:
         digest = hashlib.sha256(source_id.encode("utf-8", "replace")).hexdigest()[:12]
         sid = f"{sid[:_NAME_CHARS - 13]}-{digest}".strip("-")
     return f"request-{_plain(source) or 'unknown'}-{sid}.md"
