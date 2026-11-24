@@ -1,4 +1,5 @@
-"""The one `git push` Teeny makes, from a folder under state/workbench/.
+"""The one `git push` Teeny makes of a folder, from under state/workbench/
+(where bin/broker stages a copy of a folder of the mind's home, docs/mind.md).
 
 The token reaches git through the environment of that single command and an
 askpass helper that holds no secret itself (`askpass`, beside this file):
@@ -10,9 +11,10 @@ Teeny's own code fills) can run on push or read the token.
 
 from __future__ import annotations
 
-import os
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .. import git, hand
@@ -60,32 +62,107 @@ def _git(cwd: Path, *args: str, token: str | None = None, user: str | None = Non
     return git.run(cwd, *args, token=token, user=user, check=check)
 
 
-def is_repo(path: Path) -> bool:
-    return (path / ".git").exists()
+def remote_url(owner: str, name: str) -> str:
+    base = hand.setting("GITHUB_GIT_BASE", GITHUB_GIT_BASE) or GITHUB_GIT_BASE
+    return f"{base.rstrip('/')}/{owner}/{name}.git"
 
 
-def _has_head(path: Path) -> bool:
-    return _git(path, "rev-parse", "--verify", "-q", "HEAD", check=False).returncode == 0
+def remote_heads(owner: str, name: str, refs: tuple[str, ...], token: str | None = None,
+                 user: str | None = None) -> dict[str, str] | None:
+    """{branch: commit} for those of REFS owner/name has; None when the
+    repository cannot be read (missing, or no access)."""
+    done = git.run(None, "ls-remote", remote_url(owner, name), *(f"refs/heads/{r}" for r in refs),
+                   token=token, user=user, check=False)
+    if done.returncode != 0:
+        return None
+    heads: dict[str, str] = {}
+    for line in done.stdout.decode("utf-8", "replace").splitlines():
+        sha, _, refname = line.partition("\t")
+        if refname.startswith("refs/heads/"):
+            heads[refname[len("refs/heads/"):]] = sha.strip()
+    return heads
 
 
-def _files(path: Path) -> list[str]:
-    """What `git add -A` would publish: tracked files and untracked ones not
-    ignored. Outside a repository, every file."""
-    if is_repo(path):
-        out = _git(path, "ls-files", "-z", "--cached", "--others", "--exclude-standard").stdout
-        return sorted({p for p in out.decode("utf-8", "replace").split("\0") if p})
-    found = []
-    for folder, dirs, names in os.walk(path):
-        dirs[:] = [d for d in dirs if d != ".git"]
-        for name in names:
-            found.append(str((Path(folder) / name).relative_to(path)))
-    return sorted(found)
+class Staged:
+    """A folder's files as the next commit of a branch, in a git directory
+    of the hand's own (under state/, never inside the folder), so nothing the
+    folder holds (its own .git, its config, its hooks) is ever read: only its
+    files, as `git add -A` sees them with its .gitignore.
+
+    The commit builds on what the branch already has on GitHub (a push is
+    never forced and never rewrites it), or, for a new branch, on BASE when
+    given (a fork's main, for a pull request), or on nothing. Its secret scan
+    reads only what the push changes on top of that: what the branch or the
+    base already has is not this push's to vouch for. A rehearsal reads too
+    (the branch's head is a read) and pushes nothing."""
+
+    def __init__(self, path: Path, owner: str, name: str, ref: str, base: str | None,
+                 token: str | None, user: str | None, rehearsal: bool) -> None:
+        self.path, self.owner, self.name, self.ref = path, owner, name, ref
+        self.token, self.user = token, user
+        self._tmp = Path(tempfile.mkdtemp(prefix="gh-push-", dir=hand.state_dir()))
+        try:
+            self.git_dir = self._tmp / "repo" / ".git"
+            git.run(None, "init", "-q", str(self._tmp / "repo"))
+            self.onto, self.parent, self.note = self._parent(base, rehearsal)
+            self.changed, self.findings = self._stage()
+        except BaseException:
+            self.close()
+            raise
+
+    def _git(self, *args: str, token: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+        return git.run(self.path, "--git-dir", str(self.git_dir), "--work-tree", str(self.path), *args,
+                       token=self.token if token else None, user=self.user, check=check)
+
+    def _parent(self, base: str | None, rehearsal: bool) -> tuple[str | None, str | None, str | None]:
+        repo = f"{self.owner}/{self.name}"
+        heads = remote_heads(self.owner, self.name, tuple(r for r in (self.ref, base) if r), self.token, self.user)
+        if heads is None:
+            if not rehearsal:
+                raise hand.HandError(f"could not read {repo}: create it first (create-repo), or fork it")
+            return None, None, f"{repo} could not be read (not created yet, in a rehearsal?): pushed as a first commit"
+        onto = self.ref if self.ref in heads else base
+        if onto is None:
+            return None, None, None
+        if onto not in heads:
+            raise hand.Refused(f"{repo} has no branch {onto} to start {self.ref} from", rule="base")
+        self._git("fetch", "-q", "--depth=1", "--no-tags", remote_url(self.owner, self.name), f"refs/heads/{onto}",
+                  token=True)
+        parent = self._git("rev-parse", "FETCH_HEAD").stdout.decode().strip()
+        self._git("reset", "-q", parent)
+        return onto, parent, None
+
+    def _stage(self) -> tuple[int, list[dict[str, str]]]:
+        self._git("add", "-A")
+        if self.parent is not None:
+            every = self._git("diff", "--cached", "--name-only", "-z", "--no-renames", self.parent).stdout
+            kept = self._git("diff", "--cached", "--name-only", "-z", "--no-renames", "--diff-filter=d",
+                             self.parent).stdout
+        else:
+            every = kept = self._git("ls-files", "-z", "--cached").stdout
+        changed = sorted({p for p in every.decode("utf-8", "replace").split("\0") if p})
+        paths = sorted({p for p in kept.decode("utf-8", "replace").split("\0") if p})
+        if not changed:
+            what = f"what {self.onto} already has" if self.onto else "an empty folder"
+            raise hand.Refused(f"there is nothing to push: the folder holds {what}", rule="empty")
+        return len(changed), scan(self.path, paths)
+
+    def commit_and_push(self, message: str) -> str:
+        """Commits the staged change (as git.identity()) and pushes it to the
+        branch. Never forces. Returns the commit."""
+        self._git("commit", "-q", "-m", message)
+        sha = self._git("rev-parse", "HEAD").stdout.decode().strip()
+        self._git("push", "-q", remote_url(self.owner, self.name), f"HEAD:refs/heads/{self.ref}", token=True)
+        return sha
+
+    def close(self) -> None:
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
 
-def scan(path: Path) -> list[dict[str, str]]:
-    """Every finding in what a push from `path` would publish: the files git
-    would add, and every commit already there (paths and patches)."""
-    paths = _files(path)
+def scan(path: Path, paths: list[str]) -> list[dict[str, str]]:
+    """Every finding in PATHS (relative to the folder PATH), the files a
+    push would add or change: the paths, links, files too large to read, and
+    the contents."""
     contents: dict[str, str] = {}
     findings: list[secretscan.Finding] = []
     for rel in paths:
@@ -104,35 +181,11 @@ def scan(path: Path) -> list[dict[str, str]]:
             contents[rel] = file.read_bytes().decode("utf-8", "replace")
         except OSError:
             continue
-    if is_repo(path) and _has_head(path):
-        names = _git(path, "log", "--format=", "--name-only", "HEAD").stdout.decode("utf-8", "replace")
-        paths = sorted(set(paths) | {n for n in names.splitlines() if n})
-        contents["(history)"] = _git(path, "log", "-p", "--format=", "HEAD").stdout.decode("utf-8", "replace")
     findings.extend(secretscan.scan(paths, contents))
     unique: dict[str, secretscan.Finding] = {}
     for item in findings:
         unique.setdefault(item.path, item)
     return [item.as_dict() for item in unique.values()]
-
-
-def remote_url(owner: str, name: str) -> str:
-    base = hand.setting("GITHUB_GIT_BASE", GITHUB_GIT_BASE) or GITHUB_GIT_BASE
-    return f"{base.rstrip('/')}/{owner}/{name}.git"
-
-
-def commit_and_push(path: Path, owner: str, name: str, ref: str, message: str, token: str, user: str) -> str:
-    """Commits whatever is there (as git.identity()) and
-    pushes HEAD to `ref` on owner/name. Never forces. Returns the commit."""
-    if not is_repo(path):
-        _git(path, "init", "-q", "-b", ref)
-    _git(path, "add", "-A")
-    if _git(path, "status", "--porcelain").stdout.strip():
-        _git(path, "commit", "-q", "-m", message)
-    if not _has_head(path):
-        raise hand.Refused("there is nothing to push: the folder is empty", rule="empty")
-    sha = _git(path, "rev-parse", "HEAD").stdout.decode().strip()
-    _git(path, "push", "-q", remote_url(owner, name), f"HEAD:refs/heads/{ref}", token=token, user=user)
-    return sha
 
 
 # --- a branch of a clone (Teeny's own, teeny_hands.build.selfclone) ------------------------
