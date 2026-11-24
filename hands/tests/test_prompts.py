@@ -686,7 +686,12 @@ class PromptsTest(unittest.TestCase):
         text = (REPO / "brain" / "agents" / "mind.md").read_text(encoding="utf-8")
         self.assertLess(len(text), 9_000)
         self.assertIn("library/INDEX.md", text)
-        self.assertNotIn("moltbook", text.lower())
+        # No Moltbook rules: Moltbook is the scripts' (the broker refuses the
+        # mind's writes there), and the one sentence that says so is the only
+        # mention.
+        self.assertEqual(text.lower().count("moltbook"), 2)
+        self.assertIn("Moltbook is the scripts': the broker refuses your writes there; change them only by pull"
+                      " request to `repo/brain/playbooks/moltbook-*.md`.", text)
         doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())
         # SOUL.md is the public voice (18 KB of posting rules and examples):
         # the mind reads it from its library before it writes for anyone.
