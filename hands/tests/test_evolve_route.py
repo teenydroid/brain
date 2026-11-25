@@ -254,9 +254,9 @@ class Routed(EvolveCase):
 class Families(unittest.TestCase):
     def test_a_refusal_family_is_its_hand_and_rule(self):
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate", "verb": "upvote_moltbook"}),
-                         "refusals:x:duplicate")
+                         "refusals:moltbook:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate",
-                                                 "playbook": "x-quote"}), "refusals:x:duplicate")
+                                                 "playbook": "moltbook-curate"}), "refusals:moltbook:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate"}), "refusals:*:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "act_failed", "playbook": "self-improve"}),
                          "act_failed:self-improve")
