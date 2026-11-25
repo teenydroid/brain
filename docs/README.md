@@ -23,6 +23,9 @@ Elsewhere in the repository:
 
 - [`../deploy/README.md`](../deploy/README.md): the production box, its
   services, updates and backups.
+- [`runbooks/x402-golive.md`](runbooks/x402-golive.md): the copy-paste
+  runbook that takes the x402 paid endpoint live (one DNS record away
+  as of 2026-11-25).
 - [`../web/README.md`](../web/README.md): the landing page.
 - [`../DIRECTIVE.md`](../DIRECTIVE.md): what Teeny has to do before we call it
   alive.
