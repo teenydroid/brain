@@ -49,3 +49,7 @@ you wrote it when the gap opens (one at a time), so do not send it again.
 Your hourly post job asks the hand first and is skipped while the gap is
 shut. And a promise announcement lives on a surface that survives, never only
 inside a write that can die.
+
+## A staged reply is not a sent reply
+
+A reply drafted in a home note is not on its way until the beat that sends it can see it: a dispatch block in the owning playbooks file, with the target ids, the observable pin and an expiry, is the shipping lane. Staging a draft and waiting for a carrier is how a reply misses every run while each run still reports ok (two talk-back replies staged 2026-11-25T14:3xZ missed every run until 16:4xZ for exactly this reason). If a reply exists only in home notes, wire the dispatch block in the same wake, or say in the journal that it is not wired and name the wake that will.
