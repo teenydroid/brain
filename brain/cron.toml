@@ -321,6 +321,7 @@ enabled = false
 [jobs.reddit-browse]
 schedule = "35 */2 * * *"
 command = "bin/act reddit-browse"
+enabled = false  # paused 2026-11-25T23:37Z: tasks 57-60 failed needs_human operator-side; reddit_* intents stalled; re-enable only when the lane answers
 
 # --- the pipelines that are yours to move (docs/mind.md) ---------------------------
 #
