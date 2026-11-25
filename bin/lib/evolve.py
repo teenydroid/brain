@@ -3738,7 +3738,8 @@ def reach_power(cfg: Config, check: Mapping[str, Any]) -> Json:
     """evolve_reach.power of a reach CHECK now: at the outcome horizons, or
     over twice the last one when neither holds enough items."""
     spans = outcome_horizons(cfg)
-    return evolve_reach.power(check, outcome_sources(cfg), now(), (*spans, 2 * max(spans)), cfg["EVOLVE_OUTCOME_P"])
+    return evolve_reach.power(check, outcome_sources(cfg), now(), (*spans, 2 * max(spans)), cfg["EVOLVE_OUTCOME_P"],
+                              power_need(cfg))
 
 
 def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:

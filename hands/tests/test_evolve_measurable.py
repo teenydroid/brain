@@ -11,6 +11,7 @@ held 5 answered replies."""
 import json
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -317,6 +318,22 @@ class GrowthNeedsAThickStream(Box):
         f = self.finding()
         self.assertLess(er.need(19, 45, "rise", 0.1), 45)  # alone, the two weeks look thick
         self.assertFalse(f.power["powered"], f.power)
+
+    def test_a_need_past_what_is_computed_is_never_met(self):
+        src, big = self.ledger.sources(), (5000, 10000)
+        with unittest.mock.patch.object(er, "share", return_value=big), \
+                unittest.mock.patch.object(er, "need", return_value=er.MAX_NEED + 1):
+            got = er.power(ANSWERED, src, T0, (2, 7), 0.1)
+            scored = er.score(ANSWERED, src, T0, 2 * DAY, 4, 0.1)
+        self.assertFalse(got["powered"])
+        self.assertIn("more than 400", got["why"])
+        self.assertEqual(scored["verdict"], "no-data")
+
+    def test_the_operators_minimums_are_a_floor_under_the_computed_need(self):
+        self.replies(200, 30)
+        self.config(**{**self.settings, "EVOLVE_OUTCOME_MIN_EVENTS": 250})
+        got = evolve.reach_power(evolve.load_config(), ANSWERED)
+        self.assertEqual((got["powered"], got["need"]), (False, 250))
 
     def test_a_growth_candidate_is_not_opened_on_a_better_eval_alone(self):
         growth = {"lane": "growth", "id": "f:reach_silent:x:take", "section": "finding"}

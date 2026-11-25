@@ -376,6 +376,12 @@ def need(hits: int, of: int, direction: str, p: float) -> int | None:
     return None if got is None else _least(*got, p)
 
 
+def holds(of: int, needed: int | None) -> bool:
+    """Whether OF items are the NEEDED ones; a need past MAX_NEED was never
+    computed, so nothing meets it."""
+    return needed is not None and needed <= MAX_NEED and of >= needed
+
+
 def _said(hits: int, of: int, direction: str, needed: int | None, have: int) -> str:
     got = effect(hits, of, direction)
     if got is None or needed is None:
@@ -385,11 +391,11 @@ def _said(hits: int, of: int, direction: str, needed: int | None, have: int) -> 
             f"outcome's own test) needs {many} a side")
 
 
-def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable[int], p: float) -> Json:
+def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable[int], p: float, floor: int = 0) -> Json:
     """Whether a reach CHECK can see `effect`, at the shortest of SPANS whose
     baseline (that many days before NOW) holds the items it takes: `days` is
     then the one horizon the change is scored at. Else why not, at the
-    longest. A span needs at least what the share of its recent half
+    longest. FLOOR is the operator's minimum, whatever the need. A span needs at least what the share of its recent half
     (a shorter span no less than half of it) does: on 2026-11-25 the share of posts drawing a new
     account was 11 of 36 over 14 days but 1 of 20 over the last 7, and the
     first alone would have opened a change no later week could match."""
@@ -402,7 +408,8 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
         shares.append((days, got))
         needs = [(n, s) for d, s in shares if 2 * d >= days and s[1] and (n := need(*s, check["direction"], p)) is not None]
         needed, hardest = max(needs, default=(None, got))
-        enough = needed is not None and needed <= got[1]
+        needed = None if needed is None else needed if needed > MAX_NEED else max(needed, floor)
+        enough = holds(got[1], needed)
         out = {"days": days, "hits": got[0], "items": got[1], "need": needed, "powered": enough,
                "why": ("" if enough else "the baseline is too thin: ") + f"over the last {days} days "
                + _said(*hardest, check["direction"], needed, got[1])}
@@ -421,7 +428,7 @@ def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min
     if before is None or after is None:
         return None
     wanted = need(*before, check["direction"], p) if needed is None else needed
-    thin = before[1] > 0 and (wanted is None or before[1] < wanted)
+    thin = before[1] > 0 and not holds(before[1], wanted)
     got, tail = ("no-data", None) if thin else verdict(check["direction"], before, after, min_events, p)
     out: Json = {"verdict": got, "before": before[0], "after": after[0], "seen": before[0] + after[0],
                  "of": {"before": before[1], "after": after[1]}}
