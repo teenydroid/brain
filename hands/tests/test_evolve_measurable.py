@@ -220,14 +220,22 @@ class CodeGoesToCode(Box):
         item = next(f for f in evolve.read_findings(evolve.load_config()) if f.id == "f:act_failed:take")
         self.assertEqual([p for p in rt.code_paths(item, REPO) if "moltbook" in p], [])
 
-    def test_a_skip_for_a_frozen_moltbook_path_opens_no_issue(self):
+    def frozen_skip(self, where):
         (self.props / "cand-1.json").write_text(json.dumps(
-            {"skip": "the hand should treat it as done", "why": "frozen",
-             "where": "hands/lib/teeny_hands/moltbook/actions.py"}))
+            {"skip": "the hand should treat it as done", "why": "frozen", "where": where}))
         pub = FakePublisher()
         self.run_gen(1, publisher=pub)
         self.assertEqual(self.entries()["g1c1"]["skip"]["why"], "frozen")
-        self.assertEqual(pub.issues, [])
+        return pub.issues
+
+    def test_a_skip_for_a_frozen_moltbook_path_opens_no_issue(self):
+        self.assertEqual(self.frozen_skip("hands/lib/teeny_hands/moltbook/actions.py"), [])
+
+    def test_a_skip_names_a_moltbook_path_however_it_is_written(self):
+        self.assertEqual(self.frozen_skip(" `./hands/moltbook`"), [])
+
+    def test_a_skip_for_another_frozen_path_still_opens_its_issue(self):
+        self.assertEqual(len(self.frozen_skip("hands/lib/teeny_hands/x/actions.py")), 1)
 
 
 class MoltbookCodeDiffs(Box):
@@ -241,7 +249,8 @@ class MoltbookCodeDiffs(Box):
 
     def test_which_paths_are_moltbooks_code(self):
         for path in ("hands/moltbook", "hands/lib/teeny_hands/moltbook/owed.py", "hands/tests/moltbook/test_owed.py",
-                     "bin/moltbook-prune", "home/tools/thread-walk/run.py"):
+                     "bin/moltbook-prune", "home/tools/thread-walk/run.py",
+                     "hands/moltbook_feed", "hands/tests/test_moltbook_feed.py"):  # a new hand by its name
             self.assertTrue(rt.is_moltbook_code(path), path)
         for path in ("brain/playbooks/moltbook-daily.md", "brain/skills/moltbook/SKILL.md", "hands/x",
                      "brain/moltbook-peers.txt", "docs/moltbook.md"):
@@ -334,6 +343,20 @@ class GrowthNeedsAThickStream(Box):
         self.config(**{**self.settings, "EVOLVE_OUTCOME_MIN_EVENTS": 250})
         got = evolve.reach_power(evolve.load_config(), ANSWERED)
         self.assertEqual((got["powered"], got["need"]), (False, 250))
+
+    def test_a_baseline_that_drifted_since_it_was_opened_on_is_thin_at_the_merge(self):
+        with unittest.mock.patch.object(er, "share", side_effect=[(1, 100), (0, 4000)]):
+            got = er.score({**ANSWERED, "measure": "nobody", "direction": "fall"}, None, T0, 2 * DAY, 4, 0.1, 54)
+        self.assertEqual(got["verdict"], "no-data", got)
+
+    def test_one_reach_that_cannot_be_counted_loses_no_other_finding(self):
+        self.replies(200, 30)
+        for k in range(5):
+            self.ledger.act("take", T0 - (k + 1) * HOUR, ok=False, error="the draft turn failed", failure="playbook")
+        with unittest.mock.patch.object(evolve, "reach_power", side_effect=OSError("no ledger")):
+            got = {f.id: f for f in evolve.read_findings(evolve.load_config())}
+        self.assertIn("f:act_failed:take", got)
+        self.assertFalse(got["f:reach_silent:x:reply-their-thread"].power["powered"])
 
     def test_a_growth_candidate_is_not_opened_on_a_better_eval_alone(self):
         growth = {"lane": "growth", "id": "f:reach_silent:x:take", "section": "finding"}
