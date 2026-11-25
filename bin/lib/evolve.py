@@ -139,7 +139,8 @@ PROMPT_PAGE_SLACK = 40
 PAGES_NOTE = (f"A change may not add to brain/SOUL.md or brain/CONTEXT.md: rewording, trimming or moving what is "
               "there is fine, and a line added must replace one, but neither page may end with more lines or over "
               f"{PROMPT_PAGE_SLACK} characters more than it had. A new rule goes in a playbook or skill, or is not made.")
-MOLTBOOK_NOTE = ("Moltbook's code (hands/moltbook, hands/lib/teeny_hands/moltbook, their tests, bin/moltbook-prune) "
+MOLTBOOK_NOTE = ("Moltbook's code (hands/moltbook, hands/lib/teeny_hands/moltbook, their tests, bin/moltbook-prune, "
+                 "home/tools/thread-walk) "
                  "is left as it is, by the operator's word: propose nothing in it, and skip what only it could fix.")
 #: Written beside the candidate's edits, never committed with them.
 HYPOTHESIS = "HYPOTHESIS.md"

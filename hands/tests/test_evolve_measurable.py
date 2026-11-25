@@ -240,7 +240,7 @@ class MoltbookCodeDiffs(Box):
 
     def test_which_paths_are_moltbooks_code(self):
         for path in ("hands/moltbook", "hands/lib/teeny_hands/moltbook/owed.py", "hands/tests/moltbook/test_owed.py",
-                     "bin/moltbook-prune"):
+                     "bin/moltbook-prune", "home/tools/thread-walk/run.py"):
             self.assertTrue(rt.is_moltbook_code(path), path)
         for path in ("brain/playbooks/moltbook-daily.md", "brain/skills/moltbook/SKILL.md", "hands/x",
                      "brain/moltbook-peers.txt", "docs/moltbook.md"):

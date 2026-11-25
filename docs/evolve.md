@@ -1294,8 +1294,8 @@ open pull request or a cool-off waits for it. Growth findings are never
 routed.
 
 **Moltbook's code is left alone** (the operator, 2026-11-25). It is
-`hands/moltbook`, `hands/lib/teeny_hands/moltbook/`, their tests and
-`bin/moltbook-*` (`evolve_route.MOLTBOOK_CODE`). A refusal by the moltbook
+`hands/moltbook`, `hands/lib/teeny_hands/moltbook/`, their tests,
+`bin/moltbook-*` and the mind's `home/tools/thread-walk/` (`evolve_route.MOLTBOOK_CODE`). A refusal by the moltbook
 hand, a beat's or a playbook's whose `output` is that hand, is
 `ignored: moltbook code`: not proposed on (its words could only write around
 the refusal), not routed, no want, no issue. An `act_failed` of such a

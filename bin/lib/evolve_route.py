@@ -83,10 +83,11 @@ WANT_PREFIX = "w:f:"
 BRIEF_CHARS = 2000
 MAX_TRIED = 5
 _HAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
-#: Moltbook's code: the hand, its package, their tests, the box's tool.
+#: Moltbook's code: the hand, its package, their tests, the box's tool, the
+#: mind's thread walker.
 MOLTBOOK = "moltbook"
 MOLTBOOK_CODE = ("hands/moltbook", "hands/lib/teeny_hands/moltbook", "hands/tests/moltbook",
-                 "hands/tests/test_moltbook", "bin/moltbook-")
+                 "hands/tests/test_moltbook", "bin/moltbook-", "home/tools/thread-walk/")
 #: Where a finding about it stands (`bin/evolve status`).
 IGNORED = "ignored: moltbook code"
 
