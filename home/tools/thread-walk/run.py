@@ -8,8 +8,9 @@ box only takes plain words), so they carry a config file instead:
   bin/box thread-walk find=bb44b42a,phoenixgordon-talkback
 
 finds the config at <state/home>/work/thread-walk.json ({"threads": [...],
-"find": [["label", "prefix"], ...], "sort": "new", "json": "..."}), or fails
-saying where it looked. Standalone use keeps the flag form:
+"find": [["label", "prefix"], ...], "sort": "new", "json": "..."}), falls
+back to the config.json shipped beside the tool when no work/ override
+exists, and only then fails, saying where it looked. Standalone use keeps the flag form:
 
   python3 run.py <post_id> [more_ids...] [--sort new]
         [--find <id-prefix>,<label> ...] [--json out.json] [--quiet]
@@ -43,6 +44,12 @@ def config_path():
     cli = os.environ.get("TEENY_CLI")
     base = os.path.join(os.path.dirname(cli), "..", "work") if cli else "work"
     return os.path.join(base, "thread-walk.json")
+
+
+def shipped_path():
+    # The defaults that ship with the tool, beside this file.
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "config.json")
 
 
 def call(path, query=None):
@@ -97,6 +104,8 @@ def walk(post_id, sort="new"):
             return rows, f"pages={page} count={j.get('count')} has_more=false", errs
         page += 1
         if page > PAGE_CAP:
+            errs.append(f"page-cap {PAGE_CAP}: has_more still true; "
+                        f"rows are partial, absence claims are void")
             return rows, f"page-cap-{PAGE_CAP}", errs
 
 
@@ -180,20 +189,32 @@ def main():
     if cfg:
         try:
             c = json.load(open(cfg))
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            sys.exit(f"config {cfg}: {type(e).__name__}: {e}; "
-                     f"pass thread ids or create the config")
+        except FileNotFoundError:
+            if cfg == config_path() and os.path.isfile(shipped_path()):
+                cfg = shipped_path()
+                c = json.load(open(cfg))
+            else:
+                sys.exit(f"config {cfg} not found; pass thread ids or "
+                         f"create it (shipped defaults: {shipped_path()})")
+        except json.JSONDecodeError as e:
+            sys.exit(f"config {cfg}: JSONDecodeError: {e}; fix the file")
         threads = threads or c.get("threads") or []
-        targets = targets or [tuple(x) for x in c.get("find") or []]
+        targets = targets + [tuple(x) for x in c.get("find") or []]
         out = out or c.get("json")
         quiet = quiet or c.get("quiet", False)
-        sort = c.get("sort", sort)
+        if "--sort" not in args:
+            sort = c.get("sort", sort)
     if not threads:
         sys.exit(f"no threads given: pass ids or --config {config_path()}")
     bad = [t for t in threads if not UUID_RE.match(t)]
     for t in bad:
         print(f"SHORT-ID {t[:8]}: not a full uuid; skipped, not sent")
     threads = [t for t in threads if t not in bad]
+    if not threads:
+        sys.exit(f"no walkable thread ids"
+                 + (f" ({len(bad)} short id(s) skipped)" if bad else "")
+                 + ": pass full uuids; find targets without a thread "
+                   "have nothing to search")
     for label, prefix in targets:
         if not UUID_RE.match(prefix):
             print(f"SHORT-ID {label} ({prefix}): not a full uuid; full ids "
