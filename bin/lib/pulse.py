@@ -40,6 +40,10 @@ Json = dict[str, Any]
 
 #: The window a pulse may cover, in days.
 MIN_DAYS, MAX_DAYS, DEFAULT_DAYS = 1, 7, 1
+#: How many of a job's failures are given with their times, newest first.
+MAX_FAILURES = 5
+#: Whose failure a run's row may say it was (bin/act, `failure`).
+FAILURE_CLASSES = ("provider", "playbook")
 #: The mind's own wakes are its own doing, not the scripts'.
 MIND_JOB, MIND_WAKES = "teeny.mind", ("mind.", "teeny.mind.")
 #: The audience numbers: the stats board's own, and GitHub's.
@@ -73,6 +77,21 @@ from jobs left join last on last.job_id = jobs.id and last.n = 1
 order by 1
 """
 
+#: The newest failures of each cron job in the window, MAX_FAILURES a job.
+FAILURES_SQL = """
+with failed as (
+  select json_extract(body, '$.job_id') as job_id, json_extract(body, '$.finished_ms') as finished_ms
+  from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
+    and json_extract(body, '$.status') = 'error' and json_extract(body, '$.finished_ms') >= ?
+),
+newest as (
+  select job_id, finished_ms, row_number() over (partition by job_id order by finished_ms desc) as n from failed
+)
+select json_extract(jobs.body, '$.name'), newest.finished_ms
+from newest join docs jobs on jobs.id = newest.job_id and jobs.coll = 'cron.jobs' and jobs.deleted = 0 and json_valid(jobs.body)
+where n <= ?
+"""
+
 
 def _storage() -> Path:
     return Path(os.environ.get("TEENY_STORAGE") or hand.root() / "brain" / "storage.db")
@@ -81,7 +100,24 @@ def _storage() -> Path:
 def _iso(ms: Any) -> str | None:
     if not isinstance(ms, (int, float)):
         return None
-    return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OverflowError, ValueError, OSError):  # no date: a nan, or far out of range
+        return None
+
+
+def _newest(failures: list[Json]) -> list[Json]:
+    """The newest MAX_FAILURES of FAILURES. ISO times in UTC sort as text."""
+    return sorted(failures, key=lambda f: f["at"], reverse=True)[:MAX_FAILURES]
+
+
+def _failure(when: float, row: Json) -> list[Json]:
+    """When ROW failed and, where it says so, whose failure it was; nothing
+    when WHEN is no date (a time is never guessed)."""
+    at = _iso(when * 1000)
+    if at is None:
+        return []
+    return [{"at": at, **({"failure": row["failure"]} if row.get("failure") in FAILURE_CLASSES else {})}]
 
 
 def _names(path: Path) -> set[str]:
@@ -103,12 +139,18 @@ def jobs(since: float) -> list[Json] | None:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
         try:
             rows = conn.execute(JOBS_SQL, (int(since * 1000),)).fetchall()
+            failed_rows = conn.execute(FAILURES_SQL, (int(since * 1000), MAX_FAILURES)).fetchall()
         finally:
             conn.close()
     except sqlite3.Error:
         return None
     yours = _names(hand.root() / "brain" / "cron.toml")
     beats = _tick_failures(since)
+    when: dict[str, list[Json]] = {}
+    for name, finished_ms in failed_rows:
+        at = _iso(finished_ms)
+        if at is not None:
+            when.setdefault(str(name or ""), []).append({"at": at})
     out = []
     for name, kind, expr, enabled, last, finished_ms, runs, failed in rows:
         name = str(name or "")
@@ -118,11 +160,14 @@ def jobs(since: float) -> list[Json] | None:
         row: Json = {"job": job, "kind": "agent" if kind == "agent" else "script", "schedule": expr,
                      "owner": "yours (brain/cron.toml)" if job in yours else "pinned (the operator's)",
                      "last": last, "last_at": _iso(finished_ms), "runs": int(runs or 0), "failed": int(failed or 0)}
+        if when.get(name):
+            row["last_failures"] = _newest(when[name])
         if enabled == 0:
             row["off"] = True
         if job == "tick" and beats["failed"]:
             # `bin/tick --detach` exits at once, so cron saw a launch; the beat's own result is in its ledger
             row["beats_failed"], row["last_beat_error"] = beats["failed"], beats["last_error"]
+            row["last_beat_failures"] = beats["last_failures"]
         out.append(row)
     return out
 
@@ -130,7 +175,7 @@ def jobs(since: float) -> list[Json] | None:
 def _tick_failures(since: float) -> Json:
     """Beats of the detached tick that ended `failed` since SINCE, from
     state/tick/runs.jsonl (cron records only that the beat was launched)."""
-    failed, last = 0, None
+    failed, last, at = 0, None, []
     try:
         with (hand.state_dir() / "tick" / "runs.jsonl").open(encoding="utf-8") as fh:
             for line in fh:
@@ -141,9 +186,10 @@ def _tick_failures(since: float) -> Json:
                 when = evolve_evidence.epoch(beat.get("at")) if isinstance(beat, dict) else None
                 if when is not None and when >= since and beat.get("kind") == "failed":
                     failed, last = failed + 1, str(beat.get("error") or "")[:200]
+                    at = _newest(at + _failure(when, beat))
     except (OSError, UnicodeDecodeError):
         pass
-    return {"failed": failed, "last_error": last}
+    return {"failed": failed, "last_error": last, "last_failures": at}
 
 
 def _act_failures(since: float) -> Json:
@@ -151,7 +197,7 @@ def _act_failures(since: float) -> Json:
     (as bin/evolve counts them)."""
     out: Json = {}
     for runs in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
-        failed, last = 0, None
+        failed, last, at = 0, None, []
         try:
             fh = runs.open(encoding="utf-8")
         except OSError:
@@ -173,10 +219,11 @@ def _act_failures(since: float) -> Json:
                     if run.get("ok") is False or errors:
                         failed += 1
                         last = str(run.get("error") or (errors[0].get("action") if errors else ""))[:200]
+                        at = _newest(at + _failure(when, run))
             except (OSError, UnicodeDecodeError):
                 pass
         if failed:
-            out[runs.parent.name] = {"failed": failed, "last_error": last}
+            out[runs.parent.name] = {"failed": failed, "last_error": last, "last_failures": at}
     return out
 
 
@@ -252,11 +299,20 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
     listed = jobs(since)
     failures = None if listed is None else {f"teeny.{j['job']}": j["failed"] + j.get("beats_failed", 0)
                                              for j in listed if j["failed"] or j.get("beats_failed")}
+    acts = _act_failures(since)
     out: Json = {
-        "at": _iso(now * 1000), "days": days,
-        "outcomes": evolve_evidence.outcomes(hand.state_dir() / "hands.db", since, now, failures, _act_failures(since),
+        "at": _iso(now * 1000), "since": _iso(since * 1000), "days": days,
+        "outcomes": evolve_evidence.outcomes(hand.state_dir() / "hands.db", since, now, failures, acts,
                                              hand.root() / "brain" / "cron.toml", CODE / "evals" / "cron.pinned.toml"),
     }
+    # Added to the listed entries after the outcomes are cut to their size, so
+    # a time never pushes an entry out, and what bin/evolve reads is unchanged.
+    times = {f"bin/act {book}": info["last_failures"] for book, info in acts.items()}
+    for j in listed or []:
+        times[f"teeny.{j['job']}"] = _newest(j.get("last_failures", []) + j.get("last_beat_failures", []))
+    for entry in out["outcomes"].get("failing", []):
+        if times.get(entry["job"]):
+            entry["last_failures"] = times[entry["job"]]
     if listed is None:
         out["jobs_unreadable"] = "the core's cron store could not be read"
     else:

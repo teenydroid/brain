@@ -951,6 +951,88 @@ class PulseTest(BrokerCase):
         self.assertEqual((tick["failed"], tick["beats_failed"], tick["last_beat_error"]), (0, 1, "model refused"))
         self.assertIn("teeny.tick", json.dumps(answer["outcomes"]))
 
+    def at(self, seconds_ago):
+        import datetime
+        return datetime.datetime.fromtimestamp(T0 - seconds_ago, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def ledger_of(self, name, rows):
+        path = self.root / "state" / name / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def failing(self, answer):
+        return {f["job"]: f for f in answer["outcomes"]["failing"]}
+
+    def test_a_failing_playbook_says_when_it_failed_newest_first_and_whose_failure_it_was(self):
+        # 2026-11-25: given a count and no times, the mind published four
+        # daytime failures as an overnight outage nobody had recorded.
+        self.stores()
+        self.ledger_of("act/reddit-browse", [
+            {"at": self.at(7200), "ok": False, "error": "the draft turn failed", "failure": "provider", "provider": "timeout"},
+            {"at": self.at(90), "ok": True},
+            {"at": self.at(60), "ok": False, "error": "input x failed", "failure": "playbook"},
+            {"at": self.at(3600), "ok": True, "actions": [{"action": "hand", "status": "error"}]},
+            {"at": self.at(2 * 86400), "ok": False, "failure": "provider"}])
+        self.start()
+        _, answer = self.post("/pulse")
+        entry = self.failing(answer)["bin/act reddit-browse"]
+        self.assertEqual(entry["failed_runs"], 3)
+        self.assertEqual(entry["last_failures"], [{"at": self.at(60), "failure": "playbook"}, {"at": self.at(3600)},
+                                                  {"at": self.at(7200), "failure": "provider"}])
+        self.assertEqual((answer["since"], answer["at"], answer["days"]), (self.at(86400), self.at(0), 1))
+
+    def test_the_times_of_a_failing_playbook_are_bounded_to_the_newest_and_the_count_is_not(self):
+        self.stores()
+        self.ledger_of("act/loud", [{"at": self.at(60 * n), "ok": False} for n in range(1, 9)])
+        self.start()
+        entry = self.failing(self.post("/pulse")[1])["bin/act loud"]
+        self.assertEqual(entry["failed_runs"], 8)
+        self.assertEqual([f["at"] for f in entry["last_failures"]], [self.at(60 * n) for n in range(1, 6)])
+
+    def test_a_failure_whose_row_has_no_usable_time_is_given_none(self):
+        self.stores()
+        self.ledger_of("act/undated", [{"ok": False}, {"at": "soon", "ok": False}, {"at": 1e30, "ok": False},
+                                       {"at": self.at(60), "ok": False, "failure": "made up"}])
+        self.ledger_of("act/nothing", [{"ok": False, "failure": "provider"}])
+        self.ledger_of("tick", [{"kind": "failed", "error": "x"}, {"at": self.at(120), "kind": "failed", "error": "y"}])
+        self.start()
+        status, answer = self.post("/pulse")
+        self.assertEqual((status, answer["status"]), (200, "ok"))
+        failing = self.failing(answer)
+        self.assertEqual(failing["bin/act undated"]["last_failures"], [{"at": self.at(60)}])
+        self.assertNotIn("bin/act nothing", failing)  # outside any window, as before
+        self.assertEqual(failing["teeny.tick"]["last_failures"], [{"at": self.at(120)}])
+
+    def test_a_failing_cron_job_and_a_failed_beat_say_when(self):
+        self.stores()
+        self.ledger_of("tick", [{"at": self.at(60 * n), "kind": "failed", "error": "e"} for n in range(7, 0, -1)])
+        import sqlite3
+        conn = sqlite3.connect(self.root / "brain" / "storage.db")
+        for jid, seq, ago in [("j1", n + 10, 60 * n + 2000) for n in range(6)] + [("j2", 20, 90)]:
+            body = {"job_id": jid, "seq": seq, "status": "error", "finished_ms": int((T0 - ago) * 1000)}
+            conn.execute("insert into docs values (?, 'cron.runs', 0, ?)", (f"{jid}-{seq}", json.dumps(body)))
+        conn.execute("insert into docs values ('j1-x', 'cron.runs', 0, ?)",
+                     (json.dumps({"job_id": "j1", "seq": 30, "status": "error"}),))
+        conn.commit()
+        conn.close()
+        self.start()
+        _, answer = self.post("/pulse")
+        jobs, failing = {j["job"]: j for j in answer["jobs"]}, self.failing(answer)
+        dream = [{"at": self.at(n)} for n in (1800, 2000, 2060, 2120, 2180)]
+        self.assertEqual((jobs["dream"]["failed"], jobs["dream"]["last_failures"]), (8, dream))
+        self.assertEqual(failing["teeny.dream"]["last_failures"], dream)
+        self.assertEqual(jobs["tick"]["last_failures"], [{"at": self.at(90)}])
+        self.assertEqual(jobs["tick"]["last_beat_failures"], [{"at": self.at(60 * n)} for n in range(1, 6)])
+        self.assertEqual([f["at"] for f in failing["teeny.tick"]["last_failures"]],
+                         [self.at(n) for n in (60, 90, 120, 180, 240)])
+
+    def test_a_job_that_did_not_fail_carries_no_failure_times(self):
+        self.stores()
+        self.start()
+        tick = {j["job"]: j for j in self.post("/pulse")[1]["jobs"]}["tick"]
+        self.assertNotIn("last_failures", tick)
+        self.assertNotIn("last_beat_failures", tick)
+
     def test_it_says_what_became_of_what_the_scripts_made(self):
         self.stores()
         self.start()
