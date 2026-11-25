@@ -904,7 +904,10 @@ source, with who said them; an HN commenter is never named), `heat`
 (engagement, 0 to 1 within its source), `age_hours`, `source`. `people` and
 `what_happened` come from one cheap model call over every candidate
 (`studio_feed.tag`, on the editor agent with `STUDIO_FEED_MODEL`, the
-editor's model by default); when it fails the cards go on without people.
+editor's model by default); an answer that tags no candidate is asked for
+once more, and an unusable one leaves only its shape in the record. When it
+fails the cards go on without people, and a quote slot, where an untagged
+author counts as private, is skipped saying so (`studio_feed.no_card`).
 Ranked by heat x freshness x (2 when a card names people), the top
 `STUDIO_FEED_CARDS` (8) go to the writer, at most two of them Teeny's own
 (`source: "own"`), which nothing requires a post to use. The guard's lexicon

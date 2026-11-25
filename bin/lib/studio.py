@@ -1174,7 +1174,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                                                  quote=cfg.quote)
     record["cards"] = cards
     if not cards:
-        raise Stop("skipped", "no card: every source was down or empty")
+        raise Stop("skipped", studio_feed.no_card(record["feed"]))
 
     # --- the video formats this slot offers, with their sources studied ---
     videos: list[tuple[formats.Format, Json | None]] = []

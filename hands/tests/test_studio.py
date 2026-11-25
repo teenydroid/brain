@@ -377,7 +377,7 @@ class FeedRoom:
         self.calls.append(argv)
         return self.answers.get(" ".join(argv[:2]), (1, {"error": f"no {argv[0]} here"}))
 
-    def turn(self, agent, step, message, thread, soft=False, want=dict, check=None, role=None):
+    def turn(self, agent, step, message, thread, soft=False, want=dict, check=None, role=None, keep_answer=True):
         self.turns.append((agent, step, role, message))
         if isinstance(self.tag, Exception):
             raise self.tag
@@ -1544,7 +1544,7 @@ class RunTest(unittest.TestCase):
         with self.quoting():
             code, out = self.go(self.ask(tag={"items": [{"id": "ghost", "public": ["sama"]}]}))
         self.assertEqual((code, out["outcome"]), (0, "skipped"))
-        self.assertEqual([s for _, s in self.steps], ["feed", "feed"])
+        self.assertEqual([s for _, s in self.steps], ["# studio: feed"] * 2)
         self.assertIn("tagging failed (no usable answer, twice)", out["reason"])
         self.assertNotIn("source was down", out["reason"])
         for handle in ("sama", "aravsrinivas"):
