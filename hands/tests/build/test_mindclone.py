@@ -406,6 +406,40 @@ class RulesTest(ShipTest):
         self.assertIn("evals/frozen.txt (evals/**)", refused.reason)
         self.assert_nothing_sent()
 
+    def test_a_change_to_moltbook_code_is_refused_saying_why(self):
+        # The operator, 2026-11-25: "i think it's too complex now".
+        for path in ("hands/moltbook", "hands/lib/teeny_hands/moltbook/owed.py", "hands/tests/moltbook/test_new.py",
+                     "hands/tests/guard/test_rescreen_moltbook.py", "bin/moltbook-prune", "home/tools/Moltbook-count/run.py",
+                     "home/tools/thread-walk/run.py"):
+            with self.subTest(path=path):
+                subprocess.run(["rm", "-rf", str(self.tree)], check=True)
+                mindclone.prepare()
+                self.edit({"brain/SOUL.md": "# soul\nbrief\n", path: "x = 1\n"})
+                refused = self.refused()
+                self.assertEqual((refused.detail["rule"], refused.detail["paths"]), ("moltbook_code", [path]))
+                self.assertIn("too complex", refused.reason)
+                self.assertIn("journal", refused.reason)
+                self.assert_nothing_sent()
+
+    def test_deleting_moltbook_code_is_refused(self):
+        self.upstream({"home/tools/thread-walk/run.py": "x = 1\n"}, "a tool")
+        mindclone.prepare()
+        (self.tree / "home/tools/thread-walk/run.py").unlink()
+        self.assertEqual(self.refused().detail["rule"], "moltbook_code")
+
+    def test_moltbook_wording_still_ships(self):
+        mindclone.prepare()
+        words = ["brain/moltbook-peers.txt", "brain/playbooks/moltbook-threads.md", "brain/skills/moltbook/SKILL.md",
+                 "docs/audit/moltbook-feed.md"]
+        self.edit({path: "words\n" for path in words})
+        self.assertEqual(sorted(self.ship()["files"]), words)
+
+    def test_moltbook_code_main_changed_since_the_copy_is_not_the_changes_own(self):
+        mindclone.prepare()
+        self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
+        self.upstream({"hands/moltbook": "the operator's\n"}, "operator's change")
+        self.assertEqual(self.ship()["files"], ["brain/SOUL.md"])
+
     def test_a_token_looking_secret_is_refused_by_the_secret_scan(self):
         mindclone.prepare()
         self.edit({"brain/notes.md": f"remember {LEAKED}\n"})
@@ -674,6 +708,7 @@ class UpdateTest(ReviseCase):
     def test_frozen_paths_and_secrets_are_refused_on_an_update_too(self):
         self.open_first()
         for files, rule in (({"bin/doctor": "#!/bin/sh\necho loosened\n"}, "frozen"),
+                            ({"hands/moltbook": "more\n"}, "moltbook_code"),
                             ({"brain/notes.md": f"remember {LEAKED}\n"}, "secrets")):
             with self.subTest(rule=rule):
                 subprocess.run(["rm", "-rf", str(self.tree)], check=True)
