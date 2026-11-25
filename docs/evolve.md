@@ -1240,8 +1240,8 @@ not independent.
 
 The horizon is the first of 2, 7 and 14 days (the outcome horizons, and twice
 the last) whose baseline holds that many; the change is scored there and
-nowhere else (`evolve_outcomes.spans_of`), against the number it was opened
-on. A span also needs what the share of its recent half does: on 2026-11-25
+nowhere else (`evolve_outcomes.spans_of`), with at least the items it was
+opened on. A span also needs what the share of its recent half does: on 2026-11-25
 posts drawing a new account were 11 of 36 over 14 days and 1 of 20 over the
 last 7. Too few at all three and the finding is `thin`: it takes no slot, and
 status and the verdict say "the baseline is too thin" with the number needed.
@@ -2607,7 +2607,7 @@ items before and after the merge, Fisher's exact test (the after hits are
 Hypergeometric given both margins) against `EVOLVE_OUTCOME_P`. Fewer than
 `EVOLVE_OUTCOME_MIN_EVENTS` items in both windows together, none on one
 side, or a baseline under the items it takes to see the effect (1b; the
-number it was opened on, or computed at scoring for an older change) is
+larger of the number it was opened on and what its share at the merge needs) is
 `no-data`, "the baseline is too thin". A change opened on a 7 or 14 day
 baseline is scored at that horizon alone. The outcome keeps the hits as `before`/`after` and the
 items as `of`.

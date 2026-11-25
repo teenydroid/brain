@@ -93,7 +93,9 @@ IGNORED = "ignored: moltbook code"
 
 
 def is_moltbook_code(path: str) -> bool:
-    return path.startswith(MOLTBOOK_CODE)
+    """Whether PATH, as git or a model writes it, is Moltbook's code; a new
+    hand by that name (hands/moltbook_feed) is too."""
+    return frozen.normalise(path.strip(" `'\"\n")).startswith(MOLTBOOK_CODE)
 
 
 def _hand_of(check: Mapping[str, Any]) -> str:

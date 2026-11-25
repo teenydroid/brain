@@ -1137,7 +1137,10 @@ def read_findings(cfg: "Config | None" = None) -> list[Any]:
             # asked before a proposer is spent on it.
             for f in found:
                 if evolve_findings.is_growth(f):
-                    f.power = reach_power(cfg, f.check)
+                    try:
+                        f.power = reach_power(cfg, f.check)
+                    except Exception as exc:  # noqa: BLE001 - it waits; the other findings go ahead
+                        f.power = {"powered": False, "why": f"its reach could not be counted ({type(exc).__name__})"}
         return found
     except Exception as exc:  # noqa: BLE001 - the learnings go ahead without findings
         say(f"findings: none drawn ({type(exc).__name__}: {str(exc)[:200]})")

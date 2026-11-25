@@ -421,13 +421,14 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
 def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min_events: int, p: float,
           needed: int | None = None) -> Json | None:
     """The verdict fields of a `reach` check scored over the SPAN before and
-    after T0, or None when the ledger cannot be read. A baseline under NEEDED
-    items (as it was opened on; computed now, when that is not on record) is
+    after T0, or None when the ledger cannot be read. A baseline under what
+    its own share needs, or under NEEDED items (as it was opened on), is
     no-data, and says so."""
     before, after = share(check, src, t0 - span, t0), share(check, src, t0, t0 + span)
     if before is None or after is None:
         return None
-    wanted = need(*before, check["direction"], p) if needed is None else needed
+    wanted = need(*before, check["direction"], p)
+    wanted = None if wanted is None else max(wanted, needed or 0)
     thin = before[1] > 0 and not holds(before[1], wanted)
     got, tail = ("no-data", None) if thin else verdict(check["direction"], before, after, min_events, p)
     out: Json = {"verdict": got, "before": before[0], "after": after[0], "seen": before[0] + after[0],
