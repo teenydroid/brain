@@ -264,7 +264,7 @@ class GrowthNeedsAThickStream(Box):
             at = since + HOUR + k * step
             m = self.ledger.mention(f"conv{at}", f"s{k}", at - 60)
             self.ledger.post(at, kind="reply", in_reply_to=m)
-            if k < answered:
+            if k * answered // n != (k + 1) * answered // n:  # spread evenly
                 self.ledger.mention(f"conv{at}", f"s{k}", at + 60)
 
     def finding(self):
@@ -309,6 +309,13 @@ class GrowthNeedsAThickStream(Box):
         self.replies(120, 18, since=T0 - 14 * DAY)
         f = self.finding()
         self.assertEqual((f.power["powered"], f.power["days"]), (True, 14))
+
+    def test_an_older_busier_week_does_not_make_a_quiet_one_thick(self):
+        self.replies(60, 40, since=T0 - 14 * DAY, until=T0 - 7 * DAY)  # 67%: alone, needs under 100
+        self.replies(60, 3)  # and 5% now: needs more than 200
+        f = self.finding()
+        self.assertLess(er.need(43, 120, "rise", 0.1), 120)
+        self.assertFalse(f.power["powered"], f.power)
 
     def test_a_growth_candidate_is_not_opened_on_a_better_eval_alone(self):
         growth = {"lane": "growth", "id": "f:reach_silent:x:take", "section": "finding"}

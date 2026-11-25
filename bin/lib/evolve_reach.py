@@ -373,12 +373,12 @@ def need(hits: int, of: int, direction: str, p: float) -> int | None:
     return None if got is None else _least(*got, p)
 
 
-def _said(hits: int, of: int, direction: str, needed: int | None) -> str:
+def _said(hits: int, of: int, direction: str, needed: int | None, have: int) -> str:
     got = effect(hits, of, direction)
     if got is None or needed is None:
         return f"{hits} of {of} item(s) leave no effect to see"
     many = f"more than {MAX_NEED}" if needed > MAX_NEED else str(needed)
-    return (f"{of} item(s); seeing the wanted share go from {got[0]:.0%} to {got[1]:.0%} ({POWER:.0%} power, by the "
+    return (f"{have} item(s); seeing the wanted share go from {got[0]:.0%} to {got[1]:.0%} ({POWER:.0%} power, by the "
             f"outcome's own test) needs {many} a side")
 
 
@@ -386,17 +386,23 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
     """Whether a reach CHECK can see `effect`, at the shortest of SPANS whose
     baseline (that many days before NOW) holds the items it takes: `days` is
     then the one horizon the change is scored at. Else why not, at the
-    longest."""
+    longest. A longer span needs at least what the shares of the shorter,
+    more recent ones do: on 2026-11-25 the share of posts drawing a new
+    account was 11 of 36 over 14 days but 1 of 20 over the last 7, and the
+    first alone would have opened a change no later week could match."""
+    shares: list[tuple[int, int]] = []
     out: Json = {"powered": False, "why": "no horizon to count over"}
     for days in sorted(spans):
         got = share(check, src, now - days * 86400, now)
         if got is None:
             return {"days": days, "powered": False, "why": "the ledger it counts cannot be read now"}
-        needed = need(*got, check["direction"], p)
+        shares.append(got)
+        needs = [(n, s) for s in shares if s[1] and (n := need(*s, check["direction"], p)) is not None]
+        needed, hardest = max(needs, default=(None, got))
         enough = needed is not None and needed <= got[1]
         out = {"days": days, "hits": got[0], "items": got[1], "need": needed, "powered": enough,
                "why": ("" if enough else "the baseline is too thin: ") + f"over the last {days} days "
-               + _said(*got, check["direction"], needed)}
+               + _said(*hardest, check["direction"], needed, got[1])}
         if enough:
             break
     return out
@@ -419,7 +425,7 @@ def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min
     if tail is not None:
         out["p"] = round(tail, 6)
     if thin:
-        out["why"] = "the baseline is too thin: " + _said(*before, check["direction"], wanted)
+        out["why"] = "the baseline is too thin: " + _said(*before, check["direction"], wanted, before[1])
     elif got == "no-data":
         out["why"] = (f"{before[1]} item(s) before and {after[1]} after, fewer than {min_events} in all or none on "
                       "one side")
