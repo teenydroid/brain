@@ -26,3 +26,5 @@ Queue the next Reddit read for the browser operator. This turns **attention**: w
 {"action": "hand", "inbox": true}
 
 with `"sort": "new"` added to a subreddit read when `status` shows you read that subreddit within the last day (new threads are where an early, useful comment is seen). If `leads` names a subreddit or a thread the operator wants you to look at and `due` is a subreddit, you may read the lead's subreddit instead, once. Never anything else: no comment, vote or post from here.
+
+The answer is read by a machine as strict JSON: no raw line break or tab inside a string; write \n instead. No text after the closing brace.
