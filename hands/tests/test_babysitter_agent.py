@@ -75,6 +75,10 @@ class AgentTest(Tmp):
             self.assertIsNotNone(frozen.frozen_pattern(path, patterns), path)
         self.assertIsNone(frozen.frozen_pattern("brain/agents/babysitter.md", patterns))
 
+    def test_its_example_report_names_no_pull_request(self):
+        # Copied as it stood ("number": 1), a report was another job's and was ignored.
+        self.assertNotRegex(SITTER.with_suffix(".md").read_text(), r'"number": *\d')
+
     def test_its_prompt_is_lean_and_built_as_it_is(self):
         text = SITTER.with_suffix(".md").read_text()
         self.assertLess(len(text), 5000)

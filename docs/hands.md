@@ -494,7 +494,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
 | `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
-| `sitter_pending`, `open_threads`, `threads_unreadable` | wait | A self-change the babysitter's agent works (below): no `merge` from it at this head, an unresolved review thread, or threads GitHub would not list |
+| `sitter_pending`, `open_threads`, `threads_unreadable`, `thread_unsettled` | wait | A self-change the babysitter's agent works (below): no `merge` from it at this head, an unresolved review thread, threads GitHub would not list, or one resolved by the agent's answer that may have to be reopened |
 | `module_shadow` | operator | Such a candidate adding a file Python would import in place of another |
 | `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
 
@@ -601,7 +601,9 @@ injection in the pull request's own diff, title or body,
 `recently_rolled_back`, `foreign_commit`, `odd_path`, and `module_shadow`, a
 file Python would import in place of another: anything in `hands/lib/` beside
 `teeny_hands/`, a compiled module under `hands/`, a module at the top of the
-checkout. `frozen`, `secret` and bidi or tag characters still block.
+checkout. `frozen`, `secret` and bidi or tag characters still block (in
+a patchless file that is not UTF-8, where a picture's bytes can spell one by
+chance, they are the operator's).
 
 Three tries that come to nothing at one head (no report in 45 minutes, a
 report that does not read, a push refused) or five fixes pushed on top of one

@@ -262,7 +262,9 @@ class VerdictTest(SitterScratch):
 
     def test_an_unresolved_thread_that_came_without_its_opening_is_unreadable(self):
         self.decide()
-        for key, value in (("opening", None), ("opening", {"nodes": []}), ("latest", None)):
+        for key, value in (("opening", None), ("opening", {"nodes": []}), ("latest", None),
+                           ("latest", {"totalCount": 3, "nodes": None}), ("latest", {"totalCount": 3, "nodes": [None]}),
+                           ("latest", {"totalCount": 1, "nodes": []})):
             self.threads = [{**thread(), key: value}]
             self.assertEqual(self.rule(self.audit(), "threads_unreadable"), "wait", key)
         self.threads = [{**thread(resolved=True), "opening": None}]
@@ -346,6 +348,12 @@ class QueueTest(SitterScratch):
                                      *(("mallory", "User", f"spam {n}") for n in range(30))))]
         self.lay()
         self.assertEqual([c["author"] for c in self.brief()["threads"][0]["comments"]], ["coderabbitai[bot]", "alice"])
+
+    def test_many_comments_do_not_push_a_review_out_of_the_brief(self):
+        self.lay(comments=[{"id": n, "user": {"login": "coderabbitai[bot]"}, "body": f"c{n}"} for n in range(30)],
+                 reviews=[{"user": {"login": "coderabbitai[bot]"}, "state": "COMMENTED", "body": "a finding"}])
+        said = [s["body"] for s in self.brief()["said"]]
+        self.assertEqual((said[0], said[-1], len(said)), ("a finding", "c29", sitter.MAX_SAID + 1))
 
     def test_a_cut_diff_sends_the_agent_to_the_files(self):
         with mock.patch.object(sitter, "MAX_DIFF_CHARS", 20):
@@ -635,8 +643,10 @@ class ReportTest(SitterScratch):
         self.lay()
         job = sitter.job()
         good = {"number": 7, "head_sha": self.head, "decision": "merge", "reason": "x"}
-        sitter._checked(good, job)
-        for over in ({"decision": "squash"}, {"reason": " "}, {"reason": "x" * 2001}, {"replies": {"a": 1}},
+        for fine in ({}, {"replies": [], "resolved": []}, {"replies": None, "resolved": None}):
+            sitter._checked({**good, **fine}, job)
+        for over in ({"decision": "squash"}, {"reason": " "}, {"reason": "x" * 2001}, {"replies": {"a": 1}}, {"replies": {}}, {"replies": ""},
+                     {"replies": 0}, {"replies": False}, {"resolved": {}}, {"resolved": ""}, {"resolved": False},
                      {"replies": [{"thread_id": "T9", "outcome": "declined", "body": "x"}]},
                      {"replies": [{"thread_id": "T1", "outcome": "fixed", "body": "x"}]},
                      {"replies": [{"thread_id": "T1", "outcome": "declined", "body": ""}]},
@@ -1021,6 +1031,81 @@ class AnswerTest(SitterScratch):
         sitter.collect()
         self.assertFalse(self.threads[0]["isResolved"])
         self.assertIsNone(ledger.sitter_decision(REPO, 7, self.head))
+
+    def test_a_merge_said_before_does_not_hold_while_a_reopen_is_owed_or_after_it(self):
+        from teeny_hands.gh.client import GitHubApi, GitHubError
+        ledger.record_action("sitter_merge", REPO, 7, self.head)
+        self.objected()
+        self.gh.route("PUT", f"/repos/{REPO}/pulls/7/merge", {"merged": True, "sha": "e" * 40})
+        for failing in ("resolve_thread", "reopen_thread"):
+            real = getattr(GitHubApi, failing)
+
+            def lost(api, tid, real=real):
+                real(api, tid)
+                self.threads[0]["isResolved"] = True
+                raise GitHubError("down", 502)
+
+            with mock.patch.object(GitHubApi, failing, lost):
+                out = actions.sweep()  # the very sweep that saw it fail
+            self.assertEqual(out["merged"], [], failing)
+            result = audit.audit(REPO, 7)
+            self.assertEqual((result["verdict"], self.rule(result, "thread_unsettled")), ("waiting", "wait"), failing)
+        actions.sweep()
+        self.assertFalse(self.threads[0]["isResolved"])
+        # Reopened; a person resolving it does not bring the old word back.
+        self.threads[0]["isResolved"] = True
+        sitter._drop()
+        self.assertEqual(self.rule(audit.audit(REPO, 7), "sitter_pending"), "wait")
+        self.assertEqual(self.gh.requests("PUT"), [])
+
+    def test_a_job_does_not_end_before_the_old_merge_is_taken_back(self):
+        ledger.record_action("sitter_merge", REPO, 7, self.head)
+        self.objected()
+        with mock.patch.object(ledger, "record_action", lambda *a, **k: None):
+            sitter.collect()
+            self.assertTrue(sitter.unsettled(REPO, 7))
+            self.assertEqual(self.rule(audit.audit(REPO, 7), "thread_unsettled"), "wait")
+        sitter.collect()
+        self.assertFalse(self.threads[0]["isResolved"])
+        self.assertEqual(ledger.sitter_decision(REPO, 7, self.head), "wait")
+
+    def test_a_merge_audits_and_merges_under_the_lock_a_resolve_is_made_under(self):
+        ledger.record_action("sitter_merge", REPO, 7, self.head)
+        self.pr()
+        self.gh.route("PUT", f"/repos/{REPO}/pulls/7/merge", {"merged": True, "sha": "e" * 40})
+        real, held = PullsApi.merge, []
+
+        def merge(api, *a):
+            try:
+                with hand.lock("sitter", timeout=0):
+                    held.append(False)
+            except hand.HandError:
+                held.append(True)
+            return real(api, *a)
+
+        with mock.patch.object(PullsApi, "merge", merge):
+            actions.merge({"repo": REPO, "number": 7, "head_sha": self.head})
+        self.assertEqual(held, [True])
+
+    def test_a_pull_request_closed_meanwhile_still_gets_its_thread_reopened(self):
+        from teeny_hands.gh.client import GitHubApi, GitHubError
+        self.objected()
+        with mock.patch.object(GitHubApi, "reopen_thread", side_effect=GitHubError("down", 502)):
+            sitter.collect()
+            self.pr(state="closed")
+            sitter.collect()
+            self.assertIsNotNone(sitter.job())
+        self.assertEqual(sitter.collect()["dropped"], "closed")
+        self.assertFalse(self.threads[0]["isResolved"])
+
+    def test_a_resolve_that_does_not_say_who_spoke_last_is_undone(self):
+        self.objected()
+        for last in ([], None, [{"id": "n", "author": None}]):
+            self.last_said = last
+            self.assertEqual(sitter.collect()["moved"], 1)
+            self.assertFalse(self.threads[0]["isResolved"])
+            self.lay()
+            self.declined("T1")
 
     def test_a_reopen_whose_answer_was_lost_leaves_it_open_and_takes_the_merge_back(self):
         from teeny_hands.gh.client import GitHubApi, GitHubError

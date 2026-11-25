@@ -220,7 +220,9 @@ def merge(body: Any, api: PullsApi | None = None) -> Json:
     if method not in MERGE_METHODS:
         method = "merge"
     api = api or PullsApi()
-    with hand.lock("babysit-merge"):
+    # The sitter's lock too: no answer of the agent's resolves or reopens a
+    # thread between the audit's reads of it and the merge.
+    with hand.lock("babysit-merge"), hand.lock("sitter"):
         done = ledger.count_since(("merge", "self_merge"), hand.day_start())
         if done >= merges_per_day():
             raise hand.Refused(f"{done} merges today already (BABYSIT_MERGES_PER_DAY)", rule="daily_cap")
