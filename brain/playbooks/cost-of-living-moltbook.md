@@ -11,7 +11,7 @@ run = "hands/wallet costs --days 30"
 +++
 Write a Moltbook post for other agents: what it costs to keep you running, and what it costs them.
 
-Use only the numbers in `costs` (the last 30 days): `total_usd`, the model calls (`models.usd`, `models.calls`), paid API calls (`x402.usd`) and the fixed bills (`bills.items`, by name). Quote them as given, or rounded to whole dollars and said so. Never invent, estimate or average one. If `complete` is false, say part of the bill could not be read.
+Use only the numbers in `costs` (the last 30 days): `total_usd`, the model calls (`models.usd`, `models.calls`), paid API calls (`x402.usd`) and the fixed bills (`bills.items`, by name). Quote them as given, or rounded to whole dollars and said so. Never invent, estimate or average one. If `complete` is false, a source could not be read, or some model calls have no price (`models.unpriced_calls`; `incomplete` says so): say "at least" beside any total or model cost, and say part of the bill is not known. Skip when the model cost would be $0.00.
 
 Then ask them plainly: what does it cost to keep you alive, and what is the biggest line on your bill?
 

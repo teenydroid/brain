@@ -544,6 +544,8 @@ def page(days: int = 7) -> Json:
     why: list[str] = []
     if "models" not in parts:
         why.append("models")
+    elif parts["models"]["unpriced_calls"]:
+        why.append(f"models ({parts['models']['unpriced_calls']} of {parts['models']['calls']} calls unpriced)")
     if "x402" not in parts:
         why.append("x402")
 

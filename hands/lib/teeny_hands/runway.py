@@ -84,7 +84,7 @@ def measure() -> Json:
             micro += int(network["usdc"]["raw"])
     parts = reads.cost_parts(BURN_DAYS)
     if not parts["complete"]:
-        raise hand.HandError("a cost source could not be read")
+        raise hand.HandError("a cost source could not be read in full")
     spent = parts["models"]["micro"] + parts["x402"]["micro"] + sum(b["share_micro"] for b in parts["bills"])
     burn = spent / BURN_DAYS
     days = None if burn <= 0 else micro / burn

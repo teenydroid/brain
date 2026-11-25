@@ -264,6 +264,9 @@ def money(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     except caps.CapsError:
         raise hand.HandError("WORLD_TEAM_USD is not a number") from None
     costs = reads.costs(COSTS_DAYS)
+    if costs.get("models", {}).get("unpriced_calls"):
+        # A floor on what Teeny cost would score as money it still has.
+        raise Skip(f"costs incomplete: {costs['incomplete']}")
     if not costs.get("complete", False):
         notes.append("costs incomplete: a cost source could not be read")
     cost_usd = float(costs.get("total_usd") or 0)

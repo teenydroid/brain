@@ -1162,7 +1162,8 @@ def holds_by_category(since: float, until: float) -> dict[str, int]:
 
 def model_cost() -> Json | None:
     """What the model cost over the last day, from the core's cost report
-    (as hands/wallet costs reads it); None when the core could not say."""
+    (as hands/wallet costs reads it); None when the core could not say.
+    With `unpriced_calls`, calls the core has no price for, `usd` is a floor."""
     try:
         report = hand.core("cost_report", {"days": 1}, timeout=PROBE_TIMEOUT)
     except Exception:  # noqa: BLE001 - a cost the core cannot give is left out, not fatal
@@ -1171,7 +1172,9 @@ def model_cost() -> Json | None:
     if not isinstance(totals, Mapping):
         return None
     try:
-        return {"usd": round(float(totals.get("cost_usd") or 0.0), 4), "calls": int(totals.get("calls") or 0)}
+        unpriced = int(totals.get("unpriced_calls") or 0)
+        return {"usd": round(float(totals.get("cost_usd") or 0.0), 4), "calls": int(totals.get("calls") or 0),
+                **({"unpriced_calls": unpriced} if unpriced else {})}
     except (TypeError, ValueError):
         return None
 
@@ -1195,6 +1198,9 @@ def daily() -> Json:
         trouble = bool(crons or acts or beats or doctor.get("fail") or holds)
         spent = (f"the model cost ${cost['usd']:.2f} over {cost['calls']} call(s)" if cost
                  else "what the model cost is unknown (the core did not say)")
+        if cost and cost.get("unpriced_calls"):
+            spent = (f"the model cost at least ${cost['usd']:.2f}; {cost['unpriced_calls']} of {cost['calls']} calls unpriced,"
+                     " so the real cost is not known")
         doctor_line = "; ".join(f"{status}: {', '.join(names)}" for status, names in doctor.items()) or "all ok"
         text = (
             f"health, yesterday ({day} UTC): {spent}. failed cron runs: {_counts(crons)}."
