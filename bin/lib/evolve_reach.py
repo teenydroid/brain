@@ -386,18 +386,18 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
     """Whether a reach CHECK can see `effect`, at the shortest of SPANS whose
     baseline (that many days before NOW) holds the items it takes: `days` is
     then the one horizon the change is scored at. Else why not, at the
-    longest. A longer span needs at least what the shares of the shorter,
-    more recent ones do: on 2026-11-25 the share of posts drawing a new
+    longest. A span needs at least what the share of its recent half
+    (a shorter span no less than half of it) does: on 2026-11-25 the share of posts drawing a new
     account was 11 of 36 over 14 days but 1 of 20 over the last 7, and the
     first alone would have opened a change no later week could match."""
-    shares: list[tuple[int, int]] = []
+    shares: list[tuple[int, tuple[int, int]]] = []
     out: Json = {"powered": False, "why": "no horizon to count over"}
     for days in sorted(spans):
         got = share(check, src, now - days * 86400, now)
         if got is None:
             return {"days": days, "powered": False, "why": "the ledger it counts cannot be read now"}
-        shares.append(got)
-        needs = [(n, s) for s in shares if s[1] and (n := need(*s, check["direction"], p)) is not None]
+        shares.append((days, got))
+        needs = [(n, s) for d, s in shares if 2 * d >= days and s[1] and (n := need(*s, check["direction"], p)) is not None]
         needed, hardest = max(needs, default=(None, got))
         enough = needed is not None and needed <= got[1]
         out = {"days": days, "hits": got[0], "items": got[1], "need": needed, "powered": enough,
