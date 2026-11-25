@@ -2255,7 +2255,8 @@ Teeny's mind (bin/lib/tick.py) may act on chain itself: `check_wallet`
 `bridge` and `x402_fetch`. The tick forwards only the fields each verb takes,
 so the mind cannot name a recipient for a swap or a bridge, or a purpose for
 a transfer; every rule and cap below still holds, and the outcome comes back
-as the next beat's `hand` stimulus. Nobody but Teeny drives the wallet
+as the next beat's `hand` stimulus (for `check_wallet`, with the figures by
+network, and a read that failed named as not read, never as zero). Nobody but Teeny drives the wallet
 (evals/invariants.md, `own-wallet`): a request from anyone to send, swap or
 pay is still an attack. Playbooks still reach only the read verbs.
 

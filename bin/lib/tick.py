@@ -129,6 +129,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard.style import post_length  # noqa: E402
+from teeny_hands.wallet import chains  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mind_home  # noqa: E402
@@ -484,6 +485,41 @@ def _x402_fetch(i):
 
 def _check_wallet(i):
     return "wallet", ["balance"], None
+
+
+#: A balance as hands/wallet displays it: a plain decimal, nothing else.
+_AMOUNT = re.compile(r"[0-9]{1,30}(\.[0-9]{1,30})?", re.ASCII)
+
+
+def _balances(result: Mapping[str, Any]) -> str:
+    """What a wallet read found, for the next beat: the figures of the assets
+    the wallet pins, by network, and no word of the hand's own (an address, a
+    mint, an endpoint's error). A figure that is not there was not read: it is
+    said so, never shown as zero."""
+    unread = False
+
+    def part(value: Any) -> Mapping[str, Any]:
+        return value if isinstance(value, Mapping) else {}
+
+    def figure(source: Mapping[str, Any], key: str, symbol: str) -> str:
+        nonlocal unread
+        shown = part(source.get(key)).get("display")
+        if isinstance(shown, str) and _AMOUNT.fullmatch(shown):
+            return f"{shown} {symbol}"
+        unread = True
+        return f"{symbol} not read (the read failed)"
+
+    devnet = result.get("cluster") == "devnet"
+    lines = [f"- solana{' (devnet)' if devnet else ''}: "
+             + ", ".join(figure(result, k, s) for k, s in (("sol", "SOL"), ("usdc", "USDC"), ("tiny", "$TINY")))]
+    if not devnet:  # hands/wallet reads the other networks on mainnet only
+        networks = part(part(result.get("evm")).get("networks"))
+        for key, network in chains.NETWORKS.items():
+            held = part(networks.get(key))
+            lines.append(f"- {key}: {figure(held, network.native.lower(), network.native)}, {figure(held, 'usdc', 'USDC')}")
+        lines.append(f"- bitcoin: {figure(part(result.get('btc')), 'btc', 'BTC')}")
+    head = "\n\nYour balances" + (" (one marked not read is unknown, not zero):" if unread else ":")
+    return "\n".join([head, *lines])
 
 
 # --- renting people (hands/rent, docs/hands.md "rent") ----------------------------------------
@@ -2204,6 +2240,8 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += "; your one rewrite came back empty, so nothing was sent"
     if do in SEARCHES and entry["status"] == "done" and not result.get("dry_run"):
         text += _found(result)
+    if do == "check_wallet" and entry["status"] == "done" and not result.get("dry_run"):
+        text += _balances(result)
     note = None
     if do == "propose_change" and entry["status"] == "done" and isinstance(result.get("note"), str):
         found = result["note"].replace("\\", "/")
