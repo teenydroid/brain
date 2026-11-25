@@ -308,6 +308,14 @@ def model_bills(ledger: Ledger, since: float) -> list[Json]:
         if not isinstance(cost, dict) or not isinstance(cost.get("usd"), (int, float)):
             continue
         day = _payload(r).get("day")
+        unpriced = cost.get("unpriced_calls")
+        if unpriced:  # the dollars are a floor, so never told as the bill
+            out.append(_item("model_bill", r["at"], "money",
+                             f"thinking cost at least ${cost['usd']:.2f} on {day}; {unpriced} of {cost.get('calls')} "
+                             "model calls have no price, so the real cost is not known",
+                             {"day": day, "usd_at_least": cost["usd"], "calls": cost.get("calls"), "unpriced_calls": unpriced},
+                             f"stimuli:{r['id']}"))
+            continue
         out.append(_item("model_bill", r["at"], "money",
                          f"thinking cost ${cost['usd']:.2f} on {day} over {cost.get('calls')} model calls",
                          {"day": day, "usd": cost["usd"], "calls": cost.get("calls")}, f"stimuli:{r['id']}"))

@@ -356,6 +356,12 @@ class BuyTest(Scratch):
         self.assertIn("could not be read", out["skipped"])
         self.assertEqual(self.swapped(), [])
 
+    def test_costs_with_unpriced_calls_buy_nothing(self):
+        self.core.answers["openhuman.cost_report"] = {"totals": {"calls": 10, "cost_usd": 0, "unpriced_calls": 10}}
+        out = buy.buy_tiny()
+        self.assertIn("could not be read in full", out["skipped"])
+        self.assertEqual(self.swapped(), [])
+
     # --- the caps ---------------------------------------------------------------------------------
 
     def test_the_daily_buy_cap_leaves_only_what_is_left(self):

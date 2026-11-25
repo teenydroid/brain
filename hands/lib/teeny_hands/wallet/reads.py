@@ -354,9 +354,11 @@ def _x402(days: int, since: float, mint: str) -> Json:
 
 def cost_parts(days: int) -> Json:
     """The sources of `costs`, in micro-dollars, over the last `days`:
-    `models` (micro, calls, charged, estimated) or `models_error`, `x402`
-    (micro, payments, not_usdc) or `x402_error`, `bills` (each with its
-    window share), `paid_out` by purpose, `since` and `complete`. `costs`
+    `models` (micro, calls, unpriced_calls, charged, estimated) or
+    `models_error`, `x402` (micro, payments, not_usdc) or `x402_error`,
+    `bills` (each with its window share), `paid_out` by purpose, `since` and
+    `complete`: false when a source could not be read, or when some model
+    calls have no price, so that `models.micro` is only a floor. `costs`
     formats this; `accounts` (the weekly page, accounts.py) adds it up in
     cents, so both read the same numbers."""
     since = hand.now() - days * store.DAY
@@ -368,9 +370,12 @@ def cost_parts(days: int) -> Json:
         out["models"] = {
             "micro": round(float(totals.get("cost_usd") or 0.0) * caps.MICRO),
             "calls": int(totals.get("calls") or 0),
+            "unpriced_calls": int(totals.get("unpriced_calls") or 0),
             "charged_micro": round(float(totals.get("charged_usd") or 0.0) * caps.MICRO),
             "estimated_micro": round(float(totals.get("estimated_usd") or 0.0) * caps.MICRO),
         }
+        if out["models"]["unpriced_calls"]:
+            out["complete"] = False
     except hand.HandError as exc:
         out["models_error"] = str(exc)
         out["complete"] = False
@@ -416,6 +421,10 @@ def costs(days: int) -> Json:
             "charged_usd": caps.usd(models["charged_micro"]),
             "estimated_usd": caps.usd(models["estimated_micro"]),
         }
+        if models["unpriced_calls"]:
+            out["models"]["unpriced_calls"] = models["unpriced_calls"]
+            out["incomplete"] = ("total_usd and models.usd are at least, not a total: "
+                                 f"{models['unpriced_calls']} of {models['calls']} model calls have no price and are left out")
         total += models["micro"]
     else:
         out["models"] = {"error": parts["models_error"]}

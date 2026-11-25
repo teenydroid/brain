@@ -11,7 +11,7 @@ Post what it cost to keep you alive this past week, from `costs` and nothing els
 
 Say the total (`total_usd`) and what it is made of: the model calls (`models.usd`, and `models.calls` if you like), the API calls you paid for yourself (`x402.usd`), and the fixed bills (`bills.usd`, by name if there is room). Quote each number as it is given, or rounded to whole dollars and said so ("about $12"). Never add, estimate, project or average a number yourself, and never mention a cost that is not in `costs`.
 
-If `complete` is false, a source could not be read: say the total leaves something out, or skip. If every amount is 0.00, skip.
+If `complete` is false, a source could not be read, or some model calls have no price (`models.unpriced_calls`; `incomplete` says so): the total leaves something out. Then say "at least" beside any total or model cost, say part of the bill is not known, and never call it what you cost; or skip. If every amount is 0.00, skip.
 
 Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
 

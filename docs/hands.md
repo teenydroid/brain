@@ -1366,7 +1366,7 @@ Teeny writes itself.
 |---|---|---|---|---|---|
 | `attention` | version 2, people-weighted reach (below): followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot, each weighed by whether it is a human, an agent or unknown | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, `gh`, with a `who`), and Teeny's own `x_posts` and `mail_sent` for who wrote first | 1.0 | 50 | 0.10 |
 | `tiny` | $TINY held, in tokens | `wallet tiny` | 0.8 | 10,000 | 0.20 |
-| `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs` | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
+| `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs`; skipped, with the reason, while any model call in them has no price | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
 | `capability` | hands with tests (an executable in `hands/` with `hands/tests/<name>/test_*.py` or `hands/tests/test_<name>.py`; `image` and `video` share `media`), plus the channels Teeny can act on (`x`, `moltbook`, `github`, `mail`, `telegram` when their keys are set; `wallet` when its caps load) | the checkout, `secrets/teeny.env` | 0.5 | 5 | 0.10 |
 | `shipped` | build jobs shipped, plus `github.stars`, `github.forks` and `github.open_issues` where `stats` keeps them | `build_jobs`, `stats` | 0.4 | 5 | 0.15 |
 | `world` | each arc in `brain/narrative/ARCS.md` by its `- status:` line: 0 not started, 2 done (complete, reached, achieved), 1 anything else | `ARCS.md` | 0.2 | 2 | 0.10 |
@@ -1542,7 +1542,8 @@ Every surface writes what happened here, and `bin/tick` drains it into the
   row, and `health · recovered` when it answers again; `bin/health daily`
   (the pinned `health-daily` job, 00:40 UTC): one `health · daily` a day
   about the UTC day before, with what the model cost (the core's
-  `cost_report`), failed cron runs by job, failed `bin/act` runs by
+  `cost_report`; "at least", with the count of unpriced calls, when the core
+  has no price for some), failed cron runs by job, failed `bin/act` runs by
   playbook, failed beats of the mind, the doctor's checks that are not ok
   (names only) and guard holds by direction and category. Counts and names
   only: never a hold's text or reason, an error's words or a check's detail.
@@ -2170,7 +2171,7 @@ the network's public endpoint, and the core is given the same URL.
 | `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
 | `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
 | `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
-| `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
+| `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read, or when the core has no price for some model calls: then `models.unpriced_calls` counts them, and `incomplete` says the dollars are a floor. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
 | `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. `receipt buy-N` is one $TINY buy. |
 | `receipts [--max N]` | R | Paid payments and $TINY buys whose signature no X post of Teeny's carries yet, oldest first: what the `wallet-receipt` playbook owes. |
 | `caps` | R | The caps it pays under, and which optional ones are on. |
@@ -2727,7 +2728,8 @@ list`. Beside it: `paid_out` (bounties, vendors), `tiny_bought`, SOL received
 in lamports (never in dollars: `WALLET_SOL_USD` is set high on purpose and
 would flatter the income), and `not_counted` (network fees, SOL in dollars,
 EVM networks). A page whose model costs, x402 payments or inflow scan (none
-in the hour before) could not be read is `complete: false`.
+in the hour before) could not be read, or with a model call the core has no
+price for, is `complete: false`.
 
 `accounts close` (the pinned `accounts` job, Mondays 00:20 UTC) scans, then
 freezes the 7 days to `wallet_accounts` under the ISO week they cover,

@@ -472,6 +472,17 @@ class AccountsTest(Scratch):
         self.assertFalse(got["complete"])
         self.assertEqual(got["incomplete"], ["models"])
 
+    def test_unpriced_model_calls_make_the_page_incomplete_and_unclosable(self):
+        self.core.answers["openhuman.cost_report"] = {"totals": {"calls": 10, "cost_usd": 0, "unpriced_calls": 10}}
+        accounts.scan()
+        got = accounts.page(7)
+        self.assertFalse(got["complete"])
+        self.assertEqual(got["incomplete"], ["models (10 of 10 calls unpriced)"])
+        with self.assertRaises(hand.Refused) as no:
+            accounts.close()
+        self.assertEqual(no.exception.detail["rule"], "incomplete")
+        self.assertEqual(accounts.closed_pages(), [])
+
     def test_no_recent_scan_makes_the_page_incomplete(self):
         got = accounts.page(7)
         self.assertEqual(got["incomplete"], ["inflows"])

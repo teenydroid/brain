@@ -318,6 +318,12 @@ class DeskTest(StoryScratch):
         self.assertEqual((item["kind"], item["stake"], item["storyline"]), ("model_bill", "money", None))
         self.assertEqual(item["what"], "thinking cost $0.20 on 2026-09-13 over 700 model calls")
 
+    def test_a_model_bill_with_unpriced_calls_is_a_floor(self):
+        self.health("daily", "daily:2026-09-13", {"day": "2026-09-13", "cost": {"usd": 0.0, "calls": 10, "unpriced_calls": 10}})
+        item = self.one("stimuli:health:daily:daily:2026-09-13")
+        self.assertEqual(item["what"], "thinking cost at least $0.00 on 2026-09-13; 10 of 10 model calls have no price, so the real cost is not known")
+        self.assertEqual(item["facts"], {"day": "2026-09-13", "usd_at_least": 0.0, "calls": 10, "unpriced_calls": 10})
+
     def test_followers_against_the_previous_date_is_a_one_day_change(self):
         self.followers(331, 329)
         item = self.one("stats:2026-09-14:x:followers")
