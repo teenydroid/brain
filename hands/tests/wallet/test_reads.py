@@ -146,6 +146,30 @@ class ReadsTest(Scratch):
         self.assertFalse(out["complete"])
         self.assertEqual(out["total_usd"], "10.00")
 
+    def unpriced(self, **totals):
+        self.core.answers["openhuman.cost_report"] = {"totals": totals}
+        self.core.answers["openhuman.x402_list_payments"] = {"payments": []}
+
+    def test_costs_with_unpriced_calls_are_a_floor_not_a_complete_zero(self):
+        self.unpriced(calls=10, cost_usd=0, unpriced_calls=10)
+        parts = reads.cost_parts(30)
+        self.assertEqual(parts["models"]["unpriced_calls"], 10)
+        self.assertFalse(parts["complete"])
+        out = reads.costs(30)
+        self.assertFalse(out["complete"])
+        self.assertEqual(out["models"]["unpriced_calls"], 10)
+        self.assertEqual(out["incomplete"], "total_usd and models.usd are at least, not a total: 10 of 10 model calls have no price and are left out")
+
+    def test_costs_of_an_all_priced_report_are_the_same_with_or_without_the_unpriced_count(self):
+        self.unpriced(calls=10, cost_usd=1.5)
+        old = reads.costs(30)
+        self.assertEqual(reads.cost_parts(30)["models"]["unpriced_calls"], 0)
+        self.unpriced(calls=10, cost_usd=1.5, unpriced_calls=0)
+        self.assertEqual(reads.costs(30), old)
+        self.assertTrue(old["complete"])
+        self.assertNotIn("incomplete", old)
+        self.assertEqual(old["models"], {"usd": "1.50", "calls": 10, "charged_usd": "0.00", "estimated_usd": "0.00"})
+
     def test_costs_list_payouts_beside_the_total(self):
         self.core.answers["openhuman.cost_report"] = {"totals": {"cost_usd": 0}}
         self.core.answers["openhuman.x402_list_payments"] = {"payments": []}

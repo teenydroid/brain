@@ -93,6 +93,14 @@ class RunwayTest(Scratch):
         self.assertEqual(runway.limits()["tier"], "low")
         self.assertIn("could not be measured", self.inbox()[0]["text"])
 
+    def test_unpriced_calls_are_not_measured_as_a_cheap_week(self):
+        self.hold(1000)
+        self.core.answers["openhuman.cost_report"] = {"totals": {"cost_usd": 0, "calls": 10, "unpriced_calls": 10}}
+        out = runway.daily()
+        self.assertFalse(out["measured"])
+        self.assertEqual(runway.limits()["tier"], "low")
+        self.assertNotIn("nothing cost money", self.inbox()[0]["text"])
+
     def test_a_stale_measure_counts_as_the_low_tier(self):
         self.hold(1000)
         runway.daily()

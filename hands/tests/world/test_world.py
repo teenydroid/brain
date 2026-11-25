@@ -309,6 +309,14 @@ class SnapshotTest(Scratch):
         self.assertEqual({c for _, c in self.rows()}, set(out["written"]))
         self.assertEqual(self.moved(), [])
 
+    def test_unpriced_model_calls_are_noted_and_money_is_not_scored(self):
+        self.seed_everything()
+        self.core.answers["openhuman.cost_report"] = {"totals": {"calls": 10, "cost_usd": 0, "unpriced_calls": 10}}
+        out = collect.snapshot()
+        self.assertNotIn("money", out["written"])
+        self.assertIn("10 of 10 model calls have no price", out["skipped"]["money"])
+        self.assertEqual(set(out["written"]), {"attention", "tiny", "capability", "shipped", "world", "penalty"})
+
     def test_a_partial_source_still_counts_and_says_what_is_missing(self):
         stimuli.add("moltbook", "comment", "c1", "hi", who="eve", at=T0 - DAY)
         out = collect.snapshot()

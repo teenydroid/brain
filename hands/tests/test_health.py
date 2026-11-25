@@ -426,6 +426,19 @@ class HealthTest(unittest.TestCase):
         self.assertIn("failed cron runs: none", got["text"])
         self.assertNotIn("yours to look into", got["text"])
 
+    def test_unpriced_calls_make_the_daily_cost_a_floor(self):
+        self.model(result({"totals": {"cost_usd": 0, "calls": 10, "unpriced_calls": 10}}))
+        out = health.daily()
+        self.assertEqual(out["cost"], {"usd": 0.0, "calls": 10, "unpriced_calls": 10})
+        text = self.inbox()[0]["text"]
+        self.assertIn("at least $0.00; 10 of 10 calls unpriced", text)
+        self.assertNotIn("cost $0.00", text)
+
+    def test_an_all_priced_day_reads_as_it_did_before_the_unpriced_count(self):
+        self.model(result({"totals": {"cost_usd": 1.5, "calls": 40, "unpriced_calls": 0}}))
+        self.assertEqual(health.daily()["cost"], {"usd": 1.5, "calls": 40})
+        self.assertIn("the model cost $1.50 over 40 call(s).", self.inbox()[0]["text"])
+
     def test_a_core_that_cannot_give_the_cost_still_files_the_day(self):
         self.model(DEAD)
         out = health.daily()
