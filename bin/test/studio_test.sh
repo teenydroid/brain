@@ -54,6 +54,8 @@ say() { jq -cn --arg a "$1" '{response: $a}'; }
 block() { awk '/^```json$/{f=1; next} f && /^```$/{exit} f' <<<"$msg"; }
 case "$(head -n 1 <<<"$msg")" in
   "# studio: feed")
+    # $FAKE_FEED_EMPTY=N: the first N answers are well-formed and tag nothing.
+    if [ "$(grep -c '# studio: feed' "$FAKE_CALLS")" -le "${FAKE_FEED_EMPTY:-0}" ]; then say '{"items": []}'; exit 0; fi
     [ -z "${FAKE_FEED_GARBLED:-}" ] || { say 'items": oops'; exit 0; }
     say "$(block | jq -c '{items: map({id, people: (if (.id | startswith("digg:")) then ["OpenAI"] elif (.id | startswith("hn:")) then ["Hacker News"] else [] end),
       what_happened: ("what happened: " + .headline),
@@ -377,6 +379,12 @@ rec="$(last_record)"
 check "a tagging answer unusable twice names no author public: nothing is quoted, the slot is skipped" \
   jqe '.outcome == "skipped" and (.feed.tag.failed | test("twice")) and .cards == [] and .feed.private.left_out == ["ana", "bob"]' <<<"$rec"
 check "and the tagging was asked once more, and no writer turn taken" test "$(steps)" = "feed,feed"
+check "and the reason says the tagging failed, not that the sources were empty" \
+  jqe '(.reason | test("tagging failed")) and (.reason | test("source was down") | not)' <<<"$rec"
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_FEED_EMPTY=1 run)"
+check "a tagging answer that tags nothing is asked for once more, and the run goes on" \
+  jqe '.outcome == "picked" and .feed.tag.tagged == .feed.tag.of and .calls.feed == 2' <<<"$(last_record)"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID=$id FAKE_DEATH=1 run)"
 check "a story about a death is no card" \

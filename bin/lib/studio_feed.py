@@ -386,7 +386,7 @@ def read_tags(answer: Any, ids: set[str]) -> dict[str, Json]:
     rows = answer.get("items") if isinstance(answer, dict) else answer
     out: dict[str, Json] = {}
     for row in rows if isinstance(rows, list) else []:
-        if not (isinstance(row, dict) and row.get("id") in ids):
+        if not (isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"] in ids):
             continue
         people = [_clean(p, 80) for p in row.get("people") or [] if _clean(p, 80)] \
             if isinstance(row.get("people"), list) else []
@@ -396,6 +396,32 @@ def read_tags(answer: Any, ids: set[str]) -> dict[str, Json]:
                                                                                             WHAT_MAX),
                           "public": list(dict.fromkeys(public))}
     return out
+
+
+def _kind(value: Any) -> str:
+    return {dict: "an object", list: "a list", str: "a string", bool: "a boolean",
+            type(None): "null"}.get(type(value), "a number")
+
+
+def answer_shape(answer: Any, ids: set[str]) -> str:
+    """What a tagging answer looked like, in types and counts only: none of
+    its words or keys, which may be a stranger's."""
+    def asked(row: Any) -> bool:
+        return isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"] in ids
+
+    shape = _kind(answer)
+    if isinstance(answer, dict):
+        shape += f" of {len(answer)} key{'' if len(answer) == 1 else 's'}"
+        if asked(answer):
+            shape += " with an id that was asked"
+    if not (isinstance(answer, list) or (isinstance(answer, dict) and "items" in answer)):
+        return f"{shape}; no items"
+    rows = answer["items"] if isinstance(answer, dict) else answer
+    if not isinstance(rows, list):
+        return f"{shape}; items: {_kind(rows)}"
+    objects = [r for r in rows if isinstance(r, dict)]
+    return (f"{shape}; items: a list of {len(rows)}, {len(objects)} objects, {sum('id' in r for r in objects)} with "
+            f"an id, {sum(asked(r) for r in rows)} with an id that was asked")
 
 
 def _names(story: str, name: str) -> bool:
@@ -422,22 +448,32 @@ def subjects_only(candidates: list[Json], tags: dict[str, Json]) -> dict[str, Js
 
 def tag(room: Any, candidates: list[Json]) -> tuple[dict[str, Json], Json]:
     """One model call (the `feed` role: STUDIO_FEED_MODEL, on the editor
-    agent) over every stranger's candidate. ({id: tags}, what the record
-    keeps). A failed call is no tags, and the cards go on without people."""
+    agent) over every stranger's candidate, asked once more (`Room.turn`)
+    when the answer tags none of them. ({id: tags}, what the record keeps). A
+    failed call is no tags, and the cards go on without people."""
     ids = {c["id"] for c in candidates if not c.get("mine")}
     if not ids:
         return {}, {"skipped": "no candidate to tag"}
     from studio_room import Stop
 
+    def tagged(answer: Any) -> dict[str, Json]:
+        # Well-formed JSON that tags nothing passed as an answer and lost the
+        # 15:00 IST slot of 2026-11-25: every author then counts as private.
+        got = read_tags(answer, ids)
+        if not got:
+            raise ValueError(f"no item in it has an id that was asked ({answer_shape(answer, ids)})")
+        return got
+
     try:
-        answer = room.turn("editor", "feed", tag_message(candidates), None, soft=True, want=object, role="feed")
+        read = room.turn("editor", "feed", tag_message(candidates), None, soft=True, want=object, check=tagged,
+                         role="feed", keep_answer=False)
     except Stop as exc:
         if getattr(exc, "lasting", False):
             raise
         return {}, {"failed": exc.reason[:300]}
-    if answer is None:
+    if read is None:
         return {}, {"failed": "no usable answer, twice"}
-    tags = subjects_only(candidates, read_tags(answer, ids))
+    tags = subjects_only(candidates, read)
     return tags, {"tagged": len(tags), "of": len(ids)}
 
 
@@ -526,6 +562,16 @@ def rank(candidates: list[Json], tags: dict[str, Json], n: int = CARDS) -> list[
         if len(out) >= n:
             break
     return out
+
+
+def no_card(note: Json) -> str:
+    """Why the feed whose record is NOTE gave no card: no handle in it."""
+    if (note.get("private") or {}).get("left_out"):
+        failed = (note.get("tag") or {}).get("failed")
+        if failed:
+            return f"no card: the tagging failed ({failed}), so every quoted account counted as private"
+        return "no card: no candidate quotes an account known to be public"
+    return "no card: every source was down or empty"
 
 
 def feed(room: Any, slot_key: str | None, seed: int, desk: Json | None, n: int = CARDS, chan: bool = True,

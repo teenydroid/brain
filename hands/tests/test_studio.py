@@ -340,6 +340,20 @@ class TagTest(unittest.TestCase):
         tags = {"digg:a": {"people": ["Ann", "Tesla", "Nvidia"], "what_happened": "a chip"}}
         self.assertEqual(studio_feed.subjects_only(candidates, tags)["digg:a"]["people"], ["Tesla", "Nvidia"])
 
+    def test_a_row_whose_id_is_not_a_string_is_ignored(self):
+        answer = {"items": [{"id": ["digg:a"], "people": ["A"]}, {"id": {"x": 1}}, {"id": 7}]}
+        self.assertEqual(studio_feed.read_tags(answer, {"digg:a"}), {})
+
+    def test_the_shape_of_an_unusable_answer_is_counts_and_types_and_never_its_words(self):
+        for answer, shape in (
+                ([], "a list; items: a list of 0, 0 objects, 0 with an id, 0 with an id that was asked"),
+                ({"items": [{"id": "ghost", "people": ["Secret"]}, "Secret", {"Secret": 1}]},
+                 "an object of 1 key; items: a list of 3, 2 objects, 1 with an id, 0 with an id that was asked"),
+                ({"items": {"Secret": 1}}, "an object of 1 key; items: an object"),
+                ({"id": "digg:a", "Secret": "x"}, "an object of 2 keys with an id that was asked; no items"),
+                ("Secret", "a string; no items")):
+            self.assertEqual(studio_feed.answer_shape(answer, {"digg:a"}), shape)
+
     def test_teenys_own_events_are_never_sent_to_be_tagged(self):
         message = studio_feed.tag_message([cand("digg:a"), cand("own:1", "own", mine=True)])
         self.assertIn('"id":"digg:a"', message)
@@ -363,11 +377,11 @@ class FeedRoom:
         self.calls.append(argv)
         return self.answers.get(" ".join(argv[:2]), (1, {"error": f"no {argv[0]} here"}))
 
-    def turn(self, agent, step, message, thread, soft=False, want=dict, check=None, role=None):
+    def turn(self, agent, step, message, thread, soft=False, want=dict, check=None, role=None, keep_answer=True):
         self.turns.append((agent, step, role, message))
         if isinstance(self.tag, Exception):
             raise self.tag
-        return self.tag
+        return check(self.tag) if check and self.tag is not None else self.tag
 
 
 TREND = {"stories": [
@@ -655,6 +669,67 @@ class QuoteFeedTest(unittest.TestCase):
         cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW, quote=True)
         self.assertEqual(cards, [])
         self.assertEqual(note["private"]["left_out"], ["aravsrinivas", "sama"])
+
+    def tagging(self, *said, budget=1800):
+        """One quote feed on a real Room whose core says each of SAID in turn."""
+        left = list(said)
+        self.sent: list[str] = []
+
+        def core(root, agent, message, thread, model, secs):
+            self.sent.append(message)
+            return 0, left.pop(0), ""
+        room = studio.Room(studio.Config(editor_model="", feed_model="", budget_secs=budget), REPO, REPO / "hands",
+                           self.state, REPO / "brain", "run-1", ask=core)
+        room.hand_code = self.room().hand_code
+        cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW, quote=True)
+        return room, cards, note
+
+    GOOD = json.dumps({"items": [{"id": "digg:s1", "people": ["OpenAI"], "what_happened": "w", "public": ["sama"]}]})
+
+    def test_a_tagging_answer_with_no_asked_id_is_asked_once_more_and_a_good_one_yields_cards(self):
+        # 2026-11-25 15:00: one answer parsed, tagged 0 of 9, and the slot was lost.
+        for bad in ('{"items": []}', "[]", "{}", '"words"',
+                    '{"items": [{"id": "ghost", "public": ["sama"]}]}', '{"tags": [{"id": "digg:s1"}]}', "no json"):
+            room, cards, note = self.tagging(bad, self.GOOD)
+            self.assertEqual([c["id"] for c in cards], ["digg:s1"], bad)
+            self.assertEqual(note["tag"], {"tagged": 1, "of": 2})
+            self.assertEqual([(c["role"], c["attempt"]) for c in room.calls], [("feed", 1), ("feed", 2)])
+            self.assertIn("your last answer could not be used", self.sent[1])
+
+    def test_a_good_first_tagging_answer_makes_exactly_one_call(self):
+        room, cards, note = self.tagging(self.GOOD)
+        self.assertEqual(([c["id"] for c in cards], len(room.calls)), (["digg:s1"], 1))
+
+    def test_two_tagging_answers_with_no_asked_id_quote_nobody(self):
+        bad = '{"items": [{"id": "ghost", "public": ["sama", "aravsrinivas"]}]}'
+        room, cards, note = self.tagging(bad, bad)
+        self.assertEqual((cards, len(room.calls)), ([], 2))
+        self.assertEqual(note["tag"], {"failed": "no usable answer, twice"})
+        self.assertEqual(note["private"]["left_out"], ["aravsrinivas", "sama"])
+
+    def test_the_record_keeps_an_unusable_tagging_answers_shape_and_none_of_its_words(self):
+        bad = '{"items": [{"id": "ghost", "what_happened": "a strangers words"}]}'
+        for said in (bad, "a strangers words and no json"):
+            room, _, _ = self.tagging(said, said)
+            for call in room.calls:
+                self.assertTrue(call["unusable"])
+                self.assertEqual(call["answer_bytes"], len(said))
+                self.assertNotIn("strangers", json.dumps(call))
+                self.assertNotIn("ghost", json.dumps(call))
+
+    def test_the_second_tagging_call_is_not_made_when_the_run_is_out_of_time(self):
+        calls: list[int] = []
+
+        def core(root, agent, message, thread, model, secs):
+            calls.append(secs)
+            room.started -= 10_000
+            return 0, "[]", ""
+        room = studio.Room(studio.Config(editor_model="", feed_model=""), REPO, REPO / "hands", self.state,
+                           REPO / "brain", "run-1", ask=core)
+        room.hand_code = self.room().hand_code
+        cards, note = studio_feed.feed(room, None, 7, None, 8, now=NOW, quote=True)
+        self.assertEqual((cards, len(calls)), ([], 1))
+        self.assertIn("out of time", note["tag"]["failed"])
 
     def test_a_card_shows_its_quotable_posts_first(self):
         found = studio_feed.digg_candidates({"stories": [{"id": "s9", "title": "t", "posts": [
@@ -1462,6 +1537,27 @@ class RunTest(unittest.TestCase):
         self.assertEqual((code, out["outcome"]), (0, "skipped"))
         self.assertEqual([s for _, s in self.steps], [])  # no feed tag, no writer, no editor
         self.assertIn("no card", out["reason"])
+
+    def test_a_quote_slot_whose_tagging_failed_twice_says_so_and_names_no_handle(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
+        with self.quoting():
+            code, out = self.go(self.ask(tag={"items": [{"id": "ghost", "public": ["sama"]}]}))
+        self.assertEqual((code, out["outcome"]), (0, "skipped"))
+        self.assertEqual([s for _, s in self.steps], ["# studio: feed"] * 2)
+        self.assertIn("tagging failed (no usable answer, twice)", out["reason"])
+        self.assertNotIn("source was down", out["reason"])
+        for handle in ("sama", "aravsrinivas"):
+            self.assertNotIn(handle, out["reason"].lower())
+        self.assertEqual(self.record()["cards"], [])
+
+    def test_a_quote_slot_where_no_author_is_public_says_so(self):
+        self.fake({**FAKE, "trend top": [{"out": {"ok": True, **TREND_X}}],
+                   "x peers": [{"out": {"ok": True, "days": 7, "handles": []}}]})
+        with self.quoting():
+            code, out = self.go(self.ask(tag={"items": [{"id": "digg:s1", "public": []}]}))
+        self.assertEqual((code, out["outcome"]), (0, "skipped"))
+        self.assertIn("no card: no candidate quotes an account known to be public", out["reason"])
 
     def test_the_writer_keeps_the_runs_thread_and_the_editor_reads_cold(self):
         threads: list[tuple[str, str]] = []
