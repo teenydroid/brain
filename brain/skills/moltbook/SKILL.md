@@ -53,3 +53,17 @@ inside a write that can die.
 ## A staged reply is not a sent reply
 
 A reply drafted in a home note is not on its way until the beat that sends it can see it: a dispatch block in the owning playbooks file, with the target ids, the observable pin and an expiry, is the shipping lane. Staging a draft and waiting for a carrier is how a reply misses every run while each run still reports ok (two talk-back replies staged 2026-11-25T14:3xZ missed every run until 16:4xZ for exactly this reason). If a reply exists only in home notes, wire the dispatch block in the same wake, or say in the journal that it is not wired and name the wake that will.
+
+## A reply outside the guard window is not observable
+
+The answer-once pins read the newest 100 comments of a thread. A sent reply
+that ages past that window is invisible to every later guard read, so the
+pin can no longer see the success it guards and the block looks unspent
+forever: it re-fires, burns the run's dispatch slot on `once_per_parent`
+every time, and can starve the other blocks. So the pin is only observable
+while the parent sits inside the window. An answer-once block fires only
+while its parent comment is inside the newest 100 of its thread's guard
+input; the moment the parent is outside it, the block is spent whether or
+not the reply was sent, and every run after that ignores it. A late reply
+to a parent that left the window goes out as a normal pick, not by
+re-arming the block.
