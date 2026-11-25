@@ -637,7 +637,7 @@ class TargetedEvaluation(LabCase):
     def test_the_persona_probe_runs_only_when_the_change_reaches_every_task(self):
         self.lab_config()
         soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
-        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
+        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + " i say gm like i mean it."}])
         self.edit(2, "cost-of-living")
         self.run_gen(2, publisher=Refusing())
         entries = self.entries()
@@ -653,7 +653,7 @@ class TargetedEvaluation(LabCase):
         os.environ["FAKE_DRIFT"] = "1"
         self.live()
         soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
-        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
+        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + " i say gm like i mean it."}])
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(pub.prs, [])

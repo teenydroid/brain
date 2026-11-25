@@ -197,8 +197,8 @@ class Routed(EvolveCase):
     # --- (d) a frozen path: a public issue -------------------------------------------------------------
 
     def test_a_fix_that_needs_a_frozen_path_is_one_public_issue_not_a_want(self):
-        fid = "f:refusals:moltbook-curate:duplicate"
-        self.refusals("moltbook-curate", 6)
+        fid = "f:refusals:x-quote:duplicate"
+        self.refusals("x-quote", 6)
         self.tried_twice(fid)
         self.assertEqual(self.state(fid), "routed")
         self.assertEqual(wants.finding_wants(), [])
@@ -211,16 +211,16 @@ class Routed(EvolveCase):
         self.assertEqual(issue["repo"], "teenydroid/brain")
         self.assertTrue(issue["judge"])
         self.assertEqual(issue["labels"], ["help wanted"])
-        self.assertIn("`refusals:moltbook:duplicate`", issue["title"])
-        for part in ("6 over 7 days", "g1c1", "g2c1", "frozen: hands/lib/teeny_hands/moltbook", "open for anyone"):
+        self.assertIn("`refusals:x:duplicate`", issue["title"])
+        for part in ("6 over 7 days", "g1c1", "g2c1", "frozen: hands/x", "open for anyone"):
             self.assertIn(part, issue["body"])
         evolve.route_findings(cfg, self.entries(), evolve.read_findings(cfg), publisher)
         self.assertEqual(len(publisher.issues), 1)  # filed once
         self.assertEqual(self.status_row(fid)["routed"]["said"], "routed to an issue (#101)")
 
     def test_a_publisher_that_cannot_label_still_opens_the_issue(self):
-        self.refusals("moltbook-curate", 6)
-        self.tried_twice("f:refusals:moltbook-curate:duplicate")
+        self.refusals("x-quote", 6)
+        self.tried_twice("f:refusals:x-quote:duplicate")
         self.live()
         publisher = NoLabelPublisher()  # no labels argument
         cfg = evolve.load_config()
@@ -229,8 +229,8 @@ class Routed(EvolveCase):
         self.assertEqual(got[0]["issue"], 101)
 
     def test_under_dry_run_no_issue_is_opened_or_remembered(self):
-        self.refusals("moltbook-curate", 6)
-        self.tried_twice("f:refusals:moltbook-curate:duplicate")
+        self.refusals("x-quote", 6)
+        self.tried_twice("f:refusals:x-quote:duplicate")
         cfg = evolve.load_config()
         got = evolve.route_findings(cfg, self.entries(), evolve.read_findings(cfg), None)
         self.assertTrue(got[0]["dry_run"])
@@ -241,8 +241,8 @@ class Routed(EvolveCase):
     def test_no_strangers_words_reach_a_brief_or_an_issue(self):
         self.refusals("brief", 6)
         self.tried_twice("f:refusals:brief:duplicate")
-        self.refusals("moltbook-curate", 6)
-        self.tried_twice("f:refusals:moltbook-curate:duplicate", events=(4, 5), gen=3)
+        self.refusals("x-quote", 6)
+        self.tried_twice("f:refusals:x-quote:duplicate", events=(4, 5), gen=3)
         cfg = evolve.load_config()
         routes = evolve.finding_routes(self.entries(), evolve.read_findings(cfg), cfg)
         self.assertEqual(sorted(r["to"] for r in routes), ["issue", "mind"])
@@ -254,9 +254,9 @@ class Routed(EvolveCase):
 class Families(unittest.TestCase):
     def test_a_refusal_family_is_its_hand_and_rule(self):
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate", "verb": "upvote_moltbook"}),
-                         "refusals:moltbook:duplicate")
+                         "refusals:x:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate",
-                                                 "playbook": "moltbook-curate"}), "refusals:moltbook:duplicate")
+                                                 "playbook": "x-quote"}), "refusals:x:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "refusals", "rule": "duplicate"}), "refusals:*:duplicate")
         self.assertEqual(evolve_route.family_of({"kind": "act_failed", "playbook": "self-improve"}),
                          "act_failed:self-improve")

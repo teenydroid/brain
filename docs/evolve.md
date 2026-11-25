@@ -1230,11 +1230,11 @@ have shown anything. A growth finding is offered, and a growth candidate
 opened, only when the days before it hold enough of the posts or replies its
 `reach` check is a share of to see the smallest effect worth having. That
 effect is fixed: the wanted share doubles, or the unwanted one halves,
-whichever is smaller (a fall's wanted share is the rest; a share of none is
-read as one item's). The number is not picked: `need` is the fewest items a
+whichever is smaller, and never by less than ten points (a fall's wanted
+share is the rest). The number is not picked: `need` is the fewest items a
 side for which the scorer's own test (Fisher's exact, at `EVOLVE_OUTCOME_P`)
 says `worked` with 80% probability (`detects`, exact, binomial before and
-after). At 0.1, 5% to 10% needs 283 a side, 13% to 26% needs 94, 18% to 36%
+after). At 0.1, 0% to 10% needs 54 a side, 5% to 15% needs 95, 13% to 26% needs 96, 18% to 36%
 needs 64, 33% to 67% needs 25. It is a floor: replies in one conversation are
 not independent.
 
@@ -1254,13 +1254,14 @@ On the box on 2026-11-25:
 |---|---|---|---|
 | replies in others' threads, answered | 20 of 153 in 7 days | 96 | runs, 7 days |
 | replies under its own posts, answered | 25 of 81 in 14 days | 64 | runs, 14 days |
-| all posts, drew a new account (`reach_drew`) | 11 of 36 in 14 days, 1 of 20 in 7 | 283 | waits |
-| `peer-quote` posts, drew a new account | 0 of 4 in 14 days | 40 | waits |
+| all posts, drew a new account (`reach_drew`) | 11 of 36 in 14 days, 1 of 20 in 7 | 95 | waits |
+| `peer-quote` posts, drew a new account | 0 of 4 in 14 days | 54 | waits |
 
 So reply ideas run as experiments and post ideas wait: at the post cap (3 a
-day, about 20 a week with quotes) no post format reaches 283 in a horizon
-anyone would wait for. Raising `EVOLVE_OUTCOME_LAST_DAYS` lengthens both the
-finding window and the longest growth horizon.
+day, about 20 a week) 95 is five weeks of every post, and no one format
+reaches its own. Raising `EVOLVE_OUTCOME_LAST_DAYS` (to 18 or so) would let
+the all-posts stream run; it also lengthens every finding's window and last
+scoring.
 
 **Routed to code** (since 2026-11-22, `bin/lib/evolve_route.py`). 18 of the
 19 pull requests that audit counted were 1 to 5 line prompt rules, and

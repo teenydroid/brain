@@ -278,10 +278,11 @@ class GrowthNeedsAThickStream(Box):
         self.assertLess(er.detects(n - 5, q, to, 0.1), er.POWER)
         # A wider share is easier, a rarer one harder; a fall is the rise of the rest.
         self.assertLess(er.need(50, 150, "rise", 0.1), n)
-        self.assertGreater(er.need(1, 20, "rise", 0.1), 200)
+        self.assertEqual(er.effect(1, 20, "rise"), (0.05, 0.05 + er.MIN_LIFT))  # never less than ten points
+        self.assertGreater(er.need(1, 20, "rise", 0.1), 60)
         self.assertEqual(er.need(15, 20, "fall", 0.1), er.need(5, 20, "rise", 0.1))
         self.assertIsNone(er.need(20, 20, "rise", 0.1))  # nothing left to move
-        self.assertGreater(er.need(0, 20, "rise", 0.1), 200)  # none yet: read as one
+        self.assertGreater(er.need(0, 20, "rise", 0.1), 20)
 
     def test_a_thin_baseline_waits_with_the_number_needed_and_takes_no_slot(self):
         self.replies(20, 2)
@@ -311,10 +312,10 @@ class GrowthNeedsAThickStream(Box):
         self.assertEqual((f.power["powered"], f.power["days"]), (True, 14))
 
     def test_an_older_busier_week_does_not_make_a_quiet_one_thick(self):
-        self.replies(60, 40, since=T0 - 14 * DAY, until=T0 - 7 * DAY)  # 67%: alone, needs under 100
-        self.replies(60, 3)  # and 5% now: needs more than 200
+        self.replies(25, 18, since=T0 - 14 * DAY, until=T0 - 7 * DAY)
+        self.replies(20, 1)
         f = self.finding()
-        self.assertLess(er.need(43, 120, "rise", 0.1), 120)
+        self.assertLess(er.need(19, 45, "rise", 0.1), 45)  # alone, the two weeks look thick
         self.assertFalse(f.power["powered"], f.power)
 
     def test_a_growth_candidate_is_not_opened_on_a_better_eval_alone(self):

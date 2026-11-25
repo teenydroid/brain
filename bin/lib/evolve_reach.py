@@ -317,6 +317,8 @@ def verdict(direction: str, before: tuple[int, int], after: tuple[int, int], min
 
 #: The chance the test must have of seeing the effect when it is there.
 POWER = 0.8
+#: The smallest rise worth seeing in a share, however rare it is.
+MIN_LIFT = 0.1
 #: Past this many items a side the number is not computed further: "more than".
 MAX_NEED = 400
 
@@ -324,12 +326,13 @@ MAX_NEED = 400
 def effect(hits: int, of: int, direction: str) -> tuple[float, float] | None:
     """(now, after): the smallest effect a reach check must be able to see,
     as the share that is wanted (a fall's is the rest). It doubles, or the
-    unwanted share halves, whichever is smaller. A share of none is read as
-    one item's; a share of all, or no items, has nothing to move (None)."""
+    unwanted share halves, whichever is smaller, and never less than MIN_LIFT
+    (2 in a hundred doubled is still nobody). A share of all, or no items,
+    has nothing to move (None)."""
     if of <= 0:
         return None
-    q = max(hits if direction == "rise" else of - hits, 1) / of
-    return None if q >= 1 else (q, min(2 * q, (1 + q) / 2))
+    q = (hits if direction == "rise" else of - hits) / of
+    return None if q >= 1 else (q, min(1.0, max(min(2 * q, (1 + q) / 2), q + MIN_LIFT)))
 
 
 def _pmf(n: int, q: float) -> list[float]:
