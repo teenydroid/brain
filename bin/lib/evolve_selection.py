@@ -241,13 +241,21 @@ def power(check: Any, before: int | None, days: int, needed: int, cuts: Iterable
             "why": f"{eo.describe(check)} counted {before} event(s) in the last {days} day(s), at least {needed}"}
 
 
-def unproven(ev: Mapping[str, Any] | None, check_power: Any) -> str | None:
+def unproven(ev: Mapping[str, Any] | None, check_power: Any, *, growth: bool = False,
+             check: Mapping[str, Any] | None = None) -> str | None:
     """Why a candidate that passed its eval may not be published, or None:
-    better than main, or its check powered."""
+    better than main, or its check powered; for a GROWTH one, only a reach
+    CHECK whose baseline holds the items it takes (evolve_reach.power)."""
     ev = ev or {}
-    if ev.get("verdict") == "pass" and ev.get("signal") == BETTER:
-        return None
-    if isinstance(check_power, Mapping) and check_power.get("powered"):
+    powered = isinstance(check_power, Mapping) and bool(check_power.get("powered"))
+    if growth:
+        # A draft judged better is no reach: only its own thick stream is.
+        if powered and "items" in check_power and (check or {}).get("kind") == "reach":
+            return None
+        return f"{UNPROVEN}: a growth change is opened on X reach alone: " + (
+            "its check is not a reach check with a baseline of items on record" if powered
+            else str((check_power or {}).get("why") or "it has no reach check on record"))
+    if powered or (ev.get("verdict") == "pass" and ev.get("signal") == BETTER):
         return None
     measured = ("no eval task reaches this change" if ev.get("verdict") == "unmeasurable"
                 else f"the eval found {ev.get('signal') or 'no detectable difference'} against main")

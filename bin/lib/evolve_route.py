@@ -1,4 +1,4 @@
-"""Findings that prompt rules keep failing to fix leave the text proposer
+"""Findings that are code's to fix leave the text proposer
 (docs/evolve.md, "1b. Findings", "Routed to code").
 
 On 2026-11-22, 18 of the 19 evolve pull requests were 1 to 5 line prompt
@@ -9,7 +9,10 @@ duplicate upvote is a hand's answer to a call the playbook should not make,
 or should treat as done: code, which the proposer cannot write (it changes
 text under brain/ only).
 
-A finding is **routed** when its family has had EVOLVE_ROUTE_AFTER (K)
+A finding is **routed** on first sight when the ledgers say no playbook's
+words are behind it (`Finding.cause`, evolve_findings: a refusal of a beat's
+action, or runs that all failed at an input script). Any other is when its
+family has had EVOLVE_ROUTE_AFTER (K)
 prompt-level candidates and they did not help: its number has not fallen
 under where it stood at the latest of them on its own id, or every one of
 them that merged scored no-effect, no-data or hurt. Its family:
@@ -35,6 +38,12 @@ the mind's inbox, as it does a memory want; `want_id`). When any is, Teeny
 cannot ship it either, so it becomes one public GitHub issue (`file_issue`),
 labelled for contributors, filed once per family (state/evolve/routed.jsonl).
 Until 2026-11-24 the first kind went to the builder, retired that day.
+
+Moltbook's code is left alone (the operator, 2026-11-25): a finding that is
+the moltbook hand's refusal, or that would go to code and is a moltbook
+playbook's, is IGNORED (`ignored`): never proposed on, routed or filed. It is
+told by the hand the check's family or the playbook's own `output` names,
+never by the word in a text.
 
 Only counts, Teeny's own candidate titles and the hands' own words (already
 scrubbed by evolve_findings) reach a brief or an issue; never a stranger's
@@ -74,6 +83,16 @@ WANT_PREFIX = "w:f:"
 BRIEF_CHARS = 2000
 MAX_TRIED = 5
 _HAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+#: Moltbook's code: the hand, its package, their tests, the box's tool.
+MOLTBOOK = "moltbook"
+MOLTBOOK_CODE = ("hands/moltbook", "hands/lib/teeny_hands/moltbook", "hands/tests/moltbook",
+                 "hands/tests/test_moltbook", "bin/moltbook-")
+#: Where a finding about it stands (`bin/evolve status`).
+IGNORED = "ignored: moltbook code"
+
+
+def is_moltbook_code(path: str) -> bool:
+    return path.startswith(MOLTBOOK_CODE)
 
 
 def _hand_of(check: Mapping[str, Any]) -> str:
@@ -130,6 +149,8 @@ def decide(entries: Mapping[str, Json], item: Any, after: int, spans: Iterable[i
     if after <= 0 or getattr(item, "kind", None) not in ROUTABLE or evolve_findings.is_growth(item):
         return None
     tried = attempts(entries, item)
+    if getattr(item, "cause", None):
+        return {"family": family_of(item.check), "tried": len(tried), "why": item.cause}
     if len(tried) < after:
         return None
     levels = [e["learning"]["events"] for e in tried
@@ -150,23 +171,30 @@ def decide(entries: Mapping[str, Json], item: Any, after: int, spans: Iterable[i
 # --- what a fix would touch -----------------------------------------------------------------------------
 
 
+def _head(tree: Path, book: str) -> Json:
+    try:
+        text = (tree / "brain" / "playbooks" / f"{book}.md").read_text(encoding="utf-8")
+        return tomllib.loads(text.split("+++", 2)[1]) if text.startswith("+++") else {}
+    except (OSError, ValueError, IndexError):
+        return {}
+
+
+def _output_hand(head: Mapping[str, Any]) -> str:
+    output = head.get("output")
+    return output.split()[0].split(":", 1)[1] if isinstance(output, str) and output.startswith("hand:") else ""
+
+
 def _called_hands(tree: Path, book: str) -> list[str]:
     """The hands a playbook's front matter calls (inputs `run = "hands/<h>
     ..."`, output `hand:<h> ...`)."""
-    try:
-        text = (tree / "brain" / "playbooks" / f"{book}.md").read_text(encoding="utf-8")
-        head = tomllib.loads(text.split("+++", 2)[1]) if text.startswith("+++") else {}
-    except (OSError, ValueError, IndexError):
-        return []
+    head = _head(tree, book)
     names = []
     for i in head.get("inputs") or []:
         run = i.get("run") if isinstance(i, Mapping) else None
         first = run.split()[0] if isinstance(run, str) and run.split() else ""
         if first.startswith("hands/"):
             names.append(first.split("/", 1)[1])
-    output = head.get("output")
-    if isinstance(output, str) and output.startswith("hand:"):
-        names.append(output.split()[0].split(":", 1)[1])
+    names.append(_output_hand(head))
     return [n for n in dict.fromkeys(names) if _HAND.match(n)]
 
 
@@ -174,15 +202,30 @@ def _hand_paths(tree: Path, name: str) -> list[str]:
     return [p for p in (f"hands/{name}", f"hands/lib/teeny_hands/{name}") if (tree / p).exists()]
 
 
+def ignored(item: Any, tree: Path, routed: bool) -> bool:
+    """Whether ITEM is Moltbook's code to fix, which is left alone: a refusal
+    by the moltbook hand, whoever asked (its words could only write around
+    the refusal), or a failing playbook of that hand's once it is ROUTED
+    (until then its failures are its words' to fix)."""
+    book = str(item.check.get("playbook") or "")
+    if book:
+        mine = _output_hand(_head(tree, book)) == MOLTBOOK
+    else:
+        mine = _hand_of(item.check) == MOLTBOOK
+    return mine and (item.kind == "refusals" or (item.kind == "act_failed" and routed))
+
+
 def code_paths(item: Any, tree: Path) -> list[str]:
-    """The code a fix to ITEM would touch, besides the words it points at."""
+    """The code a fix to ITEM would touch, besides the words it points at;
+    never Moltbook's."""
     check = item.check
     if item.kind == "refusals":
         hand = _hand_of(check)
         paths = _hand_paths(tree, hand) if _HAND.match(hand) else []
         return paths or ["bin/act" if check.get("playbook") else "bin/lib/tick.py"]
     if item.kind == "act_failed":
-        paths = [p for h in _called_hands(tree, check["playbook"]) for p in _hand_paths(tree, h)]
+        paths = [p for h in _called_hands(tree, check["playbook"]) for p in _hand_paths(tree, h)
+                 if not is_moltbook_code(p)]
         return paths or ["bin/act"]
     return ["hands/guard", "hands/lib/teeny_hands/guard"]
 
@@ -232,17 +275,18 @@ def brief(family: str, items: list[Any], tried: list[Json], paths: list[str], st
     lead = items[0]
     total = sum(f.events for f in items)
     files = sorted({p for f in items for p in f.files})
-    title = (f"Teeny keeps hitting `{family}`: {total} events in {lead.days} days after {len(tried)} prompt fixes"
-             )[:120]
+    title = (f"Teeny keeps hitting `{family}`: {total} events in {lead.days} days"
+             + (f" after {len(tried)} prompt fixes" if tried else ""))[:120]
+    cause = str(getattr(lead, "cause", None) or "")
     lines = ([] if issue else [f"want: {want_id(family)}", ""]) + [
-        f"bin/evolve counts `{family}` in Teeny's own ledgers (no model read them), and prompt rules have not "
-        f"fixed it, so this is a code change{' Teeny cannot make itself' if issue else ''}.",
+        f"bin/evolve counts `{family}` in Teeny's own ledgers (no model read them), and "
+        f"{cause or 'prompt rules have not fixed it'}, so this is a code change{' Teeny cannot make itself' if issue else ''}.",
         "",
         "## the findings",
         *[f"- [{f.id}] {f.events} over {f.days} days: {evolve_findings.scrub(f.text, 420)}" for f in items],
         "",
         "## prompt-level fixes already tried",
-        *_tried_lines(tried, spans),
+        *(_tried_lines(tried, spans) or [f"- none: {cause}"]),
         "",
         "## where",
         f"- the words: {', '.join(files) or 'none'}",

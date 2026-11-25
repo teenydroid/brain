@@ -132,6 +132,15 @@ Json = dict[str, Any]
 #: EVOLVE_MAX_CHANGE_PCT, HARD_CHECKS).
 MAX_SOUL_CONTEXT_LINES = 60
 SOUL_CONTEXT = ("brain/SOUL.md", "brain/CONTEXT.md")
+#: How many characters (a run of whitespace as one) a change may leave SOUL.md
+#: or CONTEXT.md longer by: a word or two to make a rewording clear. The
+#: shortest rule any candidate wrote into them added 196 (g16c2).
+PROMPT_PAGE_SLACK = 40
+PAGES_NOTE = (f"A change may not add to brain/SOUL.md or brain/CONTEXT.md: rewording, trimming or moving what is "
+              "there is fine, and a line added must replace one, but neither page may end with more lines or over "
+              f"{PROMPT_PAGE_SLACK} characters more than it had. A new rule goes in a playbook or skill, or is not made.")
+MOLTBOOK_NOTE = ("Moltbook's code (hands/moltbook, hands/lib/teeny_hands/moltbook, their tests, bin/moltbook-prune) "
+                 "is left as it is, by the operator's word: propose nothing in it, and skip what only it could fix.")
 #: Written beside the candidate's edits, never committed with them.
 HYPOTHESIS = "HYPOTHESIS.md"
 #: A candidate's branch is teeny/gen-<n>-c<i>.
@@ -971,6 +980,10 @@ def _level(entry: Mapping[str, Any]) -> int:
     return value if isinstance(value, int) else 0
 
 
+#: A growth finding that waits for a thicker stream.
+THIN = "thin"
+
+
 def _finding_held(entry: Mapping[str, Any], past: list[Json], item: Any, days: int) -> tuple[bool, float | None]:
     """Whether the settling ENTRY still holds a finding, and until when.
     A change that merged holds it until its check is scored (each
@@ -988,7 +1001,7 @@ def _finding_held(entry: Mapping[str, Any], past: list[Json], item: Any, days: i
         if got in ("no-effect", "hurt"):
             return False, None
         if got == "no-data":
-            return evolve_outcomes.key(max(spans)) not in entry, None
+            return evolve_outcomes.key(max(evolve_outcomes.spans_of(entry, spans))) not in entry, None
         return got == evolve_outcomes.PENDING or not recurs, None
     if entry.get("verdict") == "opened" and not entry.get("closed"):
         return True, None
@@ -1007,6 +1020,10 @@ def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) 
     the highest it stood at in them."""
     past = history(entries, item.id)
     infra = sum(1 for e in past if e.get("deferred_for") in BOX_DEFERRALS or e.get("verdict") == CRASHED)
+    to_code = evolve_route.decide(entries, item, _route_after(), _configured_horizons()) is not None
+    if evolve_route.ignored(item, CODE, to_code):
+        # Moltbook's code is left alone: never proposed on, routed or filed.
+        return Standing(evolve_route.IGNORED, 0, infra)
     settling = [e for e in past if _settles(e)]
     tries = past
     if settling:
@@ -1021,10 +1038,15 @@ def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) 
     if held:
         return Standing("screened", 0, infra, *held)
     failed = [e for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED)]
-    if evolve_route.decide(entries, item, _route_after(), _configured_horizons()) is not None:
-        # Prompt rules kept failing to fix it: code's, not the proposer's
-        # (bin/lib/evolve_route.py). Not offered again while that holds.
+    if to_code:
+        # No words are behind it, or prompt rules kept failing to fix it:
+        # code's, not the proposer's (bin/lib/evolve_route.py). Not offered
+        # again while that holds.
         return Standing("routed", len(failed), infra)
+    if item.power is not None and not item.power["powered"]:
+        # A growth finding whose stream is too thin to see an effect in
+        # (evolve_reach.power): it waits for more items, and takes no slot.
+        return Standing(THIN, len(failed), infra)
     if len(failed) >= MAX_ATTEMPTS and item.events <= max(_level(e) for e in failed):
         return Standing("gave-up", len(failed), infra)
     return Standing("open", len(failed), infra)
@@ -1991,7 +2013,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "day(s), so its verdict can come out worked or not instead of no-data. A `judged` check never powers a "
         "change, and neither does a falling count on a change that also runs anything less. Without either it is "
         "`unproven` and comes back to you while rounds remain. A kind of change the lessons above call exhausted "
-        "is sent back too.",
+        "is sent back too. " + PAGES_NOTE + " " + MOLTBOOK_NOTE,
         "## or skip it\n\n"
         "Skip when no change is worth making, and say which:\n"
         "- `already`: something you run already carries it out; `where` names the file.\n"
@@ -2776,7 +2798,8 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         + wants_rules.REFUSED_SKIP_NOTE + "\n"
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
-        "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
+        "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ". "
+        + PAGES_NOTE + " " + MOLTBOOK_NOTE,
         INERT_NOTE.removeprefix("- "),
         "Your `why` and `plan` go into the pull request's body. " + PR_TEXT_NOTE,
     ]
@@ -3703,12 +3726,24 @@ def power_need(cfg: Config) -> int:
                                  cfg["EVOLVE_OUTCOME_P"])
 
 
+def reach_power(cfg: Config, check: Mapping[str, Any]) -> Json:
+    """evolve_reach.power of a reach CHECK now: at the outcome horizons, or
+    over twice the last one when neither holds enough items."""
+    spans = outcome_horizons(cfg)
+    return evolve_reach.power(check, outcome_sources(cfg), now(), (*spans, 2 * max(spans)), cfg["EVOLVE_OUTCOME_P"])
+
+
 def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:
     """Whether CHECK, on the change in TREE, can prove it: its count over
     the first outcome horizon before now, from the box's own ledgers
     (outcome_sources, with TREE's playbooks for a hand's callers)."""
     days = min(outcome_horizons(cfg))
     before = None
+    if isinstance(check, Mapping) and check.get("kind") == "reach":
+        got = reach_power(cfg, check)
+        cuts = source_cuts(tree, base) if check.get("direction") in ("fall", "zero") else []
+        return {**got, "powered": False, "cuts": cuts,
+                "why": f"the change also runs less ({'; '.join(cuts)})"} if cuts else got
     if isinstance(check, Mapping) and check.get("kind") in evolve_outcomes.KINDS and check["kind"] != "judged":
         src = dataclasses.replace(outcome_sources(cfg), tree=tree)
         try:
@@ -3723,7 +3758,8 @@ def unproven(cfg: Config, cand: Mapping[str, Any]) -> str | None:
     publish rule), or None."""
     if not cfg["EVOLVE_PUBLISH_PROOF"]:
         return None
-    return evolve_selection.unproven(cand.get("eval"), cand.get("check_power"))
+    return evolve_selection.unproven(cand.get("eval"), cand.get("check_power"), check=cand.get("check"),
+                                     growth=evolve_findings.is_growth(cand.get("learning") or {}))
 
 
 def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
@@ -4128,6 +4164,24 @@ def hard_gate(tree: Path, base: str, max_pct: float = DEFAULT_MAX_CHANGE_PCT) ->
     return checks
 
 
+def prompt_page_growth(tree: Path, base: str) -> list[str]:
+    """How the change in TREE leaves SOUL.md or CONTEXT.md longer than BASE:
+    in lines with words on them, or past PROMPT_PAGE_SLACK characters, so
+    neither a blank line nor a longer one pays for a rule."""
+    out = []
+    for rel in SOUL_CONTEXT:
+        before = git(in_tree(tree), "show", f"{base}:{rel}") if exists_at(tree, base, rel) else ""
+        after = (tree / rel).read_text(encoding="utf-8", errors="replace") if (tree / rel).is_file() else ""
+        lines = [sum(1 for x in t.splitlines() if x.strip()) for t in (before, after)]
+        chars = [len(" ".join(t.split())) for t in (before, after)]
+        if lines[1] > lines[0]:
+            n = lines[1] - lines[0]
+            out.append(f"{rel} ends {n} line{'s' if n > 1 else ''} longer")
+        elif chars[1] - chars[0] > PROMPT_PAGE_SLACK:
+            out.append(f"{rel} ends {chars[1] - chars[0]} characters longer (at most {PROMPT_PAGE_SLACK})")
+    return out
+
+
 def checks(tree: Path, base: str, component: str | None = None, evidence: Mapping[str, Any] | None = None,
            frozen_ok: bool = True) -> list[Json]:
     """Every check that is not final, each {check, ok, detail}: a failure is
@@ -4140,6 +4194,12 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
         out.append({"check": name, "ok": ok, "detail": detail})
 
     changes = name_status(tree, base)
+    longer = prompt_page_growth(tree, base)
+    note("SOUL and CONTEXT do not grow", not longer, "; ".join(longer) + ". " + PAGES_NOTE if longer
+         else "neither page ends longer")
+    code = sorted({p for _, p in changes if evolve_route.is_moltbook_code(p)})
+    note("Moltbook's code is left alone", not code, f"touches {', '.join(code)}. {MOLTBOOK_NOTE}" if code
+         else "none touched")
     binary = [p for a, r, p in numstat(tree, base) if a is None or r is None]
     note("no binary files", not binary, f"binary: {', '.join(binary)}" if binary else "none")
     new_hands = sorted({n for s, p in changes if s == "A" and (n := _hand_name(p))
@@ -5785,6 +5845,11 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         # Whether the check can prove the change once merged (the publish
         # rule, evolve_selection.power): counted now, on the box's history.
         entry["check_power"] = check_power(cfg, check, tree, base)
+        if evolve_findings.is_growth(learning) and (why := unproven(cfg, entry)):
+            # Its check is set and its stream too thin: no round of words
+            # mends that, so nothing is reviewed or measured.
+            entry.update(verdict=UNPROVEN, reason=why, gate={"ok": False, "checks": []})
+            return entry
         (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
         full = staged_patch(tree, base)
         stats = numstat(tree, base)
@@ -6993,7 +7058,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
                 and e["learning"].get("id") == learning.get("id")}
         cand = propose_one(cfg, proposer, src, base, gen, i, withhold(learning, markers), parent, evidence,
                            siblings, mutations, tried, budget, reviewer=reviewer, same_learning=same)
-        if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
+        if (cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen"
+                and not evolve_route.is_moltbook_code(str(cand["skip"]["where"]))):
             cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
         record(cand)
         if cand.get("deferred_for") == "screen":
@@ -7667,6 +7733,7 @@ def status() -> Json:
                      "growth_slots": cfg["EVOLVE_GROWTH_SLOTS"] if cfg is not None else None,
                      "current": [{**standing_brief(f, got), "kind": f.kind, "lane": f.lane, "events": f.events,
                                   "days": f.days, "check": evolve_outcomes.describe(f.check), "text": f.text[:300],
+                                  **({"power": f.power} if f.power is not None else {}),
                                   **({"routed": where[f.id]} if f.id in where and got.state == "routed" else {})}
                                  for where in [route_status(entries, findings, cfg)]
                                  for f in findings for got in [standing(entries, f, cooloff)]]},
@@ -7684,7 +7751,8 @@ def status() -> Json:
                     "check": evolve_outcomes.describe(e.get("check")),
                     "outcome": evolve_outcomes.outcome_of(e, spans),
                     **{evolve_outcomes.key(d).removeprefix("outcome_"): e[evolve_outcomes.key(d)]
-                       for d in spans if isinstance(e.get(evolve_outcomes.key(d)), Mapping)}}
+                       for d in evolve_outcomes.spans_of(e, spans)
+                       if isinstance(e.get(evolve_outcomes.key(d)), Mapping)}}
                    for e in merged_entries(entries)],
         "outcomes": evolve_outcomes.tally(merged_entries(entries), spans),
         "summary": summary(entries),

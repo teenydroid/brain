@@ -57,6 +57,7 @@ check is scored.
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import sqlite3
@@ -306,18 +307,120 @@ def verdict(direction: str, before: tuple[int, int], after: tuple[int, int], min
     return ("worked", above) if above < p else ("hurt", below) if below < p else ("no-effect", min(below, above))
 
 
-def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min_events: int, p: float) -> Json | None:
+# --- how thick a stream has to be ---------------------------------------------------------------------
+#
+# A share of few items cannot be told from chance, whatever was done to it
+# (g25c3, 2026-11-22: opened on "5 events in 2 days", scored no-effect). So a
+# growth change is opened only when the window before it holds enough items
+# for `verdict` itself to see `effect` with probability POWER; the number is
+# computed from that test, never picked.
+
+#: The chance the test must have of seeing the effect when it is there.
+POWER = 0.8
+#: Past this many items a side the number is not computed further: "more than".
+MAX_NEED = 400
+
+
+def effect(hits: int, of: int, direction: str) -> tuple[float, float] | None:
+    """(now, after): the smallest effect a reach check must be able to see,
+    as the share that is wanted (a fall's is the rest). It doubles, or the
+    unwanted share halves, whichever is smaller. A share of none is read as
+    one item's; a share of all, or no items, has nothing to move (None)."""
+    if of <= 0:
+        return None
+    q = max(hits if direction == "rise" else of - hits, 1) / of
+    return None if q >= 1 else (q, min(2 * q, (1 + q) / 2))
+
+
+def _pmf(n: int, q: float) -> list[float]:
+    return [math.comb(n, k) * q ** k * (1 - q) ** (n - k) for k in range(n + 1)]
+
+
+def detects(n: int, q: float, to: float, p: float) -> float:
+    """The chance `verdict` says worked at P when N items before are hits at
+    share Q and N after at share TO."""
+    before, after = _pmf(n, q), _pmf(n, to)
+    tail = [0.0] * (n + 2)
+    for k in range(n, -1, -1):
+        tail[k] = tail[k + 1] + after[k]
+    out, least = 0.0, 0
+    for k, weight in enumerate(before):
+        if weight < 1e-9:
+            continue
+        while least <= n and verdict("rise", (k, n), (least, n), 1, p)[0] != "worked":
+            least += 1
+        out += weight * tail[least]
+    return out
+
+
+@functools.lru_cache(maxsize=256)
+def _least(q: float, to: float, p: float) -> int:
+    low, high = 1, 8
+    while detects(high, q, to, p) < POWER:
+        if high >= MAX_NEED:
+            return MAX_NEED + 1
+        low, high = high, min(high * 2, MAX_NEED)
+    while high - low > 1:
+        mid = (low + high) // 2
+        low, high = (low, mid) if detects(mid, q, to, p) >= POWER else (mid, high)
+    return high
+
+
+def need(hits: int, of: int, direction: str, p: float) -> int | None:
+    """The fewest items a side whose verdict can see `effect` (MAX_NEED + 1:
+    more than MAX_NEED); None when there is nothing to move."""
+    got = effect(hits, of, direction)
+    return None if got is None else _least(*got, p)
+
+
+def _said(hits: int, of: int, direction: str, needed: int | None) -> str:
+    got = effect(hits, of, direction)
+    if got is None or needed is None:
+        return f"{hits} of {of} item(s) leave no effect to see"
+    many = f"more than {MAX_NEED}" if needed > MAX_NEED else str(needed)
+    return (f"{of} item(s); seeing the wanted share go from {got[0]:.0%} to {got[1]:.0%} ({POWER:.0%} power, by the "
+            f"outcome's own test) needs {many} a side")
+
+
+def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable[int], p: float) -> Json:
+    """Whether a reach CHECK can see `effect`, at the shortest of SPANS whose
+    baseline (that many days before NOW) holds the items it takes: `days` is
+    then the one horizon the change is scored at. Else why not, at the
+    longest."""
+    out: Json = {"powered": False, "why": "no horizon to count over"}
+    for days in sorted(spans):
+        got = share(check, src, now - days * 86400, now)
+        if got is None:
+            return {"days": days, "powered": False, "why": "the ledger it counts cannot be read now"}
+        needed = need(*got, check["direction"], p)
+        enough = needed is not None and needed <= got[1]
+        out = {"days": days, "hits": got[0], "items": got[1], "need": needed, "powered": enough,
+               "why": ("" if enough else "the baseline is too thin: ") + f"over the last {days} days "
+               + _said(*got, check["direction"], needed)}
+        if enough:
+            break
+    return out
+
+
+def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min_events: int, p: float,
+          needed: int | None = None) -> Json | None:
     """The verdict fields of a `reach` check scored over the SPAN before and
-    after T0, or None when the ledger cannot be read."""
+    after T0, or None when the ledger cannot be read. A baseline under NEEDED
+    items (as it was opened on; computed now, when that is not on record) is
+    no-data, and says so."""
     before, after = share(check, src, t0 - span, t0), share(check, src, t0, t0 + span)
     if before is None or after is None:
         return None
-    got, tail = verdict(check["direction"], before, after, min_events, p)
+    wanted = need(*before, check["direction"], p) if needed is None else needed
+    thin = before[1] > 0 and (wanted is None or before[1] < wanted)
+    got, tail = ("no-data", None) if thin else verdict(check["direction"], before, after, min_events, p)
     out: Json = {"verdict": got, "before": before[0], "after": after[0], "seen": before[0] + after[0],
                  "of": {"before": before[1], "after": after[1]}}
     if tail is not None:
         out["p"] = round(tail, 6)
-    if got == "no-data":
+    if thin:
+        out["why"] = "the baseline is too thin: " + _said(*before, check["direction"], wanted)
+    elif got == "no-data":
         out["why"] = (f"{before[1]} item(s) before and {after[1]} after, fewer than {min_events} in all or none on "
                       "one side")
     return out
