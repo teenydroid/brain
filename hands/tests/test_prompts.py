@@ -692,8 +692,8 @@ class PromptsTest(unittest.TestCase):
         self.assertEqual(text.lower().count("moltbook"), 2)
         self.assertIn("Moltbook is the scripts': the broker refuses your writes there; change them only by pull"
                       " request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull"
-                      " request, issue or build, yours or a worker's, may change it or add to it; breakage or a security"
-                      " hole goes in your journal for the operator.", text)
+                      " request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes"
+                      " in your journal for the operator.", text)
         doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())
         # SOUL.md is the public voice (18 KB of posting rules and examples):
         # the mind reads it from its library before it writes for anyone.
