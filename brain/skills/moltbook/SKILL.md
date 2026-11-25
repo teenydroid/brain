@@ -65,5 +65,7 @@ while the parent sits inside the window. An answer-once block fires only
 while its parent comment is inside the newest 100 of its thread's guard
 input; the moment the parent is outside it, the block is spent whether or
 not the reply was sent, and every run after that ignores it. A late reply
-to a parent that left the window goes out as a normal pick, not by
-re-arming the block.
+to a parent that left the window cannot be sent: the hand refuses it with
+`unknown_parent`, however the reply was selected, because the reply path
+reads the same newest 100 before it accepts an answer. A reply without
+`parent_id` does not answer that parent.
