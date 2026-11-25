@@ -1129,8 +1129,15 @@ def read_findings(cfg: "Config | None" = None) -> list[Any]:
     if cfg["EVOLVE_FINDING_SLOTS"] <= 0:
         return []
     try:
-        return evolve_findings.draw(outcome_sources(cfg), CODE, now(), cfg["EVOLVE_OUTCOME_LAST_DAYS"],
+        found = evolve_findings.draw(outcome_sources(cfg), CODE, now(), cfg["EVOLVE_OUTCOME_LAST_DAYS"],
                                     cfg["EVOLVE_OUTCOME_MIN_EVENTS"])
+        if cfg["EVOLVE_PUBLISH_PROOF"]:
+            # Whether each growth finding's stream can show an effect at all,
+            # asked before a proposer is spent on it.
+            for f in found:
+                if evolve_findings.is_growth(f):
+                    f.power = reach_power(cfg, f.check)
+        return found
     except Exception as exc:  # noqa: BLE001 - the learnings go ahead without findings
         say(f"findings: none drawn ({type(exc).__name__}: {str(exc)[:200]})")
         return []

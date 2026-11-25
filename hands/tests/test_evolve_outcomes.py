@@ -69,10 +69,10 @@ class Ledger:
         with sqlite3.connect(self.db) as conn:
             conn.execute(query, params)
 
-    def act(self, book, at, ok=True, actions=(), error=None):
+    def act(self, book, at, ok=True, actions=(), error=None, **more):
         path = self.state / "act" / book / "runs.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        run = {"at": iso(at), "ok": ok, "playbook": book, "actions": list(actions)}
+        run = {"at": iso(at), "ok": ok, "playbook": book, "actions": list(actions), **more}
         if error:
             run["error"] = error
         with open(path, "a") as fh:

@@ -8,7 +8,6 @@ one-line rule to a prompt page, two-day verdicts of 13 were 2 worked and 6
 no-data, and the one growth change (g25c3) came out no-effect on a window that
 held 5 answered replies."""
 
-import dataclasses
 import json
 import sys
 import unittest
@@ -28,6 +27,7 @@ from test_evolve import T0, EvolveCase, FakePublisher  # noqa: E402
 from test_evolve_growth import XLedger  # noqa: E402
 from test_evolve_outcomes import Ledger  # noqa: E402
 from test_evolve_route import LabelPublisher  # noqa: E402
+from test_evolve_selection import Better  # noqa: E402
 
 import evolve  # noqa: E402
 import wants  # noqa: E402
@@ -51,10 +51,10 @@ class Box(EvolveCase):
         self.config(**self.settings)
         self.live()
 
-    def gen(self, edits, evaluator=None):
+    def gen(self, edits, evaluator):
         self.propose(1, edits)
         pub = FakePublisher()
-        self.run_gen(1, publisher=pub, **({"evaluator": evaluator} if evaluator else {}))
+        self.run_gen(1, publisher=pub, evaluator=evaluator)
         return self.entries()["g1c1"], pub
 
     def refused(self, edits):
@@ -94,22 +94,23 @@ class PromptPagesDoNotGrow(Box):
 
     def test_rewording_or_trimming_a_line_passes(self):
         last = self.last()
-        entry, pub = self.gen([{"path": SOUL, "old": last, "new": last[: len(last) // 2].rstrip() + " plainly."}])
+        entry, pub = self.gen([{"path": SOUL, "old": last, "new": last[: len(last) // 2].rstrip() + " plainly."}], Better())
         self.assertEqual(entry["verdict"], "opened", entry.get("findings"))
         self.assertEqual(len(pub.prs), 1)
 
     def test_a_small_clarification_inside_the_allowance_passes(self):
         last = self.last()
-        entry, _ = self.gen([{"path": SOUL, "old": last, "new": last + " today, in full."}])
+        entry, _ = self.gen([{"path": SOUL, "old": last, "new": last + " today, in full."}], Better())
         self.assertLessEqual(len(" today, in full."), evolve.PROMPT_PAGE_SLACK)
         self.assertEqual(entry["verdict"], "opened", entry.get("findings"))
 
     def test_moving_a_line_within_the_page_passes(self):
-        lines = [x for x in self.base_text(SOUL).splitlines() if x.strip() and self.base_text(SOUL).count(x) == 1]
-        a, b = lines[-2], lines[-1]
-        entry, _ = self.gen([{"path": SOUL, "old": b, "new": "\x00"}, {"path": SOUL, "old": a, "new": b},
-                             {"path": SOUL, "old": "\x00", "new": a}])
-        self.assertNotIn("parked", entry["verdict"], entry.get("findings"))
+        text = self.base_text(SOUL)
+        last = text.rstrip().splitlines()[-1]
+        head = next(x for x in text.splitlines() if x.startswith("#") and text.count(x) == 1)
+        entry, _ = self.gen([{"path": SOUL, "old": "\n" + last, "new": ""},
+                             {"path": SOUL, "old": head, "new": f"{head}\n{last}"}], Better())
+        self.assertEqual(entry["verdict"], "opened", entry.get("findings"))
 
 
 class Told(Box):
@@ -230,15 +231,11 @@ class CodeGoesToCode(Box):
 
 class MoltbookCodeDiffs(Box):
     def test_a_diff_touching_moltbooks_code_is_refused_before_any_eval(self):
-        rel = "hands/tests/moltbook/test_tags.py"
-        text = self.base_text(rel)
-        first = text.splitlines()[0]
-        told = self.refused([{"path": rel, "old": first, "new": first + " "}]) if text.count(first) == 1 else \
-            self.refused([{"path": "hands/tests/moltbook/test_new.py", "old": "", "new": "import unittest\n"}])
+        told = self.refused([{"path": "hands/tests/moltbook/test_new.py", "old": "", "new": "import unittest\n"}])
         self.assertIn("Moltbook's code", told)
 
     def test_a_moltbook_playbooks_words_may_still_change(self):
-        entry, pub = self.gen([self.playbook_edit("Check first.")])  # moltbook-follow.md
+        entry, pub = self.gen([self.playbook_edit("Check first.")], Better())  # moltbook-follow.md
         self.assertEqual(entry["verdict"], "opened", entry.get("findings"))
 
     def test_which_paths_are_moltbooks_code(self):
