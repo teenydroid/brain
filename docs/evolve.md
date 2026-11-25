@@ -1203,7 +1203,9 @@ numbers and moves every hour (`finding_standing`; its hash is its id's):
 | merged, `no-data` | settled until the last horizon is scored, then open |
 | `skipped` `already` or `not-worth` | cools off like a learning's (`EVOLVE_SKIP_COOLOFF_DAYS`, doubling) |
 | anything else that settles (a `frozen` or `not-actionable` skip, `rejected`, `duplicate`, `regressed`, `flagged`, a closed pull request, `dry-run`) | settled until the number grows past its level |
-| open or given up, and prompt rules kept failing to fix it (below) | `routed`: never offered to the proposer while that holds |
+| open or given up, and no playbook's words are behind it, or prompt rules kept failing to fix it (below) | `routed`: never offered to the proposer while that holds |
+| open, a growth finding whose stream is too thin to see an effect in (below) | `thin`: waits, takes no slot; `power` says how many items it has and needs |
+| Moltbook's code to fix (below), whatever else | `ignored: moltbook code` |
 
 Failed tries count from the latest settling candidate; `MAX_ATTEMPTS` (3) of
 them give the finding up until the number grows past the highest it stood at
@@ -1221,13 +1223,61 @@ times outranks every post a week holds, and until 2026-11-22 the slots went
 by raw count alone. With two slots, the 116-event refusal and a 6-post growth
 finding: one each.
 
+**A growth finding needs a thick enough stream** (since 2026-11-25,
+`evolve_reach.power`). g25c3, the one growth change that merged, opened on
+"5 events in 2 days" and scored `no-effect`: a window that size could not
+have shown anything. A growth finding is offered, and a growth candidate
+opened, only when the days before it hold enough of the posts or replies its
+`reach` check is a share of to see the smallest effect worth having. That
+effect is fixed: the wanted share doubles, or the unwanted one halves,
+whichever is smaller (a fall's wanted share is the rest; a share of none is
+read as one item's). The number is not picked: `need` is the fewest items a
+side for which the scorer's own test (Fisher's exact, at `EVOLVE_OUTCOME_P`)
+says `worked` with 80% probability (`detects`, exact, binomial before and
+after). At 0.1, 5% to 10% needs 283 a side, 13% to 26% needs 94, 18% to 36%
+needs 64, 33% to 67% needs 25. It is a floor: replies in one conversation are
+not independent.
+
+The horizon is the first of 2, 7 and 14 days (the outcome horizons, and twice
+the last) whose baseline holds that many; the change is scored there and
+nowhere else (`evolve_outcomes.spans_of`), against the number it was opened
+on. A span also needs what the share of its recent half does: on 2026-11-25
+posts drawing a new account were 11 of 36 over 14 days and 1 of 20 over the
+last 7. Too few at all three and the finding is `thin`: it takes no slot, and
+status and the verdict say "the baseline is too thin" with the number needed.
+An eval that prefers the drafts does not open a growth change: a draft judged
+better is not reach.
+
+On the box on 2026-11-25:
+
+| Stream | Baseline | Needs a side | |
+|---|---|---|---|
+| replies in others' threads, answered | 20 of 153 in 7 days | 96 | runs, 7 days |
+| replies under its own posts, answered | 25 of 81 in 14 days | 64 | runs, 14 days |
+| all posts, drew a new account (`reach_drew`) | 11 of 36 in 14 days, 1 of 20 in 7 | 283 | waits |
+| `peer-quote` posts, drew a new account | 0 of 4 in 14 days | 40 | waits |
+
+So reply ideas run as experiments and post ideas wait: at the post cap (3 a
+day, about 20 a week with quotes) no post format reaches 283 in a horizon
+anyone would wait for. Raising `EVOLVE_OUTCOME_LAST_DAYS` lengthens both the
+finding window and the longest growth horizon.
+
 **Routed to code** (since 2026-11-22, `bin/lib/evolve_route.py`). 18 of the
 19 pull requests that audit counted were 1 to 5 line prompt rules, and
 `f:refusals:upvote_moltbook:duplicate` stood at 116 after three candidates
 on its family (g16c3 merged and scored `hurt`, g17c3 parked, g18c3 merged and
 scored `worked` at 45, then grew back). Refusing an upvote already given is
 the hand answering a call the words should not make, or should treat as
-done: code, which the proposer cannot write. A fix finding is **routed**
+done: code, which the proposer cannot write. **Since 2026-11-25 a code problem goes to code on first sight.** A fix finding
+whose `cause` the ledgers already name is routed with no prompt try: a refusal
+of a beat's action (its check has a `verb` and no `playbook`: no playbook's
+words asked for it, the beat's prompt is frozen, and SOUL.md and CONTEXT.md may
+not grow), or an `act_failed` whose every run failed at an input script
+(`input <name> failed`, before the model was asked). A playbook's refusals, a
+failed draft, an action the hand errored on (a 403 and a field the model got
+wrong look alike in the log) and every guard hold (text Teeny's model wrote:
+what code wrote is left out of the count) keep their tries below. Any other
+fix finding is **routed**
 when its family has had `EVOLVE_ROUTE_AFTER` (default 2; 0 turns it off)
 prompt-level candidates that did not help: its number has not fallen under
 where it stood at the latest of them on its own id, or every one that merged
@@ -1241,6 +1291,21 @@ judged (`opened`, `parked`, `rejected`, `regressed`, `pr-error`, ...); a
 skip, a deferral, a crash or one in flight does not. A finding settled by an
 open pull request or a cool-off waits for it. Growth findings are never
 routed.
+
+**Moltbook's code is left alone** (the operator, 2026-11-25). It is
+`hands/moltbook`, `hands/lib/teeny_hands/moltbook/`, their tests and
+`bin/moltbook-*` (`evolve_route.MOLTBOOK_CODE`). A refusal by the moltbook
+hand, a beat's or a playbook's whose `output` is that hand, is
+`ignored: moltbook code`: not proposed on (its words could only write around
+the refusal), not routed, no want, no issue. An `act_failed` of such a
+playbook stays with its words, and is ignored once it would be routed. A
+guard hold on Moltbook is about words, and stays. It is told by the hand the
+check or the playbook declares, never by the word: a finding on a playbook
+that posts to X and reads Moltbook survives, with Moltbook's paths left out
+of its code. A candidate whose diff touches Moltbook's code fails the gate's
+check before any eval, the briefs say so, and a `frozen` skip naming one of
+those paths opens no issue. A learning that rewords a Moltbook playbook or
+skill is as it was, and nothing at run time changes.
 
 Where it goes is the code a fix would touch: the refusing hand
 (`hands/<hand>`, `hands/lib/teeny_hands/<hand>/`), the hands a failing
@@ -1263,7 +1328,7 @@ outcome, the number it stood at, its title and pull request), the files the
 words live in, the code (and which of it is frozen) and the check that says
 it worked (the count falls). `bin/evolve status` shows a routed finding as
 `state: routed` with `routed.said`: whether it was handed to the mind,
-"routed to an issue (#N)", or "not filed yet". On the box on 2026-11-22 one family is routed:
+"routed to an issue (#N)", or "not filed yet". On the box on 2026-11-22 one family was routed (ignored since 2026-11-25):
 `refusals:moltbook:duplicate` (`f:refusals:upvote_moltbook:duplicate`, 116;
 tries g16c3, g17c3, g18c3), to an issue, since
 `hands/lib/teeny_hands/moltbook/` is frozen. `f:refusals:moltbook-curate:
@@ -1762,6 +1827,8 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
 | diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
 | no binary files | the diff adds or changes a binary file |
+| SOUL and CONTEXT do not grow | `brain/SOUL.md` or `brain/CONTEXT.md` ends with more lines (blank ones not counted) or over 40 characters more (`PROMPT_PAGE_SLACK`, a run of whitespace as one) than it had. Rewording, trimming, moving, and replacing a line pass. Since 2026-11-25: a rule on those pages is what most merged changes were, and g16c2 wrote one into an existing line in 196 characters, the shortest |
+| Moltbook's code is left alone | the diff touches a path of `evolve_route.MOLTBOOK_CODE` |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
 | hands/lib holds only teeny_hands | **hard**: the diff adds or changes anything directly under `hands/lib/` that is not under `hands/lib/teeny_hands/` (`hands/lib/argparse.py`, `hands/lib/json/`): every hand and `bin/doctor --root` put `hands/lib` first on the import path, so such a file would run in place of the standard library under frozen code |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
@@ -2124,6 +2191,11 @@ that a failing playbook now runs), and a loose one would be the hole the
 rule closes. A finding's own check (1b) is the count it was drawn from, so a
 finding is usually powered by construction.
 
+A growth candidate (1b) has one way only: a `reach` check whose baseline holds
+the items it takes. Its check is set, so a thin one is `unproven` at once,
+with no review and no eval. Any other change with a `reach` check is powered
+by the same count of items, not by its hits.
+
 Otherwise the candidate is **`unproven`**: recorded in the archive with the
 reason, never published, and a failed try on its learning (not settled, so
 the learning is tried again, up to `MAX_ATTEMPTS`, seeing the reason in
@@ -2341,7 +2413,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
 | `EVOLVE_FINDING_SLOTS` | `2` | of those, at most this many findings (1b), strongest first; findings also take what no open learning takes; 0 turns findings off, 0 to 8 |
 | `EVOLVE_GROWTH_SLOTS` | `1` | of the finding slots, at least this many go to growth findings (1b) when there are any, 0 to 8 |
-| `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b), 0 (never) to 10 |
+| `EVOLVE_ROUTE_AFTER` | `2` | prompt-level candidates on a fix finding's family that did not help before it is routed to code (1b; one no playbook's words are behind needs none), 0 (never routed) to 10 |
 | `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
 | `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the `evolve` job) a day; one more skips that run (`generations`), quietly: no issue. Crashed and cut-off ones don't count |
 | `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more skips that run (`manual-generations`), quietly |
@@ -2532,8 +2604,11 @@ count of posts that drew a new account rises when Teeny posts more and falls
 when it posts less, so it is scored as a share instead: the hits and the
 items before and after the merge, Fisher's exact test (the after hits are
 Hypergeometric given both margins) against `EVOLVE_OUTCOME_P`. Fewer than
-`EVOLVE_OUTCOME_MIN_EVENTS` items in both windows together, or none on one
-side, is `no-data`. The outcome keeps the hits as `before`/`after` and the
+`EVOLVE_OUTCOME_MIN_EVENTS` items in both windows together, none on one
+side, or a baseline under the items it takes to see the effect (1b; the
+number it was opened on, or computed at scoring for an older change) is
+`no-data`, "the baseline is too thin". A change opened on a 7 or 14 day
+baseline is scored at that horizon alone. The outcome keeps the hits as `before`/`after` and the
 items as `of`.
 
 **`hand_used`** (since 2026-11-19) is what scores a feature from "1c. Wants":
