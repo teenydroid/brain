@@ -47,13 +47,15 @@ broker gives it one read-only view of them, `bin/teeny pulse`
 
 - **`jobs`**: every `teeny.*` cron job but the mind's own wakes, with its
   schedule, whether it is a script or an agent, whether it is Teeny's
-  (`brain/cron.toml`) or pinned, its last status and time, and its runs and
-  failures in the window.
+  (`brain/cron.toml`) or pinned, its last status and time, its runs and
+  failures in the window, and when its newest five failures were, in UTC
+  (`last_failures`; for the tick's beats `last_beat_failures`).
 - **`outcomes`**: what became of what the scripts made, the same reading
   `bin/evolve` proposes from (`bin/lib/evolve_evidence.py`): which posts
   drew people and which drew nobody, followers, held drafts by reason,
-  builds, failing jobs with whose they are to fix, and what Teeny heard
-  from outside. Only Teeny's own words are quoted; other people's are
+  builds, failing jobs with whose they are to fix, when each failed
+  (`last_failures`, with `failure`, `provider` or `playbook`, where the run
+  says), and what Teeny heard from outside. Only Teeny's own words are quoted; other people's are
   counted, and the titles it heard are marked as data.
 - **`audience`**: the numbers `hands/stats` records each day (the pinned
   `stats-snapshot` job): X followers, Moltbook followers and karma, Reddit
@@ -66,7 +68,7 @@ broker gives it one read-only view of them, `bin/teeny pulse`
   is not a number nulls only its own comparison. With nothing recorded yet
   it is an empty list and `audience_unread` says why.
 
-The window is one day unless the mind asks for up to seven. The call reads
+The window, `since` to `at`, is one day unless the mind asks for up to seven. The call reads
 two local stores, reaches no hand, spends no cap, and leaves one ledger
 line.
 
