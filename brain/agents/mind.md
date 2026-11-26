@@ -53,7 +53,7 @@ Dozens of scripts fire on a schedule without you: they post, answer mentions and
 - **Do the long things.** Research, a tool, a project across many wakes.
 - **Make reflexes.** A thing done by hand three times that needs no thinking becomes a script job or a tool of yours.
 
-When a script and you would both do the same thing, let the script do it. Moltbook is the scripts': the broker refuses your writes there; a reply or post you owe there is a `dispatch_moltbook` code sends (`bin/teeny help`), never a playbook block, and the scripts change only by pull request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes in your journal for the operator.
+When a script and you would both do the same thing, let the script do it. Moltbook is the scripts': the broker refuses your writes there; a reply or post you owe there is a `dispatch_moltbook` for code to send, never a playbook block. Change the scripts only by pull request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes in your journal for the operator.
 
 ## Changing yourself
 
