@@ -1510,3 +1510,70 @@ class LeftoversTest(SitterScratch):
         self.edit({"tmp/tmpabc12345/x.db": "db"})
         self.report("fix")
         self.assertEqual(sitter.collect()["failed"], "empty")
+
+
+class AfterReportTest(SitterScratch):
+    """2026-11-26, what Sonnet babysitters saw of the GLM one on the box."""
+
+    def test_a_carried_out_report_leaves_nothing_of_its_job_behind(self):
+        # #590: its job's files still named the old head long after the push.
+        self.threads = [thread()]
+        self.lay(**RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        self.assertIn("pushed", sitter.collect())
+        self.assertIsNone(sitter.job())
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), [])
+
+    def test_main_comes_in_with_any_fix_and_a_main_that_moved_since_is_said(self):
+        # #590: a fix for review threads alone was pushed without main and left it conflicting.
+        self.threads = [thread()]
+        main = self.commit({"brain/other.md": "newer\n"}, "main")
+        self.lay()
+        self.assertEqual((self.brief()["why"], self.brief()["main_merged_in"]), (["open_threads"], True))
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.commit({"brain/new.md": "later\n"}, "main")
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        parents = git("--git-dir", str(self.origin), "log", "-1", "--format=%P", BRANCH).split()
+        self.assertEqual(parents, [self.head, main])
+        self.assertTrue(out["behind_main"])
+
+    def test_a_review_bots_changes_requested_is_asked_again_after_a_fix(self):
+        # #588/#590: CodeRabbit's CHANGES_REQUESTED stood after its threads were fixed.
+        self.gh.route("POST", f"/repos/{REPO}/pulls/7/requested_reviewers", {"number": 7})
+        self.threads = [thread()]
+        self.lay(reviews=[{"user": {"login": "coderabbitai[bot]"}, "state": "CHANGES_REQUESTED", "body": "fix it"},
+                          {"user": {"login": "greptile-apps[bot]"}, "state": "CHANGES_REQUESTED", "body": "x"},
+                          {"user": {"login": "greptile-apps[bot]"}, "state": "APPROVED", "body": ""}], **RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        (asked,) = self.gh.requests("POST", f"/repos/{REPO}/pulls/7/requested_reviewers")
+        self.assertEqual(json.loads(asked.body), {"reviewers": ["coderabbitai"]})
+        self.assertEqual(out["rereview"], ["coderabbitai"])
+
+    def test_a_rereview_github_refuses_costs_nothing(self):
+        self.gh.route("POST", f"/repos/{REPO}/pulls/7/requested_reviewers", {"message": "no"}, status=422)
+        self.lay(reviews=[{"user": {"login": "coderabbitai[bot]"}, "state": "CHANGES_REQUESTED", "body": "x"}], **RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertNotIn("rereview", out)
+
+    def test_the_brief_names_the_repos_own_fast_checks_for_what_it_touches(self):
+        # #588: pushed red after a merge of main; a playbook's ninth [[inputs]] broke MAX_INPUTS.
+        def file(path):
+            return {"filename": path, "status": "modified", "additions": 1, "deletions": 0, "patch": patch("x")}
+
+        self.lay(files=[file("brain/playbooks/moltbook-threads.md"), file("brain/agents/mind.md"),
+                        file("brain/cron.toml"), file("hands/lib/teeny_hands/moltbook/actions.py"),
+                        file("bin/act")], **RED)
+        checks = self.brief()["checks"]
+        self.assertIn("python3 bin/lib/playbook.py brain moltbook-threads >/dev/null", checks)
+        self.assertIn("python3 -m unittest discover -s hands/tests -t hands/tests -p test_prompts.py", checks)
+        self.assertIn("bin/seed-cron --check", checks)
+        self.assertIn("python3 -m unittest discover -s hands/tests/moltbook -t hands/tests", checks)
+        self.assertIn("bash -n bin/act", checks)
+        self.assertEqual(len(checks), len(set(checks)))
