@@ -689,9 +689,14 @@ class PromptsTest(unittest.TestCase):
         # No Moltbook rules: Moltbook is the scripts' (the broker refuses the
         # mind's writes there) and its code is the operator's (2026-11-25, "too
         # complex now"; mindclone refuses the diff): these are the only mention.
-        self.assertEqual(text.lower().count("moltbook"), 2)
-        self.assertIn("Moltbook is the scripts': the broker refuses your writes there; change them only by pull"
-                      " request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull"
+        # One exact write it owes there is a dispatch code sends (2026-11-26),
+        # never a one-off block in a playbook.
+        self.assertEqual(text.lower().count("moltbook"), 3)
+        self.assertIn("Moltbook is the scripts': the broker refuses your writes there. A reply, comment or post you"
+                      " owe there is filed for code to send, `bin/teeny do '{\"do\": \"dispatch_moltbook\", ...}'`"
+                      " (`bin/teeny dispatches` shows how each went), never a block in a playbook; change how the"
+                      " scripts work only by pull request to `repo/brain/playbooks/moltbook-*.md`. Its code is too"
+                      " complex already: no pull"
                       " request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes"
                       " in your journal for the operator.", text)
         doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())
