@@ -116,7 +116,8 @@ def _tree_now(base: str) -> tuple[str, list[str]]:
     dropped = sorted(t for t in tops if LEFTOVER.fullmatch(t)
                      and not _bare("ls-tree", "--name-only", base, "--", t).stdout.strip())
     if dropped:
-        _bare("rm", "-r", "-q", "--cached", "--", *dropped)
+        _bare("read-tree", base)
+        _git("add", "-A", "--", ".", *(f":(exclude,literal){t}" for t in dropped))
     return _bare("write-tree").stdout.decode().strip(), dropped
 
 
