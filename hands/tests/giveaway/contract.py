@@ -24,6 +24,9 @@ STATUSES = ("open", "drawn", "settled", "clawed_back")
 FORMATS = ("drop", "milestone", "challenge")
 CLUSTERS = ("devnet", "mainnet")
 TOKEN_PROGRAMS = ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+# drops.ts REWARDS_PROGRAM_ID and TINY_MINT: the contract states them itself, not the hand's caps.
+REWARDS_PROGRAM_ID = "REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi"
+TINY_MINT = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
 
 
 class DropsError(Exception):
@@ -189,6 +192,10 @@ def parse_round(text: str) -> dict:
         "claims": claims,
         "txs": txs,
     }
+    if round_["program_id"] != REWARDS_PROGRAM_ID:
+        raise DropsError("program_id: not the Rewards program")
+    if round_["cluster"] == "mainnet" and round_["mint"] != TINY_MINT:
+        raise DropsError("mint: a mainnet round pays $TINY")
     if not round_["post_url"].endswith(f"/status/{round_['post_id']}"):
         raise DropsError("post_url: not the round post")
     if round_["status"] != "open" and not round_["seed"]:
