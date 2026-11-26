@@ -229,7 +229,8 @@ def _summary(text: str) -> str:
 #: the skill's own line, which is written for the scripts that use it.
 SCRIPTS_SKILLS = {
     "moltbook": ("the scripts' rules for Moltbook (the 5-minute beat and the moltbook playbooks use it). Moltbook "
-                 "is not yours to work; read it only to change it by a pull request."),
+                 "is not yours to work; read it only to change it by a pull request, or before you file a reply or "
+                 "post you owe there (`dispatch_moltbook`)."),
 }
 
 
