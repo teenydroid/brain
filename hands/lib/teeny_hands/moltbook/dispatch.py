@@ -498,6 +498,22 @@ def _last_pending(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT coalesce(max(id), 0) FROM moltbook_pending").fetchone()[0])
 
 
+def _challenged(conn: sqlite3.Connection, row: Mapping[str, Any], since: int) -> bool:
+    """Whether a challenge was recorded for this dispatch's own write since
+    the attempt's start mark: a row newer than the mark, of this kind, that
+    the ledger does not already show belongs to another target. Another
+    write's challenge (another post or another comment) never counts."""
+    if row["kind"] == "post":
+        other = ("SELECT post_id FROM moltbook_posts WHERE post_id IS NOT NULL AND title IS NOT ?", (row["title"],))
+    else:
+        other = ("SELECT comment_id FROM moltbook_comments WHERE comment_id IS NOT NULL"
+                 " AND NOT (post_id IS ? AND parent_id IS ?)", (row["post_id"], row["parent_id"]))
+    got = conn.execute("SELECT 1 FROM moltbook_pending WHERE id > ? AND kind = ? AND"
+                       f" (content_id IS NULL OR content_id NOT IN ({other[0]})) LIMIT 1",
+                       (since, row["kind"], *other[1])).fetchone()
+    return got is not None
+
+
 UNKNOWN = "unknown_result"
 
 
@@ -517,7 +533,7 @@ def _unclear(conn: sqlite3.Connection, row: Mapping[str, Any], api: Any, exc: Ex
     made = _made(conn, row, before)
     if made:
         return "refused", made, _unknown(f"Moltbook took it, then: {exc}")
-    if _last_pending(conn) > before_pending:
+    if _challenged(conn, row, before_pending):
         return "refused", None, _unknown(f"a challenge was left pending during the send ({exc}); a copy may be hidden")
     if row["kind"] == "post" or row["parent_id"] is None:
         return "refused", None, _unknown(f"the send ended without a clear answer: {exc}")
@@ -619,9 +635,11 @@ def _run(api: Any = None) -> Json:
             except hand.Refused as refused:
                 status, retry_at = _outcome(refused, row)
                 made = _made(conn, row, before)
-                if made and status != "answered":
+                if (made or _challenged(conn, row, before_pending)) and status != "answered":
                     # Moltbook took it, and then a challenge or its answer
-                    # went wrong: hidden, perhaps, but sent once, for good.
+                    # went wrong (or a challenge for this write is on record
+                    # though its content row never landed): hidden, perhaps,
+                    # but sent once, for good.
                     status, retry_at = "refused", None
                 if not dry:
                     _settle(conn, row["id"], status, last={"refused": refused.reason[:300], **refused.detail},
