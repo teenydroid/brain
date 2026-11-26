@@ -102,6 +102,14 @@ class AgentTest(Tmp):
         self.assertIn("a call a person must see", text)
         self.assertNotIn('"commit_message": "fix:', text)
 
+    def test_its_prompt_has_it_run_the_briefs_checks_and_edit_nothing_unrelated(self):
+        # #588 pushed red (a playbook past MAX_INPUTS); a byte budget was met by trimming unrelated mind.md lines.
+        text = SITTER.with_suffix(".md").read_text()
+        self.assertIn("run the brief's `checks`", text)
+        self.assertIn("A red one is not a `fix`", text)
+        self.assertIn("Edit only lines the findings and threads are about", text)
+        self.assertIn("not yours to fit by trimming other lines: say so and `wait`", text)
+
     def test_its_prompt_tells_it_what_a_close_candidate_is(self):
         self.assertIn("`close_candidate`", SITTER.with_suffix(".md").read_text())
 
