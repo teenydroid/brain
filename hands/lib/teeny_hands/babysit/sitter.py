@@ -28,7 +28,7 @@ carries out what it reports, in two steps of each sweep:
                            the ledger: the dream reads that (ledger.py)
 
 The report: `{number, head_sha, decision, reason, commit_message?,
-replies?, resolved?}`. `decision` is
+replies?, resolved?, final?}`. `decision` is
 
   fix    push the tree (and answer the threads)
   merge  nothing to change: merge this head once the rules allow
@@ -47,6 +47,18 @@ one try; MAX_TRIES at one head, or MAX_FIXES pushed without getting there,
 and the pull request is left to the operator, with one comment. Nothing is
 laid out or carried out under DRY_RUN. Nothing the agent writes may stop the
 sweep: whatever else goes wrong with its job counts as a try too.
+
+A report with `"final": false` is the agent's notes so far, written early
+and rewritten as it goes, because the turn deadline cuts a run off wherever
+it is (2026-11-25/26: every one of ten `no_report` failures was a run cut
+off at 28 or 30 minutes, none of which had written anything). It is not
+carried out while a run may still be at it; still unfinished at the lapse,
+it is one try, and the job stays as it is, its tree and notes with it, for
+the next run to carry on from.
+
+The brief's `close_candidate` is code's reason to think the pull request is
+dead: main already holds the whole change, or it conflicts with main after
+MAX_TRIES tries at earlier heads came to nothing (#582, 2026-11-26).
 """
 
 from __future__ import annotations
@@ -397,6 +409,18 @@ def _last_ignored(result: Json) -> list[str]:
     return []
 
 
+def _dead(result: Json, prepared: Json) -> str | None:
+    """Why the pull request looks dead to code, for the agent to judge."""
+    if prepared.get("superseded"):
+        return "main already holds everything this pull request changes"
+    head = result["head_sha"]
+    before = sum(1 for r in ledger.sitter_rows(result["repo"], result["number"])
+                 if r["verb"] == "sitter_failed" and r["head_sha"] != head)
+    if before >= MAX_TRIES and any(f["rule"] == "conflict" for f in result["findings"]):
+        return f"it conflicts with main, and {before} tries at earlier heads came to nothing"
+    return None
+
+
 def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     owner, name, repo = policy.watched(result["repo"])
     number, head, branch = result["number"], result["head_sha"], str(result["branch"])
@@ -411,6 +435,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     diff = prepared.pop("diff")
     red = _red(api, owner, name, result)
     files, _ = api.files(owner, name, number)
+    dead = _dead(result, prepared)
     brief: Json = {
         "number": number, "head_sha": head, "branch": branch, "why": why, "fixes_left": fixes_left,
         "title": result.get("title"), "base": result.get("base"),
@@ -426,6 +451,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
         "said": _said(api, owner, name, number, role),
         "files": [{"path": f["filename"], "status": f["status"], "added": f["additions"], "deleted": f["deletions"]}
                   for f in files[:100]],
+        **({"close_candidate": dead} if dead else {}),
         "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS,
         **({"diff_note": "the diff is cut short; the files in repo are complete: read every changed file there "
             "before you decide"} if len(diff) > MAX_DIFF_CHARS else {}), "note": NOTE,
@@ -502,6 +528,8 @@ def _checked(report: Any, now: Json) -> Json:
     if decision not in DECISIONS:
         raise _Bad(f"decision is one of {', '.join(DECISIONS)}")
     out: Json = {"decision": decision, "reason": _string(report.get("reason"), "reason", 2000), "replies": []}
+    if report.get("final") not in (None, True, False):
+        raise _Bad("final is true or false")
     if report.get("commit_message") is not None:
         out["message"] = _string(report["commit_message"], "commit_message", 500, 0)
     # null is as good as left out; anything else is checked as it is.
@@ -562,6 +590,23 @@ def _failed(now: Json, rule: str, words: str, again: bool) -> Json:
     now["brief"]["last_report_refused"] = words
     _save(now)
     _put("brief.json", json.dumps(now["brief"], indent=2, ensure_ascii=False) + "\n")
+    return out
+
+
+def _unfinished(now: Json, raw: Json) -> Json:
+    """The runs ran out of time with the report still unfinished: one try.
+    The job stays as it is, its tree, its report and the lapse begun again,
+    so the next run carries on from the notes rather than from the start."""
+    reason = raw.get("reason")
+    _row(now, "sitter_failed", rule="unfinished")
+    _wrote(now, "failed:unfinished", reason[:2000] if isinstance(reason, str) else "")
+    out: Json = {"number": now["number"], "failed": "unfinished"}
+    if tries(ledger.sitter_rows(now["repo"], now["number"]), now["head_sha"]) >= MAX_TRIES:
+        _leave(now, f"{MAX_TRIES} tries at it came to nothing")
+        _drop()
+        return {**out, "left": True}
+    now["laid_at"] = hand.now()
+    _save(now)
     return out
 
 
@@ -669,6 +714,10 @@ def _collect(now: Json, api: PullsApi) -> Json:
             if hand.now() - now["laid_at"] < LAPSE_SECS:
                 return {"number": number, "waiting": "report"}
             return _failed(now, "no_report", "no report was written", again=False)
+        if isinstance(raw, dict) and raw.get("final") is False:
+            if hand.now() - now["laid_at"] < LAPSE_SECS:
+                return {"number": number, "waiting": "report", "unfinished": True}
+            return _unfinished(now, raw)
         report = _checked(raw, now)
     except _Bad as bad:
         return _failed(now, bad.rule, str(bad), again=True)
@@ -753,12 +802,14 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
                push_row={"onto": now["head_sha"], "files": len(shipped["files"]),
                          "merged_main": shipped["merged_main"],
                          **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
+                         **({"dropped": shipped["dropped"]} if shipped.get("dropped") else {}),
                          **({"retry": True} if again else {})})
     _save(now)
     _pushed(now)
     _wrote(now, "fix", report["reason"])
     return {"decision": "retry" if again else "fix", "pushed": shipped["commit"],
-            **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}), **_replies(now, api)}
+            **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
+            **({"dropped": shipped["dropped"]} if shipped.get("dropped") else {}), **_replies(now, api)}
 
 
 def _retry(now: Json, api: PullsApi, report: Json) -> Json:
