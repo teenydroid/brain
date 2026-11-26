@@ -1360,3 +1360,123 @@ class ReportTextTest(SitterScratch):
         self.assertIn("the babysitter's agent said merge", text)
 
 
+
+
+class UnfinishedTest(SitterScratch):
+    """2026-11-25/26 on the box: 10 of 28 jobs ended `failed:no_report`. Every
+    one was a run the turn deadline cut off (a wind-down pause at 28 minutes,
+    the 30-minute backstop, a spine restart) before the one report it was
+    told to write last. A report written early as `"final": false` is what
+    the run knew so far: not carried out while a run may still be at it, and
+    at the lapse a try that keeps the job, its edits and its notes."""
+
+    def unfinished(self, **over):
+        self.report("wait", final=False, reason="the red check is a stale pin; fixing brain/SOUL.md next", **over)
+
+    def test_an_unfinished_report_is_not_carried_out_while_a_run_may_be_at_it(self):
+        self.lay(**RED)
+        self.unfinished()
+        self.assertEqual(sitter.collect(), {"number": 7, "waiting": "report", "unfinished": True})
+        self.assertEqual(self.verbs(), ["sitter_job"])
+        self.assertIsNotNone(sitter.job())
+
+    def test_one_still_unfinished_at_the_lapse_is_a_try_that_keeps_the_job_its_edits_and_notes(self):
+        self.lay(**RED)
+        laid = sitter.job()["job"]
+        self.edit({"brain/SOUL.md": "# soul\nhalf way\n"})
+        self.unfinished()
+        self.later(sitter.LAPSE_SECS + 1)
+        self.assertEqual(sitter.collect(), {"number": 7, "failed": "unfinished"})
+        self.assertEqual(sitter.job()["job"], laid)
+        self.assertEqual((self.repo / "brain/SOUL.md").read_text(), "# soul\nhalf way\n")
+        self.assertIn("stale pin", json.loads(self.report_path.read_text())["reason"])
+        # The next run carries on, inside a lapse of its own, and finishes it.
+        self.assertEqual(sitter.collect()["waiting"], "report")
+        self.report("fix")
+        self.assertIn("pushed", sitter.collect())
+        self.assertEqual(self.at(BRANCH, "brain/SOUL.md"), "# soul\nhalf way\n")
+        self.assertEqual(self.verbs().count("sitter_failed"), 1)
+
+    def test_runs_that_never_finish_are_left_to_the_operator_in_the_end(self):
+        self.lay(**RED)
+        for n in range(sitter.MAX_TRIES):
+            self.unfinished()
+            self.later(sitter.LAPSE_SECS + 1)
+            out = sitter.collect()
+            self.assertEqual(out.get("left"), True if n == sitter.MAX_TRIES - 1 else None, out)
+        self.assertIsNone(sitter.job())
+        self.assertIn("sitter_left", self.verbs())
+
+    def test_final_is_true_or_false(self):
+        self.lay()
+        good = {"number": 7, "head_sha": self.head, "decision": "wait", "reason": "x"}
+        for fine in ({}, {"final": True}, {"final": None}):
+            sitter._checked({**good, **fine}, sitter.job())
+        for odd in ("no", 0, 1, []):
+            with self.assertRaises(sitter._Bad, msg=odd):
+                sitter._checked({**good, "final": odd}, sitter.job())
+
+
+class CloseCandidateTest(SitterScratch):
+    """#582 (2026-11-25/26): main had dropped the blocks it edited; four runs
+    worked its conflict, none closed it, and a person did. Code says when a
+    pull request looks dead, and the agent judges it."""
+
+    def test_one_main_already_holds_is_offered_for_closing(self):
+        self.commit({"brain/SOUL.md": "# soul\nsmall and kind\n", "brain/other.md": "moved on\n"}, "main")
+        self.lay(mergeable_state="behind", **RED)
+        self.assertIn("main already holds", self.brief()["close_candidate"])
+
+    def test_one_that_still_conflicts_after_tries_at_it_came_to_nothing_is_offered(self):
+        old = self.head
+        for _ in range(sitter.MAX_TRIES):
+            ledger.record_action("sitter_failed", REPO, 7, old, rule="no_report")
+        ledger.record_action("sitter_left", REPO, 7, old)
+        self.commit({"brain/SOUL.md": "# soul\nrewritten on main\n"}, "main")
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall and kind, again\n"}, BRANCH)
+        self.lay(mergeable=False, mergeable_state="dirty", checks=green("web"))
+        self.assertIn("conflicts with main", self.brief()["close_candidate"])
+
+    def test_an_ordinary_one_is_not(self):
+        self.commit({"brain/other.md": "newer\n"}, "main")
+        self.lay(mergeable_state="behind", **RED)
+        self.assertNotIn("close_candidate", self.brief())
+        sitter._drop()
+        # A conflict alone is work, not a reason to close.
+        self.commit({"brain/SOUL.md": "# soul\nrewritten on main\n"}, "main")
+        self.lay(mergeable=False, mergeable_state="dirty", checks=green("web"))
+        self.assertNotIn("close_candidate", self.brief())
+
+
+class LeftoversTest(SitterScratch):
+    """#588 (2026-11-26): a test run with TMPDIR inside the checkout left
+    tmp/tmpXXXX/state/hands.db*; the push was refused as a secret and cost a
+    try. What a test run leaves at the top of the tree is dropped and said."""
+
+    def test_test_run_leftovers_are_dropped_not_refused(self):
+        self.lay(**RED)
+        self.edit({"brain/other.md": "fixed\n", "tmp/tmp40htfweh/state/hands.db": "db",
+                   "tmp/tmp40htfweh/state/hands.db-wal": "wal", "tmpl8_xwrsy/state/hands.db": "db"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertEqual(out["dropped"], ["tmp", "tmpl8_xwrsy"])
+        files = git("--git-dir", str(self.origin), "ls-tree", "-r", "--name-only", BRANCH).split()
+        self.assertIn("brain/other.md", files)
+        self.assertFalse([f for f in files if f.startswith("tmp")], files)
+
+    def test_a_tracked_tmp_folder_is_still_the_changes(self):
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        self.head = self.commit({"tmp/keep.txt": "kept\n"})
+        self.lay(**RED)
+        self.edit({"tmp/keep.txt": "changed\n", "tmp/new.txt": "new\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertNotIn("dropped", out)
+        self.assertEqual((self.at(BRANCH, "tmp/keep.txt"), self.at(BRANCH, "tmp/new.txt")), ("changed\n", "new\n"))
+
+    def test_leftovers_alone_are_nothing_to_push(self):
+        self.lay(**RED)
+        self.edit({"tmp/tmpabc12345/x.db": "db"})
+        self.report("fix")
+        self.assertEqual(sitter.collect()["failed"], "empty")
