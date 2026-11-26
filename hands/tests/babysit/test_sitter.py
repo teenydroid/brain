@@ -1437,6 +1437,17 @@ class CloseCandidateTest(SitterScratch):
         self.lay(mergeable=False, mergeable_state="dirty", checks=green("web"))
         self.assertIn("conflicts with main", self.brief()["close_candidate"])
 
+    def test_a_deletion_main_edited_since_is_a_conflict_not_superseded(self):
+        # Review of #592: git keeps main's file in the conflicted merge, which then equals main.
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        (self.up / "brain/other.md").unlink()
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall\n"})
+        self.commit({"brain/other.md": "edited on main\n"}, "main")
+        for mend in ({"mergeable_state": "behind", "checks": green("web")}, {"mergeable_state": "behind", **RED}):
+            sitter._drop()
+            self.lay(**mend)
+            self.assertNotIn("close_candidate", self.brief(), mend)
+
     def test_an_ordinary_one_is_not(self):
         self.commit({"brain/other.md": "newer\n"}, "main")
         self.lay(mergeable_state="behind", **RED)
@@ -1474,6 +1485,22 @@ class LeftoversTest(SitterScratch):
         out = sitter.collect()
         self.assertNotIn("dropped", out)
         self.assertEqual((self.at(BRANCH, "tmp/keep.txt"), self.at(BRANCH, "tmp/new.txt")), ("changed\n", "new\n"))
+
+    def test_a_tmp_entry_main_deleted_and_the_head_tracks_is_kept(self):
+        # Review of #592: the merged base lacks it, the head still has it.
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        self.head = self.commit({"tmp/keep.txt": "kept\n"})
+        git("-C", str(self.up), "checkout", "-q", "main")
+        self.commit({"tmp/keep.txt": "on main\n"})
+        git("-C", str(self.up), "rm", "-q", "tmp/keep.txt")
+        self.commit({"brain/other.md": "main moved\n"})
+        self.lay(mergeable=False, mergeable_state="dirty", **RED)
+        self.edit({"tmp/keep.txt": "kept\n", "brain/SOUL.md": "# soul\nsmall and kinder\n"})
+        self.report("fix", resolved=["tmp/keep.txt"])
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertNotIn("dropped", out)
+        self.assertEqual(self.at(BRANCH, "tmp/keep.txt"), "kept\n")
 
     def test_leftovers_alone_are_nothing_to_push(self):
         self.lay(**RED)
