@@ -89,7 +89,10 @@ Json = dict[str, Any]
 MAX_FIXES = 5
 #: Tries at one head that came to nothing before it is.
 MAX_TRIES = 3
-#: A run is over by now (the turn deadline is 30 minutes) and left no report.
+#: A run is over by now (the turn deadline is 30 minutes, wound down at 28)
+#: and left no report, or only an unfinished one. A run starts within ten
+#: minutes of the job (the cron job's */10), so a second one may be at it
+#: too: one that finds an unfinished report carries on from it.
 LAPSE_SECS = 45 * 60
 #: How long a `wait` stands while nothing about the pull request changes.
 WAIT_AGAIN_SECS = 6 * 3600
