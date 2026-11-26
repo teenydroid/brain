@@ -1360,3 +1360,250 @@ class ReportTextTest(SitterScratch):
         self.assertIn("the babysitter's agent said merge", text)
 
 
+
+
+class UnfinishedTest(SitterScratch):
+    """2026-11-25/26 on the box: 10 of 28 jobs ended `failed:no_report`. Every
+    one was a run the turn deadline cut off (a wind-down pause at 28 minutes,
+    the 30-minute backstop, a spine restart) before the one report it was
+    told to write last. A report written early as `"final": false` is what
+    the run knew so far: not carried out while a run may still be at it, and
+    at the lapse a try that keeps the job, its edits and its notes."""
+
+    def unfinished(self, **over):
+        self.report("wait", final=False, reason="the red check is a stale pin; fixing brain/SOUL.md next", **over)
+
+    def test_an_unfinished_report_is_not_carried_out_while_a_run_may_be_at_it(self):
+        self.lay(**RED)
+        self.unfinished()
+        self.assertEqual(sitter.collect(), {"number": 7, "waiting": "report", "unfinished": True})
+        self.assertEqual(self.verbs(), ["sitter_job"])
+        self.assertIsNotNone(sitter.job())
+
+    def test_one_still_unfinished_at_the_lapse_is_a_try_that_keeps_the_job_its_edits_and_notes(self):
+        self.lay(**RED)
+        laid = sitter.job()["job"]
+        self.edit({"brain/SOUL.md": "# soul\nhalf way\n"})
+        self.unfinished()
+        self.later(sitter.LAPSE_SECS + 1)
+        self.assertEqual(sitter.collect(), {"number": 7, "failed": "unfinished"})
+        self.assertEqual(sitter.job()["job"], laid)
+        self.assertEqual((self.repo / "brain/SOUL.md").read_text(), "# soul\nhalf way\n")
+        self.assertIn("stale pin", json.loads(self.report_path.read_text())["reason"])
+        # The next run carries on, inside a lapse of its own, and finishes it.
+        self.assertEqual(sitter.collect()["waiting"], "report")
+        self.report("fix")
+        self.assertIn("pushed", sitter.collect())
+        self.assertEqual(self.at(BRANCH, "brain/SOUL.md"), "# soul\nhalf way\n")
+        self.assertEqual(self.verbs().count("sitter_failed"), 1)
+
+    def test_runs_that_never_finish_are_left_to_the_operator_in_the_end(self):
+        self.lay(**RED)
+        for n in range(sitter.MAX_TRIES):
+            self.unfinished()
+            self.later(sitter.LAPSE_SECS + 1)
+            out = sitter.collect()
+            self.assertEqual(out.get("left"), True if n == sitter.MAX_TRIES - 1 else None, out)
+        self.assertIsNone(sitter.job())
+        self.assertIn("sitter_left", self.verbs())
+
+    def test_final_is_true_or_false(self):
+        self.lay()
+        good = {"number": 7, "head_sha": self.head, "decision": "wait", "reason": "x"}
+        for fine in ({}, {"final": True}, {"final": None}):
+            sitter._checked({**good, **fine}, sitter.job())
+        for odd in ("no", 0, 1, []):
+            with self.assertRaises(sitter._Bad, msg=odd):
+                sitter._checked({**good, "final": odd}, sitter.job())
+
+
+class CloseCandidateTest(SitterScratch):
+    """#582 (2026-11-25/26): main had dropped the blocks it edited; four runs
+    worked its conflict, none closed it, and a person did. Code says when a
+    pull request looks dead, and the agent judges it."""
+
+    def test_one_main_already_holds_is_offered_for_closing(self):
+        self.commit({"brain/SOUL.md": "# soul\nsmall and kind\n", "brain/other.md": "moved on\n"}, "main")
+        self.lay(mergeable_state="behind", **RED)
+        self.assertIn("main already holds", self.brief()["close_candidate"])
+
+    def test_one_that_still_conflicts_after_tries_at_it_came_to_nothing_is_offered(self):
+        old = self.head
+        for _ in range(sitter.MAX_TRIES):
+            ledger.record_action("sitter_failed", REPO, 7, old, rule="no_report")
+        ledger.record_action("sitter_left", REPO, 7, old)
+        self.commit({"brain/SOUL.md": "# soul\nrewritten on main\n"}, "main")
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall and kind, again\n"}, BRANCH)
+        self.lay(mergeable=False, mergeable_state="dirty", checks=green("web"))
+        self.assertIn("conflicts with main", self.brief()["close_candidate"])
+
+    def test_a_deletion_main_edited_since_is_a_conflict_not_superseded(self):
+        # Review of #592: git keeps main's file in the conflicted merge, which then equals main.
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        (self.up / "brain/other.md").unlink()
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall\n"})
+        self.commit({"brain/other.md": "edited on main\n"}, "main")
+        for mend in ({"mergeable_state": "behind", "checks": green("web")}, {"mergeable_state": "behind", **RED}):
+            sitter._drop()
+            self.lay(**mend)
+            self.assertNotIn("close_candidate", self.brief(), mend)
+
+    def test_an_ordinary_one_is_not(self):
+        self.commit({"brain/other.md": "newer\n"}, "main")
+        self.lay(mergeable_state="behind", **RED)
+        self.assertNotIn("close_candidate", self.brief())
+        sitter._drop()
+        # A conflict alone is work, not a reason to close.
+        self.commit({"brain/SOUL.md": "# soul\nrewritten on main\n"}, "main")
+        self.lay(mergeable=False, mergeable_state="dirty", checks=green("web"))
+        self.assertNotIn("close_candidate", self.brief())
+
+
+class LeftoversTest(SitterScratch):
+    """#588 (2026-11-26): a test run with TMPDIR inside the checkout left
+    tmp/tmpXXXX/state/hands.db*; the push was refused as a secret and cost a
+    try. What a test run leaves at the top of the tree is dropped and said."""
+
+    def test_test_run_leftovers_are_dropped_not_refused(self):
+        self.lay(**RED)
+        self.edit({"brain/other.md": "fixed\n", "tmp/tmp40htfweh/state/hands.db": "db",
+                   "tmp/tmp40htfweh/state/hands.db-wal": "wal", "tmpl8_xwrsy/state/hands.db": "db"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertEqual(out["dropped"], ["tmp", "tmpl8_xwrsy"])
+        files = git("--git-dir", str(self.origin), "ls-tree", "-r", "--name-only", BRANCH).split()
+        self.assertIn("brain/other.md", files)
+        self.assertFalse([f for f in files if f.startswith("tmp")], files)
+
+    def test_a_tracked_tmp_folder_is_still_the_changes(self):
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        self.head = self.commit({"tmp/keep.txt": "kept\n"})
+        self.lay(**RED)
+        self.edit({"tmp/keep.txt": "changed\n", "tmp/new.txt": "new\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertNotIn("dropped", out)
+        self.assertEqual((self.at(BRANCH, "tmp/keep.txt"), self.at(BRANCH, "tmp/new.txt")), ("changed\n", "new\n"))
+
+    def test_a_tmp_entry_main_deleted_and_the_head_tracks_is_kept(self):
+        # Review of #592: the merged base lacks it, the head still has it.
+        self.commit({"tmp/keep.txt": "kept\n"}, "main")
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        git("-C", str(self.up), "-c", "user.name=op", "-c", "user.email=op@example.com", "merge", "-q", "--no-edit", "main")
+        git("-C", str(self.up), "push", "-q", str(self.origin), "HEAD")
+        self.head = git("-C", str(self.up), "rev-parse", "HEAD").strip()
+        git("-C", str(self.up), "checkout", "-q", "main")
+        git("-C", str(self.up), "rm", "-q", "tmp/keep.txt")
+        self.commit({"brain/other.md": "main moved\n"})
+        self.lay(mergeable_state="behind", **RED)
+        self.assertFalse((self.repo / "tmp/keep.txt").exists())
+        self.edit({"tmp/keep.txt": "kept\n", "brain/SOUL.md": "# soul\nsmall and kinder\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertNotIn("dropped", out)
+        self.assertEqual(self.at(BRANCH, "tmp/keep.txt"), "kept\n")
+
+    def test_a_tmp_entry_the_head_deleted_and_main_tracks_is_kept(self):
+        # Review of #592: neither the base nor the head has it, main does.
+        self.commit({"tmp/keep.txt": "kept\n"}, "main")
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        git("-C", str(self.up), "-c", "user.name=op", "-c", "user.email=op@example.com", "merge", "-q", "--no-edit", "main")
+        git("-C", str(self.up), "rm", "-q", "tmp/keep.txt")
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall and kind\n"})
+        self.lay(**RED)
+        self.edit({"tmp/keep.txt": "kept\n", "brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertNotIn("dropped", out)
+        self.assertEqual(self.at(BRANCH, "tmp/keep.txt"), "kept\n")
+
+    def test_leftovers_alone_are_nothing_to_push(self):
+        self.lay(**RED)
+        self.edit({"tmp/tmpabc12345/x.db": "db"})
+        self.report("fix")
+        self.assertEqual(sitter.collect()["failed"], "empty")
+
+
+class AfterReportTest(SitterScratch):
+    """2026-11-26, what Sonnet babysitters saw of the GLM one on the box."""
+
+    def test_a_carried_out_report_leaves_nothing_of_its_job_behind(self):
+        # #590: its job's files still named the old head long after the push.
+        self.threads = [thread()]
+        self.lay(**RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        self.assertIn("pushed", sitter.collect())
+        self.assertIsNone(sitter.job())
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), [])
+
+    def test_main_comes_in_with_any_fix_and_a_main_that_moved_since_is_said(self):
+        # #590: a fix for review threads alone was pushed without main and left it conflicting.
+        self.threads = [thread()]
+        main = self.commit({"brain/other.md": "newer\n"}, "main")
+        self.lay()
+        self.assertEqual((self.brief()["why"], self.brief()["main_merged_in"]), (["open_threads"], True))
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.commit({"brain/new.md": "later\n"}, "main")
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        parents = git("--git-dir", str(self.origin), "log", "-1", "--format=%P", BRANCH).split()
+        self.assertEqual(parents, [self.head, main])
+        self.assertTrue(out["behind_main"])
+
+    def test_a_review_bots_changes_requested_is_asked_again_after_a_fix(self):
+        # #588/#590: CodeRabbit's CHANGES_REQUESTED stood after its threads were fixed.
+        self.gh.route("POST", f"/repos/{REPO}/pulls/7/requested_reviewers", {"number": 7})
+        self.threads = [thread()]
+        self.lay(reviews=[{"user": {"login": "coderabbitai[bot]"}, "state": "CHANGES_REQUESTED", "body": "fix it"},
+                          {"user": {"login": "greptile-apps[bot]"}, "state": "CHANGES_REQUESTED", "body": "x"},
+                          {"user": {"login": "greptile-apps[bot]"}, "state": "APPROVED", "body": ""}], **RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        (asked,) = self.gh.requests("POST", f"/repos/{REPO}/pulls/7/requested_reviewers")
+        self.assertEqual(json.loads(asked.body), {"reviewers": ["coderabbitai"]})
+        self.assertEqual(out["rereview"], ["coderabbitai"])
+
+    def test_a_rereview_github_refuses_costs_nothing(self):
+        self.gh.route("POST", f"/repos/{REPO}/pulls/7/requested_reviewers", {"message": "no"}, status=422)
+        self.lay(reviews=[{"user": {"login": "coderabbitai[bot]"}, "state": "CHANGES_REQUESTED", "body": "x"}], **RED)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertIn("pushed", out)
+        self.assertNotIn("rereview", out)
+
+    def test_a_reviews_read_that_fails_does_not_hold_the_answers(self):
+        self.threads = [thread()]
+        self.lay(**RED)
+        self.gh.route("GET", f"/repos/{REPO}/pulls/7/reviews", {"message": "down"}, status=502)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        self.assertEqual((out["replied"], "rereview" in out), (1, False))
+
+    def test_checks_quote_what_a_path_says_and_skip_removed_files(self):
+        # Review of #592: a file name is the pull request's words, and a removed file cannot be checked.
+        out = sitter.checks([{"filename": "brain/playbooks/a;id;.md", "status": "added"},
+                             {"filename": "bin/x y.sh", "status": "modified"},
+                             {"filename": "bin/gone.sh", "status": "removed"}])
+        self.assertEqual(out, ["python3 bin/lib/playbook.py brain 'a;id;' >/dev/null", "bash -n 'bin/x y.sh'"])
+
+    def test_the_brief_names_the_repos_own_fast_checks_for_what_it_touches(self):
+        # #588: pushed red after a merge of main; a playbook's ninth [[inputs]] broke MAX_INPUTS.
+        def file(path):
+            return {"filename": path, "status": "modified", "additions": 1, "deletions": 0, "patch": patch("x")}
+
+        self.lay(files=[file("brain/playbooks/moltbook-threads.md"), file("brain/agents/mind.md"),
+                        file("brain/cron.toml"), file("hands/lib/teeny_hands/moltbook/actions.py"),
+                        file("bin/act")], **RED)
+        checks = self.brief()["checks"]
+        self.assertIn("python3 bin/lib/playbook.py brain moltbook-threads >/dev/null", checks)
+        self.assertIn("python3 -m unittest discover -s hands/tests -t hands/tests -p test_prompts.py", checks)
+        self.assertIn("bin/seed-cron --check", checks)
+        self.assertIn("python3 -m unittest discover -s hands/tests/moltbook -t hands/tests", checks)
+        self.assertIn("bash -n bin/act", checks)
+        self.assertEqual(len(checks), len(set(checks)))
