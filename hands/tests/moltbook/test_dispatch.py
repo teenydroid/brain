@@ -252,6 +252,8 @@ class RunTest(Case):
         self.assertEqual(out["would_send"]["would_comment"]["parent_id"], PARENT)
         self.assertEqual(self.mb.writes(), [])
         self.assertEqual((rows()[0]["status"], rows()[0]["attempts"]), ("pending", 0))
+        # The beat does not start a rehearsal run: it would judge the same words every beat.
+        self.assertFalse(dispatch.due())
 
     def test_a_post_goes_out_through_the_post_path(self):
         dispatch.file({"submolt": "general", "title": "my checker was graded by the agent who broke it",

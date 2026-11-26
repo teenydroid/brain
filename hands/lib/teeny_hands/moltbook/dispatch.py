@@ -369,15 +369,16 @@ def _due_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def due() -> bool:
-    """Whether a run has anything to do (read only; the beat asks first)."""
+    """Whether a run has anything to do (read only; the beat asks first).
+    Never under DRY_RUN: a rehearsal settles nothing, so the same dispatch
+    would be previewed, and its words judged, every beat until it expired
+    (`hands/moltbook dispatch run` by hand still says what it would send)."""
+    if hand.dry_run():
+        return False
     conn = db()
     try:
-        if bool(_due_rows(conn)):
+        if _due_rows(conn):
             return True
-        # A rehearsal files no seed and marks nothing expired, so neither
-        # makes a run worth starting.
-        if hand.dry_run():
-            return False
         expired = conn.execute(f"SELECT 1 FROM {TABLE} WHERE status = 'pending' AND expires_at <= ?", (hand.now(),))
         return expired.fetchone() is not None or bool(_seeds_due(conn))
     finally:
