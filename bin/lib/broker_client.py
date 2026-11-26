@@ -40,7 +40,15 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
                              (an unknown "do" is refused with the list of verbs). While the studio
                              is on, a post_x is filed as a pitch, not posted: the answer says
                              "filed": "studio_pitch". Moltbook belongs to the scripts: its writes
-                             (comment, post, upvote, follow, decline) are refused here
+                             (comment, post, upvote, follow, decline) are refused here. One exact
+                             reply, comment or post is filed instead, and code sends it when due:
+                             teeny do '{"do": "dispatch_moltbook", "post_id": "<uuid>",
+                                        "parent_id": "<uuid of the comment you answer>", "body": "...",
+                                        "expires_at": "<ISO time, at most 7 days out>", "why": "..."}'
+                             (a post: "title", "submolt" and "body", no ids; at most 7 days out)
+  teeny dispatches           your Moltbook dispatches and how each went: pending, sent, answered
+                             (a reply of yours was already there), expired or refused (never
+                             retried). teeny dispatches '{"days": 14}' looks further back
   teeny wake '<json>'        wake yourself later on a note, once or on a schedule (UTC):
                              teeny wake '{"name": "check-x", "note": "...", "at": "2026-11-22T09:30:00Z"}'
                              teeny wake '{"name": "daily", "note": "...", "cron": "0 9 * * *"}'
@@ -229,10 +237,10 @@ def _request(argv: list[str]) -> tuple[str, dict]:
     command, args = argv[0], argv[1:]
     if command in ("do", "wake", "pr", "call", "fetch", "repo", "reviews", "close-pr") and len(args) == 1:
         return f"/{command}", _object(args[0])
-    if command in ("wakes", "goals", "repo", "pulse") and not args:
+    if command in ("wakes", "goals", "repo", "pulse", "dispatches") and not args:
         return f"/{command}", {}
-    if command == "pulse" and len(args) == 1:
-        return "/pulse", _object(args[0])
+    if command in ("pulse", "dispatches") and len(args) == 1:
+        return f"/{command}", _object(args[0])
     if command == "gh" and len(args) in (1, 2):
         return "/gh", {"verb": args[0], "args": _object(args[1]) if len(args) == 2 else {}}
     if command == "drop-wake" and len(args) == 1:

@@ -223,6 +223,42 @@ class TickTest(unittest.TestCase):
         for chat in self.chats():
             self.assertEqual(chat["message"].count("### self · quiet"), 1)
 
+    def _dispatch_due(self) -> None:
+        from teeny_hands.moltbook import dispatch
+
+        # Live: under DRY_RUN the beat starts no dispatch run (dispatch.due).
+        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+        hand._ENV_CACHE = None
+        conn = dispatch.db()
+        dispatch._insert(conn, {"kind": "comment", "post_id": "8c95feab-bda8-4bea-b8ee-5137d5e97337",
+                                "parent_id": "8738e440-ea37-4498-8a78-fd382e154820", "body": "the filed words",
+                                "why": "owed", "expires_at": T0 + 86400}, "pending")
+        conn.close()
+
+    def test_a_due_moltbook_dispatch_is_sent_by_the_hand_not_the_beats_turn(self):
+        self._dispatch_due()
+        got = self.tick()
+        self.assertEqual([(c["hand"], c["argv"]) for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]],
+                         [("moltbook", ["dispatch", "run"])])
+        self.assertEqual(got["dispatched"], {"ok": True, "dry_run": False})
+        self.assertEqual(self.runs()[-1]["dispatched"], {"ok": True, "dry_run": False})
+        self.assertNotIn("the filed words", self.chats()[0]["message"])
+
+    def test_a_beat_with_no_dispatch_due_starts_no_dispatch_hand(self):
+        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+        got = self.tick()
+        self.assertNotIn("dispatched", got)
+        self.assertEqual([c for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [])
+
+    def test_a_dispatch_goes_out_in_the_quiet_hours_too(self):
+        os.environ["TEENY_QUIET_HOURS"] = "6-8"
+        self._dispatch_due()
+        got = self.tick()
+        self.assertEqual(got["kind"], "asleep")
+        self.assertEqual(got["dispatched"], {"ok": True, "dry_run": False})
+        self.assertEqual([c["argv"] for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [["dispatch", "run"]])
+        self.assertEqual(self.chats(), [])
+
     def test_a_quiet_beat_with_something_waiting_is_not_quiet(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": []})

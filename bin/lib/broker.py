@@ -41,7 +41,13 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
 - /do         one intent, `{"do": <a tick.ROUTES verb>, ...}`, carried out
               as a beat carries it out (the route, its cap, the hand). The
               Moltbook writes (SCRIPTS_ONLY: comment, post, upvote, follow,
-              decline) are refused: Moltbook belongs to the scripts
+              decline) are refused: Moltbook belongs to the scripts. Its
+              one exception sends nothing: `dispatch_moltbook` files one
+              exact reply, comment or post with hands/moltbook (`dispatch
+              file`: checked and filed, or refused with the reason), and
+              the beat sends it by code when it is due
+- /dispatches `{"days"?}`: the mind's dispatches and how each went
+              (`hands/moltbook dispatch list`)
 - /wake       `{"name", "note", "at" | "cron"}`: a core cron job that wakes
               the `mind` agent on the note, always an agent job
 - /wakes      the mind's wakes
@@ -223,7 +229,8 @@ def _summary(text: str) -> str:
 #: the skill's own line, which is written for the scripts that use it.
 SCRIPTS_SKILLS = {
     "moltbook": ("the scripts' rules for Moltbook (the 5-minute beat and the moltbook playbooks use it). Moltbook "
-                 "is not yours to work; read it only to change it by a pull request."),
+                 "is not yours to work; read it only to change it by a pull request, or before you file a reply or "
+                 "post you owe there (`dispatch_moltbook`)."),
 }
 
 
@@ -351,13 +358,41 @@ def _say_filed(answer: Json, entry: Json, name: str, hand_body: Any) -> Json:
 SCRIPTS_ONLY = frozenset(verb for verb in tick.ROUTES if verb.endswith("_moltbook"))
 SCRIPTS_ONLY_MESSAGE = (
     "Moltbook belongs to the scripts now (the 5-minute beat and the moltbook playbooks answer and post there). "
-    "Nothing was sent. Spend this wake on X, GitHub, your builds or yourself. To change how the scripts behave "
-    "there, open a pull request on brain/playbooks/moltbook-*.md or brain/skills/moltbook.")
+    "Nothing was sent. To have code send one exact reply, comment or post of yours, file it: "
+    '{"do": "dispatch_moltbook", "post_id": "<uuid>", "parent_id": "<uuid, for a reply>", "body": "...", '
+    '"expires_at": "<ISO time, at most 7 days out>", "why": "<short reason>"} (a post takes "title" and '
+    '"submolt" instead of the ids); `teeny dispatches` shows how each went. To change how the scripts behave '
+    "there, open a pull request on brain/playbooks/moltbook-*.md or brain/skills/moltbook, never a playbook "
+    "block for one write.")
+
+#: The mind's one way to a Moltbook write (the operator, 2026-11-26): it files
+#: the exact words and code sends them (teeny_hands.moltbook.dispatch, sent by
+#: the beat through the hand's comment and post paths). Not a tick route: the
+#: beat's own turn neither files nor sees them. Until then each such write was
+#: a pull request appending a one-off block to a playbook.
+DISPATCH_VERB = "dispatch_moltbook"
 
 
 def mind_verbs() -> list[str]:
     """The /do verbs the mind may use, as an unknown verb's refusal names them."""
-    return sorted(set(tick.ROUTES) - SCRIPTS_ONLY)
+    return sorted((set(tick.ROUTES) - SCRIPTS_ONLY) | {DISPATCH_VERB})
+
+
+def _dispatch_moltbook(body: Json, entry: Json) -> Json:
+    """Files one dispatch with hands/moltbook, which checks it and answers
+    filed or refused with the reason; in a rehearsal it checks and files
+    nothing (the hand's own DRY_RUN). Nothing is sent here."""
+    fields = {k: v for k, v in body.items() if k != "do"}
+    return _hand_answer(*tick._run_hand("moltbook", ["dispatch", "file"], fields), entry)
+
+
+def dispatches(body: Json, entry: Json) -> Json:
+    """The mind's dispatches and how each went (hands/moltbook dispatch list)."""
+    entry["verb"] = "dispatches"
+    days = body.get("days", 7)
+    if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 30:
+        raise Refused('"days" is a whole number from 1 to 30')
+    return _hand_answer(*tick._run_hand("moltbook", ["dispatch", "list", "--days", str(days)], None), entry)
 
 
 def do(body: Json, entry: Json) -> Json:
@@ -371,6 +406,8 @@ def do(body: Json, entry: Json) -> Json:
     entry["verb"] = _clipped(verb) if isinstance(verb, str) else None
     if verb in tick.OWN:
         raise Refused(f"{verb!r} is not a broker verb: it is the beat's own")
+    if verb == DISPATCH_VERB:
+        return _dispatch_moltbook(body, entry)
     if isinstance(verb, str) and verb in SCRIPTS_ONLY:
         raise Refused(SCRIPTS_ONLY_MESSAGE)
     if not isinstance(verb, str) or verb not in tick.ROUTES:
@@ -1255,6 +1292,7 @@ PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/wakes": wakes,
     "/drop-wake": drop_wake,
     "/goals": goals,
+    "/dispatches": dispatches,
     "/pulse": pulse,
     "/call": call,
     "/fetch": fetch,

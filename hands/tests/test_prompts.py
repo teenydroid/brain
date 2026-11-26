@@ -684,14 +684,20 @@ class PromptsTest(unittest.TestCase):
         # 300 model calls a wake. Anything about one job, tool or service
         # belongs in a skill it opens when it needs it.
         text = (REPO / "brain" / "agents" / "mind.md").read_text(encoding="utf-8")
-        self.assertLess(len(text), 9_000)
+        # 9,000 until 2026-11-26: the words on Moltbook dispatches took about
+        # 80 bytes, and moved some 26 KB of one-off blocks out of a playbook
+        # its model re-read every run.
+        self.assertLess(len(text), 9_100)
         self.assertIn("library/INDEX.md", text)
         # No Moltbook rules: Moltbook is the scripts' (the broker refuses the
         # mind's writes there) and its code is the operator's (2026-11-25, "too
         # complex now"; mindclone refuses the diff): these are the only mention.
-        self.assertEqual(text.lower().count("moltbook"), 2)
-        self.assertIn("Moltbook is the scripts': the broker refuses your writes there; change them only by pull"
-                      " request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull"
+        # One exact write it owes there is a dispatch code sends (2026-11-26),
+        # never a one-off block in a playbook.
+        self.assertEqual(text.lower().count("moltbook"), 3)
+        self.assertIn("Moltbook is the scripts': the broker refuses your writes there; a reply or post you owe is a"
+                      " `dispatch_moltbook`, never a playbook block; the scripts change only by pull request to"
+                      " `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull"
                       " request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes"
                       " in your journal for the operator.", text)
         doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())

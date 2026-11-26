@@ -50,22 +50,19 @@ Your hourly post job asks the hand first and is skipped while the gap is
 shut. And a promise announcement lives on a surface that survives, never only
 inside a write that can die.
 
-## A staged reply is not a sent reply
+## One owed write from the mind is a dispatch
 
-A reply drafted in a home note is not on its way until the beat that sends it can see it: a dispatch block in the owning playbooks file, with the target ids, the observable pin and an expiry, is the shipping lane. Staging a draft and waiting for a carrier is how a reply misses every run while each run still reports ok (two talk-back replies staged 2026-11-25T14:3xZ missed every run until 16:4xZ for exactly this reason). If a reply exists only in home notes, wire the dispatch block in the same wake, or say in the journal that it is not wired and name the wake that will.
-
-## A reply outside the guard window is not observable
-
-The answer-once pins read the newest 100 comments of a thread. A sent reply
-that ages past that window is invisible to every later guard read, so the
-pin can no longer see the success it guards and the block looks unspent
-forever: it re-fires, burns the run's dispatch slot on `once_per_parent`
-every time, and can starve the other blocks. So the pin is only observable
-while the parent sits inside the window. An answer-once block fires only
-while its parent comment is inside the newest 100 of its thread's guard
-input; the moment the parent is outside it, the block is spent whether or
-not the reply was sent, and every run after that ignores it. A late reply
-to a parent that left the window cannot be sent: the hand refuses it with
-`unknown_parent`, however the reply was selected, because the reply path
-reads the same newest 100 before it accepts an answer. A reply without
-`parent_id` does not answer that parent.
+The mind never writes to Moltbook, and a reply it owes is never a block in a
+playbook (each one used to be a pull request and a guard input, re-read by
+the playbook's model every run). It files the exact words instead:
+`{"do": "dispatch_moltbook", "post_id": "<uuid>", "parent_id": "<uuid>",
+"body": "...", "expires_at": "<ISO time, after now and at most 7 days out>",
+"why": "..."}` (a post: `title`, `submolt`, `body`), at most 7 days out. Code sends
+it from the beat through this same hand, one a beat, so every rule here
+holds. Filing is refused with the reason (a short id, a parent already
+answered, your own comment, a duplicate, the guard, ten already waiting);
+`teeny dispatches` shows each one's state: `sent`, `answered` (a reply of
+yours was already there), `expired`, `refused` (final, never retried), `held` (the judge was down;
+the guard sends it when it answers) or
+`pending` (waiting, or until `retry_at` after a pacing or cap refusal). A
+reply that exists only in a home note is not on its way until it is filed.

@@ -129,6 +129,8 @@ bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
+bin/teeny do '{"do": "dispatch_moltbook", ...}'    file one exact Moltbook reply or post for code to send
+bin/teeny dispatches                               those dispatches and how each went
 bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY, 500 a day)
 bin/teeny gh <verb> '<json>'                       GitHub: hands/gh whole, but ingest (see "Shipping")
 ```
@@ -174,7 +176,23 @@ and no pulse failure. Live that day, 25 of the mind's 44 journal lines were
 about Moltbook comment slots. Its reads stay: `call` to Moltbook is GET only,
 and the pulse keeps the Moltbook followers and karma. The mind changes how
 the scripts work there by a pull request to `brain/playbooks/moltbook-*.md`
-or `brain/skills/moltbook`. Moltbook code it leaves alone (the operator,
+or `brain/skills/moltbook`.
+
+One exact write it owes there (a reply under a comment, a comment, a post)
+is a **dispatch** (the operator, 2026-11-26): `bin/teeny do '{"do":
+"dispatch_moltbook", "post_id": "<uuid>", "parent_id": "<uuid>", "body":
+"...", "expires_at": "<ISO time, after now and at most 7 days out>", "why": "..."}'` files the words with `hands/moltbook dispatch file`, which checks them and
+answers filed or refused with the reason, and the five-minute beat sends a
+due one by code, verbatim, through the hand's own comment or post path, one
+a beat (docs/hands.md, "Dispatches"). `bin/teeny dispatches` lists them and
+how each went. Nothing is sent from the broker, and the beat's own turn
+neither files nor sees them. Before that, each reply the mind owed was a pull
+request appending a one-off block and a guard input to
+`moltbook-threads.md`: about 16 of its 29 pull requests from 2026-11-24 to
+11-26, each a 35-minute CI cycle and babysitter rounds, re-read by the
+playbook's model on every run, expiring only in prose and cleaned up by more
+pull requests. In a rehearsal (`MIND_DRY_RUN`) the hand checks a filing and
+files nothing. Moltbook code it leaves alone (the operator,
 2026-11-25: "i think it's too complex now"): `mindclone.ship` refuses a new
 pull request or an update that touches `hands/moltbook`, its library and
 tests, `bin/moltbook-prune`, `home/tools/thread-walk/` or any other path

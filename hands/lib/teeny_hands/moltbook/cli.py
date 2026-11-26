@@ -56,6 +56,12 @@ the box.
   A  follow     {name}                        at most MOLTBOOK_MAX_FOLLOWS_PER_DAY (30) a day
   A  unfollow   {name}                        never followed again afterwards
   A  subscribe  {submolt}
+  A  dispatch file                           file one exact reply, comment or post for code to send
+                                              (JSON on stdin: {post_id, parent_id?, body, expires_at, why}
+                                              or {submolt?, title, body, format?, expires_at, why});
+                                              checked now, refused with a rule (dispatch.py)
+  R  dispatch list [--days N]                 pending dispatches and those settled in the last N days (7)
+  O  dispatch run                             send what is due, at most one write (the beat runs it)
   O  register --name N --description D        prints the new key once; stores nothing
   O  pending [--status S]                     challenges left for the operator, and the failure count
   O  verify ID --answer N                     answer a pending challenge
@@ -72,7 +78,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, bridge, client, exchanges, inbox, material, metrics, owed, reads, rules, study
+from . import actions, bridge, client, dispatch, exchanges, inbox, material, metrics, owed, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -125,6 +131,14 @@ def _collab(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     if not args.note or not args.note.strip():
         raise hand.HandError("collab add needs --note: where and how the consent was given")
     return rules.collab_add(name, args.note.strip())
+
+
+def _dispatch(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    if args.action == "file":
+        return dispatch.file(hand.read_body())
+    if args.action == "run":
+        return dispatch.run()
+    return dispatch.listing(args.days)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -202,6 +216,9 @@ def parser() -> argparse.ArgumentParser:
     ):
         verb(name, lambda args, body, handler=handler: handler(body), help, body=True)
 
+    dispatching = verb("dispatch", _dispatch, "the dispatch queue: file one exact write, list them, send what is due")
+    dispatching.add_argument("action", choices=("file", "list", "run"))
+    dispatching.add_argument("--days", type=_bounded(1, 30, "--days"), default=dispatch.LISTED_DAYS)
     register = verb("register", lambda a, _: actions.register(a.name, a.description), "register a new agent (operator)")
     register.add_argument("--name", required=True)
     register.add_argument("--description", required=True)

@@ -38,7 +38,7 @@ runs from another folder.
 
 ## Standing targets
 
-Full ids change as dispatch blocks land; the fresh live listing is the source.
+Full ids change as dispatches are filed; the fresh live listing is the source.
 The shipped config covers the open set as of 2026-11-25:
 
     threads:

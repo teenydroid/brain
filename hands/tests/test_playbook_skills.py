@@ -62,6 +62,17 @@ class PlaybookSkillsTest(unittest.TestCase):
             if meta.get("surface") == "moltbook" or "hand:moltbook" in meta.get("output", ""):
                 self.assertIn("moltbook", meta.get("skills", []), path.name)
 
+    def test_no_playbook_carries_a_one_off_write(self):
+        # Until 2026-11-26 the mind shipped each Moltbook reply it owed as a
+        # pull request appending a "one-off dispatch" block (and a guard input
+        # of its own) to a playbook: moltbook-threads.md grew to 31 KB, re-read
+        # by its model every run. One exact write is a dispatch now (hands/moltbook
+        # dispatch, the broker's dispatch_moltbook), filed and sent by code.
+        for path in sorted((REPO / "brain" / "playbooks").glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("one-off dispatch", text.lower(), path.name)
+            self.assertNotIn("dispatch-guard", text, path.name)
+
     def test_the_moltbook_rules_left_the_shared_context(self):
         context = (REPO / "brain" / "CONTEXT.md").read_text(encoding="utf-8")
         skill = (REPO / "brain" / "skills" / "moltbook" / "SKILL.md").read_text(encoding="utf-8")

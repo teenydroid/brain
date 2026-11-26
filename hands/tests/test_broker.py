@@ -443,6 +443,8 @@ class MoltbookIsTheScriptsTest(BrokerCase):
             self.assertIn("Moltbook belongs to the scripts", out["reason"])
             self.assertIn("Nothing was sent", out["reason"])
             self.assertIn("brain/playbooks/moltbook-", out["reason"])
+            # The refusal names the one way left: file the write for code to send.
+            self.assertIn("dispatch_moltbook", out["reason"])
         self.assertEqual(self.hand_calls(), [])
         self.assertEqual(self.caps(), {})
         self.assertEqual([line["verb"] for line in self.ledger()], [i["do"] for i in self.WRITES])
@@ -459,6 +461,61 @@ class MoltbookIsTheScriptsTest(BrokerCase):
         code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
         self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+
+    DISPATCH = {"do": "dispatch_moltbook", "post_id": "8c95feab-bda8-4bea-b8ee-5137d5e97337",
+                "parent_id": "8738e440-ea37-4498-8a78-fd382e154820", "body": "the exact words",
+                "expires_at": "2026-09-16T00:00:00Z", "why": "owed an answer"}
+
+    def test_a_dispatch_is_filed_with_the_hand_and_sends_nothing(self):
+        self.start(MIND_DRY_RUN="0")
+        code, out = self.post("/do", self.DISPATCH)
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        fields = {k: v for k, v in self.DISPATCH.items() if k != "do"}
+        self.assertEqual([(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()],
+                         [("moltbook", ["dispatch", "file"], fields)])
+        self.assertEqual(self.caps(), {})
+        self.assertEqual(self.ledger()[-1]["verb"], "dispatch_moltbook")
+
+    def test_a_rehearsing_mind_files_through_the_hands_own_dry_run(self):
+        self.start(MIND_DRY_RUN=None)
+        code, out = self.post("/do", self.DISPATCH)
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(out["result"], {"ok": True, "dry_run": True})
+
+    def test_a_refused_filing_comes_back_refused(self):
+        self.start(MIND_DRY_RUN="0", env={"FAKE_EXIT_MOLTBOOK": "2"})
+        code, out = self.post("/do", self.DISPATCH)
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertEqual(out["reason"], "daily cap")
+
+    def test_the_verb_is_offered_and_the_writes_are_not(self):
+        self.start()
+        code, out = self.post("/do", {"do": "run_shell"})
+        self.assertIn("dispatch_moltbook", out["reason"])
+        self.assertNotIn("comment_moltbook", out["reason"])
+
+    def test_dispatches_lists_them_through_the_hand(self):
+        self.start()
+        code, out = self.post("/dispatches")
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        code, out = self.post("/dispatches", {"days": 14})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual([c["argv"] for c in self.hand_calls()],
+                         [["dispatch", "list", "--days", "7"], ["dispatch", "list", "--days", "14"]])
+        code, out = self.post("/dispatches", {"days": "all"})
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertEqual(len(self.hand_calls()), 2)
+
+    def test_the_client_has_dispatches(self):
+        self.start()
+        client = lambda *argv: subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True, text=True,
+                                              timeout=60, env={"PATH": os.environ["PATH"]})
+        self.assertIn("dispatch_moltbook", client("help").stdout)
+        self.assertIn("teeny dispatches", client("help").stdout)
+        self.assertEqual(client("dispatches").returncode, 0)
+        self.assertEqual(client("dispatches", '{"days": 3}').returncode, 0)
+        self.assertEqual([c["argv"] for c in self.hand_calls()],
+                         [["dispatch", "list", "--days", "7"], ["dispatch", "list", "--days", "3"]])
 
     def test_the_library_says_the_moltbook_skill_is_the_scripts(self):
         self.settings()

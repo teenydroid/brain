@@ -92,6 +92,12 @@
    put back: the failed answer's prose stays on the thread, and may say
    otherwise. A quiet beat's failure leaves nothing (its moment is let go).
 
+12. The mind's Moltbook dispatches (the broker's `dispatch_moltbook`,
+   teeny_hands.moltbook.dispatch) go out from here, by code, never through
+   the beat's turn: when one is due, `hands/moltbook dispatch run` sends it
+   verbatim through the comment or post path, at most one a beat and at any
+   hour (dispatch()). The record says `dispatched`.
+
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
 them), `failed`, and the no-ops `asleep`, `busy` and `idle` (`resting` when
@@ -2401,6 +2407,28 @@ def listen() -> Json | None:
     return out if code == 0 else {"ok": False, **out}
 
 
+def dispatch() -> Json | None:
+    """The mind's Moltbook dispatches (teeny_hands.moltbook.dispatch): when
+    one is due, `hands/moltbook dispatch run` sends it, verbatim, at most one
+    a beat, at any hour, like a deferred intent (resume). Code sends them,
+    never a model: the beat's own turn neither sees nor writes them. Asked
+    in-process first, so a beat with nothing due starts no hand. A failure is
+    noted, never raised: the next beat asks again."""
+    try:
+        from teeny_hands.moltbook import dispatch as queue
+
+        if not queue.due():
+            return None
+    except Exception as exc:  # noqa: BLE001 - the beat goes on
+        print(f"[tick] moltbook dispatches unreadable: {type(exc).__name__}: {exc}"[:300], file=sys.stderr)
+        return None
+    try:
+        code, out = _run_hand("moltbook", ["dispatch", "run"], None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+    return out if code == 0 else {"ok": False, **out}
+
+
 def _idle(kind: str, raised: int, gathered: Mapping[str, Any], **more: Any) -> Json:
     """A beat that asks no model: logged all the same, marked `idle` so the
     reflection passes over it."""
@@ -2435,6 +2463,9 @@ def _beat(deadline: float) -> Json:
     resumed = resume(deadline)
     rhythm.spent(_sent(resumed))
     more: Json = {"resumed": resumed} if resumed else {}
+    dispatched = dispatch()
+    if dispatched:
+        more["dispatched"] = dispatched
     waiting = stimuli.pending()
     asleep = rhythm.night_gate(waiting)
     if asleep:
