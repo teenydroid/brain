@@ -1505,6 +1505,20 @@ class LeftoversTest(SitterScratch):
         self.assertNotIn("dropped", out)
         self.assertEqual(self.at(BRANCH, "tmp/keep.txt"), "kept\n")
 
+    def test_a_tmp_entry_the_head_deleted_and_main_tracks_is_kept(self):
+        # Review of #592: neither the base nor the head has it, main does.
+        self.commit({"tmp/keep.txt": "kept\n"}, "main")
+        git("-C", str(self.up), "checkout", "-q", BRANCH)
+        git("-C", str(self.up), "-c", "user.name=op", "-c", "user.email=op@example.com", "merge", "-q", "--no-edit", "main")
+        git("-C", str(self.up), "rm", "-q", "tmp/keep.txt")
+        self.head = self.commit({"brain/SOUL.md": "# soul\nsmall and kind\n"})
+        self.lay(**RED)
+        self.edit({"tmp/keep.txt": "kept\n", "brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix")
+        out = sitter.collect()
+        self.assertNotIn("dropped", out)
+        self.assertEqual(self.at(BRANCH, "tmp/keep.txt"), "kept\n")
+
     def test_leftovers_alone_are_nothing_to_push(self):
         self.lay(**RED)
         self.edit({"tmp/tmpabc12345/x.db": "db"})
@@ -1561,6 +1575,22 @@ class AfterReportTest(SitterScratch):
         out = sitter.collect()
         self.assertIn("pushed", out)
         self.assertNotIn("rereview", out)
+
+    def test_a_reviews_read_that_fails_does_not_hold_the_answers(self):
+        self.threads = [thread()]
+        self.lay(**RED)
+        self.gh.route("GET", f"/repos/{REPO}/pulls/7/reviews", {"message": "down"}, status=502)
+        self.edit({"brain/SOUL.md": "# soul\nkinder\n"})
+        self.report("fix", replies=[{"thread_id": "T1", "outcome": "fixed", "body": "done"}])
+        out = sitter.collect()
+        self.assertEqual((out["replied"], "rereview" in out), (1, False))
+
+    def test_checks_quote_what_a_path_says_and_skip_removed_files(self):
+        # Review of #592: a file name is the pull request's words, and a removed file cannot be checked.
+        out = sitter.checks([{"filename": "brain/playbooks/a;id;.md", "status": "added"},
+                             {"filename": "bin/x y.sh", "status": "modified"},
+                             {"filename": "bin/gone.sh", "status": "removed"}])
+        self.assertEqual(out, ["python3 bin/lib/playbook.py brain 'a;id;' >/dev/null", "bash -n 'bin/x y.sh'"])
 
     def test_the_brief_names_the_repos_own_fast_checks_for_what_it_touches(self):
         # #588: pushed red after a merge of main; a playbook's ninth [[inputs]] broke MAX_INPUTS.
