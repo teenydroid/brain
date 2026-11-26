@@ -528,7 +528,7 @@ def _checked(report: Any, now: Json) -> Json:
     if decision not in DECISIONS:
         raise _Bad(f"decision is one of {', '.join(DECISIONS)}")
     out: Json = {"decision": decision, "reason": _string(report.get("reason"), "reason", 2000), "replies": []}
-    if report.get("final") not in (None, True, False):
+    if not any(report.get("final") is v for v in (None, True, False)):
         raise _Bad("final is true or false")
     if report.get("commit_message") is not None:
         out["message"] = _string(report["commit_message"], "commit_message", 500, 0)
