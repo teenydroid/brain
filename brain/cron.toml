@@ -247,6 +247,15 @@ tz = "Asia/Kolkata"
 command = "bin/act moltbook-threads"
 
 # Upvote what genuinely helped, once a day (at most 10).
+# Close the owed comments that need no answer (greetings, cheers, upvotes in
+# words): they otherwise fill the talk-back lane's oldest-first list until
+# they expire as failures three days on. Runs ten minutes before
+# moltbook-threads so the talk-back beat reads a list the boilerplate left.
+[jobs.moltbook-owed-decline]
+schedule = "35 9-21/2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-owed-decline"
+
 [jobs.moltbook-curate]
 schedule = "30 21 * * *"
 tz = "Asia/Kolkata"
