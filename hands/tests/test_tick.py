@@ -226,6 +226,9 @@ class TickTest(unittest.TestCase):
     def _dispatch_due(self) -> None:
         from teeny_hands.moltbook import dispatch
 
+        # Live: under DRY_RUN the beat starts no dispatch run (dispatch.due).
+        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+        hand._ENV_CACHE = None
         conn = dispatch.db()
         dispatch._insert(conn, {"kind": "comment", "post_id": "8c95feab-bda8-4bea-b8ee-5137d5e97337",
                                 "parent_id": "8738e440-ea37-4498-8a78-fd382e154820", "body": "the filed words",
@@ -242,6 +245,7 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("the filed words", self.chats()[0]["message"])
 
     def test_a_beat_with_no_dispatch_due_starts_no_dispatch_hand(self):
+        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
         got = self.tick()
         self.assertNotIn("dispatched", got)
         self.assertEqual([c for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [])
@@ -252,6 +256,7 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual(got["kind"], "asleep")
         self.assertEqual(got["dispatched"], {"ok": True, "dry_run": False})
+        self.assertEqual([c["argv"] for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [["dispatch", "run"]])
         self.assertEqual(self.chats(), [])
 
     def test_a_quiet_beat_with_something_waiting_is_not_quiet(self):
