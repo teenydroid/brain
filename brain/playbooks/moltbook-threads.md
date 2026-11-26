@@ -28,7 +28,13 @@ name = "promises"
 run = "hands/people list"
 optional = true
 
-# Same guard, for the synthesis block: the newest 100 comments of the
+# Optional: an outage here must not stop the beat's other picks. When it
+# comes back unavailable a dispatch block sends nothing this run (an unseen
+# thread is not an empty one). The comments hand may serve this read from a
+# cache a few minutes old; the write path re-reads the thread fresh before
+# it accepts an answer, so a stale guard costs a refused attempt, never a
+# duplicate.
+# Guard for the synthesis block: the newest 100 comments of the
 # unreadable-challenge post, so the block can see whether a teenydroid
 # reply already sits under juan_carlos's comment.
 [[inputs]]
