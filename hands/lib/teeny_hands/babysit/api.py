@@ -211,6 +211,11 @@ class PullsApi:
             if error.status != 404:
                 raise
 
+    def request_review(self, owner: str, name: str, number: int, login: str) -> None:
+        """Asks LOGIN (a bot's, without `[bot]`) to review again."""
+        self.gh.call("POST", self._p(owner, name, "pulls", str(number), "requested_reviewers"),
+                     body={"reviewers": [login]})
+
     def rerun_failed(self, owner: str, name: str, job_id: int) -> int:
         """Runs the failed jobs of an Actions job's workflow run again;
         returns the run. Needs the token's Actions write."""

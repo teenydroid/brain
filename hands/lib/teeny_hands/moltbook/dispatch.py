@@ -31,12 +31,13 @@ settles it `answered` when a teenydroid reply already sits under the parent
 expiry is `expired`. The hand's answer settles the rest: `sent`;
 `answered` for once_per_parent (and once_per_post on a top-level comment);
 `pending` again with a `retry_at` for a pacing, cap, reserve or lockout
-refusal, or for a reply whose send failed (the next attempt reads the thread
-first); `held` for a judge outage, whose hold the guard's re-screen sends
-itself (one sender); `refused` for every other refusal, never retried (an
+refusal, or for a reply Moltbook plainly rejected (a 4xx) with no copy found
+or challenge recorded; `held` for a judge outage, which goes out only if the
+guard's re-screen clears it (one sender); an attempt is `sending` on record
+before Moltbook hears of it, so one a dead worker left is never sent again; `refused` for every other refusal, never retried (an
 unreadable challenge is a void), and for anything Moltbook created in the
-attempt whatever came after it, or a post whose send ended without a clear
-answer (`unknown_result`): a write is never sent twice. Under DRY_RUN a
+attempt whatever came after it, and for a send that ended without a clear
+answer when a copy may exist (`unknown_result`): a write is never sent twice. Under DRY_RUN a
 run says what it would send and changes nothing.
 
 `listing` is what the mind reads (`teeny dispatches`): every pending
@@ -221,7 +222,7 @@ def _preview(fields: dict[str, str], kind: str, context: Json) -> None:
 
 
 def _pending(conn: sqlite3.Connection) -> int:
-    return int(conn.execute(f"SELECT count(*) FROM {TABLE} WHERE status = 'pending'").fetchone()[0])
+    return int(conn.execute(f"SELECT count(*) FROM {TABLE} WHERE status IN ('pending', 'sending')").fetchone()[0])
 
 
 def file(body: Any) -> Json:
@@ -264,33 +265,50 @@ def file(body: Any) -> Json:
         if _pending(conn) >= cap:
             raise hand.Refused(f"{cap} dispatches already wait to be sent, the most there may be; one goes out every"
                                " few minutes, so file this when `teeny dispatches` shows room", rule="max_pending", cap=cap)
+        _duplicate(conn, row)
         if post:
-            same = conn.execute(f"SELECT id FROM {TABLE} WHERE kind = 'post' AND lower(title) = lower(?)"
-                                " AND status IN ('pending', 'sent')", (row["title"],)).fetchone()
-            if same:
-                raise hand.Refused(f"dispatch {same[0]} already carries a post with this title", rule="duplicate", id=same[0])
             from . import retell
 
             retell.check(conn, row["title"], text)
             _preview({"title": row["title"], "body": text}, "post", {"submolt": row["submolt"]})
         else:
-            same = conn.execute(f"SELECT id FROM {TABLE} WHERE kind = 'comment' AND post_id = ? AND parent_id IS ?"
-                                " AND status IN ('pending', 'sent', 'answered')", (row["post_id"], row["parent_id"])).fetchone()
-            if same:
-                raise hand.Refused(f"dispatch {same[0]} already answers this target; one dispatch a target",
-                                   rule="duplicate", id=same[0])
             _check_comment(conn, row["post_id"], row["parent_id"])
             _preview({"body": text}, "comment", {"post_id": row["post_id"], "parent_id": row["parent_id"]})
         if hand.dry_run():
             return {"dry_run": True, "would_file": _shown(row), "note": "rehearsal: checked, nothing was filed"}
+        # The cap, the duplicate check and the insert in one write
+        # transaction (BEGIN IMMEDIATE): a second filing in another process
+        # waits for it, then sees this row.
         with hand.transaction(conn):
             if _pending(conn) >= cap:
                 raise hand.Refused(f"{cap} dispatches already wait to be sent", rule="max_pending", cap=cap)
+            _duplicate(conn, row)
             row_id = _insert(conn, row, "pending")
         return {"filed": _shown({**row, "id": row_id, "status": "pending", "filed_at": hand.now()}),
                 "note": "filed: code sends it, verbatim, when it is due; `teeny dispatches` shows how it went"}
     finally:
         conn.close()
+
+
+#: The states that hold a target: waiting, at work, or done with it.
+LIVE = ("pending", "sending", "sent", "answered")
+
+
+def _duplicate(conn: sqlite3.Connection, row: Mapping[str, Any]) -> None:
+    """One dispatch a target: a post by its title, a comment by its post and
+    parent. Checked again inside the insert's transaction."""
+    marks = ",".join("?" * len(LIVE))
+    if row["kind"] == "post":
+        same = conn.execute(f"SELECT id FROM {TABLE} WHERE kind = 'post' AND lower(title) = lower(?)"
+                            f" AND status IN ({marks})", (row["title"], *LIVE)).fetchone()
+        if same:
+            raise hand.Refused(f"dispatch {same[0]} already carries a post with this title", rule="duplicate", id=same[0])
+        return
+    same = conn.execute(f"SELECT id FROM {TABLE} WHERE kind = 'comment' AND post_id = ? AND parent_id IS ?"
+                        f" AND status IN ({marks})", (row["post_id"], row["parent_id"], *LIVE)).fetchone()
+    if same:
+        raise hand.Refused(f"dispatch {same[0]} already answers this target; one dispatch a target",
+                           rule="duplicate", id=same[0])
 
 
 def _insert(conn: sqlite3.Connection, row: Mapping[str, Any], status: str, seed: str | None = None,
@@ -325,8 +343,8 @@ def listing(days: int = LISTED_DAYS) -> Json:
     """Every pending dispatch, then those settled in the last `days`, newest first."""
     conn = db()
     try:
-        pending = conn.execute(f"SELECT * FROM {TABLE} WHERE status = 'pending' ORDER BY filed_at, id").fetchall()
-        settled = conn.execute(f"SELECT * FROM {TABLE} WHERE status != 'pending' AND settled_at > ?"
+        pending = conn.execute(f"SELECT * FROM {TABLE} WHERE status IN ('pending', 'sending') ORDER BY filed_at, id").fetchall()
+        settled = conn.execute(f"SELECT * FROM {TABLE} WHERE status NOT IN ('pending', 'sending') AND settled_at > ?"
                                " ORDER BY settled_at DESC, id DESC LIMIT ?",
                                (hand.now() - days * rules.DAY, LISTED_MAX)).fetchall()
     finally:
@@ -334,8 +352,9 @@ def listing(days: int = LISTED_DAYS) -> Json:
     return {"dispatches": [_shown(dict(r)) for r in [*pending, *settled]], "pending": len(pending), "cap": max_pending(),
             "note": "sent: it went out; answered: a reply of yours was already there; expired: its time ran out; "
                     "refused: the hand said no for good (`last` says why), never retried; held: the guard's judge was "
-                    "down, and the guard sends it itself when the judge answers, or lets it go; pending: waiting, or "
-                    "until retry_at after a refusal that frees up on its own"}
+                    "down; it goes out only if the guard's re-screen clears it once the judge answers, else never; "
+                    "sending: on its way this minute; pending: waiting, or until retry_at after a refusal that "
+                    "frees up on its own"}
 
 
 # --- the seeds --------------------------------------------------------------------------------
@@ -389,7 +408,7 @@ def due() -> bool:
         return False
     conn = db()
     try:
-        if _due_rows(conn):
+        if _due_rows(conn) or conn.execute(f"SELECT 1 FROM {TABLE} WHERE status = 'sending'").fetchone():
             return True
         expired = conn.execute(f"SELECT 1 FROM {TABLE} WHERE status = 'pending' AND expires_at <= ?", (hand.now(),))
         return expired.fetchone() is not None or bool(_seeds_due(conn))
@@ -401,10 +420,17 @@ def _settle(conn: sqlite3.Connection, row_id: int, status: str, *, last: Json | 
             retry_at: float | None = None, attempted: bool = False) -> None:
     conn.execute(
         f"UPDATE {TABLE} SET status = ?, last = coalesce(?, last), result = coalesce(?, result), retry_at = ?,"
-        " attempts = attempts + ?, settled_at = ? WHERE id = ? AND status = 'pending'",
+        " attempts = attempts + ?, settled_at = ? WHERE id = ? AND status IN ('pending', 'sending')",
         (status, json.dumps(last, ensure_ascii=False) if last is not None else None, result, retry_at,
          1 if attempted else 0, None if status == "pending" else hand.now(), row_id),
     )
+
+
+def _thread(row: Mapping[str, Any], api: Any) -> Any:
+    """The newest 100 comments of the dispatch's post, read fresh."""
+    from . import reads
+
+    return reads.comments(row["post_id"], "new", 100, api, fresh=True).get("comments")
 
 
 def _already_there(row: Mapping[str, Any], api: Any) -> str | None:
@@ -413,8 +439,7 @@ def _already_there(row: Mapping[str, Any], api: Any) -> str | None:
     from . import actions, reads
 
     me = reads.me_name(api).lower()
-    nodes = reads.comments(row["post_id"], "new", 100, api, fresh=True).get("comments")
-    for node, parent in actions._walk(nodes):
+    for node, parent in actions._walk(_thread(row, api)):
         if (actions._author(node) or "").lower() == me and parent == row["parent_id"]:
             return str(node.get("id"))
     return None
@@ -469,6 +494,81 @@ def _send(row: Mapping[str, Any], api: Any) -> Json:
     return actions.comment(body, api)
 
 
+def _last_pending(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT coalesce(max(id), 0) FROM moltbook_pending").fetchone()[0])
+
+
+def _challenged(conn: sqlite3.Connection, row: Mapping[str, Any], since: int) -> bool:
+    """Whether a challenge was recorded for this dispatch's own write since
+    the attempt's start mark: a row newer than the mark, of this kind, that
+    the ledger does not already show belongs to another target. Another
+    write's challenge (another post or another comment) never counts."""
+    if row["kind"] == "post":
+        other = ("SELECT post_id FROM moltbook_posts WHERE post_id IS NOT NULL AND title IS NOT ?", (row["title"],))
+    else:
+        other = ("SELECT comment_id FROM moltbook_comments WHERE comment_id IS NOT NULL"
+                 " AND NOT (post_id IS ? AND parent_id IS ?)", (row["post_id"], row["parent_id"]))
+    got = conn.execute("SELECT 1 FROM moltbook_pending WHERE id > ? AND kind = ? AND"
+                       f" (content_id IS NULL OR content_id NOT IN ({other[0]})) LIMIT 1",
+                       (since, row["kind"], *other[1])).fetchone()
+    return got is not None
+
+
+UNKNOWN = "unknown_result"
+
+
+def _unknown(why: str) -> Json:
+    return {"refused": why[:300], "rule": UNKNOWN}
+
+
+def _unclear(conn: sqlite3.Connection, row: Mapping[str, Any], api: Any, exc: Exception, before: int,
+             before_pending: int) -> tuple[str, str | None, Json]:
+    """What a send that failed with an error makes of a dispatch. Moltbook
+    may have taken it without saying so (a timeout, a dropped answer), and a
+    first copy can sit hidden behind its challenge where no read sees it. So
+    it goes out again only when Moltbook plainly refused it (a 4xx answer) and
+    nothing says a copy exists: never a post or a top-level comment (no read
+    covers every comment on a post), never with a challenge recorded since the
+    attempt began; a reply is first looked for again in the thread."""
+    made = _made(conn, row, before)
+    if made:
+        return "refused", made, _unknown(f"Moltbook took it, then: {exc}")
+    if _challenged(conn, row, before_pending):
+        return "refused", None, _unknown(f"a challenge was left pending during the send ({exc}); a copy may be hidden")
+    if row["kind"] == "post" or row["parent_id"] is None:
+        return "refused", None, _unknown(f"the send ended without a clear answer: {exc}")
+    try:
+        there = _already_there(row, api)
+    except (RestError, hand.HandError):
+        there = None
+    if there:
+        return "answered", there, {"answered": there}
+    status = getattr(exc, "status", None)
+    if isinstance(status, int) and 400 <= status < 500:
+        return "pending", None, {"error": str(exc)[:300]}
+    return "refused", None, _unknown(f"the send ended without a clear answer: {exc}")
+
+
+def _dead_attempts(conn: sqlite3.Connection) -> int:
+    """Attempts a run began and never settled (its worker died mid-send):
+    never sent again. A reply the ledger saw land is `answered`, a post it
+    saw is `refused` with its id; anything else is `unknown_result`."""
+    settled = 0
+    for row in map(dict, conn.execute(f"SELECT * FROM {TABLE} WHERE status = 'sending'").fetchall()):
+        if row["kind"] == "comment":
+            done = _answered(conn, row["post_id"], row["parent_id"])
+            status, result, last = ("answered", done, {"answered": done}) if done else (
+                "refused", None, _unknown("the run sending it stopped before it said how it went"))
+        else:
+            got = conn.execute("SELECT post_id FROM moltbook_posts WHERE title = ? AND at >= ? ORDER BY id LIMIT 1",
+                               (row["title"], row["filed_at"])).fetchone()
+            status, result, last = "refused", (str(got[0]) if got else None), _unknown(
+                "the run sending it stopped before it said how it went")
+        _settle(conn, row["id"], status, result=result, last=last)
+        settled += 1
+    return settled
+
+
 #: One run at a time (the beat's, or one by hand): a row is selected,
 #: read, sent and settled under it.
 LOCK = "moltbook-dispatch"
@@ -499,6 +599,7 @@ def _run(api: Any = None) -> Json:
                 out["expired"] = conn.execute(
                     f"UPDATE {TABLE} SET status = 'expired', retry_at = NULL, settled_at = ? WHERE status = 'pending'"
                     " AND expires_at <= ?", (hand.now(), hand.now())).rowcount
+            out["unknown"] = _dead_attempts(conn)
         for row in map(dict, _due_rows(conn)):
             if row["kind"] == "comment":
                 done = _answered(conn, row["post_id"], row["parent_id"])
@@ -522,43 +623,42 @@ def _run(api: Any = None) -> Json:
                 out["expired"] += 1
                 continue
             before = _last_id(conn, row)
+            before_pending = _last_pending(conn)
+            if not dry:
+                # On record before Moltbook hears of it: a worker that dies
+                # mid-send leaves `sending`, which no run ever sends again.
+                with hand.transaction(conn):
+                    conn.execute(f"UPDATE {TABLE} SET status = 'sending', attempts = attempts + 1, retry_at = NULL"
+                                 " WHERE id = ? AND status = 'pending'", (row["id"],))
             try:
                 got = _send(row, api)
             except hand.Refused as refused:
                 status, retry_at = _outcome(refused, row)
                 made = _made(conn, row, before)
-                if made and status != "answered":
+                if (made or _challenged(conn, row, before_pending)) and status != "answered":
                     # Moltbook took it, and then a challenge or its answer
-                    # went wrong: hidden, perhaps, but sent once, for good.
+                    # went wrong (or a challenge for this write is on record
+                    # though its content row never landed): hidden, perhaps,
+                    # but sent once, for good.
                     status, retry_at = "refused", None
                 if not dry:
                     _settle(conn, row["id"], status, last={"refused": refused.reason[:300], **refused.detail},
                             result=made or (refused.detail.get("id") if isinstance(refused.detail.get("id"), str) else None),
-                            retry_at=retry_at, attempted=True)
+                            retry_at=retry_at)
                 out[status if status != "pending" else "retry"] = {"id": row["id"], "rule": refused.detail.get("rule")}
                 break
             except (RestError, hand.HandError) as exc:
-                made = _made(conn, row, before)
                 if not dry:
-                    if made or row["kind"] == "post" or row["parent_id"] is None:
-                        # Moltbook may have taken it without saying so (a
-                        # timeout, a dropped answer). A post, or a top-level
-                        # comment, may sit where no read reaches (a read sees
-                        # the newest 100), so it is never sent again. A reply
-                        # is retried: the next attempt reads the thread first.
-                        _settle(conn, row["id"], "refused", attempted=True, result=made,
-                                last={"refused": f"the send ended without a clear answer: {exc}"[:300],
-                                      "rule": "unknown_result"})
-                    else:
-                        _settle(conn, row["id"], "pending", last={"error": str(exc)[:300]},
-                                retry_at=hand.now() + RETRY_ERROR_SECS, attempted=True)
+                    status, result, last = _unclear(conn, row, api, exc, before, before_pending)
+                    _settle(conn, row["id"], status, result=result, last=last,
+                            retry_at=hand.now() + RETRY_ERROR_SECS if status == "pending" else None)
                 out["deferred"] = row["id"]
                 break
             if dry or got.get("dry_run"):
                 out["would_send"] = {"id": row["id"], **got}
                 break
             content = got.get("commented") or got.get("posted")
-            _settle(conn, row["id"], "sent", result=str(content) if content else None, last=got, attempted=True)
+            _settle(conn, row["id"], "sent", result=str(content) if content else None, last=got)
             out["sent"] = 1
             out["dispatch"] = row["id"]
             break

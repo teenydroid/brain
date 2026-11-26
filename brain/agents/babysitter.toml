@@ -23,7 +23,10 @@ temperature = 0.2
 # and writes the pin as `[teams.babysitter]`.
 model = "glm-5.3-flash"
 # Set above what the turn deadline (bin/lib/teeny.sh, 1800 s) lets through, as
-# for the mind: a run that reaches this count is recorded as failed.
+# for the mind: a run that reaches this count is recorded as failed. The
+# deadline is what binds: on the box (2026-11-25/26) every cut-off run was
+# the harness's wind-down at 1680 s or the backstop at 1800 s, the longest
+# made 135 model calls, and none came near this cap.
 max_iterations = 200
 sandbox_mode = "sandboxed"
 sandbox_filesystem_only = true

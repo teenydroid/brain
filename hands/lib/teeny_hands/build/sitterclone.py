@@ -11,7 +11,9 @@ here either:
 
 `prepare(job, branch, head, merge_main)` checks out HEAD, with main merged in
 when asked (a merge not committed yet; a conflict is left in the files as
-its markers for the agent to resolve). `ship(prepared, message)` refuses
+its markers for the agent to resolve), and says whether main already holds
+the whole change. `ship(prepared, message)` drops what a test run left at
+the top of the tree (LEFTOVER, when nothing there is tracked) and refuses
 what mindclone.ship refuses (a `.git`, anything but plain files, over the
 size limits, a frozen path as of main, what looks like a secret), a conflict
 marker left in a conflicted file, and a branch that moved; then it pushes
@@ -41,6 +43,10 @@ def place(job: str) -> mindclone.Place:
 PREFIX = selfclone.BRANCH_PREFIX
 #: A line git writes where a merge conflicts.
 MARKER = re.compile(rb"^(<<<<<<< |>>>>>>> )", re.MULTILINE)
+#: A new top-level entry a test run leaves: a TMPDIR made in the tree, or a
+#: tempfile one made there (#588, 2026-11-26: tmp/tmpXXXX/state/hands.db
+#: was refused as a secret and cost a try). Never one the head tracks.
+LEFTOVER = re.compile(r"tmp[A-Za-z0-9_]*")
 
 
 def locked():
@@ -60,25 +66,34 @@ def _merge(head: str, main: str) -> tuple[str, list[str]]:
 def prepare(job: str, branch: str, head: str, merge_main: bool) -> Json:
     """The tree at HEAD of BRANCH, main merged in when MERGE_MAIN and there
     is something to merge: {branch, head, tree, main, conflicts, behind,
-    unmarked, diff}; `diff` is the pull request's whole change as a patch,
-    `unmarked` the conflicts git leaves no marker in (deleted on one side,
-    changed on the other; binary)."""
+    unmarked, superseded, diff}; `diff` is the pull request's whole change
+    as a patch, `unmarked` the conflicts git leaves no marker in (deleted on
+    one side, changed on the other; binary), `superseded` whether merging it
+    into main would change nothing."""
     with mindclone.at(place(job)), locked():
         origin = mindclone._fetch_origin()
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved while it was read", rule="moved")
         behind = not mindclone._is_ancestor(origin, head)
-        tree = _bare("rev-parse", f"{head}^{{tree}}").stdout.decode().strip()
+        tree = _tree(head)
         main, conflicts = None, []
         if merge_main and behind:
             main = origin
             tree, conflicts = _merge(head, origin)
         unmarked = [path for path in conflicts if not _marked(tree, path)]
+        # Only a clean merge: git keeps main's side of a conflict (a file the
+        # pull request deletes and main edited), which can equal main.
+        into_main, clash = (tree, conflicts) if main else _merge(head, origin) if behind else (tree, [])
+        superseded = not clash and into_main == _tree(origin)
         mindclone._fresh(head, detached=True, tree=tree)
         since = _bare("merge-base", origin, head).stdout.decode().strip()
         diff = _bare("diff", "--no-renames", since, head).stdout.decode("utf-8", "replace")
         return {"job": job, "branch": branch, "head": head, "tree": tree, "main": main, "conflicts": conflicts,
-                "unmarked": unmarked, "behind": behind, "diff": diff}
+                "unmarked": unmarked, "behind": behind, "superseded": superseded, "diff": diff}
+
+
+def _tree(commit: str) -> str:
+    return _bare("rev-parse", f"{commit}^{{tree}}").stdout.decode().strip()
 
 
 def _marked(tree: str, path: str) -> bool:
@@ -92,12 +107,21 @@ def _ignored() -> list[str]:
     return sorted(p for p in raw.split("\0") if p and "__pycache__/" not in p and not p.endswith(".pyc"))[:20]
 
 
-def _tree_now(base: str) -> str:
+def _tree_now(base: str, head: str, main: str) -> tuple[str, list[str]]:
     """The working tree as a tree object, staged over BASE in the clone's
-    index (so a tracked file an ignore rule matches stays tracked)."""
+    index (so a tracked file an ignore rule matches stays tracked), and the
+    leftovers kept out of it: never what BASE, the pull request's HEAD or
+    MAIN tracks (either side may have deleted what the other still has)."""
     _bare("read-tree", base)
     _git("add", "-A")
-    return _bare("write-tree").stdout.decode().strip()
+    added = _bare("diff-index", "--cached", "--name-only", "--no-renames", "--diff-filter=A", "-z", base)
+    tops = {p.split("/", 1)[0] for p in added.stdout.decode("utf-8", "replace").split("\0") if p}
+    dropped = sorted(t for t in tops if LEFTOVER.fullmatch(t)
+                     and not any(_bare("ls-tree", "--name-only", at, "--", t).stdout.strip() for at in (base, head, main)))
+    if dropped:
+        _bare("read-tree", base)
+        _git("add", "-A", "--", ".", *(f":(exclude,literal){t}" for t in dropped))
+    return _bare("write-tree").stdout.decode().strip(), dropped
 
 
 def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, resolved: Any = ()) -> Json:
@@ -108,10 +132,11 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
     show that it did."""
     branch, head, base, main = prepared["branch"], prepared["head"], prepared["tree"], prepared.get("main")
     with mindclone.at(place(prepared["job"])), locked():
-        mindclone._fetch_origin()
+        origin = mindclone._fetch_origin()
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved on GitHub since it was taken; nothing was pushed", rule="moved")
         ignored: list[str] = []
+        dropped: list[str] = []
         if as_laid and prepared.get("conflicts"):
             raise hand.Refused("main was merged in with conflicts: decide them and send \"fix\", not \"retry\"",
                                rule="undecided")
@@ -121,7 +146,7 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
             if mindclone._tree_kind() == "missing" or mindclone._rev("HEAD") != head:
                 raise hand.Refused("the copy is not the one that was laid out", rule="base")
             mindclone._no_git_inside()
-            tree = _tree_now(base)
+            tree, dropped = _tree_now(base, head, origin)
             ignored = _ignored()
         files = mindclone._changed(base, tree)
         if not files and main is None and not as_laid:
@@ -145,5 +170,7 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
                                          expect=head)
         finally:
             _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
+        # Checked again after: main may have moved on since the job was laid out.
+        behind_main = not mindclone._is_ancestor(origin, commit)
     return {"branch": branch, "commit": commit, "files": files, "merged_main": bool(main), "ignored": ignored,
-            **({"dry_run": True} if pushed.get("dry_run") else {})}
+            "dropped": dropped, "behind_main": behind_main, **({"dry_run": True} if pushed.get("dry_run") else {})}

@@ -434,7 +434,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-THIN = ('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')
+THIN = ('schedule = "5 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')
 REVISE = {"verdict": "revise", "findings": [{"file": "brain/playbooks/moltbook-daily.md",
                                              "problem": "the bullet restates the learning without a step",
                                              "fix": "say what to check, and where"}]}
