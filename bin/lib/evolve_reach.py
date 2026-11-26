@@ -382,11 +382,11 @@ def holds(of: int, needed: int | None) -> bool:
     return needed is not None and needed <= MAX_NEED and of >= needed
 
 
-def _said(hits: int, of: int, direction: str, needed: int | None, have: int) -> str:
+def _said(hits: int, of: int, direction: str, needed: int | None, have: int, computed: int | None = None) -> str:
     got = effect(hits, of, direction)
     if got is None or needed is None:
         return f"{hits} of {of} item(s) leave no effect to see"
-    many = f"more than {MAX_NEED}" if needed > MAX_NEED else str(needed)
+    many = f"more than {MAX_NEED}" if (computed if computed is not None else needed) > MAX_NEED else str(needed)
     return (f"{have} item(s); seeing the wanted share go from {got[0]:.0%} to {got[1]:.0%} ({POWER:.0%} power, by the "
             f"outcome's own test) needs {many} a side")
 
@@ -408,11 +408,12 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
         shares.append((days, got))
         needs = [(n, s) for d, s in shares if 2 * d >= days and s[1] and (n := need(*s, check["direction"], p)) is not None]
         needed, hardest = max(needs, default=(None, got))
-        needed = None if needed is None else needed if needed > MAX_NEED else max(needed, floor)
-        enough = holds(got[1], needed)
+        computed = needed
+        needed = None if computed is None else max(computed, floor)
+        enough = computed is not None and holds(got[1], computed) and got[1] >= needed
         out = {"days": days, "hits": got[0], "items": got[1], "need": needed, "powered": enough,
                "why": ("" if enough else "the baseline is too thin: ") + f"over the last {days} days "
-               + _said(*hardest, check["direction"], needed, got[1])}
+               + _said(*hardest, check["direction"], needed, got[1], computed)}
         if enough:
             break
     return out

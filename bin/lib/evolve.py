@@ -3752,7 +3752,11 @@ def check_power(cfg: Config, check: Any, tree: Path, base: str) -> Json:
     days = min(outcome_horizons(cfg))
     before = None
     if isinstance(check, Mapping) and check.get("kind") == "reach":
-        got = reach_power(cfg, check)
+        try:
+            got = reach_power(cfg, check)
+        except Exception as exc:  # noqa: BLE001 - an unreadable ledger is an unpowered check, never a crash
+            say(f"the check's history could not be counted: {str(exc)[:160]}")
+            got = {"days": days, "powered": False, "why": "the ledger it counts cannot be read now"}
         cuts = source_cuts(tree, base) if check.get("direction") in ("fall", "zero") else []
         return {**got, "powered": False, "cuts": cuts,
                 "why": f"the change also runs less ({'; '.join(cuts)})"} if cuts else got

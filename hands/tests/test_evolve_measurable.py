@@ -249,7 +249,7 @@ class MoltbookCodeDiffs(Box):
 
     def test_which_paths_are_moltbooks_code(self):
         for path in ("hands/moltbook", "hands/lib/teeny_hands/moltbook/owed.py", "hands/tests/moltbook/test_owed.py",
-                     "bin/moltbook-prune", "home/tools/thread-walk/run.py",
+                     "bin/moltbook-prune", "home/tools/thread-walk/run.py", "home/tools/thread-walk", "home/tools/thread-walk/",
                      "hands/moltbook_feed", "hands/tests/test_moltbook_feed.py"):  # a new hand by its name
             self.assertTrue(rt.is_moltbook_code(path), path)
         for path in ("brain/playbooks/moltbook-daily.md", "brain/skills/moltbook/SKILL.md", "hands/x",
@@ -343,6 +343,22 @@ class GrowthNeedsAThickStream(Box):
         self.config(**{**self.settings, "EVOLVE_OUTCOME_MIN_EVENTS": 250})
         got = evolve.reach_power(evolve.load_config(), ANSWERED)
         self.assertEqual((got["powered"], got["need"]), (False, 250))
+
+    def test_a_floor_past_the_cap_is_met_by_a_thicker_baseline(self):
+        src = self.ledger.sources()
+        with unittest.mock.patch.object(er, "share", return_value=(750, 1500)), \
+                unittest.mock.patch.object(er, "need", return_value=50):
+            got = er.power(ANSWERED, src, T0, (2, 7), 0.1, 500)
+            thin = er.power(ANSWERED, src, T0, (2, 7), 0.1, 2000)
+        self.assertEqual((got["powered"], got["need"]), (True, 500), got)
+        self.assertFalse(thin["powered"])
+        self.assertNotIn("more than", thin["why"])
+
+    def test_a_reach_check_whose_ledger_fails_is_unpowered_not_a_crash(self):
+        tree = Path(self.tmp.name) if hasattr(self, "tmp") else Path(".")
+        with unittest.mock.patch.object(evolve, "reach_power", side_effect=OSError("locked")):
+            got = evolve.check_power(evolve.load_config(), ANSWERED, tree, "HEAD")
+        self.assertFalse(got["powered"])
 
     def test_a_baseline_that_drifted_since_it_was_opened_on_is_thin_at_the_merge(self):
         with unittest.mock.patch.object(er, "share", side_effect=[(1, 100), (0, 4000)]):
