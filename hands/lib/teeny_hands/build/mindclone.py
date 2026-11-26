@@ -33,7 +33,8 @@ babysitter's or a person's push); any path that
 is not a plain file of the tree's own (a link, wherever it points, a nested
 repository, a hard link, a file over 2 MB, or bytes that differ from what
 git staged, read here without following a link); a frozen path, the list
-read from origin/main (selfclone's frozen check); anything the secret scan
+read from origin/main (selfclone's frozen check); a one-off Moltbook write added
+to a playbook (`playbook_dispatch`: it is a dispatch, state not a line); anything the secret scan
 finds (gitpush.scan_branch); and, for a new pull request from a copy behind
 origin/main, a file main changed since the copy was taken (`stale`: sending
 it would undo what was merged; 2026-11-24, #546). The answer carries `diff`,
@@ -647,6 +648,34 @@ def moltbook_code(path: str) -> bool:
     return low.startswith(MOLTBOOK_TOOLS) or ("moltbook" in low and not low.startswith(MOLTBOOK_WORDS))
 
 
+#: What a one-off write looks like in a playbook: a line that opens with the
+#: old dispatch heading (rules that merely mention one-off dispatches, such as
+#: "never add a one-off dispatch", do not), a guard input, or an exact hand
+#: action aimed at one Moltbook id.
+ONE_OFF = re.compile(r"^[\s#>*+\-]*one-off dispatch|name\s*=\s*[\"']dispatch-guard"
+                     r"|\"(?:post|parent)_id\"\s*:\s*\"[0-9a-f]{8}-[0-9a-f]{4}-",
+                     re.IGNORECASE | re.MULTILINE)
+
+
+def _no_playbook_dispatch(base: str, head: str, files: list[str]) -> None:
+    """Refuses a change that adds a one-off write to a playbook (the operator,
+    2026-11-26, #594: a reply Teeny owes is state, not a playbook line). One
+    exact write is a dispatch, filed in state/hands.db and sent by code."""
+    hits = []
+    for path in files:
+        if not path.startswith("brain/playbooks/"):
+            continue
+        patch = _bare("diff", "--no-renames", "-U0", base, head, "--", path, check=False).stdout.decode("utf-8", "replace")
+        added = "\n".join(gitpush._added_lines(patch).values())
+        if ONE_OFF.search(added):
+            hits.append(path)
+    if hits:
+        raise hand.Refused(f"it adds a one-off Moltbook write to {', '.join(hits)}. A reply, comment or post you owe "
+                           "is not a playbook change: file it with teeny do '{\"do\": \"dispatch_moltbook\", ...}' "
+                           "(teeny help shows the fields) and code sends it once; teeny dispatches shows how it went. "
+                           "Take it out of the playbook and send the rest", rule="playbook_dispatch", paths=hits)
+
+
 def _no_moltbook_code(files: list[str]) -> None:
     """Refuses a mind's change that touches Moltbook code (the operator,
     2026-11-25: "i think it's too complex now"). Its wording stays the mind's."""
@@ -826,6 +855,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
             raise hand.Refused("nothing changed against origin/main", rule="empty")
         _within_limits("HEAD", commit, files)
         _no_moltbook_code(files)
+        _no_playbook_dispatch(origin, commit, files)
         if head is not None and head != origin:
             merged = set(_changed(head, origin)) & set(files)
             if merged:
@@ -919,6 +949,7 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
         raise hand.Refused(f"nothing would be left in the pull request: close #{number} instead", rule="empty")
     _within_limits(since, commit, whole)
     _no_moltbook_code(whole)
+    _no_playbook_dispatch(since, commit, whole)
     _only_plain_files(commit)
     edit = {"repo": full, "number": number, **fields}
     if "body" in edit:

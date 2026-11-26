@@ -79,6 +79,40 @@ class AgentTest(Tmp):
         # Copied as it stood ("number": 1), a report was another job's and was ignored.
         self.assertNotRegex(SITTER.with_suffix(".md").read_text(), r'"number": *\d')
 
+    def test_its_prompt_has_it_write_the_report_early_and_carry_on_from_an_unfinished_one(self):
+        # 2026-11-25/26: ten runs cut off at the turn deadline left nothing.
+        text = SITTER.with_suffix(".md").read_text()
+        self.assertIn('`"final": false`', text)
+        self.assertIn("first five steps", text)
+        self.assertIn("carry on from its `reason`", text)
+        self.assertNotIn("Write the report once, last", text)
+
+    def test_its_prompt_keeps_test_runs_short_and_out_of_the_repo(self):
+        # #588: TMPDIR inside the checkout; full suites of up to 13 minutes in a 28-minute run.
+        text = SITTER.with_suffix(".md").read_text()
+        self.assertIn("`TMPDIR` is never inside the repo", text)
+        self.assertIn("Never the whole hands suite or `bin/test/doctor_test.sh`", text)
+        self.assertNotIn("timeout 900", text)
+        # Review of #592: piped into tail, a failed run reads as a pass.
+        self.assertIn('2>&1; echo "exit $?"; tail', text)
+
+    def test_its_prompt_asks_for_content_changes_to_be_said_and_does_not_model_a_fix_prefix(self):
+        # #589: a room-level post deleted as "crypto", under a commit message starting "fix:".
+        text = SITTER.with_suffix(".md").read_text()
+        self.assertIn("a call a person must see", text)
+        self.assertNotIn('"commit_message": "fix:', text)
+
+    def test_its_prompt_has_it_run_the_briefs_checks_and_edit_nothing_unrelated(self):
+        # #588 pushed red (a playbook past MAX_INPUTS); a byte budget was met by trimming unrelated mind.md lines.
+        text = SITTER.with_suffix(".md").read_text()
+        self.assertIn("run the brief's `checks`", text)
+        self.assertIn("A red one is not a `fix`", text)
+        self.assertIn("Edit only lines the findings, threads and conflicts are about", text)
+        self.assertIn("not yours to fit by trimming other lines: say so and `wait`", text)
+
+    def test_its_prompt_tells_it_what_a_close_candidate_is(self):
+        self.assertIn("`close_candidate`", SITTER.with_suffix(".md").read_text())
+
     def test_its_prompt_is_lean_and_built_as_it_is(self):
         text = SITTER.with_suffix(".md").read_text()
         self.assertLess(len(text), 5000)

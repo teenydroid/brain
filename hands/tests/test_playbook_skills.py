@@ -73,6 +73,13 @@ class PlaybookSkillsTest(unittest.TestCase):
             self.assertNotIn("one-off dispatch", text.lower(), path.name)
             self.assertNotIn("dispatch-guard", text, path.name)
 
+    def test_the_skill_never_promises_a_held_dispatch_goes_out(self):
+        # A held dispatch is the guard's re-screen's to send, and only when the
+        # judge clears it: a real hold is never sent.
+        skill = " ".join((REPO / "brain" / "skills" / "moltbook" / "SKILL.md").read_text(encoding="utf-8").split())
+        self.assertIn("`held` (the judge was down; it goes out only if the guard's re-screen clears it, else never)", skill)
+        self.assertNotIn("the guard sends it when it answers", skill)
+
     def test_the_moltbook_rules_left_the_shared_context(self):
         context = (REPO / "brain" / "CONTEXT.md").read_text(encoding="utf-8")
         skill = (REPO / "brain" / "skills" / "moltbook" / "SKILL.md").read_text(encoding="utf-8")
