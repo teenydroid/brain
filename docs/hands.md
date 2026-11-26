@@ -562,8 +562,12 @@ brain).
 1. **queue** (the sweep, after the audits): a candidate that is red, in
    conflict, behind, has an open review thread, or is green and undecided is
    checked out at its exact head in `state/sitter/home/repo-<job>`
-   (`build/sitterclone.py`; its git directory is outside the jail). With a fix
-   to make, `main` is merged in too, conflict markers left for the agent.
+   (`build/sitterclone.py`; its git directory is outside the jail). With any
+   fix to make (threads to answer included), `main` is merged in too when the
+   head is behind it, conflict markers left for the agent; not for a merge
+   decision alone. `checks` lists the repository's own fast checks for the
+   files it touches (a playbook's load, the prompt tests, `seed-cron
+   --check`, a hand's tests, `bash -n`), to run before a fix or a merge.
    Beside it, `brief.json`: the findings, the red checks with log excerpts
    (an Actions job, a token with Actions read; names only otherwise), the
    unresolved threads with their ids and the words of the review bots
@@ -587,7 +591,9 @@ brain).
    commit on the head (two parents when main was merged in), never forced,
    under the mind's clone's rules: plain files only, the frozen list as of
    `main`, the secret scan, 100 files and 3000 lines, the branch still at that
-   head. What a test run left at the top of the tree (`tmp*`, nothing the
+   head. The push says whether main moved past it meanwhile
+   (`behind_main`), and a review bot whose last word was CHANGES_REQUESTED
+   is asked to review again. What a test run left at the top of the tree (`tmp*`, nothing the
    head tracks there) is dropped and said, not pushed or refused. Then its
    threads are answered through the guard and resolved; a
    `declined` one a trusted person spoke in is answered and left to them, and
@@ -621,7 +627,8 @@ still unfinished then, a report that does not read, a push refused) or five fixe
 another (somebody else's commit starts the count over), and the pull
 request is left to the operator with one comment. A GitHub outage is not a
 try. The agent's words are in `state/sitter/decisions.jsonl`, never in the
-ledger. Under `DRY_RUN` nothing is laid out or carried out.
+ledger. A job that ends takes its whole folder with it, so nothing of it is
+left to read as current. Under `DRY_RUN` nothing is laid out or carried out.
 
 With `BABYSIT_SITTER=0` a self-change merges on green checks with no decision
 of the agent's, as before, every finding above as it was before the agent,
