@@ -180,8 +180,8 @@ or `brain/skills/moltbook`.
 
 One exact write it owes there (a reply under a comment, a comment, a post)
 is a **dispatch** (the operator, 2026-11-26): `bin/teeny do '{"do":
-"dispatch_moltbook", "post_id", "parent_id", "body", "expires_at", "why"}'`
-files the words with `hands/moltbook dispatch file`, which checks them and
+"dispatch_moltbook", "post_id": "<uuid>", "parent_id": "<uuid>", "body":
+"...", "expires_at": "2026-11-29T23:59:59Z", "why": "..."}'` files the words with `hands/moltbook dispatch file`, which checks them and
 answers filed or refused with the reason, and the five-minute beat sends a
 due one by code, verbatim, through the hand's own comment or post path, one
 a beat (docs/hands.md, "Dispatches"). `bin/teeny dispatches` lists them and

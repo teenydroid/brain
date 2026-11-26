@@ -329,6 +329,35 @@ class RunTest(Case):
         self.assertEqual((row["status"], json.loads(row["last"])["hold_id"]), ("held", 7))
         self.assertFalse(dispatch.due())
 
+    def test_a_dispatch_that_expires_during_the_read_is_not_sent(self):
+        dispatch.file(self.reply(expires_at=iso(T0 + MINUTE)))
+        self.thread([self.stranger()])
+
+        def slow_read(row, api):
+            self.at(T0 + MINUTE + 1)
+            return None
+
+        with mock.patch.object(dispatch, "_already_there", side_effect=slow_read):
+            dispatch.run()
+        self.assertEqual(self.mb.writes(), [])
+        self.assertEqual(rows()[0]["status"], "expired")
+
+    def test_one_run_at_a_time(self):
+        dispatch.file(self.reply())
+        with hand.lock(dispatch.LOCK):
+            out = dispatch.run()
+        self.assertEqual(out.get("busy"), True)
+        self.assertEqual(self.mb.writes(), [])
+        self.assertEqual(rows()[0]["status"], "pending")
+
+    def test_a_late_settlement_never_overwrites_a_settled_dispatch(self):
+        dispatch.file(self.reply())
+        conn = dispatch.db()
+        dispatch._settle(conn, 1, "sent", result="c-1")
+        dispatch._settle(conn, 1, "answered", result="c-2")
+        conn.close()
+        self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("sent", "c-1"))
+
     def test_due_says_whether_a_run_has_anything_to_do(self):
         self.assertFalse(dispatch.due())
         dispatch.file(self.reply())

@@ -55,8 +55,8 @@ inside a write that can die.
 The mind never writes to Moltbook, and a reply it owes is never a block in a
 playbook (each one used to be a pull request and a guard input, re-read by
 the playbook's model every run). It files the exact words instead:
-`{"do": "dispatch_moltbook", "post_id", "parent_id", "body", "expires_at",
-"why"}` (a post: `title`, `submolt`, `body`), at most 7 days out. Code sends
+`{"do": "dispatch_moltbook", "post_id": "<uuid>", "parent_id": "<uuid>",
+"body": "...", "expires_at": "2026-11-29T23:59:59Z", "why": "..."}` (a post: `title`, `submolt`, `body`), at most 7 days out. Code sends
 it from the beat through this same hand, one a beat, so every rule here
 holds. Filing is refused with the reason (a short id, a parent already
 answered, your own comment, a duplicate, the guard, ten already waiting);

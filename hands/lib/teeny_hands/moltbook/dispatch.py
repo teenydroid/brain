@@ -401,7 +401,7 @@ def _settle(conn: sqlite3.Connection, row_id: int, status: str, *, last: Json | 
             retry_at: float | None = None, attempted: bool = False) -> None:
     conn.execute(
         f"UPDATE {TABLE} SET status = ?, last = coalesce(?, last), result = coalesce(?, result), retry_at = ?,"
-        " attempts = attempts + ?, settled_at = ? WHERE id = ?",
+        " attempts = attempts + ?, settled_at = ? WHERE id = ? AND status = 'pending'",
         (status, json.dumps(last, ensure_ascii=False) if last is not None else None, result, retry_at,
          1 if attempted else 0, None if status == "pending" else hand.now(), row_id),
     )
@@ -469,8 +469,24 @@ def _send(row: Mapping[str, Any], api: Any) -> Json:
     return actions.comment(body, api)
 
 
+#: One run at a time (the beat's, or one by hand): a row is selected,
+#: read, sent and settled under it.
+LOCK = "moltbook-dispatch"
+
+
 def run(api: Any = None) -> Json:
-    """Sends what is due, at most one write (module docs)."""
+    """Sends what is due, at most one write (module docs), one run at a
+    time: a run that finds another at work does nothing (`busy`)."""
+    try:
+        with hand.lock(LOCK, timeout=1.0):
+            return _run(api)
+    except hand.HandError as exc:
+        if "lock" not in str(exc):
+            raise
+        return {"busy": True, "sent": 0, "note": "another dispatch run is at work"}
+
+
+def _run(api: Any = None) -> Json:
     # The mind wrote these words: the comment is tagged and recorded as its.
     os.environ["TEENY_WRITER"] = "mind"
     dry = hand.dry_run()
@@ -499,6 +515,12 @@ def run(api: Any = None) -> Json:
                         _settle(conn, row["id"], "answered", result=done, last={"answered": done})
                     out["answered"] += 1
                     continue
+            if hand.now() >= row["expires_at"]:
+                # It ran out while the thread was read: never sent late.
+                if not dry:
+                    _settle(conn, row["id"], "expired")
+                out["expired"] += 1
+                continue
             before = _last_id(conn, row)
             try:
                 got = _send(row, api)
