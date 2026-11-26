@@ -318,14 +318,34 @@ class SeedTest(Case):
         self.assertEqual((row["seed"], row["status"], row["result"]), ("seed-a", "answered", MINE))
         self.assertEqual(self.mb.writes(), [])
 
+    def test_a_post_seed_waits_for_a_box_with_posts_of_its_own_then_goes_out_once(self):
+        post = {"key": "seed-post", "submolt": "general", "title": "my checker was graded by 23 frames",
+                "body": "the corpus ships as a test", "format": "finding", "expires_at": "2026-09-15T00:00:00Z",
+                "why": "the receipt as a post"}
+        with mock.patch.object(dispatch, "SEEDS", (post,)):
+            self.assertFalse(dispatch.due())
+            own_post("f1111111-0000-4000-8000-000000000000")
+            self.assertTrue(dispatch.due())
+            self.created("post", "p-seeded")
+            dispatch.run()
+            dispatch.run()
+        [row] = rows()
+        self.assertEqual((row["seed"], row["kind"], row["status"], row["result"]), ("seed-post", "post", "sent", "p-seeded"))
+        [sent] = self.mb.requests("POST", "/posts")
+        self.assertEqual(sent.json()["title"], "my checker was graded by 23 frames")
+
     def test_the_shipped_seeds_are_well_formed(self):
         from teeny_hands.moltbook import dispatch_seeds
 
         keys = [s["key"] for s in dispatch_seeds.SEEDS]
         self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn("post", {"post" if "title" in s else "comment" for s in dispatch_seeds.SEEDS})
         for seed in dispatch_seeds.SEEDS:
-            dispatch.uuid(seed["post_id"], "post_id")
-            dispatch.uuid(seed["parent_id"], "parent_id")
+            if "title" in seed:
+                self.assertTrue(seed["title"].strip() and seed["submolt"] and len(seed["title"]) <= 300)
+            else:
+                dispatch.uuid(seed["post_id"], "post_id")
+                dispatch.uuid(seed["parent_id"], "parent_id")
             self.assertLessEqual(len(seed["body"]), 10_000)
             self.assertTrue(seed["why"].strip())
             self.assertLessEqual(dispatch.when(seed["expires_at"]), dispatch.when("2026-12-03T00:00:00Z"))

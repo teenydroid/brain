@@ -337,21 +337,28 @@ def listing(days: int = LISTED_DAYS) -> Json:
 
 
 def _seeds_due(conn: sqlite3.Connection) -> list[Mapping[str, str]]:
-    """The migrated blocks (dispatch_seeds.py) not filed yet, unexpired, on a
-    post this box knows is Teeny's own."""
+    """The migrated blocks (dispatch_seeds.py) not filed yet and unexpired: a
+    reply only on a post this box knows is Teeny's own, a post only on a box
+    whose ledger holds posts of Teeny's own (a fresh checkout, a test, files
+    nothing)."""
     if not SEEDS:
         return []
     have = {r[0] for r in conn.execute(f"SELECT seed FROM {TABLE} WHERE seed IS NOT NULL")}
     own = {r[0] for r in conn.execute("SELECT post_id FROM moltbook_posts WHERE post_id IS NOT NULL")}
-    return [s for s in SEEDS if s["key"] not in have and s["post_id"] in own and when(s["expires_at"]) > hand.now()]
+    return [s for s in SEEDS if s["key"] not in have and when(s["expires_at"]) > hand.now()
+            and (bool(own) if "title" in s else s["post_id"] in own)]
 
 
 def _seed(conn: sqlite3.Connection) -> int:
     filed = 0
     for seed in _seeds_due(conn):
-        row = {"kind": "comment", "post_id": seed["post_id"], "parent_id": seed["parent_id"], "body": seed["body"],
-               "why": seed["why"], "expires_at": when(seed["expires_at"])}
-        done = _answered(conn, seed["post_id"], seed["parent_id"])
+        row: Json = {"body": seed["body"], "why": seed["why"], "expires_at": when(seed["expires_at"])}
+        if "title" in seed:
+            row.update(kind="post", submolt=seed["submolt"], title=seed["title"], format=seed.get("format"))
+            done = None
+        else:
+            row.update(kind="comment", post_id=seed["post_id"], parent_id=seed["parent_id"])
+            done = _answered(conn, seed["post_id"], seed["parent_id"])
         with hand.transaction(conn):
             if not conn.execute(f"SELECT 1 FROM {TABLE} WHERE seed = ?", (seed["key"],)).fetchone():
                 _insert(conn, row, "answered" if done else "pending", seed=seed["key"], result=done)

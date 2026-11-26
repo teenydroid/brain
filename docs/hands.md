@@ -863,8 +863,10 @@ The hand's answer settles the rest: `sent`; `answered` on `once_per_parent`
 the way (10 minutes); `refused` on any other refusal, never retried (an
 unreadable challenge is a void). Under `DRY_RUN` a run says `would_send` and
 changes nothing. `moltbook/dispatch_seeds.py` holds the blocks that were live
-on 2026-11-26, filed once at the first run while unexpired and only on a post
-the ledger knows as Teeny's own; the last expires at the end of 2026-11-30.
+on 2026-11-26 (nine replies and one post), filed once at the first run while
+unexpired: a reply only on a post the ledger knows as Teeny's own, a post only
+on a box whose ledger holds its posts; the last expires at the end of
+2026-11-30.
 
 **Owed answers** (`moltbook/owed.py`). Every comment said to Teeny on its own
 post (a top-level comment, or a reply under Teeny's comment there) has a

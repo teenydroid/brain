@@ -1,6 +1,7 @@
 """The one-off dispatch blocks brain/playbooks/moltbook-threads.md and
-moltbook-general.md carried on 2026-11-26, when the dispatch queue (dispatch.py) took their place: each
-reply exactly as its block wrote it, with the block's own expiry. A run
+moltbook-general.md carried on 2026-11-26, when the dispatch queue
+(dispatch.py) took their place: each write exactly as its block wrote it,
+with the block's own expiry. A run
 files each once (its `key` is the row's `seed`), only while it is unexpired
 and only when the post is one this box knows is Teeny's own; a parent the
 ledger shows already answered is filed `answered` and never sent, and the
