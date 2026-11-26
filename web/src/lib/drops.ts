@@ -26,8 +26,12 @@
 
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils'
+import { REWARDS_PROGRAM_ID } from './distributor'
 import { readRaw } from './github'
 import { DIARY_REPO, DIARY_REPO_URL } from './receipts'
+
+/** $TINY on mainnet (Token-2022, 6 decimals); a devnet round pays the operator's own test mint. */
+export const TINY_MINT = '2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump'
 
 const REVALIDATE = 600
 /** The newest rounds the page reads; older ones stay in the repository. */
@@ -330,6 +334,8 @@ export function parseRound(text: string): Round {
     claims,
     txs,
   }
+  if (round.program_id !== REWARDS_PROGRAM_ID) throw new DropsError('program_id: not the Rewards program')
+  if (round.cluster === 'mainnet' && round.mint !== TINY_MINT) throw new DropsError('mint: a mainnet round pays $TINY')
   if (!round.post_url.endsWith(`/status/${round.post_id}`)) throw new DropsError('post_url: not the round post')
   if (round.status !== 'open' && !round.seed) throw new DropsError('seed: required once drawn')
   if (

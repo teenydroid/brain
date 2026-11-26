@@ -13,6 +13,7 @@ import {
 } from "./distributor"
 import {
   checkDraw,
+  TINY_MINT,
   drawOrder,
   DropsError,
   findClaim,
@@ -234,5 +235,22 @@ describe("checkDraw: drawn winners must hold a leaf once settled", () => {
   it("still passes for a drawn round whose tree is not built yet", () => {
     const round = parse(settled())
     expect(checkDraw({ ...round, status: "drawn", claims: [] })?.winners).toBe(true)
+  })
+})
+
+describe("pinned program and mint", () => {
+  const OTHER = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+
+  it("refuses a round paid through a program other than the Rewards program", () => {
+    expect(() => parse({ ...settled(), program_id: OTHER })).toThrow()
+  })
+
+  it("refuses a mainnet round whose mint is not $TINY, and accepts $TINY", () => {
+    expect(() => parse({ ...settled(), cluster: "mainnet", mint: OTHER })).toThrow()
+    expect(parse({ ...settled(), cluster: "mainnet", mint: TINY_MINT }).mint).toBe(TINY_MINT)
+  })
+
+  it("leaves a devnet round free to name its own test mint", () => {
+    expect(parse({ ...settled(), cluster: "devnet", mint: OTHER }).mint).toBe(OTHER)
   })
 })
