@@ -946,7 +946,7 @@ class PurposeChecks(EvolveCase):
 
     def test_only_thinning_a_working_job_is_thrown_out(self):
         """g4c4: "cut moltbook-threads from 7 runs a day to 4"."""
-        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')])
+        out, checks = self.gated([self.cron('schedule = "5 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')])
         self.assertFalse(out["ok"])
         detail = checks["does more than run less"]["detail"]
         self.assertIn("moltbook-threads thinned from 49 to 28 runs a week", detail)
@@ -968,10 +968,10 @@ class PurposeChecks(EvolveCase):
         self.assertTrue(checks["does more than run less"]["ok"], checks["does more than run less"])
 
     def test_a_schedule_change_that_comes_with_more_passes(self):
-        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"'),
+        out, checks = self.gated([self.cron('schedule = "5 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"'),
                                   self.playbook_edit("Join only threads with a question in them.")])
         self.assertTrue(checks["does more than run less"]["ok"])
-        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9-21 * * *"')])
+        out, checks = self.gated([self.cron('schedule = "5 9-21/2 * * *"', 'schedule = "45 9-21 * * *"')])
         self.assertTrue(checks["does more than run less"]["ok"])
 
     def kettle(self, extra=()):
@@ -1082,7 +1082,7 @@ class PurposeChecks(EvolveCase):
     def test_a_failed_check_lands_in_the_archive_with_its_reason(self):
         """Not final since 2026-11-15: the same proposal three rounds running
         is parked, its failed check kept as the finding."""
-        self.propose(1, [self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')],
+        self.propose(1, [self.cron('schedule = "5 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')],
                      component="attention")
         self.run_gen(1)
         entry = self.entries()["g1c1"]
