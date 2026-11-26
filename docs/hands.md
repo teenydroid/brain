@@ -859,15 +859,21 @@ when the ledger already knows one. Past `expires_at` a dispatch is `expired`.
 The hand's answer settles the rest: `sent`; `answered` on `once_per_parent`
 (or `once_per_post` on a top-level comment); `pending` again with a
 `retry_at` on `rate_limit` (its wait), `daily_cap` and `own_thread_reserve`
-(30 minutes), `verification_lockout` (an hour), or a reply whose send failed
-(10 minutes; the next attempt reads the thread first); `held` on a judge
-outage, whose hold the guard's re-screen sends itself within its hour or lets
-go (`guard/rescreen.py`), so there is one sender; `refused` on any other
+(30 minutes), `verification_lockout` (an hour), or a reply Moltbook plainly
+rejected with a 4xx when the thread shows no copy and no challenge was
+recorded during the attempt (10 minutes); `held` on a judge outage, which goes
+out only if the guard's re-screen clears it within its hour
+(`guard/rescreen.py`), so there is one sender; `refused` on any other
 refusal, never retried (an unreadable challenge is a void). A write Moltbook
 created during the attempt is never sent again whatever came after it (the
-ledger row the hand writes the moment Moltbook answers), and neither is a
-post whose send ended without a clear answer (`unknown_result`): no read
-could find it. Under `DRY_RUN` a run says `would_send` and
+ledger row the hand writes the moment Moltbook answers). Neither is a send
+that ended without a clear answer (`unknown_result`): a post, a top-level
+comment, a reply with a challenge recorded during the attempt (a first copy
+may sit hidden behind it), or a reply the error does not show Moltbook
+refused. Each attempt is on record (`sending`) before Moltbook hears of it,
+and filing's cap, duplicate check and insert are one write transaction; an
+attempt a dead worker left `sending` is settled by the next run from the
+ledger, else `unknown_result`, and never sent again. Under `DRY_RUN` a run says `would_send` and
 changes nothing. `moltbook/dispatch_seeds.py` holds the blocks that were live
 on 2026-11-26 (ten replies and one post), filed once at the first run while
 unexpired: a reply only on a post the ledger knows as Teeny's own, a post only
