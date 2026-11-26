@@ -107,7 +107,7 @@ class AgentTest(Tmp):
         text = SITTER.with_suffix(".md").read_text()
         self.assertIn("run the brief's `checks`", text)
         self.assertIn("A red one is not a `fix`", text)
-        self.assertIn("Edit only lines the findings and threads are about", text)
+        self.assertIn("Edit only lines the findings, threads and conflicts are about", text)
         self.assertIn("not yours to fit by trimming other lines: say so and `wait`", text)
 
     def test_its_prompt_tells_it_what_a_close_candidate_is(self):

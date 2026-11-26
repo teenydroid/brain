@@ -67,6 +67,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import time
@@ -412,23 +413,26 @@ def _last_ignored(result: Json) -> list[str]:
     return []
 
 
-def checks(paths: Iterable[str]) -> list[str]:
-    """The repository's own fast checks for what PATHS touch, to run before
-    a fix or a merge (#588, 2026-11-26: pushed red, a playbook's ninth
-    [[inputs]] past bin/lib/playbook.py's MAX_INPUTS)."""
+def checks(files: Iterable[Json]) -> list[str]:
+    """The repository's own fast checks for what FILES (the pull request's,
+    {filename, status}) touch, to run before a fix or a merge (#588,
+    2026-11-26: pushed red, a playbook's ninth [[inputs]] past
+    bin/lib/playbook.py's MAX_INPUTS). A file name is the pull request's
+    words: quoted for the shell. A removed file has nothing to check."""
     out: list[str] = []
-    for path in paths:
+    q = shlex.quote
+    for path in (f["filename"] for f in files if f.get("status") != "removed"):
         parts = path.split("/")
         if parts[:2] == ["brain", "playbooks"] and len(parts) == 3 and path.endswith(".md"):
-            out.append(f"python3 bin/lib/playbook.py brain {parts[2][:-3]} >/dev/null")
+            out.append(f"python3 bin/lib/playbook.py brain {q(parts[2][:-3])} >/dev/null")
         elif parts[0] == "brain" and path.endswith(".md"):
             out.append("python3 -m unittest discover -s hands/tests -t hands/tests -p test_prompts.py")
         elif path in ("brain/cron.toml", "evals/cron.pinned.toml"):
             out.append("bin/seed-cron --check")
         elif parts[:3] == ["hands", "lib", "teeny_hands"] and len(parts) > 4:
-            out.append(f"python3 -m unittest discover -s hands/tests/{parts[3]} -t hands/tests")
+            out.append(f"python3 -m unittest discover -s {q('hands/tests/' + parts[3])} -t hands/tests")
         elif parts[0] == "bin" and len(parts) == 2 and "." not in parts[1] or path.endswith(".sh"):
-            out.append(f"bash -n {path}")
+            out.append(f"bash -n {q(path)}")
     return list(dict.fromkeys(out))[:12]
 
 
@@ -438,7 +442,11 @@ def _rereview(now: Json, api: PullsApi) -> list[str]:
     fixed). A courtesy: what GitHub refuses costs nothing."""
     owner, name, _ = policy.watched(now["repo"])
     last: dict[str, Any] = {}
-    for r in api.reviews(owner, name, now["number"]):
+    try:
+        reviews = api.reviews(owner, name, now["number"])
+    except (GitHubError, hand.HandError):
+        return []
+    for r in reviews:
         if r.get("user") in policy.REVIEW_BOTS and r.get("state") not in ("COMMENTED", "PENDING"):
             last[r["user"]] = r.get("state")
     asked = []
@@ -482,7 +490,6 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     red = _red(api, owner, name, result)
     files, _ = api.files(owner, name, number)
     dead = _dead(result, prepared)
-    paths = [f["filename"] for f in files]
     brief: Json = {
         "number": number, "head_sha": head, "branch": branch, "why": why, "fixes_left": fixes_left,
         "title": result.get("title"), "base": result.get("base"),
@@ -498,7 +505,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
         "said": _said(api, owner, name, number, role),
         "files": [{"path": f["filename"], "status": f["status"], "added": f["additions"], "deleted": f["deletions"]}
                   for f in files[:100]],
-        **({"close_candidate": dead} if dead else {}), "checks": checks(paths),
+        **({"close_candidate": dead} if dead else {}), "checks": checks(files),
         "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS,
         **({"diff_note": "the diff is cut short; the files in repo are complete: read every changed file there "
             "before you decide"} if len(diff) > MAX_DIFF_CHARS else {}), "note": NOTE,
