@@ -132,7 +132,7 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
     show that it did."""
     branch, head, base, main = prepared["branch"], prepared["head"], prepared["tree"], prepared.get("main")
     with mindclone.at(place(prepared["job"])), locked():
-        mindclone._fetch_origin()
+        origin = mindclone._fetch_origin()
         if mindclone._rev(f"refs/remotes/origin/{branch}") != head:
             raise hand.Refused(f"{branch} moved on GitHub since it was taken; nothing was pushed", rule="moved")
         ignored: list[str] = []
@@ -170,5 +170,7 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
                                          expect=head)
         finally:
             _bare("update-ref", "-d", f"refs/heads/{branch}", check=False)
+    # Checked again after: main may have moved on since the job was laid out.
+    behind_main = not mindclone._is_ancestor(origin, commit)
     return {"branch": branch, "commit": commit, "files": files, "merged_main": bool(main), "ignored": ignored,
-            "dropped": dropped, **({"dry_run": True} if pushed.get("dry_run") else {})}
+            "dropped": dropped, "behind_main": behind_main, **({"dry_run": True} if pushed.get("dry_run") else {})}

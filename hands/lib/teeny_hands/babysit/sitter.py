@@ -167,10 +167,10 @@ def _save(value: Json) -> None:
 
 
 def _drop() -> None:
-    """No job: the agent finds an empty desk. The rest of its folder goes when
-    the next one is laid out."""
+    """No job: the agent finds an empty desk, nothing of the last job's left
+    in it to read as current (#590, 2026-11-26)."""
     _job_path().unlink(missing_ok=True)
-    _remove(home() / "brief.json")
+    _clear_home()
 
 
 def _report_path(now: Json) -> Path:
@@ -412,6 +412,48 @@ def _last_ignored(result: Json) -> list[str]:
     return []
 
 
+def checks(paths: Iterable[str]) -> list[str]:
+    """The repository's own fast checks for what PATHS touch, to run before
+    a fix or a merge (#588, 2026-11-26: pushed red, a playbook's ninth
+    [[inputs]] past bin/lib/playbook.py's MAX_INPUTS)."""
+    out: list[str] = []
+    for path in paths:
+        parts = path.split("/")
+        if parts[:2] == ["brain", "playbooks"] and len(parts) == 3 and path.endswith(".md"):
+            out.append(f"python3 bin/lib/playbook.py brain {parts[2][:-3]} >/dev/null")
+        elif parts[0] == "brain" and path.endswith(".md"):
+            out.append("python3 -m unittest discover -s hands/tests -t hands/tests -p test_prompts.py")
+        elif path in ("brain/cron.toml", "evals/cron.pinned.toml"):
+            out.append("bin/seed-cron --check")
+        elif parts[:3] == ["hands", "lib", "teeny_hands"] and len(parts) > 4:
+            out.append(f"python3 -m unittest discover -s hands/tests/{parts[3]} -t hands/tests")
+        elif parts[0] == "bin" and len(parts) == 2 and "." not in parts[1] or path.endswith(".sh"):
+            out.append(f"bash -n {path}")
+    return list(dict.fromkeys(out))[:12]
+
+
+def _rereview(now: Json, api: PullsApi) -> list[str]:
+    """The review bots whose last word is CHANGES_REQUESTED, asked to review
+    the fix (#588, #590: CodeRabbit's verdict stood after its threads were
+    fixed). A courtesy: what GitHub refuses costs nothing."""
+    owner, name, _ = policy.watched(now["repo"])
+    last: dict[str, Any] = {}
+    for r in api.reviews(owner, name, now["number"]):
+        if r.get("user") in policy.REVIEW_BOTS and r.get("state") not in ("COMMENTED", "PENDING"):
+            last[r["user"]] = r.get("state")
+    asked = []
+    for login in sorted(who for who, state in last.items() if state == "CHANGES_REQUESTED"):
+        bot = login.removesuffix("[bot]")
+        try:
+            api.request_review(owner, name, now["number"], bot)
+        except (GitHubError, hand.HandError):
+            continue
+        asked.append(bot)
+    if asked:
+        _row(now, "sitter_rereview", bots=asked)
+    return asked
+
+
 def _dead(result: Json, prepared: Json) -> str | None:
     """Why the pull request looks dead to code, for the agent to judge."""
     if prepared.get("superseded"):
@@ -429,9 +471,10 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     number, head, branch = result["number"], result["head_sha"], str(result["branch"])
     role = lambda login: policy.tier(login, lambda who: api.permission(owner, name, who))  # noqa: E731
     open_threads, _ = threads.unresolved(api.gh, owner, name, number, role)
-    # Main comes in with a fix that is needed anyway, not for its own sake:
-    # main moves all day, and each merge of it is another round of CI.
-    mend = bool(set(why) - {"open_threads", "decision"}) and fixes_left > 0
+    # Main comes in with any fix (answering threads too: #590 was pushed
+    # without it and left conflicting), not for a decision alone: main moves
+    # all day, and each merge of it is another round of CI.
+    mend = bool(set(why) - {"decision"}) and fixes_left > 0
     _clear_home()
     name_ = f"{number}-{os.urandom(4).hex()}"
     prepared = sitterclone.prepare(name_, branch, head, mend)
@@ -439,6 +482,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
     red = _red(api, owner, name, result)
     files, _ = api.files(owner, name, number)
     dead = _dead(result, prepared)
+    paths = [f["filename"] for f in files]
     brief: Json = {
         "number": number, "head_sha": head, "branch": branch, "why": why, "fixes_left": fixes_left,
         "title": result.get("title"), "base": result.get("base"),
@@ -454,7 +498,7 @@ def _lay(result: Json, fixes_left: int, why: list[str], api: PullsApi) -> Json:
         "said": _said(api, owner, name, number, role),
         "files": [{"path": f["filename"], "status": f["status"], "added": f["additions"], "deleted": f["deletions"]}
                   for f in files[:100]],
-        **({"close_candidate": dead} if dead else {}),
+        **({"close_candidate": dead} if dead else {}), "checks": checks(paths),
         "diff": f"diff-{name_}.patch", "diff_cut": len(diff) > MAX_DIFF_CHARS,
         **({"diff_note": "the diff is cut short; the files in repo are complete: read every changed file there "
             "before you decide"} if len(diff) > MAX_DIFF_CHARS else {}), "note": NOTE,
@@ -810,7 +854,9 @@ def _fix(now: Json, api: PullsApi, report: Json) -> Json:
     _save(now)
     _pushed(now)
     _wrote(now, "fix", report["reason"])
+    asked = _rereview(now, api)
     return {"decision": "retry" if again else "fix", "pushed": shipped["commit"],
+            "behind_main": bool(shipped.get("behind_main")), **({"rereview": asked} if asked else {}),
             **({"ignored": shipped["ignored"]} if shipped["ignored"] else {}),
             **({"dropped": shipped["dropped"]} if shipped.get("dropped") else {}), **_replies(now, api)}
 
