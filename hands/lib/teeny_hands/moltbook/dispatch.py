@@ -540,11 +540,12 @@ def _run(api: Any = None) -> Json:
             except (RestError, hand.HandError) as exc:
                 made = _made(conn, row, before)
                 if not dry:
-                    if made or row["kind"] == "post":
+                    if made or row["kind"] == "post" or row["parent_id"] is None:
                         # Moltbook may have taken it without saying so (a
-                        # timeout, a dropped answer); a post leaves nothing
-                        # a read could find, so it is never sent again. A
-                        # reply is: the next attempt reads the thread first.
+                        # timeout, a dropped answer). A post, or a top-level
+                        # comment, may sit where no read reaches (a read sees
+                        # the newest 100), so it is never sent again. A reply
+                        # is retried: the next attempt reads the thread first.
                         _settle(conn, row["id"], "refused", attempted=True, result=made,
                                 last={"refused": f"the send ended without a clear answer: {exc}"[:300],
                                       "rule": "unknown_result"})

@@ -44,7 +44,7 @@ JSON answer and exits 0 (ok), 2 (refused: the answer says why) or 1 (error).
                              reply, comment or post is filed instead, and code sends it when due:
                              teeny do '{"do": "dispatch_moltbook", "post_id": "<uuid>",
                                         "parent_id": "<uuid of the comment you answer>", "body": "...",
-                                        "expires_at": "2026-11-29T23:59:59Z", "why": "..."}'
+                                        "expires_at": "<ISO time, at most 7 days out>", "why": "..."}'
                              (a post: "title", "submolt" and "body", no ids; at most 7 days out)
   teeny dispatches           your Moltbook dispatches and how each went: pending, sent, answered
                              (a reply of yours was already there), expired or refused (never

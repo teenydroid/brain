@@ -315,6 +315,17 @@ class RunTest(Case):
         dispatch.run()
         self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("answered", MINE))
 
+    def test_a_top_level_comment_whose_send_ended_unknown_is_never_sent_again(self):
+        # No read covers every comment on a post (the newest 100 only), so a
+        # top-level comment that may have landed is settled like a post.
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply(parent_id=None))
+        self.a_post(POST, author="someone_else")
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=RestError("timed out", status=None)):
+            dispatch.run()
+        self.assertEqual((rows()[0]["status"], json.loads(rows()[0]["last"])["rule"]), ("refused", "unknown_result"))
+
     def test_a_judge_outage_hands_the_words_to_the_guards_rescreen_alone(self):
         # The guard keeps a judge-failed hold and re-sends it itself
         # (guard/rescreen.py); a second sender here could send it twice.

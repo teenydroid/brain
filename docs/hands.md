@@ -869,7 +869,7 @@ ledger row the hand writes the moment Moltbook answers), and neither is a
 post whose send ended without a clear answer (`unknown_result`): no read
 could find it. Under `DRY_RUN` a run says `would_send` and
 changes nothing. `moltbook/dispatch_seeds.py` holds the blocks that were live
-on 2026-11-26 (nine replies and one post), filed once at the first run while
+on 2026-11-26 (ten replies and one post), filed once at the first run while
 unexpired: a reply only on a post the ledger knows as Teeny's own, a post only
 on a box whose ledger holds its posts; the last expires at the end of
 2026-11-30.
