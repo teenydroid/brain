@@ -648,10 +648,13 @@ def moltbook_code(path: str) -> bool:
     return low.startswith(MOLTBOOK_TOOLS) or ("moltbook" in low and not low.startswith(MOLTBOOK_WORDS))
 
 
-#: What a one-off write looks like in a playbook: the old dispatch block's
-#: heading or guard input, or an exact hand action aimed at one Moltbook id.
-ONE_OFF = re.compile(r"one-off dispatch|dispatch-guard|\"(?:post|parent)_id\"\s*:\s*\"[0-9a-f]{8}-[0-9a-f]{4}-",
-                     re.IGNORECASE)
+#: What a one-off write looks like in a playbook: a line that opens with the
+#: old dispatch heading (rules that merely mention one-off dispatches, such as
+#: "never add a one-off dispatch", do not), a guard input, or an exact hand
+#: action aimed at one Moltbook id.
+ONE_OFF = re.compile(r"^[\s#>*+\-]*one-off dispatch|name\s*=\s*\"dispatch-guard"
+                     r"|\"(?:post|parent)_id\"\s*:\s*\"[0-9a-f]{8}-[0-9a-f]{4}-",
+                     re.IGNORECASE | re.MULTILINE)
 
 
 def _no_playbook_dispatch(base: str, head: str, files: list[str]) -> None:
@@ -663,7 +666,7 @@ def _no_playbook_dispatch(base: str, head: str, files: list[str]) -> None:
         if not path.startswith("brain/playbooks/"):
             continue
         patch = _bare("diff", "--no-renames", "-U0", base, head, "--", path, check=False).stdout.decode("utf-8", "replace")
-        added = "\n".join(line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
+        added = "\n".join(gitpush._added_lines(patch).values())
         if ONE_OFF.search(added):
             hits.append(path)
     if hits:
