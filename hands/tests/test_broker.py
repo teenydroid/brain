@@ -363,6 +363,20 @@ class DoTest(BrokerCase):
         self.assertEqual(out["reason"], "needs text")
         self.assertEqual(self.hand_calls(), [])
 
+    def test_the_mind_prompt_holds_the_no_probe_rule_with_the_true_sources(self):
+        # The rule lives with the agent that makes the calls (mind.md), not
+        # the tool-less beat (teeny.md), whose verb shapes are the beat
+        # message's (tick.SHAPE and CAPPED_SHAPES). It says what the code
+        # does: a malformed call is refused before its cap is counted (the
+        # test above), so only a call that reaches its hand spends the day's
+        # allowance.
+        prompt = (REPO / "brain" / "agents" / "mind.md").read_text()
+        self.assertIn("Never probe a verb with a real call", prompt)
+        self.assertIn("spent once a call reaches its hand", prompt)
+        self.assertIn("bin/teeny help", prompt)
+        beat = (REPO / "brain" / "agents" / "teeny.md").read_text()
+        self.assertNotIn("never probe", beat)
+
     def test_a_capped_verb_whose_cap_is_0_is_refused_before_its_hand(self):
         self.start()  # MIND_SEARCHES_PER_DAY unset: 0, off
         code, out = self.post("/do", {"do": "web_search", "query": "teeny"})
