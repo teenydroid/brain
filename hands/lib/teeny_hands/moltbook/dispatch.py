@@ -31,8 +31,12 @@ settles it `answered` when a teenydroid reply already sits under the parent
 expiry is `expired`. The hand's answer settles the rest: `sent`;
 `answered` for once_per_parent (and once_per_post on a top-level comment);
 `pending` again with a `retry_at` for a pacing, cap, reserve or lockout
-refusal, a judge outage or a Moltbook error; `refused` for every other
-refusal, never retried (an unreadable challenge is a void). Under DRY_RUN a
+refusal, or for a reply whose send failed (the next attempt reads the thread
+first); `held` for a judge outage, whose hold the guard's re-screen sends
+itself (one sender); `refused` for every other refusal, never retried (an
+unreadable challenge is a void), and for anything Moltbook created in the
+attempt whatever came after it, or a post whose send ended without a clear
+answer (`unknown_result`): a write is never sent twice. Under DRY_RUN a
 run says what it would send and changes nothing.
 
 `listing` is what the mind reads (`teeny dispatches`): every pending
@@ -425,8 +429,29 @@ def _outcome(refused: hand.Refused, row: Mapping[str, Any]) -> tuple[str, float 
         secs = float(wait) if isinstance(wait, (int, float)) and not isinstance(wait, bool) and wait > 0 else RETRY_SECS[rule]
         return "pending", hand.now() + max(secs, 1.0)
     if refused.detail.get("judge_failed"):
-        return "pending", hand.now() + RETRY_ERROR_SECS
+        # The guard keeps this hold and re-sends it itself once the judge
+        # answers (guard/rescreen.py, within its RESEND_SECS): one sender.
+        return "held", None
     return "refused", None
+
+
+def _made(conn: sqlite3.Connection, row: Mapping[str, Any], before: int) -> str | None:
+    """The post or comment Moltbook created for this dispatch during the
+    attempt that just ended, as the hand's ledger recorded it the moment
+    Moltbook returned it (before any challenge): whatever came after, it is
+    never sent again."""
+    if row["kind"] == "post":
+        got = conn.execute("SELECT post_id FROM moltbook_posts WHERE id > ? AND title = ? ORDER BY id LIMIT 1",
+                           (before, row["title"])).fetchone()
+    else:
+        got = conn.execute("SELECT comment_id FROM moltbook_comments WHERE id > ? AND post_id = ? AND parent_id IS ?"
+                           " ORDER BY id LIMIT 1", (before, row["post_id"], row["parent_id"])).fetchone()
+    return None if got is None else str(got[0] or "") or "(in the ledger)"
+
+
+def _last_id(conn: sqlite3.Connection, row: Mapping[str, Any]) -> int:
+    table = "moltbook_posts" if row["kind"] == "post" else "moltbook_comments"
+    return int(conn.execute(f"SELECT coalesce(max(id), 0) FROM {table}").fetchone()[0])
 
 
 def _send(row: Mapping[str, Any], api: Any) -> Json:
@@ -473,20 +498,36 @@ def run(api: Any = None) -> Json:
                         _settle(conn, row["id"], "answered", result=done, last={"answered": done})
                     out["answered"] += 1
                     continue
+            before = _last_id(conn, row)
             try:
                 got = _send(row, api)
             except hand.Refused as refused:
                 status, retry_at = _outcome(refused, row)
+                made = _made(conn, row, before)
+                if made and status != "answered":
+                    # Moltbook took it, and then a challenge or its answer
+                    # went wrong: hidden, perhaps, but sent once, for good.
+                    status, retry_at = "refused", None
                 if not dry:
                     _settle(conn, row["id"], status, last={"refused": refused.reason[:300], **refused.detail},
-                            result=refused.detail.get("id") if isinstance(refused.detail.get("id"), str) else None,
+                            result=made or (refused.detail.get("id") if isinstance(refused.detail.get("id"), str) else None),
                             retry_at=retry_at, attempted=True)
-                out["refused" if status == "refused" else status] = {"id": row["id"], "rule": refused.detail.get("rule")}
+                out[status if status != "pending" else "retry"] = {"id": row["id"], "rule": refused.detail.get("rule")}
                 break
             except (RestError, hand.HandError) as exc:
+                made = _made(conn, row, before)
                 if not dry:
-                    _settle(conn, row["id"], "pending", last={"error": str(exc)[:300]},
-                            retry_at=hand.now() + RETRY_ERROR_SECS, attempted=True)
+                    if made or row["kind"] == "post":
+                        # Moltbook may have taken it without saying so (a
+                        # timeout, a dropped answer); a post leaves nothing
+                        # a read could find, so it is never sent again. A
+                        # reply is: the next attempt reads the thread first.
+                        _settle(conn, row["id"], "refused", attempted=True, result=made,
+                                last={"refused": f"the send ended without a clear answer: {exc}"[:300],
+                                      "rule": "unknown_result"})
+                    else:
+                        _settle(conn, row["id"], "pending", last={"error": str(exc)[:300]},
+                                retry_at=hand.now() + RETRY_ERROR_SECS, attempted=True)
                 out["deferred"] = row["id"]
                 break
             if dry or got.get("dry_run"):
