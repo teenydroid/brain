@@ -441,7 +441,10 @@ class RulesTest(ShipTest):
         uuid = "b05de632-5816-42b7-a9a2-b04ec36e88df"
         for text in ("## one-off dispatch from the mind (until 2026-11-28 ends)\nreply once\n",
                      '```json\n{"action": "hand", "post_id": "' + uuid + '", "body": "hi"}\n```\n',
-                     "[[inputs]]\nname = \"dispatch-guard-b05de632\"\n"):
+                     "[[inputs]]\nname = \"dispatch-guard-b05de632\"\n",
+                     "++ one-off dispatch: reply once\n",
+                     "## one-off dispatch\n\u2028",
+                     'note\u2028{"post_id": "' + uuid + '"}\n'):
             with self.subTest(text=text[:30]):
                 subprocess.run(["rm", "-rf", str(self.tree)], check=True)
                 mindclone.prepare()
@@ -451,6 +454,13 @@ class RulesTest(ShipTest):
                                  ("playbook_dispatch", ["brain/playbooks/moltbook-threads.md"]))
                 self.assertIn("dispatch_moltbook", refused.reason)
                 self.assert_nothing_sent()
+
+    def test_a_playbook_rule_that_forbids_a_one_off_dispatch_still_ships(self):
+        mindclone.prepare()
+        self.edit({"brain/playbooks/moltbook-threads.md": "# threads\n"
+                   "Never add a one-off dispatch to this playbook; use dispatch_moltbook instead.\n"
+                   "The dispatch-guard inputs are gone.\n"})
+        self.assertEqual(self.ship()["files"], ["brain/playbooks/moltbook-threads.md"])
 
     def test_a_playbook_that_only_rewords_its_rules_still_ships(self):
         mindclone.prepare()
