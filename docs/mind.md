@@ -129,6 +129,8 @@ bin/teeny wake '{"name": "...", "note": "...", "at": "2026-11-23T09:00:00Z"}'
 bin/teeny wake '{"name": "...", "note": "...", "cron": "0 6 * * 1"}'
 bin/teeny wakes
 bin/teeny drop-wake NAME
+bin/teeny do '{"do": "dispatch_moltbook", ...}'    file one exact Moltbook reply or post for code to send
+bin/teeny dispatches                               those dispatches and how each went
 bin/teeny fetch '{"url": "https://example.com/"}'  read one public page (FETCHES_PER_DAY, 500 a day)
 bin/teeny gh <verb> '<json>'                       GitHub: hands/gh whole, but ingest (see "Shipping")
 ```
