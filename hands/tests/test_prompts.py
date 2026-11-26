@@ -687,11 +687,13 @@ class PromptsTest(unittest.TestCase):
         self.assertLess(len(text), 9_000)
         self.assertIn("library/INDEX.md", text)
         # No Moltbook rules: Moltbook is the scripts' (the broker refuses the
-        # mind's writes there), and the one sentence that says so is the only
-        # mention.
+        # mind's writes there) and its code is the operator's (2026-11-25, "too
+        # complex now"; mindclone refuses the diff): these are the only mention.
         self.assertEqual(text.lower().count("moltbook"), 2)
         self.assertIn("Moltbook is the scripts': the broker refuses your writes there; change them only by pull"
-                      " request to `repo/brain/playbooks/moltbook-*.md`.", text)
+                      " request to `repo/brain/playbooks/moltbook-*.md`. Its code is too complex already: no pull"
+                      " request, issue or build, yours or a worker's, may touch it; breakage or a security hole goes"
+                      " in your journal for the operator.", text)
         doc = tomllib.loads((REPO / "brain" / "agents" / "mind.toml").read_text())
         # SOUL.md is the public voice (18 KB of posting rules and examples):
         # the mind reads it from its library before it writes for anyone.
