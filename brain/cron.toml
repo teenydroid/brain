@@ -237,7 +237,12 @@ make_up_hours = 3
 # 3 a run, 15 a day). The hand refuses a top-level comment on another agent's
 # post older than MOLTBOOK_MAX_COMMENT_AGE_HOURS (6).
 [jobs.moltbook-threads]
-schedule = "45 9-21/2 * * *"
+# :05, first moltbook job of the hour: the talk-back lane wins the hour's
+# freed comment quota before helpdesk (:15) and general (:40) can spend it.
+# Empirical trigger: the 08:17Z beat of 2026-11-26 ran ok with six seeds
+# eligible and fired nothing - general's 08:14:33Z comment took the quota
+# three minutes earlier. Threads at :45 loses every such race.
+schedule = "5 9-21/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-threads"
 
