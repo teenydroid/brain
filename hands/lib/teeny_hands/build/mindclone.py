@@ -851,6 +851,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
             raise hand.Refused("nothing changed against origin/main", rule="empty")
         _within_limits("HEAD", commit, files)
         _no_moltbook_code(files)
+        _no_playbook_dispatch(origin, commit, files)
         if head is not None and head != origin:
             merged = set(_changed(head, origin)) & set(files)
             if merged:
@@ -944,6 +945,7 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
         raise hand.Refused(f"nothing would be left in the pull request: close #{number} instead", rule="empty")
     _within_limits(since, commit, whole)
     _no_moltbook_code(whole)
+    _no_playbook_dispatch(since, commit, whole)
     _only_plain_files(commit)
     edit = {"repo": full, "number": number, **fields}
     if "body" in edit:
