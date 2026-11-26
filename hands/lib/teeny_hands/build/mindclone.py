@@ -27,7 +27,9 @@ writes into the mind's tree, and the mind cannot run git on it.
 body (1..8000); a tree taken from a pull request's head rather than main; a
 title or body the guard holds (actions.guarded, surface github,
 as selfclone.ship asks it); a `.git` anywhere in the tree; nothing changed
-against origin/main; over MAX_FILES files or MAX_LINES lines; any path that
+against origin/main; over MAX_FILES files or MAX_LINES lines; Moltbook code
+(`moltbook_code`: the operator's alone, here and on an update, never on the
+babysitter's or a person's push); any path that
 is not a plain file of the tree's own (a link, wherever it points, a nested
 repository, a hard link, a file over 2 MB, or bytes that differ from what
 git staged, read here without following a link); a frozen path, the list
@@ -630,6 +632,33 @@ def _within_limits(base: str, head: str, files: list[str]) -> None:
         raise hand.Refused(f"the change is {lines} lines; the most is {MAX_LINES}", rule="too_big")
 
 
+#: Files that are Moltbook code without saying so in their path.
+MOLTBOOK_TOOLS = ("home/tools/thread-walk/",)
+#: Where a path that says moltbook is wording (playbooks, skills, the peers
+#: list, docs, evals' tasks), not code.
+MOLTBOOK_WORDS = ("brain/", "docs/", "evals/")
+
+
+def moltbook_code(path: str) -> bool:
+    """Whether PATH is Moltbook code: hands/moltbook, its library and tests,
+    bin/moltbook-prune, a tool for it under home/tools/, or anything else
+    named for Moltbook outside MOLTBOOK_WORDS."""
+    low = path.lower()
+    return low.startswith(MOLTBOOK_TOOLS) or ("moltbook" in low and not low.startswith(MOLTBOOK_WORDS))
+
+
+def _no_moltbook_code(files: list[str]) -> None:
+    """Refuses a mind's change that touches Moltbook code (the operator,
+    2026-11-25: "i think it's too complex now"). Its wording stays the mind's."""
+    hits = [path for path in files if moltbook_code(path)]
+    if hits:
+        raise hand.Refused(f"it touches Moltbook code ({', '.join(hits[:10])}), which is too complex already and is "
+                           "the operator's alone to change: take those files out of the change. If something there is "
+                           "broken or unsafe, say so in your journal for the operator and leave it; do not file it as "
+                           "an issue or build it elsewhere. brain/playbooks/moltbook-*.md and brain/skills/moltbook "
+                           "are still yours", rule="moltbook_code", paths=hits)
+
+
 def _read_in_tree(rel: str) -> bytes:
     """The bytes of REL as the tree holds it, every step opened without
     following a link, so nothing outside the tree can be read through it."""
@@ -796,6 +825,7 @@ def ship(slug: Any, title: Any, body: Any, gh: Any = None, allow: Allow | None =
         if not files or not _changed(origin, commit):
             raise hand.Refused("nothing changed against origin/main", rule="empty")
         _within_limits("HEAD", commit, files)
+        _no_moltbook_code(files)
         if head is not None and head != origin:
             merged = set(_changed(head, origin)) & set(files)
             if merged:
@@ -888,6 +918,7 @@ def _update(branch: str, title: str | None, body: str | None, origin: str, gh: A
     if not whole:
         raise hand.Refused(f"nothing would be left in the pull request: close #{number} instead", rule="empty")
     _within_limits(since, commit, whole)
+    _no_moltbook_code(whole)
     _only_plain_files(commit)
     edit = {"repo": full, "number": number, **fields}
     if "body" in edit:
