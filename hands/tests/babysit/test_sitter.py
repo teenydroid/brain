@@ -1488,15 +1488,18 @@ class LeftoversTest(SitterScratch):
 
     def test_a_tmp_entry_main_deleted_and_the_head_tracks_is_kept(self):
         # Review of #592: the merged base lacks it, the head still has it.
+        self.commit({"tmp/keep.txt": "kept\n"}, "main")
         git("-C", str(self.up), "checkout", "-q", BRANCH)
-        self.head = self.commit({"tmp/keep.txt": "kept\n"})
+        git("-C", str(self.up), "-c", "user.name=op", "-c", "user.email=op@example.com", "merge", "-q", "--no-edit", "main")
+        git("-C", str(self.up), "push", "-q", str(self.origin), "HEAD")
+        self.head = git("-C", str(self.up), "rev-parse", "HEAD").strip()
         git("-C", str(self.up), "checkout", "-q", "main")
-        self.commit({"tmp/keep.txt": "on main\n"})
         git("-C", str(self.up), "rm", "-q", "tmp/keep.txt")
         self.commit({"brain/other.md": "main moved\n"})
-        self.lay(mergeable=False, mergeable_state="dirty", **RED)
+        self.lay(mergeable_state="behind", **RED)
+        self.assertFalse((self.repo / "tmp/keep.txt").exists())
         self.edit({"tmp/keep.txt": "kept\n", "brain/SOUL.md": "# soul\nsmall and kinder\n"})
-        self.report("fix", resolved=["tmp/keep.txt"])
+        self.report("fix")
         out = sitter.collect()
         self.assertIn("pushed", out)
         self.assertNotIn("dropped", out)
