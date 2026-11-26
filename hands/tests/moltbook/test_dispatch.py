@@ -26,7 +26,7 @@ def iso(seconds: float) -> str:
 
 
 def rows() -> list[dict]:
-    conn = rules.db()
+    conn = dispatch.db()
     try:
         return [dict(r) for r in conn.execute(f"SELECT * FROM {dispatch.TABLE} ORDER BY id")]
     finally:

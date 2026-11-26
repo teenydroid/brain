@@ -237,13 +237,14 @@ def file(body: Any) -> Json:
         for key in ("post_id", "parent_id"):
             if body.get(key) is not None:
                 raise _shape(f'a post has a title and no "{key}"')
-        row.update(kind="post", title=_text(body, "title"),
-                   submolt=client.submolt_name(body.get("submolt") or "general"))
-        fmt = body.get("format")
-        if fmt is not None:
-            from .. import tags
+        from .. import tags
 
-            row["format"] = tags.split({"format": fmt})[1]["format"]
+        try:
+            row.update(kind="post", title=_text(body, "title"),
+                       submolt=client.submolt_name(body.get("submolt") or "general"),
+                       format=tags.split({"format": body.get("format")})[1]["format"])
+        except hand.HandError as exc:
+            raise _shape(str(exc)) from None
     else:
         for key in ("submolt", "format"):
             if body.get(key) is not None:
@@ -371,9 +372,14 @@ def due() -> bool:
     """Whether a run has anything to do (read only; the beat asks first)."""
     conn = db()
     try:
-        if conn.execute(f"SELECT 1 FROM {TABLE} WHERE status = 'pending' AND expires_at <= ?", (hand.now(),)).fetchone():
+        if bool(_due_rows(conn)):
             return True
-        return bool(_due_rows(conn)) or (not hand.dry_run() and bool(_seeds_due(conn)))
+        # A rehearsal files no seed and marks nothing expired, so neither
+        # makes a run worth starting.
+        if hand.dry_run():
+            return False
+        expired = conn.execute(f"SELECT 1 FROM {TABLE} WHERE status = 'pending' AND expires_at <= ?", (hand.now(),))
+        return expired.fetchone() is not None or bool(_seeds_due(conn))
     finally:
         conn.close()
 
