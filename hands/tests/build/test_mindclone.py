@@ -434,6 +434,36 @@ class RulesTest(ShipTest):
         self.edit({path: "words\n" for path in words})
         self.assertEqual(sorted(self.ship()["files"]), words)
 
+    def test_a_one_off_moltbook_write_in_a_playbook_is_refused_pointing_at_the_queue(self):
+        # The operator, 2026-11-26: a reply Teeny owes is state, not a playbook
+        # line (#594): it is a dispatch (teeny do dispatch_moltbook), filed in
+        # state/hands.db and sent by code, never a pull request.
+        uuid = "b05de632-5816-42b7-a9a2-b04ec36e88df"
+        for text in ("## one-off dispatch from the mind (until 2026-11-28 ends)\nreply once\n",
+                     '```json\n{"action": "hand", "post_id": "' + uuid + '", "body": "hi"}\n```\n',
+                     "[[inputs]]\nname = \"dispatch-guard-b05de632\"\n"):
+            with self.subTest(text=text[:30]):
+                subprocess.run(["rm", "-rf", str(self.tree)], check=True)
+                mindclone.prepare()
+                self.edit({"brain/playbooks/moltbook-threads.md": "# threads\n" + text})
+                refused = self.refused()
+                self.assertEqual((refused.detail["rule"], refused.detail["paths"]),
+                                 ("playbook_dispatch", ["brain/playbooks/moltbook-threads.md"]))
+                self.assertIn("dispatch_moltbook", refused.reason)
+                self.assert_nothing_sent()
+
+    def test_a_one_off_write_is_refused_on_an_update_too(self):
+        self.open_first()
+        mindclone.prepare(pr=9)
+        self.edit({"brain/playbooks/moltbook-general.md": "## one-off dispatch: post once\n"})
+        self.assertEqual(self.update_refused().detail["rule"], "playbook_dispatch")
+        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
+
+    def test_a_playbook_that_only_rewords_its_rules_still_ships(self):
+        mindclone.prepare()
+        self.edit({"brain/playbooks/moltbook-threads.md": "# threads\nanswer the newest comment first.\n"})
+        self.assertEqual(self.ship()["files"], ["brain/playbooks/moltbook-threads.md"])
+
     def test_moltbook_code_main_changed_since_the_copy_is_not_the_changes_own(self):
         mindclone.prepare()
         self.edit({"brain/SOUL.md": "# soul\nbrief\n"})
