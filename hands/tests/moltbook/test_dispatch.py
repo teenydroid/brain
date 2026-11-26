@@ -365,6 +365,44 @@ class RunTest(Case):
             dispatch.run()
         self.assertEqual(rows()[0]["status"], "refused")
 
+    def test_another_writes_challenge_does_not_stop_a_rejected_reply_being_retried(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+
+        def elsewhere(body, api):
+            conn = rules.db()
+            other = "f0000000-0000-4000-8000-000000000000"
+            ledger_comment("c-other", other, None, T0)
+            conn.execute("INSERT INTO moltbook_pending (at, kind, content_id, verification_code, challenge_text, status)"
+                         " VALUES (?, 'comment', 'c-other', 'v', 'lobster', 'needs_verification')", (T0,))
+            conn.execute("INSERT INTO moltbook_pending (at, kind, content_id, verification_code, challenge_text, status)"
+                         " VALUES (?, 'post', 'p-other', 'v', 'lobster', 'needs_verification')", (T0,))
+            conn.commit()
+            conn.close()
+            raise RestError("bad request", status=400)
+
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=elsewhere):
+            dispatch.run()
+        self.assertEqual(rows()[0]["status"], "pending")
+
+    def test_a_challenge_left_by_a_send_whose_content_row_is_missing_is_never_put_back_to_pending(self):
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+
+        def challenged(body, api):
+            conn = rules.db()
+            conn.execute("INSERT INTO moltbook_pending (at, kind, content_id, verification_code, challenge_text, status)"
+                         " VALUES (?, 'comment', 'c-lost', 'v', 'lobster', 'needs_verification')", (T0,))
+            conn.commit()
+            conn.close()
+            raise hand.Refused("slow down", rule="rate_limit")
+
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=challenged):
+            dispatch.run()
+        self.assertEqual(rows()[0]["status"], "refused")
+
     def test_the_attempt_is_on_record_before_the_send(self):
         dispatch.file(self.reply())
         self.thread([self.stranger()])
