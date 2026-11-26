@@ -93,6 +93,8 @@ class AgentTest(Tmp):
         self.assertIn("`TMPDIR` is never inside the repo", text)
         self.assertIn("Never the whole hands suite or `bin/test/doctor_test.sh`", text)
         self.assertNotIn("timeout 900", text)
+        # Review of #592: piped into tail, a failed run reads as a pass.
+        self.assertIn('2>&1; echo "exit $?"; tail', text)
 
     def test_its_prompt_asks_for_content_changes_to_be_said_and_does_not_model_a_fix_prefix(self):
         # #589: a room-level post deleted as "crypto", under a commit message starting "fix:".
