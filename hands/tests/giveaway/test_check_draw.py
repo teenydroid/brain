@@ -56,5 +56,13 @@ class CheckDrawWinnersCase(unittest.TestCase):
         self.assertFalse(contract.check_draw(make_round("settled", winners + [extra]))["winners"])
 
 
+class PinnedProgramAndMintCase(unittest.TestCase):
+    def test_constants_match_the_hand(self) -> None:
+        from teeny_hands.giveaway import caps
+
+        self.assertEqual(contract.REWARDS_PROGRAM_ID, caps.REWARDS_PROGRAM)
+        self.assertEqual(contract.TINY_MINT, caps.TINY_MINT)
+
+
 if __name__ == "__main__":
     unittest.main()
