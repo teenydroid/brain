@@ -786,7 +786,7 @@ class Gate(EvolveCase):
         self.assertEqual(set(checks), {"frozen paths", "hands/lib holds only teeny_hands", "frozen hands' entry points", "changed hands have tests",
                                        "docs updated", "diff size",
                                        "no binary files",
-                                       "SOUL+CONTEXT size",
+                                       "SOUL+CONTEXT size", "SOUL and CONTEXT do not grow", "Moltbook's code is left alone",
                                        "new hands have tests", "aims at a component with a reading",
                                        "does more than run less", "new hands are called", "does more than mark an arc",
                                        "changes something that runs", "seed-cron --check", "doctor --root", "eval invariants"})

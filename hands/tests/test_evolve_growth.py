@@ -129,18 +129,18 @@ class Drawn(EvolveCase):
     def test_a_reach_check_is_scored_as_a_share_two_days_after_the_merge(self):
         """Posting less cannot move it: the share is tested (Fisher), not the count."""
         t0 = T0
-        for k in range(6):  # before the merge: six proof posts, none drew anyone
-            self.ledger.post(t0 - (k + 1) * 6 * HOUR - HOUR, fmt="proof")
-        for k in range(6):  # after: six, five drew a like
-            pid = self.ledger.post(t0 + k * 6 * HOUR + HOUR, fmt="proof")
-            if k:
-                self.ledger.likes(pid, 2)
+        for k in range(54):  # before the merge: 54 proof posts, none drew anyone (what it takes to see one in ten)
+            self.ledger.post(t0 - (k + 1) * 2400 - 7 * HOUR, fmt="proof")
+        for k in range(40):  # after: 40, 30 drew a like
+            pid = self.ledger.post(t0 + k * HOUR + 60, fmt="proof")
+            if k >= 10:
+                self.ledger.likes(pid, 2, at=t0 + 44 * HOUR)
         check = {"kind": "reach", "surface": "x", "source": "proof", "measure": "nobody", "direction": "fall"}
         entry = {"id": "g1c1", "check": check, "merged_at": evolve.iso(t0)}
         got = eo.score(entry, 2, {}, self.ledger.sources(), t0 + 3 * DAY, min_events=4, p=0.1, ask=None, model=None)
-        self.assertEqual(got["verdict"], "worked")
-        self.assertEqual((got["before"], got["after"]), (6, 1))
-        self.assertEqual(got["of"], {"before": 6, "after": 6})
+        self.assertEqual(got["verdict"], "worked", got)
+        self.assertEqual((got["before"], got["after"]), (54, 10))
+        self.assertEqual(got["of"], {"before": 54, "after": 40})
         # Fewer items than the minimum on both sides together is no-data.
         thin = eo.score(entry, 2, {}, Ledger(self.root / "empty").sources(), t0 + 3 * DAY, min_events=4, p=0.1,
                         ask=None, model=None)

@@ -735,6 +735,17 @@ def _merged_at(entry: Mapping[str, Any]) -> float | None:
     return _epoch(entry.get("merged_at"))
 
 
+def spans_of(entry: Mapping[str, Any], spans: Iterable[int]) -> tuple[int, ...]:
+    """The horizons ENTRY is scored at: SPANS, but for a reach check opened on
+    a baseline of its own length (evolve_reach.power) that one alone: a
+    shorter one is too thin to say anything, and a longer one is a second
+    look at the same question."""
+    rec = entry.get("check_power")
+    if isinstance(rec, Mapping) and "items" in rec and isinstance(rec.get("days"), int):
+        return (rec["days"],)
+    return tuple(sorted(spans))
+
+
 def due(entries: Mapping[str, Json], spans: Iterable[int], now: float) -> list[tuple[Json, int]]:
     """Every merged candidate with a check, at every horizon it has reached
     and has no outcome for, oldest merge first."""
@@ -745,7 +756,7 @@ def due(entries: Mapping[str, Json], spans: Iterable[int], now: float) -> list[t
         t0 = _merged_at(entry)
         if t0 is None:
             continue
-        for days in spans:
+        for days in spans_of(entry, spans):
             if key(days) not in entry and now >= t0 + days * 86400:
                 out.append((entry, days))
     return out
@@ -833,7 +844,8 @@ def score(entry: Mapping[str, Any], days: int, entries: Mapping[str, Json], src:
     if check.get("kind") == "reach":
         import evolve_reach  # a share, not a count: Fisher's exact test, not the Poisson one below
 
-        got = evolve_reach.score(check, src, t0, span, min_events, p)
+        rec = entry.get("check_power") or {}
+        got = evolve_reach.score(check, src, t0, span, min_events, p, rec.get("need") if "items" in rec else None)
         if got is None:
             return {**out, "verdict": "no-data", "why": "the ledger could not be read"} if late else None
         return {**out, **got}
@@ -867,7 +879,7 @@ def outcome_of(entry: Mapping[str, Any], spans: Iterable[int]) -> str:
     pending before the first, no-check without a check."""
     if not isinstance(entry.get("check"), Mapping):
         return NO_CHECK
-    got = [entry[key(d)] for d in sorted(spans) if isinstance(entry.get(key(d)), Mapping)]
+    got = [entry[key(d)] for d in spans_of(entry, spans) if isinstance(entry.get(key(d)), Mapping)]
     return str(got[-1].get("verdict")) if got else PENDING
 
 
@@ -911,7 +923,7 @@ def proposer_block(entries: Mapping[str, Json], spans: Iterable[int]) -> Json | 
         row["check"] = describe(e.get("check"))
         if isinstance(e.get("check"), Mapping):
             row["outcome"] = {f"{d}d": _said(e[key(d)]) if isinstance(e.get(key(d)), Mapping) else PENDING
-                              for d in spans}
+                              for d in spans_of(e, spans)}
         else:
             row["outcome"] = NO_CHECK
         changes.append(row)

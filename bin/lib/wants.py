@@ -110,7 +110,7 @@ Build it: a new hand of your own that does what you said you would build, in you
 
 > {text}
 
-This is a feature, not an edit. In one change: `hands/<name>` (its entry point, running `teeny_hands.<name>.cli.main` through `teeny_hands.hand.run`), `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` (standard library only, no network), its own section in `docs/hands.md` (a ``## `<name>` `` heading), and a playbook in `brain/playbooks/`, scheduled in `brain/cron.toml`, whose input or output calls it. Read-only public data only: no wallet, no key, no trade, no account. Choose `<name>` yourself. Whether to build it, and when, is yours to decide."""
+This is a feature, not an edit. In one change: `hands/<name>` (its entry point, running `teeny_hands.<name>.cli.main` through `teeny_hands.hand.run`), `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` (standard library only, no network), its own section in `docs/hands.md` (a ``## `<name>` `` heading), and a playbook in `brain/playbooks/`, scheduled in `brain/cron.toml`, whose input or output calls it. Read-only public data only: no wallet, no key, no trade, no account. Nothing in Moltbook's code (`hands/moltbook`, `hands/lib/teeny_hands/moltbook`): it is left as it is. Choose `<name>` yourself. Whether to build it, and when, is yours to decide."""
 
 
 class WantsError(Exception):
@@ -205,7 +205,8 @@ def finding_wants(start: int = 0) -> list[Want]:
     for route in evolve.finding_routes(evolve.archive(), findings, cfg):
         if route["to"] != evolve_route.MIND:
             continue
-        text = (f"finding {route['family']}: prompt rules did not fix it; a code change in "
+        text = (f"finding {route['family']}: " + ("prompt rules did not fix it; " if route["tried"] else "")
+                + "a code change in "
                 + ", ".join(route["paths"]))
         out.append(Want(id=route["want"], kind="finding", subject=route["family"], section="finding",
                         text=evolve_findings.scrub(text, MAX_TEXT), hash=evolve.learning_hash(text),
