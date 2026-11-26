@@ -647,6 +647,31 @@ def moltbook_code(path: str) -> bool:
     return low.startswith(MOLTBOOK_TOOLS) or ("moltbook" in low and not low.startswith(MOLTBOOK_WORDS))
 
 
+#: What a one-off write looks like in a playbook: the old dispatch block's
+#: heading or guard input, or an exact hand action aimed at one Moltbook id.
+ONE_OFF = re.compile(r"one-off dispatch|dispatch-guard|\"(?:post|parent)_id\"\s*:\s*\"[0-9a-f]{8}-[0-9a-f]{4}-",
+                     re.IGNORECASE)
+
+
+def _no_playbook_dispatch(base: str, head: str, files: list[str]) -> None:
+    """Refuses a change that adds a one-off write to a playbook (the operator,
+    2026-11-26, #594: a reply Teeny owes is state, not a playbook line). One
+    exact write is a dispatch, filed in state/hands.db and sent by code."""
+    hits = []
+    for path in files:
+        if not path.startswith("brain/playbooks/"):
+            continue
+        patch = _bare("diff", "--no-renames", "-U0", base, head, "--", path, check=False).stdout.decode("utf-8", "replace")
+        added = "\n".join(line[1:] for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
+        if ONE_OFF.search(added):
+            hits.append(path)
+    if hits:
+        raise hand.Refused(f"it adds a one-off Moltbook write to {', '.join(hits)}. A reply, comment or post you owe "
+                           "is not a playbook change: file it with teeny do '{\"do\": \"dispatch_moltbook\", ...}' "
+                           "(teeny help shows the fields) and code sends it once; teeny dispatches shows how it went. "
+                           "Take it out of the playbook and send the rest", rule="playbook_dispatch", paths=hits)
+
+
 def _no_moltbook_code(files: list[str]) -> None:
     """Refuses a mind's change that touches Moltbook code (the operator,
     2026-11-25: "i think it's too complex now"). Its wording stays the mind's."""
