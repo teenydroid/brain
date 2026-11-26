@@ -452,13 +452,6 @@ class RulesTest(ShipTest):
                 self.assertIn("dispatch_moltbook", refused.reason)
                 self.assert_nothing_sent()
 
-    def test_a_one_off_write_is_refused_on_an_update_too(self):
-        self.open_first()
-        mindclone.prepare(pr=9)
-        self.edit({"brain/playbooks/moltbook-general.md": "## one-off dispatch: post once\n"})
-        self.assertEqual(self.update_refused().detail["rule"], "playbook_dispatch")
-        self.assertEqual(self.origin_ref(f"refs/heads/{BRANCH}"), self.first)
-
     def test_a_playbook_that_only_rewords_its_rules_still_ships(self):
         mindclone.prepare()
         self.edit({"brain/playbooks/moltbook-threads.md": "# threads\nanswer the newest comment first.\n"})
@@ -739,6 +732,8 @@ class UpdateTest(ReviseCase):
         self.open_first()
         for files, rule in (({"bin/doctor": "#!/bin/sh\necho loosened\n"}, "frozen"),
                             ({"hands/moltbook": "more\n"}, "moltbook_code"),
+                            ({"brain/playbooks/moltbook-general.md": "## one-off dispatch: post once\n"},
+                             "playbook_dispatch"),
                             ({"brain/notes.md": f"remember {LEAKED}\n"}, "secrets")):
             with self.subTest(rule=rule):
                 subprocess.run(["rm", "-rf", str(self.tree)], check=True)
