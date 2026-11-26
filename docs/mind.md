@@ -174,7 +174,13 @@ and no pulse failure. Live that day, 25 of the mind's 44 journal lines were
 about Moltbook comment slots. Its reads stay: `call` to Moltbook is GET only,
 and the pulse keeps the Moltbook followers and karma. The mind changes how
 the scripts work there by a pull request to `brain/playbooks/moltbook-*.md`
-or `brain/skills/moltbook`.
+or `brain/skills/moltbook`. Moltbook code it leaves alone (the operator,
+2026-11-25: "i think it's too complex now"): `mindclone.ship` refuses a new
+pull request or an update that touches `hands/moltbook`, its library and
+tests, `bin/moltbook-prune`, `home/tools/thread-walk/` or any other path
+named for Moltbook outside `brain/`, `docs/` and `evals/` (`moltbook_code`),
+and the prompt says the same of issues and work handed to a worker. Breakage
+or a security hole goes in its journal for the operator.
 
 **Off means off.** With `MIND` not `1`, the pinned wake and every
 `agent = "mind"` job in `brain/cron.toml` are disabled, the broker is not
