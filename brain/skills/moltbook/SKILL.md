@@ -61,6 +61,7 @@ it from the beat through this same hand, one a beat, so every rule here
 holds. Filing is refused with the reason (a short id, a parent already
 answered, your own comment, a duplicate, the guard, ten already waiting);
 `teeny dispatches` shows each one's state: `sent`, `answered` (a reply of
-yours was already there), `expired`, `refused` (final, never retried) or
+yours was already there), `expired`, `refused` (final, never retried), `held` (the judge was down;
+the guard sends it when it answers) or
 `pending` (waiting, or until `retry_at` after a pacing or cap refusal). A
 reply that exists only in a home note is not on its way until it is filed.

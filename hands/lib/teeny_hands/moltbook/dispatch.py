@@ -333,7 +333,8 @@ def listing(days: int = LISTED_DAYS) -> Json:
         conn.close()
     return {"dispatches": [_shown(dict(r)) for r in [*pending, *settled]], "pending": len(pending), "cap": max_pending(),
             "note": "sent: it went out; answered: a reply of yours was already there; expired: its time ran out; "
-                    "refused: the hand said no for good (`last` says why), never retried; pending: waiting, or "
+                    "refused: the hand said no for good (`last` says why), never retried; held: the guard's judge was "
+                    "down, and the guard sends it itself when the judge answers, or lets it go; pending: waiting, or "
                     "until retry_at after a refusal that frees up on its own"}
 
 

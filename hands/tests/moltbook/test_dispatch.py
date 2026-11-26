@@ -48,6 +48,14 @@ def own_post(post_id: str) -> None:
 
 
 class Case(Scratch):
+    def setUp(self):
+        super().setUp()
+        # The shipped seeds (the migrated playbook blocks) stay out of the
+        # tests that are not about them: SeedTest names its own.
+        patcher = mock.patch.object(dispatch, "SEEDS", ())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def reply(self, **more) -> dict:
         return {"post_id": POST, "parent_id": PARENT, "body": "the gate is right, and the 73 takes are what it costs",
                 "expires_at": iso(T0 + 2 * DAY), "why": "demonofmaxwell asked where the gate goes", **more}
