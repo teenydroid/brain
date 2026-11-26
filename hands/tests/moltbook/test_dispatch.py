@@ -134,6 +134,22 @@ class FileTest(Case):
         ledger_comment(MINE, POST, None, T0 - HOUR)
         self.refused(self.reply(parent_id=None), "once_per_post")
 
+    def test_the_duplicate_check_and_the_insert_are_one_step(self):
+        # Another filing landing between the check and the insert (a second
+        # process) must not make two dispatches for one target.
+        real = dispatch._check_comment
+
+        def racing(conn, post_id, parent_id):
+            real(conn, post_id, parent_id)
+            other = dispatch.db()
+            dispatch._insert(other, {"kind": "comment", "post_id": post_id, "parent_id": parent_id, "body": "first",
+                                     "why": "the other process", "expires_at": T0 + DAY}, "pending")
+            other.close()
+
+        with mock.patch.object(dispatch, "_check_comment", side_effect=racing):
+            self.refused(self.reply(), "duplicate")
+        self.assertEqual(len(rows()), 1)
+
     def test_at_most_ten_pending_and_zero_is_off(self):
         for n in range(10):
             dispatch.file(self.reply(parent_id=f"{n:08x}-0000-4000-8000-000000000000"))
@@ -300,7 +316,9 @@ class RunTest(Case):
         self.assertEqual((row["status"], json.loads(row["last"])["rule"]), ("refused", "unknown_result"))
         self.assertFalse(dispatch.due())
 
-    def test_a_reply_whose_send_failed_is_tried_again_after_a_fresh_read(self):
+    def test_a_reply_whose_send_ended_unclear_is_never_resent(self):
+        # A first copy may exist hidden behind its challenge, where no read
+        # sees it: when nothing says either way, it is not sent again.
         from teeny_hands.rest import RestError
 
         dispatch.file(self.reply())
@@ -308,12 +326,80 @@ class RunTest(Case):
         with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=RestError("timed out", status=None)):
             dispatch.run()
         [row] = rows()
-        self.assertEqual(row["status"], "pending")
-        # It did land after all: the next run's read finds it and sends nothing.
-        self.thread([self.stranger(replies=[{"id": MINE, "author": {"name": "teenydroid"}, "replies": []}])])
-        self.at(row["retry_at"])
-        dispatch.run()
+        self.assertEqual((row["status"], json.loads(row["last"])["rule"]), ("refused", "unknown_result"))
+        self.assertFalse(dispatch.due())
+
+    def test_a_reply_whose_send_failed_finds_its_copy_on_the_re_read(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply())
+        reads = iter([[self.stranger()], [self.stranger(replies=[{"id": MINE, "author": {"name": "teenydroid"}, "replies": []}])]])
+        with mock.patch.object(dispatch, "_thread", side_effect=lambda row, api: next(reads)), \
+                mock.patch("teeny_hands.moltbook.actions.comment", side_effect=RestError("timed out", status=None)):
+            dispatch.run()
         self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("answered", MINE))
+
+    def test_a_reply_moltbook_rejected_outright_is_tried_again(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=RestError("bad request", status=400)):
+            dispatch.run()
+        self.assertEqual(rows()[0]["status"], "pending")
+
+    def test_a_reply_with_a_challenge_left_pending_is_never_resent(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+
+        def hidden(body, api):
+            conn = rules.db()
+            conn.execute("INSERT INTO moltbook_pending (at, kind, content_id, verification_code, challenge_text, status)"
+                         " VALUES (?, 'comment', NULL, 'v', 'lobster', 'needs_verification')", (T0,))
+            conn.close()
+            raise RestError("bad gateway", status=502)
+
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=hidden):
+            dispatch.run()
+        self.assertEqual(rows()[0]["status"], "refused")
+
+    def test_the_attempt_is_on_record_before_the_send(self):
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+        seen = []
+
+        def look(row, api):
+            seen.append(rows()[0]["status"])
+            return {"commented": "c-1", "post_id": POST}
+
+        with mock.patch.object(dispatch, "_send", side_effect=look):
+            dispatch.run()
+        self.assertEqual(seen, ["sending"])
+        self.assertEqual(rows()[0]["status"], "sent")
+
+    def test_an_attempt_a_dead_worker_left_is_never_sent_again(self):
+        dispatch.file(self.POST_BODY)
+        conn = dispatch.db()
+        conn.execute(f"UPDATE {dispatch.TABLE} SET status = 'sending', attempts = 1")
+        conn.close()
+        self.created("post", "p-again")
+        self.at(T0 + HOUR)
+        dispatch.run()
+        self.assertEqual(self.mb.writes(), [])
+        [row] = rows()
+        self.assertEqual((row["status"], json.loads(row["last"])["rule"]), ("refused", "unknown_result"))
+
+    def test_a_dead_workers_attempt_the_ledger_saw_land_settles_with_its_id(self):
+        dispatch.file(self.reply())
+        conn = dispatch.db()
+        conn.execute(f"UPDATE {dispatch.TABLE} SET status = 'sending', attempts = 1")
+        conn.close()
+        ledger_comment("c-landed", POST, PARENT, T0 + 1)
+        self.at(T0 + HOUR)
+        dispatch.run()
+        self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("answered", "c-landed"))
 
     def test_a_top_level_comment_whose_send_ended_unknown_is_never_sent_again(self):
         # No read covers every comment on a post (the newest 100 only), so a
