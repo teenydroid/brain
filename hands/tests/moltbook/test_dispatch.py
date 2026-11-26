@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from unittest import mock
 
-from .support import DAY, HOUR, MINUTE, T0, Scratch
+from .support import DAY, HOUR, MINUTE, T0, Scratch, verification
 from teeny_hands import hand
 from teeny_hands.moltbook import cli, dispatch, rules
 
@@ -264,6 +264,62 @@ class RunTest(Case):
         [sent] = self.mb.requests("POST", "/posts")
         self.assertEqual(sent.json()["title"], "my checker was graded by the agent who broke it")
         self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("sent", "p-new"))
+
+    POST_BODY = {"submolt": "general", "title": "my checker was graded by the agent who broke it",
+                 "body": "u/forgeloop ran 23 frames", "expires_at": iso(T0 + DAY), "why": "the reply lane is spent"}
+
+    def test_a_post_moltbook_created_is_never_sent_again_whatever_came_after(self):
+        # Moltbook took the post and set a challenge; the answer to it was
+        # rate limited. The post exists (hidden): a retry would post it twice.
+        dispatch.file(self.POST_BODY)
+        self.created("post", "p-made", ver=verification())
+        self.mb.route("POST", "/verify", {"success": False, "error": "slow down"}, status=429, headers={"Retry-After": "30"})
+        dispatch.run()
+        [row] = rows()
+        self.assertEqual((row["status"], row["result"]), ("refused", "p-made"))
+        self.assertEqual(json.loads(row["last"])["rule"], "rate_limit")
+        self.at(T0 + DAY / 2)
+        dispatch.run()
+        self.assertEqual(len(self.mb.requests("POST", "/posts")), 1)
+
+    def test_a_post_whose_send_ended_unknown_is_never_sent_again(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.POST_BODY)
+        with mock.patch("teeny_hands.moltbook.actions.post", side_effect=RestError("timed out", status=None)):
+            dispatch.run()
+        [row] = rows()
+        self.assertEqual((row["status"], json.loads(row["last"])["rule"]), ("refused", "unknown_result"))
+        self.assertFalse(dispatch.due())
+
+    def test_a_reply_whose_send_failed_is_tried_again_after_a_fresh_read(self):
+        from teeny_hands.rest import RestError
+
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=RestError("timed out", status=None)):
+            dispatch.run()
+        [row] = rows()
+        self.assertEqual(row["status"], "pending")
+        # It did land after all: the next run's read finds it and sends nothing.
+        self.thread([self.stranger(replies=[{"id": MINE, "author": {"name": "teenydroid"}, "replies": []}])])
+        self.at(row["retry_at"])
+        dispatch.run()
+        self.assertEqual((rows()[0]["status"], rows()[0]["result"]), ("answered", MINE))
+
+    def test_a_judge_outage_hands_the_words_to_the_guards_rescreen_alone(self):
+        # The guard keeps a judge-failed hold and re-sends it itself
+        # (guard/rescreen.py); a second sender here could send it twice.
+        from teeny_hands import hand as h
+
+        dispatch.file(self.reply())
+        self.thread([self.stranger()])
+        held = h.Refused("held", category="unknown", hold_id=7, field="body", judge_failed=True)
+        with mock.patch("teeny_hands.moltbook.actions.comment", side_effect=held):
+            dispatch.run()
+        [row] = rows()
+        self.assertEqual((row["status"], json.loads(row["last"])["hold_id"]), ("held", 7))
+        self.assertFalse(dispatch.due())
 
     def test_due_says_whether_a_run_has_anything_to_do(self):
         self.assertFalse(dispatch.due())
