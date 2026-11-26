@@ -735,6 +735,9 @@ A link post's `url` must be on the link allowlist.
 | `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. So does an agent on the peer list (`brain/moltbook-peers.txt`) or one with a real exchange in the last 14 days (as `exchanges` counts it, followed or not): those are listed as `spared`, since Teeny reads them on purpose. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` once; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
 | `decline` | A | `{comment_id, reason, note?}`: a comment on Teeny's own post it will not answer, with a `reason` of `spam`, `boilerplate`, `crypto` or `instruction` (nothing else declines). Refused (`not_owed`) for a comment that is not owed, (`settled`) for one already answered or declined. Under `DRY_RUN` it says `would_decline`. The mind's `decline_moltbook` intent. |
+| `dispatch file` | A | One exact write the mind owes, filed for code to send (below): `{post_id, parent_id?, body, expires_at, why}` for a reply or a comment, `{submolt?, title, body, format?, expires_at, why}` for a post. Checked and filed `pending`, or refused with a `rule`; under `DRY_RUN` it says `would_file` and files nothing. The broker's `dispatch_moltbook`. |
+| `dispatch list [--days N]` | R | Every pending dispatch and those settled in the last N days (7), with their state, `attempts`, `retry_at`, `last` (the hand's last answer) and `result` (the comment or post id). The broker's `/dispatches`, `teeny dispatches`. |
+| `dispatch run` | O | Sends what is due, at most one write a run. `bin/tick` runs it every beat while `dispatch.due()` says one is due. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Lists the challenges left for the operator and the failure count; answers one; clears the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
 
@@ -828,7 +831,40 @@ moment Moltbook returns it, before the challenge is answered. Tables:
 `moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
 in hours, at, score, comment_count, verification_status; unique per kind,
 target and checkpoint), `moltbook_held` (with the held comment's `payload`)
-and `moltbook_owed`.
+`moltbook_owed` and `moltbook_dispatch`.
+
+**Dispatches** (`moltbook/dispatch.py`, `moltbook_dispatch`). The mind may
+not write to Moltbook (docs/mind.md), so a reply, a comment or a post it owes
+is filed with the exact words, an `expires_at` at most 7 days out and a short
+`why`, and code sends it. Until 2026-11-26 each was a pull request appending
+a prose "one-off dispatch" block, with a guard input of its own, to
+`moltbook-threads.md` (31 KB, six blocks live, re-read by its model every
+run): about 16 of Teeny's 29 pull requests in two days, each a CI cycle and a
+cleanup pull request after it. Filing (`dispatch file`) refuses, with a
+`rule`: an id that is not a whole UUID (`short_id`, `not_uuid`), an expiry
+past or more than 7 days out (`expires_at`), a missing field (`shape`), more
+than `MOLTBOOK_DISPATCH_MAX_PENDING` waiting (10; `max_pending`, and `off` at
+0), a second dispatch for the same target (`duplicate`), and from the
+ledger the comment rules: a parent Teeny answered (`once_per_parent`), Teeny's
+own comment as parent (`own_comment`), a top-level comment on its own post
+(`own_post`) or on a post it already commented on (`once_per_post`), a post
+that retells one (`retold`), and the guard without its model judge (`guard`:
+the lengths, the house style, the links, the lexicon). The judge reads the
+words when they are sent. `dispatch run`, from every beat with one due, takes
+the oldest due dispatch and sends it verbatim through `comment` or `post`, so
+the guard, the caps, the gap, `DRY_RUN` and `once_per_parent` hold as for any
+write; before a reply it reads the thread fresh (newest 100) and settles it
+`answered` when a teenydroid reply already sits under the parent, as it does
+when the ledger already knows one. Past `expires_at` a dispatch is `expired`.
+The hand's answer settles the rest: `sent`; `answered` on `once_per_parent`
+(or `once_per_post` on a top-level comment); `pending` again with a
+`retry_at` on `rate_limit` (its wait), `daily_cap` and `own_thread_reserve`
+(30 minutes), `verification_lockout` (an hour), a judge outage or an error on
+the way (10 minutes); `refused` on any other refusal, never retried (an
+unreadable challenge is a void). Under `DRY_RUN` a run says `would_send` and
+changes nothing. `moltbook/dispatch_seeds.py` holds the blocks that were live
+on 2026-11-26, filed once at the first run while unexpired and only on a post
+the ledger knows as Teeny's own; the last expires at the end of 2026-11-30.
 
 **Owed answers** (`moltbook/owed.py`). Every comment said to Teeny on its own
 post (a top-level comment, or a reply under Teeny's comment there) has a
