@@ -81,8 +81,10 @@ def prepare(job: str, branch: str, head: str, merge_main: bool) -> Json:
             main = origin
             tree, conflicts = _merge(head, origin)
         unmarked = [path for path in conflicts if not _marked(tree, path)]
-        into_main = tree if main else _merge(head, origin)[0] if behind else _tree(head)
-        superseded = into_main == _tree(origin)
+        # Only a clean merge: git keeps main's side of a conflict (a file the
+        # pull request deletes and main edited), which can equal main.
+        into_main, clash = (tree, conflicts) if main else _merge(head, origin) if behind else (tree, [])
+        superseded = not clash and into_main == _tree(origin)
         mindclone._fresh(head, detached=True, tree=tree)
         since = _bare("merge-base", origin, head).stdout.decode().strip()
         diff = _bare("diff", "--no-renames", since, head).stdout.decode("utf-8", "replace")
@@ -105,16 +107,17 @@ def _ignored() -> list[str]:
     return sorted(p for p in raw.split("\0") if p and "__pycache__/" not in p and not p.endswith(".pyc"))[:20]
 
 
-def _tree_now(base: str) -> tuple[str, list[str]]:
+def _tree_now(base: str, head: str) -> tuple[str, list[str]]:
     """The working tree as a tree object, staged over BASE in the clone's
     index (so a tracked file an ignore rule matches stays tracked), and the
-    leftovers kept out of it."""
+    leftovers kept out of it: never what BASE or the pull request's HEAD
+    tracks (main may have deleted what the head still has)."""
     _bare("read-tree", base)
     _git("add", "-A")
     added = _bare("diff-index", "--cached", "--name-only", "--no-renames", "--diff-filter=A", "-z", base)
     tops = {p.split("/", 1)[0] for p in added.stdout.decode("utf-8", "replace").split("\0") if p}
     dropped = sorted(t for t in tops if LEFTOVER.fullmatch(t)
-                     and not _bare("ls-tree", "--name-only", base, "--", t).stdout.strip())
+                     and not any(_bare("ls-tree", "--name-only", at, "--", t).stdout.strip() for at in (base, head)))
     if dropped:
         _bare("read-tree", base)
         _git("add", "-A", "--", ".", *(f":(exclude,literal){t}" for t in dropped))
@@ -143,7 +146,7 @@ def ship(prepared: Json, message: str, gh: Any = None, as_laid: bool = False, re
             if mindclone._tree_kind() == "missing" or mindclone._rev("HEAD") != head:
                 raise hand.Refused("the copy is not the one that was laid out", rule="base")
             mindclone._no_git_inside()
-            tree, dropped = _tree_now(base)
+            tree, dropped = _tree_now(base, head)
             ignored = _ignored()
         files = mindclone._changed(base, tree)
         if not files and main is None and not as_laid:
