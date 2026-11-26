@@ -247,7 +247,7 @@ class TickTest(unittest.TestCase):
         self.assertEqual([c for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [])
 
     def test_a_dispatch_goes_out_in_the_quiet_hours_too(self):
-        os.environ["TEENY_QUIET_HOURS"] = "0-24"
+        os.environ["TEENY_QUIET_HOURS"] = "6-8"
         self._dispatch_due()
         got = self.tick()
         self.assertEqual(got["kind"], "asleep")
