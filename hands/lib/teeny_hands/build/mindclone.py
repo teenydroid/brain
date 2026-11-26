@@ -33,7 +33,8 @@ babysitter's or a person's push); any path that
 is not a plain file of the tree's own (a link, wherever it points, a nested
 repository, a hard link, a file over 2 MB, or bytes that differ from what
 git staged, read here without following a link); a frozen path, the list
-read from origin/main (selfclone's frozen check); anything the secret scan
+read from origin/main (selfclone's frozen check); a one-off Moltbook write added
+to a playbook (`playbook_dispatch`: it is a dispatch, state not a line); anything the secret scan
 finds (gitpush.scan_branch); and, for a new pull request from a copy behind
 origin/main, a file main changed since the copy was taken (`stale`: sending
 it would undo what was merged; 2026-11-24, #546). The answer carries `diff`,
