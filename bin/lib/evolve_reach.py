@@ -406,8 +406,10 @@ def power(check: Mapping[str, Any], src: eo.Sources, now: float, spans: Iterable
         if got is None:
             return {"days": days, "powered": False, "why": "the ledger it counts cannot be read now"}
         shares.append((days, got))
-        needs = [(n, s) for d, s in shares if 2 * d >= days and s[1] and (n := need(*s, check["direction"], p)) is not None]
-        needed, hardest = max(needs, default=(None, got))
+        needs = [(need(*s, check["direction"], p), s) for d, s in shares if 2 * d >= days and s[1]]
+        # A recent half with nothing left to move holds every longer span back with it.
+        blind = next(((None, s) for n, s in needs if n is None), None)
+        needed, hardest = blind or max(((n, s) for n, s in needs if n is not None), default=(None, got))
         computed = needed
         needed = None if computed is None else max(computed, floor)
         enough = computed is not None and holds(got[1], computed) and got[1] >= needed
@@ -428,16 +430,16 @@ def score(check: Mapping[str, Any], src: eo.Sources, t0: float, span: float, min
     before, after = share(check, src, t0 - span, t0), share(check, src, t0, t0 + span)
     if before is None or after is None:
         return None
-    wanted = need(*before, check["direction"], p)
-    wanted = None if wanted is None else max(wanted, needed or 0)
-    thin = before[1] > 0 and not holds(before[1], wanted)
+    computed = need(*before, check["direction"], p)
+    wanted = None if computed is None else max(computed, needed or 0)
+    thin = before[1] > 0 and not (holds(before[1], computed) and before[1] >= (wanted or 0))
     got, tail = ("no-data", None) if thin else verdict(check["direction"], before, after, min_events, p)
     out: Json = {"verdict": got, "before": before[0], "after": after[0], "seen": before[0] + after[0],
                  "of": {"before": before[1], "after": after[1]}}
     if tail is not None:
         out["p"] = round(tail, 6)
     if thin:
-        out["why"] = "the baseline is too thin: " + _said(*before, check["direction"], wanted, before[1])
+        out["why"] = "the baseline is too thin: " + _said(*before, check["direction"], wanted, before[1], computed)
     elif got == "no-data":
         out["why"] = (f"{before[1]} item(s) before and {after[1]} after, fewer than {min_events} in all or none on "
                       "one side")

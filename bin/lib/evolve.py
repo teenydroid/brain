@@ -5861,6 +5861,15 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         # Whether the check can prove the change once merged (the publish
         # rule, evolve_selection.power): counted now, on the box's history.
         entry["check_power"] = check_power(cfg, check, tree, base)
+        cuts = entry["check_power"].get("cuts") if isinstance(entry["check_power"], Mapping) else None
+        if cuts and evolve_findings.is_growth(learning) and unproven(cfg, entry):
+            # The change also runs less: restoring the schedule mends that.
+            say(f"candidate {i}: {entry['check_power']['why']}; sent back")
+            findings = [{"file": "", "problem": str(entry["check_power"]["why"])[:300],
+                         "fix": "restore what the change cuts (the schedule or runs named), so the check is not "
+                                "met by running less"}]
+            keep(rec, "out-of-shape", findings)
+            continue
         if evolve_findings.is_growth(learning) and (why := unproven(cfg, entry)):
             # Its check is set and its stream too thin: no round of words
             # mends that, so nothing is reviewed or measured.

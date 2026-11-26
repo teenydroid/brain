@@ -360,6 +360,21 @@ class GrowthNeedsAThickStream(Box):
             got = evolve.check_power(evolve.load_config(), ANSWERED, tree, "HEAD")
         self.assertFalse(got["powered"])
 
+    def test_a_recent_half_with_nothing_left_to_move_holds_the_longer_span_back(self):
+        src = self.ledger.sources()
+        shares = {7 * 86400: (200, 200), 14 * 86400: (200, 400)}
+        with unittest.mock.patch.object(er, "share", side_effect=lambda c, s, a, b: shares[round(b - a)]):
+            got = er.power({**ANSWERED, "direction": "rise"}, src, T0, (7, 14), 0.1)
+        self.assertFalse(got["powered"], got)
+        self.assertIn("no effect to see", got["why"])
+
+    def test_the_operators_floor_past_the_cap_does_not_make_a_powered_baseline_no_data_at_the_score(self):
+        src = self.ledger.sources()
+        with unittest.mock.patch.object(er, "share", side_effect=[(0, 500), (200, 500)]), \
+                unittest.mock.patch.object(er, "need", return_value=50):
+            got = er.score({**ANSWERED, "direction": "rise"}, src, T0, 2 * DAY, 4, 0.1, 500)
+        self.assertNotEqual(got["verdict"], "no-data", got)
+
     def test_a_baseline_that_drifted_since_it_was_opened_on_is_thin_at_the_merge(self):
         with unittest.mock.patch.object(er, "share", side_effect=[(1, 100), (0, 4000)]):
             got = er.score({**ANSWERED, "measure": "nobody", "direction": "fall"}, None, T0, 2 * DAY, 4, 0.1, 54)
