@@ -85,6 +85,13 @@ NO_VERDICT = ("unknown",)
 MIND_FILES = ("brain/SOUL.md", "brain/CONTEXT.md")
 MAX_EXAMPLES = 3
 MAX_TEXT = 160
+#: bin/act's own record of a run whose input script failed: no model was asked.
+INPUT_FAILED = re.compile(r"^input \S+ failed$")
+#: Why a finding is not the words' doing, from fields the ledgers already
+#: keep: whether a refusal is a playbook's or a beat's (its check's `verb`;
+#: a beat has no playbook, and its prompt is frozen), and where a run failed.
+BEAT_CAUSE = "no playbook's words are behind it: the hand answered a beat"
+SCRIPT_CAUSE = "no playbook's words are behind it: every run failed at an input script, before the model was asked"
 MAX_REASONS = 3
 #: Taken out of whatever a hand echoes: links, emails, handles.
 SCRUB = (re.compile(r"https?://\S+|www\.\S+"), re.compile(r"\S+@\S+\.\S+"), re.compile(r"(?<!\w)@\w+"))
@@ -133,6 +140,11 @@ class Finding:
     #: A growth finding's share on the wrong side of its check: how bad it
     #: is (its events are how many items it rests on).
     miss: float | None = None
+    #: Why no words are behind it, when the ledgers say so: a fix finding
+    #: with one goes to code on first sight (evolve_route).
+    cause: str | None = None
+    #: A growth finding's: whether its stream is thick enough (evolve_reach.power).
+    power: Json | None = None
 
     section = SECTION
 
@@ -145,7 +157,8 @@ class Finding:
         return {"id": self.id, "hash": self.hash, "section": SECTION, "kind": self.kind, "text": self.text,
                 "events": self.events, "days": self.days, "check": dict(self.check), "files": list(self.files),
                 "examples": list(self.examples), "lane": self.lane,
-                **({"miss": self.miss} if self.miss is not None else {})}
+                **({"miss": self.miss} if self.miss is not None else {}),
+                **({"power": dict(self.power)} if self.power is not None else {})}
 
 
 def is_finding(ref: Any) -> bool:
@@ -192,8 +205,9 @@ def _act_failed(src: eo.Sources, tree: Path, since: float, until: float, days: i
                 f"the runs said: {_said(reasons)}. The playbook is brain/playbooks/{book}.md; a failure its words "
                 "cause (a prompt the core flags, an action no hand takes) is fixed in its words.")
         examples = [{"at": r.get("at"), "said": _failure_said(r)} for r, _ in failed[-MAX_EXAMPLES:]]
+        scripts = all(INPUT_FAILED.match(str(r.get("error") or "")) for r, _ in failed)
         out.append(Finding(f"f:act_failed:{book}", "act_failed", book, n, days, check, text,
-                           [f"brain/playbooks/{book}.md"], examples))
+                           [f"brain/playbooks/{book}.md"], examples, cause=SCRIPT_CAUSE if scripts else None))
     return out
 
 
@@ -247,7 +261,7 @@ def _refusals(src: eo.Sources, tree: Path, since: float, until: float, days: int
                 f"{days} days: each one something the words asked for that a hand would not do"
                 + (f". What the hand said: {reasons}" if reasons else "") + f". {where}.")
         out.append(Finding(f"f:refusals:{subject}:{rule}", "refusals", subject, n, days, check, text, files,
-                           rows[-MAX_EXAMPLES:]))
+                           rows[-MAX_EXAMPLES:], cause=BEAT_CAUSE if by == "verb" else None))
     return out
 
 
@@ -405,6 +419,8 @@ def check_text(ref: Json) -> str:
                 + f"` ({eo.describe(check)}), the very share this finding was drawn from (over "
                 f"{ref.get('events')} items in {ref.get('days')} days). It is scored as a share before and after "
                 f"the merge, so posting more or less does not move it: `worked` will mean that share {moved}. "
+                + (f"It is scored once, {ref['power']['days']} days after the merge, the first span that holds enough "
+                   f"items to tell ({ref['power']['why']}). " if (ref.get("power") or {}).get("powered") else "") +
                 "Answer `check` with it unchanged.")
     return ("## how your change is checked\n\nYour check is set for you: `" + json.dumps(check)
             + f"` ({eo.describe(check)}), the very count this finding was drawn from "
