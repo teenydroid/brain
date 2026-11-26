@@ -442,6 +442,7 @@ class RulesTest(ShipTest):
         for text in ("## one-off dispatch from the mind (until 2026-11-28 ends)\nreply once\n",
                      '```json\n{"action": "hand", "post_id": "' + uuid + '", "body": "hi"}\n```\n',
                      "[[inputs]]\nname = \"dispatch-guard-b05de632\"\n",
+                     "[[inputs]]\nname = 'dispatch-guard-b05de632'\n",
                      "++ one-off dispatch: reply once\n",
                      "## one-off dispatch\n\u2028",
                      'note\u2028{"post_id": "' + uuid + '"}\n'):

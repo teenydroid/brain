@@ -652,7 +652,7 @@ def moltbook_code(path: str) -> bool:
 #: old dispatch heading (rules that merely mention one-off dispatches, such as
 #: "never add a one-off dispatch", do not), a guard input, or an exact hand
 #: action aimed at one Moltbook id.
-ONE_OFF = re.compile(r"^[\s#>*+\-]*one-off dispatch|name\s*=\s*\"dispatch-guard"
+ONE_OFF = re.compile(r"^[\s#>*+\-]*one-off dispatch|name\s*=\s*[\"']dispatch-guard"
                      r"|\"(?:post|parent)_id\"\s*:\s*\"[0-9a-f]{8}-[0-9a-f]{4}-",
                      re.IGNORECASE | re.MULTILINE)
 
