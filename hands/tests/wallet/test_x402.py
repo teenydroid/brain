@@ -108,6 +108,41 @@ class X402Test(Scratch):
         self.assertEqual(caught.exception.detail["rule"], "core_x402")
         self.assertEqual(self.rows()[0]["status"], "refused")
 
+    def test_a_cross_origin_challenge_refusal_is_refused_not_in_doubt(self):
+        # The live error from 2026-11-25 on: Exa's /search challenge named
+        # http://, the module refused before holding or signing anything, and
+        # each row sat in doubt at its full cap.
+        url = "https://api.exa.ai/search"
+        x402.hosts_add("api.exa.ai", "search")
+        self.core.answers["openhuman.x402_fetch"] = Failure(
+            "x402_fetch: payment failed: ai.tinyhumans.tinywallet.Error.X402OperationFailed: x402 protocol:"
+            f" challenge resource http://api.exa.ai/search is not on the origin of the requested URL {url}"
+        )
+        with self.assertRaises(hand.Refused) as caught:
+            x402.fetch({"url": url, "method": "POST", "body": "{}"})
+        self.assertEqual(caught.exception.detail["rule"], "cross_origin")
+        [row] = self.rows()
+        self.assertEqual((row["status"], row["usd_micro"]), ("refused", 0))
+        conn = store.db()
+        try:
+            self.assertEqual(store.x402_since(conn, 0), 0, "a refused request does not count against the day")
+        finally:
+            conn.close()
+
+    def test_only_the_exact_cross_origin_refusal_for_this_url_is_refused(self):
+        # Anything else that merely mentions the words stays in doubt, at its cap.
+        prefix = "x402_fetch: payment failed: ai.tinyhumans.tinywallet.Error.X402OperationFailed: x402 protocol: challenge resource "
+        for message in (
+            prefix + "http://api.example.com/v1 is not on the origin of the requested URL https://api.example.com/other",
+            "transport: connection reset after challenge resource x is not on the origin of the requested URL " + URL,
+            prefix + "http://api.example.com/v1 is not on the origin of the requested URL " + URL + " (and then the retry failed)",
+            prefix + " is not on the origin of the requested URL " + URL[:-1],
+        ):
+            self.core.answers["openhuman.x402_fetch"] = Failure(message)
+            with self.assertRaises(hand.HandError):
+                x402.fetch({"url": URL, "max_usd": "0.05"})
+        self.assertEqual([r["status"] for r in self.rows()], ["in_doubt"] * 4)
+
     def test_a_payment_over_the_cap_or_not_in_usdc_is_in_doubt(self):
         for answer in (lambda p: paid(p, amount=200_000), lambda p: paid(p, asset="0x" + "4" * 40)):
             self.core.answers["openhuman.x402_fetch"] = answer
