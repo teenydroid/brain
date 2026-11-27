@@ -331,6 +331,13 @@ class Grading(Scratch):
         self.assertEqual(g._turn("x" * (metagrader.MAX_MESSAGE_BYTES + 1)), "")
         self.assertEqual(self.called(), [])
 
+    def test_the_incumbent_never_sends_a_message_over_the_screens_limit(self):
+        big = pair(0)
+        big["a"]["text"] = "x" * (metagrader.MAX_MESSAGE_BYTES + 1)
+        got = metagrader.run_incumbent(REPO / "evals", REPO / "brain", self.ask, [big])
+        self.assertEqual(got, ["tie"])
+        self.assertEqual(self.called(), [])
+
     def test_propose_keeps_only_valid_programs(self):
         pairs_dir = self.dir / "pairs"
         write_pairs(pairs_dir, sel=1, held=1)

@@ -542,7 +542,13 @@ def run_incumbent(evals_dir: Path, brain: Path, ask: list[str], pairs: list[dict
         # otherwise turn the judge's favoured position into its accuracy.
         flip = int(pair["id"], 16) % 2 == 1
         first, second = (pair["b"], pair["a"]) if flip else (pair["a"], pair["b"])
-        turn, _ = retrier.run(ask, incumbent_message(evals_dir, brain, first, second))
+        message = incumbent_message(evals_dir, brain, first, second)
+        if not _fits(message):
+            # Held unread by the core: a tie, not a message retried to no end.
+            print(f"[metagrader] an incumbent message of {len(message.encode('utf-8'))} bytes is over "
+                  f"{MAX_MESSAGE_BYTES}; not sent", file=sys.stderr)
+            return "tie"
+        turn, _ = retrier.run(ask, message)
         better = evals.verdict(turn.stdout if turn.returncode == 0 else "")["better"]
         if better == "tie":
             return "tie"
