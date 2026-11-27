@@ -825,8 +825,8 @@ waiting one, with its verdict. It says `"running": true` while a generation
 holds the lock: ask it before a restart. `today` and `today_by_hand` are the
 day's scheduled and by-hand generations, `last_crash` the last generation
 that raised (below), or null, and `problems` the newest issue filed for each
-problem key (section 10). There is no `halt` and no `resume`: nothing
-latches.
+problem key that is still open, as the last run found it (section 10). There
+is no `halt` and no `resume`: nothing latches.
 
 A generation that **raises** (2026-11-17: gen 14 died in its first second in
 `observe()`, under a detached cron call that said `ok`, and nobody heard) is
@@ -2483,7 +2483,14 @@ request, the numbers, what was done and what help is wanted, and carries
 counts, job names, error classes and links only: never a secret, an env
 value, a run's output, a hold's text, a probe's answers or a held-out task.
 `state/evolve/halts.jsonl` (the name `bin/lib/audit.py` counts) keeps a line
-per event, the key and the issue, never the body. Under `DRY_RUN` no issue
+per event, the key and the issue, never the body. Each run (outside
+`DRY_RUN`) asks GitHub about every problem issue `status` lists
+(`refresh_problems`, as `refresh_prs` does for pull requests) and adds a
+`closed` line for each one a person closed, so `status` stops listing it
+(2026-11-27: six closed issues, #172 to #460, were still listed). An issue
+GitHub cannot answer for stays listed, and once GitHub cannot be reached at
+all the run stops asking until the next one. The audit does not count those
+lines. Under `DRY_RUN` no issue
 opens or is commented on; the problem records what it would have done.
 
 ### 11. Held-out tasks
