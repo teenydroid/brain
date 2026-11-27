@@ -2,7 +2,7 @@
 // teeny-core: the OpenClaw-backed core. `teeny-core serve` answers the
 // openhuman.* JSON-RPC on $OPENHUMAN_CORE_HOST:$OPENHUMAN_CORE_PORT and
 // supervises the OpenClaw Gateway its agent turns run on.
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
@@ -20,13 +20,10 @@ import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
-import { createCron, type Cron } from "./cron/index.js";
-import { defaultExec, type Exec } from "./cron/automations.js";
+import { setGatewayEnv, startCron, stopCron } from "./cron/index.js";
 import { DrainingRunner } from "./gateway/drain.js";
-import { openclawCommand } from "./gateway/cli.js";
-import type { RpcMethods } from "./server/types.js";
 import { createHttpServer } from "./server/http.js";
-import { MODULES, buildRegistry } from "./server/registry.js";
+import { buildRegistry } from "./server/registry.js";
 import type { CoreContext } from "./server/types.js";
 import { giveawayTxCli } from "./wallet/cli.js";
 
@@ -50,8 +47,6 @@ export interface StartOptions {
   spawn?: SpawnFn;
   /** How long a settings-driven Gateway restart waits for running turns (tests). */
   drainMs?: number;
-  /** Replace how the cron module runs `openclaw automations` (tests). */
-  exec?: Exec;
   log?: CoreContext["log"];
 }
 
@@ -90,25 +85,24 @@ export function cronShellTimeoutSecs(env: Env, root: string): number {
 }
 
 /**
- * The one place the cron module is hooked up: its RPC methods (built with the
- * [cron] shell timeout) and a start/stop pair. Cron jobs are OpenClaw
- * automations, so the Gateway runs them and agent jobs need no runner of ours.
- * The module drives them through the `openclaw automations` CLI, which has to
- * be the core's own bundled openclaw (not one on PATH) on the Gateway's state,
- * config and token: GATEWAY is that CLI's command and environment.
+ * The one place the cron module is hooked up (its RPC methods are in registry.ts). Cron jobs
+ * are OpenClaw automations, driven through the `openclaw` CLI, which needs the Gateway's
+ * state, config and URL: `cliEnv` is that, handed to the CLI only, never to a shell job.
+ * OPENCLAW_BIN names bin/openclaw (the core's bundled CLI, also what the scripts run) when
+ * it is there; the image has it on PATH as `openclaw`.
  */
 export function wireCron(
   ctx: CoreContext,
-  gateway: { env: () => Record<string, string>; exec?: Exec },
-): { methods: RpcMethods; start: () => Promise<void>; stop: () => Promise<void> } {
-  const exec: Exec =
-    gateway.exec ??
-    ((_file, args) => {
-      const { cmd, args: lead } = openclawCommand(ctx.env);
-      return defaultExec(cmd, [...lead, ...args], { env: gateway.env() });
-    });
-  const cron: Cron = createCron({ shellTimeoutSecs: cronShellTimeoutSecs(ctx.env, ctx.root), exec });
-  return { methods: cron.methods, start: () => cron.start(ctx), stop: () => cron.stop() };
+  gatewayEnv: () => Record<string, string>,
+): { start: () => Promise<void>; stop: () => Promise<void> } {
+  const wrapper = join(ctx.root, "bin", "openclaw");
+  const bin = existsSync(wrapper) ? { OPENCLAW_BIN: wrapper } : {};
+  setGatewayEnv(() => ({ ...gatewayEnv(), ...bin }));
+  const timeout = cronShellTimeoutSecs(ctx.env, ctx.root);
+  if (timeout !== DEFAULT_SHELL_TIMEOUT_SECS) {
+    ctx.log("warn", "[cron] shell_timeout_secs differs from the cron module's own limit and is not applied", { configured: timeout, used: DEFAULT_SHELL_TIMEOUT_SECS });
+  }
+  return { start: () => startCron(ctx), stop: () => stopCron() };
 }
 
 export async function startCore(env: Env, opts: StartOptions = {}): Promise<RunningCore> {
@@ -254,8 +248,8 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     },
   };
 
-  const cron = wireCron(ctx, { env: gatewayEnv, ...(opts.exec ? { exec: opts.exec } : {}) });
-  const server = createHttpServer({ registry: buildRegistry([...MODULES, cron.methods]), token, ctx });
+  const cron = wireCron(ctx, gatewayEnv);
+  const server = createHttpServer({ registry: buildRegistry(), token, ctx });
   server.listen(port, host);
   await once(server, "listening");
   const bound = (server.address() as AddressInfo).port;

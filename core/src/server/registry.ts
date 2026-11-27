@@ -3,6 +3,7 @@
 import { agentMethods } from "../agents/methods.js";
 import { memoryMethods } from "../memory/index.js";
 import { methods as walletMethods } from "../wallet/index.js";
+import { methods as cronMethods } from "../cron/index.js";
 import { coreMethods } from "./core-methods.js";
 import { inboundMethods } from "./inbound-methods.js";
 import type { RpcHandler, RpcMethods } from "./types.js";
@@ -13,8 +14,7 @@ export const MODULES: RpcMethods[] = [
   inboundMethods, // inbound_*: a clear "not supported" (TEENY_INBOX=core is off)
   memoryMethods, // memory_*
   walletMethods, // wallet_*, web3_*, x402_*, encrypt_secret
-  // The cron methods are not listed here: main.ts wireCron() builds them with
-  // the [cron] shell timeout and adds them to the registry it serves.
+  cronMethods, // cron_*: over OpenClaw automations; main.ts wireCron() gives it the Gateway's CLI environment
 ];
 
 export function buildRegistry(modules: readonly RpcMethods[] = MODULES): Map<string, RpcHandler> {

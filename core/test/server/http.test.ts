@@ -67,8 +67,8 @@ describe("transport (core/test/contract/_rpc_envelope.json)", () => {
 describe("registry", () => {
   it("serves every method this phase owns", () => {
     const names = [...buildRegistry().keys()].sort();
-    // The wallet module's wallet_*, web3_* and x402_* join these (core/test/wallet).
-    expect(names.filter((n) => !/^(wallet_|web3_|x402_)/.test(n))).toEqual(
+    // The wallet, cron and inbound modules join these (their own tests, and the next test).
+    expect(names.filter((n) => !/^(wallet_|web3_|x402_|inbound_|cron_)/.test(n))).toEqual(
       [
         "auth_store_provider_credentials", "config_get_agent_settings", "config_update_agent_settings", "config_update_local_ai_settings",
         "config_update_model_settings", "cost_report", "encrypt_secret", "get_config", "inference_agent_chat", "inference_agent_chat_simple",
@@ -76,6 +76,13 @@ describe("registry", () => {
         "memory_engine_set", "memory_forget", "memory_items_list", "memory_learn",
       ].sort(),
     );
+  });
+
+  it("serves the cron, wallet, memory and inbound methods too (a module left out of MODULES is a -32601 for every caller)", () => {
+    const names = new Set(buildRegistry().keys());
+    for (const n of ["cron_list", "cron_add", "cron_update", "cron_remove", "cron_run", "wallet_status", "wallet_prepare_transfer", "web3_swap_quote", "x402_fetch", "encrypt_secret", "memory_learn", "memory_engine_set", "inbound_offer", "inbound_results", "inbound_result_ack"]) {
+      expect(names.has(n), n).toBe(true);
+    }
   });
 
   it("refuses two modules that serve one method", () => {
