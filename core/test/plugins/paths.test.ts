@@ -117,6 +117,19 @@ describe("path rules (workspace_only, forbidden_paths, trusted_roots)", () => {
     expect(checkPath(r, "etc-link/passwd", "write")).toMatch(/may write/);
   });
 
+  it("honors an explicit trusted root inside a forbidden folder whatever order the roots come in", () => {
+    const f = makeFixture();
+    const proj = join(f.root, "srv-home", "project");
+    write(join(proj, "a.txt"));
+    const base = { workspace: f.root, home: f.policy.home, closed: [], ro: [], systemForbidden: [join(f.root, "srv-home")] };
+    for (const rw of [[f.root, proj], [proj, f.root]]) {
+      expect(checkPath({ ...base, rw }, join(proj, "a.txt"), "write"), rw.join(",")).toBeUndefined();
+      // the forbidden folder itself stays forbidden for a file outside the explicit root
+      write(join(f.root, "srv-home", "other.txt"));
+      expect(checkPath({ ...base, rw }, join(f.root, "srv-home", "other.txt"), "read"), rw.join(",")).toMatch(/forbidden path/);
+    }
+  });
+
   it("does not forbid a checkout that sits under /home: a trusted root lifts the system list", () => {
     const f = makeFixture();
     const r = rules(f, "mind");

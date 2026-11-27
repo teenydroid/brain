@@ -1,13 +1,20 @@
 // A scratch checkout and the policy the core would generate for it, from the
 // real brain/agents/*.toml, so the rules are tested on Teeny's own agents.
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
 import { loadAgentDefs } from "../../src/agents/definitions.js";
 import { Guardrails, type Decision } from "../../plugins/teeny-guardrails/guard.js";
 import { parsePolicy, type AgentPolicy, type GuardrailsPolicy } from "../../plugins/teeny-guardrails/policy.js";
+import { afterEach } from "vitest";
 import { REPO } from "../helpers.js";
+
+// Every checkout a test makes is removed after that test, whether it passed or not.
+const made: string[] = [];
+afterEach(() => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 export interface Fixture {
   root: string;
@@ -27,6 +34,7 @@ export function write(path: string, text = "x\n", mode?: number): void {
 
 export function makeFixture(extra: { env?: Record<string, string>; fill?: (program: string, host: string) => Promise<string>; liveUrl?: (profile: string, targetId: string | undefined) => Promise<string> } = {}): Fixture {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "guard-")));
+  made.push(root);
   const brain = join(root, "brain");
   const state = join(root, "state");
   for (const hand of ["x", "gh", "wallet", "keychain", "stats"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
