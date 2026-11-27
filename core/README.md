@@ -4,7 +4,7 @@ The TypeScript core: the process `bin/spine` runs (`bin/teeny-core serve`, Node
 24). It answers the `openhuman.*` JSON-RPC every script and hand calls, and it
 supervises an **OpenClaw Gateway** (the `openclaw` npm package, pinned in
 `package.json`) that runs the agents' turns, the browser and the scheduled
-automations. It replaces `spine/` (OpenHuman's Rust host) and `vendor/openhuman`.
+automations. It replaced the Rust host (`spine/`) and the vendored OpenHuman library.
 
 Nothing about what Teeny says or does lives here: that is `brain/` (prompts and
 schedule), `bin/` (the scripts cron runs) and `hands/` (the programs that act).

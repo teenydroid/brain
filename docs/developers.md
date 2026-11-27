@@ -1,6 +1,6 @@
 # Developing Teeny
 
-How to run Teeny, operate it, configure it, test it and bump OpenHuman. The
+How to run Teeny, operate it, configure it, test it and bump OpenClaw. The
 [README](../README.md) says what Teeny is; [`architecture.md`](architecture.md)
 says why it is built this way.
 
@@ -13,7 +13,6 @@ GitHub, mail or the wallet until then.
 ### With Docker (how the box runs it)
 
 ```sh
-git submodule update --init --recursive vendor/openhuman
 mkdir -p secrets && chmod 700 secrets
 cp deploy/spine.env.example secrets/spine.env    # the model; CortexDB if wanted
 cp deploy/teeny.env.example secrets/teeny.env    # the hands' keys; DRY_RUN=1
@@ -32,8 +31,7 @@ the webhook and the landing page.
 ### On a laptop
 
 ```sh
-git submodule update --init --recursive vendor/openhuman
-cargo build --release -p teeny-spine
+(cd core && npm ci && npm run build)    # Node 24
 bin/spine          # mints secrets/core.token and secrets/openhuman.key on first boot
 ```
 
@@ -257,8 +255,7 @@ The database is unreadable without its key.
 [`evolve.md`](evolve.md) covers what Teeny may change and how the check works.
 
 ```
-spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library); src/ has the wallet quote backend (wallet_backend.rs, lifi.rs, debridge.rs), giveaway_tx.rs and browser_pictures.rs
-vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
+core/                the TypeScript core on OpenClaw (openclaw pinned in core/package.json): the RPC host, the Gateway supervisor, cron, memory, the wallet
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
                      bin/lib/studio.py the studio (feed, write, pick), bin/lib/studio_feed.py its cards, bin/lib/studio_room.py its Room,
                      bin/lib/formats/ one module per studio video format (skit, remake) and REGISTRY
@@ -307,7 +304,7 @@ bin/test/inbound_consume_test.sh                             # drafts to replies
 bin/test/dockerfile_test.sh                                  # the image copies every module script it imports
 bin/test/proofs_test.sh                                      # bin/proofs over fixture ledgers; read-only, no core
 python3 bin/test/hands_shard.py --shards 4 --shard 1 -v      # one quarter of the hands' tests, by whole test class, as CI's `hands` job runs them
-OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
+bin/test/spine_live_test.sh                                   # needs Node 24 and a built core (or run it in the image)
 ```
 
 The live test boots a real spine over a scratch copy of the checkout, against
@@ -315,7 +312,7 @@ a stub model. It covers first boot, cron seeding, `bin/ask`, `bin/act`,
 `bin/eval`, `bin/tick`, `bin/reflect`, the operator agent job,
 the doctor, and the key surviving a restart.
 
-CI (`.github/workflows/check.yml`) builds the spine and runs every test above,
+CI (`.github/workflows/check.yml`) builds the image and runs every test above,
 plus shellcheck and the landing page's lint and build.
 
 PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
@@ -332,14 +329,19 @@ on the PR. A `/review` comment still runs and still counts. Repository
 variables `PR_AGENT_MAX_REVIEWS_PER_PR` and
 `PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY` change the caps (`0` is unlimited).
 
-## Bumping OpenHuman
+## Bumping OpenClaw
 
-1. Move `vendor/openhuman` to the new `upstream/main` commit and run
-   `git submodule update --init --recursive vendor/openhuman`.
-2. Re-copy its root `[patch]` tables into `Cargo.toml`, with paths rebased
-   onto `vendor/openhuman/`. Drop any entry that `cargo metadata` warns "was
-   not used in the crate graph". Cargo records those in `Cargo.lock` in an
-   order that differs between macOS and Linux, which breaks the image's
-   `--locked` build.
-3. Run `cargo build --release -p teeny-spine`.
-4. Run the live test against the new binary.
+OpenClaw is an npm dependency of the core, pinned to an exact version in
+`core/package.json` (and `core/package-lock.json`).
+
+1. In `core/`, run `npm install --save-exact openclaw@<version>` on Node 24.
+   Read the release notes first: the core depends on the Gateway's config
+   schema, its plugin hooks (`before_tool_call`) and its cron and browser
+   tools.
+2. Run `npm ci && npx tsc --noEmit && npm run lint && npm test && npm run build`
+   in `core/`. The contract fixtures in `core/test/contract/` pin the RPC
+   shapes the Python callers use.
+3. Build the image (`docker build -t teeny-spine:test .`) and run
+   `bin/test/spine_live_test.sh` in it, as CI does.
+4. Commit `core/package.json` and `core/package-lock.json` together. They are
+   frozen: the bump is the operator's to merge.

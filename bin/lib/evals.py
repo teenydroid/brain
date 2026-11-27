@@ -268,15 +268,15 @@ EVERY_DRAFT = {
     "bin/spine": "boots the core every draft comes from",
     "bin/ask": "sends every draft's turn",
     "bin/lib/teeny.sh": "sets the paths bin/spine and bin/ask use",
-    "Cargo.toml": "builds the core every draft comes from",
-    "Cargo.lock": "builds the core every draft comes from",
-    "rust-toolchain.toml": "builds the core every draft comes from",
+    "core/package.json": "pins the core every draft comes from",
+    "core/package-lock.json": "pins the core every draft comes from",
     "Dockerfile": "builds the core every draft comes from",
 }
 EVERY_DRAFT_TREES = {
     "bin/lib/core_sections/": "writes the core's settings every turn runs under",
-    "spine/": "the core every draft comes from",
+    "spine/": "the core every draft comes from (the Rust core, gone from the tree)",
     "vendor/": "the core every draft comes from",
+    "core/src/": "the core every draft comes from",
 }
 PLAYBOOK_PATH = re.compile(r"brain/playbooks/([a-z0-9][a-z0-9-]*)\.md")
 

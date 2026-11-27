@@ -8,11 +8,6 @@ Teeny is three things:
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
-(Until the removal commit lands, `spine/`, `Cargo.*` and `vendor/openhuman` are
-still in the tree: they are the old Rust core, kept so its behaviour can be
-compared. Section references below to OpenHuman describe what the TypeScript
-core was written to match, via the contract fixtures in `core/test/contract/`.)
-
 Beside them are `bin/`, the scripts that wire the three together; `evals/`,
 what Teeny may not change about itself; and `web/`, the landing page.
 
@@ -44,9 +39,9 @@ How the pieces call each other, and where each boundary sits:
 A model's text crosses only the `bin/ask` arrow, as a draft. Everything that
 reaches the outside world goes down through a hand.
 
-OpenHuman references below use `$C = crates/openhuman-core/src`. Upstream's
-gaps are in [`oh-gaps.md`](oh-gaps.md) and the hands' verbs are in
-[`hands.md`](hands.md).
+OpenHuman references below (`$C = crates/openhuman-core/src`) describe the
+Rust core this one replaced; its tree is no longer in the repository. The
+hands' verbs are in [`hands.md`](hands.md).
 
 ---
 
@@ -182,9 +177,6 @@ workspace under `state/openclaw/workspaces/` (`core/src/agents`).
 | Cron | OpenClaw automations. Shell jobs run `sh -c` with a minimal environment from the action dir `OPENHUMAN_ACTION_DIR=/srv/teeny`, under the `[cron] shell_timeout_secs` the core reads from its config. `bin/crons` and the health tools read through `bin/lib/cron_store.py`. |
 | Browser | OpenClaw's browser plugin on the image's Chromium (`TEENY_CHROME_PATH`). `deploy/browser-allow.txt` and `browser-deny.txt` are enforced by the guardrails plugin; `bin/spine` still exports `OPENHUMAN_BROWSER_ALLOW_ALL` and `OPENHUMAN_BROWSER_DENY_FILE` for it. |
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
-
-`docs/oh-gaps.md` and `docs/oh-defects.md` are the history of what the Rust
-core needed from OpenHuman; they stay until the removal commit.
 
 Not used: OpenClaw's channels, hooks, chat-completions and responses endpoints,
 the control UI, and its own update check. Hands stay the only path to a side

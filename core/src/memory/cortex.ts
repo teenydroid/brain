@@ -1,7 +1,7 @@
 // A client for CortexDB's direct HTTP API (v0.10.4), the memory store OpenHuman
 // kept Teeny's learnings in. The wire is the one tinymemory's CortexEngine
-// speaks (vendor/openhuman/vendor/tinymemory/docs/architecture/cortex-wire.md
-// and cortex-wire-envelope.md): append-only events under a scope; a learning is
+// speaks (tinymemory's cortex-wire.md and cortex-wire-envelope.md, from the OpenHuman
+// tree this core replaced): append-only events under a scope; a learning is
 // one event whose `context.labels` carry its lookup digest and its v3 envelope.
 // Reads dedupe (the listing emits every event twice) and decode v3 and v2.
 //

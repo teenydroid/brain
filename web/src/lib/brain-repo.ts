@@ -2,7 +2,7 @@
  * The brain: Teeny as it runs today, read from its public repository
  * (teenydroid/brain) on GitHub.
  *
- * Teeny is a stock OpenHuman core (spine/, vendor/openhuman), small programs
+ * Teeny is a TypeScript core on OpenClaw (core/), small programs
  * that hold every outside capability (hands/), and the files the core reads
  * (brain/: SOUL.md, CONTEXT.md, MEMORY.seed.md, narrative/, agents/,
  * playbooks/ and cron.toml; the live MEMORY.md is the box's own and never

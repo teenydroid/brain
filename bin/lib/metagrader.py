@@ -82,9 +82,9 @@ META_SHARE = 0.3
 MIN_HELDOUT_PAIRS = 20
 MAX_CRITERIA = 8
 MAX_PROMPT = 4000
-#: The most a message to the core may be. The core's prompt screen holds
-#: anything over 64 KiB (`input.oversized`, vendor/openhuman
-#: security/prompt_injection), and a held turn is retried and held again:
+#: The most a message to the core may be. The old Rust core's prompt screen
+#: held anything over 64 KiB (`input.oversized`), and a held turn was retried and
+#: held again:
 #: the first search on the box lost its proposer turn to an 82,858-character
 #: message. Kept under that, with room for the agent's own preamble.
 MAX_MESSAGE_BYTES = 60_000

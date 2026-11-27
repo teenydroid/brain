@@ -433,7 +433,7 @@ and `IDENTITY.md` (act.toml sets `omit_identity = false`) and any
 - every task: those files, `agents/act.toml`, and the code that builds the
   prompt or runs the turn (`bin/lib/prompts.py`, `bin/lib/core_config.py`,
   `bin/lib/core_sections/`, `bin/spine`, `bin/ask`, `bin/lib/teeny.sh`,
-  `spine/`, `vendor/`, `Cargo.*`, `rust-toolchain.toml`, `Dockerfile`; all
+  `core/src/`, `core/package.json`, `Dockerfile`; all
   frozen, so only an operator's diff has them). `EVERY_DRAFT` in
   `bin/lib/evals.py` is the list.
 - `brain/playbooks/<p>.md`: the tasks with `playbook = "<p>"`, held-out ones

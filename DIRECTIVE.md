@@ -82,8 +82,8 @@ this file loosens them.
 
 The body exists and boots by itself.
 
-- [x] Spine (OpenHuman core) builds from `vendor/openhuman` and runs as
-  `serve` in compose. *Proof:* `[spine] ready` in the logs.
+- [x] Spine (the TypeScript core on OpenClaw, `core/`) builds in the image and
+  runs as `serve` in compose. *Proof:* `[spine] ready` in the logs.
 - [x] `bin/doctor` gates every boot. *Proof:* `state/doctor.json` is green.
 - [x] Cron runs from `brain/cron.toml`, reconciled at boot by
   `bin/seed-cron`. *Proof:* `bin/crons` shows next runs.
