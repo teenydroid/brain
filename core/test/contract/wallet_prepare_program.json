@@ -2,7 +2,7 @@
   "method": "openhuman.wallet_prepare_program",
   "call_sites": [
     "hands/lib/teeny_hands/giveaway/onchain.py:21",
-    "hands/lib/teeny_hands/giveaway/onchain.py:303"
+    "hands/lib/teeny_hands/giveaway/onchain.py:316"
   ],
   "params": {
     "fields": {

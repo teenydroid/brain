@@ -1,7 +1,7 @@
 {
   "method": "openhuman.wallet_account",
   "call_sites": [
-    "hands/lib/teeny_hands/giveaway/onchain.py:281",
+    "hands/lib/teeny_hands/giveaway/onchain.py:294",
     "hands/lib/teeny_hands/wallet/reads.py:61"
   ],
   "params": {
