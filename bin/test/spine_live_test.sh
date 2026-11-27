@@ -236,7 +236,8 @@ root="$scratch/root"
 mkdir -p "$root/brain" "$root/secrets"
 # A state/ made under umask 002 (a fresh clone): bin/spine must tighten it, or the Gateway will not start.
 mkdir -m 775 "$root/state"
-mkdir -m 775 -p "$root/state/openclaw/logs"
+mkdir -p "$root/state/openclaw/logs"
+chmod 775 "$root/state/openclaw" "$root/state/openclaw/logs"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
@@ -371,7 +372,7 @@ check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scrat
 # --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
 shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e" 2>"$scratch/shell.log" || true)"
 check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"
-shell_results() { sed 's/^SHELL-E2E //' <<<"$shelled" | jq -r ".[$1] // \"NO-RESULT\"" 2>/dev/null; }
+shell_results() { jq -r ".[$1] // \"NO-RESULT\"" <<<"${shelled#SHELL-E2E }" 2>/dev/null; }
 check "exec runs a plain read-only program (ls hands)" grep -q 'guard' <<<"$(shell_results 0)"
 check "exec runs a read-only hand (hands/hn --help)" grep -qi 'usage' <<<"$(shell_results 1)"
 refused() { grep -qiE 'denied|blocked|not allowed|refus|guardrails' <<<"$1"; }
