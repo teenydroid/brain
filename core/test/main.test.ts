@@ -146,6 +146,52 @@ describe("the Gateway's exec stays denied until the plugin is proven loaded", ()
     }
   });
 
+  it("never writes exec open beside a change the Gateway must restart for, even while the core drains turns before that restart", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "secrets"));
+    mkdirSync(join(root, "core", "plugins", "teeny-guardrails"), { recursive: true });
+    const ready = join(root, "state", "openclaw", "guardrails.ready");
+    const configFile = join(root, "state", "openclaw", "openclaw.json");
+    const execModes = (): string[] => {
+      const entries = JSON.parse(readFileSync(configFile, "utf8")).agents.entries as Record<string, { tools: { exec?: { security: string } } }>;
+      return Object.values(entries).flatMap((e) => (e.tools.exec ? [e.tools.exec.security] : []));
+    };
+    let finish!: () => void;
+    const slow = { run: () => new Promise<{ text: string }>((r) => (finish = () => r({ text: "done" }))) };
+    const children: QuietChild[] = [];
+    const core = await startCore(
+      { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(REPO, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "tok", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent", LOCAL_OPENAI_URL: "http://127.0.0.1:1/v1", SPINE_MODEL: "m" },
+      { log: () => undefined, runner: slow, drainMs: 2000, settleMs: 100, bootSettleMs: 100, spawn: () => { const c = new QuietChild(); children.push(c); return c as never; } },
+    );
+    const rpc = async (method: string, params: Record<string, unknown>) =>
+      (await fetch(`http://127.0.0.1:${core.port}/rpc`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: `openhuman.${method}`, params }) })).json();
+    try {
+      writeFileSync(ready, JSON.stringify({ pid: 1 }));
+      await vi.waitFor(() => expect(execModes().every((m) => m === "full")).toBe(true), { timeout: 3000 });
+      await new Promise((r) => setTimeout(r, 400)); // past the boot settle
+      const started = children.length;
+      const turn = rpc("inference_agent_chat", { message: "hi", agent_id: "simple" });
+      await new Promise((r) => setTimeout(r, 100));
+      rmSync(ready, { force: true });
+      // A new turn budget is in the Gateway's config. Under reload mode "hybrid" the Gateway may restart itself for
+      // it, so the file must say "deny" from the write on, through the drain, until the core's own restart is proven.
+      await rpc("config_update_agent_settings", { agent_timeout_secs: 4444 });
+      expect(execModes().every((m) => m === "deny")).toBe(true);
+      await new Promise((r) => setTimeout(r, 600)); // past the settle: the core is draining the turn now
+      expect(children).toHaveLength(started);
+      expect(execModes().every((m) => m === "deny")).toBe(true);
+      finish();
+      await turn;
+      await vi.waitFor(() => expect(children.length).toBe(started + 1), { timeout: 3000 });
+      expect(execModes().every((m) => m === "deny")).toBe(true);
+      writeFileSync(ready, JSON.stringify({ pid: 1 }));
+      await vi.waitFor(() => expect(execModes().every((m) => m === "full")).toBe(true), { timeout: 3000 });
+    } finally {
+      await core.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("portOpen says whether something listens", async () => {
     const srv = createServer().listen(0, "127.0.0.1");
     await new Promise((r) => srv.once("listening", r));
@@ -381,11 +427,16 @@ describe("cron wiring", () => {
     writeFileSync(join(dir, ".openhuman", "config.toml"), "[cron]\nshell_timeout_secs = 60\n");
     expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(60);
 
-    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}` });
+    // No Gateway here, so the CLI is a stub that answers "unreachable" at once: the real CLI takes
+    // seconds to start on a busy runner, and a non-probe call retries an unreachable Gateway for 90 s.
+    const stub = join(dir, "openclaw-stub");
+    writeFileSync(stub, "#!/bin/sh\necho 'gateway closed' >&2\nexit 1\n", { mode: 0o755 });
+    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}`, OPENCLAW_BIN: stub });
     try {
-      // The test core has no Gateway, so the automations CLI answers an error; the method is served.
-      const res = await t.rpc("cron_list", {});
+      // The method is served; the probe asks once and answers an error without waiting.
+      const res = await t.rpc("cron_list", { probe: true });
       expect(res.error?.code).not.toBe(-32601);
+      expect(res.error?.message).toContain("cron is closed");
     } finally {
       await t.core.stop();
     }

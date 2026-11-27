@@ -232,12 +232,17 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
       logFile: join(logDir, "openclaw-YYYY-MM-DD.log"),
     });
-    const text = JSON.stringify(build(guardrailsProven), null, 2);
-    writeFileSync(configPath, text, { mode: 0o600 });
-    chmodSync(configPath, 0o600);
     const settled = JSON.stringify(build(true), null, 2);
     // The proven shape is what is compared, so opening exec later is never mistaken for a change that needs a restart.
-    return `${settled}\n${store.localAiApiKey() ?? ""}`;
+    const shape = `${settled}\n${store.localAiApiKey() ?? ""}`;
+    // Exec is written open only when nothing else differs from what the running Gateway was started on. The
+    // Gateway hot-applies that one change (reload mode "hybrid"); any other change may make it restart itself, and
+    // that restart must come up on "deny" until the core restarts it and the plugin is proven again.
+    const opens = guardrailsProven && shape === startedWith;
+    const text = opens ? settled : JSON.stringify(build(false), null, 2);
+    writeFileSync(configPath, text, { mode: 0o600 });
+    chmodSync(configPath, 0o600);
+    return shape;
   };
   /** The environment of the Gateway and of its CLI: no core token, no master key file path, nothing else of ours. */
   const gatewayEnv = (): Record<string, string> => {
@@ -275,7 +280,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
                 file: guardrailsReadyFile(paths.openclawDir),
                 listening: () => portOpen(gatewayPort),
                 // The Gateway started on a config that denies exec; the plugin is proven, so open it. The Gateway
-                // hot-reloads its config file; if it does not, exec stays denied (fail closed).
+                // hot-applies tools.exec.security (reload mode "hybrid"); if it does not, exec stays denied (fail closed).
                 onProven: () => void writeConfig(true),
               },
             }
@@ -349,7 +354,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       configChanged: () => {
         // The file follows at once; the restart, if any, waits for the burst to end (and not past MAX_SETTLE_MS).
         try {
-          writeConfig();
+          writeConfig(supervisor?.proven ?? false);
         } catch (e) {
           log("error", "could not write the Gateway's config", { error: e instanceof Error ? e.message : String(e) });
         }
@@ -375,7 +380,9 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   const bound = (server.address() as AddressInfo).port;
   servingSince = Date.now();
   if (supervisor) await supervisor.start();
-  await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
+  // With no Gateway (a test core) there is nothing to check cron against, and asking the CLI would
+  // wait out the Gateway-unreachable retry window before the core serves anything.
+  if (!opts.noGateway) await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
   log("info", "serving", { host, port: bound });
 
   return {
