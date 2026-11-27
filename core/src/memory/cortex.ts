@@ -22,6 +22,25 @@ export class CortexError extends Error {
   }
 }
 
+/** Hosts where plain http never leaves the machine. */
+function isLoopbackHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
+}
+
+/** Throws unless the endpoint is https, or http on this machine (where the compose CortexDB listens). */
+export function assertSafeEndpoint(endpoint: string): void {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new CortexError("the CortexDB endpoint must be an http(s) URL");
+  }
+  if (url.protocol === "https:") return;
+  if (url.protocol === "http:" && isLoopbackHost(url.hostname)) return;
+  throw new CortexError("the CortexDB endpoint must be https (plain http is only allowed on this machine)");
+}
+
 export interface CortexOptions {
   endpoint: string;
   apiKey?: string;
@@ -117,6 +136,17 @@ export function decodeEvent(event: RawEvent): { id: string; text: string; observ
   return { id: envelope.id, text: text ?? "", observedAt: observed, kind: String(envelope.kind ?? "") };
 }
 
+/** Most ids a cursor carries; past it a very deep listing may repeat or misplace an old learning. */
+const CURSOR_SEEN_MAX = 1000;
+
+function encodeCursor(at: { c?: string; skip: number }, seen: Set<string>): string {
+  const s = [...seen].slice(-CURSOR_SEEN_MAX);
+  return Buffer.from(JSON.stringify({ ...at, ...(s.length ? { s } : {}) })).toString("base64url");
+}
+
+/** Pages of 200 events: far past any real learning (the listing doubles every event). */
+const FORGET_MAX_PAGES = 200;
+
 export class CortexClient {
   private readonly endpoint: string;
   private readonly scope: string;
@@ -125,7 +155,7 @@ export class CortexClient {
   private actorState: { known: boolean; value?: string } = { known: false };
 
   constructor(private readonly opts: CortexOptions) {
-    if (!/^https?:\/\//.test(opts.endpoint)) throw new CortexError("the CortexDB endpoint must be an http(s) URL");
+    assertSafeEndpoint(opts.endpoint);
     this.endpoint = opts.endpoint.endsWith("/") ? opts.endpoint : `${opts.endpoint}/`;
     this.scope = opts.scope ?? DEFAULT_SCOPE;
     this.timeoutMs = opts.timeoutMs ?? 10_000;
@@ -149,6 +179,8 @@ export class CortexClient {
         headers,
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(this.timeoutMs),
+        // The bearer key and the query go to the configured service only, never to a redirect target.
+        redirect: "error",
       });
     } catch (e) {
       throw new CortexError(`CortexDB did not answer: ${(e as Error).name}`);
@@ -157,7 +189,10 @@ export class CortexClient {
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) this.actorState = { known: false };
       // The body can echo a request: keep a short excerpt only, never the key.
-      throw new CortexError(`CortexDB answered ${res.status} for ${route}: ${text.slice(0, 160).replace(/\s+/g, " ")}`, res.status);
+      // Redact before cutting, so a key that straddles the cut is not left half-visible.
+      const whole = this.opts.apiKey ? text.split(this.opts.apiKey).join("[redacted]") : text;
+      const safe = whole.slice(0, 160).replace(/\s+/g, " ");
+      throw new CortexError(`CortexDB answered ${res.status} for ${route}: ${safe}`, res.status);
     }
     if (!text) return {};
     try {
@@ -229,27 +264,33 @@ export class CortexClient {
 
   /** Learnings, newest first, deduped, written after `observedAfter` when given. The cursor is ours. */
   async listLearnings(opts: { limit: number; cursor?: string; observedAfter?: string }): Promise<ListPage> {
-    let at: { c?: string; skip: number } = { skip: 0 };
+    let at: { c?: string; skip: number; seen: string[] } = { skip: 0, seen: [] };
     if (opts.cursor) {
       try {
-        const parsed = JSON.parse(Buffer.from(opts.cursor, "base64url").toString("utf8")) as { c?: string; skip?: number };
-        at = { ...(typeof parsed.c === "string" ? { c: parsed.c } : {}), skip: Number.isInteger(parsed.skip) ? (parsed.skip as number) : 0 };
+        const parsed = JSON.parse(Buffer.from(opts.cursor, "base64url").toString("utf8")) as { c?: string; skip?: number; s?: unknown };
+        at = {
+          ...(typeof parsed.c === "string" ? { c: parsed.c } : {}),
+          skip: Number.isInteger(parsed.skip) ? (parsed.skip as number) : 0,
+          seen: Array.isArray(parsed.s) ? parsed.s.filter((x): x is string => typeof x === "string") : [],
+        };
       } catch {
         throw new CortexError("the cursor is not one this listing gave");
       }
     }
     const after = opts.observedAfter ? Date.parse(opts.observedAfter) : undefined;
     const items: Learning[] = [];
-    const seen = new Set<string>();
+    // Ids already returned on earlier pages travel in the cursor, so an older event of a learning re-written later cannot list it twice.
+    const seen = new Set<string>(at.seen);
     let cursor = at.c;
     let skip = at.skip;
     for (let pages = 0; pages < 25; pages++) {
       const page = await this.eventsPage(cursor);
       const fresh: Learning[] = [];
+      const pageSeen = new Set<string>();
       for (const ev of page.items) {
         const d = decodeEvent(ev);
-        if (!d || d.kind !== "learning" || seen.has(d.id)) continue;
-        seen.add(d.id);
+        if (!d || d.kind !== "learning" || seen.has(d.id) || pageSeen.has(d.id)) continue;
+        pageSeen.add(d.id);
         if (after !== undefined) {
           const t = Date.parse(d.observedAt);
           if (!Number.isNaN(t) && t <= after) continue;
@@ -260,16 +301,18 @@ export class CortexClient {
       const room = opts.limit - items.length;
       items.push(...slice.slice(0, room));
       if (slice.length > room) {
-        return { items, next_cursor: Buffer.from(JSON.stringify({ ...(cursor ? { c: cursor } : {}), skip: skip + room })).toString("base64url") };
+        // Mid-page: the cursor re-reads this page, so it carries the ids as they stood before it.
+        return { items, next_cursor: encodeCursor({ ...(cursor ? { c: cursor } : {}), skip: skip + room }, seen) };
       }
+      for (const id of pageSeen) seen.add(id);
       skip = 0;
       if (!page.hasMore || !page.next) return { items, next_cursor: null };
       cursor = page.next;
       if (items.length >= opts.limit) {
-        return { items, next_cursor: Buffer.from(JSON.stringify({ c: cursor, skip: 0 })).toString("base64url") };
+        return { items, next_cursor: encodeCursor({ c: cursor, skip: 0 }, seen) };
       }
     }
-    return { items, next_cursor: cursor ? Buffer.from(JSON.stringify({ c: cursor, skip: 0 })).toString("base64url") : null };
+    return { items, next_cursor: cursor ? encodeCursor({ c: cursor, skip: 0 }, seen) : null };
   }
 
   /** Forgets learnings by item id; returns how many items had events to remove. */
@@ -279,16 +322,22 @@ export class CortexClient {
       const labels = [`tm:i:${digest(id)}`];
       const eventIds: string[] = [];
       let cursor: string | undefined;
-      for (let pages = 0; pages < 10; pages++) {
+      let ended = false;
+      for (let pages = 0; pages < FORGET_MAX_PAGES; pages++) {
         const page = await this.eventsPage(cursor, labels);
         for (const ev of page.items) {
           // The label is a digest: re-check the envelope's real id.
           const d = decodeEvent(ev);
           if (d?.id === id && typeof ev.id === "string" && !eventIds.includes(ev.id)) eventIds.push(ev.id);
         }
-        if (!page.hasMore || !page.next) break;
+        if (!page.hasMore || !page.next) {
+          ended = true;
+          break;
+        }
         cursor = page.next;
       }
+      // A scan cut short would leave events behind and the learning visible again: say so, delete nothing.
+      if (!ended) throw new CortexError("this learning has too many events to forget in one pass; nothing was removed");
       for (let i = 0; i < eventIds.length; i += 100) {
         // The selector field is exactly memory_ids: anything else reads as the whole scope.
         await this.call("POST", "v1/forget", {
