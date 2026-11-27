@@ -275,4 +275,42 @@ describe("a Gateway that is restarting", () => {
     await expect(c2.methods.cron_list!({}, ctx)).rejects.toThrow(/unknown flag/);
     expect(other).toBe(1);
   });
+
+  it("does not retry add, edit, remove or run on a closed connection (the Gateway may have taken the call), only on a refused one", async () => {
+    for (const verb of ["add", "remove", "run"] as const) {
+      for (const [stderr, retried] of [["gateway closed (1006 abnormal closure)", false], ["GatewayDrainingError: Gateway is shutting down", false], ["Couldn't connect to OpenClaw.", true]] as const) {
+        let tries = 0;
+        let t = 0;
+        const flaky: typeof fake.exec = async (f, a, o) => {
+          if (a[0] === "config" || a[1] !== verb) return fake.exec(f, a, o);
+          tries += 1;
+          return tries < 3 ? { code: 1, stdout: "", stderr } : fake.exec(f, a, o);
+        };
+        const c = createCron({ exec: flaky, bin: "openclaw", gatewayEnv: GATEWAY_ENV, gatewayWaitMs: 10_000, retry: { sleep: async (ms) => void (t += ms), now: () => t, delayMs: 1000 } });
+        const job = verb === "add" ? shellJob("bin/heartbeat") : { job_id: "x" };
+        await (c.methods[`cron_${verb}`]!(job, ctx) as Promise<unknown>).catch(() => undefined);
+        expect(tries, `${verb} on ${stderr}`).toBe(retried ? 3 : 1);
+      }
+    }
+  });
+
+  it("retries a read-only list on a closed connection", async () => {
+    let tries = 0;
+    let t = 0;
+    const flaky: typeof fake.exec = async (f, a, o) => (a[0] !== "config" && tries++ < 2 ? { code: 1, stdout: "", stderr: "gateway closed (1006)" } : fake.exec(f, a, o));
+    const c = createCron({ exec: flaky, bin: "openclaw", gatewayEnv: GATEWAY_ENV, retry: { sleep: async (ms) => void (t += ms), now: () => t, delayMs: 1000 } });
+    expect(await c.methods.cron_list!({}, ctx)).toEqual([]);
+  });
+
+  it("answers a probe once and fast: no waiting while the Gateway is down, and a bounded CLI run", async () => {
+    let tries = 0;
+    const timeouts: (number | undefined)[] = [];
+    const down: typeof fake.exec = async (_f, _a, o) => (tries++, timeouts.push(o.timeoutMs), { code: 1, stdout: "", stderr: "Couldn't connect to OpenClaw." });
+    const c = createCron({ exec: down, bin: "openclaw", gatewayEnv: GATEWAY_ENV });
+    await expect(c.methods.cron_list!({ probe: true }, ctx)).rejects.toThrow();
+    expect(tries).toBe(1);
+    expect(timeouts[0]).toBeLessThanOrEqual(10_000);
+    const up = createCron({ exec: fake.exec, bin: "openclaw", gatewayEnv: GATEWAY_ENV });
+    expect(await up.methods.cron_list!({ probe: true }, ctx)).toEqual([]);
+  });
 });

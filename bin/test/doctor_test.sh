@@ -398,6 +398,15 @@ case "$1" in
   # A turn: refused as the core refused the studio's on 2026-11-19 when its
   # model is in $FAKE_REFUSED (a comma list). Each is logged to $FAKE_TURNS.
   inference_agent_chat|inference_agent_chat_simple)
+    # The worker's exec probe: FAKE_EXEC=stale answers what a Gateway whose exec policy refuses would.
+    if [ "$(jq -r '.agent_id // ""' <<<"$2")" = worker ]; then
+      case "${FAKE_EXEC:-ok}" in
+        ok) printf '{"response": "%s"}\n' "$(date +%s)" ;;
+        old) printf '{"response": "%s"}\n' "$(( $(date +%s) - 3600 ))" ;;
+        *) echo '{"response": "exec denied by approvals policy"}' ;;
+      esac
+      exit 0
+    fi
     printf '%s %s\n' "$1" "$2" >>"${FAKE_TURNS:-/dev/null}"
     m="$(jq -r '.model_override // ""' <<<"$2")"
     if [[ ",${FAKE_REFUSED:-}," == *",$m,"* ]]; then
@@ -519,6 +528,20 @@ check "--live still asks a model set while the studio is off" grep -q '^FAIL stu
 DOCTOR_MODEL_TURNS=0 FAKE_REFUSED=e live_doctor || true
 check "and DOCTOR_MODEL_TURNS=0 skips the turns" bash -c "! grep -q 'studio models answer' '$scratch/doctor.log'"
 rm -f "$root/secrets/teeny.env"
+
+# A stale exec-approvals policy (or a plugin that never loaded) makes a shell agent's exec dead while everything
+# else reads healthy: --live has a worker run a harmless command and checks the answer is the real time.
+live_doctor || true
+check "--live passes when a shell agent's exec runs a command through the Gateway" \
+  grep -q '^ok   shell agent exec runs: ' "$scratch/doctor.log"
+FAKE_EXEC=denied live_doctor || true
+check "--live fails when the shell agent's exec is refused, and says where to look" \
+  grep -q '^FAIL shell agent exec runs: .*exec-approvals' "$scratch/doctor.log"
+FAKE_EXEC=old live_doctor || true
+check "--live fails an answer that is not the current time (a model that never ran it)" \
+  grep -q '^FAIL shell agent exec runs: ' "$scratch/doctor.log"
+DOCTOR_MODEL_TURNS=0 FAKE_EXEC=denied live_doctor || true
+check "and DOCTOR_MODEL_TURNS=0 skips it" bash -c "! grep -q 'shell agent exec runs' '$scratch/doctor.log'"
 
 # The meme service: named only when STUDIO_FORMATS has meme, never a failure;
 # --live asks it for its templates (a stand-in memegen on a loopback port).

@@ -169,7 +169,7 @@ type SqliteDb = { prepare(sql: string): { all(...params: unknown[]): Array<Recor
 // The phrase's document is `<owner>:wallet.mnemonic` in coll 'secrets', and the owner is not the keyring's user id:
 // on the live box the keychain's only user is ".openhuman" while the document's id is "teeny:wallet.mnemonic". So
 // the document is found by its suffix, and a store that holds several is refused rather than guessed at.
-async function storageCiphertext(db: string, oldMaster: Buffer): Promise<string | undefined> {
+async function storageCiphertext(db: string, oldMaster: Buffer, userId?: string): Promise<string | undefined> {
   if (!existsSync(db)) throw new Refusal("--old-storage-db does not exist");
   const sqlite = (await import("node:sqlite")) as unknown as { DatabaseSync: new (path: string, options: { readOnly: boolean }) => SqliteDb };
   const handle = new sqlite.DatabaseSync(db, { readOnly: true });
@@ -179,17 +179,24 @@ async function storageCiphertext(db: string, oldMaster: Buffer): Promise<string 
       .all()
       .map((r) => String(r.name))
       .filter((name) => /^[A-Za-z0-9_]+$/.test(name));
-    const found: Array<{ scope: string; ciphertext: string }> = [];
+    const found: Array<{ scope: string; id: string; ciphertext: string }> = [];
+    const suffix = ":wallet.mnemonic";
     for (const table of tables) {
       const rows = handle
-        .prepare(`SELECT scope, body FROM ${table} WHERE coll = 'secrets' AND id LIKE ? AND deleted = 0`)
-        .all("%:wallet.mnemonic");
+        // LIKE is case-insensitive for ASCII, so '%:WALLET.MNEMONIC' would match too: substr compares exactly.
+        .prepare(`SELECT scope, id, body FROM ${table} WHERE coll = 'secrets' AND substr(id, -length(?)) = ? AND deleted = 0`)
+        .all(suffix, suffix);
       for (const row of rows) {
         const body = JSON.parse(String(row.body)) as { ciphertext?: unknown };
-        if (typeof body.ciphertext === "string") found.push({ scope: String(row.scope), ciphertext: body.ciphertext });
+        if (typeof body.ciphertext === "string") found.push({ scope: String(row.scope), id: String(row.id), ciphertext: body.ciphertext });
       }
     }
-    if (found.length > 1) throw new Refusal(`the storage database holds ${found.length} recovery phrase documents (*:wallet.mnemonic); it will not guess which is the wallet's`);
+    // --user-id narrows several documents to the one that user owns; without a match it is still a refusal.
+    if (found.length > 1 && userId) {
+      const mine = found.filter((f) => f.id === `${userId}${suffix}`);
+      if (mine.length === 1) found.splice(0, found.length, mine[0] as (typeof found)[number]);
+    }
+    if (found.length > 1) throw new Refusal(`the storage database holds ${found.length} recovery phrase documents (*:wallet.mnemonic); it will not guess which is the wallet's (--user-id names the owner)`);
     const one = found[0];
     if (!one) return undefined;
     const key = storageKey(oldMaster, one.scope);
@@ -252,7 +259,7 @@ export async function migrate(args: Args, log: (line: string) => void): Promise<
       layer1 = (keychain[`${userId}:wallet.mnemonic`] as string).trim();
       source = "dev-keychain.json";
     } else if (args.oldStorageDb) {
-      layer1 = (await storageCiphertext(args.oldStorageDb, oldMaster))?.trim();
+      layer1 = (await storageCiphertext(args.oldStorageDb, oldMaster, args.userId))?.trim();
       source = "the old storage database";
     }
     if (!layer1) {

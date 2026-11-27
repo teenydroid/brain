@@ -1,7 +1,7 @@
 {
   "method": "openhuman.config_update_agent_settings",
   "call_sites": [
-    "bin/spine:212"
+    "bin/spine:214"
   ],
   "params": {
     "fields": {

@@ -44,7 +44,7 @@ function sealHkdf(master: string, scope: string, plaintext: string): string {
   return `enc2:${Buffer.concat([nonce, body, c.getAuthTag()]).toString("hex")}`;
 }
 
-async function oldKeyring(where: Where, over: { phrase?: string; stateSolana?: string; users?: string[]; keychainUser?: string; docOwners?: string[] } = {}): Promise<Old> {
+async function oldKeyring(where: Where, over: { phrase?: string; stateSolana?: string; users?: string[]; keychainUser?: string; docOwners?: string[]; junkIds?: string[] } = {}): Promise<Old> {
   const dir = mkdtempSync(join(tmpdir(), "oldring-"));
   const workspace = join(dir, "brain");
   mkdirSync(join(workspace, "state"), { recursive: true });
@@ -72,6 +72,9 @@ async function oldKeyring(where: Where, over: { phrase?: string; stateSolana?: s
     const scope = "t:local/agent:main";
     for (const owner of over.docOwners ?? [USER]) {
       sqlite.prepare("INSERT INTO docs (scope, coll, id, version, created_ms, updated_ms, body) VALUES (?, 'secrets', ?, 1, 1, 1, ?)").run(scope, `${owner}:wallet.mnemonic`, JSON.stringify({ ciphertext: sealHkdf(oldMaster, scope, layer1) }));
+    }
+    for (const id of over.junkIds ?? []) {
+      sqlite.prepare("INSERT INTO docs (scope, coll, id, version, created_ms, updated_ms, body) VALUES (?, 'secrets', ?, 1, 1, 1, ?)").run(scope, id, JSON.stringify({ ciphertext: "enc2:junk" }));
     }
     sqlite.prepare("INSERT INTO docs (scope, coll, id, version, created_ms, updated_ms, body) VALUES (?, 'secrets', ?, 1, 1, 1, ?)").run(scope, `${USER}:other.secret`, JSON.stringify({ ciphertext: sealHkdf(oldMaster, scope, "unrelated") }));
     sqlite.close();
@@ -156,6 +159,24 @@ describe("migrate-keyring.ts", () => {
     expect(result.code).not.toBe(0);
     expect(result.err).toMatch(/2 recovery phrase documents/);
     expect(existsSync(join(newDir, "wallet", "wallet-state.json"))).toBe(false);
+  });
+
+  it("matches the document's suffix exactly: a '*:WALLET.MNEMONIC' of another case is not a second phrase", async () => {
+    const old = await oldKeyring("storage", { keychainUser: ".openhuman", docOwners: ["teeny"], junkIds: ["teeny:WALLET.MNEMONIC", "x:Wallet.Mnemonic"] });
+    const newDir = join(old.dir, "state");
+    const result = run(old, ["--old-storage-db", old.db], newDir);
+    expect(result.err).toBe("");
+    expect(result.code).toBe(0);
+  });
+
+  it("--user-id narrows several phrase documents to the one that owner holds", async () => {
+    const old = await oldKeyring("storage", { keychainUser: "teeny", docOwners: ["teeny", "other"] });
+    const newDir = join(old.dir, "state");
+    const result = run(old, ["--old-storage-db", old.db, "--user-id", "teeny"], newDir);
+    const unnamed = run(old, ["--old-storage-db", old.db], join(old.dir, "state2"));
+    expect(unnamed.err).toMatch(/2 recovery phrase documents/);
+    expect(result.err).toBe("");
+    expect(result.code).toBe(0);
   });
 
   it("--check reads, verifies and prints, and writes nothing", async () => {

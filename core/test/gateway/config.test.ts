@@ -158,11 +158,16 @@ describe("generated OpenClaw config: exec and the guardrails plugin", () => {
     Object.fromEntries(Object.entries(cfg.agents.entries as Cfg).filter(([, e]) => e.tools.exec).map(([id, e]) => [id, e.tools.exec.security]));
 
   it("runs a shell agent's exec with OpenClaw's own check off only when the plugin is in the config", () => {
-    const withPlugin = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+    const withPlugin = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {}, guardrailsProven: true })) as Cfg;
     const security = execSecurity(withPlugin);
     expect(Object.keys(security)).toContain("worker");
     expect(Object.values(security).every((v) => v === "full")).toBe(true);
     expect(withPlugin.agents.entries.worker.tools.exec).toMatchObject({ host: "gateway", ask: "off" });
+  });
+
+  it("denies every shell agent's exec while the plugin is in the config but not yet proven loaded (fail closed)", () => {
+    const cfg = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+    expect(Object.values(execSecurity(cfg)).every((v) => v === "deny")).toBe(true);
   });
 
   it("denies every shell agent's exec when there is no plugin to gate it (fail closed)", () => {

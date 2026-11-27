@@ -296,6 +296,7 @@ These are gitignored and created at run time:
 ```sh
 python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, tick, reflect, the core config and bin/evolve (lab spines, promotion, watch, probes); X, GitHub and the core are faked
 bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
+bin/test/boot_cron_test.sh                                   # the boot's wait for cron and its seeding, under one deadline
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
 bin/test/eval_test.sh                                        # hard checks, blind swapped judging, scoring, held-out tasks; the core faked

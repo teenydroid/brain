@@ -1,13 +1,14 @@
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { cronShellTimeoutSecs, run, startCore, wireCron } from "../src/main.js";
+import { cronShellTimeoutSecs, portOpen, run, startCore, wireCron } from "../src/main.js";
 import { methods as cronMethods, setShellTimeoutSecs } from "../src/cron/index.js";
 import { resolvePaths, serveSettings } from "../src/config/paths.js";
 import { resolveToken } from "../src/config/token.js";
-import { FAKE_KEY, startTestCore } from "./helpers.js";
+import { createServer } from "node:net";
+import { FAKE_KEY, REPO, startTestCore } from "./helpers.js";
 
 class QuietChild extends EventEmitter {
   pid = 1;
@@ -113,6 +114,45 @@ describe("startCore", () => {
     } finally {
       await core.stop();
     }
+  });
+});
+
+describe("the Gateway's exec stays denied until the plugin is proven loaded", () => {
+  it("starts on a config that denies exec, opens it once the ready file carries the Gateway's pid, and ignores a file from another process", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "secrets"));
+    mkdirSync(join(root, "core", "plugins", "teeny-guardrails"), { recursive: true });
+    const ready = join(root, "state", "openclaw", "guardrails.ready");
+    const configFile = join(root, "state", "openclaw", "openclaw.json");
+    const execModes = (): string[] => {
+      const entries = JSON.parse(readFileSync(configFile, "utf8")).agents.entries as Record<string, { tools: { exec?: { security: string } } }>;
+      return Object.values(entries).flatMap((e) => (e.tools.exec ? [e.tools.exec.security] : []));
+    };
+    const core = await startCore(
+      { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(REPO, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "t", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent" },
+      { log: () => undefined, spawn: () => new QuietChild() as never },
+    );
+    try {
+      expect(execModes().length).toBeGreaterThan(0);
+      expect(execModes().every((m) => m === "deny")).toBe(true);
+      writeFileSync(ready, JSON.stringify({ pid: 4242 })); // not the Gateway (pid 1 here)
+      await new Promise((r) => setTimeout(r, 400));
+      expect(execModes().every((m) => m === "deny")).toBe(true);
+      writeFileSync(ready, JSON.stringify({ pid: 1 }));
+      await vi.waitFor(() => expect(execModes().every((m) => m === "full")).toBe(true), { timeout: 3000 });
+    } finally {
+      await core.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("portOpen says whether something listens", async () => {
+    const srv = createServer().listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    const port = (srv.address() as { port: number }).port;
+    expect(await portOpen(port)).toBe(true);
+    await new Promise((r) => srv.close(r));
+    expect(await portOpen(port)).toBe(false);
   });
 });
 
