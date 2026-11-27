@@ -1,0 +1,52 @@
+{
+  "method": "openhuman.inference_agent_chat_simple",
+  "call_sites": [
+    "bin/doctor:171",
+    "bin/lib/health.py:251",
+    "hands/lib/teeny_hands/guard/judge.py:349",
+    "hands/lib/teeny_hands/guard/review.py:170",
+    "hands/lib/teeny_hands/moltbook/model_read.py:80"
+  ],
+  "params": {
+    "fields": {
+      "message": {
+        "type": "string",
+        "required": true
+      },
+      "model_override": {
+        "type": "string",
+        "required": false,
+        "note": "SAFETY_JUDGE_MODEL or a studio model; absent means the core's default model"
+      }
+    },
+    "example": {
+      "message": "Answer with the JSON {\"ok\": true} and nothing else.",
+      "model_override": "glm-5.3-flash"
+    }
+  },
+  "response": {
+    "type": "string|object",
+    "fields": {
+      "response": {
+        "type": "string|object",
+        "required": false,
+        "note": "the turn's text; callers also accept text, message or content, nested up to 4 deep (guard/judge.py _reply_text, bin/lib/health.py _words, bin/ask)"
+      },
+      "text": {
+        "type": "string|object",
+        "required": false
+      },
+      "message": {
+        "type": "string|object",
+        "required": false
+      },
+      "content": {
+        "type": "string|object",
+        "required": false
+      }
+    },
+    "reader": "a bare string, or an object carrying the text under one of response/text/message/content; bin/ask falls back to the whole payload as JSON",
+    "example": "{\"verdict\": \"release\", \"reason\": \"fine\"}"
+  },
+  "notes": "A tool-less one-shot completion. The reply is parsed as JSON by guard/judge.py (an object that already has `verdict` is taken as it is; a fenced block or outer braces are accepted). Timeouts: 60s review, READ_TIMEOUT for moltbook, JUDGE_TIMEOUT for the judge, 120s doctor."
+}

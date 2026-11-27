@@ -1,0 +1,16 @@
+{
+  "transport": {
+    "endpoint": "POST {OH_URL | OPENHUMAN_CORE_URL}/rpc, default http://127.0.0.1:7788",
+    "auth": "Authorization: Bearer <secrets/core.token>",
+    "request": {"jsonrpc": "2.0", "id": 1, "method": "openhuman.<method>", "params": "object, {} when none"},
+    "health": "GET /health answers 200 when the core is up (bin/spine, bin/doctor)",
+    "clients": ["bin/oh:23-31", "hands/lib/teeny_hands/hand.py:272-308"]
+  },
+  "response": {
+    "success": {"jsonrpc": "2.0", "id": 1, "result": "any JSON value"},
+    "error": {"jsonrpc": "2.0", "id": 1, "error": {"message": "string, quoted by callers: the caller matches substrings such as WALLET_POLICY_REFUSED: and X402_REFUSED:"}},
+    "unwrap": "Controllers may answer {logs, result}: when result is an object with both keys `logs` and `result`, clients return .result (bin/oh and hand.core do the same). A few answer the bare value.",
+    "http_errors": "A non-2xx status is a CoreError('core answered HTTP n'); a connection failure is 'core unreachable at <url>'; bin/oh exits 1 and prints the JSON-RPC error message to stderr"
+  },
+  "notes": "Method names are accepted with or without the `openhuman.` prefix by bin/oh; hand.core adds it. The TS core must keep serving the openhuman.* names."
+}

@@ -1,0 +1,39 @@
+{
+  "method": "openhuman.cost_report",
+  "call_sites": [
+    "bin/lib/health.py:1168",
+    "hands/lib/teeny_hands/wallet/reads.py:367"
+  ],
+  "params": {
+    "fields": {
+      "days": {
+        "type": "number",
+        "required": true,
+        "note": "integer days back (1 in health)"
+      }
+    },
+    "example": {
+      "days": 1
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "totals": {
+        "type": "object",
+        "required": true,
+        "note": "{cost_usd: number, calls: int, unpriced_calls: int, charged_usd: number, estimated_usd: number}; each missing/null reads as 0"
+      }
+    },
+    "reader": "wallet/reads.py cost_parts, bin/lib/health.py model_cost",
+    "example": {
+      "totals": {
+        "cost_usd": 0.0123,
+        "calls": 14,
+        "unpriced_calls": 0,
+        "charged_usd": 0.01,
+        "estimated_usd": 0.0023
+      }
+    }
+  }
+}

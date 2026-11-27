@@ -1,0 +1,58 @@
+{
+  "method": "openhuman.web3_dapp_call",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/convert.py:561"
+  ],
+  "params": {
+    "fields": {
+      "contractAddress": {
+        "type": "string",
+        "required": true
+      },
+      "calldata": {
+        "type": "string",
+        "required": true,
+        "note": "ERC-20 approve calldata, hex"
+      },
+      "valueRaw": {
+        "type": "string",
+        "required": true,
+        "note": "'0'"
+      },
+      "evmNetwork": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "contractAddress": "0xusdc",
+      "calldata": "0x095ea7b3",
+      "valueRaw": "0",
+      "evmNetwork": "base"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "quote": {
+        "type": "object",
+        "required": true,
+        "note": "{contractAddress, calldata, valueRaw?}; each is compared with what was asked"
+      }
+    },
+    "reader": "wallet/convert.py _approve",
+    "example": {
+      "quoteId": "q-4",
+      "quote": {
+        "contractAddress": "0xusdc",
+        "calldata": "0x095ea7b3",
+        "valueRaw": "0"
+      }
+    }
+  },
+  "timeout": "60s"
+}

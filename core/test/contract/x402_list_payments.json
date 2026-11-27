@@ -1,0 +1,40 @@
+{
+  "method": "openhuman.x402_list_payments",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/reads.py:333"
+  ],
+  "params": {
+    "fields": {
+      "limit": {
+        "type": "number",
+        "required": true,
+        "note": "500"
+      }
+    },
+    "example": {
+      "limit": 500
+    }
+  },
+  "response": {
+    "type": "object|array",
+    "fields": {
+      "payments": {
+        "type": "array",
+        "required": false,
+        "note": "newest first; each {id: string, status: 'settled'|'pending'|'failed', asset: string (mint), amountAtomic: int-like, timestamp: RFC3339}. A status change is a new record with the same id; the newest wins. A bare array is also accepted."
+      }
+    },
+    "reader": "wallet/reads.py _x402 (costs, accounts, world score)",
+    "example": {
+      "payments": [
+        {
+          "id": "p1",
+          "status": "settled",
+          "asset": "usdc-mint",
+          "amountAtomic": 1500000,
+          "timestamp": "2026-11-26T10:00:00Z"
+        }
+      ]
+    }
+  }
+}

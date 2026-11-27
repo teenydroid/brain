@@ -1,0 +1,60 @@
+{
+  "file": "brain/storage.db (TEENY_STORAGE overrides; found as bin/lib/teeny.sh does). OpenHuman's SQLite store, opened read-only by Teeny: file:<path>?mode=ro, 5 s busy timeout. Never written by Teeny.",
+  "table": {
+    "name": "docs",
+    "columns": {
+      "scope": "text, default ''",
+      "coll": "text, the collection",
+      "id": "text, the document id (a job id, or a lease key)",
+      "created_ms": "integer, epoch milliseconds",
+      "updated_ms": "integer, epoch milliseconds",
+      "deleted": "integer, 0 = live; readers filter deleted = 0",
+      "body": "text, JSON for the cron collections; other collections keep non-JSON bodies, so every query first narrows with json_valid(body) in a MATERIALIZED CTE"
+    },
+    "ddl_in_tests": "create table docs (scope text default '', coll text, id text, created_ms integer default 0, updated_ms integer default 0, deleted integer default 0, body text)"
+  },
+  "collections": {
+    "cron.jobs": {
+      "filter": "coll = 'cron.jobs' and deleted = 0 and json_valid(body)",
+      "columns_read": ["id", "created_ms", "body"],
+      "body_fields": {
+        "name": "string, teeny.<name> or mind.<slug> or a core system job",
+        "job_type": "string, 'agent' | 'shell'",
+        "expression": "string, the cron expression (bin/crons, pulse)",
+        "enabled": "boolean/0/1; absent or null reads as enabled (coalesce(enabled, 1)); bin/crons shows 'no' only when it is 0",
+        "next_run_ms": "integer epoch ms of the next run",
+        "schedule": "object {kind: 'cron'|'at', expr, tz, at}; selected with json_extract(body, '$.schedule') as JSON text and parsed in Python; '$.schedule.tz' is read directly by bin/crons",
+        "command": "string, shell jobs (read by evolve cron failure evidence)",
+        "created_ms": "integer, preferred over the column when present (catch_up)"
+      },
+      "readers": ["bin/crons", "bin/lib/pulse.py:55", "bin/lib/evolve.py:3327,3359,3390", "bin/lib/health.py:351,396", "bin/lib/catch_up.py:272", "hands/lib/teeny_hands/desk.py:134", "hands/lib/teeny_hands/tasks/queue.py:559"]
+    },
+    "cron.runs": {
+      "filter": "coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'",
+      "columns_read": ["body"],
+      "body_fields": {
+        "job_id": "string, joins docs.id of cron.jobs",
+        "status": "string, 'error' marks a failed run (counted); other values include 'ok'",
+        "started_ms": "integer epoch ms",
+        "finished_ms": "integer epoch ms; null/absent while running",
+        "seq": "integer, ordering within a job (row_number() over partition by job_id order by seq desc picks the last run)",
+        "output": "string, the run's output; the error is in its tail (last 2000 chars kept by evolve)"
+      },
+      "readers": ["bin/crons", "bin/lib/pulse.py:58,84", "bin/lib/evolve.py:3330,3365,3394", "bin/lib/health.py:354", "bin/lib/catch_up.py:295", "hands/lib/teeny_hands/desk.py:136", "hands/lib/teeny_hands/tasks/queue.py:561"]
+    },
+    "tsd.leases": {
+      "filter": "coll = 'tsd.leases' and id = ? and deleted = 0",
+      "columns_read": ["updated_ms", "body"],
+      "id_format": "'cron/' + esc(esc(job_id) + '/' + str(occurrence_ms)), where esc replaces '%' with '%25' then '/' with '%2F' (tinyflows Key::of([\"cron\", Key::of([job_id, occurrence_ms])]); bin/lib/catch_up.py _lease_id)",
+      "body_fields": {
+        "released": "truthy when the claim was let go",
+        "expires_ms": "integer epoch ms; the lease is live while expires_ms > now",
+        "holder": "string, who holds the claim (compared before/after a re-arm)",
+        "epoch": "integer, the fence; a new acquisition changes holder and epoch"
+      },
+      "rule": "live = not released and expires_ms > now_ms and max(updated_ms, expires_ms - OCCURRENCE_LEASE_MS) >= now_ms - LEASE_FRESH_SECS*1000",
+      "readers": ["bin/lib/catch_up.py:223,243", "bin/test/seed_cron_test.sh:45,360 (test inserts)"]
+    }
+  },
+  "notes": "bin/seed-cron's rearm and health's stale_crons depend on next_run_ms and the tsd.leases claim being written by whatever runs the scheduler. If the TS core keeps a different scheduler store it must still write this table in this shape, or every one of these readers has to move with it."
+}

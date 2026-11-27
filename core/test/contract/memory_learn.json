@@ -1,0 +1,36 @@
+{
+  "method": "openhuman.memory_learn",
+  "call_sites": [
+    "bin/lib/reflect.py:995",
+    "bin/lib/tick.py:1607"
+  ],
+  "params": {
+    "fields": {
+      "text": {
+        "type": "string",
+        "required": true
+      },
+      "kind": {
+        "type": "string",
+        "required": true,
+        "note": "'other' (reflect) or the mind's kind (tick)"
+      },
+      "confidence": {
+        "type": "number",
+        "required": true,
+        "note": "0.8 (reflect) or the intent's"
+      }
+    },
+    "example": {
+      "text": "I learned x",
+      "kind": "other",
+      "confidence": 0.8
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Only the exit status is read (bin/oh exits 1 on a JSON-RPC error)."
+}

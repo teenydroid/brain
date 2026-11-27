@@ -1,0 +1,37 @@
+{
+  "method": "openhuman.wallet_derive_recovery_material",
+  "call_sites": [
+    "bin/wallet-setup:106"
+  ],
+  "params": {
+    "fields": {
+      "phrase": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "phrase": "word word word"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "accounts": {
+        "type": "array",
+        "required": true,
+        "note": "each {chain, address, derivationPath}; must include a Solana one"
+      }
+    },
+    "reader": "bin/wallet-setup",
+    "example": {
+      "accounts": [
+        {
+          "chain": "solana",
+          "address": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+          "derivationPath": "m/44'/501'/0'/0'"
+        }
+      ]
+    }
+  }
+}

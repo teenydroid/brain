@@ -1,0 +1,65 @@
+{
+  "method": "openhuman.wallet_setup",
+  "call_sites": [
+    "bin/wallet-setup:126"
+  ],
+  "params": {
+    "fields": {
+      "consentGranted": {
+        "type": "boolean",
+        "required": true,
+        "note": "true"
+      },
+      "source": {
+        "type": "string",
+        "required": true,
+        "note": "'generated'"
+      },
+      "mnemonicWordCount": {
+        "type": "number",
+        "required": true
+      },
+      "encryptedMnemonic": {
+        "type": "string",
+        "required": true
+      },
+      "accounts": {
+        "type": "array",
+        "required": true,
+        "note": "[{chain, address, derivationPath}]"
+      },
+      "force": {
+        "type": "boolean",
+        "required": false,
+        "note": "only with --force"
+      }
+    },
+    "example": {
+      "consentGranted": true,
+      "source": "generated",
+      "mnemonicWordCount": 12,
+      "encryptedMnemonic": "ENC[abc]",
+      "accounts": [
+        {
+          "chain": "solana",
+          "address": "9xQ",
+          "derivationPath": "m/44'/501'/0'/0'"
+        }
+      ]
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "accounts": {
+        "type": "array",
+        "required": false,
+        "note": "read for solana/evm/btc addresses; falls back to the derived ones"
+      }
+    },
+    "reader": "bin/wallet-setup",
+    "example": {
+      "accounts": []
+    }
+  }
+}

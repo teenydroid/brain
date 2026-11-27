@@ -1,0 +1,60 @@
+{
+  "method": "openhuman.config_update_model_settings",
+  "call_sites": [
+    "bin/lib/health.py:1262",
+    "bin/spine:238"
+  ],
+  "params": {
+    "fields": {
+      "default_model": {
+        "type": "string",
+        "required": true
+      },
+      "chat_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      },
+      "reasoning_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      },
+      "agentic_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      },
+      "coding_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      },
+      "vision_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      },
+      "memory_provider": {
+        "type": "string",
+        "required": true,
+        "note": "'local-openai:<model>'"
+      }
+    },
+    "example": {
+      "default_model": "glm-5.3-flash",
+      "chat_provider": "local-openai:glm-5.3-flash",
+      "reasoning_provider": "local-openai:glm-5.3-flash",
+      "agentic_provider": "local-openai:glm-5.3-flash",
+      "coding_provider": "local-openai:glm-5.3-flash",
+      "vision_provider": "local-openai:glm-5.3-flash",
+      "memory_provider": "local-openai:glm-5.3-flash"
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Points every workload at one model. bin/lib/health.py use_model sends the same keys."
+}

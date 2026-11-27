@@ -1,0 +1,24 @@
+{
+  "method": "openhuman.config_get_agent_settings",
+  "call_sites": [
+    "bin/doctor:121"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "agent_timeout_secs": {
+        "type": "number",
+        "required": false,
+        "note": "also accepted nested as .result.agent_timeout_secs"
+      }
+    },
+    "reader": "bin/doctor: .agent_timeout_secs // .result.agent_timeout_secs // empty; must be an integer >= TEENY_AGENT_TURN_SECS",
+    "example": {
+      "agent_timeout_secs": 1800
+    }
+  }
+}

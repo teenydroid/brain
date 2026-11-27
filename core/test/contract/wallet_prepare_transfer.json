@@ -1,0 +1,86 @@
+{
+  "method": "openhuman.wallet_prepare_transfer",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/pay.py:368"
+  ],
+  "params": {
+    "fields": {
+      "chain": {
+        "type": "string",
+        "required": true,
+        "note": "evm | solana"
+      },
+      "toAddress": {
+        "type": "string",
+        "required": true
+      },
+      "amountRaw": {
+        "type": "string",
+        "required": true,
+        "note": "base units as a string"
+      },
+      "evmNetwork": {
+        "type": "string",
+        "required": false,
+        "note": "evm only"
+      },
+      "assetSymbol": {
+        "type": "string",
+        "required": false,
+        "note": "'USDC' for USDC; absent for the native asset"
+      }
+    },
+    "example": {
+      "chain": "solana",
+      "toAddress": "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T",
+      "amountRaw": "1000000",
+      "assetSymbol": "USDC"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "toAddress": {
+        "type": "string",
+        "required": true,
+        "note": "must equal the request or the payment is refused"
+      },
+      "amountRaw": {
+        "type": "string|number",
+        "required": true,
+        "note": "compared as str()"
+      },
+      "assetSymbol": {
+        "type": "string",
+        "required": false,
+        "note": "compared upper-cased; absent reads as the native asset"
+      },
+      "chain": {
+        "type": "string",
+        "required": false,
+        "note": "absent or equal to the request"
+      },
+      "evmNetwork": {
+        "type": "string",
+        "required": false,
+        "note": "required equal on evm"
+      }
+    },
+    "reader": "wallet/pay.py _send verifies each field against what was asked; any mismatch refuses before execute",
+    "example": {
+      "quoteId": "q-1",
+      "chain": "solana",
+      "toAddress": "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T",
+      "amountRaw": "1000000",
+      "assetSymbol": "USDC"
+    }
+  },
+  "timeout": "60s",
+  "errors": [
+    "a spend-policy refusal's message contains 'WALLET_POLICY_REFUSED:' (wallet/pay.py POLICY_REFUSED)"
+  ]
+}

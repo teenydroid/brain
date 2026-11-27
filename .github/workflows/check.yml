@@ -8,6 +8,8 @@
 #   and doctor for bin/test/doctor_test.sh), and the hands' unit tests on
 #   Python 3.11 (the image's version) in four shards (hands); `scripts` itself
 #   passes only when all of them did. None needs a core.
+# - core: the OpenClaw-backed core in core/ (tsc, eslint, vitest on Node 24);
+#   `scripts` passes only when it did too.
 # - web: the Next.js site.
 # - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
 #   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
@@ -145,12 +147,33 @@ jobs:
         env:
           TEENY_TESTS_REQUIRE_PILLOW: "1"
 
+  # The OpenClaw-backed core (core/): typecheck, lint and the contract tests
+  # on Node 24 (openclaw needs >= 24.16). Nothing here reaches a network
+  # service; npm ci fetches only the locked packages.
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+
   # The required check (the ruleset "main: frozen gate" names `scripts`): green
-  # only when the shell tests, the doctor's and every shard of the hands'
-  # tests passed.
+  # only when the shell tests, the doctor's, every shard of the hands' tests
+  # and the core's passed.
   scripts:
     if: always()
-    needs: [scripts-shell, doctor, hands]
+    needs: [scripts-shell, doctor, hands, core]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -159,9 +182,10 @@ jobs:
           SHELL_TESTS: ${{ needs.scripts-shell.result }}
           DOCTOR_TESTS: ${{ needs.doctor.result }}
           HANDS_TESTS: ${{ needs.hands.result }}
+          CORE_TESTS: ${{ needs.core.result }}
         run: |
-          echo "scripts-shell: $SHELL_TESTS, doctor: $DOCTOR_TESTS, hands: $HANDS_TESTS"
-          [ "$SHELL_TESTS" = success ] && [ "$DOCTOR_TESTS" = success ] && [ "$HANDS_TESTS" = success ]
+          echo "scripts-shell: $SHELL_TESTS, doctor: $DOCTOR_TESTS, hands: $HANDS_TESTS, core: $CORE_TESTS"
+          [ "$SHELL_TESTS" = success ] && [ "$DOCTOR_TESTS" = success ] && [ "$HANDS_TESTS" = success ] && [ "$CORE_TESTS" = success ]
 
   frozen:
     if: >-

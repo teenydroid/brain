@@ -1,0 +1,33 @@
+{
+  "method": "openhuman.get_config",
+  "call_sites": [
+    "bin/lib/health.py:1270",
+    "bin/lib/model_window.py:121"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "config": {
+        "type": "object",
+        "required": false,
+        "note": "{model_registry: [{id, provider, context_window}], ...}; the config itself is also accepted bare"
+      }
+    },
+    "reader": "bin/lib/model_window.py registry_of: obj.config.model_registry, or obj.model_registry; a non-list is a WindowError",
+    "example": {
+      "config": {
+        "model_registry": [
+          {
+            "id": "glm-5.3-flash",
+            "provider": "local-openai",
+            "context_window": 128000
+          }
+        ]
+      }
+    }
+  }
+}

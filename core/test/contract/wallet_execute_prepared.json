@@ -1,0 +1,41 @@
+{
+  "method": "openhuman.wallet_execute_prepared",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/pay.py:391"
+  ],
+  "params": {
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "confirmed": {
+        "type": "boolean",
+        "required": true,
+        "note": "always true"
+      }
+    },
+    "example": {
+      "quoteId": "q-1",
+      "confirmed": true
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "transactionHash": {
+        "type": "string",
+        "required": true,
+        "note": "non-empty, else the payment is in_doubt and never retried"
+      }
+    },
+    "reader": "wallet/pay.py _send",
+    "example": {
+      "transactionHash": "5Sig"
+    }
+  },
+  "timeout": "120s",
+  "errors": [
+    "message containing 'WALLET_POLICY_REFUSED:' means the core's spend policy refused"
+  ]
+}

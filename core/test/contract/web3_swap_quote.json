@@ -1,0 +1,102 @@
+{
+  "method": "openhuman.web3_swap_quote",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/buy.py:616",
+    "hands/lib/teeny_hands/wallet/convert.py:376"
+  ],
+  "params": {
+    "fields": {
+      "chainId": {
+        "type": "string|number",
+        "required": true,
+        "note": "deBridge id"
+      },
+      "tokenIn": {
+        "type": "string",
+        "required": true
+      },
+      "tokenInAmount": {
+        "type": "string",
+        "required": true
+      },
+      "tokenOut": {
+        "type": "string",
+        "required": true
+      },
+      "tokenOutRecipient": {
+        "type": "string",
+        "required": true
+      },
+      "senderAddress": {
+        "type": "string",
+        "required": true
+      },
+      "slippage": {
+        "type": "string",
+        "required": true,
+        "note": "buy.py: percent as a string. convert.py: '<provider>:<percent>', provider = 'debridge' | 'lifi', a tag the spine reads and removes"
+      }
+    },
+    "example": {
+      "chainId": "7565164",
+      "tokenIn": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "tokenInAmount": "1000000",
+      "tokenOut": "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump",
+      "tokenOutRecipient": "OWN",
+      "senderAddress": "OWN",
+      "slippage": "1.0"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "kind": {
+        "type": "string",
+        "required": true,
+        "note": "'swap' | 'bridge' (lower-cased compare; buy.py defaults absent to 'swap')"
+      },
+      "signingChain": {
+        "type": "string",
+        "required": false,
+        "note": "evm | solana; absent ok"
+      },
+      "expiresAtMs": {
+        "type": "number",
+        "required": true,
+        "note": "must be in the future by the caller's margin"
+      },
+      "quote": {
+        "type": "object",
+        "required": true,
+        "note": "the provider's own quote, see the notes"
+      }
+    },
+    "reader": "wallet/buy.py _core_terms and wallet/convert.py check_quote: quote.tokenIn{address,amount}, quote.tokenOut{address,amount,minAmount,approximateUsdValue}, quote.tokenOutRecipient, quote.tx{data|to|value}; lifi: quote.provider='lifi', action{fromChainId,toChainId,fromToken,toToken,fromAmount,fromAddress,toAddress}, estimate{fromAmount,toAmount,toAmountMin,fromAmountUSD,toAmountUSD}, tx, tool",
+    "example": {
+      "quoteId": "q-2",
+      "kind": "swap",
+      "signingChain": "solana",
+      "expiresAtMs": 1789369260000,
+      "quote": {
+        "tokenIn": {
+          "address": "USDC",
+          "amount": "1000000"
+        },
+        "tokenOut": {
+          "address": "TINY",
+          "amount": "5",
+          "minAmount": "4"
+        },
+        "tx": {
+          "data": "0x00"
+        }
+      }
+    }
+  },
+  "timeout": "60s",
+  "notes": "Two callers: wallet/buy.py (the $TINY buy; Solana mint params) and wallet/convert.py (swap/bridge; quote_params, via wallet/convert.py _quote)."
+}

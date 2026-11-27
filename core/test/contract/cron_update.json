@@ -1,0 +1,39 @@
+{
+  "method": "openhuman.cron_update",
+  "call_sites": [
+    "bin/lib/catch_up.py:516",
+    "bin/lib/catch_up.py:581",
+    "bin/seed-cron:129",
+    "bin/seed-cron:151"
+  ],
+  "params": {
+    "fields": {
+      "job_id": {
+        "type": "string",
+        "required": true
+      },
+      "patch": {
+        "type": "object",
+        "required": true,
+        "note": "any of schedule{kind,expr,tz}, enabled, prompt, agent_id, command"
+      }
+    },
+    "example": {
+      "job_id": "job-1",
+      "patch": {
+        "schedule": {
+          "kind": "cron",
+          "expr": "30 6 * * *",
+          "tz": "UTC"
+        },
+        "enabled": true
+      }
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Response ignored; failure raises. A schedule patch re-arms next_run (bin/lib/catch_up.py rearm)."
+}

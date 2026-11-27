@@ -1,0 +1,75 @@
+{
+  "method": "openhuman.inbound_results",
+  "call_sites": [
+    "bin/inbound-consume:67"
+  ],
+  "params": {
+    "fields": {
+      "source": {
+        "type": "string",
+        "required": true
+      },
+      "status": {
+        "type": "string",
+        "required": true,
+        "note": "always 'completed'"
+      },
+      "limit": {
+        "type": "number",
+        "required": true,
+        "note": "always 20"
+      }
+    },
+    "example": {
+      "source": "x:mentions",
+      "status": "completed",
+      "limit": 20
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "results": {
+        "type": "array",
+        "required": true,
+        "note": "each: {turn_id: string, event_ids: string[], text: string (the turn's answer), blocked: [{event_id, reason}]}"
+      }
+    },
+    "reader": "bin/inbound-consume: jq -e 'type == \"object\" and (.results | type == \"array\")'; per result reads .turn_id, .event_ids (default []), .blocked (default []), .text",
+    "example": {
+      "results": [
+        {
+          "turn_id": "t1",
+          "event_ids": [
+            "11",
+            "12"
+          ],
+          "text": "[{\"action\":\"reply\",\"to\":\"11\",\"text\":\"gm\"}]",
+          "blocked": []
+        }
+      ]
+    },
+    "result_item": {
+      "turn_id": {
+        "type": "string",
+        "required": true
+      },
+      "event_ids": {
+        "type": "array",
+        "required": false,
+        "note": "defaults to []"
+      },
+      "text": {
+        "type": "string",
+        "required": false,
+        "note": "the turn's answer; parsed as a JSON array of {action: reply|skip, to, text|reason}"
+      },
+      "blocked": {
+        "type": "array",
+        "required": false,
+        "note": "[{event_id, reason}]"
+      }
+    }
+  },
+  "notes": "Per-result shape is recorded in `result_item` below."
+}
