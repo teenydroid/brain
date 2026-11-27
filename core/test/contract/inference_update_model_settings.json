@@ -1,7 +1,7 @@
 {
   "method": "openhuman.inference_update_model_settings",
   "call_sites": [
-    "bin/lib/health.py:1273",
+    "bin/lib/health.py:1228",
     "bin/lib/model_window.py:132",
     "bin/lib/model_windows.sh:87",
     "bin/lib/model_windows.sh:93",

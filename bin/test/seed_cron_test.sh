@@ -62,6 +62,7 @@ esac
 FAKE
 chmod +x "$fake"
 
+export TEENY_CRON_BACKEND=sqlite
 export TEENY_OH="$fake" FAKE_JOBS="$scratch/jobs.json" FAKE_CALLS="$scratch/calls.log"
 # Never this checkout's own state or storage.
 export TEENY_STATE="$scratch/state" TEENY_STORAGE="$scratch/storage.db"

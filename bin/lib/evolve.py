@@ -94,7 +94,6 @@ import os
 import re
 import shutil
 import signal
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -114,6 +113,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
+import cron_store  # noqa: E402
 import evolve_evidence  # noqa: E402
 import evolve_findings  # noqa: E402
 import evolve_reach  # noqa: E402
@@ -3313,93 +3313,52 @@ def _holds() -> Json | None:
 
 
 def _cron_failure_counts(since: float) -> dict[str, int] | None:
-    """How many cron runs of each job failed since SINCE (storage.db,
-    read-only), by job name: what observe() hands evolve_evidence.outcomes."""
-    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
-    if not path.is_file():
-        return None
+    """How many cron runs of each job failed since SINCE (the core's
+    automations, read-only through bin/lib/cron_store.py), by job name: what
+    observe() hands evolve_evidence.outcomes."""
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            rows = conn.execute(
-                """
-                with jobs as materialized (
-                  select id, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-                ),
-                runs as materialized (
-                  select body from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-                )
-                select json_extract(jobs.body, '$.name') as name, count(*)
-                from runs join jobs on jobs.id = json_extract(runs.body, '$.job_id')
-                where json_extract(runs.body, '$.status') = 'error'
-                  and json_extract(runs.body, '$.finished_ms') >= ?
-                group by name order by name
-                """,
-                (int(since * 1000),),
-            ).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        names = {job["id"]: job.get("name") for job in cron_store.jobs()}
+        runs = cron_store.runs()
+    except cron_store.Unavailable:
         return None
-    return {str(name): int(n) for name, n in rows}
+    counts: dict[str, int] = {}
+    for run in runs:
+        finished = run.get("finished_ms")
+        if (run.get("status") == "error" and isinstance(finished, (int, float)) and finished >= int(since * 1000)
+                and str(run.get("job_id")) in names):
+            key = str(names[str(run["job_id"])])
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _cron_failure_runs(since: float) -> list[Json] | None:
-    """Each failed cron run since SINCE (storage.db, read-only): when it
-    finished, its job's command (or name, for an agent job) and the tail of
-    its output, which carries the error."""
-    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
-    if not path.is_file():
-        return None
+    """Each failed cron run since SINCE (read-only): when it finished, its
+    job's command (or name, for an agent job) and the tail of its output,
+    which carries the error."""
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            jobs = {str(i): (str(c or "").strip() or str(n or "")) for i, c, n in conn.execute(
-                """
-                select id, json_extract(body, '$.command'), json_extract(body, '$.name') from docs
-                where coll = 'cron.jobs' and json_valid(body)
-                """)}
-            rows = conn.execute(
-                """
-                select json_extract(body, '$.finished_ms'), json_extract(body, '$.job_id'),
-                       json_extract(body, '$.output') from docs
-                where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-                  and json_extract(body, '$.status') = 'error' and json_extract(body, '$.finished_ms') >= ?
-                """,
-                (int(since * 1000),),
-            ).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        jobs = {str(j["id"]): (str(j.get("command") or "").strip() or str(j.get("name") or "")) for j in cron_store.jobs()}
+        rows = [r for r in cron_store.runs() if r.get("status") == "error" and isinstance(r.get("finished_ms"), (int, float))
+                and r["finished_ms"] >= int(since * 1000)]
+    except cron_store.Unavailable:
         return None
-    return sorted(({"at": float(ms) / 1000, "job": jobs.get(str(job), str(job or "")), "output": str(out or "")[-2000:]}
-                   for ms, job, out in rows if isinstance(ms, (int, float))), key=lambda r: r["at"])
+    return sorted(({"at": float(r["finished_ms"]) / 1000, "job": jobs.get(str(r.get("job_id")), str(r.get("job_id") or "")),
+                    "output": str(r.get("output") or "")[-2000:]} for r in rows), key=lambda r: r["at"])
 
 
 def _cron_runs(names: tuple[str, ...], since: float, until: float) -> list[float] | None:
     """When each finished run, ok or not, of the cron job known by any of
-    NAMES (its command, or its name) ended in [SINCE, UNTIL), from
-    storage.db read-only: a falling check's source (evolve_outcomes.silenced)."""
-    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
-    if not path.is_file():
-        return None
+    NAMES (its command, or its name) ended in [SINCE, UNTIL), read-only: a
+    falling check's source (evolve_outcomes.silenced)."""
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            jobs = {str(i) for i, c, n in conn.execute(
-                "select id, json_extract(body, '$.command'), json_extract(body, '$.name') from docs "
-                "where coll = 'cron.jobs' and json_valid(body)")
-                if (str(c or "").strip() or str(n or "")) in names or str(n or "") in names}
-            rows = conn.execute(
-                "select json_extract(body, '$.finished_ms'), json_extract(body, '$.job_id') from docs "
-                "where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}' "
-                "and json_extract(body, '$.finished_ms') >= ? and json_extract(body, '$.finished_ms') < ?",
-                (int(since * 1000), int(until * 1000))).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        ids = {str(j["id"]) for j in cron_store.jobs()
+               if (str(j.get("command") or "").strip() or str(j.get("name") or "")) in names or str(j.get("name") or "") in names}
+        runs = cron_store.runs()
+    except cron_store.Unavailable:
         return None
-    return sorted(float(ms) / 1000 for ms, job in rows if isinstance(ms, (int, float)) and str(job) in jobs)
+    lo, hi = int(since * 1000), int(until * 1000)
+    return sorted(float(r["finished_ms"]) / 1000 for r in runs
+                  if isinstance(r.get("finished_ms"), (int, float)) and lo <= r["finished_ms"] < hi
+                  and str(r.get("job_id")) in ids)
 
 
 #: An error the merged change cannot have caused: the core down (a restart),

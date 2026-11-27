@@ -19,6 +19,11 @@ it drops the day: on 2026-11-13 and 11-14 a deploy cut off
 day, twice, with no alarm; on 11-14 `teeny.moltbook-follow` lost its day
 the same way to an 11:31 deploy.
 
+(The scheduler is OpenClaw's automations now, with `cron.skipMissedJobs` on, so it never replays
+a slot itself: "a claim a dead run holds" is the job's `state.runningAtMs` marker, read through
+bin/lib/cron_store.py, and what is said below about the core taking a slot on its first poll no
+longer happens. The rest holds.)
+
 So a job whose schedule says `catch_up = true` (cron_policy.py: a window
 of `catch_up_hours`, default 6, always shorter than the gap between its
 slots) gets its most recent slot run once now, through the core's own
@@ -107,7 +112,6 @@ import datetime as dt
 import fcntl
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import time
@@ -121,6 +125,8 @@ sys.path.insert(0, str(CODE / "bin" / "lib"))
 
 from teeny_hands import hand  # noqa: E402
 from teeny_hands.scrub import scrub  # noqa: E402
+
+import cron_store  # noqa: E402  (bin/lib: the one reader of the core's cron jobs and runs)
 
 #: How long a slot nobody took is left to the core before it is caught up
 #: (bin/health's STALE_SECS: a job this late counts as stuck).
@@ -201,103 +207,41 @@ def _iso(seconds: float) -> str:
     return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# --- the core's storage, read-only ------------------------------------------------------------
+# --- the core's jobs and runs, read-only (bin/lib/cron_store.py) ---------------------------------
 
 
-def storage() -> Path:
-    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
-    if os.environ.get("TEENY_STORAGE"):
-        return Path(os.environ["TEENY_STORAGE"])
-    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
-    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
-
-
-def _lease_id(job_id: str, occurrence_ms: int) -> str:
-    """tinyflows' `Key::of(["cron", Key::of([job_id, occurrence_ms])])`."""
-    def part(text: str) -> str:
-        return text.replace("%", "%25").replace("/", "%2F")
-    return "cron/" + part(part(job_id) + "/" + str(occurrence_ms))
-
-
-def _lease_live(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_ms: int) -> bool:
-    row = conn.execute("select updated_ms, body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
-                       (_lease_id(job_id, occurrence_ms),)).fetchone()
-    if row is None:
-        return False
-    try:
-        lease = json.loads(row[1])
-    except ValueError:
-        return False
-    if not isinstance(lease, dict) or lease.get("released"):
-        return False
-    expires_ms = int(lease.get("expires_ms") or 0)
-    # Renewal rewrites the lease (the store stamps updated_ms) with an expiry
-    # OCCURRENCE_LEASE_MS ahead; either says when it was last renewed.
-    renewed_ms = max(int(row[0] or 0), expires_ms - OCCURRENCE_LEASE_MS)
-    return expires_ms > now_ms and renewed_ms >= now_ms - LEASE_FRESH_SECS * 1000
-
-
-def _lease_identity(conn: sqlite3.Connection, job_id: str, occurrence_ms: int) -> tuple[Any, Any] | None:
-    """Who holds the claim on one occurrence (holder, epoch): a fence keeps
-    both, a new acquisition changes both."""
-    row = conn.execute("select body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
-                       (_lease_id(job_id, occurrence_ms),)).fetchone()
-    if row is None:
-        return None
-    try:
-        lease = json.loads(row[0])
-    except ValueError:
-        return None
-    return (lease.get("holder"), lease.get("epoch")) if isinstance(lease, dict) else None
+def _claim(job: Json, occurrence_ms: int, now_ms: int) -> tuple[Any, bool]:
+    """(identity, live) of the claim on one slot of a job: cron_store.claim. On OpenClaw a slot is
+    claimed while the job's `runningAtMs` marker is set; the old core's tsd.leases rows are the same
+    thing for a storage.db read through the `sqlite` backend."""
+    return cron_store.claim(job, occurrence_ms, now_ms)
 
 
 def live_job_ids() -> list[str]:
     """The jobs whose next run a live run holds right now (read-only)."""
-    path = storage()
-    if not path.is_file():
+    try:
+        jobs = cron_store.jobs()
+    except cron_store.Unavailable:
         return []
     now_ms = int(hand.now() * 1000)
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-    try:
-        return sorted(job["id"] for job in _core_jobs(conn).values()
-                      if job["next_ms"] and _lease_live(conn, job["id"], job["next_ms"], now_ms))
-    finally:
-        conn.close()
+    return sorted(str(job["id"]) for job in jobs if job["next_run_ms"] and _claim(job, int(job["next_run_ms"]), now_ms)[1])
 
 
-def _core_jobs(conn: sqlite3.Connection) -> dict[str, Json]:
-    rows = conn.execute(
-        """
-        with jobs as materialized (
-          select id, created_ms, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-        )
-        select id, created_ms, json_extract(body, '$.name'), coalesce(json_extract(body, '$.enabled'), 1),
-               json_extract(body, '$.next_run_ms'), json_extract(body, '$.schedule'), json_extract(body, '$.created_ms')
-        from jobs
-        """).fetchall()
+def _core_jobs(jobs: Iterable[Json]) -> dict[str, Json]:
+    """The cron-scheduled jobs by name, as the catch-up reads them."""
     out: dict[str, Json] = {}
-    for job_id, created_ms, name, enabled, next_ms, schedule, body_created in rows:
-        try:
-            parsed = json.loads(schedule) if schedule else None
-        except ValueError:
-            parsed = None
-        if not name or not isinstance(parsed, dict) or parsed.get("kind") != "cron" or name in out:
+    for job in jobs:
+        name, schedule = job.get("name"), job.get("schedule")
+        if not name or not isinstance(schedule, dict) or schedule.get("kind") != "cron" or name in out:
             continue
-        out[str(name)] = {"id": str(job_id), "enabled": bool(enabled), "next_ms": int(next_ms or 0),
-                          "schedule": parsed, "created_ms": int(body_created or created_ms or 0)}
+        out[str(name)] = {"id": str(job["id"]), "enabled": bool(job["enabled"]), "next_ms": int(job["next_run_ms"] or 0),
+                          "schedule": schedule, "created_ms": int(job.get("created_ms") or 0), "job": job}
     return out
 
 
-def _ran_since(conn: sqlite3.Connection, job_id: str, since_ms: int) -> bool:
-    row = conn.execute(
-        """
-        with runs as materialized (
-          select body from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-        )
-        select 1 from runs where json_extract(body, '$.job_id') = ? and json_extract(body, '$.started_ms') >= ?
-        limit 1
-        """, (job_id, since_ms)).fetchone()
-    return row is not None
+def _ran_since(runs: Iterable[Json], job_id: str, since_ms: int) -> bool:
+    return any(str(run.get("job_id")) == job_id and isinstance(run.get("started_ms"), (int, float))
+               and run["started_ms"] >= since_ms for run in runs)
 
 
 # --- the ledger ---------------------------------------------------------------------------------
@@ -405,14 +349,14 @@ def _quiet(now: float) -> bool:
     return rhythm.is_night(now)
 
 
-def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], ledger: Json, now: float,
+def _candidates(jobs: list[Json], runs: list[Json], desired: Iterable[Mapping[str, Any]], ledger: Json, now: float,
                 rearmed: set[str], errors: dict[str, str], state: Path | None = None,
                 provider_back: bool = False) -> tuple[list[Json], list[str]]:
     """The missed slots to catch up, and with `provider_back` the slots lost
     to the model provider to make up, oldest first, and the names waiting out
     the quiet hours. A job whose schedule cannot be read goes in `errors`."""
     now_ms = int(now * 1000)
-    core = _core_jobs(conn)
+    core = _core_jobs(jobs)
     found: list[Json] = []
     deferred: list[str] = []
     for want in desired:
@@ -438,10 +382,10 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
         # A run that started (or was queued) at the slot holds it; so does a
         # live claim on it, and on the job's current next run (a run the core
         # took after a re-arm moved it on).
-        if _lease_live(conn, have["id"], slot_ms, now_ms) or _lease_live(conn, have["id"], have["next_ms"], now_ms):
+        if _claim(have["job"], slot_ms, now_ms)[1] or _claim(have["job"], have["next_ms"], now_ms)[1]:
             continue
         lost = False
-        if _ran_since(conn, have["id"], slot_ms):
+        if _ran_since(runs, have["id"], slot_ms):
             # A run held the slot, unless every run of it failed on the
             # model provider and it is back: then it is made up.
             lost = (make_up > 0 and now - slot <= make_up and state is not None
@@ -487,19 +431,15 @@ def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: 
         for name in fresh:
             ledger.data["since"][name] = int(now * 1000)
         ledger.save()
-    path = storage()
-    if not path.is_file():
+    if cron_store.backend() == "sqlite" and not cron_store.storage_path().is_file():
         return out
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"],
-                                                 state, provider_back)
-        finally:
-            conn.close()
-    except sqlite3.Error as error:
+        jobs, runs = cron_store.jobs(), cron_store.runs()
+    except cron_store.Unavailable as error:
         out["errors"]["storage"] = scrub(str(error))
         return out
+    found, out["deferred"] = _candidates(jobs, runs, desired, ledger.data, now, set(rearmed), out["errors"],
+                                         state, provider_back)
     out["pending"] = [c["name"] for c in found[MAX_PER_RUN:]]
     for job in found[:MAX_PER_RUN]:
         name, slot_ms = job["name"], int(job["slot"] * 1000)
@@ -547,17 +487,11 @@ def rearm(jobs: Iterable[Mapping[str, Any]], call: Call, dry_run: bool = False, 
     raced, errors}; a job the core claimed during its update is `raced`,
     and its slot is put in the ledger so no catch-up runs it again."""
     out: Json = {"rearmed": [], "running": [], "raced": [], "errors": {}}
-    path = storage()
 
-    def claim(job_id: str, occurrence_ms: int) -> tuple[tuple[Any, Any] | None, bool]:
-        if not path.is_file():
+    def claim(job_id: str, occurrence_ms: int) -> tuple[Any, bool]:
+        if cron_store.backend() == "sqlite" and not cron_store.storage_path().is_file():
             return None, False
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            return (_lease_identity(conn, job_id, occurrence_ms),
-                    _lease_live(conn, job_id, occurrence_ms, int(hand.now() * 1000)))
-        finally:
-            conn.close()
+        return cron_store.claim_now(job_id, occurrence_ms, int(hand.now() * 1000))
 
     for job in jobs:
         name, job_id = str(job["name"]), str(job["id"])
@@ -568,7 +502,7 @@ def rearm(jobs: Iterable[Mapping[str, Any]], call: Call, dry_run: bool = False, 
             continue
         try:
             before, live = claim(job_id, occurrence_ms)
-        except sqlite3.Error as error:
+        except cron_store.Unavailable as error:
             before, live = None, False
             out["errors"]["claims"] = scrub(f"could not read the claims, re-armed without checking: {error}")
         if live:
@@ -584,7 +518,7 @@ def rearm(jobs: Iterable[Mapping[str, Any]], call: Call, dry_run: bool = False, 
             continue
         try:
             after, _ = claim(job_id, occurrence_ms)
-        except sqlite3.Error:
+        except cron_store.Unavailable:
             after = before
         if after != before:
             out["raced"].append(name)

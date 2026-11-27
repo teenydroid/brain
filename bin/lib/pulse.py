@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from teeny_hands import hand  # noqa: E402
 from teeny_hands.stats import board  # noqa: E402
 
+import cron_store  # noqa: E402
 import evolve_evidence  # noqa: E402
 import notes_keep  # noqa: E402
 
@@ -49,53 +50,6 @@ MIND_JOB, MIND_WAKES = "teeny.mind", ("mind.", "teeny.mind.")
 #: The audience numbers: the stats board's own, and GitHub's.
 AUDIENCE = (*board.AUDIENCE, ("github", "followers"), ("github", "stars"))
 NO_AUDIENCE = "no audience number recorded yet: the pinned stats-snapshot job (hands/stats snapshot) has not written one"
-
-JOBS_SQL = """
-with jobs as materialized (
-  select id, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-),
-runs as materialized (
-  select body from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-),
-last as (
-  select json_extract(body, '$.job_id') as job_id, json_extract(body, '$.status') as status,
-         json_extract(body, '$.finished_ms') as finished_ms,
-         row_number() over (partition by json_extract(body, '$.job_id')
-                            order by json_extract(body, '$.seq') desc) as n
-  from runs
-),
-window as (
-  select json_extract(body, '$.job_id') as job_id, count(*) as runs,
-         sum(json_extract(body, '$.status') = 'error') as failed
-  from runs where json_extract(body, '$.finished_ms') >= ? group by job_id
-)
-select json_extract(jobs.body, '$.name'), json_extract(jobs.body, '$.job_type'),
-       json_extract(jobs.body, '$.expression'), json_extract(jobs.body, '$.enabled'),
-       last.status, last.finished_ms, window.runs, window.failed
-from jobs left join last on last.job_id = jobs.id and last.n = 1
-          left join window on window.job_id = jobs.id
-order by 1
-"""
-
-#: The newest failures of each cron job in the window, MAX_FAILURES a job.
-FAILURES_SQL = """
-with failed as (
-  select json_extract(body, '$.job_id') as job_id, json_extract(body, '$.finished_ms') as finished_ms
-  from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-    and json_extract(body, '$.status') = 'error' and json_extract(body, '$.finished_ms') >= ?
-),
-newest as (
-  select job_id, finished_ms, row_number() over (partition by job_id order by finished_ms desc) as n from failed
-)
-select json_extract(jobs.body, '$.name'), newest.finished_ms
-from newest join docs jobs on jobs.id = newest.job_id and jobs.coll = 'cron.jobs' and jobs.deleted = 0 and json_valid(jobs.body)
-where n <= ?
-"""
-
-
-def _storage() -> Path:
-    return Path(os.environ.get("TEENY_STORAGE") or hand.root() / "brain" / "storage.db")
-
 
 def _iso(ms: Any) -> str | None:
     if not isinstance(ms, (int, float)):
@@ -132,18 +86,29 @@ def jobs(since: float) -> list[Json] | None:
     """Every script and agent job of Teeny's but the mind's own wakes, with
     its last run and its failures since SINCE. None when the core's store
     cannot be read."""
-    path = _storage()
-    if not path.is_file():
-        return None
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            rows = conn.execute(JOBS_SQL, (int(since * 1000),)).fetchall()
-            failed_rows = conn.execute(FAILURES_SQL, (int(since * 1000), MAX_FAILURES)).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        core_jobs, core_runs = cron_store.jobs(), cron_store.runs()
+    except cron_store.Unavailable:
         return None
+    lo = int(since * 1000)
+    last = cron_store.last_runs(core_runs)
+    names = {job["id"]: job.get("name") for job in core_jobs}
+    # (name, kind, expr, enabled, last status, last finished_ms, runs in the window, failed in the window)
+    rows = []
+    for job in sorted(core_jobs, key=lambda j: str(j.get("name") or "")):
+        in_window = [r for r in core_runs if str(r.get("job_id")) == job["id"]
+                     and isinstance(r.get("finished_ms"), (int, float)) and r["finished_ms"] >= lo]
+        run = last.get(job["id"]) or {}
+        rows.append((job.get("name"), job.get("job_type"), job.get("expression"), job["enabled"], run.get("status"),
+                     run.get("finished_ms"), len(in_window), sum(1 for r in in_window if r.get("status") == "error")))
+    # the newest failures of each job in the window, MAX_FAILURES a job
+    failed_by_job: dict[str, list[Any]] = {}
+    for run in core_runs:
+        if (run.get("status") == "error" and isinstance(run.get("finished_ms"), (int, float)) and run["finished_ms"] >= lo
+                and str(run.get("job_id")) in names):
+            failed_by_job.setdefault(str(run["job_id"]), []).append(run["finished_ms"])
+    failed_rows = [(names[job_id], ms) for job_id, mss in failed_by_job.items()
+                   for ms in sorted(mss, reverse=True)[:MAX_FAILURES]]
     yours = _names(hand.root() / "brain" / "cron.toml")
     beats = _tick_failures(since)
     when: dict[str, list[Json]] = {}
@@ -162,7 +127,7 @@ def jobs(since: float) -> list[Json] | None:
                      "last": last, "last_at": _iso(finished_ms), "runs": int(runs or 0), "failed": int(failed or 0)}
         if when.get(name):
             row["last_failures"] = _newest(when[name])
-        if enabled == 0:
+        if not enabled:
             row["off"] = True
         if job == "tick" and beats["failed"]:
             # `bin/tick --detach` exits at once, so cron saw a launch; the beat's own result is in its ledger
