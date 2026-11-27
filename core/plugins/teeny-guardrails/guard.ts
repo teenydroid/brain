@@ -23,6 +23,8 @@ export type Decision = { block: true; blockReason: string } | { params: Record<s
 const PATH_KEYS = ["path", "file_path", "filePath", "file", "filename", "paths"];
 /** Tools that never carry a path or a command and cannot reach outside the agent's own session. */
 const PASSIVE = new Set(["tool_search", "memory_search", "memory_get", "process"]);
+/** The tool-search controls, which are never themselves the target of a dispatch. */
+const CONTROLS = new Set(["tool_search", "tool_describe", "dispatch_action"]);
 const MAX_RUNS_KEPT = 4096;
 
 const refuse = (why: string): Decision => ({ block: true, blockReason: `teeny-guardrails: ${why}` });
@@ -64,8 +66,31 @@ export class Guardrails {
     const runKey = `${agent.id}|${ctx.runId ?? event.runId ?? ctx.sessionKey ?? ""}`;
     const budget = this.spent(agent, runKey);
     if (budget.over) return refuse(`this run has made its ${agent.maxToolCalls} tool calls (the budget for ${agent.id}); end the run`);
-    if (!agent.tools.map((t) => t.toLowerCase()).includes(tool)) return refuse(`${agent.id} has no ${event.toolName} tool`);
-    const params = event.params ?? {};
+    return this.judge(agent, ctx, tool, event.toolName, event.params ?? {});
+  }
+
+  /** One tool call against one agent's own list; the budget is already spent. */
+  private async judge(agent: AgentPolicy, ctx: ToolContext, tool: string, shown: string, params: Record<string, unknown>): Promise<Decision> {
+    const event = { toolName: shown, params };
+    const holds = (name: string): boolean => agent.tools.some((t) => t.toLowerCase() === name);
+
+    // OpenClaw offers tool_describe and dispatch_action to every agent whatever its tools.deny says. They
+    // belong to the tool_search tool: an agent without it holds neither, and dispatch_action is judged as the
+    // tool it names, with the arguments it passes, so it can reach nothing the agent's own list does not.
+    if (tool === "tool_describe" || tool === "dispatch_action") {
+      if (!holds("tool_search")) return refuse(`${agent.id} has no ${shown} tool`);
+      if (tool === "tool_describe") return undefined;
+      const id = params.id;
+      const target = typeof id === "string" ? id.toLowerCase() : "";
+      if (!target || CONTROLS.has(target)) return refuse(`dispatch_action: ${typeof id === "string" && id ? id : "(no id)"} is not a tool it may run`);
+      if (!holds(target)) return refuse(`dispatch_action: ${agent.id} has no ${id as string} tool`);
+      const args = params.args;
+      if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) return refuse("dispatch_action: args is not an object");
+      const inner = await this.judge(agent, ctx, target, id as string, (args ?? {}) as Record<string, unknown>);
+      if (inner && "params" in inner) return { params: { ...params, args: inner.params } };
+      return inner;
+    }
+    if (!holds(tool)) return refuse(`${agent.id} has no ${shown} tool`);
 
     if (PASSIVE.has(tool)) return undefined;
 

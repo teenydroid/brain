@@ -69,6 +69,44 @@ describe("the tool list is the agent's own", () => {
   });
 });
 
+describe("OpenClaw's tool-search controls", () => {
+  // OpenClaw offers tool_describe and dispatch_action to every agent, tools.deny or not, and has no
+  // per-agent switch for them (tools.toolSearch is global only). The guard is what keeps them harmless.
+  it("refuses dispatch_action and tool_describe to an agent without tool_search", async () => {
+    const f = makeFixture();
+    for (const agent of ["evolver", "babysitter", "simple"]) {
+      expect(blocked(await f.call(agent, "dispatch_action", { id: "read", args: { path: "x" } })), agent).toMatch(/no dispatch_action tool|holds no tools/);
+      expect(blocked(await f.call(agent, "tool_describe", { id: "read" })), agent).toMatch(/no tool_describe tool|holds no tools/);
+      expect(blocked(await f.call(agent, "tool_search", { query: "x" })), agent).toMatch(/no tool_search tool|holds no tools/);
+    }
+  });
+
+  it("judges dispatch_action as the tool it names, with the arguments it passes", async () => {
+    const f = makeFixture();
+    // mind holds tool_search and exec, so exec is reachable through it, but under exec's own rules
+    expect(blocked(await f.call("mind", "dispatch_action", { id: "exec", args: { command: "curl x" } }))).toMatch(/curl/);
+    expect(blocked(await f.call("mind", "dispatch_action", { id: "read", args: { path: "../../secrets/teeny.env" } }))).toMatch(/closed to agents/);
+    const ok = await f.call("mind", "dispatch_action", { id: "read", args: { path: "work/a.txt" } });
+    expect((ok as { params: { id: string; args: { path: string } } }).params.id).toBe("read");
+    expect((ok as { params: { args: { path: string } } }).params.args.path).toBe(join(f.home, "work/a.txt"));
+  });
+
+  it("refuses a dispatch of a tool the agent does not hold, of a control, or with no target", async () => {
+    const f = makeFixture();
+    expect(blocked(await f.call("operator", "dispatch_action", { id: "edit", args: { path: "state/workbench/desk/task.json" } }))).toMatch(/no edit tool/);
+    expect(blocked(await f.call("mind", "dispatch_action", { id: "gateway", args: {} }))).toMatch(/no gateway tool/);
+    expect(blocked(await f.call("mind", "dispatch_action", { id: "dispatch_action", args: { id: "exec" } }))).toMatch(/not a tool it may run/);
+    expect(blocked(await f.call("mind", "dispatch_action", { args: {} }))).toMatch(/no id/);
+    expect(blocked(await f.call("mind", "dispatch_action", { id: "read", args: ["x"] }))).toMatch(/args is not an object/);
+  });
+
+  it("counts a dispatch once against the run's budget", async () => {
+    const f = makeFixture();
+    for (let i = 0; i < 30; i++) await f.call("operator", "dispatch_action", { id: "tool_search", args: {} }, { runId: "r" });
+    expect(blocked(await f.call("operator", "tool_describe", { id: "read" }, { runId: "r" }))).toMatch(/30 tool calls/);
+  });
+});
+
 describe("helpers: sessions_spawn", () => {
   it("lets the mind spawn its worker and nobody else, with nothing widened", async () => {
     const f = makeFixture();

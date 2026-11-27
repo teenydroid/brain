@@ -371,9 +371,13 @@ acted="$("$root/bin/act" hello 2>"$scratch/act.log" || true)"
 check "bin/act runs a playbook through the act agent" \
   test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
 # The act agent drafts and nothing more: the request the model got offers no
-# working tool (the stub logs every request whole). OpenClaw always offers its
-# three tool-search shims; they run nothing themselves, and the guardrails
-# plugin gates whatever they would dispatch. Anything else offered fails.
+# working tool (the stub logs every request whole). OpenClaw offers its three
+# tool-search shims to every agent, tools.deny or not: tools.toolSearch is a
+# global switch only (the agent schema has none), and the mind and operator
+# need tool_search. The shims run nothing themselves: the guardrails plugin
+# refuses tool_describe and dispatch_action to an agent without tool_search and
+# judges a dispatch as the tool it names (core/test/plugins/guard.test.ts).
+# Anything else offered fails.
 offered_tools() { # PATTERN: the tool names in the last model request that carries PATTERN, bar the shims
   grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1 |
     jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")'
