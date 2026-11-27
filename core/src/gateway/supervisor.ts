@@ -1,7 +1,7 @@
 // Runs `openclaw gateway` as a child, restarts it when it dies (backoff), and
 // stops it on SIGTERM. The spawn function is injected so tests drive a fake.
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { openclawCommand } from "./cli.js";
 
 export type SpawnFn = (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;

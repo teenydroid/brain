@@ -23,6 +23,7 @@ import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
 import { setGatewayEnv, setShellTimeoutSecs, startCron, stopCron } from "./cron/index.js";
 import { GuardedRunner } from "./gateway/guarded.js";
+import { removeStaleApprovals } from "./gateway/approvals.js";
 import { DrainingRunner } from "./gateway/drain.js";
 import { createHttpServer } from "./server/http.js";
 import { buildRegistry } from "./server/registry.js";
@@ -133,6 +134,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
   mkdirSync(paths.openclawDir, { recursive: true, mode: 0o700 });
   // mkdir leaves an existing directory as it was; OpenClaw refuses to start under one others can write.
   chmodSync(paths.openclawDir, 0o700);
+  for (const file of removeStaleApprovals(paths.openclawDir)) log("warn", "removed a stale exec-approvals file: it would make a shell agent's exec stricter than the config says", { file });
   let sealer: Sealer | undefined;
   try {
     sealer = Sealer.fromFile(masterKeyFile(env, paths.secretsDir));
