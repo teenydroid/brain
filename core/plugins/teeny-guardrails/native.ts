@@ -121,7 +121,8 @@ export class NativeState {
           // pid, host and start time are the three fields bin/act's lock_stale reads; the run key follows.
           writeFileSync(join(dir, "owner"), `${this.pid} ${this.host} ${this.startOf(this.pid)} ${runKey}\n`, { mode: 0o600 });
         } catch (w) {
-          rmSync(dir, { recursive: true, force: true });
+          // ENOENT means the directory is gone: another process has since reclaimed the path, and that lock is not ours to remove.
+          if ((w as NodeJS.ErrnoException).code !== "ENOENT") rmSync(dir, { recursive: true, force: true });
           throw w;
         }
         this.keep(runKey, { playbook: n.playbook, acted: 0, startedMs: this.now(), pending: new Map() });
