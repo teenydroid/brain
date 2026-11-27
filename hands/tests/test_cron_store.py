@@ -141,6 +141,39 @@ class AdapterTest(StoreCase):
         self.assertEqual(health.stale_crons(ts("2026-11-27T12:00")), [])
         self.assertEqual(catch_up.live_job_ids(), [])
 
+    def test_an_answer_that_is_not_a_list_is_unavailable_not_an_empty_store(self):
+        for bad in (None, {"jobs": []}, "oops"):
+            self.jobs, self.runs = bad, bad
+            self.write()
+            with self.assertRaises(cron_store.Unavailable):
+                cron_store.jobs()
+            with self.assertRaises(cron_store.Unavailable):
+                cron_store.runs()
+        self.jobs, self.runs = [], []
+        self.write()
+        self.assertEqual((cron_store.jobs(), cron_store.runs()), ([], []))  # a real empty list stays valid
+
+    def test_a_run_that_started_just_after_now_was_sampled_is_still_live(self):
+        job = shell_job("j1", "teeny.tick", "bin/tick", "*/5 * * * *", "UTC", running="2026-11-27T10:00:05")
+        now = ms("2026-11-27T10:00")
+        self.assertTrue(cron_store.claim(job, now, now)[1])
+        job["running_ms"] = now + 10 * 60 * 1000  # a marker far in the future is not a live claim
+        self.assertFalse(cron_store.claim(job, now, now)[1])
+
+    def test_a_deleted_job_is_kept_for_history_lookups_and_left_out_of_the_live_readers(self):
+        import sqlite3
+        db = self.root / "storage.db"
+        conn = sqlite3.connect(db)
+        conn.execute("create table docs (coll text, id text, created_ms integer, deleted integer, body text)")
+        for job_id, deleted in (("live", 0), ("gone", 1)):
+            conn.execute("insert into docs values ('cron.jobs', ?, 1, ?, ?)",
+                         (job_id, deleted, json.dumps({"name": job_id, "command": f"bin/{job_id}"})))
+        conn.commit()
+        conn.close()
+        os.environ.update(TEENY_CRON_BACKEND="sqlite", TEENY_STORAGE=str(db))
+        self.assertEqual([j["id"] for j in cron_store.jobs()], ["live"])
+        self.assertEqual(sorted(j["id"] for j in cron_store.jobs(include_deleted=True)), ["gone", "live"])
+
     def test_bin_crons_prints_the_table_and_a_jobs_runs(self):
         self.jobs = [shell_job("j1", "teeny.heartbeat", "bin/heartbeat", "*/5 * * * *", "UTC", next_run="2026-11-27T10:05"),
                      shell_job("j2", "teeny.off", "true", enabled=False)]
