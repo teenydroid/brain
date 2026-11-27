@@ -44,6 +44,7 @@ export async function startTestCore(extraEnv: Record<string, string> = {}): Prom
     OPENHUMAN_CORE_HOST: "127.0.0.1",
     OPENHUMAN_CORE_PORT: "0",
     OPENHUMAN_CORE_TOKEN: TOKEN,
+    OPENHUMAN_KEYRING_MASTER_KEY_FILE: join(secrets, "openhuman.key"),
     ...extraEnv,
   };
   const runner = new FakeRunner();

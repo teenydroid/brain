@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Run the OpenHuman core over this checkout: the container's entrypoint, and
-# how to run the spine on a laptop.
+# Run the core over this checkout: the container's entrypoint, and how to run
+# the spine on a laptop. The core is core/ (TypeScript): it answers the RPC the
+# hands and scripts call and supervises an OpenClaw Gateway, which runs the
+# agents' turns (docs/architecture.md, "The OpenClaw Gateway").
 #
 #   bin/spine
 #
@@ -9,13 +11,15 @@
 #    stores is encrypted under). Back both up with brain/storage.db; a
 #    storage.db without its key is unreadable.
 # 2. Runs bin/doctor, and refuses to boot a checkout it fails.
-# 3. Starts `openhuman-core serve` with the brain, the single storage file
-#    and the file keyring (docs/architecture.md, "Spine"), with the inbound
+# 3. Starts `bin/teeny-core serve` with the brain, the single storage file
+#    and the master key file (docs/architecture.md, "Spine"), with the inbound
 #    sources (bin/lib/inbound_config.py) and Teeny's core settings
-#    (bin/lib/core_config.py: cron, autonomy, browser, modules) written into
-#    its config.
+#    (bin/lib/core_config.py: the cron shell timeout, the wallet policy)
+#    written into its config.toml, which the core reads (TEENY_CORE_CONFIG).
+#    The core writes the Gateway's config to state/openclaw/ and starts it.
 # 4. Once it answers, points it at the model and the memory store named in
-#    secrets/spine.env, then makes cron match brain/cron.toml.
+#    secrets/spine.env, checks the Gateway's config it wrote (the lockdown
+#    flags, `openclaw security audit`), then makes cron match brain/cron.toml.
 # 5. Waits on the core, forwarding SIGTERM, and exits with its status.
 #
 # Its pid is in state/spine.pid: a promotion (bin/evolve) restarts the core by
@@ -46,14 +50,11 @@ if [ "$lab" = 1 ] && [ "${DRY_RUN:-}" != 1 ]; then
   die "a lab spine (SPINE_LAB=1) runs only with DRY_RUN=1"
 fi
 
-# The image sets OPENHUMAN_CORE_BIN; on a laptop it is the release build in
-# this checkout (`cargo build --release -p teeny-spine`).
-core_bin="${OPENHUMAN_CORE_BIN:-}"
-if [ -z "$core_bin" ]; then
-  core_bin="$TEENY_ROOT/target/release/teeny-spine"
-  [ -x "$core_bin" ] || core_bin=teeny-spine
-fi
-command -v "$core_bin" >/dev/null 2>&1 || die "no spine binary at '$core_bin' (cargo build --release -p teeny-spine, or set OPENHUMAN_CORE_BIN)"
+# The image sets OPENHUMAN_CORE_BIN to /usr/local/bin/teeny-core; on a laptop
+# it is bin/teeny-core, which runs the build in this checkout
+# (`cd core && npm ci && npm run build`). Both exec Node 24 on core/dist/main.js.
+core_bin="${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}"
+command -v "$core_bin" >/dev/null 2>&1 || die "no core at '$core_bin' (bin/teeny-core, or set OPENHUMAN_CORE_BIN)"
 host="${OPENHUMAN_CORE_HOST:-127.0.0.1}"
 port="${OPENHUMAN_CORE_PORT:-7788}"
 
@@ -149,22 +150,20 @@ if [ -n "$ladder_url" ]; then
   export LOCAL_OPENAI_URL="$ladder_url"
 fi
 
+export TEENY_CORE_CONFIG="$config_dir/config.toml"
 export OPENHUMAN_WORKSPACE="$TEENY_BRAIN"
 export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"
 export OPENHUMAN_ACTION_DIR="$TEENY_ROOT"
-export OPENHUMAN_KEYRING_BACKEND=file
 export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
 # The browser may open any public https page; private and local addresses
-# stay refused by the core, and deploy/browser-deny.txt is what it never
-# opens. The core enforces that list on every connection the browser makes
-# (clicks and redirects included), whatever allow-all says; a list it cannot read
-# refuses every page. `[http_request] allowed_domains`
-# (deploy/browser-allow.txt) still bounds the raw `http_request` tool.
-# OpenHuman takes these switches from the environment only.
+# stay refused, and deploy/browser-deny.txt is what it never opens, on every
+# connection the browser makes (clicks and redirects included), whatever
+# allow-all says; a list it cannot be read refuses every page. These are the
+# names the guardrails plugin and the hands read.
 export OPENHUMAN_BROWSER_ALLOW_ALL=1
 export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"
-# Where the browser's own pictures of the pages it reaches go
-# (spine/src/browser_pictures.rs); hands/tasks moves a task's into
+# Where the browser's own pictures of the pages it reaches go; hands/tasks
+# moves a task's into
 # state/media/tasks/<id>/ for a post's `shots`. Unset, none are taken.
 export TEENY_BROWSER_PICTURES="$TEENY_STATE/browser/screenshots"
 mkdir -p "$TEENY_BROWSER_PICTURES"
@@ -197,10 +196,9 @@ for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
 done
 curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || boot_failed "the core did not answer /health in ${SPINE_BOOT_SECS:-120}s"
 
-# The cron agent turn budget (bin/lib/teeny.sh). Set over RPC rather than in
-# bin/lib/core_sections/, which would own the whole `[agent]` table and drop
-# the core's own keys and subtables under it. The scheduler reads the stored
-# config on every tick.
+# The cron agent turn budget (bin/lib/teeny.sh), set over RPC. The core keeps
+# it in its settings store and gives it to the Gateway as the agents' turn
+# timeout.
 oh config_update_agent_settings "$(jq -cn --argjson s "$TEENY_AGENT_TURN_SECS" '{agent_timeout_secs: $s}')" >/dev/null ||
   boot_failed "the core did not take a ${TEENY_AGENT_TURN_SECS}s agent turn budget; the mind and the operator would stop at 120s"
 log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
@@ -287,9 +285,37 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
   fi
 ) || boot_failed "configuring the core failed"
 
+# The Gateway's lockdown, read from the config the core wrote for it, and
+# OpenClaw's own security audit of that config. The core writes the file before
+# it starts the Gateway and again after the settings above; wait for it, then
+# refuse the boot when a flag is wrong or the audit finds anything critical.
+gateway_config="$TEENY_STATE/openclaw/openclaw.json"
+for _ in $(seq 1 30); do
+  [ -s "$gateway_config" ] && break
+  kill -0 "$core" 2>/dev/null || boot_failed "the core exited before it wrote the Gateway's config"
+  sleep 1
+done
+[ -s "$gateway_config" ] || boot_failed "the core did not write the Gateway's config ($gateway_config)"
+lock="$(python3 "$TEENY_ROOT/bin/lib/gateway_check.py" lockdown "$gateway_config")" ||
+  boot_failed "the Gateway's config is not locked down: $lock"
+log "gateway: $lock"
+audit="$(timeout 120 "$core_bin" openclaw security audit --json 2>/dev/null | python3 "$TEENY_ROOT/bin/lib/gateway_check.py" audit)" ||
+  boot_failed "openclaw security audit: ${audit#* }"
+log "gateway: openclaw security audit: $audit"
+
 if [ "$lab" = 1 ]; then
   log "lab: no cron seeded"
 else
+  # Cron is the Gateway's: its automations answer only once it is up, and the
+  # settings above made the core restart it (once, after a pause). Wait for it
+  # to take a cron_list rather than seeding into a Gateway that is coming back.
+  for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
+    oh cron_list >/dev/null 2>&1 && break
+    kill -0 "$core" 2>/dev/null || boot_failed "the core exited while the Gateway was starting"
+    sleep 1
+  done
+  oh cron_list >/dev/null || boot_failed "the OpenClaw Gateway did not take a cron_list in ${SPINE_BOOT_SECS:-120}s"
+  log "gateway: up; cron answers"
   "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
 fi
 

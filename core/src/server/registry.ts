@@ -2,18 +2,19 @@
 // served as `openhuman.<method>`. A duplicate method name is a startup error.
 import { agentMethods } from "../agents/methods.js";
 import { memoryMethods } from "../memory/index.js";
+import { methods as walletMethods } from "../wallet/index.js";
+import { methods as cronMethods } from "../cron/index.js";
 import { coreMethods } from "./core-methods.js";
+import { inboundMethods } from "./inbound-methods.js";
 import type { RpcHandler, RpcMethods } from "./types.js";
 
 export const MODULES: RpcMethods[] = [
   agentMethods,
   coreMethods,
-  memoryMethods,
-  // MERGE SLOTS: the other phases' modules join here when their branches merge.
-  // Each exports an RpcMethods map; add its import above and its name below.
-  //   P2:  import { cronMethods } from "../cron/index.js";          // cron_*, inbound_*
-  //   P4:  import { walletMethods } from "../wallet/index.js";      // wallet_*, web3_*, x402_*
-  // (Those paths do not exist on this branch; do not import them until they do.)
+  inboundMethods, // inbound_*: a clear "not supported" (TEENY_INBOX=core is off)
+  memoryMethods, // memory_*
+  walletMethods, // wallet_*, web3_*, x402_*, encrypt_secret
+  cronMethods, // cron_*: over OpenClaw automations; main.ts wireCron() gives it the Gateway's CLI environment
 ];
 
 export function buildRegistry(modules: readonly RpcMethods[] = MODULES): Map<string, RpcHandler> {

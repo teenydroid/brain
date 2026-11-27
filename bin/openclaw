@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# `openclaw` as the scripts call it (bin/lib/cron_store.py runs `openclaw
+# automations ...`): the core's own bundled OpenClaw CLI, on the core's state,
+# generated config and Gateway token. Run from the checkout (cron jobs do), or
+# with TEENY_ROOT / TEENY_STATE set. The image installs it as /usr/local/bin/openclaw.
+set -euo pipefail
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/teeny-core" openclaw "$@"

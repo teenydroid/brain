@@ -6,7 +6,8 @@
 #   bin/doctor --live          also the running core: /health, cron in step
 #                              with brain/cron.toml, every enabled job's next
 #                              run current, the heartbeat fresh, the
-#                              browser loads and starts Chrome, each studio
+#                              OpenClaw Gateway is up and Chrome is found,
+#                              the Gateway's config is on file, each studio
 #                              model answers one small turn
 #   bin/doctor --full          also the hands' unit tests
 #
@@ -126,11 +127,20 @@ agent_turn_budget() {
   echo "${secs}s"
 }
 
-# The browser loads and Chrome starts: the core's readiness probe loads
-# TinyComputer and opens and closes one disposable, non-navigating Chrome
-# session. On 2026-11-13 every browser call failed with "module
-# 'tinycomputer' callback source cannot preserve admitted identity" and only
-# the operator's report said so.
+# The Gateway and the browser are up: the core's readiness probe answers
+# whether the OpenClaw Gateway child is running (`module_ready`) and whether it
+# found a Chrome binary (`chrome_ready`). A shallow probe: it opens no page.
+# (On 2026-11-13, under OpenHuman, every browser call failed with a module
+# error and only the operator's report said so; this is what answers that now.)
+gateway_ready() {
+  local answer
+  answer="$(OH_TIMEOUT=60 oh modules_browser_check_readiness)" || return 1
+  if ! jq -e '.module_ready == true' <<<"$answer" >/dev/null; then
+    jq -r '"the OpenClaw Gateway is not running: \(.error // "no reason given")"' <<<"$answer"
+    return 1
+  fi
+  echo "the Gateway is running"
+}
 browser_ready() {
   local answer
   answer="$(OH_TIMEOUT=60 oh modules_browser_check_readiness)" || return 1
@@ -138,7 +148,7 @@ browser_ready() {
     jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
     return 1
   fi
-  echo "TinyComputer serving, Chrome starts"
+  echo "the Gateway is up and Chrome is found"
 }
 
 # Every model the studio is set to answers one small turn on the route the
@@ -253,6 +263,64 @@ if [ ! -s "$brain/agents/judge.toml" ]; then
 fi
 if [ ! -s "$brain/agents/querier.toml" ]; then
   note "agent querier.toml" fail "missing: bin/evolve writes its search queries with it"
+fi
+
+# --- the core: the TypeScript host and the OpenClaw Gateway it runs ----------------
+# bin/spine starts `teeny-core serve` (core/), which writes the Gateway's config
+# to state/openclaw/openclaw.json and supervises the Gateway on it. Before the
+# first boot there is no config to read, so those two checks wait for it (a
+# warning; --live, which needs a running core, fails without one); bin/spine
+# runs them again once the core is up, before it seeds anything.
+core_runtime() {
+  local bin="${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}" main version major
+  [ -x "$bin" ] || { echo "no executable core at $bin (OPENHUMAN_CORE_BIN)"; return 1; }
+  # Any other command named by OPENHUMAN_CORE_BIN (a test's stand-in) is its own business.
+  [ "$(basename "$bin")" = teeny-core ] || { echo "core at $bin"; return 0; }
+  command -v node >/dev/null 2>&1 || { echo "node is not on PATH: the core and OpenClaw need Node 24"; return 1; }
+  version="$(node --version 2>/dev/null)" || { echo "node does not run"; return 1; }
+  major="${version#v}"
+  major="${major%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] && [ "$major" -ge 24 ] || { echo "node $version is under 24 (OpenClaw needs >=24.16)"; return 1; }
+  main="$("$bin" --where)"
+  [ -f "$main" ] || { echo "the core is not built ($main): cd core && npm ci && npm run build"; return 1; }
+  echo "node $version, core at $main"
+}
+if core_out="$(core_runtime 2>&1)"; then
+  note "core runtime" ok "$core_out"
+elif [ "${OPENHUMAN_DOCKER:-}" = 1 ] || [ -n "${OPENHUMAN_CORE_BIN:-}" ]; then
+  note "core runtime" fail "$core_out"
+else
+  note "core runtime" warn "$core_out"
+fi
+gateway_config="$state/openclaw/openclaw.json"
+if [ -f "$gateway_config" ]; then
+  run "gateway lockdown" python3 "$TEENY_ROOT/bin/lib/gateway_check.py" lockdown "$gateway_config"
+  if audit_out="$(OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" TEENY_STATE="$state" \
+    timeout 120 "${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}" openclaw security audit --json 2>/dev/null |
+    python3 "$TEENY_ROOT/bin/lib/gateway_check.py" audit 2>&1)"; then
+    note "openclaw security audit" "${audit_out%% *}" "${audit_out#* }"
+  else
+    note "openclaw security audit" fail "${audit_out#* }"
+  fi
+elif [ "$live" = 1 ]; then
+  note "gateway lockdown" fail "no $gateway_config: the core has not written the Gateway's config"
+else
+  note "gateway lockdown" warn "no $gateway_config yet: the core writes it at boot, and bin/spine checks it then"
+fi
+
+# --- the inbox: the core has no inbound queue ----------------------------------------
+# TEENY_INBOX=core would send mail and mentions to OpenHuman's inbound queue and its
+# per-surface agents (`openhuman.inbound_offer`). The TypeScript core does not serve
+# it, so every offer would fail and nothing would be answered. The default, `mind`,
+# feeds the stimuli inbox. The hands read it from secrets/teeny.env only.
+inbox_mode=""
+if [ -f "$secrets/teeny.env" ]; then
+  inbox_mode="$(sed -n 's/^TEENY_INBOX=//p' "$secrets/teeny.env" | tail -n 1 | tr -d "\"' " | tr 'A-Z' 'a-z')"
+fi
+if [ "$(printf '%s' "${inbox_mode:-mind}" | tr 'A-Z' 'a-z')" = core ]; then
+  note "inbox" fail "TEENY_INBOX=core needs the core's inbound queue, which this core does not have: unset it (the default, mind, feeds the stimuli inbox)"
+else
+  note "inbox" ok "${inbox_mode:-mind}: the stimuli inbox"
 fi
 
 # --- the two reviewed lists: http_request's allowed hosts, the browser's denied ones -
@@ -690,6 +758,7 @@ if [ "$live" = 1 ]; then
     run "cron in step" cron_in_step
     run "cron next runs are current" cron_current
     run "cron agent turn budget" agent_turn_budget
+    run "gateway" gateway_ready
     run "browser" browser_ready
     if [ "${DOCTOR_MODEL_TURNS:-1}" != 0 ]; then
       run "studio models answer" studio_models_answer

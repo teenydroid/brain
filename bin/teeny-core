@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# The TypeScript core as a command: what OPENHUMAN_CORE_BIN names. Everything
+# that used to run `teeny-spine` runs this instead:
+#
+#   bin/teeny-core serve                     the RPC host (bin/spine starts it)
+#   bin/teeny-core giveaway-tx create|close  the giveaway transaction builder
+#                                            (hands/giveaway/onchain.py)
+#   bin/teeny-core openclaw ARGS...          the bundled OpenClaw CLI on the
+#                                            core's own state and config
+#   bin/teeny-core --where                   the build it would run
+#
+# The build is, in order: $TEENY_CORE_MAIN; core/dist/main.js in this checkout
+# (`cd core && npm ci && npm run build`); /opt/teeny-core/dist/main.js, which
+# the image carries because the checkout is mounted over /srv/teeny and holds
+# no build.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+main="${TEENY_CORE_MAIN:-}"
+if [ -z "$main" ]; then
+  main="${TEENY_ROOT:-$here}/core/dist/main.js"
+  [ -f "$main" ] || main=/opt/teeny-core/dist/main.js
+fi
+if [ "${1:-}" = --where ]; then
+  printf '%s\n' "$main"
+  exit 0
+fi
+[ -f "$main" ] || { echo "teeny-core: no build at $main (cd core && npm ci && npm run build, or set TEENY_CORE_MAIN)" >&2; exit 127; }
+exec node "$main" "$@"

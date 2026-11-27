@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import struct
+import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
@@ -426,14 +427,21 @@ class VectorTest(unittest.TestCase):
 
 
 def _spine() -> str | None:
-    for profile in ("release", "debug"):
-        path = REPO / "target" / profile / "teeny-spine"
-        if path.is_file() and os.access(path, os.X_OK):
-            return str(path)
-    return None
+    """bin/teeny-core, when Node 24 is here and core/dist is built (the image has both)."""
+    wrapper = REPO / "bin" / "teeny-core"
+    if not (wrapper.is_file() and os.access(wrapper, os.X_OK)):
+        return None
+    try:
+        main = subprocess.run([str(wrapper), "--where"], capture_output=True, text=True, timeout=10).stdout.strip()
+        node = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if not main or not Path(main).is_file() or not node.startswith("v") or int(node[1:].split(".")[0]) < 24:
+        return None
+    return str(wrapper)
 
 
-@unittest.skipUnless(_spine(), "no teeny-spine build in target/ (cargo build -p teeny-spine)")
+@unittest.skipUnless(_spine(), "no built core (Node 24 and `cd core && npm ci && npm run build`)")
 class SpineTest(ChainCase):
     """The real builder, a fresh seed each time, through settle."""
 
@@ -451,7 +459,7 @@ class SpineTest(ChainCase):
 
 
 
-@unittest.skipUnless(_spine(), "no teeny-spine build in target/ (cargo build -p teeny-spine)")
+@unittest.skipUnless(_spine(), "no built core (Node 24 and `cd core && npm ci && npm run build`)")
 class SpineSettleTest(RoundCase):
     """A drawn round settles through the core: the plan rounds.py makes is the
     one the spine builds and the hand's checks pass."""

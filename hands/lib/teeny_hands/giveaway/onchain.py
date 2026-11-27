@@ -11,7 +11,7 @@ GIVEAWAY_SEASON_MAX_TINY a day).
 
 One step, the same prepare -> check -> execute as hands/wallet's pay:
 
-1. Build. `teeny-spine giveaway-tx create|close` (spine/src/giveaway_tx.rs)
+1. Build. `teeny-core giveaway-tx create|close` (core/src/wallet/giveaway.ts)
    builds the unsigned legacy transaction over a fresh blockhash from
    GIVEAWAY_RPC_URL. For a create it makes a throwaway seed keypair, which
    signs at once and is forgotten: the distribution's address is
@@ -135,13 +135,13 @@ def parse_create_data(data_hex: str) -> Json | None:
 
 
 def spine_bin() -> str | None:
-    """The spine binary: OPENHUMAN_CORE_BIN (the image sets it), else this
-    checkout's release build, else `teeny-spine` on PATH."""
+    """The core's command: OPENHUMAN_CORE_BIN (the image sets it to its teeny-core
+    wrapper), else this checkout's bin/teeny-core, else `teeny-core` on PATH."""
     named = os.environ.get("OPENHUMAN_CORE_BIN")
-    for candidate in ([named] if named else []) + [str(hand.root() / "target" / "release" / "teeny-spine")]:
+    for candidate in ([named] if named else []) + [str(hand.root() / "bin" / "teeny-core")]:
         if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
             return candidate
-    return shutil.which("teeny-spine")
+    return shutil.which("teeny-core")
 
 
 def spine_build(op: str, request: Mapping[str, Any]) -> Mapping[str, Any]:

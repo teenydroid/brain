@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { run, startCore } from "../src/main.js";
+import { cronShellTimeoutSecs, run, startCore } from "../src/main.js";
 import { resolvePaths, serveSettings } from "../src/config/paths.js";
 import { resolveToken } from "../src/config/token.js";
 import { startTestCore } from "./helpers.js";
@@ -97,11 +97,101 @@ describe("startCore", () => {
       const env = spawned[0]!.env;
       expect(env.OPENCLAW_STATE_DIR).toBe(join(root, "state", "openclaw"));
       expect(env.OPENCLAW_CONFIG_PATH).toBe(join(root, "state", "openclaw", "openclaw.json"));
-      expect(env.OPENCLAW_GATEWAY_TOKEN).toMatch(/^[0-9a-f]{64}$/);
+      // The Gateway's exec tool hands its environment to every command an agent runs:
+      // neither the token nor the model key may be in it. They are SecretRef files.
+      expect(env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
+      expect(env).not.toHaveProperty("LOCAL_OPENAI_API_KEY");
+      const config = JSON.parse(readFileSync(join(root, "state", "openclaw", "openclaw.json"), "utf8"));
+      expect(config.gateway.auth.token).toEqual({ source: "file", provider: "teeny_gateway_token", id: "value" });
+      expect(config.secrets.providers.teeny_gateway_token).toMatchObject({ source: "file", mode: "singleValue" });
+      expect(readFileSync(config.secrets.providers.teeny_gateway_token.path, "utf8").trim()).toMatch(/^[0-9a-f]{64}$/);
+      expect(statSync(config.secrets.providers.teeny_gateway_token.path).mode & 0o777).toBe(0o600);
+      expect(statSync(config.secrets.providers.teeny_model_key.path).mode & 0o777).toBe(0o600);
       expect(Object.values(env)).not.toContain("core-token-xyz");
       expect(Object.keys(env).some((k) => k.startsWith("OPENHUMAN_"))).toBe(false);
     } finally {
       await core.stop();
+    }
+  });
+});
+
+describe("a settings change and the Gateway", () => {
+  async function boot(runner: import("../src/gateway/client.js").AgentRunner) {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "secrets"));
+    const children: QuietChild[] = [];
+    const core = await startCore(
+      { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(root, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "tok", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent", LOCAL_OPENAI_URL: "http://127.0.0.1:1/v1", SPINE_MODEL: "m" },
+      { log: () => undefined, runner, drainMs: 300, spawn: () => { const c = new QuietChild(); children.push(c); return c as never; } },
+    );
+    const rpc = async (method: string, params: Record<string, unknown>) =>
+      (await (await fetch(`http://127.0.0.1:${core.port}/rpc`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: `openhuman.${method}`, params }) })).json()) as { error?: unknown };
+    return { core, children, rpc };
+  }
+  const idle = { run: async () => ({ text: "x" }) };
+
+  it("does not restart the Gateway when nothing it reads changed", async () => {
+    const t = await boot(idle);
+    try {
+      await t.rpc("config_update_agent_settings", { agent_timeout_secs: 1800 });
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(t.children).toHaveLength(2); // the turn budget is in the Gateway's config: that one restarts it
+      await t.rpc("config_update_agent_settings", { agent_timeout_secs: 1800 }); // the same value again
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(t.children).toHaveLength(2);
+    } finally {
+      await t.core.stop();
+    }
+  });
+
+  it("waits for a turn in flight before it restarts the Gateway, and holds new turns meanwhile", async () => {
+    let finish!: () => void;
+    const slow = { run: () => new Promise<{ text: string }>((r) => (finish = () => r({ text: "done" }))) };
+    const t = await boot(slow);
+    try {
+      const turn = t.rpc("inference_agent_chat", { message: "hi", agent_id: "simple" });
+      await new Promise((r) => setTimeout(r, 100));
+      await t.rpc("config_update_agent_settings", { agent_timeout_secs: 2222 });
+      await new Promise((r) => setTimeout(r, 1200)); // past the debounce and the 300 ms drain deadline
+      // The deadline passed with the turn still running: it restarts anyway, but only after waiting.
+      expect(t.children).toHaveLength(2);
+      finish();
+      await turn;
+    } finally {
+      await t.core.stop();
+    }
+  });
+
+  it("restarts at once when no turn is running", async () => {
+    const t = await boot(idle);
+    try {
+      await t.rpc("config_update_agent_settings", { agent_timeout_secs: 3333 });
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(t.children).toHaveLength(2);
+    } finally {
+      await t.core.stop();
+    }
+  });
+});
+
+describe("cron wiring", () => {
+  it("serves cron_list and reads [cron] shell_timeout_secs from the core's config.toml", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cfg-"));
+    expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "none.toml") }, dir)).toBe(1800);
+    writeFileSync(join(dir, "config.toml"), "[cron]\nshell_timeout_secs = 900\n");
+    expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "config.toml") }, dir)).toBe(900);
+    expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(1800);
+    mkdirSync(join(dir, ".openhuman"));
+    writeFileSync(join(dir, ".openhuman", "config.toml"), "[cron]\nshell_timeout_secs = 60\n");
+    expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(60);
+
+    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}` });
+    try {
+      // The test core has no Gateway, so the automations CLI answers an error; the method is served.
+      const res = await t.rpc("cron_list", {});
+      expect(res.error?.code).not.toBe(-32601);
+    } finally {
+      await t.core.stop();
     }
   });
 });

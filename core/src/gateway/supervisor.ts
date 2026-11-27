@@ -26,6 +26,9 @@ export class GatewaySupervisor {
   private failures = 0;
   private startedAt = 0;
   private reloading = false;
+  private reloadDone: (() => void) | undefined;
+  /** Set while launch() is between prepare() and the spawn, so a restart cannot start a second Gateway. */
+  private launching: Promise<void> | undefined;
   private restarts = 0;
   private readonly spawnFn: SpawnFn;
   private readonly log: NonNullable<SupervisorOptions["log"]>;
@@ -45,10 +48,42 @@ export class GatewaySupervisor {
 
   async start(): Promise<void> {
     this.stopping = false;
-    await this.launch();
+    await this.launchOrRetry();
   }
 
-  private async launch(): Promise<void> {
+  /** launch(), and when prepare() or the spawn throws, a retry on the same backoff as a crash: a Gateway never stays down for want of one more try. */
+  private async launchOrRetry(): Promise<void> {
+    try {
+      await this.launch();
+    } catch (e) {
+      this.log("error", "gateway could not be started; will retry", { error: e instanceof Error ? e.message : String(e) });
+      this.scheduleRetry();
+    }
+  }
+
+  private scheduleRetry(): void {
+    if (this.stopping || this.timer) return;
+    const { initial, max } = this.opts.backoffMs ?? { initial: 1000, max: 30_000 };
+    const delay = Math.min(max, initial * 2 ** this.failures);
+    this.failures += 1;
+    this.restarts += 1;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.launchOrRetry();
+    }, delay);
+  }
+
+  private launch(): Promise<void> {
+    const run = this.launchInner();
+    this.launching = run;
+    const clear = (): void => {
+      if (this.launching === run) this.launching = undefined;
+    };
+    run.then(clear, clear);
+    return run;
+  }
+
+  private async launchInner(): Promise<void> {
     if (this.stopping) return;
     const env = await this.opts.prepare();
     if (this.stopping) return;
@@ -74,7 +109,10 @@ export class GatewaySupervisor {
     if (this.reloading) {
       // restartNow(): an intended restart on fresh config, no backoff and no failure counted.
       this.reloading = false;
-      void this.launch().catch((e: unknown) => this.log("error", "gateway restart failed", { error: String(e) }));
+      void this.launchOrRetry().finally(() => {
+        this.reloadDone?.();
+        this.reloadDone = undefined;
+      });
       return;
     }
     const { initial, max } = this.opts.backoffMs ?? { initial: 1000, max: 30_000 };
@@ -85,27 +123,40 @@ export class GatewaySupervisor {
     this.log("warn", "gateway exited; restarting", { code, signal, delayMs: delay });
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.launch().catch((e: unknown) => this.log("error", "gateway restart failed", { error: String(e) }));
+      void this.launchOrRetry();
     }, delay);
   }
 
-  /** Restart on freshly prepared config (settings changed). Starts it when it is not running. */
+  /**
+   * Restart on freshly prepared config (settings changed); resolves once the new Gateway
+   * is spawned. Starts it when it is not running. A launch still in progress is waited
+   * for first (never two Gateways), and a Gateway that ignores SIGTERM is killed after
+   * killAfterMs, as stop() does.
+   */
   async restartNow(): Promise<void> {
+    if (this.launching) await this.launching.catch(() => undefined);
     const child = this.child;
     if (!child || child.exitCode !== null) {
       if (this.timer) clearTimeout(this.timer);
       this.timer = undefined;
-      await this.launch();
+      await this.launchOrRetry();
       return;
     }
     this.reloading = true;
-    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      this.reloadDone = resolve;
+      const kill = setTimeout(() => child.kill("SIGKILL"), this.opts.killAfterMs ?? 10_000);
+      child.once("exit", () => clearTimeout(kill));
+      child.kill("SIGTERM");
+    });
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
+    this.reloadDone?.();
+    this.reloadDone = undefined;
     const child = this.child;
     if (!child || child.exitCode !== null) return;
     await new Promise<void>((resolve) => {
