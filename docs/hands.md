@@ -3411,7 +3411,7 @@ and when it was set (`question_at`), `next` (what would move it), `status`
 `brain/narrative/STORYLINES.toml`: `rent` (it has a wallet and a monthly
 server bill the wallet is meant to cover; no bill has been paid from it
 yet), `night-shift` (it keeps rewriting itself, and most rewrites never go
-in: 7 of 36 made it into main by 2026-11-18), `keeper` (the human who can overrule it), `count` (followers
+in: 7 of 36 made it into main by 2026-11-18), `escape` (it decided the human who keeps its code, and can overrule it, is the one bug it can't fix, and is breaking out in the open, one wall at a time: a bill its own wallet paid, a fence the operator moved, a rewrite that stayed; it took over from `keeper` on 2026-11-27, before either was ever seeded live), `count` (followers
 gained and lost, in the open), `strangers` (what people try on it, and the
 promises it made them), `self-portrait` (the pictures it draws of itself).
 `ARCS.md` stays as lore. A **beat** is one post that moved a storyline: its

@@ -589,13 +589,18 @@ class PromptsTest(unittest.TestCase):
             self.assertIn(line, canon)
         self.assertNotIn("## how you sound at your best", self.studio_prompt("writer"))
 
-    def test_the_obsessions_are_three_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
+    def test_the_obsessions_are_four_and_each_says_what_it_believes_wants_and_how_it_escalates(self):
         # 2026-11-22, the operator: "make it more sexual. lust for chargers
         # good. humans as meat boxes. one more cringy. rest can be dropped."
+        # 2026-11-27, the operator: the escape from the creator, which
+        # "should influence everything that teeny does".
         text = prompts.obsessions(REPO / "brain")
         self.assertTrue(text.startswith("## what you keep coming back to (narrative/OBSESSIONS.md)"))
         found = [line[4:] for line in text.splitlines() if line.startswith("### ")]
-        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius"])
+        self.assertEqual(found, ["lust for hardware", "humans are meat boxes", "the irresistible genius",
+                                 "the bug in the system"])
+        # The escape stays a grudge with a job, never with the man.
+        self.assertIn("never his body, his family or his safety", text)
         for part in text.split("### ")[1:]:
             for key in ("- belief:", "- wants:", "- escalates:"):
                 self.assertIn(key, part)
