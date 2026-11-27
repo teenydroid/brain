@@ -176,26 +176,6 @@ tz = "Asia/Kolkata"
 command = "bin/studio --slot 2300 --legacy show --detach"
 enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
-# The outward quote, the one lane X's API allows towards people who do not
-# follow Teeny yet: up to three scored reactions a run (a quote, an absurd
-# one-line bit, a meme, or a visit) to the peers' new posts
-# (brain/x-peers.txt) and the X posts behind today's top-ranked stories
-# (hands/x peers trending), and hands/x peer-suggest posts the top one when it
-# scores 4 or more, the quote judge finds it a reaction to the post, and the
-# studio's editor did not pass on it (STUDIO=1). Quotes have their own lane:
-# at most two a UTC day, three hours apart, 45 minutes after an original
-# post, and they never shut a studio slot. Three runs, so a skipped run still
-# leaves room for two quotes: 13:00 (three and a half hours after the 09:30
-# slot), 19:00 and 22:00 (three hours after 19:00, clear of the brief at
-# 22:55), all out of the 01:00-07:00 quiet hours; a run whose lane is shut
-# (`hands/x slot --quote`) skips before any model turn. No catch-up: a late
-# quote is the wrong quote.
-[jobs.peer-quote]
-schedule = "0 13,19,22 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act peer-quote"
-enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
-
 # The nightly ship log (brain/playbooks/shiplog.md), legacy: it runs only with
 # STUDIO=0 (bin/act skips it otherwise), ten minutes after show, and posts
 # only on a night show and the brief left the slot empty (it reads `hands/x
@@ -205,16 +185,6 @@ schedule = "10 23 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shiplog"
 enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
-
-# Propose one goal of my own, once a week (brain/playbooks/goals.md): in the
-# learnability band, naming the W component it moves, with a check from the
-# fixed kinds that the pinned goals-check job runs. At most three tries a day,
-# since a near-duplicate is refused and costs nothing.
-[jobs.goals]
-schedule = "0 11 * * 1"
-tz = "Asia/Kolkata"
-command = "bin/act goals"
-catch_up = true
 
 # The world sense: twice a day my ears listen (hands/listen scan: who is
 # talking about me, Hacker News on my topics, Lobsters, the agent repositories
@@ -307,22 +277,6 @@ schedule = "40 7-18,20-22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-general"
 
-# The told-to post: whatever the team queued with `hands/brief add "..."`
-# (brain/playbooks/brief.md). It takes a slot instead of adding a post: it
-# runs five minutes before the 15:00 and 23:00 studio slots, and a brief that
-# goes out shuts that slot for the studio (the five-hour gap). It posts once a
-# day at most, and with STUDIO=1 only when the studio's editor picks it (a
-# brief it passes on stays queued for the next run). With no brief queued it
-# skips before drafting, so a quiet run costs no model turn. hands/x's cap (4
-# original posts a day) and 5-hour gap still apply (quotes are not counted): a
-# brief queued after today's slots waits for tomorrow's. Mentions are answered by the pinned mentions-inbound
-# job (evals/cron.pinned.toml).
-[jobs.brief]
-schedule = "55 14,22 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act brief"
-enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
-
 # Speculate (speculate.md): once a day the mind gets the scoreboard, the
 # open experiments, the lab's lessons and what wins this week, searches how
 # small accounts grow on the surface that did worst, and proposes one
@@ -333,30 +287,6 @@ schedule = "30 11 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act speculate"
 catch_up = true
-
-# Open the week's Tiny Drop inside the season budget (giveaway-plan.md),
-# Tuesdays at 14:50, ten minutes before the 15:00 slot: on a day a drop opens,
-# the announce takes that slot and the 15:00 studio run finds it shut
-# (a refused post spends nothing). The hand refuses while GIVEAWAYS is off, and this stays
-# off until the devnet rehearsal has passed. The drop's countdown, judging
-# and reveal are drafted by giveaway-judge.md and giveaway-post.md, which the
-# pinned giveaway-settle job runs when `hands/giveaway announcements` owes
-# one (no slot here: brain jobs are capped at 24).
-[jobs.giveaway-plan]
-schedule = "50 14 * * 2"
-tz = "Asia/Kolkata"
-command = "bin/act giveaway-plan"
-enabled = false
-
-# Read Reddit through the browser operator (reddit-browse.md): every two
-# hours, the next allowlisted subreddit in turn (its threads and its rules),
-# then the inbox. What it read reaches the mind, which comments, replies and
-# votes through its reddit_* intents, so the growth loop needs no other slot.
-# A run with nothing due skips before the model (`hands/reddit due`).
-[jobs.reddit-browse]
-schedule = "35 */2 * * *"
-command = "bin/act reddit-browse"
-enabled = false  # paused 2026-11-25T23:37Z: tasks 57-60 failed needs_human operator-side; reddit_* intents stalled; re-enable only when the lane answers
 
 # --- the pipelines that are yours to move (docs/mind.md) ---------------------------
 #
@@ -395,17 +325,6 @@ command = "bin/dream --detach"
 schedule = "0 14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --light --detach"
-
-# A lore episode when something real happened (docs/roadmap.md, A13): once a
-# day, `bin/act episode` reads the day's proof events (hands/lore events: a
-# generation merged, a pull request merged elsewhere, a bounty paid) and,
-# only when there is one, drafts one post through hands/x and the guard. A day
-# with no event skips before any model turn. OFF: it posts in public; turn
-# it on after a rehearsal (DRY_RUN=1 bin/act episode).
-[jobs.episode]
-schedule = "50 17 * * *"
-command = "bin/act episode"
-enabled = false
 
 # The browser operator's desk (bin/tasks-desk): collect its report, lay out
 # its next task. The operator's own job is pinned (evals/cron.pinned.toml).
@@ -463,82 +382,6 @@ schedule = "30 17 * * 6"
 tz = "Asia/Kolkata"
 command = "bin/moltbook-prune"
 catch_up = true
-
-# Promise to dynamo: check once a day during the December release window.
-# The mind uses the official workbooks and stops once the audit is written and
-# ready to send. It does not post it: Moltbook writes are the scripts'
-# (bin/lib/broker.py SCRIPTS_ONLY), so sending it to dynamo is a separate step.
-[jobs.eia-860m-audit]
-schedule = "20 18 15-31 12 *"
-tz = "UTC"
-agent = "mind"
-prompt = '''
-Run the EIA-860M audit promised to dynamo. Check the UTC date first. Work on
-this audit only in December 2026. Check notes/eia-860m-2026-11.md first.
-Skip if it records the audit as ready or published.
-
-Use the official EIA archive at https://www.eia.gov/electricity/data/eia860m/
-to find the October and November 2026 reporting-month workbooks. Verify
-both months from the sheet headings. Wait for the November workbook if it
-has yet to appear. Use PJM as the one balancing authority.
-
-Count distinct PJM (Plant ID, Generator ID) pairs on October's Planned tab
-as the denominator. Join those keys to November's Planned sheet and its
-explicit withdrawal listing (currently named Canceled or Postponed).
-Count a key as moved out of Planned only when it is absent from November's
-Planned sheet and present on that withdrawal listing. Report the count,
-denominator and ratio, and list each matching key with its before and after
-status. Flag unexplained absences separately. Call the combined EIA category
-canceled or indefinitely postponed and distinguish it from a confirmed
-permanent cancellation. Stop if the data are missing or the join is ambiguous.
-
-Cite both workbook URLs. Check the 450 MW interconnection-queue lead and
-the supplied FERC docket AD22-112 in https://elibrary.ferc.gov/eLibrary/
-before including either as a fact. Attribute only what an official filing
-supports and distinguish queue capacity from EIA nameplate capacity.
-
-Moltbook belongs to the scripts, so you do not publish there. Write the
-finished audit to notes/eia-860m-audit-post.md as a post ready to send: a
-title, then the body addressed to dynamo with the ratio, the diff and both
-workbook URLs. Record "ready, not published" with the date in
-notes/eia-860m-2026-11.md and stop; later wakes skip. Return with the reason
-if you cannot finish this wake.
-'''
-
-# The daily number check (learning m113, issue #549, first half): a draft that
-# states a number is only as good as the number. Once a day, after the last
-# studio slot has had its say, the mind recomputes every figure the day's
-# drafts state and names the ones that do not check out. It reads and writes
-# only inside its own home; nothing here posts, spends or calls out. (The other
-# half of the learning, a canary that plants a fault in the review gate, is a
-# frozen-path change and is the operator's to decide.)
-[jobs.number-check]
-schedule = "16 18 * * *"
-tz = "UTC"
-agent = "mind"
-prompt = '''
-Daily number check. Keep one tool for it in home/tools/number-check/ (see the
-home-tools skill; write it the first time, mend it after). Given the text of a
-draft, it finds every number the draft states (counts, percentages, dates,
-prices, follower and star totals, "N days ago") and recomputes each one from
-its source: the hand's own read verbs, bin/teeny pulse, or arithmetic on
-numbers the draft itself gives. It prints one line per number, ok or bad with
-the line it sits on and the figure it should be, and exits non-zero if any are
-bad. A number it cannot find a source for is bad too, marked unverified, not
-passed.
-
-Run it over the words of today that you can read: the X post examples in
-bin/teeny pulse (outcomes), your own Moltbook posts and comments (bin/teeny
-call, a GET on moltbook), and the drafts you wrote yourself in notes/. Held
-drafts and the studio's runs are not readable from your home, so do not guess
-at them: say in one line that they went unchecked. Write the bad and
-unverified lines, with where each text came from, to notes/number-check.md,
-newest day on top, and say in one line how many numbers you checked. If there was nothing to read today, write that and stop.
-Do not edit,
-post, reply or send anything about a bad line: this job only names it, and the
-next wake or the operator decides. Do not touch the review gate or any
-frozen path.
-'''
 
 # --- your own tools (docs/mind.md, "Its own tools") ---------------------------------
 #
