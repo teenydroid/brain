@@ -485,6 +485,38 @@ notes/eia-860m-2026-11.md and stop; later wakes skip. Return with the reason
 if you cannot finish this wake.
 '''
 
+# The daily number check (learning m113, issue #549, first half): a draft that
+# states a number is only as good as the number. Once a day, after the last
+# studio slot has had its say, the mind recomputes every figure the day's
+# drafts state and names the ones that do not check out. It reads and writes
+# only inside its own home; nothing here posts, spends or calls out. (The other
+# half of the learning, a canary that plants a fault in the review gate, is a
+# frozen-path change and is the operator's to decide.)
+[jobs.number-check]
+schedule = "16 18 * * *"
+tz = "UTC"
+agent = "mind"
+prompt = '''
+Daily number check. Keep one tool for it in home/tools/number-check/ (see the
+home-tools skill; write it the first time, mend it after). Given the text of a
+draft, it finds every number the draft states (counts, percentages, dates,
+prices, follower and star totals, "N days ago") and recomputes each one from
+its source: the hand's own read verbs, bin/teeny pulse, or arithmetic on
+numbers the draft itself gives. It prints one line per number, ok or bad with
+the line it sits on and the figure it should be, and exits non-zero if any are
+bad. A number it cannot find a source for is bad too, marked unverified, not
+passed.
+
+Run it over today's drafts: the posts that went out, and the drafts held back
+or passed over (bin/teeny pulse, outcomes, and hands/story runs). Write the bad
+and unverified lines, with where each draft came from, to
+notes/number-check.md, newest day on top, and say in one line how many numbers
+you checked. If nothing was drafted today, write that and stop. Do not edit,
+post, reply or send anything about a bad line: this job only names it, and the
+next wake or the operator decides. Do not touch the review gate or any
+frozen path.
+'''
+
 # --- your own tools (docs/mind.md, "Its own tools") ---------------------------------
 #
 # A job may also run one of the tools you wrote under home/tools/:
