@@ -19,6 +19,9 @@ import { fileURLToPath } from "node:url";
 const NOT_HANDS = new Set(["README.md", "lib", "tests"]);
 /** OpenClaw's description guidance: one line, under 160 characters. */
 const MAX_DESCRIPTION = 160;
+/** The openclaw.json path a hand skill is gated on: the guardrails plugin is enabled. */
+export const GATE = "plugins.entries.teeny-guardrails.enabled";
+
 /** A verb's "Does" cell is cut to its first sentence, at most this long. */
 const MAX_DOES = 280;
 
@@ -151,7 +154,11 @@ export function renderSkill(hand: HandInfo): string {
   const description = oneLine(
     `Run hands/${name} through your shell tool: ${hand.description || `the ${name} hand`}. Read this before calling it.`,
   );
-  const meta = { openclaw: { requires: { bins: [name] } } };
+  // Not `requires.bins: [name]`: that asks for a program called `name` on PATH, and hands are not on PATH
+  // (they run as hands/<name>); a bare name also collides with real programs (git, gh, ...). A hand is
+  // offered to the agent only while the guardrails plugin that fences its shell is enabled
+  // (docs/tools/skills.md: `requires.config` = each openclaw.json path must be truthy).
+  const meta = { openclaw: { requires: { config: [GATE] } } };
   const out: string[] = [];
   out.push("---");
   out.push(`name: hand-${name}`);
@@ -213,7 +220,7 @@ export function renderSkill(hand: HandInfo): string {
     out.push(`Flags named in the hand's source: ${hand.sourceFlags.map((f) => `\`${f}\``).join(", ")}.`);
     out.push("");
   }
-  out.push(`For one verb's exact flags, run \`DRY_RUN=1 hands/${name} <verb> --help\`. The full account is in docs/hands.md.`);
+  out.push(`For one verb's exact flags, run \`hands/${name} <verb> --help\` (never put a VAR= in front of a command: the shell refuses it, and DRY_RUN is not yours to set). The full account is in docs/hands.md.`);
   out.push("");
   return out.join("\n");
 }
