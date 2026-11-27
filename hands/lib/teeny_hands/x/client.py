@@ -36,7 +36,10 @@ X_API_BASE = "https://api.x.com"
 #: `in_reply_to_user_id` is asked for as a field, not an expansion: X bills
 #: every user object a response carries ($0.010 each), and expanding it would
 #: send the account's own user back with every reply it reads.
-POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics,in_reply_to_user_id"
+#: `referenced_tweets` says which post a post quotes, also a field: a reply
+#: to a post that quotes the account is one X lets through
+#: (posting_rules.check_engaged_first).
+POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics,in_reply_to_user_id,referenced_tweets"
 #: Photos carry `url`; videos and GIFs only a preview frame.
 MEDIA_FIELDS = "media_key,type,url,preview_image_url,alt_text"
 USER_FIELDS = "username"

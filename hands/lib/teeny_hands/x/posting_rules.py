@@ -159,7 +159,12 @@ CREATE TABLE IF NOT EXISTS x_media (
 );
 """
 
-_X_ID = re.compile(r"^[0-9]{1,25}$")
+#: An X post (or user) id: a 64-bit snowflake, so at most 19 digits and
+#: never past 2**63 - 1. A longer run of digits is two ids run together or
+#: one with a piece repeated (2026-11-26: "2125916408408169083238"), which X
+#: answers with a bare 400.
+_X_ID = re.compile(r"^[0-9]{1,19}$")
+_X_ID_MAX = 2**63 - 1
 _GIF_ID = re.compile(r"^[A-Za-z0-9]{1,64}$")
 _MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -231,7 +236,16 @@ def iso(seconds: float) -> str:
 
 
 def is_x_id(value: Any) -> bool:
-    return isinstance(value, str) and bool(_X_ID.match(value))
+    return isinstance(value, str) and bool(_X_ID.match(value)) and int(value) <= _X_ID_MAX
+
+
+def x_id_problem(value: Any) -> str:
+    """Why `value` is not an X post id, in words that help the next try."""
+    if isinstance(value, str) and value.isdigit() and len(value) > 15:
+        return (f"{value} is not an X post id: it has {len(value)} digits and a post id has at most 19 "
+                "(and is below 2^63); it looks cut or run together with another id. "
+                "Copy the id exactly from the post")
+    return "must be a numeric X post id"
 
 
 # --- the text ------------------------------------------------------------------------------
@@ -640,42 +654,82 @@ def check_not_own(target: Mapping[str, Any], account_id: str) -> None:
 
 
 def check_engaged_first(
-    conn: sqlite3.Connection, target: Mapping[str, Any], account: Mapping[str, Any], author_of: Any
+    conn: sqlite3.Connection,
+    target: Mapping[str, Any],
+    account: Mapping[str, Any],
+    author_of: Any,
+    fresh: Any = None,
 ) -> None:
-    """A reply answers somebody who engaged first: the target is a stored
-    mention (`x_mentions`), tags the account, replies to it, or sits in the
+    """A reply answers only somebody who summoned the account, which is what
+    X itself checks: since 2026-02-23 `POST /2/tweets` refuses an API reply
+    with a 403 ("Authorization Error") unless the post's author tagged the
+    account or quoted one of its posts. So the target must reply to the
+    account, tag it in its text, quote one of its posts, or sit in the
     conversation under one of its own posts (the ledger's, else the root's
-    author, looked up with `author_of(post_id)`). Anything else is
-    unsolicited, which X refuses from the API anyway."""
+    author, looked up with `author_of(post_id)`).
+
+    Being a stored mention (`x_mentions`) is not enough by itself. X's
+    webhook sends `post.mention.create` for a long post that tags the account
+    only past its first 280 characters (the `note_tweet` part, which `text`
+    leaves out), and X's reply check does not count that tag: every 403 of
+    2026-11-26 and 27 was such a post. The tag has to be in `text`.
+
+    A stored mention that neither tags nor replies to the account may still
+    quote one of its posts, and the webhook's copy may not say what it
+    quotes, so that one post is read again (`fresh(post_id)`) before it is
+    refused."""
     post_id = str(target.get("id") or "")
-    if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
-        return
-    if account.get("id") and target.get("inReplyToUserId") == account["id"]:
+    me = account.get("id")
+    if me and target.get("inReplyToUserId") == me:
         return
     username = account.get("username")
     if username and re.search(rf"(?<![A-Za-z0-9_])@{re.escape(username)}(?![A-Za-z0-9_])", str(target.get("text") or ""),
                               re.IGNORECASE):
         return
+    quoted = target.get("quotedId")
+    if not quoted and fresh is not None and conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
+        try:
+            again = fresh(post_id)
+        except hand.HandError:
+            again = None
+        quoted = again.get("quotedId") if again else None
+    if quoted:
+        if conn.execute("SELECT 1 FROM x_posts WHERE id = ?", (quoted,)).fetchone():
+            return
+        if me and author_of(quoted) == me:
+            return
     root = target.get("conversationId")
     if root and root != post_id:
         if conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (root,)).fetchone():
             return
-        if account.get("id") and author_of(root) == account["id"]:
+        if me and author_of(root) == me:
             return
     raise hand.Refused(
-        f"post {post_id} never engaged the account (not a mention, not a reply to it, not under one of its posts); "
-        "a reply answers only somebody who spoke first. Nothing was published.",
+        f"post {post_id} never summoned the account: its text does not tag @{username or 'the account'} (a tag past the "
+        "first 280 characters of a long post does not count), it does not reply to the account or quote one of its "
+        "posts, and it is not under one of its posts. X refuses an API reply to such a post (403), so nothing was "
+        "published; this post cannot be answered by reply.",
         rule="unsolicited",
     )
+
+
+#: The note on an `x_replies` row X refused with a 403 (`note_reply_refused`).
+REFUSED_BY_X = "refused by X: "
 
 
 def check_not_replied(conn: sqlite3.Connection, in_reply_to: str) -> None:
     """A post gets one reply. A row with a reply id is answered; a row
     without one is a reply whose fate is unknown (X timed out or failed
     mid-call, or the hand died), and is not risked twice."""
-    row = conn.execute("SELECT reply_id FROM x_replies WHERE in_reply_to = ?", (in_reply_to,)).fetchone()
+    row = conn.execute("SELECT reply_id, note FROM x_replies WHERE in_reply_to = ?", (in_reply_to,)).fetchone()
     if row is None:
         return
+    if not row["reply_id"] and str(row["note"] or "").startswith(REFUSED_BY_X):
+        raise hand.Refused(
+            f"X already refused a reply to post {in_reply_to} ({row['note'][len(REFUSED_BY_X):]}); it refuses the same "
+            "post the same way every time, so nothing was sent. Leave this post unanswered.",
+            rule="x_refused",
+        )
     if row["reply_id"]:
         raise hand.Refused(
             f"already replied to post {in_reply_to} (reply {row['reply_id']}); a post gets one reply",
@@ -697,6 +751,14 @@ def claim_reply(conn: sqlite3.Connection, in_reply_to: str) -> None:
 def release_reply(conn: sqlite3.Connection, in_reply_to: str) -> None:
     """X said no, so nothing went out and the post may be answered later."""
     conn.execute("DELETE FROM x_replies WHERE in_reply_to = ? AND reply_id IS NULL", (in_reply_to,))
+
+
+def note_reply_refused(conn: sqlite3.Connection, in_reply_to: str, error: str) -> None:
+    """X answered a reply with a 403: nothing went out, and X refuses that
+    post the same way on every try (the author did not summon the account,
+    limits who may reply, or blocks it). The claim stays, marked, so
+    `check_not_replied` refuses a retry before it reaches X."""
+    conn.execute("UPDATE x_replies SET note = ? WHERE in_reply_to = ?", ((REFUSED_BY_X + error)[:300], in_reply_to))
 
 
 def note_reply_in_doubt(conn: sqlite3.Connection, in_reply_to: str, note: str) -> None:
