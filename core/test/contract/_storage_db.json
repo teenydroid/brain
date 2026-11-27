@@ -1,5 +1,5 @@
 {
-  "file": "brain/storage.db (TEENY_STORAGE overrides; found as bin/lib/teeny.sh does). OpenHuman's SQLite store, opened read-only by Teeny: file:<path>?mode=ro, 5 s busy timeout. Never written by Teeny.",
+  "file": "brain/storage.db (TEENY_STORAGE overrides; found as bin/lib/teeny.sh does). OpenHuman's SQLite store, opened read-only by Teeny: file:<path>?mode=ro, 5 s busy timeout. Never written by Teeny. SUPERSEDED for cron: the scheduler is OpenClaw automations and every cron reader goes through bin/lib/cron_store.py (backend `openclaw`); this table is read only by its `sqlite` backend (TEENY_CRON_BACKEND=sqlite: the readers' test fixtures, and a storage.db from before the move). The TS core writes none of it. tsd.leases is replaced by the job's state.runningAtMs.",
   "table": {
     "name": "docs",
     "columns": {
