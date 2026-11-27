@@ -37,7 +37,7 @@ export function makeFixture(extra: { env?: Record<string, string>; fill?: (progr
   made.push(root);
   const brain = join(root, "brain");
   const state = join(root, "state");
-  for (const hand of ["x", "gh", "wallet", "keychain", "stats"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
+  for (const hand of ["x", "mail", "gh", "wallet", "keychain", "stats"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
   write(join(root, "hands", "README.md"));
   write(join(root, "hands", "lib", "mod.py"));
   write(join(root, "hands", "not-exec"), "text", 0o644);

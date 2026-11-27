@@ -4,7 +4,7 @@
 // never adds a tool, a path, a program or an environment variable.
 import { resolve } from "node:path";
 import { checkPath, expandHome, type PathRules } from "./paths.js";
-import { judgeExec } from "./exec.js";
+import { countReplies, judgeExec } from "./exec.js";
 import { judgeAllowedFetch, judgeBrowser, newBrowserState, openclawLiveUrl, runKeychainFill, type BrowserState } from "./browser.js";
 import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
 
@@ -36,6 +36,8 @@ export interface GuardDeps {
 
 export class Guardrails {
   private readonly runs = new Map<string, number>();
+  /** Replies sent so far by each run (the same key as `runs`), against AgentPolicy.replyCaps. */
+  private readonly replies = new Map<string, { x: number; mail: number }>();
   readonly browserState: BrowserState = newBrowserState();
 
   constructor(
@@ -66,11 +68,39 @@ export class Guardrails {
     const runKey = `${agent.id}|${ctx.runId ?? event.runId ?? ctx.sessionKey ?? ""}`;
     const budget = this.spent(agent, runKey);
     if (budget.over) return refuse(`this run has made its ${agent.maxToolCalls} tool calls (the budget for ${agent.id}); end the run`);
-    return this.judge(agent, ctx, tool, event.toolName, event.params ?? {});
+    return this.judge(agent, ctx, tool, event.toolName, event.params ?? {}, runKey);
+  }
+
+  /**
+   * The per-run reply caps: a run (one beat of the mind) that has already sent its allowance of replies on a
+   * channel is refused the next. Counted when the call is made, as the hands' own daily caps are, so a reply the
+   * hand then refuses still uses one: a beat cannot probe its way past the count. Another run, or another agent,
+   * has its own count.
+   */
+  private repliesSpent(agent: AgentPolicy, runKey: string, command: string, cwd: string): string | undefined {
+    const caps = agent.replyCaps;
+    if (!caps) return undefined;
+    const asked = countReplies(command, cwd);
+    const channels = ["x", "mail"] as const;
+    if (channels.every((c) => asked[c] === 0)) return undefined;
+    const sent = this.replies.get(runKey) ?? { x: 0, mail: 0 };
+    for (const c of channels) {
+      const cap = caps[c];
+      if (cap !== undefined && asked[c] > 0 && sent[c] + asked[c] > cap) {
+        return `this run has already sent its ${cap} ${c === "x" ? "X" : "mail"} repl${cap === 1 ? "y" : "ies"} (the most one beat of ${agent.id} answers); leave the rest for the next beat`;
+      }
+    }
+    this.replies.delete(runKey);
+    this.replies.set(runKey, { x: sent.x + asked.x, mail: sent.mail + asked.mail });
+    if (this.replies.size > MAX_RUNS_KEPT) {
+      const oldest = this.replies.keys().next().value;
+      if (oldest !== undefined) this.replies.delete(oldest);
+    }
+    return undefined;
   }
 
   /** One tool call against one agent's own list; the budget is already spent. */
-  private async judge(agent: AgentPolicy, ctx: ToolContext, tool: string, shown: string, params: Record<string, unknown>): Promise<Decision> {
+  private async judge(agent: AgentPolicy, ctx: ToolContext, tool: string, shown: string, params: Record<string, unknown>, runKey: string): Promise<Decision> {
     const event = { toolName: shown, params };
     const holds = (name: string): boolean => agent.tools.some((t) => t.toLowerCase() === name);
 
@@ -86,7 +116,7 @@ export class Guardrails {
       if (!holds(target)) return refuse(`dispatch_action: ${agent.id} has no ${id as string} tool`);
       const args = params.args;
       if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) return refuse("dispatch_action: args is not an object");
-      const inner = await this.judge(agent, ctx, target, id as string, (args ?? {}) as Record<string, unknown>);
+      const inner = await this.judge(agent, ctx, target, id as string, (args ?? {}) as Record<string, unknown>, runKey);
       if (inner && "params" in inner) return { params: { ...params, args: inner.params } };
       return inner;
     }
@@ -123,6 +153,8 @@ export class Guardrails {
       case "exec": {
         const verdict = judgeExec(this.policy, agent, params);
         if (!verdict.ok) return refuse(`exec: ${verdict.reason}`);
+        const over = this.repliesSpent(agent, runKey, params.command as string, verdict.cwd);
+        if (over) return refuse(`exec: ${over}`);
         return { params: { ...params, command: verdict.command, workdir: verdict.cwd } };
       }
       case "browser": {

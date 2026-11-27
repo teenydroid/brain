@@ -46,6 +46,24 @@ export interface AgentPolicy {
   subagents: string[];
   /** Tool calls one run may make (max_iterations in the agent's toml). */
   maxToolCalls: number;
+  /**
+   * Replies one run may send, by channel: the mind's beat answers at most this many X mentions and mails
+   * (brain/agents/mind.md, "The inbox pass"). Counts `hands/x reply` and `hands/mail reply`, and the broker's
+   * `reply_x` and `reply_mail`. A channel left out has no per-run cap here (the hands' daily caps apply either way).
+   */
+  replyCaps?: { x?: number; mail?: number };
+}
+
+/** Text put in front of an agent's turn from a read-only command (the mind's reply-pass block). */
+export interface WakeContextPolicy {
+  /** Agents whose turns get it. */
+  agents: string[];
+  /** The command and arguments, run with only HOME, PATH and LANG; its stdout is the block. */
+  argv: string[];
+  cwd: string;
+  /** The block is cut to this many characters. */
+  maxChars: number;
+  timeoutMs: number;
 }
 
 export interface RecallPolicy {
@@ -76,6 +94,7 @@ export interface GuardrailsPolicy {
   /** How to run `openclaw`, to read the browser's live tab URLs. */
   openclaw?: { cmd: string; args: string[] };
   recall?: RecallPolicy;
+  wakeContext?: WakeContextPolicy;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -120,6 +139,22 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
       if (a[k] !== undefined && !isStringArray(a[k])) throw new Error(`teeny-guardrails: agents.${id}.${k} must be a list`);
     }
     if (!Number.isInteger(a.maxToolCalls) || a.maxToolCalls < 1) throw new Error(`teeny-guardrails: agents.${id}.maxToolCalls must be a positive integer`);
+    if (a.replyCaps !== undefined) {
+      const c = a.replyCaps as unknown as Record<string, unknown>;
+      for (const k of ["x", "mail"]) {
+        if (c[k] !== undefined && (!Number.isInteger(c[k]) || (c[k] as number) < 0)) throw new Error(`teeny-guardrails: agents.${id}.replyCaps.${k} must be a whole number, 0 or more`);
+      }
+    }
+  }
+  const w = p.wakeContext as Record<string, unknown> | undefined;
+  if (w !== undefined) {
+    if (typeof w !== "object" || w === null || !isStringArray(w.agents) || !isStringArray(w.argv) || w.argv.length === 0) {
+      throw new Error("teeny-guardrails: policy.wakeContext needs agents and argv lists");
+    }
+    if (typeof w.cwd !== "string" || !w.cwd.startsWith("/")) throw new Error("teeny-guardrails: policy.wakeContext.cwd must be an absolute path");
+    for (const k of ["maxChars", "timeoutMs"]) {
+      if (!Number.isInteger(w[k]) || (w[k] as number) < 1) throw new Error(`teeny-guardrails: policy.wakeContext.${k} must be a positive integer`);
+    }
   }
   return {
     ...(p as unknown as GuardrailsPolicy),

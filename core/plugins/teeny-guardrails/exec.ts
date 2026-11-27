@@ -7,7 +7,7 @@
 //   - a plain program name on this agent's list (read-only, writers, tools).
 // A path to anything else, however spelled, is refused: the program is never
 // looked up on PATH unless its name is on the list.
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { checkPath, expandHome, realish, type PathRules } from "./paths.js";
 import { parseCommand, shellQuote, type Segment, type Word } from "./shell.js";
@@ -399,4 +399,55 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   let out = command;
   for (const r of rewrites.sort((a, b) => b.start - a.start)) out = out.slice(0, r.start) + r.to + out.slice(r.end);
   return { ok: true, command: out, cwd };
+}
+
+export type ReplyCounts = { x: number; mail: number };
+const REPLY_DO: Record<string, keyof ReplyCounts> = { reply_x: "x", reply_mail: "mail" };
+
+/**
+ * How many replies, by channel, one exec command would send: `hands/x reply`, `hands/mail reply` and
+ * `bin/teeny do` of a `reply_x` or `reply_mail`. Read from the same parse the judge used, so a
+ * `timeout N hands/x reply` or a chain counts each. A JSON body passed as "$(cat FILE)" is read from FILE (best
+ * effort; one that cannot be read counts as a reply of every channel, because the guard cannot tell it is not
+ * one). Used by the per-run caps in guard.ts, which count before the call.
+ */
+export function countReplies(command: string, cwd: string, readFile: (path: string) => string = (p) => readFileSync(p, "utf8")): ReplyCounts {
+  const n: ReplyCounts = { x: 0, mail: 0 };
+  const parsed = parseCommand(command);
+  if (!parsed.ok) return n;
+  for (const seg of parsed.segments) {
+    let words = seg.words;
+    while (words[0] && words[0].text === "timeout") {
+      let k = 1;
+      while (k < words.length && isFlag(words[k] as Word)) k++;
+      words = words.slice(k + 1);
+    }
+    const prog = words[0]?.text ?? "";
+    const args = words.slice(1);
+    const hand = /(^|\/)hands\/(x|mail)$/.exec(prog);
+    if (hand) {
+      if (args.find((a) => !isFlag(a))?.text === "reply") n[hand[2] as "x" | "mail"]++;
+    } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
+      let found = false;
+      for (const a of args.slice(1)) {
+        for (const [verb, channel] of Object.entries(REPLY_DO)) {
+          if (new RegExp(`\\b${verb}\\b`).test(a.text)) {
+            n[channel]++;
+            found = true;
+          }
+        }
+      }
+      if (found) continue;
+      for (const path of seg.catReads) {
+        try {
+          const verb = String((JSON.parse(readFile(resolve(cwd, path))) as { do?: unknown }).do);
+          if (REPLY_DO[verb]) n[REPLY_DO[verb]]++;
+        } catch {
+          n.x++;
+          n.mail++;
+        }
+      }
+    }
+  }
+  return n;
 }

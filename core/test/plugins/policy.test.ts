@@ -78,7 +78,7 @@ describe("the policy generated from brain/agents/*.toml", () => {
       const raw = parse(readFileSync(join(REPO, "brain", "agents", `${def.id}.toml`), "utf8")) as { max_iterations?: number };
       expect(f.agent(def.id).maxToolCalls, def.id).toBe(raw.max_iterations);
     }
-    expect(f.agent("mind").maxToolCalls).toBe(300);
+    expect(f.agent("mind").maxToolCalls).toBe(250);
   });
 
   it("only the mind and its worker may run hands and the broker; money hands are closed to both", () => {

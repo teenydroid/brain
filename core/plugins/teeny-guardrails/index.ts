@@ -18,6 +18,7 @@ import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
 import { parsePolicy } from "./policy.js";
 import { recallContext } from "./recall.js";
+import { wakeContext } from "./wake.js";
 
 export const PLUGIN_ID = "teeny-guardrails";
 
@@ -80,10 +81,11 @@ export default definePluginEntry({
 
     api.on("before_prompt_build", async (event, ctx) => {
       const recall = guard?.policy.recall;
-      if (!recall) return undefined;
       const message = (event as { currentUserMessage?: string; prompt?: string }).currentUserMessage ?? (event as { prompt?: string }).prompt ?? "";
-      const text = await recallContext(recall, ctx.agentId, message);
-      return text ? { prependContext: text } : undefined;
+      const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId);
+      const text = recall ? await recallContext(recall, ctx.agentId, message) : undefined;
+      const both = [queue, text].filter((t): t is string => Boolean(t)).join("\n\n");
+      return both ? { prependContext: both } : undefined;
     });
 
     // Last: the hooks above are registered. The core's supervisor stops a Gateway that has not written this
