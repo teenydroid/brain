@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { cronShellTimeoutSecs, run, startCore } from "../src/main.js";
+import { cronShellTimeoutSecs, run, startCore, wireCron } from "../src/main.js";
+import { methods as cronMethods, setShellTimeoutSecs } from "../src/cron/index.js";
 import { resolvePaths, serveSettings } from "../src/config/paths.js";
 import { resolveToken } from "../src/config/token.js";
 import { startTestCore } from "./helpers.js";
@@ -175,6 +176,26 @@ describe("a settings change and the Gateway", () => {
 });
 
 describe("cron wiring", () => {
+  it("wireCron hands [cron] shell_timeout_secs from config.toml to the cron module", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wire-"));
+    mkdirSync(join(dir, "bin"));
+    const log = join(dir, "args.log");
+    // A stand-in `openclaw`: the skipMissedJobs check passes; every other call is logged, one line each.
+    writeFileSync(join(dir, "bin", "openclaw"), `#!/bin/sh\nif [ "$1" = config ]; then echo true; exit 0; fi\necho "$@" >> '${log}'\necho '{}'\n`, { mode: 0o755 });
+    writeFileSync(join(dir, "config.toml"), "[cron]\nshell_timeout_secs = 900\n");
+    const ctx = { env: { TEENY_CORE_CONFIG: join(dir, "config.toml"), HOME: "/h", PATH: process.env.PATH ?? "/usr/bin:/bin" }, root: dir, stateDir: dir, log: vi.fn() };
+    try {
+      wireCron(ctx, () => ({}));
+      await cronMethods.cron_add!({ name: "n", job_type: "shell", command: "bin/x", schedule: { kind: "cron", expr: "* * * * *" } }, ctx).catch(() => undefined);
+      const added = readFileSync(log, "utf8");
+      expect(added).toContain('"timeout","-k","10","900"');
+      expect(added).toContain("--timeout-seconds 930");
+      expect(ctx.log).not.toHaveBeenCalledWith("warn", expect.stringContaining("shell_timeout_secs"), expect.anything());
+    } finally {
+      setShellTimeoutSecs(1800);
+    }
+  });
+
   it("serves cron_list and reads [cron] shell_timeout_secs from the core's config.toml", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cfg-"));
     expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "none.toml") }, dir)).toBe(1800);

@@ -95,6 +95,18 @@ describe("what a shell job is handed to OpenClaw", () => {
     expect(commandOf(JSON.parse(flagOf(a, "--command-argv")!))).toBe("bin/tick --detach");
   });
 
+  it("setShellTimeoutSecs sets the limit of the jobs added or updated afterwards, and refuses nonsense", async () => {
+    cron.setShellTimeoutSecs(900);
+    await call("cron_add", shellJob("bin/tick --detach"));
+    const a = added();
+    expect(JSON.parse(flagOf(a, "--command-argv")!).slice(5, 8)).toEqual(["timeout", "-k", "10"]);
+    expect(JSON.parse(flagOf(a, "--command-argv")!)[8]).toBe("900");
+    expect(Number(flagOf(a, "--timeout-seconds"))).toBe(930);
+    for (const bad of [0, -5, 1.5, Number.NaN]) expect(() => cron.setShellTimeoutSecs(bad), String(bad)).toThrow(/positive integer/);
+    await call("cron_add", shellJob("bin/x"));
+    expect(Number(flagOf(fake.calls.filter((c) => c.args[1] === "add").at(-1)!.args, "--timeout-seconds"))).toBe(930);
+  });
+
   it("the wrapper runs the command with exactly HOME, PATH and LANG", () => {
     const out = join(dir, "env.txt");
     mkdirSync(join(dir, "act"));

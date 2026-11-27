@@ -20,7 +20,7 @@ import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
-import { setGatewayEnv, startCron, stopCron } from "./cron/index.js";
+import { setGatewayEnv, setShellTimeoutSecs, startCron, stopCron } from "./cron/index.js";
 import { DrainingRunner } from "./gateway/drain.js";
 import { createHttpServer } from "./server/http.js";
 import { buildRegistry } from "./server/registry.js";
@@ -98,10 +98,7 @@ export function wireCron(
   const wrapper = join(ctx.root, "bin", "openclaw");
   const bin = existsSync(wrapper) ? { OPENCLAW_BIN: wrapper } : {};
   setGatewayEnv(() => ({ ...gatewayEnv(), ...bin }));
-  const timeout = cronShellTimeoutSecs(ctx.env, ctx.root);
-  if (timeout !== DEFAULT_SHELL_TIMEOUT_SECS) {
-    ctx.log("warn", "[cron] shell_timeout_secs differs from the cron module's own limit and is not applied", { configured: timeout, used: DEFAULT_SHELL_TIMEOUT_SECS });
-  }
+  setShellTimeoutSecs(cronShellTimeoutSecs(ctx.env, ctx.root));
   return { start: () => startCron(ctx), stop: () => stopCron() };
 }
 

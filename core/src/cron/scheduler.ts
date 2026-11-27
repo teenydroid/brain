@@ -47,6 +47,8 @@ export interface Cron {
   stop(): Promise<void>;
   /** Injects the Gateway environment (see CronOptions.gatewayEnv). */
   setGatewayEnv(fn: (() => Record<string, string | undefined>) | undefined): void;
+  /** Sets `[cron] shell_timeout_secs` for the shell jobs added or updated from now on. */
+  setShellTimeoutSecs(secs: number): void;
 }
 
 const RUNS_PAGE = 200;
@@ -62,7 +64,7 @@ export function createCron(opts: CronOptions = {}): Cron {
     // Rebuilt each call: the Gateway's token and port can change when it restarts.
     return new Automations(bin, env, opts.exec ?? defaultExec);
   };
-  const timeout = opts.shellTimeoutSecs ?? SHELL_TIMEOUT_SECS;
+  let timeout = opts.shellTimeoutSecs ?? SHELL_TIMEOUT_SECS;
   let verified = false;
   /**
    * cron.skipMissedJobs must be true (Teeny's no-replay rule; the generated Gateway config sets it).
@@ -184,6 +186,10 @@ export function createCron(opts: CronOptions = {}): Cron {
     setGatewayEnv(fn) {
       gatewayEnv = fn;
       verified = false;
+    },
+    setShellTimeoutSecs(secs) {
+      if (!Number.isInteger(secs) || secs <= 0) throw new Error(`shell_timeout_secs must be a positive integer, got ${secs}`);
+      timeout = secs;
     },
   };
 }

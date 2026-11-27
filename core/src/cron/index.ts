@@ -18,6 +18,11 @@ export function setGatewayEnv(fn: (() => Record<string, string | undefined>) | u
   shared.setGatewayEnv(fn);
 }
 
+/** `[cron] shell_timeout_secs`: what `timeout` allows a shell job (main.ts reads it from the core's config.toml). */
+export function setShellTimeoutSecs(secs: number): void {
+  shared.setShellTimeoutSecs(secs);
+}
+
 /** After setGatewayEnv, once the Gateway is up: verifies cron.skipMissedJobs (never sets it). */
 export function startCron(ctx: CoreContext): Promise<void> {
   return shared.start(ctx);
