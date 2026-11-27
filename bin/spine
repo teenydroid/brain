@@ -81,6 +81,10 @@ boot_failed() {
 # Tighten what this user owns, from the brain up to the checkout; bin/doctor
 # fails anything still wrong (a parent owned by someone else).
 python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_BRAIN" "$(dirname "$TEENY_BRAIN")" >/dev/null || true
+# state/ too: OpenClaw refuses to start when its state directory is group- or
+# world-writable ("No safe OpenClaw temp root is available"), and a state/
+# made under umask 002 is. That surfaced only after the "ready" line.
+python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_STATE" >/dev/null || true
 # Never a config.toml inside the brain: the core would take the brain
 # for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
