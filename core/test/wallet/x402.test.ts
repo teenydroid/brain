@@ -224,7 +224,7 @@ describe("x402_fetch", () => {
     await expect(fetch402(h, { signIn: true, maxAmountAtomic: 1 })).rejects.toThrow(/sign-in refused: the challenge does not ask for sign-in-with-x/);
   });
 
-  it("records a payment the server refused to settle as failed, and one it never answered as still pending", async () => {
+  it("records a payment the server refused to settle as failed, and so one it never answered", async () => {
     const h = makeHarness({ env: MAINNET });
     await setupWallet(h);
     server(h, [evmAccept()], { status: 402 });
@@ -238,7 +238,7 @@ describe("x402_fetch", () => {
     });
     await expect(fetch402(h)).rejects.toThrow("x402_fetch: request failed");
     const after = ((await h.call("x402_list_payments", { limit: 10 })) as { payments: Array<{ status: string }> }).payments;
-    expect(after.map((r) => r.status)).toEqual(["pending", "failed"]);
+    expect(after.map((r) => r.status)).toEqual(["failed", "failed"]);
   });
 });
 
@@ -498,23 +498,24 @@ describe("review fixes: pinnedFetch", () => {
   });
 });
 
-describe("the x402 budget does not take the server's word", () => {
+describe("the x402 budget counts settled and in-flight payments, not failed fetches", () => {
   const tight = { ...MAINNET, OPENHUMAN_X402_DAILY_MAX: "1500", OPENHUMAN_X402_MONTHLY_MAX: "9999" };
 
-  it("keeps a signed authorization counted when the server answers 4xx, until it has expired", async () => {
-    const h = makeHarness({ env: tight });
+  it("does not count a signed payment whose fetch failed: a 4xx, a 5xx or no answer frees the budget at once", async () => {
+    const h = makeHarness({ env: { ...tight, OPENHUMAN_X402_DAILY_MAX: "1000" } });
     await setupWallet(h);
-    server(h, [evmAccept()], { status: 400 });
-    const first = await fetch402(h);
-    expect(first.payment.settled).toBe(false);
-    // the server may still submit the authorization itself: the budget has not been freed
-    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
-    h.clock.now += 30_000;
-    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
-    // a 402 retry is no different
-    h.clock.now += 40_000; // past validBefore (60s): it can no longer settle
-    server(h, [evmAccept()], { status: 402 });
-    await fetch402(h);
+    for (const status of [400, 402, 500, 503]) {
+      server(h, [evmAccept()], { status });
+      expect((await fetch402(h)).payment.settled).toBe(false);
+    }
+    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => {
+      if (call.headers["payment-signature"]) throw new TypeError("socket hang up");
+      return new Response("", { status: 402, headers: { "payment-required": Buffer.from(JSON.stringify({ x402Version: 2, resource: { url: URL_ }, accepts: [evmAccept()] })).toString("base64") } });
+    });
+    await expect(fetch402(h)).rejects.toThrow("x402_fetch: request failed");
+    // the whole day's 1000 is still there, and a good payment still counts at its full value
+    server(h, [evmAccept()]);
+    expect((await fetch402(h)).payment.settled).toBe(true);
     expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
   });
 
@@ -541,15 +542,12 @@ describe("the x402 budget does not take the server's word", () => {
     expect(out.payment.settled).toBe(true);
   });
 
-  it("stops counting a failed payment once its authorization has expired", async () => {
+  it("keeps counting a payment that got a 2xx with no settlement receipt", async () => {
     const h = makeHarness({ env: { ...tight, OPENHUMAN_X402_DAILY_MAX: "1000" } });
     await setupWallet(h);
-    server(h, [evmAccept()], { status: 400 });
-    await fetch402(h);
+    server(h, [evmAccept()], { receipt: "" });
+    expect((await fetch402(h)).payment.settled).toBe(false);
     expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
-    h.clock.now += 61_000;
-    server(h, [evmAccept()]);
-    expect((await fetch402(h)).payment.settled).toBe(true);
   });
 });
 
