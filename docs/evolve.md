@@ -2214,6 +2214,11 @@ pair): on glm-5.3-flash at `EVAL_CONCURRENCY` 4, most of a day. `--limit N`
 selects on a fixed sample of N pairs (the first by id, a hash); the held-out
 split is always scored whole.
 
+No message goes to the core over 60,000 bytes (`MAX_MESSAGE_BYTES`): its
+prompt screen holds anything over 64 KiB unread (`input.oversized`), so the
+proposer is shown as many example pairs as fit, and a grader's message past
+the limit is an unusable answer rather than a turn retried and held again.
+
 `select` scores every candidate, and the incumbent (judge.md choosing
 between the two outputs, each shown with its own task, the order by the
 pair's id), on the selection split by ranking accuracy (a tie is worth half,

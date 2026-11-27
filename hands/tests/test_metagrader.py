@@ -312,6 +312,25 @@ class Grading(Scratch):
         self.assertEqual(report["board"][0]["selection"]["pairs"], 3)
         self.assertEqual(report["incumbent"]["selection"]["pairs"], 3)
 
+    def test_the_proposers_message_drops_examples_until_it_fits_the_screen(self):
+        # Regression: 40 examples made an 82,858-character message, which the
+        # core's prompt screen held as input.oversized on every retry.
+        long = [pair(n) for n in range(60)]
+        for p in long:
+            p["a"]["text"] = p["a"]["text"] + " x" * 1500
+        message = metagrader.propose_message(REPO / "evals", long, 4)
+        self.assertLessEqual(len(message.encode("utf-8")), metagrader.MAX_MESSAGE_BYTES)
+        self.assertGreater(message.count('"surface"'), 0)
+        self.assertLess(message.count('"surface"'), 60)
+        short = metagrader.propose_message(REPO / "evals", long[:2], 4)
+        self.assertEqual(short.count('"surface"'), 2)
+
+    def test_a_grader_never_sends_a_message_over_the_screens_limit(self):
+        prog = metagrader.program(GOOD)
+        g = metagrader.Grader(prog, REPO / "evals", REPO / "brain", self.ask)
+        self.assertEqual(g._turn("x" * (metagrader.MAX_MESSAGE_BYTES + 1)), "")
+        self.assertEqual(self.called(), [])
+
     def test_propose_keeps_only_valid_programs(self):
         pairs_dir = self.dir / "pairs"
         write_pairs(pairs_dir, sel=1, held=1)

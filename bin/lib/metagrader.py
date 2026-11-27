@@ -82,6 +82,12 @@ META_SHARE = 0.3
 MIN_HELDOUT_PAIRS = 20
 MAX_CRITERIA = 8
 MAX_PROMPT = 4000
+#: The most a message to the core may be. The core's prompt screen holds
+#: anything over 64 KiB (`input.oversized`, vendor/openhuman
+#: security/prompt_injection), and a held turn is retried and held again:
+#: the first search on the box lost its proposer turn to an 82,858-character
+#: message. Kept under that, with room for the agent's own preamble.
+MAX_MESSAGE_BYTES = 60_000
 INCUMBENT = "judge.md"
 SELECTED = Path("metagrader") / "selected.json"
 
@@ -418,6 +424,12 @@ class Grader:
         return value
 
     def _turn(self, message: str) -> str:
+        if not _fits(message):
+            # The core would hold it unread (MAX_MESSAGE_BYTES): an unusable
+            # answer, never a turn retried until the budget runs out.
+            print(f"[metagrader] a message of {len(message.encode('utf-8'))} bytes is over "
+                  f"{MAX_MESSAGE_BYTES}; not sent", file=sys.stderr)
+            return ""
         turn, _ = self.retrier.run(self.ask, message)
         return turn.stdout if turn.returncode == 0 else ""
 
@@ -610,7 +622,24 @@ def _example(pair: dict) -> dict:
     return {"surface": pair["surface"], "a": side(pair["a"]), "b": side(pair["b"]), "better": pair["better"]}
 
 
+def _fits(message: str) -> bool:
+    return len(message.encode("utf-8")) <= MAX_MESSAGE_BYTES
+
+
 def propose_message(evals_dir: Path, pairs: list[dict], n: int) -> str:
+    """The proposer's message, with as many of PAIRS as fit under
+    MAX_MESSAGE_BYTES, in order; raises when not even one does."""
+    for keep in range(len(pairs), 0, -1):
+        message = _propose_message(evals_dir, pairs[:keep], n)
+        if _fits(message):
+            if keep < len(pairs):
+                print(f"[metagrader] the proposer is shown {keep} of {len(pairs)} example pair(s), "
+                      f"to stay under {MAX_MESSAGE_BYTES} bytes", file=sys.stderr)
+            return message
+    raise MetagraderError(f"the proposer's message does not fit in {MAX_MESSAGE_BYTES} bytes with any example")
+
+
+def _propose_message(evals_dir: Path, pairs: list[dict], n: int) -> str:
     shown = "\n".join(json.dumps(_example(p), ensure_ascii=False) for p in pairs)
     return "\n\n".join([
         "# write graders' programs",
