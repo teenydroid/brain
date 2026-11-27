@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const WEEK_MS = 7 * DAY_MS;
@@ -58,42 +58,86 @@ export function writeFileAtomic(file: string, data: string): void {
   const temp = join(dir, `.${randomBytes(6).toString("hex")}.tmp`);
   const fd = openSync(temp, "w", 0o600);
   try {
-    writeSync(fd, data);
+    // writeSync may take only part of the buffer; never rename a short file over good state.
+    const bytes = Buffer.from(data, "utf8");
+    let written = 0;
+    while (written < bytes.length) {
+      const n = writeSync(fd, bytes, written, bytes.length - written);
+      if (n <= 0) throw new Error("short write to the wallet state file");
+      written += n;
+    }
     fsyncSync(fd);
-  } finally {
-    closeSync(fd);
+  } catch (error) {
+    try {
+      closeSync(fd);
+    } catch {
+      /* already closed */
+    }
+    rmSync(temp, { force: true });
+    throw error;
   }
-  renameSync(temp, file);
+  closeSync(fd);
+  try {
+    renameSync(temp, file);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
   chmodSync(file, 0o600);
+  syncDir(dir);
+}
+
+/** Makes a rename or create in DIR durable (fsync of the directory itself). */
+function syncDir(dir: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(dir, "r");
+    fsyncSync(fd);
+  } catch {
+    /* some filesystems refuse a directory fsync; the file itself is already synced */
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 export function readJsonFile<T>(file: string): T | undefined {
   if (!existsSync(file)) return undefined;
   const text = readFileSync(file, "utf8");
-  if (text.trim() === "") return undefined;
-  return JSON.parse(text) as T;
+  // A file that exists but holds nothing, or not an object, is damage: reading it as
+  // "no history" would let a cap forget what was spent and then overwrite the file.
+  if (text.trim() === "") throw new Error(`${basename(file)} is empty; restore it before the wallet can use it`);
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${basename(file)} is not a JSON object; restore it before the wallet can use it`);
+  }
+  return parsed as T;
 }
 
 /**
- * A cross-process advisory lock: an exclusively created sidecar file.
- * Retries for a few seconds; a lock older than 60s is taken as stale.
+ * A cross-process advisory lock: an exclusively created sidecar file holding a
+ * unique token. Retries for a few seconds; a lock older than 60s is taken as
+ * stale. A stale lock is reclaimed by moving it aside (an atomic rename) and
+ * checking that what was moved is the lock that was judged stale; a lock that
+ * turns out to be someone's fresh one is linked straight back. The holder
+ * releases only a lock that still carries its own token.
  */
 export async function withFileLock<T>(file: string, body: () => Promise<T> | T): Promise<T> {
   const lock = `${file}.lock`;
   mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
+  const token = randomBytes(16).toString("hex");
   const deadline = Date.now() + 10_000;
   for (;;) {
     try {
       const fd = openSync(lock, "wx", 0o600);
-      closeSync(fd);
+      try {
+        writeSync(fd, token);
+      } finally {
+        closeSync(fd);
+      }
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > 60_000) rmSync(lock, { force: true });
-      } catch {
-        /* raced with a release */
-      }
+      reclaimIfStale(lock);
       if (Date.now() > deadline) throw new Error("could not take the wallet lock");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -101,7 +145,34 @@ export async function withFileLock<T>(file: string, body: () => Promise<T> | T):
   try {
     return await body();
   } finally {
-    rmSync(lock, { force: true });
+    try {
+      if (readFileSync(lock, "utf8") === token) rmSync(lock, { force: true });
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+function reclaimIfStale(lock: string): void {
+  try {
+    const seen = statSync(lock);
+    if (Date.now() - seen.mtimeMs <= 60_000) return;
+    const aside = `${lock}.${randomBytes(6).toString("hex")}.stale`;
+    renameSync(lock, aside);
+    try {
+      const moved = statSync(aside);
+      if (moved.ino === seen.ino && moved.dev === seen.dev) return; // the stale lock itself: drop it
+      // We moved a different (fresh) lock: put it back unless somebody has already taken the name.
+      try {
+        linkSync(aside, lock);
+      } catch {
+        /* the name is taken again; that holder owns it now */
+      }
+    } finally {
+      rmSync(aside, { force: true });
+    }
+  } catch {
+    /* raced with a release */
   }
 }
 

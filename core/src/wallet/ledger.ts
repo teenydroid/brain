@@ -55,8 +55,10 @@ export class SpendLedger {
   }
 
   records(): LedgerRecord[] {
-    const doc = readJsonFile<{ records: LedgerRecord[] }>(this.file);
-    return doc?.records ?? [];
+    const doc = readJsonFile<{ records?: unknown }>(this.file);
+    if (!doc) return [];
+    if (!Array.isArray(doc.records)) throw new Error("spend-ledger.json has no records list; restore it before the wallet can spend");
+    return doc.records as LedgerRecord[];
   }
 
   /** The newest LIMIT records, newest first. */
@@ -99,4 +101,21 @@ export class SpendLedger {
   private locked<T>(body: () => T): Promise<T> {
     return withMutex(this.file, () => withFileLock(this.file, body));
   }
+}
+
+/**
+ * Marks RECORD `broadcast` with HASH after the transaction went out. The transaction is already on its way, so a
+ * failed write is retried once and then reported (false), never thrown: the caller must still hand the hash back,
+ * and must not send again. The record stays `pending`, which keeps counting against the caps.
+ */
+export async function recordBroadcast(ledger: SpendLedger, record: LedgerRecord, hash: string, updatedAtMs: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await ledger.put({ ...record, status: "broadcast", transactionHash: hash, updatedAtMs });
+      return true;
+    } catch {
+      /* try once more */
+    }
+  }
+  return false;
 }

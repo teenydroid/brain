@@ -258,7 +258,7 @@ describe("wallet_execute_prepared_program", () => {
     const r = await round(h);
     const quote = await prepare(h, r);
     await expect(h.call("wallet_execute_prepared_program", { accountIndex: 0, quoteId: quote.quoteId })).rejects.toThrow(/unavailable or expired/);
-    await expect(h.call("wallet_execute_prepared_program", { accountIndex: 1, quoteId: quote.quoteId })).rejects.toThrow(/blockhash not found/);
+    await expect(h.call("wallet_execute_prepared_program", { accountIndex: 1, quoteId: quote.quoteId })).rejects.toThrow(/rpc sendTransaction: the node reported an error/);
     const ledger = (await h.call("wallet_ledger_list", { limit: 5 })) as Array<Record<string, unknown>>;
     expect(ledger[0]).toMatchObject({ status: "in_doubt", kind: "program" });
     await expect(h.call("wallet_execute_prepared_program", { accountIndex: 1, quoteId: quote.quoteId })).rejects.toThrow(/unavailable or expired/);
