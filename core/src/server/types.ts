@@ -1,3 +1,5 @@
+import type { CoreServices } from "./services.js";
+
 // The shape every domain module (agents, cron, memory, wallet, ...) exports so
 // the RPC server can serve it as `openhuman.<method>`. The method names and the
 // JSON in and out are the contract in core/test/contract/.
@@ -9,6 +11,8 @@ export interface CoreContext {
   root: string;
   /** Teeny's state directory (state/). */
   stateDir: string;
+  /** Shared services (settings, Gateway runner, ...); set by the server, absent in bare unit tests. */
+  services?: CoreServices;
   log: (level: "debug" | "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>) => void;
 }
 
