@@ -61,7 +61,7 @@ describe("the plugin", () => {
   });
 
   it("masks a typed password in what is persisted", async () => {
-    const f = makeFixture({ fill: async () => "pw-fake-123" });
+    const f = makeFixture({ fill: async () => "pw-fake-123", liveUrl: async () => "https://example.org/" });
     const { hooks } = register({ policy: JSON.parse(JSON.stringify(f.policy)) });
     const hook = hooks.get("before_tool_call")?.handler as Handler;
     const persist = hooks.get("tool_result_persist")?.handler as Handler;

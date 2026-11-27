@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { openclawCommand } from "../gateway/cli.js";
 import type { CorePaths } from "../config/paths.js";
 import { toolIds, type AgentDef } from "./definitions.js";
 
@@ -181,18 +182,20 @@ export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknow
     if (def.omitMemoryContext) continue;
     recallAgents[def.id] = { budgetTokens: Math.min(RECALL_BUDGET_TOKENS, def.memoryBlockMaxTokens ?? RECALL_BUDGET_TOKENS) };
   }
+  const home = input.home ?? homedir();
   const pictures = env.TEENY_BROWSER_PICTURES;
   return {
     root: paths.root,
     stateDir: paths.stateDir,
     handsDir: join(paths.root, "hands"),
-    home: input.home ?? homedir(),
+    home,
     systemForbidden: SYSTEM_FORBIDDEN,
     browserDenyFile: env.OPENHUMAN_BROWSER_DENY_FILE || deny,
     browserAllowFile: join(paths.root, "deploy", "browser-allow.txt"),
     ...(existsSync(join(paths.root, "bin", "keychain-fill")) ? { keychainFill: join(paths.root, "bin", "keychain-fill") } : {}),
     ...(pictures && pictures.startsWith("/") ? { picturesDir: pictures } : {}),
     picturesKeep: 24,
+    openclaw: openclawCommand(env),
     agents: buildAgentPolicies(input),
     recall: {
       agents: recallAgents,
