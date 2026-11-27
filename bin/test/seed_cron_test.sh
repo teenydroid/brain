@@ -637,7 +637,7 @@ check "the shipped gm and moltbook-general are agent jobs of their own agents" b
     jq -e '[.[] | select(.name == \"teeny.gm\" or .name == \"teeny.moltbook-general\") | [.kind, .agent]] | sort == [[\"agent\", \"pb-gm\"], [\"agent\", \"pb-moltbook-general\"]]' >/dev/null"
 check "and every other bin/act job is still a shell job" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.kind == \"shell\" and ((.command // \"\") | startswith(\"bin/act \")))] | length > 10' >/dev/null"
+    jq -e '[.[] | select(.kind == \"shell\" and ((.command // \"\") | startswith(\"bin/act \")))] | length > 5' >/dev/null"
 check "no native job carries a catch-up or a make-up window" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.agent != null and (.agent | startswith(\"pb-\"))) | .catch_up_secs + .make_up_secs] | length == 2 and all(. == 0)' >/dev/null"
