@@ -24,7 +24,8 @@ Run it from the repository root with your shell (exec) tool: `hands/stimuli <ver
 - Acting (side effects in the world, each goes through the guard and the caps): add; settle TICK; release TICK; follow-up; drop-follow-up; due
 - Job (writes state or calls the core): none
 - Operator only (never call): none
-- Read only: take [--max N] [--chars N]; counts, recent [--max N] [--chars N]; follow-ups
+- Read only: counts, recent [--max N] [--chars N]; follow-ups
+- Claims what it reads (not read only): take [--max N] [--chars N]. It marks the entries it returns as taken under a new tick, so the next consumer does not see them. Only the beat that owns the inbox calls it, and it ends the batch with `settle TICK` (read for good) or `release TICK` (back to pending). To look without claiming, use the read-only verbs above.
 
 ## Verbs
 

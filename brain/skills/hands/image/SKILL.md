@@ -21,23 +21,18 @@ Run it from the repository root with your shell (exec) tool: `hands/image <verb>
 
 ## Side effects
 
-- Acting (side effects in the world, each goes through the guard and the caps): generate, clip make; skit make, skit; remake keys, remake-keys; remake render, remake; remake drop, remake-drop
+- Acting (side effects in the world, each goes through the guard and the caps): generate, clip make
 - Job (writes state or calls the core): none
 - Operator only (never call): none
-- Read only: flavors; list [--max N]; get ID; scenes [--last N]
+- Read only: list [--max N]; get ID; scenes [--last N]
 
 ## Verbs
 
 | Verb | Kind | What it does |
 |---|---|---|
-| `flavors` | R | video only. |
 | `generate` (video: `clip make`) | A | image: `{prompt, alt?, figures?}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
-| `skit make` (alias `skit`) | A | video only (`teeny_hands/media/skits.py`). stdin `{shots: [{prompt, seconds?}] (1 to 4, each at most 900 characters, 3 to 10 s), aspect?: "16:9"\|"9:16"\|"1:1", story, figures?, logline, look?: {figure: line}, setting?, score?, wait_seconds?, bed?}`. **One take first** (a skit of… |
-| `remake keys` (alias `remake-keys`) | A | video only (`teeny_hands/media/remakes.py`). |
-| `remake render` (alias `remake`) | A | video only. |
-| `remake drop` (alias `remake-drop`) | A | video only. stdin `{remake_id}` and nothing else. |
 | `scenes [--last N]` | R | image only. |
 
 Kinds: R = read: no side effect beyond its read cache; A = acting: posts, sends, pays or opens something in the world; O = operator-only: the operator runs it, never you; J = job: writes state or calls the core, says nothing to anyone; scheduled jobs run it, you do not.

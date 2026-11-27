@@ -1,6 +1,6 @@
 ---
 name: hand-wallet
-description: "Run hands/wallet through your shell tool: Teeny's own wallet (Solana and EVM, one recovery phrase), under hard caps. Read this before calling it."
+description: "hands/wallet is not available to you through your shell tool: Teeny's own wallet (Solana and EVM, one recovery phrase), under hard caps."
 metadata: {"openclaw":{"requires":{"config":["plugins.entries.teeny-guardrails.enabled"]}}}
 ---
 
@@ -10,9 +10,13 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.teeny-guardrails.e
 
 Teeny's own wallet (Solana and EVM, one recovery phrase), under hard caps.
 
-## How to call it
+## Not available to you
 
-Run it from the repository root with your shell (exec) tool: `hands/wallet <verb> [flags]`.
+The exec fence refuses `hands/wallet` to you: a call is blocked before it runs. Its jobs and the operator run it. Do not try it, and do not look for another way to do what it would do. What follows is for reference only.
+
+## How it is called (reference)
+
+The operator and the jobs invoke it from the repository root as `hands/wallet <verb> [flags]`.
 
 - A verb that takes a body reads one JSON object from stdin. Everything else is flags.
 - It prints one JSON object on stdout. Exit 0 is success. Exit 2 is a refusal by a rule, the guard or a cap: read the `rule` and `reason`, and do not retry it unchanged. Any other exit is an error.
