@@ -1,5 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": { "noEmit": false, "rootDir": "../../src", "outDir": "../../dist-hands-test", "declaration": false },
-  "include": ["../../src/hands"]
-}
