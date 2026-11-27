@@ -285,7 +285,7 @@ gateway_pids=""
 for proc in /proc/[0-9]*; do
   cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
   case "$cmd" in *main.js\ serve*) continue ;; esac
-  case "$cmd" in *openclaw*gateway*|*openclaw-gateway*) gateway_pids="$gateway_pids ${proc#/proc/}" ;; esac
+  case "$cmd" in *openclaw*gateway*) gateway_pids="$gateway_pids ${proc#/proc/}" ;; esac
 done
 gateway_leaks=""
 for pid in $gateway_pids; do
