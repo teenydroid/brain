@@ -2850,13 +2850,23 @@ refund comes off the week's income in the accounts (`income.refunds`).
 
 ### The paid endpoint
 
-One x402-priced resource Teeny produces (docs/roadmap.md, S4;
+Two x402-priced resources Teeny produces (docs/roadmap.md, S4;
 `teeny_hands/wallet/paywall.py`): `GET https://x402.<DEPLOY_DOMAIN>/stats`,
 Teeny's latest public stats snapshot (the allowlist `bin/receipts`
-publishes), for `stats_endpoint_usdc` in `evals/prices.toml` (0.01 USDC).
-`bin/paywall` serves it (the `paywall` compose service, profile `paywall`,
-127.0.0.1:3130), behind the deploy vhost; `x402` is a name no build may
-take.
+publishes), for `stats_endpoint_usdc` in `evals/prices.toml` (0.01 USDC),
+and `POST https://x402.<DEPLOY_DOMAIN>/attest`, one challenge answer graded
+against the challenge text (`teeny_hands/wallet/attest.py`, the grader
+behind the attest corpus: the body carries `text`, `operation` and
+optionally `answer`, the reply is the verdict `attested`,
+`attested-but-ambiguous` or `not-attested` with the evidence), for
+`attest_grade_usdc` in `evals/prices.toml` (0.01 USDC). A body that can
+never grade is refused before payment; the verdict itself is never free.
+The server reads at most 8 KiB of request body: a POST
+without a numeric `Content-Length` is refused (411 missing, 400 not a number)
+and one over 8192 bytes is a 413, all before any body byte is read.
+`bin/paywall` serves both (the `paywall` compose service, profile
+`paywall`, 127.0.0.1:3130), behind the deploy vhost; `x402` is a name no
+build may take.
 
 It sells; it never pays. Without `X-PAYMENT` the answer is 402 with the
 requirements (x402 v1, scheme `exact`, network `solana` or

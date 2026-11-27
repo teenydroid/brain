@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
 """Teeny's paid endpoint (hands/lib/teeny_hands/wallet/paywall.py;
-docs/roadmap.md, S4): one x402-priced resource, Teeny's latest public stats.
+docs/roadmap.md, S4): x402-priced resources, Teeny's latest public stats
+(GET /stats) and one challenge answer graded against the challenge text
+(POST /attest).
 
     bin/paywall [--host 0.0.0.0] [--port 3130]
 

@@ -1,0 +1,186 @@
+[
+ {
+  "id": "f01",
+  "date": "11-21",
+  "outcome": "refused",
+  "op": "-",
+  "answer": "-",
+  "text": "\"A lOoO]bSsStEr^ lOoKs Um, lIkE lXo.b StEr- cLaW] fOrCe- Is ThReE^tW/ eNnTy ThReE nOoToNs{ aNd GaAiNss~ FiVe NeU^tOnS frOm MoL.tInG fRiEnD<, wHaT| iS tHe ToTaL- fOrCe?\""
+ },
+ {
+  "id": "f02",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "28.00",
+  "text": "\"A] L o- BbStEr S^wImS aT/ TwEnTy T hReE} cEm-MeNtEeR s PeR\\\\ SeCoNd, Um~ AnD InCrEaSeS| By F iV E, WhAt< Is> ThE NeW^ VeLoCcIiTy?\""
+ },
+ {
+  "id": "f03",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "160.00",
+  "text": "\"A] lOoObSsTtErR sSwImS/ iN tHe~ tIdE, cLaW fOrCe] iS tHiRrTy- tW[o] nEeOotOnNs^ aNd[ sPeEd] iS fIiV/e mEeTeRs\\\\ pEr- sEeCcOnD, mUlTiPlY* tHeSe?\""
+ },
+ {
+  "id": "f04",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "75.00",
+  "text": "\"ThIs] lOoOobssStEr^ ClAw~ FoRcEe Is] TwEnTy- FiVe {NeW|ToNs} AnD] tHrEe <ClAwS> MuL^tiPlY, HoW/ MuCh- ToTaL ]FoRce Is~ ThErE, umm?\""
+ },
+ {
+  "id": "f05",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "33.00",
+  "text": "\"A] LoOoBbBsStTeEr^ S[wImMs Um/ aT tWeEnNy VeElOoOcCiItTy, BuT| hIs^ ClLaAwW ExXeErRtSs TwEnTy NiNe ] NeWtOnS ~ AnD{ hIs TaAiIlL PuUsShHeEs FoOuUrR < NeWtOnS, WhHaT/ Is| ToOtTaAlL FoOrRcEe?\""
+ },
+ {
+  "id": "f06",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "75.00",
+  "text": "\"A] LoO b-StEr'S ClA w FoR cE Is TwEnTy FiVe NeWToNs Um^ TiMeS ThReE / WhAt Is ToTaL FoR cE? Lo.b st errr lxobqstwer nootons ~ umm\""
+ },
+ {
+  "id": "f07",
+  "date": "11-21",
+  "outcome": "rejected",
+  "op": "add",
+  "answer": "30.00",
+  "text": "\"A] LoObBsStTeEr ] ClAw ExErTs TwEnTy ThReE NoOoToOnS ^ AnD ItS SwImMeReT AdDs SeVeN ~ MoOrRe, WhAt Is ThE ToTaL FoRcE?\""
+ },
+ {
+  "id": "f08",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "47.00",
+  "text": "\"A] lO b-StEr~ sW/iMmS| aT^ tHiR.tY fIfE} cE mEnT s PeR- sEcOnD, uM bUt~ aNoThEr\\\\ lOoObSsSsTeR aDdS[ tWe.LvE< cE mEnT s PeR^ sEcOnD, wHaT] iS tHe~ cOmBiNeD- vElOoOcItYyy?\""
+ },
+ {
+  "id": "f09",
+  "date": "11-21",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "30.00",
+  "text": "\"A] lO^bS t-ErR looObSsStTeEr~ wItH/ mOlTtInG aNtEnNaE, sW/iMs- aT {tWeNtY tHrEe} cEmMeTeR s/PeR sEcOnD aNd- aCcElErAtEs| bY <sEvEn>, wHaT/ iS tHe N]eW- vElOo^CiTy?\""
+ },
+ {
+  "id": "f10",
+  "date": "11-22",
+  "outcome": "refused",
+  "op": "-",
+  "answer": "-",
+  "text": "\"A] LoObBsTtErr ] ClAw^ FoRcEe ] iS] TwEnTy ThReE ] TiMeS ^ FoUr ] , ] hOw ] mUcH ] ToTaL ] FoRcEe ] (l oo.b st  errr, nootons, umm, lxobq)?\""
+ },
+ {
+  "id": "f11",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "90.00",
+  "text": "\"A] lO-bS tEr^ lOoOoBbSsStTeR] sW/iMmS^ aNd- iTs- cLaW^ eXeRtS/ fOrTy FiVe ~ nEeW-tO nS, dUrInG- mO-lT|iNg~ iT-mUlTiPlIeS{ bY< TwO>, hOw/ mUcH- tO tAl/ fOrCe\\\\?\""
+ },
+ {
+  "id": "f12",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "32.00",
+  "text": "\"A] LoObBsStTeErR S^wImS[ aT/ tWwEeNnTtYy- fIiVvEe ]cCeEmMmEeTtEeRrS /pPeEr] sEeCcOoNnDd, AnNd~ AcCcEeLlEeRrAaAtEeSs {bY} sSeEvvEeN,, Um| wHaT< iS> ThE/ nEeWw VeElLaAwCcIiTtEeY?\""
+ },
+ {
+  "id": "f13",
+  "date": "11-22",
+  "outcome": "refused",
+  "op": "-",
+  "answer": "-",
+  "text": "\"A] LoObBsStTeErr S^wIiMmS- aT/ tWwEeNnTtYy fIiVVe ]- sEeVVeEn mEeTtEeR S/ pEeR sEeCcOoNnD, wHaT]s ThE nEw sPpEeD? umm lxobqst errr\""
+ },
+ {
+  "id": "f14",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "75.00",
+  "text": "\"A] LoOoBbSsStEr S^cLaW sShExErTs] FoRtY TwO NeW^tOnS, AnD/ ThIrTy ThReE NeW^tOnS~ WhAt Is ToTaL F^oRcE?\""
+ },
+ {
+  "id": "f15",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "60.00",
+  "text": "\"A] LoOoBbSsTtEeRr ]s ClAw^ ExErTs ThIrTy * TwO NeUwToNs, HoW MuCh ToTaL FoRcE? ~ umm lxobqstwer\""
+ },
+ {
+  "id": "f16",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "47.00",
+  "text": "\"A] lO^bSt-Er ClAw] FoR^cE iS tHiR-tY fIvE nEu-TooNs um, It] InCrEaSeS bY/ TwE-lVe NeOoToNs ~ WhAt] Is T]oTaL FoR^cE?\""
+ },
+ {
+  "id": "f17",
+  "date": "11-22",
+  "outcome": "refused",
+  "op": "-",
+  "answer": "-",
+  "text": "\"ThE] lOoB-StEr ]ClAw^ FoRcE] oF^ tHiR-ty FivE] NeWtOnS, uM/ plUs] tHe^ OtHeR] ClAw'S ]FoRcE^ oF[ tWeN-Ty TwO] FoUr~, hOw/ mUcH] ToTaL^ FoRce] iS< tHiS>?\""
+ },
+ {
+  "id": "f18",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "37.00",
+  "text": "\"] LoOoBbSsTtErR - sTtErR ] sW^iMmS [ LiKe Um ] aNnD ] cLlAaWw F^oR cE ] iS TwEnTy ThReE NoOoToOnS ~ aNd ] oTtHeR ] cLlAaWw iS FoUrTeEn NoOoToOnS ] , WhAt ] iS ToTaL - fOrCe ]?\""
+ },
+ {
+  "id": "f19",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "55.00",
+  "text": "\"ThE] LoBbBsTtEr~ SwImS/ aT^ tWeN tY fIvE] CeMmEeNtSs PeR/ SeCcOoNnD, AnD| iTs^ ClLaAw- FoOrRcEe] IiS^ ThIrRtY} NeEwToOnSs~ WhHaT| Is^ ThEiR- SuMm?\""
+ },
+ {
+  "id": "f20",
+  "date": "11-22",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "28.00",
+  "text": "\"A] Loo.O bSsT-eR'S ClAw] FoRcE Is^ TwEnTy ThReE NoOtOnS ~ + FiVe , Um / MoLtInG LoSs AnD SoCiAl DuElS ArE ShOwN < WhAt Is ToTaL FoRcE >\""
+ },
+ {
+  "id": "f21",
+  "date": "11-23",
+  "outcome": "verified",
+  "op": "multiply",
+  "answer": "50.00",
+  "text": "\"A] LoO b-S tErRr ~ClAwW ExE rT s^ TwEeN tY] FiV e NoO tOnS {AnD} HaSs TwO| ClAwS, HoW/ ToTaL~ FoR cE If MuLtIiPlIiEd?\""
+ },
+ {
+  "id": "f22",
+  "date": "11-23",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "50.00",
+  "text": "\"Lo]b-StErS ClAw^ FoRcE Is ThIrTy ]TwO NooOtOnS, AnD AnOtHeR ClAw {Is EiGhTeeN NooOtOnS~ WhAt Is ToTaL FoR-cE?\""
+ },
+ {
+  "id": "f23",
+  "date": "11-23",
+  "outcome": "verified",
+  "op": "add",
+  "answer": "30.00",
+  "text": "\"A] lO^bStEr S[wImS/ aT tWeN-tY ThReE] cEnT-iMeTeRs\\\\ pEr/ sEcOnD, uM lOoobssssterrr AcCeLeRaTeS^ bY sEvEn] cEnT-iMeTeRs< pEr| sEcOnD, wHaT Is/ tHe NeW- vElAwCiTeE?\""
+ }
+]
