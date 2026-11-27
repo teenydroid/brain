@@ -25,12 +25,12 @@ class PlaybookTest(unittest.TestCase):
         self.assertNotIn("signup", playbook.VERB_OUTPUTS["reddit"])
         self.assertNotIn("profile", playbook.VERB_OUTPUTS["reddit"])
 
-    def test_it_runs_every_two_hours_within_the_brains_job_cap(self):
+    def test_it_is_off_the_schedule_and_the_schedule_stays_within_the_brains_job_cap(self):
         jobs = tomllib.loads((REPO / "brain" / "cron.toml").read_text())["jobs"]
-        self.assertEqual(jobs["reddit-browse"]["command"], "bin/act reddit-browse")
+        self.assertNotIn("reddit-browse", jobs)
         self.assertLessEqual(len(jobs), cron_policy.MAX_JOBS)
         loaded = cron_policy.load(REPO / "brain" / "cron.toml", REPO / "evals" / "cron.pinned.toml", strict=True)
-        self.assertIn("teeny.reddit-browse", [job["name"] for job in loaded])
+        self.assertNotIn("teeny.reddit-browse", [job["name"] for job in loaded])
 
     def test_the_hand_and_its_allowlist_are_frozen(self):
         patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())

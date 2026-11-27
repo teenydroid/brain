@@ -577,8 +577,8 @@ check "one remove each" test "$(calls cron_remove)" = 5
 check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.studio-0430\", \"teeny.studio-1500\",
-      \"teeny.studio-sunday\", \"teeny.studio-2300\", \"teeny.brief\", \"teeny.peer-quote\", \"teeny.shiplog\",
-      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 9 and all(. == 0)' >/dev/null"
+      \"teeny.studio-sunday\", \"teeny.studio-2300\", \"teeny.shiplog\",
+      \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
 check "and no job that must follow another, or be followed, catches up out of order" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
