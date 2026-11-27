@@ -43,6 +43,8 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 # shellcheck source=bin/lib/model_windows.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/model_windows.sh"
+# shellcheck source=bin/lib/boot_cron.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/boot_cron.sh"
 need curl jq python3 sqlite3
 
 lab="${SPINE_LAB:-0}"
@@ -316,30 +318,15 @@ log "gateway: openclaw security audit: $audit"
 if [ "$lab" = 1 ]; then
   log "lab: no cron seeded"
 else
-  # Cron is the Gateway's: its automations answer only once it is up, and the
-  # settings above made the core restart it (once, after a pause). Wait for it
-  # to take a cron_list rather than seeding into a Gateway that is coming back.
-  for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
-    oh cron_list >/dev/null 2>&1 && break
-    kill -0 "$core" 2>/dev/null || boot_failed "the core exited while the Gateway was starting"
-    sleep 1
-  done
-  oh cron_list >/dev/null || boot_failed "the OpenClaw Gateway did not take a cron_list in ${SPINE_BOOT_SECS:-120}s"
-  log "gateway: up; cron answers"
-  # The core restarts the Gateway when a setting above changed what it reads, once, a moment after the last
-  # one; a seed that lands in that restart fails on a connection the core already retries for a while. Seeding
-  # is a reconciliation (a second run only finishes what the first did), so try again before giving up.
-  seeded=0
-  for attempt in 1 2 3; do
-    if "$TEENY_ROOT/bin/seed-cron"; then seeded=1; break; fi
-    log "seeding cron failed (try $attempt of 3); waiting for the Gateway"
-    for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
-      oh cron_list >/dev/null 2>&1 && break
-      kill -0 "$core" 2>/dev/null || boot_failed "the core exited while seeding cron"
-      sleep 1
-    done
-  done
-  [ "$seeded" = 1 ] || boot_failed "seeding cron failed"
+  # Cron is the Gateway's: its automations answer only once it is up, and the settings above made the core restart
+  # it (once, after a pause). Wait for it to take a cron_list rather than seeding into a Gateway that is coming
+  # back, then seed, all under one deadline (bin/lib/boot_cron.sh) so an unreachable Gateway fails the boot.
+  boot_seed_cron "$core" "$TEENY_ROOT/bin/seed-cron" && rc=0 || rc=$?
+  case "$rc" in
+    0) ;;
+    2) boot_failed "the core exited while the Gateway was starting" ;;
+    *) boot_failed "the OpenClaw Gateway did not take cron within ${SPINE_CRON_SECS:-600}s (waiting, then seeding)" ;;
+  esac
 fi
 
 # The broker (bin/broker, docs/mind.md): how the agentic mind acts on the
