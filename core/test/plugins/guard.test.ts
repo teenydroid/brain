@@ -249,6 +249,21 @@ describe("the per-run reply caps (the mind's inbox pass)", () => {
     }
   });
 
+  it("counts a verb that comes from a file, and a body that an earlier part of the command could have replaced", async () => {
+    const f = makeFixture();
+    const call = (command: string, runId: string) => f.call("mind", "exec", { command }, { runId });
+    // hands/mail "$(cat verb)": the verb is unknown, so it is a mail reply
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toBeUndefined();
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toBeUndefined();
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toMatch(/2 mail replies/);
+    // a body read after another command of the same call (which may have rewritten the file) counts on every channel
+    const g = makeFixture();
+    const chained = 'cp work/reply.json work/intent.json && bin/teeny do "$(cat work/intent.json)"';
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toBeUndefined();
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toBeUndefined();
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toMatch(/2 mail replies/);
+  });
+
   it("a refused call still spends the reply, and a chain of two over the cap is refused whole", async () => {
     const f = makeFixture();
     expect(blocked(await f.call("mind", "exec", { command: "hands/x reply --to 1 && hands/x reply --to 2 && hands/x reply --to 3 && hands/x reply --to 4" }, { runId: "c" }))).toMatch(/3 X replies/);

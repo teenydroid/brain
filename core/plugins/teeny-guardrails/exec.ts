@@ -415,7 +415,7 @@ export function countReplies(command: string, cwd: string, readFile: (path: stri
   const n: ReplyCounts = { x: 0, mail: 0 };
   const parsed = parseCommand(command);
   if (!parsed.ok) return n;
-  for (const seg of parsed.segments) {
+  for (const [index, seg] of parsed.segments.entries()) {
     let words = seg.words;
     while (words[0] && words[0].text === "timeout") {
       let k = 1;
@@ -427,7 +427,9 @@ export function countReplies(command: string, cwd: string, readFile: (path: stri
     // `hands/./x` and `hands//x` run the same hand as `hands/x`; count what the path resolves to.
     const hand = /(^|\/)hands\/(x|mail)$/.exec(prog.includes("/") ? normalize(prog) : prog);
     if (hand) {
-      if (args.find((a) => !isFlag(a))?.text === "reply") n[hand[2] as "x" | "mail"]++;
+      // A verb that comes from a "$(cat FILE)" is unknown here: it counts as a reply, so it cannot be used to send one unseen.
+      const verb = args.find((a) => !isFlag(a))?.text;
+      if (verb === "reply" || verb?.includes("\u0001")) n[hand[2] as "x" | "mail"]++;
     } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
       let found = false;
       for (const a of args.slice(1)) {
@@ -460,6 +462,14 @@ export function countReplies(command: string, cwd: string, readFile: (path: stri
       }
       if (found) continue;
       for (const path of seg.catReads) {
+        // The file is read now, but the shell reads it when the command runs: an earlier part of the same command
+        // (cp, a redirect, a pipe) may have changed it by then. Only the first part is read as it stands; a later one
+        // counts as a reply of every channel.
+        if (index > 0) {
+          n.x++;
+          n.mail++;
+          continue;
+        }
         try {
           const verb = String((JSON.parse(readFile(resolve(cwd, path))) as { do?: unknown }).do);
           if (REPLY_DO[verb]) n[REPLY_DO[verb]]++;
