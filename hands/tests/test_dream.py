@@ -340,7 +340,9 @@ class DreamTest(unittest.TestCase):
 
         op = {"op": "experiment", "surface": "x", "hypothesis": "h", "format": "take", "posts": 1, "deadline_days": 2}
         self.answer({"ops": [op]}, {"ops": [op]})
-        self.assertFalse(self.dream("--light")["ok"])
+        got = self.dream("--light")
+        self.assertIn("operation 1 is not", got["skipped"][0]["why"])
+        self.assertNotIn("lab", got)
         self.assertEqual(ledger.listing(None)["experiments"], [])
 
     def test_a_day_that_fits_is_sent_whole(self):
@@ -408,12 +410,13 @@ class DreamTest(unittest.TestCase):
         self.assertTrue(forget["archived_first"])
         self.assertEqual(self.page(), PAGE)  # forgetting leaves the page alone
 
-    def test_a_forget_without_a_reason_or_of_an_unlisted_item_is_asked_about_again(self):
+    def test_a_forget_without_a_reason_or_of_an_unlisted_item_is_asked_about_again_then_dropped(self):
         self.answer({"ops": [{"op": "forget", "item": "c9", "reason": "gone"}]},
                     {"ops": [{"op": "forget", "item": "c2"}]},
                     {"ops": [], "diary": "d"})
         got = self.dream()
-        self.assertFalse(got["ok"], got)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["skipped"], [{"n": 1, "op": {"op": "forget", "item": "c2"}, "why": "forget c2 has no reason"}])
         self.assertEqual(self.calls_of("memory_forget"), [])
         chats = self.calls_of("inference_agent_chat")
         self.assertEqual(len(chats), 2)
@@ -459,6 +462,68 @@ class DreamTest(unittest.TestCase):
         got = self.dream()
         self.assertFalse(got["ok"], got)
         self.assertFalse((self.root / "state" / "dream" / "snapshots").exists())
+
+    # --- the two nights lost on 2026-11-25 and 26 ----------------------------
+
+    def diary(self) -> str:
+        return (self.root / "state" / "diary" / "2026-09-14.md").read_text()
+
+    def test_a_retry_that_names_an_item_midday_retired_drops_that_op_and_lands(self):
+        # 2026-11-26: the reflect thread carries the earlier dreams' answers,
+        # and the night's retry retired m112, which midday had already
+        # retired. The whole night failed on "m112 (operation 8, retire) is
+        # not on the page", the edits and the diary with it.
+        log = self.root / "state" / "reflect" / "retired.jsonl"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(json.dumps({"at": "2026-09-14T02:00:00Z", "by": "midday", "id": "m2", "section": "people",
+                                   "text": "bob (moltbook): tides.", "reason": "kept"}) + "\n")
+        stale = {"op": "retire", "id": "m2", "reason": "merged into m1"}
+        edit = {"op": "edit", "id": "m1", "text": "ana (x): ships the crab cli friday."}
+        self.answer({"ops": [edit, stale], "diary": "first go."},
+                    {"ops": [edit, stale], "diary": "a long day, put down short."})
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        again = self.calls_of("inference_agent_chat")[1]["params"]["message"]
+        self.assertIn("m2 (operation 2, retire) is not on the page", again)
+        self.assertIn("The page as it stands now holds m1;", again)
+        self.assertEqual(got["skipped"], [{"n": 2, "op": stale, "why": "m2 (operation 2, retire) is not on the page"}])
+        self.assertEqual(got["retired"], 0)
+        self.assertIn("- [m1] ana (x): ships the crab cli friday.", self.page())
+        self.assertIn("a long day, put down short.", self.diary())
+        self.assertEqual(len(log.read_text().splitlines()), 1)  # nothing retired twice
+
+    def test_a_retry_that_is_still_not_json_gives_up_its_whole_ops_and_diary(self):
+        # 2026-11-25: the retry began '{"ops": [{"op": "edit", "id": "m114",
+        # ...' and still did not parse, so the night was lost on "no JSON
+        # object in the answer". A trailing comma after the diary, as one
+        # way a long answer breaks.
+        self.answer('{"ops": [{"op": "edit", "id": "m1", "text": "ana (x): ships fri',
+                    '{"ops": [{"op": "edit", "id": "m1", "text": "ana (x): ships the crab cli friday."}], '
+                    '"diary": "day 15: tired, still counting.",}')
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["how"], "salvaged")
+        again = self.calls_of("inference_agent_chat")[1]["params"]["message"]
+        self.assertIn("no JSON object in the answer (it breaks: Unterminated string", again)
+        self.assertIn("- [m1] ana (x): ships the crab cli friday.", self.page())
+        self.assertIn("day 15: tired, still counting.", self.diary())
+
+    def test_a_retry_cut_off_mid_op_applies_only_the_whole_ops_before_it(self):
+        self.answer('{"ops": [', '{"ops": [{"op": "edit", "id": "m1", "text": "ana (x): ships friday."}, '
+                                 '{"op": "add", "section": "people", "text": "bob (moltbook): ti')
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["how"], got["ops"]["edit"], got["ops"]["add"]), ("salvaged", 1, 0))
+        self.assertNotIn("bob", self.page())
+        self.assertTrue(got["diary_missing"], got)
+
+    def test_a_night_that_still_fails_keeps_every_answer_whole(self):
+        self.answer("no json here", "still none, " + "and a long one " * 100)
+        got = self.dream()
+        self.assertFalse(got["ok"], got)
+        [failed] = [json.loads(l) for l in (self.root / "state" / "reflect" / "failed.jsonl").read_text().splitlines()]
+        self.assertEqual([a.strip() for a in failed["answers"]], ["no json here", ("still none, " + "and a long one " * 100).strip()])
+        self.assertEqual(self.page(), PAGE)
 
     def test_the_core_not_answering_for_its_learnings_still_dreams(self):
         os.environ["FAKE_ITEMS"] = str(self.scratch / "missing.json")  # the fake core then fails the call

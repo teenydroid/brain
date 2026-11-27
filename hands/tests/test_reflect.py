@@ -647,16 +647,36 @@ class ReflectTest(unittest.TestCase):
         self.assertIn("is not on the page", self.chats()[1]["message"])
         self.assertIn("- [m2] bob (moltbook): tides, always tides.", self.page())
 
-    def test_an_unknown_id_answered_twice_changes_nothing(self):
+    def test_an_unknown_id_answered_twice_is_dropped_and_the_rest_applied(self):
         (self.brain / "MEMORY.md").write_text(UNIDD_PAGE)
         self.answer({"ops": [{"op": "add", "section": "people", "text": "cleo"},
                              {"op": "retire", "id": "m42", "reason": "gone"}], "diary": "d"})
         got = self.reflect()
-        self.assertFalse(got["ok"])
-        self.assertNotIn("refused", got)
-        self.assertEqual(self.page(), UNIDD_PAGE)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["skipped"], [{"n": 2, "op": {"op": "retire", "id": "m42", "reason": "gone"},
+                                           "why": "m42 (operation 2, retire) is not on the page"}])
+        self.assertEqual(got["ops"], {"add": 1, "edit": 0, "retire": 0})
+        self.assertIn("] cleo\n", self.page())
         self.assertEqual(self.retired(), [])
-        self.assertFalse((self.root / "state" / "reflect" / "last.at").exists())
+        self.assertTrue((self.root / "state" / "reflect" / "last.at").exists())
+
+    def test_a_raw_line_break_inside_a_string_is_read_the_first_time(self):
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answer('{"ops": [{"op": "add", "section": "people", "text": "cleo"}], "diary": "cleo came.\n\nthen rain."}')
+        got = self.reflect()
+        self.assertEqual((got["ok"], got["how"]), (True, "ops"), got)
+        self.assertEqual(len(self.chats()), 1)
+        self.assertIn("cleo came.\n\nthen rain.", (self.root / "state" / "diary" / "2026-09-14.md").read_text())
+
+    def test_a_first_answer_not_json_is_asked_again_not_salvaged(self):
+        # Salvage is for the last answer only: the first one is asked about.
+        (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)
+        self.answers('{"ops": [{"op": "add", "section": "people", "text": "cleo"}], "diary": "d",}',
+                     {"ops": [{"op": "add", "section": "people", "text": "dee"}], "diary": "d"})
+        got = self.reflect()
+        self.assertEqual((got["ok"], got["how"]), (True, "ops"), got)
+        self.assertIn("] dee\n", self.page())
+        self.assertNotIn("cleo", self.page())
 
     def test_a_retire_without_a_reason_is_asked_about_again(self):
         (self.brain / "MEMORY.md").write_text(MIGRATED_PAGE)

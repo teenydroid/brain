@@ -51,9 +51,21 @@ a checkout without one starts it from the committed brain/MEMORY.seed.md,
 which is never written.
 
 The JSON is found wherever it sits in the answer (in a fence, after a line
-of prose). An answer that is not usable (no JSON, an unknown id, a retire
-without a reason, a refused shrink, a page too long) is asked about once
-more on the same thread, with the reason and a short reminder of the shape.
+of prose), raw line breaks inside its strings allowed. An answer that is
+not usable (no JSON, an unknown id, a retire without a reason, a refused
+shrink, a page too long) is asked about once more on the same thread, with
+the reason (for broken JSON, where it breaks), the ids the page holds now
+(the thread carries earlier answers to older pages) and a short reminder of
+the shape.
+
+The last answer of a reflection is taken as far as it goes: an operation
+that cannot be carried out (an id not on the page, a retire without a
+reason, ...) is dropped and listed under `skipped` with why, and the rest
+are applied; an `ops` object that still does not parse gives up the whole
+operations it holds before it breaks, and its diary when one reads
+(`how: salvaged`). The two nights of 2026-11-25 and 26 were each lost
+whole to one of these. A reflection that still fails keeps every answer
+whole in state/reflect/failed.jsonl (the log keeps 500 characters).
 
 The whole page is still taken as a fallback, under the same shrink check:
 the old JSON shape (`{"memory": "<the page>"}`), or, when the second answer
@@ -322,6 +334,11 @@ class Refused(Unusable):
     """The shrink check said no."""
 
 
+class TooMany(Unusable):
+    """More operations of a kind than one reflection may carry: the answer as
+    a whole is wrong, so it is never dropped as one operation."""
+
+
 class TooLong(Unusable):
     """The page would be past prompts.MEMORY_MAX_CHARS (and longer than it
     was): asked about twice, the second time with how far over it is."""
@@ -345,6 +362,8 @@ class Outcome:
     forgets: list[Json] = field(default_factory=list)
     #: Lab operations for hands/lab: {op: experiment|conclude, ...fields}.
     lab: list[Json] = field(default_factory=list)
+    #: Operations of a last answer dropped as they stood: {n, op, why}.
+    skipped: list[Json] = field(default_factory=list)
 
 
 @dataclass
@@ -371,10 +390,17 @@ def _id(value: Any) -> str:
 
 
 def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
-              forgets: list[Json] | None = None, lab: list[Json] | None = None) -> tuple[Page, list[Json], dict[str, int]]:
+              forgets: list[Json] | None = None, lab: list[Json] | None = None,
+              skipped: list[Json] | None = None) -> tuple[Page, list[Json], dict[str, int]]:
     """The page after the operations, in order, and the items they retired.
     With `forgettable` (a dream), `forget` is an operation too: it leaves
-    the page alone and adds the learning to `forgets`."""
+    the page alone and adds the learning to `forgets`.
+
+    With `skipped` (the last answer), an operation that cannot be carried
+    out is added to it with why and the rest go on: on 2026-11-26 the
+    night's retry retired m112, which midday had already retired, and the
+    whole night was lost to that one operation. Every check comes before
+    anything is changed, so a dropped operation leaves no trace on the page."""
     if not isinstance(ops, list):
         raise Unusable("`ops` is not a list")
     page = copy.deepcopy(page)
@@ -384,63 +410,75 @@ def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
         counts["forget"] = 0
     if lab is not None:
         counts.update(experiment=0, conclude=0)
-    added: list[Item] = []
     for n, op in enumerate(ops, 1):
-        kind = op.get("op") if isinstance(op, dict) else None
-        if kind not in counts:
-            raise Unusable(f"operation {n} is not {', '.join(list(counts)[:-1])} or {list(counts)[-1]}")
-        if kind in LAB_LIMITS:
-            # Checked by hands/lab when the dream carries it out; here only
-            # its count, so a dream cannot flood the ledger.
-            counts[kind] += 1
-            if counts[kind] > LAB_LIMITS[kind]:
-                raise Unusable(f"it has more than {LAB_LIMITS[kind]} {kind} operations; that is the most one dream may carry")
-            lab.append({k: v for k, v in op.items()})  # type: ignore[union-attr]
-            continue
-        if kind == "forget":
-            alias = str(op.get("item") or "").strip().strip("[]").lower()
-            if alias not in (forgettable or {}):
-                raise Unusable(f"{alias or 'an empty item'} (operation {n}, forget) is not one of the learnings listed")
+        try:
+            _apply_op(n, op, page, counts, retired, forgettable, forgets, lab)
+        except TooMany:
+            raise
+        except Unusable as exc:
+            if skipped is None:
+                raise
+            skipped.append({"n": n, "op": op, "why": str(exc)})
+    return page, retired, counts
+
+
+def _apply_op(n: int, op: Any, page: Page, counts: dict[str, int], retired: list[Json],
+              forgettable: dict[str, Json] | None, forgets: list[Json] | None, lab: list[Json] | None) -> None:
+    """Operation `n` carried out on the page, or Unusable before anything
+    is changed."""
+    kind = op.get("op") if isinstance(op, dict) else None
+    if kind not in counts:
+        raise Unusable(f"operation {n} is not {', '.join(list(counts)[:-1])} or {list(counts)[-1]}")
+    if kind in LAB_LIMITS:
+        # Checked by hands/lab when the dream carries it out; here only
+        # its count, so a dream cannot flood the ledger.
+        counts[kind] += 1
+        if counts[kind] > LAB_LIMITS[kind]:
+            raise TooMany(f"it has more than {LAB_LIMITS[kind]} {kind} operations; that is the most one dream may carry")
+        lab.append({k: v for k, v in op.items()})  # type: ignore[union-attr]
+        return
+    if kind == "forget":
+        alias = str(op.get("item") or "").strip().strip("[]").lower()
+        if alias not in (forgettable or {}):
+            raise Unusable(f"{alias or 'an empty item'} (operation {n}, forget) is not one of the learnings listed")
+        reason = op.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise Unusable(f"forget {alias} has no reason")
+        if forgets is not None and all(f["alias"] != alias for f in forgets):
+            forgets.append({"alias": alias, **forgettable[alias], "reason": reason.strip()})
+        counts[kind] += 1
+        if counts[kind] > MAX_FORGETS:
+            raise TooMany(f"it forgets more than {MAX_FORGETS} learnings; the most one dream may forget is {MAX_FORGETS}")
+        return
+    if kind == "add":
+        section, text = op.get("section"), _clean(op.get("text") or "")
+        if not isinstance(section, str) or not section.strip().lstrip("#").strip():
+            raise Unusable(f"add (operation {n}) names no section")
+        if not text:
+            raise Unusable(f"add (operation {n}) has no text")
+        if section.strip().lstrip("#").strip().lower() in RETIRED_SECTIONS:
+            raise Unusable(f"add (operation {n}) goes under {section.strip()!r}, which the page no longer keeps: "
+                           "your ledgers carry what you shipped")
+        item = Item(None, text)
+        page.section(section).items.append(item)
+    else:
+        item_id = _id(op.get("id"))
+        found = page.find(item_id) if item_id else None
+        if found is None:
+            raise Unusable(f"{item_id or 'an empty id'} (operation {n}, {kind}) is not on the page")
+        section, item = found
+        if kind == "edit":
+            text = _clean(op.get("text") or "")
+            if not text:
+                raise Unusable(f"edit {item_id} has no text; to take it off the page, retire it")
+            item.text = text
+        else:
             reason = op.get("reason")
             if not isinstance(reason, str) or not reason.strip():
-                raise Unusable(f"forget {alias} has no reason")
-            if forgets is not None and all(f["alias"] != alias for f in forgets):
-                forgets.append({"alias": alias, **forgettable[alias], "reason": reason.strip()})
-            counts[kind] += 1
-            if counts[kind] > MAX_FORGETS:
-                raise Unusable(f"it forgets more than {MAX_FORGETS} learnings; the most one dream may forget is {MAX_FORGETS}")
-            continue
-        if kind == "add":
-            section, text = op.get("section"), _clean(op.get("text") or "")
-            if not isinstance(section, str) or not section.strip().lstrip("#").strip():
-                raise Unusable(f"add (operation {n}) names no section")
-            if not text:
-                raise Unusable(f"add (operation {n}) has no text")
-            if section.strip().lstrip("#").strip().lower() in RETIRED_SECTIONS:
-                raise Unusable(f"add (operation {n}) goes under {section.strip()!r}, which the page no longer keeps: "
-                               "your ledgers carry what you shipped")
-            item = Item(None, text)
-            page.section(section).items.append(item)
-            added.append(item)
-        else:
-            item_id = _id(op.get("id"))
-            found = page.find(item_id) if item_id else None
-            if found is None:
-                raise Unusable(f"{item_id or 'an empty id'} (operation {n}, {kind}) is not on the page")
-            section, item = found
-            if kind == "edit":
-                text = _clean(op.get("text") or "")
-                if not text:
-                    raise Unusable(f"edit {item_id} has no text; to take it off the page, retire it")
-                item.text = text
-            else:
-                reason = op.get("reason")
-                if not isinstance(reason, str) or not reason.strip():
-                    raise Unusable(f"retire {item_id} has no reason")
-                section.items.remove(item)
-                retired.append({"id": item_id, "section": section.name, "text": item.text, "reason": reason.strip()})
-        counts[kind] += 1
-    return page, retired, counts
+                raise Unusable(f"retire {item_id} has no reason")
+            section.items.remove(item)
+            retired.append({"id": item_id, "section": section.name, "text": item.text, "reason": reason.strip()})
+    counts[kind] += 1
 
 
 def _same(text: str) -> str:
@@ -509,33 +547,81 @@ def check(before: str, after: str, retired: int) -> None:
         raise TooLong(len(after))
 
 
-def _json(text: str) -> Json:
-    """The first object with `ops` or a `memory`, wherever it sits."""
-    raw, decoder = text.strip(), json.JSONDecoder()
-    at = raw.find("{")
+#: Not strict: a raw line break or tab inside a string is read as written.
+_DECODER = json.JSONDecoder(strict=False)
+_OPS_OPEN = re.compile(r'\{\s*"ops"\s*:\s*\[')
+_DIARY_KEY = re.compile(r'"diary"\s*:\s*(?=")')
+
+
+def _json(text: str, salvage: bool = False) -> Json:
+    """The first object with `ops` or a `memory`, wherever it sits; with
+    `salvage`, else what _salvage can read. The error says where the first
+    object breaks, so the retry can mend it."""
+    raw = text.strip()
+    at, broke = raw.find("{"), None
     while at >= 0:
         try:
-            got, _ = decoder.raw_decode(raw, at)
-        except ValueError:
+            got, _ = _DECODER.raw_decode(raw, at)
+        except json.JSONDecodeError as exc:
             got = None
+            if broke is None:
+                broke = f"{exc.msg} at character {exc.pos} of {len(raw)}, after {raw[max(0, exc.pos - 60):exc.pos]!r}"
         if isinstance(got, dict) and ("ops" in got or "memory" in got):
             return got
         at = raw.find("{", at + 1)
-    raise NoJSON("no JSON object in the answer")
+    if salvage and (mended := _salvage(raw)) is not None:
+        return mended
+    raise NoJSON("no JSON object in the answer" + (f" (it breaks: {broke})" if broke else ""))
+
+
+def _salvage(raw: str) -> Json | None:
+    """An `ops` object that does not parse (cut off, a stray comma, a member
+    out of place), read as far as it goes: its whole operations, in order,
+    up to the first thing in the list that is not one, and the first
+    `"diary"` string after them that reads. None when it holds neither."""
+    start = _OPS_OPEN.search(raw)
+    if not start:
+        return None
+    ops: list[Json] = []
+    at = start.end()
+    while True:
+        while at < len(raw) and raw[at] in " \t\r\n,":
+            at += 1
+        try:
+            op, end = _DECODER.raw_decode(raw, at)
+        except ValueError:
+            break
+        if not isinstance(op, dict):
+            break
+        ops.append(op)
+        at = end
+    diary = None
+    for key in _DIARY_KEY.finditer(raw, at):
+        try:
+            diary, _ = _DECODER.raw_decode(raw, key.end())
+            break
+        except ValueError:
+            continue
+    if not ops and not diary:
+        return None
+    return {"ops": ops, "diary": diary or "", "salvaged": True}
 
 
 def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | None = None,
-              lab: bool = False) -> Outcome:
-    """The JSON answer applied to the page and checked."""
-    value = _json(text)
+              lab: bool = False, last: bool = False) -> Outcome:
+    """The JSON answer applied to the page and checked. The `last` answer
+    is taken as far as it goes: broken JSON salvaged, and an operation that
+    cannot be carried out dropped into `skipped`."""
+    value = _json(text, salvage=last)
     diary = value.get("diary")
     diary = diary.strip() if isinstance(diary, str) else ""
     forgets: list[Json] = []
     lab_ops: list[Json] | None = [] if lab else None
+    skipped: list[Json] | None = [] if last else None
     if "ops" in value:
-        new, retired, counts = apply_ops(page, value["ops"], forgettable, forgets, lab_ops)
+        new, retired, counts = apply_ops(page, value["ops"], forgettable, forgets, lab_ops, skipped)
         assign_ids(new, start)
-        how = "ops"
+        how = "salvaged" if value.get("salvaged") else "ops"
     else:
         if not isinstance(value.get("memory"), str):
             raise Unusable("no memory page in the answer")
@@ -543,7 +629,7 @@ def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | 
         counts, how = {}, "whole_page"
     after = render_page(new)
     check(render_page(page), after, len(retired))
-    return Outcome(after, diary, retired, how, counts, forgets, lab_ops or [])
+    return Outcome(after, diary, retired, how, counts, forgets, lab_ops or [], skipped or [])
 
 
 #: The sections a page always has: an answer with one of them is the page.
@@ -834,13 +920,18 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
 
 
 #: Asked once, on the same thread, after an answer that was not usable.
-AGAIN = """That answer was not usable ({error}). Answer again with the JSON object only, nothing before or after it:
+AGAIN = """That answer was not usable ({error}). {ids} Answer again with the JSON object only, nothing before or after it:
 
 {shape}"""
 #: Asked once more when the answer to AGAIN still leaves the page too long.
-OVER = """That answer still leaves the page at {chars} characters: {over} characters over the most, {most}. Name your operations from the page as it stands now (your earlier answers changed nothing). Retire or merge items worth at least {over} characters first (merge: edit one, retire the others with the reason "merged into mN"), and shorten long items rather than adding to them. Answer with the JSON object only:
+OVER = """That answer still leaves the page at {chars} characters: {over} characters over the most, {most}. Name your operations from the page as it stands now (your earlier answers changed nothing). {ids} Retire or merge items worth at least {over} characters first (merge: edit one, retire the others with the reason "merged into mN"), and shorten long items rather than adding to them. Answer with the JSON object only:
 
 {shape}"""
+#: What both retries say of the page: the ids it holds now. The thread
+#: carries earlier reflections' answers, to pages since changed, and on
+#: 2026-11-26 the night's retry retired m112, gone since midday.
+IDS_NOW = ("The page as it stands now holds {ids}; earlier answers in this conversation were to older pages, "
+           "so name no other id.")
 AGAIN_SHAPE = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _OPS
 AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 
@@ -926,12 +1017,24 @@ def _fail(exc: Exception, answer: str, light: bool) -> Json:
     return out
 
 
-def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | None = None) -> Outcome | Json:
+def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | None = None,
+            answers: list[str] | None = None) -> Outcome | Json:
     """The outcome of the answer, asked about once more when it is not
-    usable; or the failure, as the result to return."""
+    usable; or the failure, as the result to return. The answer to the
+    last question is taken as far as it goes (interpret's `last`). Every
+    answer, the first included, is added to `answers`."""
     forgettable = extras.forgettable if extras and extras.forgettable else None
     thread = extras.thread if extras else None
     lab = bool(extras and extras.lab)
+    answers = answers if answers is not None else []
+    answers.append(said)
+    ids = IDS_NOW.format(ids=", ".join(item.id for _, item in page.items() if item.id) or "no items")
+
+    def turn(message: str) -> str:
+        got = ask(message, thread)
+        answers.append(got)
+        return got
+
     try:
         return interpret(said, page, start, forgettable, lab)
     except Unusable as first:
@@ -944,21 +1047,21 @@ def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | Non
             # Still over the limit (both dreams of 2026-11-21 were lost here):
             # once more, told how much has to come off.
             try:
-                last = ask(OVER.format(chars=exc.chars, over=exc.over, most=prompts.MEMORY_MAX_CHARS,
-                                       shape=shape_again), thread)
+                last = turn(OVER.format(chars=exc.chars, over=exc.over, most=prompts.MEMORY_MAX_CHARS,
+                                        shape=shape_again, ids=ids))
             except (RuntimeError, OSError, subprocess.SubprocessError) as failed:
                 return {"ok": False, "error": f"the turn failed: {failed}", "answer": answer_before[:500]}
             try:
-                return interpret(last, page, start, forgettable, lab)
+                return interpret(last, page, start, forgettable, lab, last=True)
             except Unusable as final:
                 return _fail(final, last, light)
 
         try:
-            again = ask(AGAIN.format(error=first, shape=shape_again), thread)
+            again = turn(AGAIN.format(error=first, shape=shape_again, ids=ids))
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
         try:
-            return interpret(again, page, start, forgettable, lab)
+            return interpret(again, page, start, forgettable, lab, last=True)
         except NoJSON as exc:
             # Still no JSON: the page itself (the newer answer first) is
             # taken as the page, under the same shrink check.
@@ -1064,8 +1167,13 @@ def reflect(light: bool = False, extras: Extras | None = None) -> Json:
                    extras.thread if extras else None)
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "error": f"the turn failed: {exc}"}
-    got = _settle(said, page, start, light, extras)
+    answers: list[str] = []
+    got = _settle(said, page, start, light, extras, answers)
     if isinstance(got, dict):
+        # Every answer kept whole: the log keeps 500 characters, and the
+        # nights lost on 2026-11-25 and 26 could not be read from it.
+        _append(_state("reflect") / "failed.jsonl",
+                [{"at": _utc(), "light": light, "error": got.get("error"), "answers": answers}])
         return got
     now = _clock()
     if path.is_file():
@@ -1078,6 +1186,8 @@ def reflect(light: bool = False, extras: Extras | None = None) -> Json:
     out: Json = {"ok": True, "memory_chars": len(got.page), "how": got.how, "retired": len(got.retired)}
     if got.counts:
         out["ops"] = got.counts
+    if got.skipped:
+        out["skipped"] = got.skipped
     if got.forgets:
         out["forgets"] = got.forgets
     if got.lab:
