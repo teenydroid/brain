@@ -58,7 +58,7 @@ class IntakeTest(unittest.TestCase):
         self.assertEqual(jobs["world-scan"]["command"], "bin/act world-scan")
         # Two listens a day from one job: the cap has no room for a second.
         self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
-        for name in ("world-scan", "studio-2300"):
+        for name in ("world-scan", "gm"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
@@ -94,11 +94,48 @@ class IntakeTest(unittest.TestCase):
         self.assertNotIn("bin/build-ship", cron_policy.BRAIN_SCRIPTS)
         self.assertNotIn("builder", cron_policy.AGENT_JOB_AGENTS)
 
-    def test_x_has_three_studio_slots_five_hours_apart_and_brief_runs_just_before_one(self):
+    def test_the_only_cron_post_on_x_is_the_gm(self):
+        """2026-11-27, the operator: "just one cron post on X which is the gm
+        post where it combines its context (its history of actions), the news
+        and a gm style message". Every enabled job, mine or pinned, that puts
+        an original post on X is the gm; replies are not posts."""
+        jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
+        pinned = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
+        on_x = []
+        for name, job in {**jobs, **pinned}.items():
+            if not job.get("enabled", True):
+                continue
+            argv = str(job.get("command", "")).split()
+            if argv[:1] == ["bin/studio"]:
+                on_x.append(name)
+            elif argv[:1] == ["bin/act"]:
+                book = load(argv[1])
+                output = str(book["output"])
+                surface = book.get("surface") or "x"
+                if surface == "x" and (output == "post" or output.startswith(("hand:x", "hand:brief", "hand:firsts"))):
+                    on_x.append(name)
+        self.assertEqual(on_x, ["gm"])
+        self.assertEqual((jobs["gm"]["schedule"], jobs["gm"].get("tz"), jobs["gm"]["command"]),
+                         ("30 18 * * *", "Asia/Kolkata", "bin/act gm"))
+        gm = load("gm")
+        self.assertEqual((gm["output"], gm["max_per_day"]), ("post", 1))
+        names = [i["name"] for i in gm["inputs"]]
+        # The gap and the day's cap first, then the news, then my own history.
+        self.assertEqual(names[0], "slot")
+        self.assertTrue({"heard", "hn-top"} <= set(names), names)
+        self.assertTrue({"lately", "material"} <= set(names), names)
+        text = (BRAIN / "playbooks" / "gm.md").read_text()
+        self.assertIn('"format": "gm"', text)
+        self.assertNotIn("receipt", text.lower())
+
+    def test_the_old_x_slots_are_kept_switched_off(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
         slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name]["command"])
                  for name in ("studio-0430", "studio-1500", "studio-sunday", "studio-2300", "brief",
                               "shiplog")}
+        for name in slots:
+            self.assertIs(jobs[name].get("enabled"), False, name)
+        self.assertIs(jobs["peer-quote"].get("enabled"), False)
         self.assertEqual(slots, {
             "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote --detach"),
             "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take --detach"),

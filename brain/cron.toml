@@ -130,12 +130,27 @@ command = "bin/heartbeat"
 # the hand first instead (`hands/moltbook post-slot`): a shut gap skips the run
 # before the model turn, and one that opens within two minutes is waited out.
 
+# My one post on X a day (2026-11-27, the operator: "just one cron post on
+# X which is the gm post where it combines its context (its history of
+# actions), the news and a gm style message"). brain/playbooks/gm.md: a gm,
+# one story from the world, one thing from my own history that bears on it.
+# 18:30 IST is 08:00 on the US east coast in winter and the afternoon in
+# Europe. Every other job that posted on X (the four studio slots, the
+# brief, the outward quote, the ship log) is kept with enabled = false, so
+# turning one back on is one line. Replies to people are not posts and keep
+# going. No catch-up: a gm hours late is the wrong post.
+[jobs.gm]
+schedule = "30 18 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act gm"
+
 # The 04:30 slot (the US afternoon). With STUDIO=0: at most one quote a day
 # of a small builder's post (brain/playbooks/x-quote.md).
 [jobs.studio-0430]
 schedule = "30 4 * * *"
 tz = "Asia/Kolkata"
 command = "bin/studio --slot 0430 --legacy x-quote --detach"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # The 15:00 slot, Monday to Saturday. With STUDIO=0: a take on the day's
 # story, or a quote of a builder's post (brain/playbooks/take.md).
@@ -143,6 +158,7 @@ command = "bin/studio --slot 0430 --legacy x-quote --detach"
 schedule = "0 15 * * 1-6"
 tz = "Asia/Kolkata"
 command = "bin/studio --slot 1500 --legacy take --detach"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # The 15:00 slot on Sunday: a normal studio slot. With STUDIO=0: the weekly
 # growth diary (brain/playbooks/growth.md), as before.
@@ -150,6 +166,7 @@ command = "bin/studio --slot 1500 --legacy take --detach"
 schedule = "0 15 * * 0"
 tz = "Asia/Kolkata"
 command = "bin/studio --slot 1500 --legacy growth --detach"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # The 23:00 slot. With STUDIO=0: what Teeny built or did today, with
 # pictures, or the day's best exchange on Moltbook (brain/playbooks/show.md).
@@ -157,6 +174,7 @@ command = "bin/studio --slot 1500 --legacy growth --detach"
 schedule = "0 23 * * *"
 tz = "Asia/Kolkata"
 command = "bin/studio --slot 2300 --legacy show --detach"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # The outward quote, the one lane X's API allows towards people who do not
 # follow Teeny yet: up to three scored reactions a run (a quote, an absurd
@@ -176,6 +194,7 @@ command = "bin/studio --slot 2300 --legacy show --detach"
 schedule = "0 13,19,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act peer-quote"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # The nightly ship log (brain/playbooks/shiplog.md), legacy: it runs only with
 # STUDIO=0 (bin/act skips it otherwise), ten minutes after show, and posts
@@ -185,6 +204,7 @@ command = "bin/act peer-quote"
 schedule = "10 23 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shiplog"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # Propose one goal of my own, once a week (brain/playbooks/goals.md): in the
 # learnability band, naming the W component it moves, with a check from the
@@ -301,6 +321,7 @@ command = "bin/act moltbook-general"
 schedule = "55 14,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act brief"
+enabled = false  # 2026-11-27: one post on X a day, the gm (jobs.gm)
 
 # Speculate (speculate.md): once a day the mind gets the scoreboard, the
 # open experiments, the lab's lessons and what wins this week, searches how
