@@ -51,6 +51,19 @@ case "$source" in
   *) die "unknown inbound source: $source" ;;
 esac
 
+# The core's inbound queue exists only for TEENY_INBOX=core. Any other setting
+# (unset means `mind`, which feeds the stimuli inbox and offers the core
+# nothing) leaves nothing to consume, so stop before any RPC. Read the way the
+# hands do: the environment, then secrets/teeny.env.
+inbox="${TEENY_INBOX:-}"
+if [ -z "$inbox" ] && [ -f "$TEENY_SECRETS/teeny.env" ]; then
+  inbox="$(sed -n 's/^TEENY_INBOX=//p' "$TEENY_SECRETS/teeny.env" | tail -n 1 | tr -d "\"' ")"
+fi
+if [ "$(printf '%s' "${inbox:-mind}" | tr '[:upper:]' '[:lower:]')" != core ]; then
+  log "TEENY_INBOX is not core: no inbound queue to consume"
+  exit 0
+fi
+
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 dir="$TEENY_STATE/inbound"
 mkdir -p "$dir" "$TEENY_STATE/locks"
