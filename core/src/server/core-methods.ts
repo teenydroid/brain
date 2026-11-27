@@ -1,7 +1,7 @@
 // The config, credential, cost and readiness methods. Contract:
 // core/test/contract/{config_*,get_config,inference_update_model_settings,
-// auth_store_provider_credentials,encrypt_secret,cost_report,
-// modules_browser_check_readiness}.json.
+// auth_store_provider_credentials,cost_report,
+// modules_browser_check_readiness}.json. (encrypt_secret is the wallet's: wallet/index.ts.)
 import { RpcError, type CoreContext, type RpcMethods } from "./types.js";
 import type { ModelRegistryEntry } from "../config/store.js";
 
@@ -95,14 +95,6 @@ export const coreMethods: RpcMethods = {
     const token = string(p, "token");
     svc(ctx).store.storeCredential(provider, token, p.setActive === true);
     return { ok: true, provider }; // the token is never echoed or logged
-  },
-
-  async encrypt_secret(p, ctx) {
-    const plaintext = p.plaintext;
-    if (typeof plaintext !== "string" || plaintext === "") throw new RpcError("plaintext must be a non-empty string", -32602);
-    const sealer = svc(ctx).sealer;
-    if (!sealer) throw new RpcError("no master key: cannot encrypt", -32603);
-    return sealer.seal(plaintext);
   },
 
   async cost_report(p, ctx) {

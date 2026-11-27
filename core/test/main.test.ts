@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { run, startCore } from "../src/main.js";
+import { cronShellTimeoutSecs, run, startCore } from "../src/main.js";
 import { resolvePaths, serveSettings } from "../src/config/paths.js";
 import { resolveToken } from "../src/config/token.js";
 import { startTestCore } from "./helpers.js";
@@ -102,6 +102,27 @@ describe("startCore", () => {
       expect(Object.keys(env).some((k) => k.startsWith("OPENHUMAN_"))).toBe(false);
     } finally {
       await core.stop();
+    }
+  });
+});
+
+describe("cron wiring", () => {
+  it("serves cron_list and reads [cron] shell_timeout_secs from the core's config.toml", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cfg-"));
+    expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "none.toml") }, dir)).toBe(1800);
+    writeFileSync(join(dir, "config.toml"), "[cron]\nshell_timeout_secs = 900\n");
+    expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "config.toml") }, dir)).toBe(900);
+    expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(1800);
+    mkdirSync(join(dir, ".openhuman"));
+    writeFileSync(join(dir, ".openhuman", "config.toml"), "[cron]\nshell_timeout_secs = 60\n");
+    expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(60);
+
+    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}` });
+    try {
+      const res = await t.rpc("cron_list", {});
+      expect(res.error).toBeUndefined();
+    } finally {
+      await t.core.stop();
     }
   });
 });

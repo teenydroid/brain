@@ -67,7 +67,8 @@ describe("transport (core/test/contract/_rpc_envelope.json)", () => {
 describe("registry", () => {
   it("serves every method this phase owns", () => {
     const names = [...buildRegistry().keys()].sort();
-    expect(names).toEqual(
+    // The wallet module's wallet_*, web3_* and x402_* join these (core/test/wallet).
+    expect(names.filter((n) => !/^(wallet_|web3_|x402_)/.test(n))).toEqual(
       [
         "auth_store_provider_credentials", "config_get_agent_settings", "config_update_agent_settings", "config_update_local_ai_settings",
         "config_update_model_settings", "cost_report", "encrypt_secret", "get_config", "inference_agent_chat", "inference_agent_chat_simple",

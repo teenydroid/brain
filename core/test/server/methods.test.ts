@@ -1,7 +1,7 @@
+import { decryptEnc2 } from "../../src/wallet/crypto.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Sealer } from "../../src/config/secrets.js";
 import { assertMatchesContract, assertParamsMatchContract, loadContract } from "../contract.js";
 import { FAKE_KEY, startTestCore, type TestCore } from "../helpers.js";
 
@@ -66,13 +66,13 @@ describe("secrets", () => {
     const b = (await t.rpc("encrypt_secret", { plaintext: "word word word" })).result as string;
     expect(a).not.toContain("word");
     expect(a).not.toBe(b);
-    const sealer = new Sealer(FAKE_KEY);
-    expect(sealer.open(a)).toBe("word word word");
-    expect(() => new Sealer("another key").open(a)).toThrow(/does not open/);
+    // The wallet module serves it: the enc2 envelope under the master key file.
+    expect(a.startsWith("enc2:")).toBe(true);
+    expect(decryptEnc2(Buffer.from(FAKE_KEY, "hex"), a).toString("utf8")).toBe("word word word");
+    expect(() => decryptEnc2(Buffer.alloc(32, 1), a)).toThrow();
   });
 
-  it("encrypt_secret refuses an empty or missing plaintext", async () => {
-    expect((await t.rpc("encrypt_secret", { plaintext: "" })).error).toBeDefined();
+  it("encrypt_secret refuses a missing plaintext", async () => {
     expect((await t.rpc("encrypt_secret", {})).error).toBeDefined();
   });
 

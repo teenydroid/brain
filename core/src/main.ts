@@ -3,10 +3,10 @@
 // openhuman.* JSON-RPC on $OPENHUMAN_CORE_HOST:$OPENHUMAN_CORE_PORT and
 // supervises the OpenClaw Gateway its agent turns run on.
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { AgentCatalog } from "./agents/provision.js";
 import { CostLog } from "./agents/cost.js";
 import { bareModel } from "./agents/model.js";
@@ -18,11 +18,16 @@ import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
 import { GATEWAY_TOKEN_ENV, MODEL_KEY_ENV, buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
+import { parse as parseToml } from "smol-toml";
+import { createCron, type Cron } from "./cron/index.js";
+import type { RpcMethods } from "./server/types.js";
 import { createHttpServer } from "./server/http.js";
-import { buildRegistry } from "./server/registry.js";
+import { MODULES, buildRegistry } from "./server/registry.js";
 import type { CoreContext } from "./server/types.js";
+import { giveawayTxCli } from "./wallet/cli.js";
 
-const USAGE = "usage: teeny-core serve";
+const USAGE = "usage: teeny-core serve | giveaway-tx create|close";
+const DEFAULT_SHELL_TIMEOUT_SECS = 1800;
 /** bin/lib/core_sections/context.py: COMPACTION_TRIGGER_TOKENS and KEEP_RECENT_TOKENS. */
 const COMPACTION_TRIGGER_TOKENS = 100_000;
 const KEEP_RECENT_TOKENS = 40_000;
@@ -52,6 +57,61 @@ function compactionTrigger(env: Env): number {
   const n = Number(given);
   if (!Number.isInteger(n) || n <= KEEP_RECENT_TOKENS) throw new Error(`TEENY_COMPACTION_TRIGGER_TOKENS must be an integer above ${KEEP_RECENT_TOKENS}`);
   return n;
+}
+
+/** Where bin/lib/core_config.py wrote the core's config.toml (the wallet reads it from the same place). */
+function coreConfigPath(env: Env, root: string): string {
+  const explicit = env.TEENY_CORE_CONFIG?.trim();
+  if (explicit) return explicit;
+  const workspace = env.OPENHUMAN_WORKSPACE?.trim();
+  return join(workspace ? dirname(workspace) : root, ".openhuman", "config.toml");
+}
+
+/** `[cron] shell_timeout_secs` from the core's config.toml; the 1800 s bin/lib/core_sections/automation.py writes when absent or unreadable. */
+export function cronShellTimeoutSecs(env: Env, root: string): number {
+  try {
+    const cron = (parseToml(readFileSync(coreConfigPath(env, root), "utf8")) as { cron?: { shell_timeout_secs?: unknown } }).cron;
+    const n = Number(cron?.shell_timeout_secs);
+    if (Number.isInteger(n) && n > 0) return n;
+  } catch {
+    // no config yet: the default
+  }
+  return DEFAULT_SHELL_TIMEOUT_SECS;
+}
+
+/**
+ * The one place the cron module is hooked up (P2 swaps its body, nothing else):
+ * its RPC methods, a start/stop pair, and an agent runner backed by the Gateway
+ * client. start() is called once the server listens, stop() before it closes.
+ */
+export function wireCron(ctx: CoreContext): { methods: RpcMethods; start: () => void; stop: () => Promise<void> } {
+  const s = ctx.services;
+  if (!s) throw new Error("cron needs the core services");
+  const cron: Cron = createCron({ shellTimeoutSecs: cronShellTimeoutSecs(ctx.env, ctx.root), agentTimeoutSecs: s.store.agentTimeoutSecs });
+  cron.setAgentRunner(async (agentId, prompt, sessionKey, signal) => {
+    if (!s.hasAgent(agentId)) return { ok: false, output: `unknown agent: ${agentId}` };
+    s.prepareAgent(agentId);
+    try {
+      const result = await s.runner.run({
+        agentId,
+        sessionKey: `agent:${agentId}:${sessionKey}`,
+        message: prompt,
+        timeoutSecs: s.store.agentTimeoutSecs,
+      });
+      if (signal.aborted) return { ok: false, output: "aborted" };
+      s.costLog.record({
+        ts: Date.now(),
+        agent: agentId,
+        ...(result.model ? { model: result.model } : {}),
+        ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+        ...(result.usage?.total !== undefined ? { tokens: result.usage.total } : {}),
+      });
+      return result.text;
+    } catch (e) {
+      return { ok: false, output: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  return { methods: cron.methods, start: () => cron.start(ctx), stop: () => cron.stop() };
 }
 
 export async function startCore(env: Env, opts: StartOptions = {}): Promise<RunningCore> {
@@ -162,11 +222,13 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     },
   };
 
-  const server = createHttpServer({ registry: buildRegistry(), token, ctx });
+  const cron = wireCron(ctx);
+  const server = createHttpServer({ registry: buildRegistry([...MODULES, cron.methods]), token, ctx });
   server.listen(port, host);
   await once(server, "listening");
   const bound = (server.address() as AddressInfo).port;
   if (supervisor) await supervisor.start();
+  cron.start();
   log("info", "serving", { host, port: bound });
 
   return {
@@ -174,6 +236,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     port: bound,
     stop: async () => {
       clearTimeout(debounce);
+      await cron.stop();
       await supervisor?.stop();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
@@ -183,6 +246,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
 
 export async function run(argv: readonly string[], env: Env = process.env): Promise<number> {
   const [command] = argv;
+  if (command === "giveaway-tx") return giveawayTxCli(argv.slice(1));
   if (command !== "serve") {
     process.stderr.write(`${USAGE}\n`);
     return 2;
