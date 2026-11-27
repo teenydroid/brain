@@ -99,8 +99,19 @@ export class GatewaySupervisor {
     // The Gateway's own logs may name config paths but never carry the token; still keep them at debug-ish volume.
     child.stdout?.on("data", () => undefined);
     child.stderr?.on("data", (d: Buffer) => this.log("warn", "gateway stderr", { text: d.toString("utf8").slice(0, 500) }));
-    child.once("error", (e) => this.log("error", "gateway spawn failed", { error: e.message }));
-    child.once("exit", (code, signal) => this.exited(child, code, signal));
+    // A child that failed to spawn emits "error" and may never emit "exit" (Node docs): that is a
+    // death like any other, so it takes the same restart path, once even when both events arrive.
+    let done = false;
+    const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (done) return;
+      done = true;
+      this.exited(child, code, signal);
+    };
+    child.on("error", (e) => {
+      this.log("error", "gateway child error", { error: e.message });
+      if (child.pid === undefined) finish(null, null); // no pid: it never started. With one, it is a kill or IPC error and the process is still ours.
+    });
+    child.once("exit", (code, signal) => finish(code, signal));
   }
 
   private exited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {
