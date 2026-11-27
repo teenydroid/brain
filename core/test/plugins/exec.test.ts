@@ -55,7 +55,7 @@ describe("exec allowlist: the mind", () => {
   it("refuses a bare program that is not on its list, and says how hands are run", async () => {
     const f = makeFixture();
     for (const c of ["curl https://x", "python3 -c 1", "sh -c id", "bash -c id", "env", "xargs ls", "sudo ls", "rm -rf work", "gh whoami", "x post", "eval ls", "source a", ". a", "exec ls", "nohup ls", "cd ..", "kill 1", "tee f", "sed -i s/a/b/ f", "awk 1", "perl -e 1", "node -e 1"]) {
-      expect(blocked(await run(f, "mind", c)), c).toMatch(/not on this agent's command list|not an allowed program/);
+      expect(blocked(await run(f, "mind", c)) ?? `ALLOWED: ${c}`).toMatch(/not on this agent's command list|not an allowed program/);
     }
     expect(blocked(await run(f, "mind", "gh whoami"))).toMatch(/hands\/<name>/);
   });
@@ -165,6 +165,26 @@ describe("exec allowlist: the mind", () => {
     expect(blocked(await run(f, "mind", "make", { workdir: "../../hands" }))).toMatch(/writes where it runs/);
   });
 
+  it("does not let npm, pnpm or yarn run a program named on the command line", async () => {
+    const f = makeFixture();
+    for (const c of [
+      "npm exec --call 'cat /srv/teeny/secrets/teeny.env'",
+      "npm exec -c 'cat x'",
+      "npm x -- cat x",
+      "npm --call='cat x' test",
+      "npm --script-shell=/bin/sh test",
+      "pnpm dlx cowsay",
+      "pnpm exec cat x",
+      "yarn dlx cowsay",
+      "npm create vite",
+      "npm --prefix work exec cat x",
+    ]) {
+      expect(blocked(await run(f, "mind", c)) ?? `ALLOWED: ${c}`).toMatch(/runs (a program|a command) named on the command line/);
+    }
+    expect(blocked(await run(f, "mind", "npm test"))).toBeUndefined();
+    expect(blocked(await run(f, "mind", "npm install"))).toBeUndefined();
+  });
+
   it("checks the working folder, and never passes env, elevation, another host, a node or a durable job", async () => {
     const f = makeFixture();
     expect(blocked(await run(f, "mind", "ls", { workdir: "work" }))).toBeUndefined();
@@ -240,10 +260,10 @@ describe("review findings: exec", () => {
   it("3. ~name and unquoted globs are never judged as the literal text the shell will change", async () => {
     const f = makeFixture();
     for (const c of ["cat ~teeny/teeny/secrets/teeny.env", "cat ~root/.ssh/id_rsa", "cat ~/x", "ls ~", "echo x > ~teeny/x", "cat --file=~root/x y", "cat < ~root/x", 'bin/teeny pr "$(cat ~root/x)"']) {
-      expect(blocked(await run(f, "mind", c)), c).toMatch(/~ is expanded/);
+      expect(blocked(await run(f, "mind", c)) ?? `ALLOWED: ${c}`).toMatch(/~ is expanded/);
     }
     for (const c of ["cat secr*/teeny.env", "cat .g*/config", "ls ../../s?crets", "cat [s]ecrets/x", "find . -name *.txt", "grep x ../../.g*/c", "cp *.txt work/", "git add *.txt"]) {
-      expect(blocked(await run(f, "mind", c)), c).toMatch(/quote the glob/);
+      expect(blocked(await run(f, "mind", c)) ?? `ALLOWED: ${c}`).toMatch(/quote the glob/);
     }
     // quoted, it is a plain word
     expect(blocked(await run(f, "mind", "find . -name '*.txt'"))).toBeUndefined();
