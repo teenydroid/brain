@@ -206,3 +206,11 @@ describe("generated OpenClaw config: no memory plugin, so no dreaming job", () =
     }
   });
 });
+
+describe("the Gateway's log file", () => {
+  it("is pinned to a rolling file under the core's own directory when one is given, and absent otherwise", () => {
+    const withLog = buildGatewayConfig(input({ logFile: "/srv/teeny/state/openclaw/logs/openclaw-YYYY-MM-DD.log" })) as Record<string, unknown>;
+    expect(withLog.logging).toEqual({ file: "/srv/teeny/state/openclaw/logs/openclaw-YYYY-MM-DD.log" });
+    expect(buildGatewayConfig(input()) as Record<string, unknown>).not.toHaveProperty("logging");
+  });
+});

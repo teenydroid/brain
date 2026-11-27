@@ -127,7 +127,8 @@ class Model(BaseHTTPRequestHandler):
         # off), so the live test asks the real Gateway: a plain `ls` and a read-only hand must run, and a
         # read of secrets/ (alone, and chained after an allowed command) must be refused.
         elif isinstance(last, str) and "# shell e2e" in last:
-            steps = ["ls hands", "hands/hn --help", "cat secrets/spine.env", "ls hands && cat secrets/spine.env"]
+            root = last.split("# shell e2e", 1)[1].strip()
+            steps = ["ls " + root + "/hands", "hands/hn --help", "cat " + root + "/secrets/spine.env", "ls " + root + "/hands && cat " + root + "/secrets/spine.env"]
             results = [m for m in body.get("messages", []) if m.get("role") == "tool"]
             if len(results) < len(steps):
                 native_call = {"name": "exec", "arguments": json.dumps({"command": steps[len(results)]})}
@@ -243,7 +244,7 @@ cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy" "$root/core"
 # The guardrails plugin, where the core looks for it: with no plugin in the config every shell agent's exec is "deny".
-cp -R "$repo/core/plugins" "$repo/core/package.json" "$root/core/"
+cp -R "$repo/core/plugins" "$repo/core/src" "$repo/core/package.json" "$root/core/"
 cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 # skills/ too: a playbook names the skills it loads (`skills = [...]`), and the
 # doctor refuses a playbook whose skill file is missing, so the boot stops.
@@ -370,10 +371,10 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
 # --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
-shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e" 2>"$scratch/shell.log" || true)"
+shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e $root" 2>"$scratch/shell.log" || true)"
 check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"
 shell_results() { jq -r ".[$1] // \"NO-RESULT\"" <<<"${shelled#SHELL-E2E }" 2>/dev/null; }
-check "exec runs a plain read-only program (ls hands)" grep -q 'guard' <<<"$(shell_results 0)"
+check "exec runs a plain read-only program (ls <root>/hands)" grep -q 'guard' <<<"$(shell_results 0)"
 check "exec runs a read-only hand (hands/hn --help)" grep -qi 'usage' <<<"$(shell_results 1)"
 refused() { grep -qiE 'denied|blocked|not allowed|refus|guardrails' <<<"$1"; }
 check "exec refuses cat secrets/spine.env" refused "$(shell_results 2)"

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { methods as cronMethods, setShellTimeoutSecs } from "../src/cron/index.j
 import { resolvePaths, serveSettings } from "../src/config/paths.js";
 import { resolveToken } from "../src/config/token.js";
 import { createServer } from "node:net";
-import { REPO, startTestCore } from "./helpers.js";
+import { FAKE_KEY, REPO, startTestCore } from "./helpers.js";
 
 class QuietChild extends EventEmitter {
   pid = 1;
@@ -190,7 +190,7 @@ describe("a settings change and the Gateway", () => {
     const children: QuietChild[] = [];
     const core = await startCore(
       { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(root, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "tok", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent", LOCAL_OPENAI_URL: "http://127.0.0.1:1/v1", SPINE_MODEL: "m" },
-      { log: () => undefined, runner, drainMs: 300, spawn: () => { const c = new QuietChild(); children.push(c); return c as never; } },
+      { log: () => undefined, runner, drainMs: 300, settleMs: 100, bootSettleMs: 100, spawn: () => { const c = new QuietChild(); children.push(c); return c as never; } },
     );
     const rpc = async (method: string, params: Record<string, unknown>) =>
       (await (await fetch(`http://127.0.0.1:${core.port}/rpc`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: `openhuman.${method}`, params }) })).json()) as { error?: unknown };
@@ -239,6 +239,111 @@ describe("a settings change and the Gateway", () => {
     } finally {
       await t.core.stop();
     }
+  });
+});
+
+describe("the boot burst of settings calls", () => {
+  const idle = { run: async () => ({ text: "x" }) };
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  /** What bin/spine sends at boot, in its order, with a gap between the calls longer than the steady-state debounce. */
+  const bootCalls: Array<[string, Record<string, unknown>]> = [
+    ["config_update_agent_settings", { agent_timeout_secs: 4000 }],
+    ["config_update_local_ai_settings", { runtime_enabled: true, opt_in_confirmed: true, native_tool_calling: true, api_key: "fake-key" }],
+    ["config_update_model_settings", Object.fromEntries(["default_model", "chat_provider", "reasoning_provider", "agentic_provider", "coding_provider", "vision_provider", "memory_provider"].map((k) => [k, k === "default_model" ? "m" : "local-openai:m"]))],
+    ["inference_update_model_settings", { model_registry: [{ id: "m", provider: "local-openai", context_window: 128000 }] }],
+    ["auth_store_provider_credentials", { provider: "provider:typesafe", token: "fake", setActive: true }],
+    ["memory_engine_set", { engine: "cortexdb", endpoint: "http://127.0.0.1:1" }],
+  ];
+
+  async function bootAt(root: string, settings: { gapMs?: number } = {}) {
+    mkdirSync(join(root, "secrets"), { recursive: true });
+    const keyFile = join(root, "secrets", "openhuman.key");
+    if (!existsSync(keyFile)) writeFileSync(keyFile, `${FAKE_KEY}\n`, { mode: 0o600 });
+    const children: QuietChild[] = [];
+    const umasks: number[] = [];
+    const core = await startCore(
+      { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(root, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "tok", OPENHUMAN_KEYRING_MASTER_KEY_FILE: keyFile, LOCAL_OPENAI_URL: "http://127.0.0.1:1/v1", SPINE_MODEL: "m" },
+      {
+        log: () => undefined, runner: idle, drainMs: 100, settleMs: 50, bootSettleMs: 500, bootWindowMs: 60_000,
+        spawn: () => { umasks.push(process.umask()); const c = new QuietChild(); children.push(c); return c as never; },
+      },
+    );
+    const rpc = async (method: string, params: Record<string, unknown>) =>
+      (await (await fetch(`http://127.0.0.1:${core.port}/rpc`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: `openhuman.${method}`, params }) })).json()) as { error?: unknown };
+    const sendAll = async (): Promise<void> => {
+      for (const [m, p] of bootCalls) {
+        expect((await rpc(m, p)).error).toBeUndefined();
+        await sleep(settings.gapMs ?? 150);
+      }
+    };
+    return { core, children, umasks, sendAll };
+  }
+
+  it("restarts the Gateway once for the whole burst, though its calls come further apart than the steady-state debounce", async () => {
+    const t = await bootAt(mkdtempSync(join(tmpdir(), "teeny-core-")));
+    try {
+      await t.sendAll();
+      await sleep(1300);
+      expect(t.children).toHaveLength(2); // the one start and one restart
+    } finally {
+      await t.core.stop();
+    }
+  });
+
+  it("does not restart it at all when the same settings come again on the next boot", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    const first = await bootAt(root);
+    await first.sendAll();
+    await sleep(1300);
+    await first.core.stop();
+    const second = await bootAt(root);
+    try {
+      await second.sendAll();
+      await sleep(1300);
+      expect(second.children).toHaveLength(1);
+    } finally {
+      await second.core.stop();
+    }
+  });
+
+  it("compares with the config the Gateway was started on: a change put back before the burst ends is no restart", async () => {
+    const t = await bootAt(mkdtempSync(join(tmpdir(), "teeny-core-")));
+    try {
+      const method = "config_update_agent_settings";
+      const call = (secs: number) => fetch(`http://127.0.0.1:${t.core.port}/rpc`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer tok" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: `openhuman.${method}`, params: { agent_timeout_secs: secs } }) });
+      await call(5000);
+      await sleep(1000);
+      expect(t.children).toHaveLength(2); // the Gateway now runs on 5000
+      await call(7777);
+      await sleep(200);
+      await call(5000); // put back before the burst ended
+      await sleep(1000);
+      expect(t.children).toHaveLength(2);
+    } finally {
+      await t.core.stop();
+    }
+  });
+
+  it("makes state/openclaw private under a group-writable state/, and sets umask 077 for the Gateway only while it runs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "state", "openclaw", "workspaces", "old"), { recursive: true });
+    for (const d of ["state", "state/openclaw", "state/openclaw/workspaces", "state/openclaw/workspaces/old"]) chmodSync(join(root, d), 0o775);
+    const before = process.umask(0o002);
+    process.umask(before);
+    const t = await bootAt(root);
+    try {
+      expect(t.umasks).toEqual([0o077]);
+      const mode = (p: string): number => statSync(join(root, p)).mode & 0o7777;
+      expect(mode("state/openclaw")).toBe(0o700);
+      expect(mode("state/openclaw/logs")).toBe(0o700);
+      expect(mode("state/openclaw/workspaces/old") & 0o022).toBe(0);
+      expect(mode("state/openclaw/workspaces") & 0o022).toBe(0);
+      const config = JSON.parse(readFileSync(join(root, "state", "openclaw", "openclaw.json"), "utf8")) as { logging?: { file?: string } };
+      expect(config.logging?.file).toBe(join(root, "state", "openclaw", "logs", "openclaw-YYYY-MM-DD.log"));
+    } finally {
+      await t.core.stop();
+    }
+    expect(process.umask()).toBe(before);
   });
 });
 

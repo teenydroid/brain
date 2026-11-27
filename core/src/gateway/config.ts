@@ -81,6 +81,12 @@ export interface GatewayConfigInput {
   skillDirs?: string[];
   /** Chrome for the browser tool; unset lets OpenClaw find one. */
   chromePath?: string;
+  /**
+   * `logging.file`: the day's log, in a directory the core made private. Left unset OpenClaw resolves
+   * a "secure temp root" for its log and refuses every ancestor that is group-writable, then drops
+   * every record with "log file append failed". An explicit file skips that resolution.
+   */
+  logFile?: string;
 }
 
 /** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
@@ -244,6 +250,8 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     // future one instead of replaying; late runs belong to bin/lib/catch_up.py.
     // The cron module sets the same key through the CLI at boot; the file says it first.
     cron: { skipMissedJobs: true },
+    // schema: logging.file (docs/gateway/logging.md): the rolling name `openclaw-YYYY-MM-DD.log` is dated per day.
+    ...(input.logFile ? { logging: { file: input.logFile } } : {}),
     // No `channels`, no `bindings` here.
   };
 }
