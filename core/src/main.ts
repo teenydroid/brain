@@ -17,6 +17,7 @@ import { SettingsStore } from "./config/store.js";
 import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
 import { buildGuardrailsPolicy, guardrailsReadyFile } from "./agents/guardrails.js";
+import { buildCortexPluginConfig, cortexPluginIfPresent } from "./memory/plugin.js";
 import { findChrome } from "./config/chrome.js";
 import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
@@ -183,12 +184,13 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
     log("warn", "no master key; secrets cannot be stored", { error: e instanceof Error ? e.message : String(e) });
   }
   const store = new SettingsStore(paths.stateDir, sealer);
+  const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
+  const cortexDir = cortexPluginIfPresent(join(paths.root, "core", "plugins", "teeny-cortexdb"));
   const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir);
   const secretFiles = { gatewayToken: gatewayTokenFile(paths.openclawDir), modelKey: join(paths.openclawDir, "model.key") };
   ensureGatewayToken(paths.openclawDir);
   const gatewayPort = Number(env.OPENCLAW_GATEWAY_PORT || DEFAULT_GATEWAY_PORT);
   const configPath = join(paths.openclawDir, "openclaw.json");
-  const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
 
   /** The model key, as a private file the Gateway reads through a SecretRef: never in its environment. */
   const writeModelKey = (): void => {
@@ -207,6 +209,10 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
     if (defaultModel) ids.set(defaultModel, undefined);
     for (const m of registry) ids.set(m.id, m.context_window);
     for (const pinned of catalog.pinnedModels()) if (!ids.has(bareModel(pinned))) ids.set(bareModel(pinned), undefined);
+    // Memory is in the Gateway only while CortexDB is configured (an engine stored, or CORTEX_API_URL); the memory
+    // tools go to agents only with the guardrails there to judge them.
+    const cortexConfig = cortexDir ? buildCortexPluginConfig({ defs: catalog.definitions(), stateDir: paths.stateDir, secretsDir: paths.secretsDir, env }) : undefined;
+    const memoryTools = cortexConfig !== undefined && guardrails !== undefined;
     // Shell agents get exec only once the plugin is proven loaded in this Gateway (supervisor gate); `applied`
     // is the proven shape, so that opening exec later is never mistaken for a change that needs a restart.
     const build = (proven: boolean): Record<string, unknown> => buildGatewayConfig({
@@ -219,16 +225,17 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       keepRecentTokens: KEEP_RECENT_TOKENS,
       agentTimeoutSecs: store.agentTimeoutSecs,
       defaultWorkspace: join(paths.openclawDir, "workspaces"),
-      agents: catalog.entries(),
+      agents: catalog.entries(memoryTools),
       skillDirs: [join(paths.brainDir, "skills", "hands")],
       ...(catalog.has("simple") ? { systemAgentId: "simple" } : {}),
       secretFiles,
       ...(guardrails
         ? {
             guardrailsPath: guardrails,
-            guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env, workspaceOf: (id) => catalog.workspace(id) }),
+            guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env, workspaceOf: (id) => catalog.workspace(id), memoryTools }),
           }
         : {}),
+      ...(cortexDir && cortexConfig ? { cortex: { path: cortexDir, config: cortexConfig } } : {}),
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
       logFile: join(logDir, "openclaw-YYYY-MM-DD.log"),
     });

@@ -158,7 +158,8 @@ The core generates its configuration and nobody edits it by hand
 | `gateway.controlUi`, `discovery.mdns` | off | No UI, no advertising. |
 | `update.checkOnStart` | `false` | The Gateway never phones home for updates. |
 | `cron.skipMissedJobs` | `true` | A slot missed while it was down is skipped, not replayed (`bin/lib/catch_up.py` decides what is made up). |
-| `plugins` | allowlist: the browser, and `teeny-guardrails` | The guardrails plugin is what holds every tool call of every agent to its definition (`core/plugins/teeny-guardrails`). |
+| `plugins` | allowlist: the browser, `teeny-guardrails`, and `teeny-cortexdb` | The guardrails plugin is what holds every tool call of every agent to its definition (`core/plugins/teeny-guardrails`). |
+| `plugins.slots.memory` | `teeny-cortexdb` when CortexDB is configured, else `none`; `memory-core` is always off | OpenClaw's own memory plugin would run a dreaming job outside `brain/cron.toml`. Teeny's memory is CortexDB, and the plugin that owns the slot (`core/plugins/teeny-cortexdb`, derived from `@cortexdb/openclaw` 0.1.4, Apache-2.0) is the one place a turn recalls from it, captures into it, and gets the `memory_*` tools. Its config has the URL, scope and budgets and never a key (that stays sealed in `state/memory-engine.json`). It is in the config only once an engine is stored (`memory_engine_set`) or `CORTEX_API_URL` is set; a lab without CortexDB runs with the slot `none`. |
 
 The Gateway's environment holds the model key and its own token, and nothing
 else of the core's: no core token, no master key. Agent definitions are still
@@ -303,8 +304,9 @@ are built otherwise, §4b):
   the seed when there is none (a fresh checkout, the first boot) and never
   touches either after that.
 - Its thread. `bin/act` drafts every playbook on one thread, `teeny:act`, so
-  a draft sees the drafts before it. The core recalls memory before the turn
-  and logs it after (it skips both on a turn with no thread). The evals draft
+  a draft sees the drafts before it. The memory plugin recalls memory into the
+  system context before the turn (`teeny-cortexdb`, `before_prompt_build`) and
+  captures the finished turn of the agents on its allowlist after it. The evals draft
   each sample on a fresh `eval:<uuid>` thread and stay blind to it.
 - Recall and the memory block: `[memory.recall] budget_tokens = 3000` before
   each turn, and a `memory_block` at each new generation (2000 tokens for

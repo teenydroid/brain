@@ -102,19 +102,6 @@ describe("the policy generated from brain/agents/*.toml", () => {
     expect(UNATTENDED_KINDS).not.toContain("evaluate");
   });
 
-  it("recalls memory for the agents that keep it, within min(3000, memory_block.max_tokens)", () => {
-    const recall = f.policy.recall;
-    expect(recall?.timeoutMs).toBe(5000);
-    for (const def of defs.filter((d) => !d.omitMemoryContext)) {
-      expect(recall?.agents[def.id]?.budgetTokens, def.id).toBe(Math.min(3000, def.memoryBlockMaxTokens ?? 3000));
-    }
-    expect(recall?.agents.mind?.budgetTokens).toBe(2000);
-    // a definition with no cap gets the whole [memory.recall] budget_tokens = 3000
-    const open = buildGuardrailsPolicy({ defs: [{ ...defs[0]!, id: "free", omitMemoryContext: false, memoryBlockMaxTokens: undefined }], paths: f.paths, env: {}, workspaceOf: (id) => id }) as { recall: { agents: Record<string, { budgetTokens: number }> } };
-    expect(open.recall.agents.free?.budgetTokens).toBe(3000);
-    for (const id of ["operator", "babysitter", "evolver", "simple"]) expect(recall?.agents[id]).toBeUndefined();
-  });
-
   it("points the browser at the operator's deny and allow lists and the picture sink", () => {
     expect(f.policy.browserDenyFile).toBe(join(f.root, "deploy/browser-deny.txt"));
     expect(f.policy.browserAllowFile).toBe(join(f.root, "deploy/browser-allow.txt"));
@@ -137,12 +124,12 @@ describe("the policy generated from brain/agents/*.toml", () => {
 describe("the Gateway config that carries it", () => {
   const base = { port: 1, modelUrl: undefined, model: undefined, models: [], compactionTriggerTokens: 1, keepRecentTokens: 1, agentTimeoutSecs: 1, defaultWorkspace: "/w", agents: {} };
 
-  it("loads the plugin by path with its policy, and gives hooks conversation access for recall", () => {
+  it("loads the plugin by path with its policy, and asks for no conversation access: recall is the memory plugin's", () => {
     const cfg = buildGatewayConfig({ ...base, guardrailsPath: "/x/teeny-guardrails", guardrailsPolicy: { root: "/r" } }) as { plugins: Record<string, unknown> };
     expect(cfg.plugins.load).toEqual({ paths: ["/x/teeny-guardrails"] });
     expect(cfg.plugins.entries).toEqual({
       "memory-core": { enabled: false, config: { dreaming: { enabled: false } } },
-      "teeny-guardrails": { enabled: true, hooks: { allowConversationAccess: true }, config: { policy: { root: "/r" } } },
+      "teeny-guardrails": { enabled: true, config: { policy: { root: "/r" } } },
     });
     expect(cfg.plugins.allow).toEqual(["browser", "teeny-guardrails"]);
   });

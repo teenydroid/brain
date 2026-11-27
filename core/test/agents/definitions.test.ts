@@ -41,6 +41,20 @@ describe("agent definitions from brain/agents/*.toml", () => {
     expect(entry.tools.exec).toMatchObject({ security: "full", ask: "off" });
   });
 
+  it("the mind's memory tool is real only with the memory plugin in: its four tools, never OpenClaw's memory_search or memory_get", () => {
+    const mind = defs.find((d) => d.id === "mind")!;
+    const without = toolPolicy(mind).allow as string[];
+    expect(without.filter((t) => t.startsWith("memory"))).toEqual([]);
+    const withMemory = toolPolicy(mind, true).allow as string[];
+    expect(withMemory).toEqual(expect.arrayContaining(["memory_recall", "memory_list", "memory_store", "memory_forget"]));
+    expect(withMemory).not.toContain("memory_search");
+    expect(withMemory).not.toContain("memory_get");
+    expect(agentEntry(mind, "/w", undefined, true).tools.allow).toEqual(withMemory);
+    // an agent that never asked for memory gets none, and a tool-less agent stays tool-less
+    expect((toolPolicy(defs.find((d) => d.id === "worker")!, true).allow as string[]).filter((t) => t.startsWith("memory"))).toEqual([]);
+    expect(toolPolicy(SIMPLE_AGENT, true)).toEqual({ allow: [], deny: ["*"] });
+  });
+
   it("the evolver gets file tools and no shell (it edits a worktree and runs nothing)", () => {
     const ids = toolIds(defs.find((d) => d.id === "evolver")!.tools);
     expect(ids).toEqual(expect.arrayContaining(["read", "write", "edit"]));
