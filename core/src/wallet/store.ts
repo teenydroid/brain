@@ -45,7 +45,7 @@ export function loadState(ctx: CoreContext): StoredWalletState | undefined {
   if (!raw.encryptedMnemonic || typeof checked === "string") {
     throw fail("the stored wallet state failed validation; restore it or run wallet setup with force");
   }
-  return raw;
+  return { ...raw, accounts: checked };
 }
 
 export function saveState(ctx: CoreContext, state: StoredWalletState): void {

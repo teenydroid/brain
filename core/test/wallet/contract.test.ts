@@ -46,6 +46,9 @@ describe("the contract", () => {
     const phrase = (await h.call("wallet_generate_mnemonic", { wordCount: 24 })) as { phrase: string };
     const derived = await check("wallet_derive_recovery_material", { phrase: phrase.phrase });
     const encrypted = await check("encrypt_secret", { plaintext: phrase.phrase });
+    const ciphertext = typeof encrypted === "string" ? encrypted : (encrypted as { result?: unknown }).result;
+    expect(typeof ciphertext === "string" && ciphertext.trim() !== "").toBe(true); // a usable ciphertext, in either form
+    expect(() => assertMatchesContract("encrypt_secret", {})).toThrow(/result: required|required, missing/);
     await check("wallet_setup", { consentGranted: true, source: "generated", mnemonicWordCount: 24, encryptedMnemonic: encrypted, accounts: derived.accounts.map((a: Record<string, unknown>) => ({ chain: a.chain, address: a.address, derivationPath: a.derivationPath })) });
     const status = await check("wallet_status", {});
     expect(status.configured).toBe(true);

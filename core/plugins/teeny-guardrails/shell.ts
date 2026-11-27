@@ -150,7 +150,7 @@ export function parseCommand(input: string): ParseResult {
           if (input[i + 1] === "(") {
             const close = input.indexOf(")", i + 2);
             const inner = close < 0 ? "" : input.slice(i + 2, close);
-            const m = /^cat\s+([A-Za-z0-9_./~-]+)$/.exec(inner);
+            const m = /^cat[ \t]+([A-Za-z0-9_./~][A-Za-z0-9_./~-]*)$/.exec(inner);
             if (!m) return bad("command substitution runs a hidden command (only \"$(cat PATH)\" is read)");
             seg.catReads.push(m[1] as string);
             // The substituted text is unknown; keep a marker so the word is never a program.
@@ -264,13 +264,11 @@ export function parseCommand(input: string): ParseResult {
   if (seg.words.length === 0 && seg.redirects.length === 0) {
     if (segments.length === 0) return bad("the command is empty");
     const last = segments[segments.length - 1] as Segment;
-    if (last.joiner === ";") {
-      // a trailing ";" is harmless
-      return { ok: true, segments };
-    }
-    return bad(`the command ends after "${last.joiner}"`);
+    if (last.joiner !== ";") return bad(`the command ends after "${last.joiner}"`);
+    // a trailing ";" is harmless, but the segments before it get the same check as any other parse
+  } else {
+    segments.push(seg);
   }
-  segments.push(seg);
   for (const s of segments) {
     if (s.words.length === 0) return bad("a command has an empty part");
   }

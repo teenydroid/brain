@@ -1,6 +1,6 @@
 ---
 name: hand-x402
-description: "Run hands/x402 through your shell tool: Teeny's x402 rail: keep it funded, and pay for web search with it. Read this before calling it."
+description: "hands/x402 is not available to you through your shell tool: Teeny's x402 rail: keep it funded, and pay for web search with it."
 metadata: {"openclaw":{"requires":{"config":["plugins.entries.teeny-guardrails.enabled"]}}}
 ---
 
@@ -10,9 +10,13 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.teeny-guardrails.e
 
 Teeny's x402 rail: keep it funded, and pay for web search with it.
 
-## How to call it
+## Not available to you
 
-Run it from the repository root with your shell (exec) tool: `hands/x402 <verb> [flags]`.
+The exec fence refuses `hands/x402` to you: a call is blocked before it runs. Its jobs and the operator run it. Do not try it, and do not look for another way to do what it would do. What follows is for reference only.
+
+## How it is called (reference)
+
+The operator and the jobs invoke it from the repository root as `hands/x402 <verb> [flags]`.
 
 - A verb that takes a body reads one JSON object from stdin. Everything else is flags.
 - It prints one JSON object on stdout. Exit 0 is success. Exit 2 is a refusal by a rule, the guard or a cap: read the `rule` and `reason`, and do not retry it unchanged. Any other exit is an error.

@@ -24,7 +24,7 @@ Run it from the repository root with your shell (exec) tool: `hands/video <verb>
 - Acting (side effects in the world, each goes through the guard and the caps): generate, clip make; skit make, skit; remake keys, remake-keys; remake render, remake; remake drop, remake-drop
 - Job (writes state or calls the core): none
 - Operator only (never call): none
-- Read only: flavors; list [--max N]; get ID; scenes [--last N]
+- Read only: flavors; list [--max N]; get ID
 
 ## Verbs
 
@@ -38,7 +38,6 @@ Run it from the repository root with your shell (exec) tool: `hands/video <verb>
 | `remake keys` (alias `remake-keys`) | A | video only (`teeny_hands/media/remakes.py`). |
 | `remake render` (alias `remake`) | A | video only. |
 | `remake drop` (alias `remake-drop`) | A | video only. stdin `{remake_id}` and nothing else. |
-| `scenes [--last N]` | R | image only. |
 
 Kinds: R = read: no side effect beyond its read cache; A = acting: posts, sends, pays or opens something in the world; O = operator-only: the operator runs it, never you; J = job: writes state or calls the core, says nothing to anyone; scheduled jobs run it, you do not.
 

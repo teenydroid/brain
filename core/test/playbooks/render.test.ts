@@ -22,6 +22,7 @@ describe("renderAgentTurn", () => {
     expect(turn).toContain("Required. If it comes back empty");
     expect(turn).toContain("`hands/upstream propose`");
     expect(turn).toContain("at most 1 a day");
+    expect(turn).toContain("the hand does not count that for you");
     expect(turn).toContain("surface `github`");
   });
 
@@ -32,6 +33,9 @@ describe("renderAgentTurn", () => {
     expect(renderAgentTurn(base)).toContain("nothing to run first");
     expect(renderAgentTurn({ ...base, output: "reply" })).toContain("`hands/x reply --to");
     expect(renderAgentTurn({ ...base, output: "like" })).toContain("`hands/x like");
+    // a loader-accepted "hand: mail send" (space after the colon) renders as the hand and verb, not "hands/ mail"
+    expect(renderAgentTurn({ ...base, output: "hand: mail send" })).toContain("`hands/mail send`");
+    expect(renderAgentTurn({ ...base, output: "hand:mail send" })).toContain("`hands/mail send`");
     const none = renderAgentTurn({ ...base, output: "none" });
     expect(none).toContain("Call no hand to act");
     expect(none).not.toContain("hands/x post");

@@ -22,7 +22,7 @@
     "example": {
       "chain": "evm",
       "hash": "0xabc",
-      "evmNetwork": "base"
+      "evmNetwork": "base_mainnet"
     }
   },
   "response": {

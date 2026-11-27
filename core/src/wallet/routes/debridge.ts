@@ -10,6 +10,7 @@
 // overrides the base URL (a test double); `DEBRIDGE_API_KEY`, when set, goes
 // as `accesstoken`. Nothing here signs or moves funds. No log line carries an
 // address or the key.
+import { trackSecret } from "../errors.js";
 import type { Deps } from "../endpoints.js";
 import { type BackendCall, ERROR_CHARS, type Env, type ProviderRequest, cut, isRecord } from "./types.js";
 
@@ -98,8 +99,12 @@ function baseUrl(env: Env): string {
 async function fetchAnswer(env: Env, deps: Deps, request: ProviderRequest): Promise<unknown> {
   const pairs = [...request.query];
   const key = env.DEBRIDGE_API_KEY?.trim();
-  if (key) pairs.push(["accesstoken", key]);
   const url = new URL(`${baseUrl(env)}${request.path}`);
+  if (key) {
+    if (url.protocol !== "https:") throw new Error("deBridge: DEBRIDGE_API_KEY is only sent over https; fix TEENY_DEBRIDGE_API or unset the key");
+    trackSecret(key);
+    pairs.push(["accesstoken", key]);
+  }
   for (const [k, v] of pairs) url.searchParams.append(k, v);
   let response: Response;
   try {

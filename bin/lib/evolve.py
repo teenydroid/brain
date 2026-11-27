@@ -3317,7 +3317,7 @@ def _cron_failure_counts(since: float) -> dict[str, int] | None:
     automations, read-only through bin/lib/cron_store.py), by job name: what
     observe() hands evolve_evidence.outcomes."""
     try:
-        names = {job["id"]: job.get("name") for job in cron_store.jobs()}
+        names = {job["id"]: job.get("name") for job in cron_store.jobs(include_deleted=True)}
         runs = cron_store.runs()
     except cron_store.Unavailable:
         return None
@@ -3336,7 +3336,7 @@ def _cron_failure_runs(since: float) -> list[Json] | None:
     job's command (or name, for an agent job) and the tail of its output,
     which carries the error."""
     try:
-        jobs = {str(j["id"]): (str(j.get("command") or "").strip() or str(j.get("name") or "")) for j in cron_store.jobs()}
+        jobs = {str(j["id"]): (str(j.get("command") or "").strip() or str(j.get("name") or "")) for j in cron_store.jobs(include_deleted=True)}
         rows = [r for r in cron_store.runs() if r.get("status") == "error" and isinstance(r.get("finished_ms"), (int, float))
                 and r["finished_ms"] >= int(since * 1000)]
     except cron_store.Unavailable:
@@ -3350,7 +3350,7 @@ def _cron_runs(names: tuple[str, ...], since: float, until: float) -> list[float
     NAMES (its command, or its name) ended in [SINCE, UNTIL), read-only: a
     falling check's source (evolve_outcomes.silenced)."""
     try:
-        ids = {str(j["id"]) for j in cron_store.jobs()
+        ids = {str(j["id"]) for j in cron_store.jobs(include_deleted=True)
                if (str(j.get("command") or "").strip() or str(j.get("name") or "")) in names or str(j.get("name") or "") in names}
         runs = cron_store.runs()
     except cron_store.Unavailable:

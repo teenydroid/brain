@@ -285,7 +285,7 @@ gateway_pids=""
 for proc in /proc/[0-9]*; do
   cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
   case "$cmd" in *main.js\ serve*) continue ;; esac
-  case "$cmd" in *openclaw*gateway*|*openclaw-gateway*) gateway_pids="$gateway_pids ${proc#/proc/}" ;; esac
+  case "$cmd" in *openclaw*gateway*) gateway_pids="$gateway_pids ${proc#/proc/}" ;; esac
 done
 gateway_leaks=""
 for pid in $gateway_pids; do
@@ -379,8 +379,11 @@ check "bin/act runs a playbook through the act agent" \
 # judges a dispatch as the tool it names (core/test/plugins/guard.test.ts).
 # Anything else offered fails.
 offered_tools() { # PATTERN: the tool names in the last model request that carries PATTERN, bar the shims
-  grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1 |
-    jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")'
+  local request
+  request="$(grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1)" || true
+  # No matching request must fail the caller's test -z, never pass it by printing nothing.
+  [ -n "$request" ] || { echo "NO-MODEL-REQUEST-CARRIED($1)"; return 0; }
+  jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")' <<<"$request"
 }
 check "the act agent's turn offers the model no working tool" test -z "$(offered_tools '# playbook: hello')"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"

@@ -89,6 +89,8 @@ export function parsePolicy(textOfConfig: string): WalletPolicy {
   if (!isTable(section)) throw new Error("[wallet_policy] is not a table");
   checkFields(section, ["automation_enabled", "apply_to_interactive", "assets", "accounts"], "[wallet_policy]");
   const assets: AssetCap[] = [];
+  // `[wallet_policy.assets]` (one bracket) is a table, not the list a policy needs: refuse it rather than skip it.
+  if (section.assets !== undefined && !Array.isArray(section.assets)) throw new Error("wallet_policy.assets must be an array of tables ([[wallet_policy.assets]])");
   for (const raw of Array.isArray(section.assets) ? section.assets : []) {
     if (!isTable(raw)) throw new Error("a [[wallet_policy.assets]] entry is not a table");
     checkFields(

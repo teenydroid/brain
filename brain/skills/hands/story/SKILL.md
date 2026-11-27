@@ -34,9 +34,9 @@ Run it from the repository root with your shell (exec) tool: `hands/story <verb>
 | `due [--days N]` | R | Active storylines whose open question has waited more than N days (1 to 30, default 3) with no beat since, the longest wait first: `{days, due: [{key, title, open_question, next, question_at, last_beat_at, waiting_days, reason}]}`. |
 | `desk [--hours N]` | R | What really happened in the last N hours (1 to 168, default 24), below. |
 | `audit [--storyline K]` | R | Every beat's refs resolve, below. |
-| `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? |
+| `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? (x, the default; moltbook, reddit, telegram, web), refs?, state?, next?}`: a post already made. |
 | `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). |
-| `record-run` | J | One `bin/studio` run record on stdin (`{id, at_unix, outcome: published\|picked\|empty\|vetoed\|skipped\|failed, kind? |
+| `record-run` | J | One `bin/studio` run record on stdin (`{id, at_unix, outcome: published\|picked\|empty\|vetoed\|skipped\|failed, kind? (run, or veto for the editor's single-candidate check), published? ({post_id, ...}), slot?, seed?, explore?, reason?, models?, pitches?, drafts?, calls?, secs?, pick… |
 | `runs [--limit N] [--full]` | R | The newest studio runs (10, at most 100), newest first: `{runs: [{id, at, slot, dry, seed, explore, outcome, reason, models: {writer, editor}, pitches, drafts, calls, secs, pick, kind, post_id}]}`; `--full` adds each run's whole `record` (since 2026-11-22: its cards, posts, rank… |
 | `slot-claim` | J | `{slot_id, run_id, force?}`: a studio slot's one run (`studio_slots`), claimed by bin/studio before any model turn, under `DRY_RUN` too. |
 | `slot-mark` | J | `{slot_id, run_id, status, intent?, post_id?}`: the holding run's progress (`claimed`, `posting` with the draft before hands/x is called, `posted` with the post id, `empty`, `skipped`, `failed`, `in_doubt`); a run that does not hold the slot changes nothing (`{marked: false}`). |

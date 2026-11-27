@@ -38,10 +38,12 @@ function registryOf(p: Record<string, unknown>): ModelRegistryEntry[] {
 export const coreMethods: RpcMethods = {
   async config_update_agent_settings(p, ctx) {
     const secs = p.agent_timeout_secs;
-    if (typeof secs !== "number" || !Number.isFinite(secs) || secs <= 0) throw new RpcError("agent_timeout_secs must be a positive number", -32602);
-    svc(ctx).store.setAgentTimeout(Math.floor(secs));
+    // The whole-second value is what gets stored, so that is what must be positive: 0.5 floors to 0.
+    const whole = typeof secs === "number" && Number.isFinite(secs) ? Math.floor(secs) : Number.NaN;
+    if (!(whole >= 1)) throw new RpcError("agent_timeout_secs must be a positive number", -32602);
+    svc(ctx).store.setAgentTimeout(whole);
     svc(ctx).configChanged();
-    return { agent_timeout_secs: Math.floor(secs) };
+    return { agent_timeout_secs: whole };
   },
 
   async config_get_agent_settings(_p, ctx) {

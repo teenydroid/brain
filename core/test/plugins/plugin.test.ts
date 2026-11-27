@@ -78,7 +78,7 @@ describe("memory recall into the prompt", () => {
   function engineAt(dir: string, withKey = false) {
     mkdirSync(dir, { recursive: true });
     const sealer = new Sealer(FAKE_KEY);
-    saveEngine(dir, { engine: "cortexdb", endpoint: "http://cortex.test", ...(withKey ? { apiKeySealed: sealer.seal("cortex-key") } : {}) });
+    saveEngine(dir, { engine: "cortexdb", endpoint: "https://cortex.test", ...(withKey ? { apiKeySealed: sealer.seal("cortex-key") } : {}) });
     const keyFile = join(dir, "key");
     writeFileSync(keyFile, FAKE_KEY);
     return { engineFile: join(dir, "memory-engine.json"), masterKeyFile: keyFile };
@@ -106,6 +106,20 @@ describe("memory recall into the prompt", () => {
     expect(await recallContext(policy, "operator", "x", { fetch: mockFetch([], eventsOf(["a"])) })).toBeUndefined();
     expect(await recallContext(policy, undefined, "x", { fetch: mockFetch([], eventsOf(["a"])) })).toBeUndefined();
     expect(await recallContext(policy, "teeny", "  ", { fetch: mockFetch([], eventsOf(["a"])) })).toBeUndefined();
+  });
+
+  it("sends no recall (and no key) to an http endpoint off this machine, and asks for no redirects", async () => {
+    const f = makeFixture();
+    const dir = join(f.root, "state");
+    const policy = { ...engineAt(dir, true), agents: { teeny: { budgetTokens: 3000 } }, timeoutMs: 1000 };
+    const seen: { url: string; body: unknown; auth?: string | null }[] = [];
+    saveEngine(dir, { engine: "cortexdb", endpoint: "http://cortex.test", apiKeySealed: new Sealer(FAKE_KEY).seal("cortex-key") });
+    expect(await recallContext(policy, "teeny", "ships", { fetch: mockFetch(seen, eventsOf(["a"])) })).toBeUndefined();
+    expect(seen).toEqual([]);
+    saveEngine(dir, { engine: "cortexdb", endpoint: "https://cortex.test", apiKeySealed: new Sealer(FAKE_KEY).seal("cortex-key") });
+    let redirect: string | undefined;
+    await recallContext(policy, "teeny", "ships", { fetch: (async (_u: URL, init?: RequestInit) => { redirect = init?.redirect; return new Response("{}"); }) as unknown as typeof fetch });
+    expect(redirect).toBe("error");
   });
 
   it("holds the pack to the budget: 3000 tokens, and a smaller memory_block cap", () => {

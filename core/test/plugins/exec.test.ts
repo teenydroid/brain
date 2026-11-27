@@ -248,9 +248,10 @@ describe("review findings: exec", () => {
     // quoted, it is a plain word
     expect(blocked(await run(f, "mind", "find . -name '*.txt'"))).toBeUndefined();
     expect(blocked(await run(f, "mind", "grep 'a*b' work/a.txt"))).toBeUndefined();
-    // the lab evolver's cwd is the root: a glob there reached the closed folders
+    // the lab evolver's root is the worktree, but it holds no shell: exec is refused outright, and its file tools keep the closed folders closed
     const lab = makeFixture({ env: { SPINE_LAB: "1", SPINE_LAB_EDIT: "1" } });
-    expect(blocked(await lab.call("babysitter", "exec", { command: "cat secr*/teeny.env" }))).toMatch(/quote the glob/);
+    expect(blocked(await lab.call("evolver", "exec", { command: "cat secr*/teeny.env" }))).toMatch(/no exec tool/);
+    expect(blocked(await lab.call("evolver", "read", { path: "secrets/teeny.env" }))).toMatch(/closed/);
   });
 
   it("4. git's global options cannot hide the subcommand or run a program", async () => {

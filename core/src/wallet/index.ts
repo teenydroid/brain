@@ -7,20 +7,21 @@
 import type { RpcHandler, RpcMethods } from "../server/types.js";
 import { convertMethods } from "./convert-methods.js";
 import type { Deps } from "./endpoints.js";
-import { safeError } from "./errors.js";
+import { safeError, withSecretScope } from "./errors.js";
 import { programMethods } from "./program-methods.js";
 import { Runtime } from "./runtime.js";
 import { walletMethods } from "./wallet-methods.js";
 import { x402Methods } from "./x402.js";
 
 function guarded(handler: RpcHandler): RpcHandler {
-  return async (params, ctx) => {
-    try {
-      return await handler(params ?? {}, ctx);
-    } catch (error) {
-      throw safeError(error);
-    }
-  };
+  return (params, ctx) =>
+    withSecretScope(async () => {
+      try {
+        return await handler(params ?? {}, ctx);
+      } catch (error) {
+        throw safeError(error);
+      }
+    });
 }
 
 /** A fresh set of wallet methods with their own quote stores, for tests (DEPS replaces fetch, DNS and the clock). */

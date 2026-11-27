@@ -77,7 +77,7 @@ function actionSection(book: Playbook): string[] {
       lines.push("To like a post, call `hands/x like <post id from the inputs>`.");
       break;
     default: {
-      const [hand, verb] = book.output.slice("hand:".length).split(/\s+/) as [string, string];
+      const [hand, verb] = book.output.slice("hand:".length).trim().split(/\s+/) as [string, string];
       lines.push(
         `To act, call \`hands/${hand} ${verb}\` with the fields it takes, as the playbook says and nothing else, as one JSON object on stdin.`,
       );
@@ -88,7 +88,7 @@ function actionSection(book: Playbook): string[] {
     lines.push(
       `Skip when nothing is worth doing: answer ${skip} and call no hand. A skip costs nothing.`,
       "",
-      `The hand runs the guard on every word (surface \`${book.surface}\`), its own caps and \`DRY_RUN\` itself, and counts the day's actions: at most ${book.max_per_day} a day for this playbook. If it refuses (exit 2), read the \`rule\` and \`reason\`, do not retry the same words, and do not look for another way around it. Never post, send or pay by any route but the hand.`,
+      `The hand runs the guard on every word (surface \`${book.surface}\`), its own caps and \`DRY_RUN\` itself. This playbook allows at most ${book.max_per_day} a day: the hand does not count that for you, so keep to it yourself and stop when you have done that many today. If it refuses (exit 2), read the \`rule\` and \`reason\`, do not retry the same words, and do not look for another way around it. Never post, send or pay by any route but the hand.`,
       "",
     );
   }

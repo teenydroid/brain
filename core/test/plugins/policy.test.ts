@@ -1,14 +1,54 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "smol-toml";
 import { loadAgentDefs, toolIds } from "../../src/agents/definitions.js";
-import { buildGuardrailsPolicy, HANDS_DENY, UNATTENDED_KINDS, VIEW_ACTIONS } from "../../src/agents/guardrails.js";
+import { buildGuardrailsPolicy, codeRoots, HANDS_DENY, UNATTENDED_KINDS, VIEW_ACTIONS } from "../../src/agents/guardrails.js";
 import { buildGatewayConfig } from "../../src/gateway/config.js";
 import { REPO } from "../helpers.js";
+import { parsePolicy } from "../../plugins/teeny-guardrails/policy.js";
 import { makeFixture } from "./fixture.js";
 
 const defs = loadAgentDefs(join(REPO, "brain"));
+
+describe("parsePolicy rejects a malformed nested policy at registration", () => {
+  const good = () => JSON.parse(JSON.stringify(makeFixture().policy)) as Record<string, unknown> & { agents: Record<string, Record<string, unknown>> };
+  it("exec without readOnly, a browser without its lists, and a non-list execRw", () => {
+    expect(() => parsePolicy({ policy: good() })).not.toThrow();
+    const a = good();
+    delete (a.agents.mind?.exec as Record<string, unknown>).readOnly;
+    expect(() => parsePolicy({ policy: a })).toThrow(/exec\.readOnly/);
+    const b = good();
+    b.agents.operator!.browser = { actions: ["open"], keychain: false };
+    expect(() => parsePolicy({ policy: b })).toThrow(/browser\.actKinds/);
+    const c = good();
+    c.agents.mind!.execRw = "x";
+    expect(() => parsePolicy({ policy: c })).toThrow(/execRw/);
+    // an absent optional policy stays valid
+    const d = good();
+    delete d.agents.operator!.browser;
+    delete d.agents.evolver!.exec;
+    expect(() => parsePolicy({ policy: d })).not.toThrow();
+  });
+});
+
+describe("codeRoots", () => {
+  it("lists real checkout folders and never a top-level link that leads outside the checkout", () => {
+    const f = makeFixture();
+    const outside = join(f.root, "..", `outside-${process.pid}`);
+    mkdirSync(outside, { recursive: true });
+    try {
+      symlinkSync(outside, join(f.root, "leak"));
+      symlinkSync(join(f.root, "docs"), join(f.root, "docs-alias")); // inside the checkout: fine
+      const roots = codeRoots(f.root, f.paths.brainDir);
+      expect(roots).toContain(join(f.root, "hands"));
+      expect(roots).toContain(join(f.root, "docs-alias"));
+      expect(roots).not.toContain(join(f.root, "leak"));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("the policy generated from brain/agents/*.toml", () => {
   const f = makeFixture();

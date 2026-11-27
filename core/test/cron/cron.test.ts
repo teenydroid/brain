@@ -199,15 +199,19 @@ describe("missed slots", () => {
 describe("cron_runs", () => {
   it("answers the run history in the rows the readers use, paging through the Gateway", async () => {
     const job = (await call("cron_add", shellJob("true"))) as { id: string };
-    for (let n = 0; n < 450; n++) fake.runs.push({ jobId: job.id, runAtMs: 1000 + n, ts: 1005 + n, durationMs: 5, status: n === 0 ? "error" : "ok", summary: `s${n}`, ...(n === 0 ? { error: "boom" } : {}) });
+    // Newest first, as the Gateway lists them (the cron_runs contract).
+    for (let n = 449; n >= 0; n--) fake.runs.push({ jobId: job.id, runAtMs: 1000 + n, ts: 1005 + n, durationMs: 5, status: n === 0 ? "error" : "ok", summary: `s${n}`, ...(n === 0 ? { error: "boom" } : {}) });
     fake.runs.push({ jobId: "other", runAtMs: 5, ts: 6, status: "ok" });
     cron = createCron({ exec: fake.exec, bin: "openclaw", gatewayEnv: GATEWAY_ENV, now: () => 2000 });
     const all = (await call("cron_runs")) as Record<string, unknown>[];
     assertMatchesContract("cron_runs", all);
     expect(all).toHaveLength(451);
-    expect(all[0]).toMatchObject({ job_id: job.id, started_ms: 1000, finished_ms: 1005, seq: 1000, duration_ms: 5, status: "error", output: "s0\nboom" });
-    const mine = (await call("cron_runs", { job_id: job.id, limit: 300 })) as unknown[];
+    expect(all[0]).toMatchObject({ job_id: job.id, started_ms: 1449, finished_ms: 1454, seq: 1449, status: "ok" });
+    expect(all.find((r) => r.status === "error")).toMatchObject({ job_id: job.id, started_ms: 1000, finished_ms: 1005, seq: 1000, duration_ms: 5, output: "s0\nboom" });
+    const mine = (await call("cron_runs", { job_id: job.id, limit: 300 })) as { started_ms: number }[];
     expect(mine).toHaveLength(300);
+    // the limit keeps the newest 300: 1449 down to 1150
+    expect([mine[0]?.started_ms, mine[299]?.started_ms]).toEqual([1449, 1150]);
     expect(fake.calls.filter((c) => c.args[1] === "runs").some((c) => c.args.includes("--all"))).toBe(true);
     assertMatchesContract("cron_runs", loadContract("cron_runs").response.example);
   });

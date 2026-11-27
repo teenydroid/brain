@@ -134,13 +134,25 @@ def parse_create_data(data_hex: str) -> Json | None:
 # --- the default seams -------------------------------------------------------------------------
 
 
+def _wrapper_can_run(wrapper: str) -> bool:
+    """True when the checkout's bin/teeny-core has a build behind it (`--where` names a file that exists)."""
+    try:
+        done = subprocess.run([wrapper, "--where"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0 and Path(done.stdout.strip()).is_file()
+
+
 def spine_bin() -> str | None:
     """The core's command: OPENHUMAN_CORE_BIN (the image sets it to its teeny-core
-    wrapper), else this checkout's bin/teeny-core, else `teeny-core` on PATH."""
+    wrapper), else this checkout's bin/teeny-core when it has a build to run, else
+    `teeny-core` on PATH (so an unbuilt checkout falls through to the installed one)."""
     named = os.environ.get("OPENHUMAN_CORE_BIN")
-    for candidate in ([named] if named else []) + [str(hand.root() / "bin" / "teeny-core")]:
-        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
-            return candidate
+    if named and Path(named).is_file() and os.access(named, os.X_OK):
+        return named
+    checkout = str(hand.root() / "bin" / "teeny-core")
+    if Path(checkout).is_file() and os.access(checkout, os.X_OK) and _wrapper_can_run(checkout):
+        return checkout
     return shutil.which("teeny-core")
 
 

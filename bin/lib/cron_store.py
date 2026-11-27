@@ -58,6 +58,9 @@ Json = dict[str, Any]
 #: A running marker older than this is a dead run's, not a live claim (the
 #: shell limit is 1800 s; the core's old claims lapsed after two hours too).
 CLAIM_MAX_MS = 2 * 3600 * 1000
+#: a run can start between the caller sampling `now` and reading the jobs; a marker up to this far
+#: ahead of `now` is still a live run, not a stale one
+CLAIM_SKEW_MS = 60 * 1000
 
 
 class Unavailable(Exception):
@@ -104,7 +107,11 @@ def _call(method: str, params: dict[str, Any]) -> Any:
 
 
 def _rows(out: Any) -> list[Json]:
-    return [x for x in out if isinstance(x, dict)] if isinstance(out, list) else []
+    """The dict rows of a core answer. Anything but a list is a broken answer, not an empty store:
+    the readers must see Unavailable (pulse() sets jobs_unreadable), not "no jobs"."""
+    if not isinstance(out, list):
+        raise Unavailable(f"the core answered with {type(out).__name__}, not a list")
+    return [x for x in out if isinstance(x, dict)]
 
 
 def _core_job(job: Json) -> Json:
@@ -154,21 +161,21 @@ def _columns(conn: sqlite3.Connection) -> set[str]:
     return {row[1] for row in conn.execute("pragma table_info(docs)")}
 
 
-def _live_rows(conn: sqlite3.Connection, coll: str) -> list[tuple[str, int, str]]:
+def _live_rows(conn: sqlite3.Connection, coll: str, deleted_too: bool = False) -> list[tuple[str, int, str]]:
     cols = _columns(conn)
     created = "created_ms" if "created_ms" in cols else "0"
-    deleted = " and deleted = 0" if "deleted" in cols else ""
+    deleted = " and deleted = 0" if "deleted" in cols and not deleted_too else ""
     return conn.execute(
         f"with docs_ as materialized (select id, {created} as created_ms, body from docs "
         f"where coll = ?{deleted} and json_valid(body) and body != '{{}}') select id, created_ms, body from docs_",
         (coll,)).fetchall()
 
 
-def _sq_jobs() -> list[Json]:
+def _sq_jobs(deleted_too: bool = False) -> list[Json]:
     try:
         conn = _connect()
         try:
-            rows = _live_rows(conn, "cron.jobs")
+            rows = _live_rows(conn, "cron.jobs", deleted_too)
         finally:
             conn.close()
     except sqlite3.Error as error:
@@ -237,9 +244,11 @@ def _sq_lease(job_id: str, occurrence_ms: int) -> tuple[int, Json] | None:
 # --- what the readers call ----------------------------------------------------------------------------
 
 
-def jobs() -> list[Json]:
-    """Every job. Raises Unavailable when the store cannot be read."""
-    return _sq_jobs() if backend() == "sqlite" else _core_jobs()
+def jobs(include_deleted: bool = False) -> list[Json]:
+    """Every job. Raises Unavailable when the store cannot be read. `include_deleted` is for readers
+    that name the job behind a run on record (a deleted job's runs stay in the history); the
+    scheduler-facing readers leave it off. The core's cron_list only has live jobs either way."""
+    return _sq_jobs(include_deleted) if backend() == "sqlite" else _core_jobs()
 
 
 def runs() -> list[Json]:
@@ -279,7 +288,7 @@ def claim(job: Json, occurrence_ms: int, now_ms: int) -> tuple[Any, bool]:
         return identity, expires_ms > now_ms and renewed_ms >= now_ms - _LEASE_FRESH_SECS * 1000
     running = job.get("running_ms")
     identity = (running, job.get("last_run_ms"))
-    return identity, isinstance(running, (int, float)) and 0 <= now_ms - running < CLAIM_MAX_MS
+    return identity, isinstance(running, (int, float)) and -CLAIM_SKEW_MS <= now_ms - running < CLAIM_MAX_MS
 
 
 def claim_now(job_id: str, occurrence_ms: int, now_ms: int) -> tuple[Any, bool]:

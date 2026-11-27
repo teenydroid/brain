@@ -32,11 +32,15 @@ function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let over = false;
     req.on("data", (c: Buffer) => {
+      if (over) return; // the rest is read and dropped, never kept
       size += c.length;
       if (size > MAX_BODY) {
+        over = true;
+        chunks.length = 0;
+        // The socket stays up so the 413 can be sent; the caller closes it after the answer.
         reject(new RpcError("request body too large", -32600));
-        req.destroy();
         return;
       }
       chunks.push(c);
@@ -60,7 +64,12 @@ export async function handleRpc(opts: HttpOptions, raw: string): Promise<unknown
     return rpcError(null, -32700, "parse error");
   }
   if (typeof req !== "object" || req === null || Array.isArray(req)) return rpcError(null, -32600, "invalid request");
-  const { id, method, params } = req as { id?: unknown; method?: unknown; params?: unknown };
+  const { id, method, params, jsonrpc } = req as { id?: unknown; method?: unknown; params?: unknown; jsonrpc?: unknown };
+  // Checked before any handler runs: a "1.0" request must not change state, and an object id is not echoed back.
+  if (jsonrpc !== "2.0") return rpcError(null, -32600, 'invalid request: jsonrpc must be "2.0"');
+  if (id !== undefined && id !== null && typeof id !== "string" && typeof id !== "number") {
+    return rpcError(null, -32600, "invalid request: id must be a string, a number or null");
+  }
   if (typeof method !== "string") return rpcError(id, -32600, "invalid request: method must be a string");
   const name = method.startsWith(PREFIX) ? method.slice(PREFIX.length) : method;
   const handler = opts.registry.get(name);
@@ -96,6 +105,7 @@ export function createHttpServer(opts: HttpOptions): Server {
       try {
         body = await readBody(req);
       } catch (e) {
+        res.setHeader("connection", "close");
         return send(res, 413, rpcError(null, -32600, e instanceof Error ? e.message : "bad body"));
       }
       send(res, 200, await handleRpc(opts, body));

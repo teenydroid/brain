@@ -10,7 +10,7 @@ import { base58 } from "@scure/base";
 import { Keypair } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { evmPrivateKey, seedOf, solanaKeypair } from "../../src/wallet/derive.js";
-import { safeError, trackSecret } from "../../src/wallet/errors.js";
+import { safeError, trackSecret, withSecretScope } from "../../src/wallet/errors.js";
 import { build } from "../../src/wallet/giveaway.js";
 import { TOKEN_2022_PROGRAM } from "../../src/wallet/solana-program.js";
 import { type Harness, json, makeHarness, mockEvm, mockSolana, policyConfig, setupWallet } from "./helpers.js";
@@ -206,11 +206,24 @@ describe("no method, error, log or file ever carries key material", () => {
     for (const w of [0, 7, 12, 20]) expect(text).not.toContain(phrase.split(" ").slice(w, w + 3).join(" "));
   });
 
-  it("scrubs a tracked secret out of any error that would carry it", () => {
-    trackSecret(PHRASE);
-    const err = safeError(new Error(`rpc exploded while handling ${PHRASE} and more`));
-    expect(err.message).not.toContain(PHRASE);
-    expect(err.message).toContain("[redacted]");
+  it("scrubs a tracked secret out of any error that would carry it", async () => {
+    await withSecretScope(async () => {
+      trackSecret(PHRASE);
+      const err = safeError(new Error(`rpc exploded while handling ${PHRASE} and more`));
+      expect(err.message).not.toContain(PHRASE);
+      expect(err.message).toContain("[redacted]");
+    });
+  });
+
+  it("scrubs a phrase that straddles the 500th character, and forgets it when the call ends", async () => {
+    await withSecretScope(async () => {
+      trackSecret(PHRASE);
+      const err = safeError(new Error(`${"x".repeat(480)}${PHRASE}`));
+      expect(err.message).not.toContain(PHRASE.split(" ").slice(0, 2).join(" "));
+      expect(err.message.length).toBeLessThanOrEqual(500);
+    });
+    // outside the call that registered it, the phrase is no longer held anywhere
+    expect(safeError(new Error(`kept ${PHRASE}`)).message).toContain(PHRASE);
   });
 
   it("never returns the seed from wallet_derive_recovery_material, only public accounts", async () => {

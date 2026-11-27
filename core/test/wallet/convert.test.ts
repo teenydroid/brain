@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { base58 } from "@scure/base";
@@ -138,7 +138,7 @@ describe("a quote's life", () => {
   async function quoted(h: Harness): Promise<string> {
     const me = await own(h, "evm");
     h.net.onHttp((u) => u.includes("li.quest"), () => json(lifiFixture("base_eth_to_usdc_swap.json")));
-    const q = (await h.call("web3_swap_quote", { chainId: "8453", tokenIn: ZERO, tokenInAmount: "1", tokenOut: BASE_USDC, tokenOutRecipient: me, senderAddress: me, slippage: "lifi:1" })) as { quoteId: string };
+    const q = (await h.call("web3_swap_quote", { chainId: "8453", tokenIn: ZERO, tokenInAmount: "5000000000000000", tokenOut: BASE_USDC, tokenOutRecipient: me, senderAddress: me, slippage: "lifi:1" })) as { quoteId: string };
     return q.quoteId;
   }
 
@@ -159,13 +159,20 @@ describe("a quote's life", () => {
   });
 
   it("does not touch the transfer caps, and is not counted by them", async () => {
+    // The swap spends SOL, and the transfer afterwards uses the whole SOL cap: a swap counted against it would refuse the transfer.
     const h = makeHarness({ config: policyConfig([{ chain: "solana", symbol: "SOL", perTx: 1000, daily: 1000 }]) });
     await setupWallet(h);
-    mockSolana(h.net);
-    mockEvm(h.net);
-    await h.call("web3_swap_execute", { quoteId: await quoted(h), confirmed: true });
+    const { sent } = mockSolana(h.net);
+    const me = await own(h, "solana");
+    h.net.onHttp(
+      (u) => u.startsWith("https://dln.debridge.finance/v1.0/chain/transaction"),
+      () => json({ tokenIn: { address: "11111111111111111111111111111111", amount: "100000000" }, tokenOut: { address: SOL_USDC, amount: "9000000" }, tx: { data: solanaTx(me) } }),
+    );
+    const swap = (await h.call("web3_swap_quote", { chainId: "7565164", tokenIn: "11111111111111111111111111111111", tokenInAmount: "100000000", tokenOut: SOL_USDC })) as { quoteId: string };
+    await h.call("web3_swap_execute", { quoteId: swap.quoteId, confirmed: true });
     const t = (await h.call("wallet_prepare_transfer", { chain: "solana", toAddress: Keypair.generate().publicKey.toBase58(), amountRaw: "1000" })) as { quoteId: string };
     await h.call("wallet_execute_prepared", { quoteId: t.quoteId, confirmed: true }); // the swap row is not in the day's total
+    expect(sent).toHaveLength(2);
   });
 });
 
@@ -316,5 +323,71 @@ describe("a dapp call is only ever an exact USDC approval for a contract we can 
     h.clock.now += 91_000;
     expect(await refused(call(h, { calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote/);
     expect(q.quoteId).toBeTruthy();
+  });
+});
+
+describe("review fixes: what a quote is bound to", () => {
+  const PINNED = "ef4fb24ad0916217251f553c0596f8edc630eb66";
+
+  it("refuses to sign more native value than the amount the caller confirmed", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    const { sent } = mockEvm(h.net);
+    const me = await own(h, "evm");
+    h.net.onHttp((u) => u.includes("li.quest"), () => json(lifiFixture("base_eth_to_usdc_swap.json")));
+    // the recorded transaction sends 5e15 wei; the quote was asked for 1
+    const q = (await h.call("web3_swap_quote", { chainId: "8453", tokenIn: ZERO, tokenInAmount: "1", tokenOut: BASE_USDC, tokenOutRecipient: me, senderAddress: me, slippage: "lifi:1" })) as { quoteId: string };
+    await expect(h.call("web3_swap_execute", { quoteId: q.quoteId, confirmed: true })).rejects.toThrow(/more native value than the confirmed amount/);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("does not hand out a quote when the wallet was replaced while the provider answered", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    mockEvm(h.net);
+    const me = await own(h, "evm");
+    h.net.onHttp((u) => u.includes("li.quest"), () => {
+      const file = join(h.stateDir, "wallet", "wallet-state.json");
+      const state = JSON.parse(readFileSync(file, "utf8"));
+      state.encryptedMnemonic = `${state.encryptedMnemonic}x`;
+      writeFileSync(file, JSON.stringify(state));
+      return json(lifiFixture("base_eth_to_usdc_swap.json"));
+    });
+    await expect(
+      h.call("web3_swap_quote", { chainId: "8453", tokenIn: ZERO, tokenInAmount: "5000000000000000", tokenOut: BASE_USDC, tokenOutRecipient: me, senderAddress: me, slippage: "lifi:1" }),
+    ).rejects.toThrow(/wallet changed while the quote was requested/);
+  });
+
+  it("does not let a quote for another contract vouch for a pinned spender", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    mockEvm(h.net);
+    const me = await own(h, "evm");
+    h.net.onHttp((u) => u.includes("li.quest"), () => json(lifiFixture("base_usdc_to_arbitrum.json")));
+    await h.call("web3_bridge_quote", {
+      srcChainId: "8453",
+      srcChainTokenIn: BASE_USDC,
+      srcChainTokenInAmount: "5000000",
+      dstChainId: "42161",
+      dstChainTokenOut: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      dstChainTokenOutAmount: "lifi:auto",
+      dstChainTokenOutRecipient: me,
+      srcChainOrderAuthorityAddress: me,
+      dstChainOrderAuthorityAddress: me,
+    });
+    await expect(
+      h.call("web3_dapp_call", { contractAddress: BASE_USDC, calldata: approve(PINNED, 1000n), valueRaw: "0", evmNetwork: "base_mainnet" }),
+    ).rejects.toThrow(/is not covered by a live swap or bridge quote/);
+  });
+
+  it("refuses to sign an approval once the quote that justified it has expired", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    const { sent } = mockEvm(h.net);
+    await liveQuote(h, "5000000");
+    const approval = (await h.call("web3_dapp_call", { contractAddress: BASE_USDC, calldata: approve(PINNED, 5_000_000n), valueRaw: "0", evmNetwork: "base_mainnet" })) as { quoteId: string };
+    h.clock.now += 100_000; // past the route's 90s, inside the approval's 120s
+    await expect(h.call("web3_dapp_execute", { quoteId: approval.quoteId, confirmed: true })).rejects.toThrow(/WALLET_POLICY_REFUSED: a dapp call may only approve USDC/);
+    expect(sent).toHaveLength(0);
   });
 });

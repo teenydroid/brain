@@ -3,6 +3,7 @@
 import { encodeFunctionData, isAddress, parseAbi, getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { EvmRpc } from "./rpc.js";
+import { withMutex } from "./util.js";
 
 const ERC20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)", "function balanceOf(address owner) view returns (uint256)"]);
 
@@ -51,6 +52,15 @@ export async function signEvmTransaction(rpc: EvmRpc, privateKey: `0x${string}`,
     maxFeePerGas: base * 2n + tip,
     maxPriorityFeePerGas: tip,
   });
+}
+
+/**
+ * Reads the pending nonce, signs and broadcasts as one step per sender and chain, so two sends from the same
+ * account in this process cannot both read the same nonce (one would be refused, or replace the other).
+ */
+export async function signAndBroadcast(rpc: EvmRpc, privateKey: `0x${string}`, chainId: number, tx: EvmTx): Promise<string> {
+  const sender = privateKeyToAccount(privateKey).address.toLowerCase();
+  return withMutex(`evm-send:${chainId}:${sender}`, async () => sendRaw(rpc, await signEvmTransaction(rpc, privateKey, chainId, tx)));
 }
 
 export async function sendRaw(rpc: EvmRpc, raw: string): Promise<string> {

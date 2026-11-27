@@ -22,7 +22,7 @@ export function isSolanaAddress(text: string): boolean {
 }
 
 export async function solBalance(rpc: SolanaRpc, address: string): Promise<bigint> {
-  const answer = await rpc.call<{ value: number }>("getBalance", [address, { commitment: "confirmed" }]);
+  const answer = await rpc.callExact<{ value: string | number }>("getBalance", [address, { commitment: "confirmed" }], ["value"]);
   return BigInt(answer.value);
 }
 
