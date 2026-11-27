@@ -201,7 +201,7 @@ switch = "BABYSIT_SELF_MERGE_ALL"
 # on 2026-11-11 a revoked key left Teeny without a model for seven hours and
 # nothing said so; the brain does not get to switch off its own watcher.
 [jobs.health]
-schedule = "*/30 * * * *"
+schedule = "*/15 * * * *"
 command = "bin/health"
 
 # Yesterday's health as one stimulus (bin/health daily; docs/roadmap.md, A4):
