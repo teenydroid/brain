@@ -225,12 +225,16 @@ def _quoted(reads: Any, quote_of: str) -> Json | None:
     return target
 
 
-def _author_of(reads: Any, post_id: str) -> str | None:
+def _author_of(reads: Any, post_id: str, *, strict: bool = False) -> str | None:
     """Who wrote an earlier quoted post, for a ledger row that predates
-    `quote_author`. A post X no longer shows is nobody's."""
+    `quote_author`. A post X no longer shows is nobody's. A failed read is
+    nobody's too, unless `strict`: the engaged-first check needs the error,
+    so a rate limit is not mistaken for "this post never summoned us"."""
     try:
         post = reads.get_post(post_id)
     except XError:
+        if strict:
+            raise
         return None
     return post.get("authorId") if post else None
 
@@ -319,15 +323,36 @@ def _in_doubt(error: XError) -> bool:
     return error.status is None or error.status >= 500
 
 
+def _quote_read(x: Any) -> Any:
+    """The re-read `check_engaged_first` makes of a stored mention that does
+    not say what it quotes: always the X API (twitr's post shape drops quote
+    references), and kept in the post cache with `quotedId` set (to "" when it
+    quotes nothing), so a retry does not pay for it again."""
+    api = getattr(x, "x_api", x)
+
+    def fresh(post_id: str) -> Json | None:
+        post = api.get_post(post_id)
+        if post is not None:
+            post = {**post, "quotedId": post.get("quotedId") or ""}
+            cache.remember([post])
+        return post
+
+    return fresh
+
+
 def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """A reply to post `to`: guard (told whom it answers), length, never the
     account's own post, attachments, then under the replying lock one reply
     per post and the pacing. The reply id is recorded the moment X returns
     it, before the ledger or anything else that can fail."""
     if not rules.is_x_id(to):
-        raise hand.HandError("--to must be a numeric X post id")
+        raise hand.HandError(f"--to {rules.x_id_problem(to)}")
     body, tagged = tags.split(body)
     text, media_ids, gif_id, _ = _draft(body, quote=False)
+    # A reply already sent or refused by X is turned away before any read,
+    # paid or cached: a retry after a 403 costs nothing.
+    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
+    rules.check_not_replied(conn, to)
     x = x or twitr.client()
     reads = cache.reads(x)
     target = reads.get_post(to)
@@ -348,8 +373,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     rules.check_length(text)
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()
-    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
-    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id))
+    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id, strict=True), _quote_read(x))
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)
@@ -366,6 +390,17 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
         except XError as error:
             if _in_doubt(error):
                 rules.note_reply_in_doubt(conn, to, str(error))
+            elif error.status == 403:
+                # X refuses this post, and will again: keep the claim, marked,
+                # so a retry is refused here instead of probing X.
+                rules.note_reply_refused(conn, to, str(error))
+                raise hand.Refused(
+                    f"{error} for a reply to post {to}: X refuses an API reply unless the post's author tagged the "
+                    "account in its text or quoted one of its posts, and refuses this post the same way on every "
+                    "try. Nothing was published; leave this post unanswered. Other replies are unaffected.",
+                    rule="x_refused",
+                    status=403,
+                ) from None
             else:
                 rules.release_reply(conn, to)
             raise
@@ -395,7 +430,7 @@ def follow_up(to: str, body: Any, x: XApi | None = None) -> Json:
     own post: no gap, no daily cap. hands/giveaway
     threads a round's judge pick, countdown and winners under its post."""
     if not rules.is_x_id(to):
-        raise hand.HandError("--to must be a numeric X post id")
+        raise hand.HandError(f"--to {rules.x_id_problem(to)}")
     body, tagged = tags.split(body)
     text, media_ids, gif_id, _ = _draft(body, quote=False)
     conn = _db()

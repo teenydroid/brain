@@ -56,6 +56,15 @@ def _metrics(post_id: str, raw: Mapping[str, Any]) -> Json:
     return metrics
 
 
+def _quoted_id(references: Any) -> str | None:
+    """The post a post quotes, from its `referenced_tweets`; None when it
+    quotes nothing (or X did not say)."""
+    for reference in references if isinstance(references, list) else []:
+        if isinstance(reference, Mapping) and reference.get("type") == "quoted" and isinstance(reference.get("id"), str):
+            return reference["id"] or None
+    return None
+
+
 def to_posts(data: Any, includes: Mapping[str, Any] | None) -> list[Json]:
     """Posts X returned, with authors and attachments joined in from
     `includes`. A post without an id or text is dropped."""
@@ -84,6 +93,7 @@ def to_posts(data: Any, includes: Mapping[str, Any] | None) -> list[Json]:
         _put(post, "conversationId", raw.get("conversation_id"))
         _put(post, "createdAt", raw.get("created_at"))
         _put(post, "inReplyToUserId", raw.get("in_reply_to_user_id"))
+        _put(post, "quotedId", _quoted_id(raw.get("referenced_tweets")))
         media = []
         for key in (raw.get("attachments") or {}).get("media_keys") or []:
             item = attachments.get(key)

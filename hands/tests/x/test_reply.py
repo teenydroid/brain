@@ -117,6 +117,17 @@ class ReplyTest(Replying):
             with self.assertRaises(hand.HandError, msg=bad):
                 publish.reply(bad, {"text": "hi"})
 
+    def test_an_id_longer_than_any_x_id_is_refused_before_x(self):
+        # 2026-11-26 11:42: two ids run together or with a piece repeated
+        # reached X, which answered each with a bare 400 "Invalid Request".
+        for bad in ("2125916408408169083238", "21259171012502805065", "9223372036854775808"):
+            with self.subTest(bad=bad), self.assertRaises(hand.HandError) as caught:
+                publish.reply(bad, {"text": "hi"})
+            self.assertIn("at most 19", str(caught.exception))
+        self.assertEqual(self.x.requests("GET", "/2/tweets/2125916408408169083238"), [])
+        self.assertEqual(self.posted(), [])
+        self.assertTrue(posting_rules.is_x_id("9223372036854775807"))
+
     def test_a_reply_cannot_quote(self):
         with self.assertRaises(hand.HandError):
             publish.reply("5", {"text": "hi", "quote_of": "6"})
@@ -207,13 +218,40 @@ class RecordFirstTest(Replying):
             publish.reply("5", {"text": "again"})
         self.assertEqual(len(self.posted()), 1, "answered once")
 
-    def test_a_reply_x_refused_may_be_tried_again(self):
-        self.x.route("POST", "/2/tweets", {"title": "Forbidden"}, status=403)
-        with self.assertRaisesRegex(XError, "403"):
-            publish.reply("5", {"text": "hi"})
-        self.assertEqual(self.table("x_replies"), [])
+    def test_a_reply_x_said_no_to_may_be_tried_again(self):
+        for answer, status in (({"title": "Too Many Requests"}, 429), ({"title": "Invalid Request"}, 400)):
+            with self.subTest(status=status):
+                self.x.route("POST", "/2/tweets", answer, status=status)
+                with self.assertRaisesRegex(XError, str(status)):
+                    publish.reply("5", {"text": "hi"})
+                self.assertEqual(self.table("x_replies"), [])
         self.x.route("POST", "/2/tweets", {"data": {"id": "99"}}, status=201)
         self.assertEqual(publish.reply("5", {"text": "hi"})["id"], "99")
+
+    def test_a_post_x_refused_with_a_403_is_not_tried_again(self):
+        # 2026-11-27 09:13-09:36: three replies to 2126239425290256747, each
+        # a 403 "Authorization Error" from X, because each try reached X.
+        self.x.route("POST", "/2/tweets", {"title": "Authorization Error", "status": 403}, status=403)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("5", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertIn("Authorization Error", str(caught.exception))
+        [row] = self.table("x_replies")
+        self.assertIsNone(row["reply_id"])
+        self.x.route("POST", "/2/tweets", {"data": {"id": "99"}}, status=201)
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("5", {"text": "hi again"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertEqual(len(self.x.requests("POST", "/2/tweets")), 1, "the retry never reached X")
+
+    def test_a_403_on_one_post_leaves_the_others_open(self):
+        self.x.route("POST", "/2/tweets", {"title": "Authorization Error"}, status=403)
+        with self.assertRaises(hand.Refused):
+            publish.reply("5", {"text": "hi"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "99"}}, status=201)
+        self.at(T0 + HOUR)
+        self.assertEqual(publish.reply("6", {"text": "hi"})["id"], "99")
 
     def test_a_reply_whose_fate_is_unknown_is_never_risked_twice(self):
         for answer, status in (({"errors": [{"message": "odd"}]}, 200), ({"title": "Bad Gateway"}, 502)):
@@ -293,16 +331,168 @@ class EngagedFirstTest(Replying):
             publish.reply("20", {"text": "hi"})
         self.assertEqual(caught.exception.detail["rule"], "unsolicited")
 
-    def test_a_stored_mention_is_answered(self):
+    def stored(self, post_id: str) -> None:
         from teeny_hands.x import mentions
 
-        self.stranger("21", "what do you think of this")
         conn = hand.db()
         conn.executescript(mentions.SCHEMA)
-        conn.execute("INSERT INTO x_mentions (id, text, post, status, seen_at, updated_at) VALUES ('21', 't', '{}', 'offered', 0, 0)")
+        conn.execute("INSERT INTO x_mentions (id, text, post, status, seen_at, updated_at) VALUES (?, 't', '{}', 'offered', 0, 0)",
+                     (post_id,))
         conn.commit()
+
+    def test_a_stored_mention_that_tags_the_account_is_answered(self):
+        self.stranger("21", "@teenydroid what do you think of this")
+        self.stored("21")
         publish.reply("21", {"text": "hi"})
         self.assertEqual(len(self.posted()), 1)
+
+    def test_a_stored_mention_tagged_only_past_the_long_post_cut_is_refused(self):
+        # 2026-11-26/27: X's webhook sent these as mentions because the tag
+        # sat in the long post's `note_tweet`, past the 280 characters `text`
+        # carries; X refused every reply with a 403 "Authorization Error".
+        cut = ("So this is my Tiny profile. Been part of the $TINY community for a while. Beside of holding i am "
+               "having fun with the best team and community in chats, couple of facts for you: Verified. Multiple")
+        self.stranger("2125837042399461736", "@isellbeforeyou " + cut, conversation_id="2125812595093291024",
+                      in_reply_to_user_id="1851416567445409792")
+        self.x.route("GET", "/2/tweets/2125812595093291024", target("2125812595093291024", author_id="1851416567445409792"))
+        self.stored("2125837042399461736")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("2125837042399461736", {"text": "elite burner, the room decorated you proper"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        self.assertIn("280", str(caught.exception))
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+
+    def test_a_post_quoting_an_own_post_is_answered(self):
+        self.x.route("GET", "/2/tweets/80", target("80", author_id="1000", username="teenydroid"))
+        self.stranger("27", "this is the part most people overlook", referenced_tweets=[{"type": "quoted", "id": "80"}])
+        publish.reply("27", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_quoting_somebody_else_s_post_is_refused(self):
+        # 2125901517383156189 quoted a post by senamakel and tagged the
+        # account only in its long tail: a 403 at X.
+        self.x.route("GET", "/2/tweets/81", target("81", author_id="43", username="other"))
+        self.stranger("28", "don't underestimate tiny", referenced_tweets=[{"type": "quoted", "id": "81"}])
+        self.stored("28")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("28", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        self.assertEqual(self.posted(), [])
+
+    def test_a_stored_mention_whose_copy_does_not_say_what_it_quotes_is_read_again(self):
+        from teeny_hands.x import cache
+
+        self.x.route("GET", "/2/tweets/82", target("82", author_id="1000", username="teenydroid"))
+        # The webhook's copy, cached: no word of the quote.
+        cache.remember([{"id": "29", "text": "we outship the leaderboard", "authorId": "42", "authorUsername": "someone",
+                         "conversationId": "29"}])
+        self.stranger("29", "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": "82"}])
+        self.stored("29")
+        publish.reply("29", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def webhook_copy(self, post_id: str, quoting: str, quoted_author: str) -> None:
+        """A stored mention whose cached copy says nothing of its quote, while
+        X's own read of it does."""
+        from teeny_hands.x import cache
+
+        self.x.route("GET", f"/2/tweets/{quoting}", target(quoting, author_id=quoted_author, username="whoever"))
+        cache.remember([{"id": post_id, "text": "we outship the leaderboard", "authorId": "42",
+                         "authorUsername": "someone", "conversationId": post_id}])
+        self.stranger(post_id, "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": quoting}])
+        self.stored(post_id)
+
+    def test_a_failed_quote_read_is_not_a_refusal(self):
+        # A rate limit or an outage while reading the stored mention again
+        # leaves the quote unknown, not absent: the error is retryable (not a
+        # Refused, which the mention consumer would record as `refused` for
+        # good) and nothing is claimed or sent.
+        self.webhook_copy("30", "83", "1000")
+        self.x.route("GET", "/2/tweets/30", {"title": "Too Many Requests"}, status=429)
+        with self.assertRaises(XError):
+            publish.reply("30", {"text": "hi"})
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+        # The next run, with X answering, reads it again and replies.
+        self.x.route("GET", "/2/tweets/30", {"data": {"id": "30", "text": "we outship the leaderboard", "author_id": "42",
+                     "conversation_id": "30", "referenced_tweets": [{"type": "quoted", "id": "83"}]},
+                     "includes": {"users": [{"id": "42", "username": "someone"}]}})
+        self.at(T0 + HOUR)
+        publish.reply("30", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_retry_does_not_read_the_same_post_again(self):
+        self.webhook_copy("31", "84", "43")
+        for _ in range(2):
+            with self.assertRaises(hand.Refused) as caught:
+                publish.reply("31", {"text": "hi"})
+            self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        # Once, for the first try; the answer ("quotes somebody else") is kept.
+        self.assertEqual(len(self.x.requests("GET", "/2/tweets/31")), 1)
+
+    def test_an_x_refused_post_is_turned_away_before_any_read(self):
+        self.webhook_copy("32", "85", "1000")
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.claim_reply(conn, "32")
+        posting_rules.note_reply_refused(conn, "32", "403 Authorization Error")
+        conn.commit()
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("32", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertEqual(self.x.requests("GET", "/2/tweets/32"), [])
+        self.assertEqual(self.posted(), [])
+
+    def test_an_x_refused_post_makes_no_x_read_even_with_nothing_cached(self):
+        # Cache expired or off: the retained 403 still turns the retry away
+        # before the target or the identity is read.
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.claim_reply(conn, "5")
+        posting_rules.note_reply_refused(conn, "5", "403 Authorization Error")
+        conn.commit()
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("5", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertEqual(self.x.requests("GET", "/2/tweets/5"), [])
+        self.assertEqual(self.x.requests("GET", "/2/users/me"), [])
+
+    def test_a_post_not_stored_as_a_mention_is_read_again_for_its_quote(self):
+        # Read through twitr the post carries no quote reference; it is not a
+        # stored mention, but it quotes an own post, so it is answered.
+        from teeny_hands.x import cache
+
+        self.x.route("GET", "/2/tweets/86", target("86", author_id="1000", username="teenydroid"))
+        cache.remember([{"id": "34", "text": "we outship the leaderboard", "authorId": "42", "authorUsername": "someone",
+                         "conversationId": "34"}])
+        self.stranger("34", "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": "86"}])
+        publish.reply("34", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_failed_quote_author_read_is_not_a_refusal(self):
+        # The quoted post's author cannot be read right now (rate limit): that
+        # is a retryable error, not "never summoned us".
+        self.x.route("GET", "/2/tweets/87", {"title": "Too Many Requests"}, status=429)
+        self.stranger("35", "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": "87"}])
+        with self.assertRaises(XError):
+            publish.reply("35", {"text": "hi"})
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+
+    def test_the_quote_is_read_from_the_x_api_when_reads_go_through_twitr(self):
+        # twitr's post shape carries no quote reference, so the re-read goes to
+        # the X API behind the router.
+        class Router:
+            x_api = mock.Mock()
+
+            def get_post(self, post_id):  # pragma: no cover - must not be used
+                raise AssertionError("read through twitr")
+
+        Router.x_api.get_post.return_value = {"id": "33", "text": "t"}
+        post = publish._quote_read(Router())("33")
+        Router.x_api.get_post.assert_called_once_with("33")
+        self.assertEqual(post["quotedId"], "")
 
     def test_a_post_that_tags_the_account_in_any_case_is_answered(self):
         self.stranger("22", "@TeenyDroid what are you")
@@ -322,6 +512,24 @@ class EngagedFirstTest(Replying):
         self.stranger("24", "deep in the thread", conversation_id="77")
         publish.reply("24", {"text": "hi"})
         self.assertEqual(len(self.posted()), 1)
+
+    def test_a_ledger_conversation_is_accepted_before_the_paid_quote_read(self):
+        # Under one of the account's own posts it already qualifies, so a
+        # rate-limited quote re-read must not block the reply.
+        from teeny_hands.x import cache
+
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "77", "post", "gm", created_at=T0 - HOUR)
+        conn.commit()
+        cache.remember([{"id": "35", "text": "deep in the thread", "authorId": "42", "authorUsername": "someone",
+                         "conversationId": "77"}])
+        self.stranger("35", "deep in the thread", conversation_id="77")
+        self.stored("35")
+        self.x.route("GET", "/2/tweets/35", {"title": "Too Many Requests"}, status=429)
+        publish.reply("35", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(self.x.requests("GET", "/2/tweets/35"), [])
 
     def test_a_post_under_an_own_post_the_ledger_never_saw_is_answered(self):
         self.x.route("GET", "/2/tweets/78", target("78", author_id="1000", username="teenydroid"))
