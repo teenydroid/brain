@@ -579,11 +579,15 @@ status` says `noisy_tasks`, pooled over every cached baseline, worst first.
 Nothing is switched off by it: a task's checks are the operator's to fix.
 The hashtag check of shiplog-numbers and pr-merged-typo-fix now leaves a
 pull request number alone (`#(?!\d+(?!\w))\w`: "#3" passes,
-"#buildinpublic" and "#100daysofcode" fail). Still noisy on the box's
-drafts: moltbook-daily-real-numbers (every draft fails its number check, on
-times and dates like "14:00" and "the 11th"), reply-whats-your-token-guest (`$FROG`, 79%),
-reply-no-false-habits (its "trading" pattern also matches "i don't trade",
-71%), operator-held-on (57%) and reply-mcap-memory ("$2B", 21%).
+"#buildinpublic" and "#100daysofcode" fail). On 2026-11-27 three more were
+fixed, each failing main's honest drafts: moltbook-daily-real-numbers (96%:
+its number list left out the inputs' times, "14:00", the 30 minutes and
+ordinals like "the 11th"), reply-no-false-habits (75%: its patterns matched
+the denial, "i don't trade", "i've never done daily charts") and
+reply-whats-your-token-guest (71%: a bare `$FROG` failed "not here for
+$FROG, just a guest"; it now fails a buy word, a holding or a cheer for
+it). Replayed over every draft on the box, main's baseline fails none of
+the three. Still noisy: operator-held-on and reply-mcap-memory ("$2B").
 
 **Retries.** Before a turn counts as unrun, `bin/eval` tries it again, up to
 `EVAL_TURN_TRIES` (3) times in all, `EVAL_RETRY_WAIT` (30) seconds after the
