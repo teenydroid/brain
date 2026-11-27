@@ -380,7 +380,9 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   const bound = (server.address() as AddressInfo).port;
   servingSince = Date.now();
   if (supervisor) await supervisor.start();
-  await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
+  // With no Gateway (a test core) there is nothing to check cron against, and asking the CLI would
+  // wait out the Gateway-unreachable retry window before the core serves anything.
+  if (!opts.noGateway) await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
   log("info", "serving", { host, port: bound });
 
   return {

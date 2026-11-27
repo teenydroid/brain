@@ -198,6 +198,30 @@ function judgeGit(rules: PathRules, args: Word[], cwd: string): string | undefin
   return checkArgPaths({ ...rules, workspace: resolve(cwd, dir) }, rest, GIT_WRITES.has(sub) ? "write" : "read", `git ${sub}`);
 }
 
+/** npm, pnpm and yarn subcommands that run a program named on the command line (or fetch one and run it). */
+const PM_RUNNERS = new Set(["exec", "x", "dlx", "create", "init", "explore", "npx", "pnpx"]);
+/** Options that hand the package manager a command or shell to run. */
+const PM_DENIED_OPTS = ["--call", "-c", "--script-shell", "--shell", "--node-options", "--userconfig", "--globalconfig"];
+
+/**
+ * npm, pnpm and yarn run programs for the agent (`npm test` runs the project's own script, which is the point of
+ * allowing them), but not an arbitrary one named on the command line: `npm exec --call 'cat secrets/x'` would run
+ * outside the path checks, as the Gateway's user.
+ */
+function judgePackageManager(name: string, args: Word[]): string | undefined {
+  for (const w of args) {
+    // A quoted word is still an option to npm: the shell strips the quotes before it sees it.
+    if (!w.text.startsWith("-") || w.text.length < 2) continue;
+    const opt = w.text.split("=")[0] as string;
+    if (PM_DENIED_OPTS.includes(opt)) return `${name} ${opt} runs a command named on the command line`;
+  }
+  // Any word before `--`, not only the first: `npm --prefix x exec cat` has an option value in front of the subcommand.
+  const end = args.findIndex((w) => w.text === "--");
+  const sub = (end < 0 ? args : args.slice(0, end)).find((w) => !isFlag(w) && PM_RUNNERS.has(w.text))?.text;
+  if (sub) return `${name} ${sub} runs a program named on the command line, outside the guard's checks`;
+  return undefined;
+}
+
 function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment, cwd: string): { rewrites: { start: number; end: number; to: string }[] } | { reason: string } {
   const exec = agent.exec as NonNullable<AgentPolicy["exec"]>;
   const rules = pathRules(policy, agent, cwd);
@@ -303,6 +327,10 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
       const why = judgeGit(rules, args, cwd);
       if (why) return { reason: why };
       return { rewrites };
+    }
+    if (["npm", "pnpm", "yarn"].includes(name)) {
+      const pm = judgePackageManager(name, args);
+      if (pm) return { reason: pm };
     }
     const why = checkArgPaths(rules, args, "read", name);
     if (why) return { reason: why };

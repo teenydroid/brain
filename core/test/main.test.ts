@@ -427,11 +427,16 @@ describe("cron wiring", () => {
     writeFileSync(join(dir, ".openhuman", "config.toml"), "[cron]\nshell_timeout_secs = 60\n");
     expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(60);
 
-    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}` });
+    // No Gateway here, so the CLI is a stub that answers "unreachable" at once: the real CLI takes
+    // seconds to start on a busy runner, and a non-probe call retries an unreachable Gateway for 90 s.
+    const stub = join(dir, "openclaw-stub");
+    writeFileSync(stub, "#!/bin/sh\necho 'gateway closed' >&2\nexit 1\n", { mode: 0o755 });
+    const t = await startTestCore({ OPENHUMAN_STORAGE_URL: `sqlite:${join(dir, "storage.db")}`, OPENCLAW_BIN: stub });
     try {
-      // The test core has no Gateway, so the automations CLI answers an error; the method is served.
-      const res = await t.rpc("cron_list", {});
+      // The method is served; the probe asks once and answers an error without waiting.
+      const res = await t.rpc("cron_list", { probe: true });
       expect(res.error?.code).not.toBe(-32601);
+      expect(res.error?.message).toContain("cron is closed");
     } finally {
       await t.core.stop();
     }
