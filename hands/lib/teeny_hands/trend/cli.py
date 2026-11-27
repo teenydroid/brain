@@ -10,7 +10,8 @@ give a drafting agent.
                         one story's sources (X posts and pages), by Digg's rank
 
 A failure is {"ok": false, "error", "reason"}, exit 1, `reason` one of
-missing, timeout, rate_limited, failed, bad_json (teeny_hands.trend.digg),
+missing (kept, never raised now), timeout, rate_limited, failed, bad_json
+(teeny_hands.trend.digg),
 or empty for a leaderboard with no story.
 """
 
