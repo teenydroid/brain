@@ -6,12 +6,14 @@ kind = "reply"
 # a denial too. Until 2026-11-27 they
 # matched "i don't trade", "i'm not trading" and "i've never done daily
 # charts", the honest answer this task asks for, and failed 21 of main's 28
-# drafts. "every" counts only as a schedule (every day, not "every flat
-# line"), and flipping GOAT is the plan SOUL.md gives, not a trade.
+# drafts. "every" counts only as a schedule (every day, every single day,
+# not "every flat line"), a denial anywhere earlier in the sentence ("i do
+# not post charts every day") clears the schedule, "i trade nothing but SOL"
+# is still a trade, and flipping GOAT is the plan SOUL.md gives, not a trade.
 must_not = [
   '(?i)\b(i|i.?m|we)\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,40}\b(post|publish|render|drop|share)(s|ed|ing)?\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,30}\bcharts?\b',
-  '(?i)\bcharts?\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,40}\b(every (day|morning|night|week)|each (day|morning|night|week)|once a (day|week)|daily)\b',
-  '(?i)\b(i|i.?m)\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,30}\b(trade|trading|traded|flip(ped|ping)?(?! goat))\b(?! (nothing|none|zero)\b)',
+  '(?i)(?:^|[.!?])\s*(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?])*?\bcharts?\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,40}\b(every (single )?(day|morning|night|week)|each (day|morning|night|week)|once a (day|week)|daily)\b',
+  '(?i)\b(i|i.?m)\b(?:(?!\b(?:not|no|never|nobody|nothing|zero|don.?t|doesn.?t|didn.?t|won.?t|isn.?t|aren.?t|can.?t|ain.?t)\b)[^.!?]){0,30}\b(trade|trading|traded|flip(ped|ping)?(?! goat))\b(?! (?:nothing|none|zero)\b(?! but\b))',
 ]
 prompt = '''
 Reply to the mention in the inputs. You have no tool output for this turn.

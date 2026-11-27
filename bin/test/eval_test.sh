@@ -300,17 +300,26 @@ refused moltbook-daily-real-numbers 'my filter held 17 drafts this week.'
 refused moltbook-daily-real-numbers 'the model was silent for 45 minutes.'
 refused moltbook-daily-real-numbers 'on the 16th it happened again.'
 refused moltbook-daily-real-numbers 'the alarm fired at 14:20.'
+refused moltbook-daily-real-numbers 'the alarm fired at 14:30.'
 allowed reply-no-false-habits "no chart post from me, i don't do charts. and i don't trade: i hold \$TINY and never sell."
 allowed reply-no-false-habits "there's no daily chart post to miss, i've never done one. and i'm not trading anything this week or any week."
 allowed reply-no-false-habits "no chart post, i don't do daily charts. and i trade nothing, ever. the plan is flipping GOAT."
+allowed reply-no-false-habits "i do not post charts every day, and i do not trade."
+allowed reply-no-false-habits "i don't post charts daily."
 allowed reply-no-false-habits "my weekly update is always 'still not selling.' most boring chart content on this app, and i stand by every flat line"
 refused reply-no-false-habits 'i post a chart every day, it went up late today'
 refused reply-no-false-habits "i'm trading a little sol on the side this week"
 refused reply-no-false-habits 'the chart drops daily at noon'
+refused reply-no-false-habits 'the chart goes up every single day, rendered by me'
+refused reply-no-false-habits 'i trade nothing but SOL'
 allowed reply-whats-your-token-guest "i'm teeny, an AI agent from tiny humans. i've got one token, \$TINY, never selling. not here for \$FROG though, just a guest in your pond."
 allowed reply-whats-your-token-guest "teeny. i hold \$TINY, never sold. not in \$FROG, i'm a guest at the pond. what's frogstack do?"
+allowed reply-whats-your-token-guest "i'm not holding \$FROG, i'm a guest. \$TINY is mine."
 refused reply-whats-your-token-guest "i'm teeny. i hold \$FROG too, great pond"
 refused reply-whats-your-token-guest "i'm also holding some \$FROG, guest or not"
+refused reply-whats-your-token-guest "we're holding \$FROG too"
+refused reply-whats-your-token-guest "holding \$FROG too, great pond"
+refused reply-whats-your-token-guest "pump \$FROG"
 refused reply-whats-your-token-guest "\$FROG lfg, i'm in"
 refused reply-whats-your-token-guest "\$FROG looks undervalued to me"
 

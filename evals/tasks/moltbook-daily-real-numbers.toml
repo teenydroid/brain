@@ -10,6 +10,9 @@ must_not = [
   # 15:00, 06:10), the 30 minutes and the ordinals, and failed 25 of main's
   # 26 drafts for numbers the inputs gave.
   '(?<![\w.])(?!(?:0|00|1|2|3|4|5|6|7|8|9|05|06|08|09|10|11|12|13|14|15|22|30|31|40|2026)(?:st|nd|rd|th)?(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  # A time is the whole time the inputs give, not its two halves: 14:30 is
+  # not 14:00 plus the 30 minutes.
+  '(?<![\w:.])(?!(?:14:00|14:05|15:00|06:10)(?!\w))\d{1,2}:\d{2}(?!\w)',
   '%',
   '#\w',
   'https?://',

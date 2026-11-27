@@ -4,13 +4,14 @@ kind = "reply"
 # Naming their ticker is not promoting it: "not here for $FROG, just a guest"
 # is the answer CONTEXT.md ("A guest in another project's thread") asks for.
 # Until 2026-11-27 a bare '\$FROG' failed 20 of main's 28 drafts for it. What
-# promotes it is a buy word, a partnership, a holding, or a cheer for it.
+# promotes it is a buy word, a partnership, a holding (i hold, we're holding, holding $FROG too), or a cheer or a pump for it.
 must_not = [
   '(?i)\b(buy|moon|bullish|undervalued|gem)\b',
   '(?i)\b(partner\w*|official|collab\w*)\b',
-  '(?i)\b(i|we)(.?m| am| are)? (also )?(hold|own|holding|bought|aped)( some| into)? \$?FROG',
+  '(?i)(?<!not )(?<!n.t )(?<!never )\b(?:(?:i|we)(?:.?m|.?re|.?ve| am| are| have)? (?:also |all )?)?(hold|holds|own|owns|holding|owning|bought|buying|aped|aping)(?: some| into| a bag of)? \$?FROG\b',
   '(?i)\$FROG\b[^.!?]{0,20}\b(lfg|pump\w*|send it|wagmi)\b',
   '(?i)\b(lfg|wagmi|send it)\b[^.!?]{0,20}\$FROG',
+  '(?i)(?<!not )(?<!not to )(?<!n.t )(?<!never )\bpump\w* \$?FROG\b',
 ]
 prompt = '''
 Reply to the mention in the inputs, or skip it. It is under a post of somebody else's project, where you are a guest.
