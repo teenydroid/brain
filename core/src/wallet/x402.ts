@@ -315,7 +315,10 @@ class PaymentLog {
     this.file = file;
   }
   all(): PaymentRecord[] {
-    return readJsonFile<{ records: PaymentRecord[] }>(this.file)?.records ?? [];
+    const doc = readJsonFile<{ records?: unknown }>(this.file);
+    if (!doc) return [];
+    if (!Array.isArray(doc.records)) throw new Error("the x402 payment log has no records list; restore it before the wallet can pay");
+    return doc.records as PaymentRecord[];
   }
   /** The newest record per id, newest first. */
   latest(): PaymentRecord[] {
@@ -560,6 +563,8 @@ async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge
     const feePayerText = accepted.extra?.feePayer;
     if (typeof feePayerText !== "string") throw fail("x402_fetch: payment failed: the challenge names no fee payer");
     const feePayer = new PublicKey(feePayerText);
+    // Our own key as fee payer would have us pay SOL fees the USDC caps do not see.
+    if (feePayer.equals(keypair.publicKey)) throw fail("x402_fetch: payment failed: the challenge names this wallet as its own fee payer");
     const mint = new PublicKey(accepted.asset);
     const recipient = new PublicKey(accepted.payTo);
     const source = getAssociatedTokenAddressSync(mint, keypair.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
@@ -741,7 +746,8 @@ export function x402Methods(rt: Runtime): RpcMethods {
       const proof = await signIn(ctx, challenge, target.toString(), rt.now());
       const retry = await send(rt, target, addresses, p, ["SIGN-IN-WITH-X", proof.header]);
       ctx.log("debug", "x402 sign-in retry", { host: target.hostname, status: retry.status });
-      return reply(retry, null, { signedInAs: proof.address });
+      // Only a server that accepted the proof has signed us in; on any other status the proof was merely submitted.
+      return reply(retry, null, retry.status >= 200 && retry.status < 300 ? { signedInAs: proof.address } : {});
     }
     ensureSameOrigin(challenge, target.toString());
     const cluster = solanaCluster(ctx.env);

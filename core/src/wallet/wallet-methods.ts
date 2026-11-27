@@ -17,7 +17,7 @@ import {
 import { EVM_NETWORKS, btcApiUrl, evmNetwork, solanaCluster, solanaExplorerTx, solanaUsdcMint } from "./endpoints.js";
 import { PolicyRefusal, fail, refusal, trackSecret } from "./errors.js";
 import * as evm from "./evm-chain.js";
-import type { LedgerRecord } from "./ledger.js";
+import { type LedgerRecord, recordBroadcast } from "./ledger.js";
 import { alreadyAttempted, alreadyAttemptedMessage, evaluateTransfer, loadPolicy, newRecord } from "./policy.js";
 import type { Runtime, TransferQuote } from "./runtime.js";
 import * as sol from "./solana-chain.js";
@@ -36,6 +36,7 @@ import {
 import { bigintOf, newId, requireConfirmed, requireStr, str } from "./util.js";
 
 const TRANSFER_TTL_MS = 5 * 60_000;
+const U64_MAX = (1n << 64n) - 1n;
 
 type Params = Record<string, unknown>;
 
@@ -173,7 +174,8 @@ export function walletMethods(rt: Runtime): RpcMethods {
       key.fill(0);
     }
     return withStateLock(ctx, async () => {
-      if (loadState(ctx) && !force) throw fail("wallet is already configured; pass force=true to overwrite");
+      // A forced setup must be able to replace state that no longer loads, so it never reads the old state.
+      if (!force && loadState(ctx)) throw fail("wallet is already configured; pass force=true to overwrite");
       const state: StoredWalletState = {
         consentGranted: true,
         source,
@@ -263,6 +265,7 @@ export function walletMethods(rt: Runtime): RpcMethods {
     const to = requireStr(params, "toAddress").trim();
     const amount = bigintOf(params.amountRaw);
     if (amount === undefined || amount === 0n) throw fail("invalid params: amountRaw is a whole number of atomic units above zero");
+    if (chain === "solana" && amount > U64_MAX) throw fail("invalid params: amountRaw is more than a Solana amount can hold (u64)");
     const state = loadState(ctx);
     if (!state) throw fail(WALLET_NOT_CONFIGURED_MESSAGE);
     const asset = (str(params, "assetSymbol") ?? "").trim().toUpperCase();
@@ -349,17 +352,23 @@ export function walletMethods(rt: Runtime): RpcMethods {
     // Caps are evaluated, and the spend reserved, BEFORE anything is signed.
     let record: LedgerRecord;
     try {
-      const policy = loadPolicy(ctx);
       record = await ledger.reserve((records) => {
+        // The clock and the policy at the point of no return: a quote that expired, or a cap lowered, while this
+        // waited for the ledger is judged as it stands now.
+        const reservedAt = rt.now();
+        if (held.expiresAtMs <= reservedAt) {
+          throw refusal("quote_expired", `the quote expired at ${held.expiresAtMs} (now ${reservedAt}); prepare it again`);
+        }
+        const policy = loadPolicy(ctx);
         const earlier = alreadyAttempted(records, held.quoteId);
         if (earlier) throw refusal("already_attempted", alreadyAttemptedMessage(held.quoteId, earlier.status, false));
-        evaluateTransfer(policy, facts, records, now);
-        return newRecord(facts, "pending", now);
+        evaluateTransfer(policy, facts, records, reservedAt);
+        return newRecord(facts, "pending", reservedAt);
       });
     } catch (error) {
       if (error instanceof PolicyRefusal) {
         await ledger.put(newRecord(facts, "refused", now, { error: error.detail })).catch(() => undefined);
-        if (error.kind === "already_attempted") rt.transfers.take(quoteId);
+        if (error.kind === "already_attempted" || error.kind === "quote_expired") rt.transfers.take(quoteId);
       }
       throw error;
     }
@@ -376,11 +385,15 @@ export function walletMethods(rt: Runtime): RpcMethods {
         .catch(() => undefined);
       throw error;
     }
-    await ledger.put({ ...record, status: "broadcast", transactionHash: hash, updatedAtMs: Math.max(now, rt.now()) });
+    const recorded = await recordBroadcast(ledger, record, hash, Math.max(now, rt.now()));
+    if (!recorded) {
+      ctx.log("error", "wallet transfer was sent but the ledger update failed; the record stays pending", { quoteId: held.quoteId, recordId: record.id, transactionHash: hash });
+    }
     return {
       quoteId: held.quoteId,
       kind: "transfer",
       transactionHash: hash,
+      ...(recorded ? {} : { ledgerUpdateFailed: true }),
       ...(held.chain === "solana" ? { explorerUrl: solanaExplorerTx(hash, solanaCluster(ctx.env)) } : {}),
     };
   };
@@ -391,6 +404,8 @@ export function walletMethods(rt: Runtime): RpcMethods {
 async function signAndSendTransfer(rt: Runtime, ctx: CoreContext, quote: TransferQuote): Promise<string> {
   const amount = BigInt(quote.amountRaw);
   return withSeed(ctx, async (seed, state) => {
+    // The wallet may have been replaced while this waited; the quote is good only for the wallet it was prepared for.
+    if (walletFingerprint(state) !== quote.wallet) throw fail("the wallet changed after the quote was prepared; prepare it again");
     if (quote.chain === "solana") {
       const account = state.accounts.find((a) => a.chain === "solana" && isPrimary(a));
       if (!account) throw fail("no wallet account derived for chain 'solana'");
@@ -409,8 +424,7 @@ async function signAndSendTransfer(rt: Runtime, ctx: CoreContext, quote: Transfe
     const tx = quote.tokenAddress
       ? { to: quote.tokenAddress, value: 0n, data: evm.erc20TransferData(quote.toAddress, amount) }
       : { to: quote.toAddress, value: amount, data: "0x" };
-    const raw = await evm.signEvmTransaction(rpc, key, network.chainId, tx);
-    return evm.sendRaw(rpc, raw);
+    return evm.signAndBroadcast(rpc, key, network.chainId, tx);
   });
 }
 
