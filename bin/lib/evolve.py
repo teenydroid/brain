@@ -69,9 +69,10 @@ or J rising faster than EVOLVE_MAX_J_RISE skip that run alone. A real problem
 (an evolve-watch revert, a crash, persona drift past EVOLVE_MAX_DRIFT, the
 doctor red for a day, a J rise, a last-good boot) files one public issue on
 EVOLVE_ISSUE_REPO per key while it is open (raise_problem), and the next run
-goes on. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
-DRY_RUN=0) nothing is pushed, opened or filed: each candidate writes what it
-would have opened.
+goes on. Each run asks GitHub which listed problem issues a person closed
+(refresh_problems), and `status` stops listing those. Under DRY_RUN
+(hand.dry_run: on unless secrets/teeny.env says DRY_RUN=0) nothing is
+pushed, opened or filed: each candidate writes what it would have opened.
 
 Frozen with bin/: nothing a candidate writes can change how it is gated,
 measured or shipped.
@@ -5192,6 +5193,43 @@ def _issue_open(publisher: "Publisher", repo: str, number: int) -> bool:
         return True
 
 
+def refresh_problems(cfg: Config, publisher: "Publisher | None") -> list[int]:
+    """Asks GitHub about every problem issue status still lists
+    (problem_issues), as refresh_prs does for pull requests, and records
+    each one a person closed in problems_log as {key, kind, issue, url,
+    closed, at}, so it drops out of `bin/evolve status`. An issue it cannot
+    ask about stays listed; once GitHub cannot be reached at all it stops
+    asking for the run (each question would wait out its timeout). Returns
+    the numbers found closed. Only the closing is recorded: file_issue still
+    files a key once, ever, and raise_problem opens a new issue for a key
+    whose last one is closed."""
+    ask = getattr(publisher, "issue_state", None)
+    if ask is None:
+        return []
+    closed = []
+    for item in problem_issues():
+        # The repository the issue was filed on (its link), should
+        # EVOLVE_ISSUE_REPO have moved since.
+        filed_on = re.match(r"https://github\.com/([^/]+/[^/]+)/issues/\d+", str(item.get("url") or ""))
+        repo = filed_on.group(1) if filed_on else cfg["EVOLVE_ISSUE_REPO"]
+        try:
+            state = ask(repo, int(item["issue"]))
+        except Exception as exc:  # noqa: BLE001 - an unanswered question keeps the issue listed
+            if getattr(exc, "status", None) is None:
+                # Not an answer (unreachable, no token): the rest would fail the same way.
+                say(f"could not ask GitHub about problem issues ({type(exc).__name__}); they stay listed")
+                break
+            continue
+        if str(state or "open").lower() != "closed":
+            continue
+        append_jsonl(problems_log(), {"key": item["key"], "kind": item.get("kind"), "issue": item["issue"],
+                                      "url": item.get("url"), "closed": True, "at": iso(now())})
+        closed.append(int(item["issue"]))
+    if closed:
+        say("problem issue(s) closed on GitHub, no longer listed: " + ", ".join(f"#{n}" for n in closed))
+    return closed
+
+
 def raise_problem(cfg: Config, problem: Problem, publisher: "Publisher | None") -> Json:
     """PROBLEM's public issue on EVOLVE_ISSUE_REPO, one per key while it is
     open: the first time it opens (labelled PROBLEM_LABELS), later it is
@@ -6979,6 +7017,11 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
     progress["publisher"] = publisher
+    if not dry_run():
+        try:
+            refresh_problems(cfg, publisher)
+        except Exception as exc:  # noqa: BLE001 - the generation goes ahead; the next run asks again
+            say(f"refreshing problem issues failed ({type(exc).__name__}: {str(exc)[:200]})")
     resume_gen = resumable()
     skips, found = preconditions(cfg, new_generation=resume_gen is None, scheduled=scheduled)
     problems = [raise_problem(cfg, p, publisher) for p in found]
@@ -7709,10 +7752,16 @@ def last_crash() -> Json | None:
 
 def problem_issues() -> list[Json]:
     """The newest issue filed for each problem key (problems_log), as the
-    box last knew it: whether a person closed it is GitHub's to say."""
+    box last knew it, less those a run found closed (refresh_problems): a
+    key whose newest issue a person closed is not a problem any more, until
+    a new issue opens for it."""
     latest: dict[str, Json] = {}
     for r in read_jsonl(problems_log()):
         if isinstance(r.get("issue"), int) and not r.get("resumed") and r.get("key"):
+            if r.get("closed"):
+                if (latest.get(str(r["key"])) or {}).get("issue") == r["issue"]:
+                    del latest[str(r["key"])]
+                continue
             latest[str(r["key"])] = {"key": r["key"], "kind": r.get("kind"), "issue": r["issue"], "url": r.get("url"),
                                      "last": r.get("at")}
     return sorted(latest.values(), key=lambda r: str(r.get("last") or ""))

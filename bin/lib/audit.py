@@ -259,7 +259,7 @@ def halts(start: float, end: float) -> Json:
     by: dict[str, int] = {}
     for h in _jsonl(state() / "evolve" / "halts.jsonl"):
         at = epoch(h.get("at"))
-        if at is None or not start <= at < end or h.get("resumed"):
+        if at is None or not start <= at < end or h.get("resumed") or h.get("closed"):
             continue
         kind = _enum(h.get("kind"), HALT_KINDS)
         by[kind] = by.get(kind, 0) + 1

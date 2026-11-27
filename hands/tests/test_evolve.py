@@ -1870,6 +1870,67 @@ class CrashedGenerations(EvolveCase):
         self.assertEqual(evolve.raise_problem(cfg, problem, pub)["update"], "already told today")
         self.assertEqual(len(pub.comments), 1)
 
+    def test_status_drops_problem_issues_a_person_closed(self):
+        """2026-11-27: `status` still listed #172, #286, #324, #341, #445 and
+        #460, all closed. A run asks GitHub about each listed issue and
+        records the closed ones, so they drop out; one it cannot ask about
+        stays, and a key raised again after its issue closed comes back with
+        the new issue."""
+        cfg = evolve.load_config()
+        pub = FakePublisher()
+        crash = evolve.Problem("crash", "crash", "bin/evolve: a generation crashed", "the body")
+        drift = evolve.Problem("persona-drift", "persona-drift", "bin/evolve: drift", "the body")
+        self.assertEqual(evolve.raise_problem(cfg, crash, pub)["issue"], 101)
+        self.assertEqual(evolve.raise_problem(cfg, drift, pub)["issue"], 102)
+        frozen = evolve.file_issue(cfg, "frozen:m1:abc", "frozen-learning", "needs a frozen path", "body", pub)
+        self.assertEqual(frozen["issue"], 103)
+        self.assertEqual([p["issue"] for p in evolve.status()["problems"]], [101, 102, 103])
+
+        pub.closed.update({101, 103})
+
+        class Answered(Exception):
+            status = 502
+
+        def flaky(repo, number):
+            if number == 102:
+                raise Answered("GitHub answered 502")
+            return FakePublisher.issue_state(pub, repo, number)
+
+        # GitHub not reached at all: nothing is recorded and it stops asking.
+        down = unittest.mock.Mock(side_effect=OSError("could not reach GitHub"))
+        with unittest.mock.patch.object(pub, "issue_state", down):
+            self.assertEqual(evolve.refresh_problems(cfg, pub), [])
+        self.assertEqual(down.call_count, 1)
+        self.assertEqual([p["issue"] for p in evolve.status()["problems"]], [101, 102, 103])
+        # GitHub answered an error for one: that one stays, the rest are asked.
+        with unittest.mock.patch.object(pub, "issue_state", side_effect=flaky):
+            self.assertEqual(evolve.refresh_problems(cfg, pub), [101, 103])
+        self.assertEqual([p["issue"] for p in evolve.status()["problems"]], [102])
+        self.assertEqual(evolve.refresh_problems(cfg, pub), [])  # nothing asked twice, nothing doubled
+        # The frozen learning is still filed once, ever; the crash opens anew.
+        self.assertEqual(evolve.file_issue(cfg, "frozen:m1:abc", "frozen-learning", "t", "b", pub)["issue"],
+                         "already filed")
+        os.environ["EVOLVE_NOW"] = str(T0 + DAY)
+        self.assertEqual(evolve.raise_problem(cfg, crash, pub)["issue"], 104)
+        self.assertEqual([p["issue"] for p in evolve.status()["problems"]], [102, 104])
+
+    def test_a_run_refreshes_the_problem_issues_before_it_starts(self):
+        self.live()
+        cfg = evolve.load_config()
+        pub = FakePublisher()
+        evolve.raise_problem(cfg, evolve.Problem("crash", "crash", "bin/evolve: crashed", "the body"), pub)
+        pub.closed.add(101)
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(evolve.status()["problems"], [])
+
+    def test_a_run_goes_on_when_refreshing_problem_issues_fails(self):
+        self.live()
+        pub = FakePublisher()
+        evolve.raise_problem(evolve.load_config(), evolve.Problem("crash", "crash", "bin/evolve: crashed", "b"), pub)
+        with unittest.mock.patch.object(evolve, "problem_issues", side_effect=OSError("disk")):
+            self.run_gen(1, publisher=pub)
+        self.assertEqual([p["issue"] for p in evolve.status()["problems"]], [101])
+
     def test_status_shows_the_last_crash(self):
         self.assertIsNone(evolve.status()["last_crash"])
         with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
