@@ -20,7 +20,7 @@ describe("rpc contract fixtures", () => {
     const expected = [
       "auth_store_provider_credentials", "config_get_agent_settings", "config_update_agent_settings",
       "config_update_local_ai_settings", "config_update_model_settings", "cost_report", "cron_add",
-      "cron_list", "cron_remove", "cron_run", "cron_update", "encrypt_secret", "get_config",
+      "cron_list", "cron_remove", "cron_run", "cron_runs", "cron_update", "encrypt_secret", "get_config",
       "inbound_offer", "inbound_result_ack", "inbound_results", "inference_agent_chat",
       "inference_agent_chat_simple", "inference_update_model_settings", "memory_engine_set",
       "memory_forget", "memory_items_list", "memory_learn", "modules_browser_check_readiness",

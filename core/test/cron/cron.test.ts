@@ -9,6 +9,7 @@ import type { CoreContext } from "../../src/server/types.js";
 import { assertMatchesContract, loadContract } from "../contract.js";
 import { fakeOpenclaw } from "./fake.js";
 
+const GATEWAY_ENV = () => ({ OPENCLAW_GATEWAY_TOKEN: "tok-fake", OPENCLAW_STATE_DIR: "/gw/state", OPENCLAW_CONFIG_PATH: "/gw/openclaw.json" });
 let dir: string;
 let ctx: CoreContext;
 let cron: Cron;
@@ -17,7 +18,7 @@ let fake: ReturnType<typeof fakeOpenclaw>;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cron-"));
   fake = fakeOpenclaw();
-  cron = createCron({ exec: fake.exec, bin: "openclaw" });
+  cron = createCron({ exec: fake.exec, bin: "openclaw", gatewayEnv: GATEWAY_ENV });
   ctx = { env: { HOME: "/home/fake", PATH: "/usr/bin:/bin", LANG: "C.UTF-8", OPENHUMAN_ACTION_DIR: dir }, root: dir, stateDir: dir, log: () => {} };
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -38,6 +39,7 @@ describe("methods match the contract", () => {
     const listed = await call("cron_list");
     assertMatchesContract("cron_list", listed);
     expect(listed).toHaveLength(1);
+    expect(job).toMatchObject({ created_ms: 1, next_run_ms: Date.parse("2026-11-27T10:05:00Z") });
     assertMatchesContract("cron_update", await call("cron_update", { job_id: job.id, patch: { schedule: { kind: "cron", expr: "30 6 * * *", tz: "UTC" }, enabled: true } }));
     expect(((await call("cron_list")) as { schedule: { expr: string } }[])[0]!.schedule.expr).toBe("30 6 * * *");
     assertMatchesContract("cron_run", await call("cron_run", { job_id: job.id }));
@@ -128,13 +130,79 @@ describe("what a shell job is handed to OpenClaw", () => {
   });
 });
 
+describe("the Gateway environment", () => {
+  it("reaches the openclaw CLI, and never a shell job", async () => {
+    await call("cron_add", shellJob("bin/x"));
+    const env = fake.calls.at(-1)!.env;
+    expect(env).toMatchObject({ OPENCLAW_GATEWAY_TOKEN: "tok-fake", OPENCLAW_STATE_DIR: "/gw/state", OPENCLAW_CONFIG_PATH: "/gw/openclaw.json" });
+    const argv = JSON.parse(flagOf(added(), "--command-argv")!) as string[];
+    expect(argv.join(" ")).not.toContain("tok-fake");
+    expect(argv.filter((a) => a.includes("=") && !a.startsWith("sh"))).toEqual(["HOME=/home/fake", "PATH=/usr/bin:/bin", "LANG=C.UTF-8"]);
+  });
+
+  it("is read afresh for every call (the token changes when the Gateway restarts)", async () => {
+    let token = "one";
+    cron.setGatewayEnv(() => ({ OPENCLAW_GATEWAY_TOKEN: token }));
+    await call("cron_list");
+    token = "two";
+    await call("cron_list");
+    expect(fake.calls.filter((c) => c.args[1] === "list").map((c) => c.env.OPENCLAW_GATEWAY_TOKEN)).toEqual(["one", "two"]);
+  });
+
+  it("fails closed without one", async () => {
+    cron.setGatewayEnv(undefined);
+    await expect(call("cron_list")).rejects.toThrow(/closed/);
+    expect(fake.calls).toHaveLength(0);
+  });
+});
+
 describe("missed slots", () => {
-  it("start pins cron.skipMissedJobs to true, and leaves it alone once set", async () => {
+  it("only verifies cron.skipMissedJobs: it never sets it", async () => {
     await cron.start(ctx);
-    expect(fake.config.get("cron.skipMissedJobs")).toBe(true);
-    const before = fake.calls.length;
+    expect(fake.calls.every((c) => c.args[0] === "config" && c.args[1] === "get")).toBe(true);
+    await call("cron_list");
+    expect(fake.calls.some((c) => c.args[1] === "set")).toBe(false);
+  });
+
+  it("stays closed while the key is not true, and opens once it is", async () => {
+    fake.config.delete("cron.skipMissedJobs");
+    const logs: string[] = [];
+    ctx = { ...ctx, log: (l, m) => logs.push(`${l} ${m}`) };
     await cron.start(ctx);
-    expect(fake.calls.slice(before).every((c) => c.args[1] === "get")).toBe(true);
+    expect(logs.some((l) => l.startsWith("error") && l.includes("skipMissedJobs"))).toBe(true);
+    for (const m of ["cron_list", "cron_runs"]) await expect(call(m)).rejects.toThrow(/skipMissedJobs/);
+    await expect(call("cron_add", shellJob("true"))).rejects.toThrow(/closed/);
+    await expect(call("cron_run", { job_id: "x" })).rejects.toThrow(/closed/);
+    expect(fake.calls.some((c) => c.args[1] === "set" || c.args[1] === "add")).toBe(false);
+    fake.config.set("cron.skipMissedJobs", true); // the config was rewritten and the Gateway restarted
+    expect(await call("cron_list")).toEqual([]);
+  });
+
+  it("a key set to false is closed too", async () => {
+    fake.config.set("cron.skipMissedJobs", false);
+    await expect(call("cron_list")).rejects.toThrow(/skipMissedJobs/);
+  });
+});
+
+describe("cron_runs", () => {
+  it("answers the run history in the rows the readers use, paging through the Gateway", async () => {
+    const job = (await call("cron_add", shellJob("true"))) as { id: string };
+    for (let n = 0; n < 450; n++) fake.runs.push({ jobId: job.id, runAtMs: 1000 + n, ts: 1005 + n, durationMs: 5, status: n === 0 ? "error" : "ok", summary: `s${n}`, ...(n === 0 ? { error: "boom" } : {}) });
+    fake.runs.push({ jobId: "other", runAtMs: 5, ts: 6, status: "ok" });
+    const all = (await call("cron_runs")) as Record<string, unknown>[];
+    assertMatchesContract("cron_runs", all);
+    expect(all).toHaveLength(451);
+    expect(all[0]).toMatchObject({ job_id: job.id, started_ms: 1000, finished_ms: 1005, seq: 1000, duration_ms: 5, status: "error", output: "s0\nboom" });
+    const mine = (await call("cron_runs", { job_id: job.id, limit: 300 })) as unknown[];
+    expect(mine).toHaveLength(300);
+    expect(fake.calls.filter((c) => c.args[1] === "runs").some((c) => c.args.includes("--all"))).toBe(true);
+    assertMatchesContract("cron_runs", loadContract("cron_runs").response.example);
+  });
+
+  it("a job's runs carry its id even when the entry omits it", async () => {
+    fake.runs.push({ jobId: "j", runAtMs: 1, ts: 2, status: "ok" });
+    const rows = (await call("cron_runs", { job_id: "j" })) as { job_id: string }[];
+    expect(rows.map((r) => r.job_id)).toEqual(["j"]);
   });
 });
 

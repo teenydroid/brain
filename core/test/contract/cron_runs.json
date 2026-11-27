@@ -1,0 +1,74 @@
+{
+  "method": "openhuman.cron_runs",
+  "call_sites": [
+    "bin/lib/cron_store.py:137"
+  ],
+  "params": {
+    "fields": {
+      "job_id": {
+        "type": "string",
+        "required": false,
+        "note": "one job's runs; absent means every job's"
+      },
+      "limit": {
+        "type": "number",
+        "required": false,
+        "note": "the newest N; default 3000"
+      }
+    },
+    "example": {}
+  },
+  "response": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "fields": {
+        "job_id": {
+          "type": "string",
+          "required": true
+        },
+        "status": {
+          "type": "string",
+          "required": true,
+          "note": "ok | error | skipped"
+        },
+        "started_ms": {
+          "type": "number",
+          "required": false
+        },
+        "finished_ms": {
+          "type": "number",
+          "required": false,
+          "note": "absent while running"
+        },
+        "seq": {
+          "type": "number",
+          "required": false,
+          "note": "orders a job's runs; the start time"
+        },
+        "duration_ms": {
+          "type": "number",
+          "required": false
+        },
+        "output": {
+          "type": "string",
+          "required": false,
+          "note": "the run's summary then its error; the error is in the tail"
+        }
+      }
+    },
+    "reader": "bin/lib/cron_store.py (health, pulse, catch_up, evolve, desk, queue, bin/crons)",
+    "example": [
+      {
+        "job_id": "job-1",
+        "status": "error",
+        "started_ms": 1795860000000,
+        "finished_ms": 1795860005000,
+        "seq": 1795860000000,
+        "duration_ms": 5000,
+        "output": "status=exit status: 3"
+      }
+    ]
+  },
+  "notes": "New with OpenClaw automations: the readers used to select cron.runs rows from storage.db. Newest first."
+}

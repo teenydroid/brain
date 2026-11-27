@@ -33,6 +33,17 @@ export interface OcJob {
   state?: { nextRunAtMs?: number; runningAtMs?: number; lastRunAtMs?: number; lastRunStatus?: string; lastError?: string };
 }
 
+/** A run-history entry (docs: the CronRunLogEntry schema). */
+export interface OcRun {
+  jobId?: string;
+  runAtMs?: number;
+  ts?: number;
+  durationMs?: number;
+  status?: string;
+  summary?: string;
+  error?: string;
+}
+
 export class AutomationsError extends Error {}
 
 export class Automations {
@@ -90,6 +101,15 @@ export class Automations {
     return { runId: out?.runId };
   }
 
+  /** One page of run history, newest first: of one job, or of every job when ID is undefined (`runs --all`). */
+  async runs(id: string | undefined, limit: number, offset: number): Promise<OcRun[]> {
+    const args = id === undefined ? ["runs", "--all"] : ["runs", id];
+    const out = await this.run([...args, "--limit", String(limit), "--offset", String(offset)]);
+    if (Array.isArray(out)) return out as OcRun[];
+    const o = out as { entries?: OcRun[]; runs?: OcRun[]; items?: OcRun[] } | null;
+    return o?.entries ?? o?.runs ?? o?.items ?? [];
+  }
+
   /** A `config get` of a dotted path; null when it is unset. */
   async configGet(path: string): Promise<unknown> {
     const r = await this.exec(this.bin, ["config", "get", path], { env: this.env });
@@ -100,11 +120,6 @@ export class Automations {
     } catch {
       return text;
     }
-  }
-
-  async configSet(path: string, value: string): Promise<void> {
-    const r = await this.exec(this.bin, ["config", "set", path, value, "--strict-json"], { env: this.env });
-    if (r.code !== 0) throw new AutomationsError((r.stderr || r.stdout).trim() || `config set ${path} failed`);
   }
 }
 
