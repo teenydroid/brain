@@ -7,6 +7,8 @@ export interface CronOptions {
   bin?: string;
   exec?: Exec;
   shellTimeoutSecs?: number;
+  /** The clock, in ms; only the run-history window reads it. */
+  now?: () => number;
   /**
    * The environment the `openclaw` CLI needs to reach and authenticate to the Gateway: its token,
    * state dir, config path and URL/port (main.ts's gatewayEnv()). It is for the CLI only and is
@@ -52,7 +54,14 @@ export interface Cron {
 }
 
 const RUNS_PAGE = 200;
-const RUNS_DEFAULT_LIMIT = 3000;
+/**
+ * With no limit given, cron_runs answers the whole window evolve compares (the last seven days
+ * against the seven before, so fifteen days with a margin) and not a fixed row count: the
+ * pinned five-minute jobs alone write thousands of rows a week, and a history cut short would
+ * make ordinary failures look like a new spike. RUNS_HARD_CAP only stops a runaway read.
+ */
+const RUNS_WINDOW_MS = 15 * 24 * 3600 * 1000;
+const RUNS_HARD_CAP = 200_000;
 
 export function createCron(opts: CronOptions = {}): Cron {
   let gatewayEnv = opts.gatewayEnv;
@@ -96,7 +105,9 @@ export function createCron(opts: CronOptions = {}): Cron {
     cron_runs: (params, ctx) =>
       wrap(ctx, async (c) => {
         const id = str(params, "job_id");
-        const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : RUNS_DEFAULT_LIMIT;
+        const explicit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : undefined;
+        const limit = explicit ?? RUNS_HARD_CAP;
+        const cutoff = explicit === undefined ? (opts.now ?? Date.now)() - RUNS_WINDOW_MS : undefined;
         const out: Record<string, unknown>[] = [];
         for (let offset = 0; out.length < limit; offset += RUNS_PAGE) {
           const want = Math.min(RUNS_PAGE, limit - out.length);
@@ -106,6 +117,10 @@ export function createCron(opts: CronOptions = {}): Cron {
             if (jobId !== undefined) out.push(runView({ ...r, jobId }));
           }
           if (page.length < want) break;
+          // Newest first: once a page's oldest run is past the window, nothing older is needed.
+          const last = page[page.length - 1];
+          const at = last?.ts ?? last?.runAtMs;
+          if (cutoff !== undefined && at !== undefined && at < cutoff) break;
         }
         return out;
       }),

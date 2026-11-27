@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentEntry } from "../gateway/config.js";
-import { agentEntry, loadAgentDefs, type AgentDef } from "./definitions.js";
+import { agentEntry, effectiveModels, loadAgentDefs, type AgentDef } from "./definitions.js";
 
 /** A tool-less, prompt-less agent for one-shot completions (inference_agent_chat_simple, the judge). */
 export const SIMPLE_AGENT: AgentDef = {
@@ -64,7 +64,13 @@ export class AgentCatalog {
 
   entries(): Record<string, AgentEntry> {
     const out: Record<string, AgentEntry> = {};
-    for (const def of this.defs.values()) out[def.id] = agentEntry(def, this.prepare(def.id));
+    const models = effectiveModels([...this.defs.values()]);
+    for (const def of this.defs.values()) out[def.id] = agentEntry(def, this.prepare(def.id), models.get(def.id));
     return out;
+  }
+
+  /** Every model an agent is pinned to (own or inherited), bare: the provider must serve each. */
+  pinnedModels(): string[] {
+    return [...new Set(effectiveModels([...this.defs.values()]).values())];
   }
 }

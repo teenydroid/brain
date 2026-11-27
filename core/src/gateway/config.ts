@@ -71,6 +71,8 @@ export interface GatewayConfigInput {
   guardrailsPath?: string;
   /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
   guardrailsPolicy?: Record<string, unknown>;
+  /** Extra skill directories (`skills.load.extraDirs`): brain/skills/hands, which the agents' workspaces do not contain. */
+  skillDirs?: string[];
   /** Chrome for the browser tool; unset lets OpenClaw find one. */
   chromePath?: string;
 }
@@ -204,6 +206,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       // schema: agents.entries.<id>
       entries: input.agents,
     },
+    ...(input.skillDirs && input.skillDirs.length > 0 ? { skills: { load: { extraDirs: input.skillDirs } } } : {}),
     // schema: cron.skipMissedJobs (docs/gateway/config-automation.md, docs/automation/cron-jobs/managing-jobs.md):
     // recurring slots missed while the Gateway was down advance to the next
     // future one instead of replaying; late runs belong to bin/lib/catch_up.py.

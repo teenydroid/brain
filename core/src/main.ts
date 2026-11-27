@@ -143,6 +143,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     const ids = new Map<string, number | undefined>();
     if (defaultModel) ids.set(defaultModel, undefined);
     for (const m of registry) ids.set(m.id, m.context_window);
+    for (const pinned of catalog.pinnedModels()) if (!ids.has(bareModel(pinned))) ids.set(bareModel(pinned), undefined);
     const config = buildGatewayConfig({
       port: gatewayPort,
       modelUrl: env.LOCAL_OPENAI_URL,
@@ -153,6 +154,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       agentTimeoutSecs: store.agentTimeoutSecs,
       defaultWorkspace: join(paths.openclawDir, "workspaces"),
       agents: catalog.entries(),
+      skillDirs: [join(paths.brainDir, "skills", "hands")],
       ...(catalog.has("simple") ? { systemAgentId: "simple" } : {}),
       secretFiles,
       ...(guardrails
@@ -178,6 +180,10 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       OPENCLAW_CONFIG_PATH: configPath,
     };
     for (const k of ["TMPDIR", "CHROME_BIN", "NODE_OPTIONS"]) if (env[k]) out[k] = env[k] as string;
+    // hand.dry_run(): the environment can only force a rehearsal on, never off. So a truthy
+    // DRY_RUN reaches the hands the agents' shells start; anything else is left out and the
+    // hands read secrets/teeny.env as before.
+    if (/^(1|true|yes|on)$/i.test((env.DRY_RUN ?? "").trim())) out.DRY_RUN = "1";
     return out;
   };
 

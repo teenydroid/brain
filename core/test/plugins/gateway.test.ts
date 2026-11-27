@@ -57,7 +57,7 @@ describe("teeny-guardrails in the pinned openclaw", () => {
     mkdirSync(workspace, { recursive: true });
     const base = {
       gateway: { mode: "local" },
-      skills: { load: { extraDirs: [join(REPO, "brain", "skills", "hands")] } },
+      skills: (buildGatewayConfig({ port: 1, modelUrl: undefined, model: undefined, models: [], compactionTriggerTokens: 1, keepRecentTokens: 1, agentTimeoutSecs: 1, defaultWorkspace: workspace, agents: {}, skillDirs: [join(REPO, "brain", "skills", "hands")] }) as { skills: unknown }).skills,
       agents: { defaults: { workspace }, entries: { mind: { workspace } } },
     };
     const eligible = (enabled: boolean): number => {

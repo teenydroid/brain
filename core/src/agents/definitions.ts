@@ -5,11 +5,14 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import type { AgentEntry } from "../gateway/config.js";
+import { toModelRef } from "./model.js";
 
 export interface AgentDef {
   id: string;
   displayName: string;
   whenToUse: string;
+  /** `model = "<name>"` in the definition; a `hint:` is a workload, not a model, so it is dropped here. */
+  model?: string;
   temperature?: number;
   maxIterations?: number;
   /** OpenHuman tool names; empty means no tools at all. */
@@ -87,6 +90,7 @@ export function loadAgentDef(brainDir: string, tomlFile: string): AgentDef {
     id,
     displayName: String(d.display_name ?? id),
     whenToUse: String(d.when_to_use ?? ""),
+    ...(typeof d.model === "string" && d.model.trim() && !d.model.trim().startsWith("hint:") ? { model: d.model.trim() } : {}),
     temperature: typeof d.temperature === "number" ? d.temperature : undefined,
     maxIterations: typeof d.max_iterations === "number" ? d.max_iterations : undefined,
     tools: Array.isArray(tools) ? tools.map(String) : [],
@@ -121,12 +125,28 @@ export function toolPolicy(def: AgentDef): AgentEntry["tools"] {
   return { allow, deny: ALWAYS_DENIED.filter((d) => !allow.includes(d)) };
 }
 
-export function agentEntry(def: AgentDef, workspace: string): AgentEntry {
+/**
+ * The model each agent runs on: its own pin, else the pin of an agent that lists it as a
+ * helper (bin/lib/core_sections/automation.py agent_models: a lead's helpers run on its
+ * model unless they pin their own). Agents with neither inherit the default model.
+ */
+export function effectiveModels(defs: readonly AgentDef[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const d of defs) if (d.model) out.set(d.id, d.model);
+  for (const d of defs) {
+    if (!d.model) continue;
+    for (const helper of d.subagentAllowlist) if (!out.has(helper)) out.set(helper, d.model);
+  }
+  return out;
+}
+
+export function agentEntry(def: AgentDef, workspace: string, model?: string): AgentEntry {
   const holdsShell = def.tools.includes("shell");
   return {
     name: def.displayName,
     description: def.whenToUse,
     workspace,
+    ...(model ? { model: { primary: toModelRef(model) } } : {}),
     tools: {
       ...toolPolicy(def),
       // Headless: nobody can answer an approval prompt. Shell agents run only what the

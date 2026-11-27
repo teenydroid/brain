@@ -201,6 +201,7 @@ describe("cron_runs", () => {
     const job = (await call("cron_add", shellJob("true"))) as { id: string };
     for (let n = 0; n < 450; n++) fake.runs.push({ jobId: job.id, runAtMs: 1000 + n, ts: 1005 + n, durationMs: 5, status: n === 0 ? "error" : "ok", summary: `s${n}`, ...(n === 0 ? { error: "boom" } : {}) });
     fake.runs.push({ jobId: "other", runAtMs: 5, ts: 6, status: "ok" });
+    cron = createCron({ exec: fake.exec, bin: "openclaw", gatewayEnv: GATEWAY_ENV, now: () => 2000 });
     const all = (await call("cron_runs")) as Record<string, unknown>[];
     assertMatchesContract("cron_runs", all);
     expect(all).toHaveLength(451);
@@ -209,6 +210,20 @@ describe("cron_runs", () => {
     expect(mine).toHaveLength(300);
     expect(fake.calls.filter((c) => c.args[1] === "runs").some((c) => c.args.includes("--all"))).toBe(true);
     assertMatchesContract("cron_runs", loadContract("cron_runs").response.example);
+  });
+
+  it("with no limit, reads back through the whole window and not just a fixed number of rows", async () => {
+    const day = 24 * 3600 * 1000;
+    const now = 100 * day;
+    cron = createCron({ exec: fake.exec, bin: "openclaw", gatewayEnv: GATEWAY_ENV, now: () => now });
+    // 4000 runs in the last ten days (newest first, as the Gateway lists them), then one past the window.
+    for (let n = 0; n < 4000; n++) fake.runs.push({ jobId: "j", runAtMs: now - n * 200, ts: now - n * 200 + 5, status: "ok" });
+    for (let n = 0; n < 600; n++) fake.runs.push({ jobId: "j", runAtMs: now - 20 * day - n, ts: now - 20 * day - n + 5, status: "ok" });
+    const all = (await call("cron_runs")) as unknown[];
+    expect(all.length).toBeGreaterThanOrEqual(4000);
+    expect(all.length).toBeLessThan(4600);
+    // an explicit limit is still honoured
+    expect(await call("cron_runs", { limit: 10 })).toHaveLength(10);
   });
 
   it("a job's runs carry its id even when the entry omits it", async () => {

@@ -116,6 +116,33 @@ describe("startCore", () => {
   });
 });
 
+describe("DRY_RUN and the Gateway's environment", () => {
+  async function gatewayEnvFor(dry: string | undefined): Promise<Record<string, string>> {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "secrets"));
+    let seen: Record<string, string> = {};
+    const core = await startCore(
+      {
+        PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(root, "brain"), OPENHUMAN_CORE_PORT: "0", OPENHUMAN_CORE_TOKEN: "t",
+        OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent", ...(dry === undefined ? {} : { DRY_RUN: dry }),
+      },
+      { log: () => undefined, spawn: (_c, _a, opts) => { seen = opts.env as Record<string, string>; return new QuietChild() as never; } },
+    );
+    await core.stop();
+    return seen;
+  }
+
+  it("forwards a forced rehearsal to the hands the agents' shells start", async () => {
+    expect((await gatewayEnvFor("1")).DRY_RUN).toBe("1");
+    expect((await gatewayEnvFor("true")).DRY_RUN).toBe("1");
+  });
+
+  it("never forwards DRY_RUN=0 or an unset one: the environment can only turn dry-run on", async () => {
+    expect(await gatewayEnvFor("0")).not.toHaveProperty("DRY_RUN");
+    expect(await gatewayEnvFor(undefined)).not.toHaveProperty("DRY_RUN");
+  });
+});
+
 describe("a settings change and the Gateway", () => {
   async function boot(runner: import("../src/gateway/client.js").AgentRunner) {
     const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
