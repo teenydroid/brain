@@ -402,6 +402,29 @@ def _is_allowed(path: str, base_tree: set[str], patterns: list[str]) -> str | No
         # New hands only: anything that already exists at BASE is refused.
         if path in base_tree:
             return "existing file under hands/ (new files only)"
+        # The registry names only three places for new files: hands/<name>
+        # (the hand itself or files under its directory),
+        # hands/lib/teeny_hands/<name>/ (the hand's library package) and
+        # hands/tests/test_<name>.py (the hand's test file). Anything else
+        # under hands/ is outside the allowlist, even though it is not on
+        # the frozen list: a shared helper (hands/tests/helper.py) or a
+        # library module beside the per-hand packages
+        # (hands/lib/teeny_hands/newmod.py) used to pass. A test package
+        # hands/tests/<name>/ stays allowed: it is how the repo's hands
+        # carry their tests (see _hand_test_args).
+        parts = path.split("/")
+        if len(parts) < 2:
+            return None
+        if parts[1] == "lib":
+            if parts[:3] == ["hands", "lib", "teeny_hands"] and len(parts) > 4:
+                return None
+            return "new files under hands/lib/ must be under hands/lib/teeny_hands/<name>/"
+        if parts[1] == "tests":
+            if len(parts) == 3 and re.fullmatch(r"test_\w+\.py", parts[2]):
+                return None
+            if len(parts) > 3:
+                return None  # the hand's test package hands/tests/<name>/
+            return "new files under hands/tests/ must be test_<name>.py"
         return None
     return "outside the allowed set"
 

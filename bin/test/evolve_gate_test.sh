@@ -298,6 +298,18 @@ put hands/lib/teeny_hands/sparrow/__init__.py "VERSION = 1"
 commit
 passes "a new hand with a library package of its own passes"
 
+# The hand's tests may live in a test package (hands/tests/<name>/) instead
+# of a single test_<name>.py file: that is how the repo's hands carry
+# theirs, and the allowlist keeps it.
+branch
+hand_sparrow
+mkdir -p "$fx/hands/tests/sparrow"
+printf '' >"$fx/hands/tests/sparrow/__init__.py"
+sed 's/parents\[1\]/parents[2]/' "$fx/hands/tests/test_sparrow.py" >"$fx/hands/tests/sparrow/test_sparrow.py"
+rm "$fx/hands/tests/test_sparrow.py"
+commit
+passes "a new hand whose test lives in a test package passes"
+
 branch
 hand_sparrow guardian
 hand_sparrow xylophone
@@ -345,6 +357,20 @@ branch
 put hands/lib/teeny_hands/hand.py "no contract"
 commit
 refuses "an edit to an existing file in hands/lib/teeny_hands/ is refused" frozen-path
+
+# The registry allowlist names only three places for new files (hands/<name>,
+# hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py). A shared
+# helper in hands/tests/ or a module directly under hands/lib/teeny_hands/
+# is outside it, even though neither is on the frozen list.
+branch
+put hands/tests/helper.py '"""Shared helpers for the new hand tests."""'
+commit
+refuses "a new file directly under hands/tests/ that is not test_<name>.py is refused" frozen-path
+
+branch
+put hands/lib/teeny_hands/newmod.py '"""A new library module beside the per-hand packages."""'
+commit
+refuses "a new file directly under hands/lib/teeny_hands/ is refused" frozen-path
 
 branch
 put hands/lib/teeny_hands/hand/__init__.py "def run(*args): return 0"
