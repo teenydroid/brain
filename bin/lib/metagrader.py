@@ -82,6 +82,12 @@ META_SHARE = 0.3
 MIN_HELDOUT_PAIRS = 20
 MAX_CRITERIA = 8
 MAX_PROMPT = 4000
+#: The most a message to the core may be. The core's prompt screen holds
+#: anything over 64 KiB (`input.oversized`, vendor/openhuman
+#: security/prompt_injection), and a held turn is retried and held again:
+#: the first search on the box lost its proposer turn to an 82,858-character
+#: message. Kept under that, with room for the agent's own preamble.
+MAX_MESSAGE_BYTES = 60_000
 INCUMBENT = "judge.md"
 SELECTED = Path("metagrader") / "selected.json"
 
@@ -418,6 +424,12 @@ class Grader:
         return value
 
     def _turn(self, message: str) -> str:
+        if not _fits(message):
+            # The core would hold it unread (MAX_MESSAGE_BYTES): an unusable
+            # answer, never a turn retried until the budget runs out.
+            print(f"[metagrader] a message of {len(message.encode('utf-8'))} bytes is over "
+                  f"{MAX_MESSAGE_BYTES}; not sent", file=sys.stderr)
+            return ""
         turn, _ = self.retrier.run(self.ask, message)
         return turn.stdout if turn.returncode == 0 else ""
 
@@ -521,6 +533,16 @@ def run_program(grader: Grader, pairs: list[dict]) -> list[str]:
         return list(results)
 
 
+SKIPPED = "skipped"  # an incumbent comparison never sent: no verdict, not a tie
+
+
+def both_judged(picks: list[str], others: list[str], truth: list[str]) -> tuple[list, list]:
+    """(candidate, incumbent) picks with the truth, minus the pairs the
+    incumbent never judged, so a skipped pair cannot drag its baseline to 0.5."""
+    keep = [i for i, inc in enumerate(others) if inc != SKIPPED]
+    return ([(picks[i], truth[i]) for i in keep], [(others[i], truth[i]) for i in keep])
+
+
 def run_incumbent(evals_dir: Path, brain: Path, ask: list[str], pairs: list[dict]) -> list[str]:
     retrier = evals.Retrier()
 
@@ -530,7 +552,14 @@ def run_incumbent(evals_dir: Path, brain: Path, ask: list[str], pairs: list[dict
         # otherwise turn the judge's favoured position into its accuracy.
         flip = int(pair["id"], 16) % 2 == 1
         first, second = (pair["b"], pair["a"]) if flip else (pair["a"], pair["b"])
-        turn, _ = retrier.run(ask, incumbent_message(evals_dir, brain, first, second))
+        message = incumbent_message(evals_dir, brain, first, second)
+        if not _fits(message):
+            # Held unread by the core: skipped (select() drops the pair from
+            # both sides), not a message retried to no end.
+            print(f"[metagrader] an incumbent message of {len(message.encode('utf-8'))} bytes is over "
+                  f"{MAX_MESSAGE_BYTES}; not sent", file=sys.stderr)
+            return SKIPPED
+        turn, _ = retrier.run(ask, message)
         better = evals.verdict(turn.stdout if turn.returncode == 0 else "")["better"]
         if better == "tie":
             return "tie"
@@ -571,13 +600,18 @@ def select(evals_dir: Path, brain: Path, pairs_dir: Path, candidates: list[dict]
     for prog in progs:
         graders[prog["name"]] = Grader(prog, evals_dir, brain, ask, cache)
         picks = run_program(graders[prog["name"]], selection)
-        board.append({"name": prog["name"], "selection": accuracy(list(zip(picks, truth_sel)))})
-    inc_sel = accuracy(list(zip(run_incumbent(evals_dir, brain, ask, selection), truth_sel)))
+        board.append({"name": prog["name"], "picks": picks})
+    inc_picks_sel = run_incumbent(evals_dir, brain, ask, selection)
+    for row in board:
+        row["selection"] = accuracy(both_judged(row.pop("picks"), inc_picks_sel, truth_sel)[0])
+    inc_sel = accuracy(both_judged(inc_picks_sel, inc_picks_sel, truth_sel)[1])
     board.sort(key=lambda r: (-(r["selection"]["accuracy"] or 0), r["name"]))
     best = board[0]
     truth_held = [p["better"] for p in heldout]
-    best_held = accuracy(list(zip(run_program(graders[best["name"]], heldout), truth_held)))
-    inc_held = accuracy(list(zip(run_incumbent(evals_dir, brain, ask, heldout), truth_held)))
+    held_picks = run_program(graders[best["name"]], heldout)
+    inc_picks_held = run_incumbent(evals_dir, brain, ask, heldout)
+    best_pairs, inc_pairs = both_judged(held_picks, inc_picks_held, truth_held)
+    best_held, inc_held = accuracy(best_pairs), accuracy(inc_pairs)
     promoted, why = promote(best_held, inc_held)
     summary_path = pairs_dir / "summary.json"
     record = {
@@ -610,7 +644,24 @@ def _example(pair: dict) -> dict:
     return {"surface": pair["surface"], "a": side(pair["a"]), "b": side(pair["b"]), "better": pair["better"]}
 
 
+def _fits(message: str) -> bool:
+    return len(message.encode("utf-8")) <= MAX_MESSAGE_BYTES
+
+
 def propose_message(evals_dir: Path, pairs: list[dict], n: int) -> str:
+    """The proposer's message, with as many of PAIRS as fit under
+    MAX_MESSAGE_BYTES, in order; raises when not even one does."""
+    for keep in range(len(pairs), 0, -1):
+        message = _propose_message(evals_dir, pairs[:keep], n)
+        if _fits(message):
+            if keep < len(pairs):
+                print(f"[metagrader] the proposer is shown {keep} of {len(pairs)} example pair(s), "
+                      f"to stay under {MAX_MESSAGE_BYTES} bytes", file=sys.stderr)
+            return message
+    raise MetagraderError(f"the proposer's message does not fit in {MAX_MESSAGE_BYTES} bytes with any example")
+
+
+def _propose_message(evals_dir: Path, pairs: list[dict], n: int) -> str:
     shown = "\n".join(json.dumps(_example(p), ensure_ascii=False) for p in pairs)
     return "\n\n".join([
         "# write graders' programs",
