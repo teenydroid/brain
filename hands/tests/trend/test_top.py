@@ -3,6 +3,7 @@ leading stories, the cache a slot, and every way Digg can give nothing."""
 
 from __future__ import annotations
 
+import json
 import os
 
 from .support import Scratch, cluster, post, row
@@ -39,12 +40,16 @@ class TopTest(Scratch):
         self.assertEqual([p["by"] for p in lead["posts"]], ["Ana", "Bo"])
         self.assertTrue(all(p["kind"] == "x" for p in lead["posts"] + second["posts"]))
         self.assertNotIn("posts", third)
-        posts_calls = [c["argv"] for c in self.calls() if c["argv"][0] == "posts"]
-        self.assertEqual(posts_calls, [["posts", cluster(1), "--agent", "--data-source", "live"],
-                                       ["posts", cluster(4), "--agent", "--data-source", "live"]])
+        posts_calls = [c["body"]["params"] for c in self.mcp_calls()]
+        self.assertEqual([c["name"] for c in posts_calls], ["digg_get_post"] * 2)
+        self.assertEqual([c["arguments"]["id"] for c in posts_calls], [cluster(1), cluster(4)])
 
     def test_a_bare_list_answer_reads_as_the_envelope_does(self):
-        self.behave_keys({"top:ai": "bare", "top:tech": "bare", f"posts:{cluster(1)}": "bare"})
+        rows = [row(1, "ai", 5)]
+        self.assertEqual(digg.rows(rows, "x"), digg.rows({"meta": {}, "results": rows}, "x"))
+        with self.assertRaises(digg.DiggError) as caught:
+            digg.rows({"meta": {}}, "x")
+        self.assertEqual(caught.exception.reason, "bad_json")
         got = top.top("k", 10, 1, 3)
         self.assertEqual(len(got["stories"]), 4)
         self.assertEqual(len(got["stories"][0]["posts"]), 3)
@@ -83,34 +88,41 @@ class TopTest(Scratch):
                                                "error": got["unavailable"][0]["error"]}])
 
     def test_nothing_read_is_an_error_with_a_reason_and_is_not_kept(self):
-        for how, reason in (("rate", "rate_limited"), ("garbage", "bad_json"), ("fail", "failed")):
+        for how, reason in (("rate", "rate_limited"), ("garbage", "bad_json"), ("http500", "failed")):
             self.behave_keys({"top:ai": how, "top:tech": how})
             with self.assertRaises(hand.HandError) as caught:
                 top.top("k", 10, 1, 3)
             self.assertEqual(caught.exception.detail["reason"], reason, how)
         self.assertFalse((self.root / "state" / "trend" / "top" / "k.json").exists())
 
-    def test_a_missing_tool_is_said_and_never_a_crash(self):
-        self.configure(TREND_DIGG_BIN=str(self.root / "nowhere"))
+    def test_a_digg_that_cannot_be_reached_is_said_and_never_a_crash(self):
+        self.behave_keys({"top:ai": "down", "top:tech": "down", "top:world-business": "down",
+                          "top:entertainment": "down", "top:sports": "down", "top:gaming": "down"})
         with self.assertRaises(hand.HandError) as caught:
             top.top("k", 10, 1, 3)
-        self.assertEqual(caught.exception.detail["reason"], "missing")
-        self.assertIn("not installed", str(caught.exception))
+        self.assertEqual(caught.exception.detail["reason"], "failed")
+        self.assertIn("could not reach Digg", str(caught.exception))
 
     def test_no_answer_in_time_is_a_timeout(self):
         self.configure(TREND_TIMEOUT_SECS="1")
-        self.behave_keys({"top:ai": "sleep", "top:tech": "sleep"})
+        self.behave_keys({"top:ai": "sleep", "top:tech": "urlsleep"})
         with self.assertRaises(hand.HandError) as caught:
             top.top("k", 10, 1, 3)
         self.assertEqual(caught.exception.detail["reason"], "timeout")
+        self.assertEqual({c["timeout"] for c in self.calls()}, {1})
 
-    def test_the_tool_lives_under_state_and_sees_none_of_this_environment(self):
+    def test_a_request_carries_nothing_of_this_environment(self):
         os.environ["TREND_TEST_LEAK"] = "a key"
+        os.environ["OPENROUTER_API_KEY"] = "sk-a-key"
         top.top("k", 10, 1, 3)
-        home = str(self.root / "state" / "trend" / "home")
+        self.assertTrue(self.calls())
         for call in self.calls():
-            self.assertEqual((call["home"], call["cwd"], call["leak"]), (home, home, None))
-            self.assertTrue(call["xdg"].startswith(home))
+            self.assertEqual(sorted(call["headers"]), sorted(
+                ["User-agent", "Accept"] + (["Content-type"] if call["body"] else [])))
+            self.assertEqual(call["headers"]["User-agent"], digg.USER_AGENT)
+            self.assertNotIn("a key", json.dumps(call))
+            self.assertNotIn("sk-a-key", json.dumps(call))
+            self.assertTrue(call["url"].startswith("https://digg.com/"))
 
     def test_a_title_or_post_carrying_a_slur_is_dropped_and_counted(self):
         self.board("ai", row(1, "ai", 500, "founder calls his rivals retards on stage"), row(2, "ai", 90))
