@@ -30,8 +30,8 @@ Run it from the repository root with your shell (exec) tool: `hands/upstream <ve
 
 | Verb | Kind | What it does |
 |---|---|---|
-| `releases` | R | The pin (`vendor/openhuman` at the checkout's HEAD) and the `tinyhumansai/openhuman` releases published after that commit, each with `closes`: the open gaps in `docs/oh-gaps.md` (a solved or resolved row is left out) whose issue or PR numbers its notes name, with only those line… |
-| `propose` | A | `{tag, why}`, nothing else. |
+| `releases` | R | `{pin, latest, newer}`, and when `newer` the release's `url`, `published_at` and `changelog`: its notes, at most 40 lines of 300 characters, each dropped if the guard's lexicon holds it. |
+| `propose` | A | `{version, why}`, nothing else. |
 
 Kinds: R = read: no side effect beyond its read cache; A = acting: posts, sends, pays or opens something in the world; O = operator-only: the operator runs it, never you; J = job: writes state or calls the core, says nothing to anyone; scheduled jobs run it, you do not.
 
