@@ -71,6 +71,8 @@ export interface GuardrailsPolicy {
   picturesDir?: string;
   picturesKeep: number;
   agents: Record<string, AgentPolicy>;
+  /** How to run `openclaw`, to read the browser's live tab URLs. */
+  openclaw?: { cmd: string; args: string[] };
   recall?: RecallPolicy;
 }
 

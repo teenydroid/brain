@@ -125,6 +125,8 @@ export function newBrowserState(): BrowserState {
 export interface BrowserDeps {
   denyFile: string | undefined;
   keychainFill: string | undefined;
+  /** The URL the tab is on right now, read from the browser itself (`openclaw browser tabs`). Throws when it cannot tell. */
+  liveUrl: (profile: string, targetId: string | undefined) => Promise<string>;
   /** runs bin/keychain-fill <host>; resolves with its stdout. Injectable for tests. */
   fill: (program: string, host: string) => Promise<string>;
 }
@@ -136,6 +138,43 @@ export function runKeychainFill(program: string, host: string): Promise<string> 
       else resolve(stdout.replace(/\r?\n$/, ""));
     });
   });
+}
+
+/** Tab entries in whatever JSON `openclaw browser --json tabs` prints: any object with a url and a tab reference. */
+export function tabsIn(doc: unknown, out: { url: string; refs: string[] }[] = []): { url: string; refs: string[] }[] {
+  if (Array.isArray(doc)) for (const v of doc) tabsIn(v, out);
+  else if (doc && typeof doc === "object") {
+    const o = doc as Record<string, unknown>;
+    if (typeof o.url === "string") {
+      const refs = ["suggestedTargetId", "tabId", "targetId", "label", "id"].map((k) => o[k]).filter((v): v is string => typeof v === "string" && v !== "");
+      if (refs.length > 0) out.push({ url: o.url, refs });
+    }
+    for (const v of Object.values(o)) if (v && typeof v === "object") tabsIn(v, out);
+  }
+  return out;
+}
+
+/** Picks the tab a call names (any reference the browser accepts), or the only tab when none is named. */
+export function pickTab(doc: unknown, targetId: string | undefined): string {
+  const tabs = tabsIn(doc);
+  const found = targetId ? tabs.filter((t) => t.refs.includes(targetId) || t.refs.some((r) => r.startsWith(targetId) && targetId.length >= 6)) : tabs;
+  if (found.length !== 1) throw new Error(found.length === 0 ? "the browser lists no such tab" : "more than one tab fits: name the tab");
+  return (found[0] as { url: string }).url;
+}
+
+/** Asks the Gateway's browser (through the openclaw CLI, which reaches the running Gateway) where a tab is now. */
+export function openclawLiveUrl(cli: { cmd: string; args: string[] }): BrowserDeps["liveUrl"] {
+  return (profile, targetId) =>
+    new Promise((resolve, reject) => {
+      execFile(cli.cmd, [...cli.args, "browser", "--json", "--browser-profile", profile, "tabs"], { timeout: 10_000, maxBuffer: 1024 * 1024, env: process.env }, (err, stdout) => {
+        if (err) return reject(new Error("the browser did not answer"));
+        try {
+          resolve(pickTab(JSON.parse(stdout), targetId));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error("unreadable tab list"));
+        }
+      });
+    });
 }
 
 export type BrowserVerdict = { block: string } | { params?: Record<string, unknown> } | undefined;
@@ -196,11 +235,18 @@ export async function judgeBrowser(
   if (placeholders.length === 0) return undefined;
   if (!policy.keychain || !deps.keychainFill) return { block: "this agent may not use the keychain placeholder" };
   if (!kinds.every((k) => k === "type" || k === "fill")) return { block: "the keychain placeholder can only be typed or filled" };
-  const host = state.hosts.get(key) ?? state.hosts.get(`${sessionKey ?? ""}|`);
-  if (!host) return { block: "the browser has not opened a page this guard saw, so it cannot tell which site is typed into" };
   const sites = new Set(placeholders);
   if (sites.size !== 1) return { block: "one keychain site per call" };
   const site = placeholders[0] as string;
+  // Where is the tab right now? Not where it was last sent: a click or a redirect may have moved it.
+  let host: string;
+  try {
+    const live = new URL(await deps.liveUrl(policy.profile ?? "", typeof params.targetId === "string" ? params.targetId : undefined));
+    if (live.protocol !== "https:") return { block: `the tab is on a ${live.protocol.replace(":", "")} page, not a site's own https page` };
+    host = live.hostname.toLowerCase();
+  } catch (e) {
+    return { block: `the guard could not confirm which page the tab is on (${(e as Error).message}), so it will not type a password` };
+  }
   if (host !== site && !host.endsWith(`.${site}`)) {
     return { block: `the keychain placeholder for ${site} is typed only on ${site}'s own pages (this tab is on ${host})` };
   }
