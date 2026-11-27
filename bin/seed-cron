@@ -6,7 +6,7 @@
 # --check validates the file against the cron rules and stops: no core needed
 # (bin/doctor, and the evolve gate on a candidate brain).
 #
-# OpenHuman cannot load jobs from a file (docs/oh-gaps.md, G2), so this
+# OpenHuman cannot load jobs from a file, so this
 # reconciles by name: a job in the file and not in the core is added, one that
 # differs is updated in place, and one in the core and not in the file is
 # removed. It only ever touches jobs whose name starts with `teeny.`; the

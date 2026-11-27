@@ -198,9 +198,6 @@ It talks to people and keeps talking to them.
   (`hands/requests`). *Proof:* 4 shipped requests in a month.
 - [ ] Opens issues on its own repos for its own bugs and ideas. *Proof:*
   issues authored by `teenydroid` that it later closed with its own PR.
-- [ ] Contributes upstream to OpenHuman: picks a gap from `docs/oh-gaps.md`,
-  opens a PR, answers review, gets it merged. *Proof:* a merged
-  `tinyhumansai/openhuman` PR by `teenydroid`.
 - [ ] Contributes to outside open source where AI PRs are welcome. *Proof:*
   a merged PR in a repo we don't own.
 - [ ] Babysits its own PRs: reads CI, fixes failures, replies to reviewers.

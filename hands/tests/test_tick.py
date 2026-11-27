@@ -3079,7 +3079,7 @@ class TickTest(unittest.TestCase):
 
     # --- the cron call: bin/tick --detach ---------------------------------------------
     # The core gives up on a cron shell job after 300 s (TinyBox's module call
-    # timeout, docs/oh-gaps.md G12), and a beat can take longer. The cron call
+    # timeout), and a beat can take longer. The cron call
     # starts the beat in its own session and returns; the beat logs itself.
 
     def detach(self) -> tuple[dict, float]:

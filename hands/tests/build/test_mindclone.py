@@ -1181,7 +1181,7 @@ class ReviewsTest(ReviseCase):
 
 class StaleCopyTest(MindScratch):
     """2026-11-24 07:39Z: the mind opened teenydroid/brain#546, titled for a
-    fuzz bound, whose diff instead deleted 48 lines of docs/oh-defects.md: its
+    fuzz bound, whose diff instead deleted 48 lines of docs/design-notes.md: its
     copy held edits, so `prepare` left an old tree alone, and `ship` sent it
     blind. Now `prepare` says plainly that it left a copy alone and how far
     behind it is, `ship` answers what it shipped against origin/main with
@@ -1224,12 +1224,12 @@ class StaleCopyTest(MindScratch):
 
     def test_a_change_that_would_undo_what_main_merged_since_the_copy_is_refused(self):
         mindclone.prepare()
-        self.edit({"docs/oh-defects.md": "old view\n", "brain/SOUL.md": "# soul\nbrief\n"})
-        self.upstream({"docs/oh-defects.md": "48 lines merged on main\n"}, "defects")
+        self.edit({"docs/design-notes.md": "old view\n", "brain/SOUL.md": "# soul\nbrief\n"})
+        self.upstream({"docs/design-notes.md": "48 lines merged on main\n"}, "defects")
         with self.assertRaises(hand.Refused) as caught:
             mindclone.ship("fuzz-bound", "bound the fuzz sink", "...")
         self.assertEqual(caught.exception.detail["rule"], "stale")
-        self.assertIn("docs/oh-defects.md", caught.exception.reason)
+        self.assertIn("docs/design-notes.md", caught.exception.reason)
         self.assertIn("rm -rf repo", caught.exception.reason)
         self.assertIn("bin/teeny repo", caught.exception.reason)
         self.assertIsNone(self.origin_ref("refs/heads/teeny/mind-fuzz-bound"))

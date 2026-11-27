@@ -55,7 +55,7 @@ command = "bin/mail"
 # ingest. Every awake beat thinks (an empty inbox is a quiet moment); a beat
 # in the quiet hours only gathers and makes no model call. --detach: the beat
 # runs in the background and the call returns at once, because a beat can
-# outlast the 300 s the core gives any cron shell call (docs/oh-gaps.md, G12);
+# outlast the 300 s the core gives any cron shell call;
 # the beat records itself in state/tick/runs.jsonl, and a call while one is
 # still running says `busy` and starts nothing.
 [jobs.tick]
