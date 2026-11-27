@@ -17,6 +17,7 @@
 // carries none). `TEENY_LIFI_API` overrides the base URL (a test double);
 // `LIFI_API_KEY`, when set, goes as `x-lifi-api-key`. No log line carries an
 // address or the key.
+import { trackSecret } from "../errors.js";
 import type { Deps } from "../endpoints.js";
 import { type BackendCall, ERROR_CHARS, type Env, type ProviderRequest, cut, isRecord } from "./types.js";
 
@@ -217,7 +218,11 @@ async function fetchQuote(env: Env, deps: Deps, request: ProviderRequest): Promi
   for (const [k, v] of request.query) url.searchParams.append(k, v);
   const headers: Record<string, string> = { "user-agent": "teeny-core" };
   const key = env.LIFI_API_KEY?.trim();
-  if (key) headers["x-lifi-api-key"] = key;
+  if (key) {
+    if (url.protocol !== "https:") throw new Error("LI.FI: LIFI_API_KEY is only sent over https; fix TEENY_LIFI_API or unset the key");
+    trackSecret(key);
+    headers["x-lifi-api-key"] = key;
+  }
   let response: Response;
   try {
     response = await deps.fetch(url, { headers, redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS) });

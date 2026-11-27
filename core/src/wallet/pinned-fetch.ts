@@ -28,10 +28,22 @@ export function pinnedFetch(url: string, init: RequestInit, addresses: readonly 
   new Headers(init.headers).forEach((value, key) => {
     headers[key] = value;
   });
+  // The request goes to the vetted URL's authority, and TLS is checked against its name: a caller-supplied Host
+  // that names anything else would reach another virtual host on the same address.
+  if (headers.host !== undefined && headers.host.toLowerCase() !== target.host.toLowerCase()) {
+    return Promise.reject(new Error("the Host header does not match the request URL"));
+  }
+  headers.host = target.host;
   return new Promise((resolve, reject) => {
     const request = client.request(
       target,
-      { method: init.method ?? "GET", headers, lookup: pinnedLookup(addresses), agent: false, ...(init.signal ? { signal: init.signal } : {}) },
+      {
+        method: init.method ?? "GET",
+        headers,
+        lookup: pinnedLookup(addresses),
+        agent: false,
+        ...(target.protocol === "https:" && !/^[\d.]+$|^\[/.test(target.hostname) ? { servername: target.hostname } : {}),
+        ...(init.signal ? { signal: init.signal } : {}) },
       (response) => {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -41,7 +53,17 @@ export function pinnedFetch(url: string, init: RequestInit, addresses: readonly 
           size += chunk.length;
           if (size >= MAX_BYTES) response.destroy();
         });
+        let finished = false;
         const done = (): void => {
+          if (finished) return;
+          finished = true;
+          try {
+            resolve(buildResponse());
+          } catch (error) {
+            reject(error);
+          }
+        };
+        const buildResponse = (): Response => {
           const out = new Headers();
           for (const [key, value] of Object.entries(response.headers)) {
             for (const v of Array.isArray(value) ? value : value === undefined ? [] : [value]) out.append(key, v);
@@ -49,7 +71,9 @@ export function pinnedFetch(url: string, init: RequestInit, addresses: readonly 
           const status = response.statusCode ?? 0;
           const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
           const body = Buffer.concat(chunks).subarray(0, MAX_BYTES);
-          resolve(new Response(nullBody ? null : new Uint8Array(body), { status, headers: out }));
+          // Response() refuses a status outside 200-599; that must be a rejection, not an exception in an event handler.
+          if (!Number.isInteger(status) || status < 200 || status > 599) throw new Error(`the server answered an unsupported HTTP status (${status})`);
+          return new Response(nullBody ? null : new Uint8Array(body), { status, headers: out });
         };
         response.on("end", done);
         response.on("close", done);

@@ -20,7 +20,6 @@ git -C "$root" show 1a8fd977~1:spine/src/giveaway_tx.rs > "$work/spine/src/givea
 cp "$here/main.rs" "$work/spine/src/main.rs"
 cp "$here/Cargo.toml" "$work/spine/Cargo.toml"
 cp "$root/hands/tests/giveaway/fixtures/rewards_tx.json" "$work/hands/tests/giveaway/fixtures/"
-chmod -R a+rwX "$work"
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/tmp/cargo \
   -e PATH=/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin \
   -v "$work:/x" -w /x/spine rust:1.96.1-bookworm bash -c 'cargo test --release && cargo build --release'

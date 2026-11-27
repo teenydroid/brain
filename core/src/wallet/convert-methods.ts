@@ -15,7 +15,7 @@ import { evmPrivateKey, solanaKeypair } from "./derive.js";
 import { type EvmNetworkInfo, evmNetwork, evmNetworkByChainId } from "./endpoints.js";
 import { PolicyRefusal, fail, refusal } from "./errors.js";
 import * as evm from "./evm-chain.js";
-import type { LedgerRecord } from "./ledger.js";
+import { type LedgerRecord, recordBroadcast } from "./ledger.js";
 import { alreadyAttempted, alreadyAttemptedMessage, RPC_ORIGIN } from "./policy.js";
 import { backendAnswer } from "./routes/index.js";
 import { isRecord } from "./routes/types.js";
@@ -72,9 +72,22 @@ export function convertMethods(rt: Runtime): RpcMethods {
     return found;
   };
 
-  const store = (ctx: CoreContext, quote: Omit<ConvertQuote, "quoteId" | "stateDir" | "wallet" | "createdAtMs" | "expiresAtMs">, ttl: number): ConvertQuote => {
+  const walletNow = (ctx: CoreContext): string => {
     const state = loadState(ctx);
     if (!state) throw fail(WALLET_NOT_CONFIGURED_MESSAGE);
+    return fingerprint(state.encryptedMnemonic);
+  };
+
+  /** EXPECTED is the wallet the quote was requested for (read before the provider call); a replaced wallet voids it. */
+  const store = (
+    ctx: CoreContext,
+    quote: Omit<ConvertQuote, "quoteId" | "stateDir" | "wallet" | "createdAtMs" | "expiresAtMs">,
+    ttl: number,
+    expected: string,
+  ): ConvertQuote => {
+    const state = loadState(ctx);
+    if (!state) throw fail(WALLET_NOT_CONFIGURED_MESSAGE);
+    if (fingerprint(state.encryptedMnemonic) !== expected) throw fail("the wallet changed while the quote was requested; request it again");
     const now = rt.now();
     const full: ConvertQuote = {
       ...quote,
@@ -91,6 +104,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
   methods.web3_swap_quote = async (params, ctx) => {
     const body: Params = { ...params };
     const chain = chainOf(text(body.chainId));
+    const requestedFor = walletNow(ctx);
     // Defaults the module filled: the wallet's own address on this chain.
     for (const field of ["senderAddress", "tokenOutRecipient"]) {
       if (body[field] === undefined || body[field] === null || body[field] === "") body[field] = own(ctx, chain.signingChain);
@@ -112,6 +126,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
         },
       },
       QUOTE_TTL_MS,
+      requestedFor,
     );
     return envelope(quote, answer);
   };
@@ -119,6 +134,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
   methods.web3_bridge_quote = async (params, ctx) => {
     const body: Params = { ...params };
     const chain = chainOf(text(body.srcChainId));
+    const requestedFor = walletNow(ctx);
     const answer = await backendAnswer(ctx.env, rt.deps, { kind: "bridge", body });
     const quote = store(
       ctx,
@@ -135,6 +151,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
         },
       },
       QUOTE_TTL_MS,
+      requestedFor,
     );
     return envelope(quote, answer);
   };
@@ -170,6 +187,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
         summary: { fromToken: "", toToken: "", amountRaw: valueRaw, toAddress: contract },
       },
       DAPP_TTL_MS,
+      walletNow(ctx),
     );
     return {
       quoteId: quote.quoteId,
@@ -196,6 +214,12 @@ export function convertMethods(rt: Runtime): RpcMethods {
     const now = rt.now();
     rt.converts.take(quoteId);
     if (held.expiresAtMs <= now) throw refusal("quote_expired", `the quote expired at ${held.expiresAtMs} (now ${now}); prepare it again`);
+    // An approval is good only while the swap or bridge quote that justified it is still live: the same test as at prepare.
+    if (held.kind === "dapp") {
+      const network = evmNetworkByChainId(held.evmChainId ?? -1);
+      if (!network) throw fail("the quote names an EVM chain this wallet does not use");
+      checkApproval(rt, network, held.tx.to ?? "", held.tx.data ?? "", held.tx.value ?? "0");
+    }
     const ledger = rt.ledger(ctx);
     const base = (status: LedgerRecord["status"], extra: Partial<LedgerRecord> = {}): LedgerRecord => ({
       id: newId(),
@@ -218,9 +242,14 @@ export function convertMethods(rt: Runtime): RpcMethods {
     let record: LedgerRecord;
     try {
       record = await ledger.reserve((records) => {
+        // The clock after the ledger lock: a quote that expired while this waited is refused before anything is signed.
+        const reservedAt = rt.now();
+        if (held.expiresAtMs <= reservedAt) {
+          throw refusal("quote_expired", `the quote expired at ${held.expiresAtMs} (now ${reservedAt}); prepare it again`);
+        }
         const earlier = alreadyAttempted(records, held.quoteId);
         if (earlier) throw refusal("already_attempted", alreadyAttemptedMessage(held.quoteId, earlier.status, false));
-        return base("pending");
+        return base("pending", { createdAtMs: reservedAt, updatedAtMs: reservedAt });
       });
     } catch (error) {
       if (error instanceof PolicyRefusal) await ledger.put(base("refused", { error: error.detail })).catch(() => undefined);
@@ -234,8 +263,11 @@ export function convertMethods(rt: Runtime): RpcMethods {
       await ledger.put({ ...record, status: "in_doubt", error: message.slice(0, 300), updatedAtMs: Math.max(now, rt.now()) }).catch(() => undefined);
       throw error;
     }
-    await ledger.put({ ...record, status: "broadcast", transactionHash: hash, updatedAtMs: Math.max(now, rt.now()) });
-    return { quoteId: held.quoteId, kind: held.kind, transactionHash: hash };
+    const recorded = await recordBroadcast(ledger, record, hash, Math.max(now, rt.now()));
+    if (!recorded) {
+      ctx.log("error", "wallet conversion was sent but the ledger update failed; the record stays pending", { quoteId: held.quoteId, recordId: record.id, transactionHash: hash });
+    }
+    return { quoteId: held.quoteId, kind: held.kind, transactionHash: hash, ...(recorded ? {} : { ledgerUpdateFailed: true }) };
   };
 
   methods.web3_swap_execute = execute("swap");
@@ -276,7 +308,9 @@ function checkApproval(rt: Runtime, network: EvmNetworkInfo, contract: string, c
       q.signingChain === "evm" &&
       q.evmChainId === network.chainId &&
       q.summary.fromToken.toLowerCase() === network.usdc.toLowerCase() &&
-      (q.tx.to?.toLowerCase() === spender || PINNED_SPENDERS.has(spender)) &&
+      // The spender must be the contract this very quote calls (`tx.to`); a pinned deBridge contract only counts when the
+      // covering quote itself goes through a pinned contract, so an unrelated quote cannot vouch for it.
+      (q.tx.to?.toLowerCase() === spender || (PINNED_SPENDERS.has(spender) && PINNED_SPENDERS.has(q.tx.to?.toLowerCase() ?? ""))) &&
       amount <= (bigintOf(q.summary.amountRaw) ?? 0n),
   );
   if (!covered) {
@@ -287,6 +321,12 @@ function checkApproval(rt: Runtime, network: EvmNetworkInfo, contract: string, c
         : `${spender} is neither the contract of a live quote nor a pinned deBridge contract`,
     );
   }
+}
+
+/** The placeholders providers use for a chain's native coin. */
+function isNativeToken(token: string): boolean {
+  const t = token.trim().toLowerCase();
+  return t === "0x0000000000000000000000000000000000000000" || t === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 }
 
 function envelope(quote: ConvertQuote, answer: unknown): Record<string, unknown> {
@@ -301,6 +341,8 @@ function envelope(quote: ConvertQuote, answer: unknown): Record<string, unknown>
 
 async function signAndSend(rt: Runtime, ctx: CoreContext, quote: ConvertQuote): Promise<string> {
   return withSeed(ctx, async (seed, state) => {
+    // The wallet may have been replaced while this waited; the quote is good only for the wallet it was prepared for.
+    if (quote.wallet !== fingerprint(state.encryptedMnemonic)) throw fail("the wallet changed after the quote was prepared; prepare it again");
     if (quote.signingChain === "solana") {
       const account = state.accounts.find((a) => a.chain === "solana" && isPrimary(a));
       if (!account) throw fail("no wallet account derived for chain 'solana'");
@@ -319,9 +361,13 @@ async function signAndSend(rt: Runtime, ctx: CoreContext, quote: ConvertQuote): 
     if (!to || !evm.isEvmAddress(to)) throw fail("the quote's transaction has no valid `to`");
     const wei = bigintOf(value ?? "0");
     if (wei === undefined) throw fail("the quote's transaction value is not a number");
+    // A swap paying in the chain's native coin sends exactly the confirmed amount, whatever the provider's transaction says.
+    if (quote.kind === "swap" && isNativeToken(quote.summary.fromToken)) {
+      const confirmed = bigintOf(quote.summary.amountRaw);
+      if (confirmed === undefined || wei > confirmed) throw fail("the quote's transaction would send more native value than the confirmed amount; it was not sent");
+    }
     const key = evmPrivateKey(seed, account.derivationPath);
     const rpc = rt.evm(ctx, network);
-    const raw = await evm.signEvmTransaction(rpc, key, network.chainId, { to, value: wei, data: data ?? "0x" });
-    return evm.sendRaw(rpc, raw);
+    return evm.signAndBroadcast(rpc, key, network.chainId, { to, value: wei, data: data ?? "0x" });
   });
 }

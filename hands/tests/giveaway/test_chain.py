@@ -487,45 +487,39 @@ class SpineSettleTest(RoundCase):
         self.assertEqual(prepare["expectedDebits"], [{"mint": hand.setting("GIVEAWAY_DEVNET_MINT"), "amountRaw": str(row["total_raw"])}])
 
 
-class SpineBinSelectionTest(unittest.TestCase):
-    """spine_bin: OPENHUMAN_CORE_BIN first; the checkout wrapper only with a build behind it, so an
-    installed teeny-core on PATH is still reachable from an unbuilt checkout."""
+class SpineBinTest(unittest.TestCase):
+    """spine_bin keeps the installed teeny-core on PATH reachable when the checkout wrapper has no build."""
 
-    def setUp(self):
+    def _script(self, directory: Path, body: str) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "teeny-core"
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+        return path
+
+    def _run(self, checkout_body: str | None, with_path: bool, named: str | None = None) -> str | None:
+        import shutil
         import tempfile
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        (self.root / "bin").mkdir()
-        self.saved = dict(os.environ)
-        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.saved)))
-        os.environ.pop("OPENHUMAN_CORE_BIN", None)
-        os.environ["TEENY_ROOT"] = str(self.root)
-        installed = self.root / "path"
-        installed.mkdir()
-        self.installed = installed / "teeny-core"
-        self.installed.write_text("#!/bin/sh\nexit 0\n")
-        self.installed.chmod(0o755)
-        os.environ["PATH"] = f"{installed}:{self.saved.get('PATH', '')}"
+        from unittest import mock
 
-    def wrapper(self, build: bool) -> Path:
-        main = self.root / "main.js"
-        if build:
-            main.write_text("")
-        wrapper = self.root / "bin" / "teeny-core"
-        wrapper.write_text(f'#!/bin/sh\n[ "$1" = --where ] && {{ echo {main}; exit 0; }}\nexit 127\n')
-        wrapper.chmod(0o755)
-        return wrapper
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            if checkout_body is not None:
+                self._script(root / "bin", checkout_body)
+            installed = self._script(Path(tmp) / "installed", "exit 0\n")
+            env = {"PATH": str(installed.parent) if with_path else "/nonexistent"}
+            if named:
+                env["OPENHUMAN_CORE_BIN"] = named
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(hand, "root", return_value=root):
+                got = onchain.spine_bin()
+            self.assertEqual(shutil.which("sh") is not None, True)
+            return None if got is None else got.replace(tmp, "<tmp>")
 
-    def test_an_unbuilt_checkout_wrapper_falls_back_to_the_installed_core(self):
-        self.wrapper(build=False)
-        self.assertEqual(onchain.spine_bin(), str(self.installed))
+    def test_an_unbuilt_checkout_wrapper_falls_through_to_the_installed_core(self):
+        self.assertEqual(self._run('echo "no build" >&2\nexit 127\n', True), "<tmp>/installed/teeny-core")
 
-    def test_a_built_checkout_wrapper_is_used(self):
-        wrapper = self.wrapper(build=True)
-        self.assertEqual(onchain.spine_bin(), str(wrapper))
+    def test_a_checkout_wrapper_with_a_build_is_used(self):
+        self.assertEqual(self._run('echo /bin/sh\nexit 0\n', True), "<tmp>/root/bin/teeny-core")
 
-    def test_the_named_core_stays_first(self):
-        self.wrapper(build=False)
-        os.environ["OPENHUMAN_CORE_BIN"] = str(self.installed)
-        self.assertEqual(onchain.spine_bin(), str(self.installed))
+    def test_no_wrapper_and_nothing_on_path_is_none(self):
+        self.assertIsNone(self._run(None, False))

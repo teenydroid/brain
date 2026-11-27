@@ -6,7 +6,7 @@ This replaces OpenHuman's tinywallet module and the Rust spine hooks
 `core/test/contract/` as `RpcMethods` (`index.ts`), with the same names, the same
 JSON and the same refusal messages (`WALLET_POLICY_REFUSED:`, `X402_REFUSED:`).
 
-Money moves only here, and only after the caps in `[wallet_policy]` have said yes.
+Money moves only here. A transfer or program execute moves it only after the caps in `[wallet_policy]` have said yes; a swap, bridge or dapp execute applies no core cap and relies on the hands' own caps (see below).
 The hands still decide whether to ask at all (`DRY_RUN`, their own caps, the guard);
 the core has no `DRY_RUN` of its own and ignores `OPENHUMAN_WALLET_POLICY_*` in the
 environment, so the process env can only ever make it do less.
@@ -95,7 +95,7 @@ Every method in the fixtures is implemented.
 
 - A program execute's simulation also measures native SOL leaving the fee payer and any other Solana account of the wallet the message names, and refuses above 0.01 SOL (fees and rent; `OPENHUMAN_WALLET_PROGRAM_MAX_NATIVE_LAMPORTS` can only lower it). A CPI'd System transfer from an allowed program no longer slips past the token-only check.
 - Caps key on one spelling per address: EVM recipients and token addresses compare lowercase, Solana ones through a base58 decode and encode, so the weekly per-recipient cap cannot be split across spellings.
-- Every RPC execute is capped. OpenHuman skipped the caps for an "interactive" execute unless `apply_to_interactive` was true; there is no interactive user here.
+- Every transfer and program execute is capped (swap, bridge and dapp executes are not: see above, `policyApplied: false`). OpenHuman skipped the caps for an "interactive" execute unless `apply_to_interactive` was true; there is no interactive user here.
 - A policy file that cannot be read, or has an unknown field, refuses every execute.
 - `wallet_derive_recovery_material` never returns the BIP-39 seed (OpenHuman did, for its storage KDF).
 - `wallet_setup` verifies the ciphertext and addresses (above), and takes an index-0 account at the giveaway path as the giveaway account: `bin/wallet-setup` copies only `chain`, `address` and `derivationPath`, which drops `index`, and OpenHuman's validation would then refuse the whole setup.

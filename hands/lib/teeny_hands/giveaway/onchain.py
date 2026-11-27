@@ -135,7 +135,7 @@ def parse_create_data(data_hex: str) -> Json | None:
 
 
 def _wrapper_can_run(wrapper: str) -> bool:
-    """bin/teeny-core exits 127 when no build exists; `--where` names the build it would run."""
+    """True when the checkout's bin/teeny-core has a build behind it (`--where` names a file that exists)."""
     try:
         done = subprocess.run([wrapper, "--where"], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
@@ -146,8 +146,7 @@ def _wrapper_can_run(wrapper: str) -> bool:
 def spine_bin() -> str | None:
     """The core's command: OPENHUMAN_CORE_BIN (the image sets it to its teeny-core
     wrapper), else this checkout's bin/teeny-core when it has a build to run, else
-    `teeny-core` on PATH. The checkout wrapper is skipped in an unbuilt checkout, so the
-    PATH fallback stays reachable (and never calls the wrapper again)."""
+    `teeny-core` on PATH (so an unbuilt checkout falls through to the installed one)."""
     named = os.environ.get("OPENHUMAN_CORE_BIN")
     if named and Path(named).is_file() and os.access(named, os.X_OK):
         return named

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { RpcError } from "../server/types.js";
 
 /** Prefix of every spend-policy refusal, so a caller can tell a refusal from a fault. */
@@ -46,20 +47,26 @@ export function fail(message: string): RpcError {
 // Keeping key material out of errors and logs.
 // ---------------------------------------------------------------------------
 
-const tracked = new Set<string>();
+// Redaction data lives only as long as the RPC call that registered it: a process-wide set would keep every
+// recovery phrase it ever saw reachable in the heap, long after the wallet was replaced.
+const scope = new AsyncLocalStorage<Set<string>>();
+
+/** Runs BODY with its own redaction set; the set is released when BODY's promise settles. */
+export function withSecretScope<T>(body: () => Promise<T>): Promise<T> {
+  return scope.run(new Set<string>(), body);
+}
 
 /**
- * Registers a sensitive string (a phrase, its words, a base58 secret) so that
- * scrub() removes it from anything that leaves the module. Entries live for
- * the life of the process and are never read back out.
+ * Registers a sensitive string (a phrase, its words, a base58 secret) so that scrub() removes it from anything
+ * that leaves the module during this call. Outside a call scope nothing is retained.
  */
 export function trackSecret(text: string): void {
-  if (text.length >= 4) tracked.add(text);
+  if (text.length >= 4) scope.getStore()?.add(text);
 }
 
 export function scrub(text: string): string {
   let out = text;
-  for (const secret of tracked) {
+  for (const secret of scope.getStore() ?? []) {
     if (out.includes(secret)) out = out.split(secret).join("[redacted]");
   }
   return out;
@@ -70,5 +77,6 @@ export function safeError(error: unknown): RpcError {
   if (error instanceof PolicyRefusal) return new RpcError(scrub(error.message));
   if (error instanceof RpcError) return new RpcError(scrub(error.message), error.code, undefined);
   const message = error instanceof Error ? error.message : String(error);
-  return new RpcError(scrub(`wallet: ${message}`.slice(0, 500)));
+  // Scrub the whole message first: cutting it first could split a tracked phrase so that it no longer matches.
+  return new RpcError(scrub(`wallet: ${message}`).slice(0, 500));
 }

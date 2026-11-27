@@ -103,6 +103,7 @@ describe("an EVM transfer", () => {
     const token = (await h.call("wallet_prepare_transfer", { chain: "evm", evmNetwork: "base_mainnet", toAddress: EVM_TO, amountRaw: "2500000", assetSymbol: "USDC" })) as { quoteId: string };
     await execute(h, token.quoteId);
     const tx2 = parseEvm(sent[1]!);
+    expect(tx2.chainId).toBe(8453);
     expect(tx2.to?.toLowerCase()).toBe(BASE_USDC.toLowerCase());
     expect(tx2.value ?? 0n).toBe(0n);
     // transfer(address,uint256): a9059cbb | to | amount
@@ -231,7 +232,7 @@ describe("the spend caps, enforced before anything is signed", () => {
       throw new Error("node fell over");
     });
     const q = await prepare(h, { assetSymbol: "USDC", amountRaw: "5000000" });
-    await expect(execute(h, q.quoteId)).rejects.toThrow(/node fell over/);
+    await expect(execute(h, q.quoteId)).rejects.toThrow(/rpc sendTransaction: the node reported an error/);
     const ledger = (await h.call("wallet_ledger_list", { limit: 5 })) as Array<Record<string, unknown>>;
     expect(ledger[0]).toMatchObject({ status: "in_doubt" });
     const next = await prepare(h, { assetSymbol: "USDC", amountRaw: "4000000", toAddress: OTHER });

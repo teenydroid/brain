@@ -469,6 +469,35 @@ describe("the vetted address is the connected address", () => {
   });
 });
 
+describe("review fixes: pinnedFetch", () => {
+  it("refuses a Host header that names another authority, and accepts the matching one", async () => {
+    const server = createServer((req, res) => res.end(String(req.headers.host)));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      await expect(pinnedFetch(`http://good.invalid:${port}/x`, { headers: { Host: "other.invalid" } }, ["127.0.0.1"])).rejects.toThrow(/Host header does not match/);
+      const ok = await pinnedFetch(`http://good.invalid:${port}/x`, { headers: { Host: `good.invalid:${port}` } }, ["127.0.0.1"]);
+      expect(await ok.text()).toBe(`good.invalid:${port}`);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rejects, instead of throwing in an event handler, when the server answers a status Response() refuses", async () => {
+    const { createServer: raw } = await import("node:net");
+    const server = raw((socket) => {
+      socket.once("data", () => socket.end("HTTP/1.1 600 Odd\r\ncontent-length: 0\r\n\r\n"));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      await expect(pinnedFetch(`http://odd.invalid:${port}/x`, {}, ["127.0.0.1"])).rejects.toThrow();
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe("the x402 budget does not take the server's word", () => {
   const tight = { ...MAINNET, OPENHUMAN_X402_DAILY_MAX: "1500", OPENHUMAN_X402_MONTHLY_MAX: "9999" };
 
@@ -521,5 +550,51 @@ describe("the x402 budget does not take the server's word", () => {
     h.clock.now += 61_000;
     server(h, [evmAccept()]);
     expect((await fetch402(h)).payment.settled).toBe(true);
+  });
+});
+
+describe("review fixes: sign-in result and the Solana fee payer", () => {
+  it("does not say we signed in when the server rejects the proof", async () => {
+    const h = makeHarness({ env: MAINNET });
+    await setupWallet(h);
+    const body = {
+      x402Version: 2,
+      resource: { url: URL_ },
+      accepts: [],
+      extensions: {
+        "sign-in-with-x": {
+          info: {
+            domain: "api.example.test",
+            uri: URL_,
+            statement: "Sign in",
+            version: "1",
+            nonce: "abcdef123456",
+            issuedAt: new Date(1_800_000_000_000 - 1000).toISOString(),
+            expirationTime: new Date(1_800_000_000_000 + 300_000).toISOString(),
+            resources: [URL_],
+          },
+          supportedChains: [{ chainId: "eip155:8453", type: "eip191" }],
+        },
+      },
+    };
+    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) =>
+      call.headers["sign-in-with-x"]
+        ? new Response("no", { status: 401 })
+        : new Response("", { status: 402, headers: { "payment-required": Buffer.from(JSON.stringify(body)).toString("base64") } }),
+    );
+    const out = await fetch402(h, { signIn: true, maxAmountAtomic: 1 });
+    expect(out.status).toBe(401);
+    expect(out).not.toHaveProperty("signedInAs");
+  });
+
+  it("refuses a challenge that names this wallet as the Solana fee payer, and signs nothing", async () => {
+    const h = makeHarness();
+    const { status } = await setupWallet(h);
+    mockSolana(h.net);
+    const me = (status.accounts as Array<{ chain: string; address: string }>).find((a) => a.chain === "solana")!.address;
+    const recipient = Keypair.generate().publicKey.toBase58();
+    const { requests } = server(h, [{ scheme: "exact", network: DEVNET_CAIP, amount: "2500", asset: DEVNET_USDC, payTo: recipient, maxTimeoutSeconds: 60, extra: { feePayer: me } }]);
+    expect(await message(fetch402(h, { network: "solana" }))).toMatch(/names this wallet as its own fee payer/);
+    expect(requests.every((r) => !r.headers["payment-signature"])).toBe(true);
   });
 });

@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import type { CoreContext, RpcMethods } from "../server/types.js";
 import { signEd25519, solanaKeypair } from "./derive.js";
 import { PolicyRefusal, fail, refusal } from "./errors.js";
-import type { LedgerRecord } from "./ledger.js";
+import { type LedgerRecord, recordBroadcast } from "./ledger.js";
 import { type MintTotal, accountKey, alreadyAttempted, alreadyAttemptedMessage, evaluateProgram, loadPolicy, mintAmount, RPC_ORIGIN } from "./policy.js";
 import type { ProgramQuote, Runtime } from "./runtime.js";
 import { sendTransaction } from "./solana-chain.js";
@@ -68,6 +68,10 @@ function declaredOf(params: Params): MintTotal[] {
     const amount = e.amountRaw ?? e.amount_raw;
     if (typeof e.mint !== "string" || (typeof amount !== "string" && typeof amount !== "number")) {
       throw fail("invalid params: an expectedDebits entry needs a mint and an amountRaw");
+    }
+    // A JSON number past 2^53 has already been rounded by the parser; larger amounts must come as decimal strings.
+    if (typeof amount === "number" && !Number.isSafeInteger(amount)) {
+      throw fail("invalid params: an expectedDebits amountRaw that is not a safe whole number must be a decimal string");
     }
     return { mint: e.mint, amountRaw: String(amount) };
   });
@@ -180,7 +184,7 @@ export function programMethods(rt: Runtime): RpcMethods {
     }
     rt.programs.take(quoteId);
     const rpc = rt.solana(ctx);
-    const policy = loadPolicy(ctx);
+    loadPolicy(ctx); // fail fast on an unreadable policy; the one that counts is read again at the reservation
     const ledger = rt.ledger(ctx);
     // Simulate against the chain as it is now. The caps and the declaration are checked against this snapshot only: an
     // opaque program can debit a different amount when the transaction is included, so the caps are not a bound on the
@@ -207,6 +211,8 @@ export function programMethods(rt: Runtime): RpcMethods {
           throw refusal("quote_expired", `the quote expired at ${held.expiresAtMs} (now ${reservedAt}); prepare it again`);
         }
         if (simulated) throw simulated;
+        // The policy as it stands now: a mint cap lowered while the simulation ran applies to this debit.
+        const policy = loadPolicy(ctx);
         const earlier = alreadyAttempted(records, held.quoteId);
         if (earlier) throw refusal("already_attempted", alreadyAttemptedMessage(held.quoteId, earlier.status, true));
         evaluateProgram(policy, "solana", held.accountIndex, held.summary, held.declaredDebits, records, reservedAt);
@@ -228,8 +234,18 @@ export function programMethods(rt: Runtime): RpcMethods {
       await ledger.put({ ...record, status: "in_doubt", error: message.slice(0, 300), updatedAtMs: Math.max(now, rt.now()) }).catch(() => undefined);
       throw error;
     }
-    await ledger.put({ ...record, status: "broadcast", transactionHash: hash, updatedAtMs: Math.max(now, rt.now()) });
-    return { quoteId: held.quoteId, chain: "solana", accountIndex: held.accountIndex, address: held.address, transactionHash: hash };
+    const recorded = await recordBroadcast(ledger, record, hash, Math.max(now, rt.now()));
+    if (!recorded) {
+      ctx.log("error", "wallet program transaction was sent but the ledger update failed; the record stays pending", { quoteId: held.quoteId, recordId: record.id, transactionHash: hash });
+    }
+    return {
+      quoteId: held.quoteId,
+      chain: "solana",
+      accountIndex: held.accountIndex,
+      address: held.address,
+      transactionHash: hash,
+      ...(recorded ? {} : { ledgerUpdateFailed: true }),
+    };
   };
 
   return methods;
