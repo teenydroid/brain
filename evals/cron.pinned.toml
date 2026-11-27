@@ -164,7 +164,7 @@ command = "bin/giveaway-run"
 # GH_INBOUND=1 (the token must be able to read notifications); it writes
 # nothing to GitHub.
 [jobs.gh-inbound]
-schedule = "*/30 * * * *"
+schedule = "*/15 * * * *"
 command = "bin/gh-inbound"
 
 # The pull-request babysitter (bin/babysit; docs/hands.md, "babysit"): audits
