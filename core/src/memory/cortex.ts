@@ -5,8 +5,8 @@
 // one event whose `context.labels` carry its lookup digest and its v3 envelope.
 // Reads dedupe (the listing emits every event twice) and decode v3 and v2.
 //
-// This module is plain Node (fetch, crypto): the guardrails plugin imports it
-// too, for per-turn recall, so it must not import anything of the core.
+// This module is plain Node (fetch, crypto): the teeny-cortexdb plugin imports it
+// too (recall, capture and the memory tools), so it must not import anything of the core.
 import { createHash } from "node:crypto";
 
 /** CortexDB's legacy layout for a node with no scope root, where existing learnings stay. */
@@ -39,6 +39,15 @@ export function assertSafeEndpoint(endpoint: string): void {
   if (url.protocol === "https:") return;
   if (url.protocol === "http:" && isLoopbackHost(url.hostname)) return;
   throw new CortexError("the CortexDB endpoint must be https (plain http is only allowed on this machine)");
+}
+
+/** True when two endpoint strings name the same URL. */
+export function sameEndpoint(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
 }
 
 export interface CortexOptions {
@@ -315,8 +324,13 @@ export class CortexClient {
     return { items, next_cursor: cursor ? encodeCursor({ c: cursor, skip: 0 }, seen) : null };
   }
 
-  /** Forgets learnings by item id; returns how many items had events to remove. */
-  async forget(ids: string[]): Promise<number> {
+  /**
+   * Forgets learnings by item id; returns how many items had events to remove. `reason` rides in
+   * CortexDB's audit note (cut to 200 characters), so a forget by the memory tool says why.
+   */
+  async forget(ids: string[], opts: { reason?: string } = {}): Promise<number> {
+    const why = opts.reason?.replace(/\s+/g, " ").trim().slice(0, 200);
+    const auditNote = why ? `teeny: forget: ${why}` : "teeny: forget";
     let forgotten = 0;
     for (const id of new Set(ids.map((s) => s.trim()).filter(Boolean))) {
       const labels = [`tm:i:${digest(id)}`];
@@ -345,7 +359,7 @@ export class CortexClient {
           layers: ["events"],
           selector: { memory_ids: eventIds.slice(i, i + 100) },
           cascade: "redact_events",
-          audit_note: "teeny: forget",
+          audit_note: auditNote,
         });
       }
       if (eventIds.length > 0) forgotten++;
