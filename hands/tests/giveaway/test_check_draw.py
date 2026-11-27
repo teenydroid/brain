@@ -106,5 +106,16 @@ class ParseRoundPinsCase(unittest.TestCase):
         self.assertEqual(parsed["mint"], self.OTHER)
 
 
+class IsoTimezoneCase(unittest.TestCase):
+    def test_a_time_without_a_zone_is_refused(self) -> None:
+        for key in ("deadline", "clawback_at"):
+            with self.assertRaisesRegex(contract.DropsError, "ISO time"):
+                contract.parse_round(base_round(**{key: "2026-11-20T18:00:00"}))
+
+    def test_z_and_an_offset_are_accepted(self) -> None:
+        self.assertEqual(contract.parse_round(base_round(deadline="2026-11-20T18:00:00Z"))["deadline"], "2026-11-20T18:00:00Z")
+        self.assertEqual(contract.parse_round(base_round(deadline="2026-11-20T20:00:00+02:00"))["deadline"], "2026-11-20T20:00:00+02:00")
+
+
 if __name__ == "__main__":
     unittest.main()
