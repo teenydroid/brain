@@ -2,9 +2,9 @@
 // that holds a tool, built from brain/agents/*.toml and the posture
 // bin/lib/core_sections/automation.py gave OpenHuman. Nothing here adds a
 // tool: an agent's tool list is exactly its definition's, mapped by TOOL_MAP.
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { openclawCommand } from "../gateway/cli.js";
 import type { CorePaths } from "../config/paths.js";
 import { toolIds, type AgentDef } from "./definitions.js";
@@ -63,6 +63,12 @@ export function codeRoots(root: string, brain: string): string[] {
     return [];
   }
   const out: string[] = [];
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return [];
+  }
   for (const name of names) {
     const full = join(root, name);
     if (CLOSED_TO_FILE_TOOLS.includes(name)) continue;
@@ -74,6 +80,13 @@ export function codeRoots(root: string, brain: string): string[] {
     }
     if (!st?.isDirectory()) continue;
     if (closed.has(full)) continue;
+    // statSync follows links: a top-level link may grant only what stays inside the checkout.
+    try {
+      const real = realpathSync(full);
+      if (real !== realRoot && !real.startsWith(realRoot + sep)) continue;
+    } catch {
+      continue;
+    }
     out.push(full);
   }
   return out;

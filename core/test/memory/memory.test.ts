@@ -88,7 +88,7 @@ const ok = async (method: string, params: Record<string, unknown>): Promise<Reco
   if (r.error) throw new Error(`${method}: ${r.error.message}`);
   return r.result as Record<string, unknown>;
 };
-const configure = async () => ok("memory_engine_set", { engine: "cortexdb", endpoint: "http://cortex.test", api_key: "cortex-key-fake" });
+const configure = async () => ok("memory_engine_set", { engine: "cortexdb", endpoint: "https://cortex.test", api_key: "cortex-key-fake" });
 
 describe("memory_engine_set", () => {
   it("answers {status} as bin/spine reads it, and seals the key at rest", async () => {
@@ -97,15 +97,15 @@ describe("memory_engine_set", () => {
     const file = engineFile(t.stateDir);
     const raw = readFileSync(file, "utf8");
     expect(raw).not.toContain("cortex-key-fake");
-    expect(JSON.parse(raw)).toMatchObject({ engine: "cortexdb", endpoint: "http://cortex.test", apiKeySealed: expect.stringMatching(/^enc2:/) });
+    expect(JSON.parse(raw)).toMatchObject({ engine: "cortexdb", endpoint: "https://cortex.test", apiKeySealed: expect.stringMatching(/^enc2:/) });
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(cortex.requests)).not.toContain(FAKE_KEY);
   });
 
   it("works without a key (CortexDB behind loopback) and keeps a key stored earlier when a boot gives none", async () => {
-    expect(await ok("memory_engine_set", { engine: "cortexdb", endpoint: "http://cortex.invalid" })).toEqual({ status: "ready" });
+    expect(await ok("memory_engine_set", { engine: "cortexdb", endpoint: "https://cortex.invalid" })).toEqual({ status: "ready" });
     await configure();
-    await ok("memory_engine_set", { engine: "cortexdb", endpoint: "http://cortex.test" });
+    await ok("memory_engine_set", { engine: "cortexdb", endpoint: "https://cortex.test" });
     await ok("memory_learn", { text: "t", kind: "other", confidence: 0.8 });
     expect(cortex.requests.at(-2)?.headers.get("authorization")).toBe("Bearer cortex-key-fake");
   });
@@ -178,7 +178,7 @@ describe("memory_learn, memory_items_list, memory_forget", () => {
     const t0 = new Date("2026-11-20T00:00:00Z");
     // write seven learnings with distinct times straight through the client
     const { CortexClient } = await import("../../src/memory/cortex.js");
-    const client = new CortexClient({ endpoint: "http://cortex.test", fetch: cortex.fetch });
+    const client = new CortexClient({ endpoint: "https://cortex.test", fetch: cortex.fetch });
     for (let i = 0; i < 7; i++) await client.storeLearning({ text: `learning ${i}`, learningKind: "other", confidence: 0.5, now: new Date(t0.getTime() + i * 86_400_000) });
     cortex.pageSize = 4; // two distinct events a page, because every event is listed twice
     const seen: string[] = [];
@@ -261,7 +261,7 @@ describe("memory_learn, memory_items_list, memory_forget", () => {
     expect(cortex.events[0]?.scope).toBe("app:tinymemory/app:learnings");
     const t2 = await startTestCore({ TEENY_MEMORY_SCOPE: "org:42/app:learnings" });
     try {
-      await t2.rpc("memory_engine_set", { engine: "cortexdb", endpoint: "http://cortex.test" });
+      await t2.rpc("memory_engine_set", { engine: "cortexdb", endpoint: "https://cortex.test" });
       await t2.rpc("memory_learn", { text: "b" });
       expect(cortex.events[0]?.scope).toBe("org:42/app:learnings");
     } finally {
@@ -300,5 +300,94 @@ describe("the contract fixtures (core/test/contract/memory_*.json)", () => {
     }
     // the example the contract records for items_list holds ids as strings and observed_at with nanoseconds
     expect(loadContract("memory_items_list").response.example).toMatchObject({ items: [{ meta: { observed_at: expect.stringMatching(/\.\d{9}Z$/) } }] });
+  });
+});
+
+describe("memory review fixes", () => {
+  it("refuses a plain-http endpoint that is not on this machine, with or without a key, and allows loopback http", async () => {
+    for (const body of [{ endpoint: "http://cortex.test", api_key: "cortex-key-fake" }, { endpoint: "http://cortex.test" }]) {
+      const r = await t.rpc("memory_engine_set", { engine: "cortexdb", ...body });
+      expect(r.error?.code).toBe(-32602);
+    }
+    expect(await ok("memory_engine_set", { engine: "cortexdb", endpoint: "http://127.0.0.1:3141" })).toEqual({ status: "ready" });
+    expect(await ok("memory_engine_set", { engine: "cortexdb", endpoint: "http://localhost:3141" })).toEqual({ status: "ready" });
+  });
+
+  it("does not follow a redirect with the bearer key", async () => {
+    await configure();
+    let redirect: string | undefined;
+    memoryHttp.fetch = (async (_u: URL, init?: RequestInit) => {
+      redirect = init?.redirect;
+      throw new TypeError("redirect");
+    }) as unknown as typeof fetch;
+    await t.rpc("memory_learn", { text: "x" });
+    expect(redirect).toBe("error");
+  });
+
+  it("keeps the stored key only for the same endpoint", async () => {
+    await configure();
+    await ok("memory_engine_set", { engine: "cortexdb", endpoint: "https://other.test" });
+    expect(JSON.parse(readFileSync(engineFile(t.stateDir), "utf8")).apiKeySealed).toBeUndefined();
+    expect(cortex.requests.at(-1)?.headers.get("authorization")).toBeNull();
+  });
+
+  it("stores the scope it serves, so per-turn recall reads the same one", async () => {
+    const t2 = await startTestCore({ TEENY_MEMORY_SCOPE: "org:42/app:learnings" });
+    try {
+      await t2.rpc("memory_engine_set", { engine: "cortexdb", endpoint: "https://cortex.test" });
+      expect(JSON.parse(readFileSync(engineFile(t2.stateDir), "utf8")).scope).toBe("org:42/app:learnings");
+    } finally {
+      await t2.core.stop();
+    }
+  });
+
+  it("redacts the key from an error excerpt, even when it straddles the cut", async () => {
+    await configure();
+    memoryHttp.fetch = (async () => new Response(`${"x".repeat(150)}cortex-key-fake tail`, { status: 500 })) as unknown as typeof fetch;
+    const r = await t.rpc("memory_items_list", { limit: 5, filter: { kinds: ["learning"] } });
+    expect(r.error?.message).not.toContain("cortex-key");
+  });
+
+  it("does not list a learning again on a resumed cursor when an older event of it comes later", async () => {
+    await configure();
+    const { CortexClient } = await import("../../src/memory/cortex.js");
+    const client = new CortexClient({ endpoint: "https://cortex.test", fetch: cortex.fetch });
+    const t0 = new Date("2026-11-20T00:00:00Z");
+    await client.storeLearning({ text: "first", learningKind: "other", confidence: 0.5, now: t0 });
+    for (let i = 1; i <= 3; i++) await client.storeLearning({ text: `other ${i}`, learningKind: "other", confidence: 0.5, now: new Date(t0.getTime() + i * 1000) });
+    // the same words again, newer: the old "first" event now sits at the end of the listing
+    await client.storeLearning({ text: "first", learningKind: "other", confidence: 0.5, now: new Date(t0.getTime() + 9000) });
+    cortex.pageSize = 4;
+    const texts: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 20; i++) {
+      const p = (await ok("memory_items_list", { limit: 2, filter: { kinds: ["learning"] }, ...(cursor ? { cursor } : {}) })) as { items: { text: string }[]; next_cursor: string | null };
+      texts.push(...p.items.map((x) => x.text));
+      if (!p.next_cursor) break;
+      cursor = p.next_cursor;
+    }
+    expect(texts.sort()).toEqual(["first", "other 1", "other 2", "other 3"]);
+  });
+
+  it("forget keeps scanning past ten pages, and reports an incomplete scan instead of success", async () => {
+    await configure();
+    const { CortexClient } = await import("../../src/memory/cortex.js");
+    const client = new CortexClient({ endpoint: "https://cortex.test", fetch: cortex.fetch });
+    const { id } = await client.storeLearning({ text: "many", learningKind: "other", confidence: 0.5 });
+    const first = cortex.events[0] as Event;
+    for (let i = 0; i < 1500; i++) cortex.events.push({ ...first, id: `evt_x${i}` });
+    cortex.pageSize = 100;
+    expect(await ok("memory_forget", { ids: [id] })).toEqual({ forgotten: 1 });
+    expect(cortex.events.some((e) => e.context.labels.some((l) => l.startsWith("tm:i:")))).toBe(false);
+    // a listing that never ends is an error and removes nothing
+    cortex.events.push({ ...first, id: "evt_last" });
+    const before = cortex.forgot.length;
+    memoryHttp.fetch = (async (input: URL | string) => {
+      if (new URL(String(input)).pathname === "/v1/events") return new Response(JSON.stringify({ items: [first], has_more: true, next_cursor: String(Math.random()) }), { status: 200 });
+      return cortex.fetch(input);
+    }) as unknown as typeof fetch;
+    const r = await t.rpc("memory_forget", { ids: [id] });
+    expect(r.error?.message).toMatch(/too many events/);
+    expect(cortex.forgot.length).toBe(before);
   });
 });

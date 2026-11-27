@@ -207,16 +207,18 @@ describe("keychain fill", () => {
   });
 
   it("asks the Gateway's own openclaw CLI, with the operator's profile, and fails closed when it errors or answers badly", async () => {
-    const dir = join(makeFixture().root, "fake");
+    const dir = join(makeFixture().root, "fake dir"); // a space in the path must not matter
     mkdirSync(dir, { recursive: true });
     const ok = join(dir, "ok.sh");
-    writeFileSync(ok, `#!/bin/sh\necho "$@" > ${dir}/argv\necho '{"tabs":[{"tabId":"t1","url":"https://example.org/x"}]}'\n`, { mode: 0o755 });
+    writeFileSync(ok, `#!/bin/sh\necho "$@" > "$ARGV_OUT"\necho '{"tabs":[{"tabId":"t1","url":"https://example.org/x"}]}'\n`, { mode: 0o755 });
     const bad = join(dir, "bad.sh");
     writeFileSync(bad, "#!/bin/sh\necho not json\n", { mode: 0o755 });
     const fail = join(dir, "fail.sh");
     writeFileSync(fail, "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+    process.env.ARGV_OUT = join(dir, "argv");
     expect(await openclawLiveUrl({ cmd: ok, args: ["x.mjs"] })("teeny", "t1")).toBe("https://example.org/x");
     expect(readFileSync(join(dir, "argv"), "utf8").trim()).toBe("x.mjs browser --json --browser-profile teeny tabs");
+    delete process.env.ARGV_OUT;
     await expect(openclawLiveUrl({ cmd: bad, args: [] })("teeny", "t1")).rejects.toThrow();
     await expect(openclawLiveUrl({ cmd: fail, args: [] })("teeny", "t1")).rejects.toThrow(/did not answer/);
   });

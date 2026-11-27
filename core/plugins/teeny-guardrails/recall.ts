@@ -44,7 +44,12 @@ export async function recallContext(policy: RecallPolicy, agentId: string | unde
   } catch {
     return undefined;
   }
-  const client = clientFor(stored, sealer, undefined, deps.fetch);
+  let client;
+  try {
+    client = clientFor(stored, sealer, undefined, deps.fetch);
+  } catch {
+    return undefined; // a stored endpoint that is not https or loopback: no recall, no key sent
+  }
   if (!client) return undefined;
   try {
     const texts = await Promise.race([

@@ -82,6 +82,31 @@ describe("GatewaySupervisor", () => {
     expect(s.restartCount).toBe(4);
   });
 
+  it("retries with backoff when the spawn fails: an error with no pid and no exit, and once when both arrive", async () => {
+    const s = make();
+    await s.start();
+    const first = children[0]!;
+    (first as { pid: number | undefined }).pid = undefined;
+    first.emit("error", new Error("spawn EAGAIN"));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(children).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(children).toHaveLength(2);
+    // a late exit from the same child must not schedule a second retry
+    first.die(null);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(children).toHaveLength(2);
+    expect(s.restartCount).toBe(1);
+  });
+
+  it("does not restart on an error from a child that has a pid (the process is still running)", async () => {
+    const s = make();
+    await s.start();
+    children[0]!.emit("error", new Error("kill failed"));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(children).toHaveLength(1);
+  });
+
   it("resets the backoff after a stable run", async () => {
     const s = make();
     await s.start();

@@ -76,8 +76,9 @@ function coreConfigPath(env: Env, root: string): string {
 export function cronShellTimeoutSecs(env: Env, root: string): number {
   try {
     const cron = (parseToml(readFileSync(coreConfigPath(env, root), "utf8")) as { cron?: { shell_timeout_secs?: unknown } }).cron;
-    const n = Number(cron?.shell_timeout_secs);
-    if (Number.isInteger(n) && n > 0) return n;
+    const n = cron?.shell_timeout_secs;
+    // Only a TOML number counts: Number(true) is 1, and a one-second timeout is not what `= true` meant.
+    if (typeof n === "number" && Number.isInteger(n) && n > 0) return n;
   } catch {
     // no config yet: the default
   }
@@ -206,6 +207,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
    * wait at the door), so a restart never ends an evolve generation or a cron turn.
    */
   const applySettings = async (): Promise<void> => {
+    let owns = false; // true once this call closed the drain gate; only then may it open it
     try {
       if (!supervisor) {
         writeConfig();
@@ -214,16 +216,14 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       const before = applied;
       writeConfig();
       if (applied === before) return;
+      owns = true;
       const drained = await runner.quiesce(opts.drainMs ?? DRAIN_MS);
       if (!drained) log("warn", "restarting the gateway with turns still running", { running: runner.running });
-      try {
-        await supervisor.restartNow();
-      } finally {
-        runner.release();
-      }
+      await supervisor.restartNow();
     } catch (e) {
-      runner.release();
       log("error", "could not apply settings to the gateway", { error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      if (owns) runner.release();
     }
   };
 

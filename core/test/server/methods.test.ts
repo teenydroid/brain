@@ -64,6 +64,9 @@ describe("config_update_agent_settings / config_get_agent_settings", () => {
   it("refuses a bad budget", async () => {
     expect((await t.rpc("config_update_agent_settings", { agent_timeout_secs: "soon" })).error?.message).toMatch(/positive number/);
     expect((await t.rpc("config_update_agent_settings", { agent_timeout_secs: 0 })).error).toBeDefined();
+    // a fraction that floors to zero is not a positive timeout; 1.5 stores and returns 1
+    expect((await t.rpc("config_update_agent_settings", { agent_timeout_secs: 0.5 })).error?.message).toMatch(/positive number/);
+    expect((await t.rpc("config_update_agent_settings", { agent_timeout_secs: 1.5 })).result).toEqual({ agent_timeout_secs: 1 });
   });
 });
 

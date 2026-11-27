@@ -299,7 +299,7 @@ fi
 gateway_config="$state/openclaw/openclaw.json"
 if [ -f "$gateway_config" ]; then
   run "gateway lockdown" python3 "$TEENY_ROOT/bin/lib/gateway_check.py" lockdown "$gateway_config"
-  if audit_out="$(OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" TEENY_STATE="$state" \
+  if audit_out="$(env OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" TEENY_STATE="$state" \
     timeout 120 "${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}" openclaw security audit --json 2>/dev/null |
     python3 "$TEENY_ROOT/bin/lib/gateway_check.py" audit 2>&1)"; then
     note "openclaw security audit" "${audit_out%% *}" "${audit_out#* }"
@@ -319,9 +319,9 @@ fi
 # feeds the stimuli inbox. The hands read it from secrets/teeny.env only.
 inbox_mode=""
 if [ -f "$secrets/teeny.env" ]; then
-  inbox_mode="$(sed -n 's/^TEENY_INBOX=//p' "$secrets/teeny.env" | tail -n 1 | tr -d "\"' " | tr 'A-Z' 'a-z')"
+  inbox_mode="$(sed -n 's/^TEENY_INBOX=//p' "$secrets/teeny.env" | tail -n 1 | tr -d "\"' " | tr '[:upper:]' '[:lower:]')"
 fi
-if [ "$(printf '%s' "${inbox_mode:-mind}" | tr 'A-Z' 'a-z')" = core ]; then
+if [ "$(printf '%s' "${inbox_mode:-mind}" | tr '[:upper:]' '[:lower:]')" = core ]; then
   note "inbox" fail "TEENY_INBOX=core needs the core's inbound queue, which this core does not have: unset it (the default, mind, feeds the stimuli inbox)"
 else
   note "inbox" ok "${inbox_mode:-mind}: the stimuli inbox"

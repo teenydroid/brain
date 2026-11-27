@@ -96,6 +96,26 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
       if (!isStringArray(a[k])) throw new Error(`teeny-guardrails: agents.${id}.${k} must be a list`);
     }
     if (typeof a.workspace !== "string" || !a.workspace.startsWith("/")) throw new Error(`teeny-guardrails: agents.${id}.workspace must be absolute`);
+    // Every nested policy that is present must be whole, so a malformed one fails here, at registration, not mid-turn.
+    if (a.exec !== undefined) {
+      const e = a.exec as unknown as Record<string, unknown>;
+      if (typeof e !== "object" || e === null || typeof e.hands !== "boolean") throw new Error(`teeny-guardrails: agents.${id}.exec.hands must be a boolean`);
+      for (const k of ["handsDeny", "teenyBins", "readOnly", "writers", "tools"]) {
+        if (!isStringArray(e[k])) throw new Error(`teeny-guardrails: agents.${id}.exec.${k} must be a list`);
+      }
+    }
+    if (a.browser !== undefined) {
+      const b = a.browser as unknown as Record<string, unknown>;
+      if (typeof b !== "object" || b === null) throw new Error(`teeny-guardrails: agents.${id}.browser must be an object`);
+      for (const k of ["actions", "actKinds"]) {
+        if (!isStringArray(b[k])) throw new Error(`teeny-guardrails: agents.${id}.browser.${k} must be a list`);
+      }
+      if (typeof b.keychain !== "boolean") throw new Error(`teeny-guardrails: agents.${id}.browser.keychain must be a boolean`);
+      if (b.profile !== undefined && typeof b.profile !== "string") throw new Error(`teeny-guardrails: agents.${id}.browser.profile must be a string`);
+    }
+    for (const k of ["execRw", "execRo"] as const) {
+      if (a[k] !== undefined && !isStringArray(a[k])) throw new Error(`teeny-guardrails: agents.${id}.${k} must be a list`);
+    }
     if (!Number.isInteger(a.maxToolCalls) || a.maxToolCalls < 1) throw new Error(`teeny-guardrails: agents.${id}.maxToolCalls must be a positive integer`);
   }
   return {

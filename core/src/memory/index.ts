@@ -4,7 +4,7 @@
 // before_prompt_build hook (plugins/teeny-guardrails/recall.ts), which reads
 // the engine this module stores.
 import { RpcError, type CoreContext, type RpcMethods } from "../server/types.js";
-import { CortexClient, CortexError, DEFAULT_SCOPE } from "./cortex.js";
+import { assertSafeEndpoint, CortexClient, CortexError, DEFAULT_SCOPE } from "./cortex.js";
 import { clientFor, loadEngine, saveEngine } from "./engine.js";
 
 /** Tests replace this to mock CortexDB's HTTP. */
@@ -14,8 +14,22 @@ function scopeOf(ctx: CoreContext): string {
   return ctx.env.TEENY_MEMORY_SCOPE || DEFAULT_SCOPE;
 }
 
+function sameEndpoint(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
+}
+
 function client(ctx: CoreContext): CortexClient {
-  const c = clientFor(loadEngine(ctx.stateDir), ctx.services?.sealer, scopeOf(ctx), memoryHttp.fetch);
+  let c: CortexClient | undefined;
+  try {
+    c = clientFor(loadEngine(ctx.stateDir), ctx.services?.sealer, scopeOf(ctx), memoryHttp.fetch);
+  } catch (e) {
+    if (e instanceof CortexError) throw new RpcError(`memory: ${e.message}`);
+    throw e;
+  }
   if (!c) throw new RpcError("memory is not configured: call memory_engine_set first", -32000);
   return c;
 }
@@ -32,6 +46,11 @@ export const memoryMethods: RpcMethods = {
   async memory_engine_set(p, ctx) {
     if (p.engine !== "cortexdb") throw new RpcError("engine must be cortexdb", -32602);
     if (typeof p.endpoint !== "string" || !/^https?:\/\/\S+$/.test(p.endpoint)) throw new RpcError("endpoint must be an http(s) URL", -32602);
+    try {
+      assertSafeEndpoint(p.endpoint);
+    } catch (e) {
+      throw new RpcError((e as Error).message, -32602);
+    }
     if (p.api_key !== undefined && typeof p.api_key !== "string") throw new RpcError("api_key must be a string", -32602);
     let sealed: string | undefined;
     if (typeof p.api_key === "string" && p.api_key !== "") {
@@ -39,10 +58,12 @@ export const memoryMethods: RpcMethods = {
       if (!sealer) throw new RpcError("no master key: cannot store the CortexDB key", -32000);
       sealed = sealer.seal(p.api_key);
     } else {
-      // No key given: keep the one already stored for the same engine, as a boot without CORTEX_API_KEY expects.
-      sealed = loadEngine(ctx.stateDir)?.apiKeySealed;
+      // No key given: keep the one already stored for the same endpoint, as a boot without CORTEX_API_KEY expects.
+      // A different endpoint never inherits it: the health check below would hand the old service's key to the new one.
+      const prev = loadEngine(ctx.stateDir);
+      sealed = prev && sameEndpoint(prev.endpoint, p.endpoint) ? prev.apiKeySealed : undefined;
     }
-    saveEngine(ctx.stateDir, { engine: "cortexdb", endpoint: p.endpoint, ...(sealed ? { apiKeySealed: sealed } : {}) });
+    saveEngine(ctx.stateDir, { engine: "cortexdb", endpoint: p.endpoint, scope: scopeOf(ctx), ...(sealed ? { apiKeySealed: sealed } : {}) });
     const stored = loadEngine(ctx.stateDir);
     const c = clientFor(stored, ctx.services?.sealer, scopeOf(ctx), memoryHttp.fetch);
     const ready = c ? await c.health() : false;

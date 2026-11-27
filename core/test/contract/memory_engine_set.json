@@ -21,7 +21,7 @@
     },
     "example": {
       "engine": "cortexdb",
-      "endpoint": "http://cortex.invalid"
+      "endpoint": "https://cortex.invalid"
     }
   },
   "response": {

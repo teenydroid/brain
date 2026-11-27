@@ -102,7 +102,10 @@ describe("OpenClaw's tool-search controls", () => {
 
   it("counts a dispatch once against the run's budget", async () => {
     const f = makeFixture();
-    for (let i = 0; i < 30; i++) await f.call("operator", "dispatch_action", { id: "tool_search", args: {} }, { runId: "r" });
+    for (let i = 1; i <= 30; i++) {
+      const d = await f.call("operator", "dispatch_action", { id: "read", args: { path: "state/workbench/desk/task.json" } }, { runId: "r" });
+      expect(blocked(d), `dispatch ${i}`).toBeUndefined();
+    }
     expect(blocked(await f.call("operator", "tool_describe", { id: "read" }, { runId: "r" }))).toMatch(/30 tool calls/);
   });
 });
@@ -137,10 +140,14 @@ describe("the per-run tool-call budget", () => {
   it("lets the mind make 300 calls a wake and refuses the 301st", async () => {
     const f = makeFixture();
     expect(f.agent("mind").maxToolCalls).toBe(300);
-    for (let i = 1; i <= 300; i++) {
+    for (let i = 1; i <= 299; i++) {
       const d = await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" });
       if (d) throw new Error(`call ${i} was refused: ${blocked(d)}`);
     }
+    // a call refused by an ordinary policy check is call 300 and counts
+    expect(blocked(await f.call("mind", "read", { path: "../../secrets/teeny.env" }, { runId: "wake-1" }))).toMatch(/closed/);
+    // the next call would be allowed on its merits: it is the budget that refuses it
+    expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
     expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
     // a refused call still counts: the run cannot probe its way past the cap
     expect(blocked(await f.call("mind", "read", { path: "work/a.txt" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
@@ -158,13 +165,19 @@ describe("the per-run tool-call budget", () => {
 
   it("counts two agents' runs apart even when a run id repeats", async () => {
     const f = makeFixture();
-    for (let i = 0; i < 30; i++) await f.call("operator", "tool_search", {}, { runId: "same" });
-    expect(await f.call("mind", "tool_search", {}, { runId: "same" })).toBeUndefined();
+    // the lower cap goes first: were the key shared, the mind's next call would be the operator's 31st
+    for (let i = 0; i < 30; i++) await f.call("mind", "tool_search", {}, { runId: "same" });
+    expect(await f.call("operator", "tool_search", {}, { runId: "same" })).toBeUndefined();
   });
 
   it("forgets old runs without growing without bound", async () => {
     const f = makeFixture();
+    // an old run is used up, then pushed out by newer ones: it starts fresh, while a recent used-up run stays used up
+    for (let i = 0; i < 30; i++) await f.call("operator", "tool_search", {}, { runId: "old" });
+    expect(blocked(await f.call("operator", "tool_search", {}, { runId: "old" }))).toMatch(/30 tool calls/);
     for (let i = 0; i < 4200; i++) await f.call("mind", "tool_search", {}, { runId: `r${i}` });
-    expect(await f.call("mind", "tool_search", {}, { runId: "r4199" })).toBeUndefined();
+    for (let i = 0; i < 30; i++) await f.call("operator", "tool_search", {}, { runId: "recent" });
+    expect(await f.call("operator", "tool_search", {}, { runId: "old" })).toBeUndefined();
+    expect(blocked(await f.call("operator", "tool_search", {}, { runId: "recent" }))).toMatch(/30 tool calls/);
   });
 });
