@@ -225,12 +225,16 @@ def _quoted(reads: Any, quote_of: str) -> Json | None:
     return target
 
 
-def _author_of(reads: Any, post_id: str) -> str | None:
+def _author_of(reads: Any, post_id: str, *, strict: bool = False) -> str | None:
     """Who wrote an earlier quoted post, for a ledger row that predates
-    `quote_author`. A post X no longer shows is nobody's."""
+    `quote_author`. A post X no longer shows is nobody's. A failed read is
+    nobody's too, unless `strict`: the engaged-first check needs the error,
+    so a rate limit is not mistaken for "this post never summoned us"."""
     try:
         post = reads.get_post(post_id)
     except XError:
+        if strict:
+            raise
         return None
     return post.get("authorId") if post else None
 
@@ -345,6 +349,10 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
         raise hand.HandError(f"--to {rules.x_id_problem(to)}")
     body, tagged = tags.split(body)
     text, media_ids, gif_id, _ = _draft(body, quote=False)
+    # A reply already sent or refused by X is turned away before any read,
+    # paid or cached: a retry after a 403 costs nothing.
+    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
+    rules.check_not_replied(conn, to)
     x = x or twitr.client()
     reads = cache.reads(x)
     target = reads.get_post(to)
@@ -365,10 +373,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     rules.check_length(text)
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()
-    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
-    # A reply already sent or refused by X is turned away before any paid read.
-    rules.check_not_replied(conn, to)
-    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id), _quote_read(x))
+    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id, strict=True), _quote_read(x))
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)

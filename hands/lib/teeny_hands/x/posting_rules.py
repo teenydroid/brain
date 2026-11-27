@@ -674,9 +674,10 @@ def check_engaged_first(
     leaves out), and X's reply check does not count that tag: every 403 of
     2026-11-26 and 27 was such a post. The tag has to be in `text`.
 
-    A stored mention that neither tags nor replies to the account may still
-    quote one of its posts, and the webhook's copy may not say what it
-    quotes, so that one post is read again (`fresh(post_id)`) before it is
+    A post that neither tags nor replies to the account may still quote one
+    of its posts, and a copy that does not say what it quotes (the webhook's,
+    or one read through twitr, which drops quote references) is not proof it
+    quotes nothing, so that one post is read again (`fresh(post_id)`) before it is
     refused. `quotedId` of "" says the post was read again and quotes nothing,
     so that answer is not asked for twice; a failed re-read raises."""
     post_id = str(target.get("id") or "")
@@ -688,7 +689,7 @@ def check_engaged_first(
                               re.IGNORECASE):
         return
     quoted = target.get("quotedId")
-    if quoted is None and fresh is not None and conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
+    if quoted is None and fresh is not None:
         # A read that fails (a rate limit, an outage) raises here and is not
         # caught: the quote is then unknown, not absent, so the reply stays
         # blocked without a permanent refusal and the mention stays pending

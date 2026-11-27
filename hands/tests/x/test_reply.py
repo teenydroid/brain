@@ -444,6 +444,42 @@ class EngagedFirstTest(Replying):
         self.assertEqual(self.x.requests("GET", "/2/tweets/32"), [])
         self.assertEqual(self.posted(), [])
 
+    def test_an_x_refused_post_makes_no_x_read_even_with_nothing_cached(self):
+        # Cache expired or off: the retained 403 still turns the retry away
+        # before the target or the identity is read.
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.claim_reply(conn, "5")
+        posting_rules.note_reply_refused(conn, "5", "403 Authorization Error")
+        conn.commit()
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("5", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertEqual(self.x.requests("GET", "/2/tweets/5"), [])
+        self.assertEqual(self.x.requests("GET", "/2/users/me"), [])
+
+    def test_a_post_not_stored_as_a_mention_is_read_again_for_its_quote(self):
+        # Read through twitr the post carries no quote reference; it is not a
+        # stored mention, but it quotes an own post, so it is answered.
+        from teeny_hands.x import cache
+
+        self.x.route("GET", "/2/tweets/86", target("86", author_id="1000", username="teenydroid"))
+        cache.remember([{"id": "34", "text": "we outship the leaderboard", "authorId": "42", "authorUsername": "someone",
+                         "conversationId": "34"}])
+        self.stranger("34", "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": "86"}])
+        publish.reply("34", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_failed_quote_author_read_is_not_a_refusal(self):
+        # The quoted post's author cannot be read right now (rate limit): that
+        # is a retryable error, not "never summoned us".
+        self.x.route("GET", "/2/tweets/87", {"title": "Too Many Requests"}, status=429)
+        self.stranger("35", "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": "87"}])
+        with self.assertRaises(XError):
+            publish.reply("35", {"text": "hi"})
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+
     def test_the_quote_is_read_from_the_x_api_when_reads_go_through_twitr(self):
         # twitr's post shape carries no quote reference, so the re-read goes to
         # the X API behind the router.
