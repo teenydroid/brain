@@ -96,7 +96,7 @@ class MindAgentTest(unittest.TestCase):
         prompt = (MIND.parent / "mind.md").read_text()
         spend = prompt[prompt.index("## How to spend a wake"):prompt.index("## Lines you do not cross")]
         pass_ = spend[spend.index("**First, the inbox pass.**"):].split("\n\n")[0]
-        for needle in ("at most 3 X replies", "2 mail replies", "hands/x mark", "skipped", "a step, not the job"):
+        for needle in ("at most 3 X and 2 mail replies", "hands/x mark", "skipped", "hands/stimuli close"):
             self.assertIn(needle, pass_)
         self.assertLess(len(pass_), 800, "the inbox pass stays a short block, not a second prompt")
         self.assertLess(spend.index("**First, the inbox pass.**"), spend.index("1. Read the tail"))
