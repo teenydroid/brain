@@ -4,6 +4,7 @@ must hold a leaf; a drawn round has no tree yet, so empty claims is fine."""
 
 from __future__ import annotations
 
+import json
 import unittest
 
 from giveaway import contract
@@ -54,6 +55,55 @@ class CheckDrawWinnersCase(unittest.TestCase):
         extra = make_round("settled", [])["draw_order"][2]
         winners = self.first_two()
         self.assertFalse(contract.check_draw(make_round("settled", winners + [extra]))["winners"])
+
+
+class PinnedProgramAndMintCase(unittest.TestCase):
+    def test_constants_match_the_hand(self) -> None:
+        from teeny_hands.giveaway import caps
+
+        self.assertEqual(contract.REWARDS_PROGRAM_ID, caps.REWARDS_PROGRAM)
+        self.assertEqual(contract.TINY_MINT, caps.TINY_MINT)
+
+
+def base_round(**over: object) -> str:
+    """A minimal valid open round, as the hand would publish it."""
+    rnd = {
+        "id": 1, "tag": "drop #1", "status": "open", "deadline": "2026-11-20T18:00:00Z",
+        "format": "drop", "pool_tiny": "1000", "winners": 1, "best_reply_tiny": "0",
+        "prompt": "worst advice?", "post_id": "123",
+        "post_url": "https://x.com/teenydroid/status/123",
+        "cluster": "devnet", "mint": contract.TINY_MINT, "decimals": 6,
+        "token_program": contract.TOKEN_PROGRAMS[1], "program_id": contract.REWARDS_PROGRAM_ID,
+        "authority": None, "distribution_seed": None, "distributor": None, "vault": None,
+        "merkle_root": None, "clawback_at": None, "seed": None,
+        "entrants": [], "draw_order": [], "claims": [], "txs": {},
+    }
+    rnd.update(over)
+    return json.dumps(rnd)
+
+
+class ParseRoundPinsCase(unittest.TestCase):
+    OTHER = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+
+    def test_the_base_round_parses(self) -> None:
+        self.assertEqual(contract.parse_round(base_round())["program_id"], contract.REWARDS_PROGRAM_ID)
+
+    def test_a_foreign_program_is_refused(self) -> None:
+        for cluster in ("devnet", "mainnet"):
+            with self.assertRaisesRegex(contract.DropsError, "program_id"):
+                contract.parse_round(base_round(cluster=cluster, program_id=self.OTHER))
+
+    def test_a_mainnet_round_with_another_mint_is_refused(self) -> None:
+        with self.assertRaisesRegex(contract.DropsError, "mint"):
+            contract.parse_round(base_round(cluster="mainnet", mint=self.OTHER))
+
+    def test_a_mainnet_round_with_tiny_is_accepted(self) -> None:
+        parsed = contract.parse_round(base_round(cluster="mainnet", mint=contract.TINY_MINT))
+        self.assertEqual(parsed["mint"], contract.TINY_MINT)
+
+    def test_a_devnet_round_may_name_its_own_mint(self) -> None:
+        parsed = contract.parse_round(base_round(cluster="devnet", mint=self.OTHER))
+        self.assertEqual(parsed["mint"], self.OTHER)
 
 
 if __name__ == "__main__":
