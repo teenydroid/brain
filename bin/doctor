@@ -283,8 +283,18 @@ core_runtime() {
   minor="${version#v}"
   minor="${minor#*.}"
   minor="${minor%%.*}"
-  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] && { [ "$major" -gt 24 ] || { [ "$major" -eq 24 ] && [ "$minor" -ge 16 ]; }; } ||
-    { echo "node $version is under 24.16 (the core needs >=24.16)"; return 1; }
+  new_enough=0
+  if [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]]; then
+    if [ "$major" -gt 24 ]; then
+      new_enough=1
+    elif [ "$major" -eq 24 ] && [ "$minor" -ge 16 ]; then
+      new_enough=1
+    fi
+  fi
+  if [ "$new_enough" != 1 ]; then
+    echo "node $version is under 24.16 (the core needs >=24.16)"
+    return 1
+  fi
   main="$("$bin" --where)"
   [ -f "$main" ] || { echo "the core is not built ($main): cd core && npm ci && npm run build"; return 1; }
   echo "node $version, core at $main"
