@@ -195,6 +195,22 @@ class SearchTest(Scratch):
         self.assertTrue(error.detail["funding"]["skipped"].startswith("x402 funding is off"))
         self.assertEqual(len(self.fetched()), 1, "the refused request is never sent, and never retried")
 
+    def test_exas_http_challenge_for_search_is_refused_and_does_not_eat_the_day(self):
+        # From 2026-11-25 Exa's /search challenge named http://; each refusal
+        # sat in doubt at its 0.02 cap, so the day's cap starved /contents too.
+        self.configure(WALLET_MAX_X402_PER_REQUEST_USD="0.02", WALLET_MAX_X402_PER_DAY_USD="0.02")
+        url = "https://api.exa.ai/search"
+        self.core.answers[FETCH] = Failure(
+            "x402_fetch: payment failed: ai.tinyhumans.tinywallet.Error.X402OperationFailed: x402 protocol:"
+            f" challenge resource http://api.exa.ai/search is not on the origin of the requested URL {url}"
+        )
+        for query in ("one", "two"):
+            error = self.refused(lambda: search.search(query), "cross_origin")
+            self.assertNotIn("funding", error.detail, "nothing was paid, so nothing is topped up")
+        self.core.answers[FETCH] = answer({"requestId": "r", "results": [exa_hit(1)]}, paid=1_000)
+        self.assertEqual(len(search.contents(["https://example.com/1"])["results"]), 1)
+        self.assertEqual([r["status"] for r in self.rows()], ["refused", "refused", "paid"])
+
     def test_an_unpaid_402_tries_one_top_up_and_is_not_retried(self):
         self.core.answers[FETCH] = answer({"error": "X402_VERIFICATION_FAILED", "reason": "insufficient_funds"},
                                           status=402, settled=False)

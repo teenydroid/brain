@@ -2528,8 +2528,10 @@ hand would.
 
 The `x402_requests` row is written `pending` first, then `paid` (what it
 paid), `free` (no 402), `refused` (`X402_REFUSED:` from the core:
-`core_x402`) or `in_doubt` (anything else, or a payment the core reports that
-is not USDC within the cap). The response body is the server's, untrusted:
+`core_x402`; or the wallet module's refusal, before it holds or signs
+anything, of a challenge whose resource is on another origin than the URL
+requested: `cross_origin`) or `in_doubt` (anything else, or a payment the core
+reports that is not USDC within the cap). The response body is the server's, untrusted:
 callers treat it as data. Under `DRY_RUN` nothing is requested: `would_fetch`.
 `costs` keeps reading x402 spend from the core's own ledger
 (`x402_list_payments`), so nothing is counted twice.
@@ -3008,12 +3010,25 @@ A good answer is kept an hour in `x402_cache` (a `readcache.ReadCache`,
 the same question is answered with `cached: true` and `paid_usd: "0"`. An
 error is never cached. Refusals, each with its `rule`:
 
-- the wallet's own (`caps`, `host`, `max_usd`, `per_day_x402`, `core_x402`);
+- the wallet's own (`caps`, `host`, `max_usd`, `per_day_x402`, `core_x402`,
+  `cross_origin`);
 - `unpaid`: the server answered 402 after the wallet signed (Exa's
   `X402_VERIFICATION_FAILED`: the wallet lacked the USDC);
 - `no_x402`: a 401 with no 402 challenge, so nothing was paid;
 - `provider`: any other 4xx or 5xx; an unreadable or truncated body is an
   error that names what was paid.
+
+**Exa's `search` and `cross_origin`.** Since 2026-11-25 Exa answers
+`https://api.exa.ai/search` with a challenge whose resource is
+`http://api.exa.ai/search`: the same host, only the scheme differs. The
+wallet module (tinywallet-x402 `ensure_same_origin`) compares exact origins,
+so it refuses before holding or signing anything, and `search` answers
+`cross_origin` until either Exa names `https` again or the module accepts
+that one difference (an https request whose challenge names the same host
+over plain http, both on default ports; the core already asks only over
+https, with no redirects, to vetted addresses). That fix belongs upstream in
+tinywallet, then an OpenHuman bump. `contents` is unaffected: its challenge
+names `https`.
 
 On `per_day_x402` or `unpaid` it runs `fund` once and returns what it said
 under `funding` (a full rail with a spent day is simply `funded`). The paid

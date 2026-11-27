@@ -31,8 +31,9 @@ Under DRY_RUN nothing is requested (a request might pay): `would_fetch`.
 
 Live, the `x402_requests` row is written `pending` at its cap first, then
 `paid` (at what it paid), `free` (no 402), `refused` (the core said no
-before signing) or `in_doubt` (anything else after the request was sent,
-counted at its cap). The response body is the server's, untrusted: a caller
+before signing: `X402_REFUSED:`, or the wallet module's refusal of a
+challenge for another origin, `cross_origin`) or `in_doubt` (anything else
+after the request was sent, counted at its cap). The response body is the server's, untrusted: a caller
 treats it as data, never instructions.
 """
 
@@ -54,6 +55,16 @@ _NETWORK = re.compile(r"[A-Za-z0-9_-]{1,32}(:[A-Za-z0-9_-]{1,64})?")
 #: atomic unit of USDC covers no price.
 SIGN_IN_CAP = 1
 REFUSED = "X402_REFUSED:"
+#: The wallet module's refusal of a challenge whose resource is not on the
+#: requested URL's origin. It is raised before anything is held or signed
+#: (tinywallet-x402 `ensure_same_origin`), but the core does not prefix it
+#: with X402_REFUSED:, so without this it read as in doubt and counted at its
+#: cap. The whole message must match, ending in the URL this hand requested.
+CROSS_ORIGIN = (
+    "openhuman.x402_fetch: x402_fetch: payment failed: ai.tinyhumans.tinywallet.Error.X402OperationFailed:"
+    " x402 protocol: challenge resource ",
+    " is not on the origin of the requested URL ",
+)
 #: The tokens an x402 payment may settle in: USDC, wherever the wallet holds it.
 USDC_ASSETS = {a.lower() for a in (*caps.USDC_MINTS.values(), *(n.usdc["mainnet"] for n in chains.NETWORKS.values()))}
 _HOST = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
@@ -166,6 +177,12 @@ def _send(
         if REFUSED in str(exc):
             store.update_row(conn, "x402_requests", row_id, status="refused", error=str(exc)[:300])
             raise hand.Refused("the core refused to pay for that request", rule="core_x402", request_id=row_id, detail=str(exc)[:300]) from None
+        if _cross_origin(str(exc), url):
+            store.update_row(conn, "x402_requests", row_id, status="refused", error=str(exc)[:300])
+            raise hand.Refused(
+                "the server's payment challenge names another origin than the URL requested, so the wallet signed nothing",
+                rule="cross_origin", request_id=row_id, detail=str(exc)[:300],
+            ) from None
         store.update_row(conn, "x402_requests", row_id, status="in_doubt", error=str(exc)[:300])
         raise hand.HandError(f"x402 request {row_id} is in doubt ({exc}); it counts at its cap") from None
     if not isinstance(result, Mapping):
@@ -204,6 +221,14 @@ def _send(
     store.update_row(conn, "x402_requests", row_id, status="paid" if settled else "in_doubt", usd_micro=amount, **fields)
     out["paid"] = {"usd": caps.usd(amount), "settled": settled, "network": fields["network"], "recipient": fields["recipient"]}
     return out
+
+
+def _cross_origin(error: str, url: str) -> bool:
+    """Whether `error` is exactly the wallet module's cross-origin refusal
+    for a request to `url`: nothing was held or signed."""
+    head, tail = CROSS_ORIGIN
+    suffix = tail + url
+    return error.startswith(head) and error.endswith(suffix) and len(error) > len(head) + len(suffix)
 
 
 def log(max_rows: int) -> dict[str, Any]:
