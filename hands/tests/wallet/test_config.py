@@ -66,6 +66,22 @@ class WalletConfigTest(ConfigCase):
         self.assertEqual(doc["wallet_policy"], {"automation_enabled": False, "apply_to_interactive": True, "assets": []})
         self.assertIn("export OPENHUMAN_SOLANA_CLUSTER=devnet", out)
 
+    def test_a_switch_at_an_off_value_is_not_a_wallet_key(self):
+        # Regression: WALLET_MIND_ACTIONS=0 made the wallet "configured", demanded every cap and stopped the boot.
+        for off in ("0", "false", "No", "OFF", ""):
+            for name in ("WALLET_MIND_ACTIONS", "WALLET_WATCH"):
+                with self.subTest(name=name, off=off):
+                    code, _, err, doc = self.run_it({"DRY_RUN": "1", name: off})
+                    self.assertEqual((code, err), (0, ""))
+                    self.assertEqual(doc["wallet_policy"]["assets"], [])
+
+    def test_a_switch_turned_on_or_any_real_key_still_means_a_wallet(self):
+        for env in ({"WALLET_MIND_ACTIONS": "1"}, {"WALLET_WATCH": "yes"}, {"WALLET_SOL_USD": "150"}, {"WALLET_MIND_ACTIONS": "0", "WALLET_SOL_USD": "150"}):
+            with self.subTest(env=env):
+                code, _, err, _ = self.run_it(env)
+                self.assertEqual(code, 1)
+                self.assertIn("caps are not usable", err)
+
     def test_unusable_caps_write_a_closed_policy_and_fail(self):
         for broken in ({**CAPS, "WALLET_MAX_PER_DAY_USD": "0"}, {**CAPS, "WALLET_SOL_USD": ""}, {**CAPS, "WALLET_MAX_PER_TX_USD": "100000"}):
             code, out, err, doc = self.run_it(broken)

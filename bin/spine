@@ -43,6 +43,8 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 # shellcheck source=bin/lib/model_windows.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/model_windows.sh"
+# shellcheck source=bin/lib/boot_cron.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/boot_cron.sh"
 need curl jq python3 sqlite3
 
 lab="${SPINE_LAB:-0}"
@@ -81,6 +83,16 @@ boot_failed() {
 # Tighten what this user owns, from the brain up to the checkout; bin/doctor
 # fails anything still wrong (a parent owned by someone else).
 python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_BRAIN" "$(dirname "$TEENY_BRAIN")" >/dev/null || true
+# state/ too: OpenClaw refuses to start when its state directory is group- or
+# world-writable ("No safe OpenClaw temp root is available"), and a state/
+# made under umask 002 is. That surfaced only after the "ready" line.
+python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_STATE" >/dev/null || true
+# And what is already under state/openclaw/ (the Gateway's state, which OpenClaw also checks as the temp
+# root's ancestors: "Temp workspace ancestor ... is group/world writable"): directories made under umask 002
+# by an earlier boot or a copy. Only directories this user owns; a failure is the doctor's to say, not a stop.
+if [ -d "$TEENY_STATE/openclaw" ]; then
+  find "$TEENY_STATE/openclaw" -type d -uid "$(id -u)" -perm /022 -exec chmod go-w {} + 2>/dev/null || true
+fi
 # Never a config.toml inside the brain: the core would take the brain
 # for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
@@ -306,17 +318,15 @@ log "gateway: openclaw security audit: $audit"
 if [ "$lab" = 1 ]; then
   log "lab: no cron seeded"
 else
-  # Cron is the Gateway's: its automations answer only once it is up, and the
-  # settings above made the core restart it (once, after a pause). Wait for it
-  # to take a cron_list rather than seeding into a Gateway that is coming back.
-  for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
-    oh cron_list >/dev/null 2>&1 && break
-    kill -0 "$core" 2>/dev/null || boot_failed "the core exited while the Gateway was starting"
-    sleep 1
-  done
-  oh cron_list >/dev/null || boot_failed "the OpenClaw Gateway did not take a cron_list in ${SPINE_BOOT_SECS:-120}s"
-  log "gateway: up; cron answers"
-  "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
+  # Cron is the Gateway's: its automations answer only once it is up, and the settings above made the core restart
+  # it (once, after a pause). Wait for it to take a cron_list rather than seeding into a Gateway that is coming
+  # back, then seed, all under one deadline (bin/lib/boot_cron.sh) so an unreachable Gateway fails the boot.
+  boot_seed_cron "$core" "$TEENY_ROOT/bin/seed-cron" && rc=0 || rc=$?
+  case "$rc" in
+    0) ;;
+    2) boot_failed "the core exited while the Gateway was starting" ;;
+    *) boot_failed "the OpenClaw Gateway did not take cron within ${SPINE_CRON_SECS:-600}s (waiting, then seeding)" ;;
+  esac
 fi
 
 # The broker (bin/broker, docs/mind.md): how the agentic mind acts on the

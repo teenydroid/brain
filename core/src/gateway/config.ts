@@ -69,12 +69,24 @@ export interface GatewayConfigInput {
   systemAgentId?: string;
   /** core/plugins/teeny-guardrails when it exists (P3 writes it). */
   guardrailsPath?: string;
+  /**
+   * True once teeny-guardrails has shown it loaded in the running Gateway. Until then a shell agent's exec is
+   * "deny" even with the plugin in the config, so a Gateway whose plugin failed to load (and whose own cron
+   * can start agent turns the moment it is up) has no exec to abuse. Default: false.
+   */
+  guardrailsProven?: boolean;
   /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
   guardrailsPolicy?: Record<string, unknown>;
   /** Extra skill directories (`skills.load.extraDirs`): brain/skills/hands, which the agents' workspaces do not contain. */
   skillDirs?: string[];
   /** Chrome for the browser tool; unset lets OpenClaw find one. */
   chromePath?: string;
+  /**
+   * `logging.file`: the day's log, in a directory the core made private. Left unset OpenClaw resolves
+   * a "secure temp root" for its log and refuses every ancestor that is group-writable, then drops
+   * every record with "log file append failed". An explicit file skips that resolution.
+   */
+  logFile?: string;
 }
 
 /** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
@@ -85,6 +97,21 @@ export const SECRET_PROVIDER_MODEL_KEY = "teeny_model_key";
 /** A SecretRef into a `singleValue` file provider (docs/gateway/config-secrets-env.md). */
 const fileRef = (provider: string): { source: "file"; provider: string; id: "value" } => ({ source: "file", provider, id: "value" });
 
+/**
+ * The agents' entries as written to the config. A shell agent's exec runs with OpenClaw's own check
+ * off because teeny-guardrails is the gate (agents/definitions.ts); with no plugin in the config, or one
+ * not yet proven loaded, there is no gate, so exec is "deny" and a shell agent can run nothing.
+ */
+export function guardedEntries(agents: Record<string, AgentEntry>, guarded: boolean): Record<string, AgentEntry> {
+  if (guarded) return agents;
+  const out: Record<string, AgentEntry> = {};
+  for (const [id, entry] of Object.entries(agents)) {
+    const exec = entry.tools.exec;
+    out[id] = exec && typeof exec === "object" ? { ...entry, tools: { ...entry.tools, exec: { ...(exec as Record<string, unknown>), security: "deny" } } } : entry;
+  }
+  return out;
+}
+
 export function guardrailsIfPresent(path: string): string | undefined {
   return existsSync(path) ? path : undefined;
 }
@@ -92,13 +119,24 @@ export function guardrailsIfPresent(path: string): string | undefined {
 export function buildGatewayConfig(input: GatewayConfigInput): Record<string, unknown> {
   const modelRef = input.model ? `${PROVIDER_ID}/${input.model}` : undefined;
   const plugins: Record<string, unknown> = {
+    // schema: plugins.slots.memory "none" turns every memory plugin off (docs/tools/plugin.md). memory-core
+    // would otherwise create its own agent cron job, "Memory Dreaming Promotion" (0 3 * * *), outside
+    // brain/cron.toml; Teeny's memory is CortexDB.
+    slots: { memory: "none" },
     // schema: plugins.allow (non-empty allowlist restricts loading), plugins.deny, plugins.load.paths
     allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : [])],
     deny: DENIED_PLUGINS,
     ...(input.guardrailsPath
       ? {
           load: { paths: [input.guardrailsPath] },
-          entries: {
+        }
+      : {}),
+    entries: {
+      // schema: plugins.entries.<id>.enabled; plugins.entries.memory-core.config.dreaming.enabled
+      // (docs/reference/memory-config.md): belt and braces over the slot.
+      "memory-core": { enabled: false, config: { dreaming: { enabled: false } } },
+      ...(input.guardrailsPath
+        ? {
             [GUARDRAILS_PLUGIN_ID]: {
               enabled: true,
               // before_prompt_build (memory recall) reads the conversation, which a non-bundled plugin may only
@@ -107,9 +145,9 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
               // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
               config: { policy: input.guardrailsPolicy ?? {} },
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
   };
 
   return {
@@ -124,8 +162,11 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       controlUi: { enabled: false },
       // schema: gateway.http.endpoints.{chatCompletions,responses}.enabled
       http: { endpoints: { chatCompletions: { enabled: false }, responses: { enabled: false } } },
-      // The core edits config; a hot reload on its writes is not wanted.
-      reload: { mode: "off" },
+      // schema: gateway.reload.mode (gateway/configuration/hot-reload.md: "off" | "hybrid"). "hybrid", so the
+      // running Gateway applies the core's one live write, exec opening once teeny-guardrails is proven loaded.
+      // With "off" that write never applied and every shell agent stayed on "deny". The core writes exec open
+      // only when nothing else changed (main.ts writeConfig), so a restart the Gateway makes itself starts on "deny".
+      reload: { mode: "hybrid" },
     },
     // schema: hooks.enabled
     hooks: { enabled: false },
@@ -204,7 +245,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
         compaction: { enabled: true, mode: "default", keepRecentTokens: input.keepRecentTokens },
       },
       // schema: agents.entries.<id>
-      entries: input.agents,
+      entries: guardedEntries(input.agents, input.guardrailsPath !== undefined && input.guardrailsProven === true),
     },
     ...(input.skillDirs && input.skillDirs.length > 0 ? { skills: { load: { extraDirs: input.skillDirs } } } : {}),
     // schema: cron.skipMissedJobs (docs/gateway/config-automation.md, docs/automation/cron-jobs/managing-jobs.md):
@@ -212,6 +253,8 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     // future one instead of replaying; late runs belong to bin/lib/catch_up.py.
     // The cron module sets the same key through the CLI at boot; the file says it first.
     cron: { skipMissedJobs: true },
+    // schema: logging.file (docs/gateway/logging.md): the rolling name `openclaw-YYYY-MM-DD.log` is dated per day.
+    ...(input.logFile ? { logging: { file: input.logFile } } : {}),
     // No `channels`, no `bindings` here.
   };
 }

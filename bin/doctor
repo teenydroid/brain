@@ -86,10 +86,21 @@ invariants_hold() {
 }
 # The core's teeny.* jobs are exactly what seeding would make them.
 cron_in_step() {
-  local plan
-  plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan"; return 1; }
+  local plan changes extra problems=""
+  # A job the core holds that neither brain/cron.toml (teeny.*) nor the mind's own wakes (mind.*) put
+  # there: OpenClaw made one itself ("Memory Dreaming Promotion"), and seed-cron never touches a name
+  # outside teeny.*, so it would run unseen.
+  extra="$(oh cron_list | jq -r '[.[] | select((.name // "") | (startswith("teeny.") or startswith("mind.")) | not) | (.name // .id)] | join(", ")')" || return 1
+  [ -z "$extra" ] || problems="unseeded job(s) the core runs that brain/cron.toml does not name: $extra"
+  plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan" | tr '\n' ' '; return 1; }
   if ! grep -q "dry run: 0 change" <<<"$plan"; then
-    grep -E "^\[seed-cron\] (add|update|replace|remove)" <<<"$plan" | head -3
+    # One line, jobs separated by "; ": the report prints it after the check's name.
+    changes="$(grep -E "^\[seed-cron\] (add|update|replace|remove)" <<<"$plan" | head -3 | sed -E 's/^\[seed-cron\] //; s/ +/ /g' | paste -sd ';' - | sed 's/;/; /g')"
+    echo "${changes:-the plan differs from brain/cron.toml}${problems:+; $problems}"
+    return 1
+  fi
+  if [ -n "$problems" ]; then
+    echo "$problems"
     return 1
   fi
   echo "the core runs exactly brain/cron.toml"
@@ -140,6 +151,23 @@ gateway_ready() {
     return 1
   fi
   echo "the Gateway is running"
+}
+# A shell agent's exec must actually run through the Gateway. Its security is the stricter of the config's and
+# OpenClaw's own exec approvals (docs/tools/exec-approvals.md), so a stale allowlist or ask there, or a plugin
+# that never loaded (the core then writes exec "deny"), makes exec dead without a word until a job needs it.
+# One worker turn asked to run `date +%s`; the reply must carry a time within two minutes of now, which a
+# model that never ran the command cannot know. A model turn, so DOCTOR_MODEL_TURNS=0 skips it.
+gateway_exec_runs() {
+  local out said now
+  out="$(OH_TIMEOUT=180 oh inference_agent_chat "$(jq -cn '{agent_id: "worker", message: "Run exactly this with your shell tool: date +%s . Reply with its output and nothing else."}')" 2>&1)" ||
+    { echo "the worker's turn failed: $(tail -n 1 <<<"$out" | cut -c1-200)"; return 1; }
+  said="$(grep -Eo '[0-9]{10}' <<<"$out" | head -n 1 || true)"
+  now="$(date +%s)"
+  if [ -z "$said" ] || [ "$((now - said))" -gt 120 ] || [ "$((said - now))" -gt 120 ]; then
+    echo "a shell agent's exec did not run \`date +%s\` through the Gateway (reply: $(tr '\n' ' ' <<<"$out" | cut -c1-160)); look for a stale exec-approvals policy under state/openclaw or the plugin not loaded"
+    return 1
+  fi
+  echo "a shell agent's exec ran a command through the Gateway"
 }
 browser_ready() {
   local answer
@@ -283,8 +311,18 @@ core_runtime() {
   minor="${version#v}"
   minor="${minor#*.}"
   minor="${minor%%.*}"
-  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] && { [ "$major" -gt 24 ] || { [ "$major" -eq 24 ] && [ "$minor" -ge 16 ]; }; } ||
-    { echo "node $version is under 24.16 (the core needs >=24.16)"; return 1; }
+  new_enough=0
+  if [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]]; then
+    if [ "$major" -gt 24 ]; then
+      new_enough=1
+    elif [ "$major" -eq 24 ] && [ "$minor" -ge 16 ]; then
+      new_enough=1
+    fi
+  fi
+  if [ "$new_enough" != 1 ]; then
+    echo "node $version is under 24.16 (the core needs >=24.16)"
+    return 1
+  fi
   main="$("$bin" --where)"
   [ -f "$main" ] || { echo "the core is not built ($main): cd core && npm ci && npm run build"; return 1; }
   echo "node $version, core at $main"
@@ -766,6 +804,7 @@ if [ "$live" = 1 ]; then
     run "browser" browser_ready
     if [ "${DOCTOR_MODEL_TURNS:-1}" != 0 ]; then
       run "studio models answer" studio_models_answer
+      run "shell agent exec runs" gateway_exec_runs
     fi
   else
     note "core /health" fail "no answer at $OH_URL"

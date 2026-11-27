@@ -140,7 +140,10 @@ describe("the Gateway config that carries it", () => {
   it("loads the plugin by path with its policy, and gives hooks conversation access for recall", () => {
     const cfg = buildGatewayConfig({ ...base, guardrailsPath: "/x/teeny-guardrails", guardrailsPolicy: { root: "/r" } }) as { plugins: Record<string, unknown> };
     expect(cfg.plugins.load).toEqual({ paths: ["/x/teeny-guardrails"] });
-    expect(cfg.plugins.entries).toEqual({ "teeny-guardrails": { enabled: true, hooks: { allowConversationAccess: true }, config: { policy: { root: "/r" } } } });
+    expect(cfg.plugins.entries).toEqual({
+      "memory-core": { enabled: false, config: { dreaming: { enabled: false } } },
+      "teeny-guardrails": { enabled: true, hooks: { allowConversationAccess: true }, config: { policy: { root: "/r" } } },
+    });
     expect(cfg.plugins.allow).toEqual(["browser", "teeny-guardrails"]);
   });
 

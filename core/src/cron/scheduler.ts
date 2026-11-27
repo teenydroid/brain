@@ -1,5 +1,5 @@
 import { RpcError, type CoreContext, type RpcMethods } from "../server/types.js";
-import { Automations, AutomationsError, defaultExec, type Exec } from "./automations.js";
+import { Automations, AutomationsError, defaultExec, retryWhileUnreachable, type Exec } from "./automations.js";
 import { SHELL_TIMEOUT_SECS, parseSchedule, runView, scheduleFlags, shellFlags, view, type ShellEnv } from "./map.js";
 
 export interface CronOptions {
@@ -15,6 +15,10 @@ export interface CronOptions {
    * never put in a shell job's environment. Without it every cron_* call fails closed.
    */
   gatewayEnv?: () => Record<string, string | undefined>;
+  /** How long a call waits out a Gateway that is restarting (default 90 s, one try a second); 0 turns it off. */
+  gatewayWaitMs?: number;
+  /** For tests: the clock and the pause between tries. */
+  retry?: { sleep?: (ms: number) => Promise<void>; now?: () => number; delayMs?: number };
 }
 
 function str(params: Record<string, unknown>, key: string, required = false): string | undefined {
@@ -53,6 +57,8 @@ export interface Cron {
   setShellTimeoutSecs(secs: number): void;
 }
 
+/** How long a readiness probe lets the CLI run. */
+export const PROBE_TIMEOUT_MS = 8000;
 const RUNS_PAGE = 200;
 /**
  * With no limit given, cron_runs answers the whole window evolve compares (the last seven days
@@ -65,13 +71,17 @@ const RUNS_HARD_CAP = 200_000;
 
 export function createCron(opts: CronOptions = {}): Cron {
   let gatewayEnv = opts.gatewayEnv;
-  const client = (ctx: CoreContext): Automations => {
+  /** A probe asks once and answers fast: no waiting out a restarting Gateway, and the CLI is cut off after PROBE_TIMEOUT_MS. */
+  const client = (ctx: CoreContext, probe = false): Automations => {
     if (!gatewayEnv) throw new RpcError("cron is closed: no Gateway environment was given to the cron module", -32000);
     const bin = opts.bin ?? gatewayEnv().OPENCLAW_BIN ?? ctx.env.OPENCLAW_BIN ?? "openclaw";
     // The CLI gets the process environment under the Gateway's, so PATH and HOME still resolve it.
     const env = { ...ctx.env, ...gatewayEnv() };
     // Rebuilt each call: the Gateway's token and port can change when it restarts.
-    return new Automations(bin, env, opts.exec ?? defaultExec);
+    const given = opts.exec ?? defaultExec;
+    const base: Exec = probe ? (file, args, o) => given(file, args, { ...o, timeoutMs: PROBE_TIMEOUT_MS }) : given;
+    const wait = probe ? 0 : (opts.gatewayWaitMs ?? 90_000);
+    return new Automations(bin, env, wait > 0 ? retryWhileUnreachable(base, { windowMs: wait, delayMs: opts.retry?.delayMs ?? 1000, ...(opts.retry?.sleep ? { sleep: opts.retry.sleep } : {}), ...(opts.retry?.now ? { now: opts.retry.now } : {}) }) : base);
   };
   let timeout = opts.shellTimeoutSecs ?? SHELL_TIMEOUT_SECS;
   let verified = false;
@@ -81,18 +91,18 @@ export function createCron(opts: CronOptions = {}): Cron {
    * Gateway reads the key at startup, so a late `config set` would not hold. Cron stays closed
    * until a check passes.
    */
-  const verify = async (ctx: CoreContext): Promise<void> => {
+  const verify = async (ctx: CoreContext, probe = false): Promise<void> => {
     if (verified) return;
-    const value = await client(ctx).configGet("cron.skipMissedJobs");
+    const value = await client(ctx, probe).configGet("cron.skipMissedJobs");
     if (value !== true) {
       throw new RpcError("cron is closed: cron.skipMissedJobs is not true in the Gateway config, so a restart would replay missed slots", -32000);
     }
     verified = true;
   };
-  const wrap = async <T>(ctx: CoreContext, f: (c: Automations) => Promise<T>): Promise<T> => {
+  const wrap = async <T>(ctx: CoreContext, f: (c: Automations) => Promise<T>, probe = false): Promise<T> => {
     try {
-      await verify(ctx);
-      return await f(client(ctx));
+      await verify(ctx, probe);
+      return await f(client(ctx, probe));
     } catch (error) {
       if (error instanceof AutomationsError) throw new RpcError(error.message, -32000);
       throw error;
@@ -100,7 +110,9 @@ export function createCron(opts: CronOptions = {}): Cron {
   };
 
   const methods: RpcMethods = {
-    cron_list: (_p, ctx) => wrap(ctx, async (c) => (await c.list()).map(view)),
+    // `probe: true` is bin/spine's readiness check: one try, bounded, so a Gateway that is down fails in seconds
+    // and not after the 90 s a seeding call is willing to wait.
+    cron_list: (params, ctx) => wrap(ctx, async (c) => (await c.list()).map(view), params.probe === true),
 
     cron_runs: (params, ctx) =>
       wrap(ctx, async (c) => {

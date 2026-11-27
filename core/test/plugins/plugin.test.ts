@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import plugin from "../../plugins/teeny-guardrails/index.js";
@@ -10,11 +10,12 @@ import { FAKE_KEY } from "../helpers.js";
 import { makeFixture } from "./fixture.js";
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
-function register(config: unknown) {
+function register(config: unknown, registrationMode = "full") {
   const hooks = new Map<string, { handler: Handler; opts?: Record<string, unknown> }>();
   const logs: string[] = [];
   const api = {
     pluginConfig: config,
+    registrationMode,
     logger: { error: (m: string) => logs.push(m), warn: (m: string) => logs.push(m), info: () => undefined, debug: () => undefined },
     on: (name: string, handler: Handler, opts?: Record<string, unknown>) => hooks.set(name, { handler, opts }),
   };
@@ -29,6 +30,31 @@ describe("the plugin", () => {
     expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "before_prompt_build", "before_tool_call", "tool_result_persist"]);
     expect(hooks.get("before_tool_call")?.opts?.priority).toBe(1000);
     expect(plugin.id).toBe("teeny-guardrails");
+  });
+
+  it("writes policy.readyFile once its hooks are registered, and never when the policy is unusable", () => {
+    const f = makeFixture();
+    const ready = join(f.root, "state", "openclaw", "guardrails.ready");
+    rmSync(ready, { force: true });
+    register({ policy: { ...JSON.parse(JSON.stringify(f.policy)), readyFile: ready } });
+    expect(existsSync(ready)).toBe(true);
+    rmSync(ready);
+    const bad = register({ policy: { readyFile: ready } });
+    expect(bad.logs.join("\n")).toContain("every tool call will be blocked");
+    expect(existsSync(ready)).toBe(false);
+  });
+
+  it("writes the ready file only in the Gateway's own \"full\" load, with its pid (registration-mode.md: other modes are CLI and discovery loads)", () => {
+    const f = makeFixture();
+    const ready = join(f.root, "state", "openclaw", "guardrails.ready");
+    const policy = { ...JSON.parse(JSON.stringify(f.policy)), readyFile: ready };
+    for (const mode of ["cli-metadata", "discovery", "tool-discovery", "setup-only", "setup-runtime"]) {
+      rmSync(ready, { force: true });
+      register({ policy }, mode);
+      expect(existsSync(ready), mode).toBe(false);
+    }
+    register({ policy }, "full");
+    expect(JSON.parse(readFileSync(ready, "utf8")).pid).toBe(process.pid);
   });
 
   it("blocks and rewrites through the hook", async () => {

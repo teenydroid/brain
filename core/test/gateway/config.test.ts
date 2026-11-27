@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AgentCatalog } from "../../src/agents/provision.js";
-import { buildGatewayConfig, type GatewayConfigInput } from "../../src/gateway/config.js";
+import { buildGatewayConfig, guardedEntries, type GatewayConfigInput } from "../../src/gateway/config.js";
 import { openclawCommand } from "../../src/gateway/cli.js";
 import { REPO } from "../helpers.js";
 
@@ -35,6 +35,9 @@ describe("generated OpenClaw config: the lockdown", () => {
 
   it("turns off hooks, both OpenAI-style HTTP endpoints, the control UI, update checks and mDNS", () => {
     expect(cfg.hooks).toEqual({ enabled: false });
+    // "hybrid", or the core's one live write (exec opening once the plugin is proven) never applies and every
+    // shell agent stays on "deny" (lab boot, 2026-11-27: "config reload disabled (gateway.reload.mode=off)").
+    expect(cfg.gateway.reload).toEqual({ mode: "hybrid" });
     expect(cfg.gateway.http.endpoints.chatCompletions.enabled).toBe(false);
     expect(cfg.gateway.http.endpoints.responses.enabled).toBe(false);
     expect(cfg.gateway.controlUi.enabled).toBe(false);
@@ -150,5 +153,67 @@ describe("generated OpenClaw config: agent models and hand skills", () => {
   it("loads the generated hand skills from the directory it is given", () => {
     expect(cfg.skills).toEqual({ load: { extraDirs: ["/srv/brain/skills/hands"] } });
     expect(buildGatewayConfig(input()) as Cfg).not.toHaveProperty("skills");
+  });
+});
+
+describe("generated OpenClaw config: exec and the guardrails plugin", () => {
+  const execSecurity = (cfg: Cfg) =>
+    Object.fromEntries(Object.entries(cfg.agents.entries as Cfg).filter(([, e]) => e.tools.exec).map(([id, e]) => [id, e.tools.exec.security]));
+
+  it("runs a shell agent's exec with OpenClaw's own check off only when the plugin is in the config", () => {
+    const withPlugin = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {}, guardrailsProven: true })) as Cfg;
+    const security = execSecurity(withPlugin);
+    expect(Object.keys(security)).toContain("worker");
+    expect(Object.values(security).every((v) => v === "full")).toBe(true);
+    expect(withPlugin.agents.entries.worker.tools.exec).toMatchObject({ host: "gateway", ask: "off" });
+  });
+
+  it("denies every shell agent's exec while the plugin is in the config but not yet proven loaded (fail closed)", () => {
+    const cfg = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+    expect(Object.values(execSecurity(cfg)).every((v) => v === "deny")).toBe(true);
+  });
+
+  it("denies every shell agent's exec when there is no plugin to gate it (fail closed)", () => {
+    const security = execSecurity(buildGatewayConfig(input()) as Cfg);
+    expect(Object.keys(security)).toContain("worker");
+    expect(Object.values(security).every((v) => v === "deny")).toBe(true);
+  });
+
+  it("leaves tool-less agents and the input untouched", () => {
+    const agents = input().agents;
+    const before = JSON.stringify(agents);
+    guardedEntries(agents, false);
+    expect(JSON.stringify(agents)).toBe(before);
+  });
+});
+
+describe("generated OpenClaw config: no memory plugin, so no dreaming job", () => {
+  const cfg = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+
+  it("turns the memory slot off and memory-core's dreaming with it", () => {
+    expect(cfg.plugins.slots).toEqual({ memory: "none" });
+    expect(cfg.plugins.entries["memory-core"]).toEqual({ enabled: false, config: { dreaming: { enabled: false } } });
+    expect(cfg.plugins.entries["teeny-guardrails"].enabled).toBe(true);
+  });
+
+  it("does so with no guardrails plugin too", () => {
+    const bare = buildGatewayConfig(input()) as Cfg;
+    expect(bare.plugins.slots).toEqual({ memory: "none" });
+    expect(bare.plugins.entries["memory-core"].enabled).toBe(false);
+  });
+
+  it("names no memory_search or memory_get in any agent's tool allowlist", () => {
+    for (const [id, entry] of Object.entries(cfg.agents.entries as Cfg)) {
+      expect(entry.tools.allow, id).not.toContain("memory_search");
+      expect(entry.tools.allow, id).not.toContain("memory_get");
+    }
+  });
+});
+
+describe("the Gateway's log file", () => {
+  it("is pinned to a rolling file under the core's own directory when one is given, and absent otherwise", () => {
+    const withLog = buildGatewayConfig(input({ logFile: "/srv/teeny/state/openclaw/logs/openclaw-YYYY-MM-DD.log" })) as Record<string, unknown>;
+    expect(withLog.logging).toEqual({ file: "/srv/teeny/state/openclaw/logs/openclaw-YYYY-MM-DD.log" });
+    expect(buildGatewayConfig(input()) as Record<string, unknown>).not.toHaveProperty("logging");
   });
 });

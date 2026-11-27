@@ -8,15 +8,65 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
 }
-export type Exec = (file: string, args: string[], opts: { env: Record<string, string | undefined> }) => Promise<ExecResult>;
+export type Exec = (file: string, args: string[], opts: { env: Record<string, string | undefined>; timeoutMs?: number }) => Promise<ExecResult>;
 
 export const defaultExec: Exec = (file, args, opts) =>
   new Promise((resolve) => {
-    execFile(file, args, { env: opts.env, maxBuffer: 16 * 1024 * 1024, timeout: 120_000 }, (error, stdout, stderr) => {
+    execFile(file, args, { env: opts.env, maxBuffer: 16 * 1024 * 1024, timeout: opts.timeoutMs ?? 120_000 }, (error, stdout, stderr) => {
       const code = error ? (typeof (error as { code?: unknown }).code === "number" ? ((error as { code: number }).code) : 1) : 0;
       resolve({ code, stdout: String(stdout), stderr: error && !stderr ? error.message : String(stderr) });
     });
   });
+
+/**
+ * The CLI could not reach the Gateway at all: nothing listened, so the command was never accepted and trying it
+ * again is safe for any verb.
+ */
+export const GATEWAY_NOT_CONNECTED = /couldn'?t connect to openclaw|gateway not running|econnrefused|connect.*refused/i;
+
+/**
+ * The Gateway closed the connection or said it is shutting down. That can arrive after it accepted the call (an
+ * `add` or `run` that was taken and then the socket dropped), so only a read-only verb may be tried again on it.
+ */
+export const GATEWAY_CLOSED = /gateway is shutting down|gatewaydrainingerror|gateway closed/i;
+
+/** Either of the two; kept for callers that only ask whether the Gateway looked unreachable. */
+export const GATEWAY_UNREACHABLE = new RegExp(`${GATEWAY_NOT_CONNECTED.source}|${GATEWAY_CLOSED.source}`, "i");
+
+/** `openclaw automations <verb>`: the verbs that change nothing, so a repeat can do no harm. `config get` is read-only too. */
+const READ_ONLY_VERBS = new Set(["list", "get", "runs"]);
+
+export function isReadOnlyCall(args: string[]): boolean {
+  if (args[0] === "config") return args[1] === "get";
+  return args[0] === "automations" && READ_ONLY_VERBS.has(args[1] ?? "");
+}
+
+export interface RetryOptions {
+  /** How long to keep trying (ms). */
+  windowMs: number;
+  delayMs: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * An Exec that tries again, for up to windowMs, while the Gateway cannot be reached. A read-only call is retried on
+ * any sign of a Gateway going away; add, edit, remove and run only when nothing was connected to, because a closed
+ * connection may follow a call the Gateway already took. Any other failure is returned as it is.
+ */
+export function retryWhileUnreachable(exec: Exec, opts: RetryOptions): Exec {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  return async (file, args, o) => {
+    const deadline = now() + opts.windowMs;
+    for (;;) {
+      const r = await exec(file, args, o);
+      const retryable = isReadOnlyCall(args) ? GATEWAY_UNREACHABLE : GATEWAY_NOT_CONNECTED;
+      if (r.code === 0 || !retryable.test(`${r.stderr}\n${r.stdout}`) || now() >= deadline) return r;
+      await sleep(opts.delayMs);
+    }
+  };
+}
 
 /** The fields of an automation job (docs: cli/cron.md, the CronJob schema) that Teeny reads. */
 export interface OcJob {

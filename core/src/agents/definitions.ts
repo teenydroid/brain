@@ -46,7 +46,10 @@ export const TOOL_MAP: Record<string, string[]> = {
   edit: ["edit"],
   browser: ["browser"],
   tool_search: ["tool_search"],
-  memory: ["memory_search", "memory_get"],
+  // None: memory-core's memory_search/memory_get belong to a memory plugin, which the Gateway runs without
+  // (plugins.slots.memory "none", gateway/config.ts); Teeny's memory is CortexDB, recalled into the prompt
+  // by teeny-guardrails. Naming them only made OpenClaw warn "allowlist contains unknown entries".
+  memory: [],
   spawn_subagent: ["sessions_spawn", "subagents"],
 };
 
@@ -149,9 +152,14 @@ export function agentEntry(def: AgentDef, workspace: string, model?: string): Ag
     ...(model ? { model: { primary: toModelRef(model) } } : {}),
     tools: {
       ...toolPolicy(def),
-      // Headless: nobody can answer an approval prompt. Shell agents run only what the
-      // exec allowlist admits, and P3's teeny-guardrails plugin owns that list.
-      ...(holdsShell ? { exec: { host: "gateway", security: "allowlist", ask: "off" } } : {}),
+      // Headless: nobody can answer an approval prompt, and OpenClaw's own allowlist is a list of
+      // binaries (docs/tools/exec.md, "Allowlist + safe bins") that this core never fills: with
+      // security "allowlist" every command, `ls` too, was refused before teeny-guardrails judged it.
+      // The plugin's before_tool_call runs before the exec tool does (docs/concepts/agent-loop.md,
+      // docs/plugins/hooks/tool-policy.md) and is the one gate, so the native check is off ("full",
+      // ask "off"). buildGatewayConfig turns it to "deny" whenever the plugin is not in the config,
+      // and the supervisor stops a Gateway whose plugin did not load (GuardrailsGate).
+      ...(holdsShell ? { exec: { host: "gateway", security: "full", ask: "off" } } : {}),
     },
     ...(def.temperature !== undefined ? { params: { temperature: def.temperature } } : {}),
     ...(def.subagentAllowlist.length > 0 ? { subagents: { allowAgents: def.subagentAllowlist } } : {}),

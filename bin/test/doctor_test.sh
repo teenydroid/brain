@@ -398,6 +398,15 @@ case "$1" in
   # A turn: refused as the core refused the studio's on 2026-11-19 when its
   # model is in $FAKE_REFUSED (a comma list). Each is logged to $FAKE_TURNS.
   inference_agent_chat|inference_agent_chat_simple)
+    # The worker's exec probe: FAKE_EXEC=stale answers what a Gateway whose exec policy refuses would.
+    if [ "$(jq -r '.agent_id // ""' <<<"$2")" = worker ]; then
+      case "${FAKE_EXEC:-ok}" in
+        ok) printf '{"response": "%s"}\n' "$(date +%s)" ;;
+        old) printf '{"response": "%s"}\n' "$(( $(date +%s) - 3600 ))" ;;
+        *) echo '{"response": "exec denied by approvals policy"}' ;;
+      esac
+      exit 0
+    fi
     printf '%s %s\n' "$1" "$2" >>"${FAKE_TURNS:-/dev/null}"
     m="$(jq -r '.model_override // ""' <<<"$2")"
     if [[ ",${FAKE_REFUSED:-}," == *",$m,"* ]]; then
@@ -454,6 +463,18 @@ live_jobs teeny.mail-inbound:-100:true teeny.tick:30:true teeny.late:300:true te
 live_doctor || true
 check "--live passes current next runs" grep -q '^ok   cron next runs are current' "$scratch/doctor.log"
 
+# OpenClaw's memory-core made its own "Memory Dreaming Promotion" job (0 3 * * *) on a lab spine: seed-cron never
+# touches a name outside teeny.*, so the doctor has to say a job nobody seeded is there, and say it on one line.
+live_jobs teeny.tick:30:true mind.wake-1:-100:true
+jq -c '. + [{id: "dream-1", name: "Memory Dreaming Promotion", job_type: "agent", enabled: true, next_run: null}]' "$scratch/jobs.json" >"$scratch/jobs2.json"
+mv "$scratch/jobs2.json" "$scratch/jobs.json"
+live_doctor || true
+check "--live names a job nobody seeded in 'cron in step'" \
+  grep -q '^FAIL cron in step: .*unseeded job(s).*Memory Dreaming Promotion' "$scratch/doctor.log"
+check "and the cron-in-step failure is one readable line, not seed-cron's log" \
+  test "$(grep -c '^FAIL cron in step' "$scratch/doctor.log")" = 1 -a "$(grep '^FAIL cron in step' "$scratch/doctor.log" | grep -c '\[seed-cron\]')" = 0
+check "but not the mind's own wakes or teeny.* jobs" bash -c "! grep '^FAIL cron in step' '$scratch/doctor.log' | grep -q 'mind.wake-1'"
+
 # 2026-11-12: the builder's cron turn ran out of the core's default 120 s
 # (`[agent] agent_timeout_secs`, which bounds a whole cron agent turn) after
 # six model calls, twice, and never reached its tests. bin/spine raises it.
@@ -507,6 +528,20 @@ check "--live still asks a model set while the studio is off" grep -q '^FAIL stu
 DOCTOR_MODEL_TURNS=0 FAKE_REFUSED=e live_doctor || true
 check "and DOCTOR_MODEL_TURNS=0 skips the turns" bash -c "! grep -q 'studio models answer' '$scratch/doctor.log'"
 rm -f "$root/secrets/teeny.env"
+
+# A stale exec-approvals policy (or a plugin that never loaded) makes a shell agent's exec dead while everything
+# else reads healthy: --live has a worker run a harmless command and checks the answer is the real time.
+live_doctor || true
+check "--live passes when a shell agent's exec runs a command through the Gateway" \
+  grep -q '^ok   shell agent exec runs: ' "$scratch/doctor.log"
+FAKE_EXEC=denied live_doctor || true
+check "--live fails when the shell agent's exec is refused, and says where to look" \
+  grep -q '^FAIL shell agent exec runs: .*exec-approvals' "$scratch/doctor.log"
+FAKE_EXEC=old live_doctor || true
+check "--live fails an answer that is not the current time (a model that never ran it)" \
+  grep -q '^FAIL shell agent exec runs: ' "$scratch/doctor.log"
+DOCTOR_MODEL_TURNS=0 FAKE_EXEC=denied live_doctor || true
+check "and DOCTOR_MODEL_TURNS=0 skips it" bash -c "! grep -q 'shell agent exec runs' '$scratch/doctor.log'"
 
 # The meme service: named only when STUDIO_FORMATS has meme, never a failure;
 # --live asks it for its templates (a stand-in memegen on a loopback port).

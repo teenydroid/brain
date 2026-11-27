@@ -120,9 +120,26 @@ class Caps:
         return USDC_MINTS[self.cluster]
 
 
+#: WALLET_* names that are switches, not wallet setup: `WALLET_MIND_ACTIONS=0` is the documented way to
+#: say off (docs/governance.md, "Kill switches"), and it must not make the wallet "configured", which
+#: demands every cap and stops the boot.
+SWITCHES = ("WALLET_MIND_ACTIONS", "WALLET_WATCH")
+OFF_VALUES = ("", "0", "false", "no", "off")
+
+
 def configured(env: Mapping[str, str]) -> bool:
-    """Whether any WALLET_* key is set: from then on every cap must be."""
-    return any(key.startswith("WALLET_") and str(value).strip() for key, value in env.items())
+    """Whether any WALLET_* key is set: from then on every cap must be. A switch
+    at an off value is not a key."""
+    for key, value in env.items():
+        if not key.startswith("WALLET_"):
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        if key in SWITCHES and text.lower() in OFF_VALUES:
+            continue
+        return True
+    return False
 
 
 def cluster(env: Mapping[str, str]) -> str:

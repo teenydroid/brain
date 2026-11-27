@@ -65,7 +65,12 @@ describe("the tool list is the agent's own", () => {
 
   it("passes the passive tools through", async () => {
     const f = makeFixture();
-    for (const tool of ["tool_search", "memory_search", "memory_get", "process"]) expect(await f.call("mind", tool, { query: "x" }), tool).toBeUndefined();
+    for (const tool of ["tool_search", "process"]) expect(await f.call("mind", tool, { query: "x" }), tool).toBeUndefined();
+  });
+
+  it("does not offer memory-core's tools: the Gateway runs no memory plugin, and the mind's list names none", async () => {
+    const f = makeFixture();
+    for (const tool of ["memory_search", "memory_get"]) expect(blocked(await f.call("mind", tool, { query: "x" })), tool).toBeTruthy();
   });
 });
 

@@ -19,6 +19,9 @@
 //   --new-master-key-file F   the new core's master key file (default: the old one, which is
 //                             the same secrets/openhuman.key the new core is booted with)
 //   --user-id ID              the keyring user id, when more than one is found
+//   --owner-id ID             who owns the recovery phrase document in the storage database
+//                             (`<ID>:wallet.mnemonic`), when it holds more than one; this is
+//                             not the keyring user id (".openhuman" there, "teeny" here)
 //
 // It decrypts the recovery phrase (two layers: the storage document under the
 // old master key, then the enc2 value under the keyring's `secretstore.master_key`),
@@ -39,7 +42,7 @@ import { wordlist } from "@scure/bip39/wordlists/english";
 
 const USAGE =
   "usage: migrate-keyring.ts [--check] --old-state FILE --old-workspace DIR --old-master-key-file FILE --new-state-dir DIR" +
-  " [--old-storage-db FILE] [--new-master-key-file FILE] [--user-id ID]";
+  " [--old-storage-db FILE] [--new-master-key-file FILE] [--user-id ID] [--owner-id ID]";
 
 class Refusal extends Error {}
 
@@ -61,6 +64,7 @@ export type Args = {
   newStateDir: string;
   newMasterKeyFile?: string;
   userId?: string;
+  ownerId?: string;
 };
 
 export function parseArgs(argv: readonly string[]): Args {
@@ -81,7 +85,7 @@ export function parseArgs(argv: readonly string[]): Args {
     if (!value) throw new Refusal(`missing --${name}\n${USAGE}`);
     return value;
   };
-  const known = ["old-state", "old-workspace", "old-master-key-file", "old-storage-db", "new-state-dir", "new-master-key-file", "user-id"];
+  const known = ["old-state", "old-workspace", "old-master-key-file", "old-storage-db", "new-state-dir", "new-master-key-file", "user-id", "owner-id"];
   for (const name of flags.keys()) if (!known.includes(name)) throw new Refusal(`unknown flag --${name}\n${USAGE}`);
   const args: Args = {
     check,
@@ -96,6 +100,8 @@ export function parseArgs(argv: readonly string[]): Args {
   if (next) args.newMasterKeyFile = next;
   const user = flags.get("user-id");
   if (user) args.userId = user;
+  const owner = flags.get("owner-id");
+  if (owner) args.ownerId = owner;
   return args;
 }
 
@@ -166,7 +172,10 @@ function findUserId(keychain: Record<string, string>, given: string | undefined)
 
 type SqliteDb = { prepare(sql: string): { all(...params: unknown[]): Array<Record<string, unknown>> }; close(): void };
 
-async function storageCiphertext(db: string, oldMaster: Buffer, userId: string): Promise<string | undefined> {
+// The phrase's document is `<owner>:wallet.mnemonic` in coll 'secrets', and the owner is not the keyring's user id:
+// on the live box the keychain's only user is ".openhuman" while the document's id is "teeny:wallet.mnemonic". So
+// the document is found by its suffix, and a store that holds several is refused rather than guessed at.
+async function storageCiphertext(db: string, oldMaster: Buffer, ownerId?: string): Promise<string | undefined> {
   if (!existsSync(db)) throw new Refusal("--old-storage-db does not exist");
   const sqlite = (await import("node:sqlite")) as unknown as { DatabaseSync: new (path: string, options: { readOnly: boolean }) => SqliteDb };
   const handle = new sqlite.DatabaseSync(db, { readOnly: true });
@@ -176,20 +185,31 @@ async function storageCiphertext(db: string, oldMaster: Buffer, userId: string):
       .all()
       .map((r) => String(r.name))
       .filter((name) => /^[A-Za-z0-9_]+$/.test(name));
+    const found: Array<{ scope: string; id: string; ciphertext: string }> = [];
+    const suffix = ":wallet.mnemonic";
     for (const table of tables) {
       const rows = handle
-        .prepare(`SELECT scope, body FROM ${table} WHERE coll = 'secrets' AND id = ? AND deleted = 0`)
-        .all(`${userId}:wallet.mnemonic`);
+        // LIKE is case-insensitive for ASCII, so '%:WALLET.MNEMONIC' would match too: substr compares exactly.
+        .prepare(`SELECT scope, id, body FROM ${table} WHERE coll = 'secrets' AND substr(id, -length(?)) = ? AND deleted = 0`)
+        .all(suffix, suffix);
       for (const row of rows) {
         const body = JSON.parse(String(row.body)) as { ciphertext?: unknown };
-        if (typeof body.ciphertext !== "string") continue;
-        const key = storageKey(oldMaster, String(row.scope));
-        try {
-          return openEnc2(key, body.ciphertext, "the stored recovery phrase document").toString("utf8");
-        } finally {
-          key.fill(0);
-        }
+        if (typeof body.ciphertext === "string") found.push({ scope: String(row.scope), id: String(row.id), ciphertext: body.ciphertext });
       }
+    }
+    // --owner-id narrows several documents to the one that owner holds; without a match it is still a refusal.
+    if (found.length > 1 && ownerId) {
+      const mine = found.filter((f) => f.id === `${ownerId}${suffix}`);
+      if (mine.length === 1) found.splice(0, found.length, mine[0] as (typeof found)[number]);
+    }
+    if (found.length > 1) throw new Refusal(`the storage database holds ${found.length} recovery phrase documents (*:wallet.mnemonic); it will not guess which is the wallet's (--owner-id names the owner)`);
+    const one = found[0];
+    if (!one) return undefined;
+    const key = storageKey(oldMaster, one.scope);
+    try {
+      return openEnc2(key, one.ciphertext, "the stored recovery phrase document").toString("utf8");
+    } finally {
+      key.fill(0);
     }
   } finally {
     handle.close();
@@ -245,7 +265,7 @@ export async function migrate(args: Args, log: (line: string) => void): Promise<
       layer1 = (keychain[`${userId}:wallet.mnemonic`] as string).trim();
       source = "dev-keychain.json";
     } else if (args.oldStorageDb) {
-      layer1 = (await storageCiphertext(args.oldStorageDb, oldMaster, userId))?.trim();
+      layer1 = (await storageCiphertext(args.oldStorageDb, oldMaster, args.ownerId))?.trim();
       source = "the old storage database";
     }
     if (!layer1) {

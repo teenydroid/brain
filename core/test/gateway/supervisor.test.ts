@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GatewaySupervisor } from "../../src/gateway/supervisor.js";
+import { GatewaySupervisor, isSelfOrDescendant } from "../../src/gateway/supervisor.js";
 
 class FakeChild extends EventEmitter {
   pid = 1234;
@@ -236,5 +239,101 @@ describe("GatewaySupervisor", () => {
     expect(children.filter((c) => c.exitCode === null)).toHaveLength(1);
     expect(children.length).toBeLessThanOrEqual(2);
     await s.stop();
+  });
+});
+
+describe("GatewaySupervisor: the guardrails gate", () => {
+  const readyFile = () => join(mkdtempSync(join(tmpdir(), "gate-")), "guardrails.ready");
+  const ownPid = (file: string, pid = 1234) => writeFileSync(file, JSON.stringify({ pid }));
+  const same = (pid: number, ancestor: number) => pid === ancestor;
+
+  it("stops a Gateway that is listening without the plugin's ready file once the grace is over (exec has no other gate)", async () => {
+    const file = readyFile();
+    const s = make({ gate: { file, listening: async () => true, pollMs: 10, graceMs: 100 } });
+    await s.start();
+    const first = children[0]!;
+    await vi.advanceTimersByTimeAsync(50);
+    expect(first.signals).toEqual([]); // the plugin may still be loading: the port opens first
+    await vi.advanceTimersByTimeAsync(100);
+    expect(first.signals).toEqual(["SIGKILL"]);
+    expect(s.running).toBe(false);
+    expect(s.proven).toBe(false);
+    await s.stop();
+  });
+
+  it("proves a Gateway whose file carries its own pid, calls onProven once, and removes a stale file before a start", async () => {
+    const file = readyFile();
+    writeFileSync(file, "stale");
+    const proven: number[] = [];
+    const s = make({ gate: { file, listening: async () => true, pollMs: 10, isDescendant: same, onProven: (pid) => void proven.push(pid) } });
+    await s.start();
+    expect(existsSync(file)).toBe(false);
+    expect(s.proven).toBe(false);
+    ownPid(file);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(children[0]!.signals).toEqual([]);
+    expect(s.running).toBe(true);
+    expect(s.proven).toBe(true);
+    expect(proven).toEqual([1234]);
+    await s.stop();
+  });
+
+  it("does not take a file written by another process (a CLI that loaded the plugin) as proof", async () => {
+    const file = readyFile();
+    const proven: number[] = [];
+    const s = make({ gate: { file, listening: async () => false, pollMs: 10, maxMs: 200, isDescendant: same, onProven: (pid) => void proven.push(pid) } });
+    await s.start();
+    ownPid(file, 999);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(s.proven).toBe(false);
+    expect(proven).toEqual([]);
+    expect(children[0]!.signals).toEqual(["SIGKILL"]);
+    await s.stop();
+  });
+
+  it("takes a file written by a descendant of the Gateway (a launcher that starts node as its child)", async () => {
+    const file = readyFile();
+    const s = make({ gate: { file, pollMs: 10, isDescendant: (pid, anc) => pid === 5000 && anc === 1234 } });
+    await s.start();
+    ownPid(file, 5000);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(s.proven).toBe(true);
+    await s.stop();
+  });
+
+  it("is not proven again after a restart until the new Gateway writes its own file", async () => {
+    const file = readyFile();
+    const s = make({ gate: { file, pollMs: 10, isDescendant: same } });
+    await s.start();
+    ownPid(file);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(s.proven).toBe(true);
+    children[0]!.die(1);
+    expect(s.proven).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(s.proven).toBe(false);
+    await s.stop();
+  });
+
+  it("stops a Gateway that never listens and never writes the file, after maxMs", async () => {
+    const s = make({ gate: { file: readyFile(), listening: async () => false, pollMs: 10, maxMs: 200 } });
+    await s.start();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(children[0]!.signals).toEqual(["SIGKILL"]);
+    await s.stop();
+  });
+
+  it("gives a cold start a long default window before it kills a Gateway that is not listening yet", async () => {
+    const s = make({ gate: { file: readyFile(), listening: async () => false, pollMs: 1000 } });
+    await s.start();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(children[0]!.signals).toEqual([]);
+    await s.stop();
+  });
+
+  it("recognises itself and its descendants in /proc", () => {
+    expect(isSelfOrDescendant(process.pid, process.pid)).toBe(true);
+    expect(isSelfOrDescendant(process.pid, process.ppid)).toBe(true);
+    expect(isSelfOrDescendant(process.pid, 999_999_999)).toBe(false);
   });
 });

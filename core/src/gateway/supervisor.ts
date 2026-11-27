@@ -1,11 +1,66 @@
 // Runs `openclaw gateway` as a child, restarts it when it dies (backoff), and
 // stops it on SIGTERM. The spawn function is injected so tests drive a fake.
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
 import { openclawCommand } from "./cli.js";
 
 export type SpawnFn = (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
 
+/**
+ * The proof that teeny-guardrails loaded. An agent's exec runs with OpenClaw's own allowlist off
+ * (agents/definitions.ts), so a Gateway that came up without the plugin would run any command. The
+ * plugin writes `file` once its hooks are registered; the supervisor removes it before every start, and a
+ * Gateway still without it after maxMs is killed and restarted on the usual backoff, which never lets it
+ * serve. The core's own runs of a shell agent are refused until the file is there (main.ts).
+ */
+export interface GuardrailsGate {
+  file: string;
+  /** True when the Gateway is serving, so the file is due now. Default: never; the file is waited for until maxMs (the Gateway listens before its plugins have registered). */
+  listening?: () => Promise<boolean>;
+  pollMs?: number;
+  /**
+   * Give up waiting for the file after this long (default 180s: a cold box compiles the plugin with jiti on its first
+   * load). The wait is long on purpose: until the proof is in, the config the Gateway runs on denies every exec
+   * (main.ts), so a slow start costs time, never safety.
+   */
+  maxMs?: number;
+  /** Once the port is open the plugin is due: how long after that the file may still take (default 30s). */
+  graceMs?: number;
+  /** Called with the Gateway's pid once the file is proven to be that Gateway's own; main.ts loosens exec here. */
+  onProven?: (pid: number) => void | Promise<void>;
+  /** Whether `pid` is `ancestor` or one of its descendants; the default walks /proc. For tests. */
+  isDescendant?: (pid: number, ancestor: number) => boolean;
+}
+
+/** The pid the plugin wrote into its ready file, or undefined when the file is missing or not ours. */
+export function readyPid(file: string): number | undefined {
+  try {
+    const pid = (JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown }).pid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when `pid` is `ancestor` or sits below it in the process tree (the launcher may start the Gateway as a child). Linux /proc. */
+export function isSelfOrDescendant(pid: number, ancestor: number): boolean {
+  let at = pid;
+  for (let hops = 0; hops < 64 && at > 1; hops++) {
+    if (at === ancestor) return true;
+    try {
+      const stat = readFileSync(`/proc/${at}/stat`, "utf8");
+      // "pid (comm) state ppid ...": comm may hold spaces and parens, so cut at the last ")".
+      at = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    } catch {
+      return false;
+    }
+    if (!Number.isInteger(at)) return false;
+  }
+  return at === ancestor;
+}
+
 export interface SupervisorOptions {
+  gate?: GuardrailsGate;
   /** Called before every (re)start: write the config, refresh the environment. Returns the child's env. */
   prepare: () => Promise<Record<string, string>> | Record<string, string>;
   port: number;
@@ -30,6 +85,8 @@ export class GatewaySupervisor {
   /** Set while launch() is between prepare() and the spawn, so a restart cannot start a second Gateway. */
   private launching: Promise<void> | undefined;
   private restarts = 0;
+  /** The child whose guardrails file was proven to be its own. */
+  private provenChild: ChildProcess | undefined;
   private readonly spawnFn: SpawnFn;
   private readonly log: NonNullable<SupervisorOptions["log"]>;
 
@@ -40,6 +97,11 @@ export class GatewaySupervisor {
 
   get running(): boolean {
     return this.child !== undefined && this.child.exitCode === null && !this.child.killed;
+  }
+
+  /** True while the running Gateway has shown that teeny-guardrails loaded in it (the file's pid is the child or below it). */
+  get proven(): boolean {
+    return this.provenChild !== undefined && this.provenChild === this.child && this.child.exitCode === null;
   }
 
   get restartCount(): number {
@@ -85,6 +147,8 @@ export class GatewaySupervisor {
 
   private async launchInner(): Promise<void> {
     if (this.stopping) return;
+    this.provenChild = undefined;
+    if (this.opts.gate) rmSync(this.opts.gate.file, { force: true });
     const env = await this.opts.prepare();
     if (this.stopping) return;
     const { cmd, args } = this.opts.command ?? openclawCommand();
@@ -112,6 +176,39 @@ export class GatewaySupervisor {
       if (child.pid === undefined) finish(null, null); // no pid: it never started. With one, it is a kill or IPC error and the process is still ours.
     });
     child.once("exit", (code, signal) => finish(code, signal));
+    if (this.opts.gate) void this.watchGate(child, this.opts.gate);
+  }
+
+  private async watchGate(child: ChildProcess, gate: GuardrailsGate): Promise<void> {
+    const pollMs = gate.pollMs ?? 100;
+    let deadline = Date.now() + (gate.maxMs ?? 180_000);
+    const listening = gate.listening ?? (async () => false);
+    const descends = gate.isDescendant ?? isSelfOrDescendant;
+    let portSeen = false;
+    // The file counts only when its pid is this Gateway (or below it): a CLI that loaded the plugin, or a stale file, proves nothing.
+    const proofIn = (): boolean => {
+      const pid = readyPid(gate.file);
+      return pid !== undefined && child.pid !== undefined && descends(pid, child.pid);
+    };
+    while (this.child === child && child.exitCode === null && Date.now() < deadline) {
+      if (proofIn()) {
+        this.provenChild = child;
+        try {
+          await gate.onProven?.(child.pid as number);
+        } catch (e) {
+          this.log("error", "teeny-guardrails loaded but exec could not be opened; exec stays denied", { error: e instanceof Error ? e.message : String(e) });
+        }
+        return;
+      }
+      if (!portSeen && (await listening())) {
+        portSeen = true;
+        deadline = Math.min(deadline, Date.now() + (gate.graceMs ?? 30_000));
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    if (this.child !== child || child.exitCode !== null) return;
+    this.log("error", "the Gateway is up without teeny-guardrails; stopping it (agents' exec has no other gate)", { file: gate.file });
+    child.kill("SIGKILL");
   }
 
   private exited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {

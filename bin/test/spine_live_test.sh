@@ -122,6 +122,18 @@ class Model(BaseHTTPRequestHandler):
             answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
+        # A shell agent (bin/ask --agent worker "# shell e2e"): three exec calls, then an answer that quotes
+        # what each came back with. teeny-guardrails is the only gate on exec (OpenClaw's own allowlist is
+        # off), so the live test asks the real Gateway: a plain `ls` and a read-only hand must run, and a
+        # read of secrets/ (alone, and chained after an allowed command) must be refused.
+        elif isinstance(last, str) and "# shell e2e" in last:
+            root = last.split("# shell e2e", 1)[1].strip()
+            steps = ["ls " + root + "/hands", "hands/hn --help", "cat " + root + "/secrets/spine.env", "ls " + root + "/hands && cat " + root + "/secrets/spine.env"]
+            results = [m for m in body.get("messages", []) if m.get("role") == "tool"]
+            if len(results) < len(steps):
+                native_call = {"name": "exec", "arguments": json.dumps({"command": steps[len(results)]})}
+            else:
+                answer = "SHELL-E2E " + json.dumps([str(flat(m.get("content")))[:400] for m in results])
         # The browser operator with a task on its desk: open the start page in
         # the real browser, then write the report with the page's title. Its
         # desk is sys.argv[5].
@@ -223,10 +235,16 @@ model_pid=$!
 # those with TEENY_* variables would test something production never does.
 root="$scratch/root"
 mkdir -p "$root/brain" "$root/secrets"
+# A state/ made under umask 002 (a fresh clone): bin/spine must tighten it, or the Gateway will not start.
+mkdir -m 775 "$root/state"
+mkdir -p "$root/state/openclaw/logs"
+chmod 775 "$root/state/openclaw" "$root/state/openclaw/logs"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
-mkdir -p "$root/deploy"
+mkdir -p "$root/deploy" "$root/core"
+# The guardrails plugin, where the core looks for it: with no plugin in the config every shell agent's exec is "deny".
+cp -R "$repo/core/plugins" "$repo/core/src" "$repo/core/package.json" "$root/core/"
 cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 # skills/ too: a playbook names the skills it loads (`skills = [...]`), and the
 # doctor refuses a playbook whose skill file is missing, so the boot stops.
@@ -249,7 +267,7 @@ unset OPENHUMAN_CORE_TOKEN OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE CALENDAR_TZ \
   TEENY_ROOT TEENY_BRAIN TEENY_STORAGE TEENY_SECRETS TEENY_STATE
 "$root/bin/spine" >"$scratch/spine.log" 2>&1 &
 spine_pid=$!
-for _ in $(seq 1 120); do
+for _ in $(seq 1 300); do
   grep -q '\[spine\] ready' "$scratch/spine.log" && break
   kill -0 "$spine_pid" 2>/dev/null || break
   sleep 1
@@ -265,6 +283,8 @@ pass "the spine boots and reports ready"
 check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+check "bin/spine tightened a group-writable state/ before starting the Gateway" test "$(mode_of "$root/state")" = 755
+check "and state/openclaw and its logs/, which an earlier boot made group-writable, are private now" test "$(mode_of "$root/state/openclaw")$(mode_of "$root/state/openclaw/logs")" = 700700
 check "keeps the core's config (with the model key) private" test "$(mode_of "$root/.openhuman/config.toml")" = 600
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "the Gateway's config is written, private, in state/openclaw/" \
@@ -350,6 +370,20 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+# --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
+shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e $root" 2>"$scratch/shell.log" || true)"
+check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"
+shell_results() { jq -r ".[$1] // \"NO-RESULT\"" <<<"${shelled#SHELL-E2E }" 2>/dev/null; }
+check "exec runs a plain read-only program (ls <root>/hands)" grep -q 'guard' <<<"$(shell_results 0)"
+check "exec runs a read-only hand (hands/hn --help)" grep -qi 'usage' <<<"$(shell_results 1)"
+refused() { grep -qiE 'denied|blocked|not allowed|refus|guardrails' <<<"$1"; }
+check "exec refuses cat secrets/spine.env" refused "$(shell_results 2)"
+check "and the file's contents never reach the model" bash -c "! grep -qE 'stub-key|LADDER_URL' <<<\"\$1\"" _ "$shelled"
+check "exec refuses a forbidden command chained after an allowed one (ls hands && cat secrets/...)" refused "$(shell_results 3)"
+if ! grep -q '^SHELL-E2E ' <<<"$shelled" || ! grep -q guard <<<"$(shell_results 0)" || ! grep -qi usage <<<"$(shell_results 1)"; then
+  { echo "the shell agent answered: ${shelled:0:1500}"; tail -n 5 "$scratch/shell.log"; } >&2
+fi
+
 # --- the doctor and bin/act ---------------------------------------------------
 check "the spine ran the doctor before serving, and it passed" \
   test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true
@@ -489,7 +523,7 @@ check "the spine stops on SIGTERM" bash -c "! curl -fsS -o /dev/null http://127.
 sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/spine.env"
 "$root/bin/spine" >"$scratch/spine2.log" 2>&1 &
 spine_pid=$!
-for _ in $(seq 1 120); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
+for _ in $(seq 1 300); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
 answer="$("$root/bin/ask" "say hello" 2>/dev/null || true)"
 check "the model key survives a restart in the core's settings" grep -q 'teeny spine says hello' <<<"$answer"
 

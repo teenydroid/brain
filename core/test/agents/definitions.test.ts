@@ -33,12 +33,12 @@ describe("agent definitions from brain/agents/*.toml", () => {
   it("the mind keeps its shell, files, browser, memory and its worker, and loses config and messaging", () => {
     const mind = defs.find((d) => d.id === "mind")!;
     const policy = toolPolicy(mind) as { allow: string[]; deny: string[] };
-    expect(policy.allow).toEqual(expect.arrayContaining(["exec", "read", "write", "edit", "browser", "memory_search", "sessions_spawn"]));
+    expect(policy.allow).toEqual(expect.arrayContaining(["exec", "read", "write", "edit", "browser", "sessions_spawn"]));
     expect(policy.deny).toEqual(expect.arrayContaining(["gateway", "plugins", "group:messaging", "group:automation"]));
     for (const denied of policy.deny) expect(policy.allow).not.toContain(denied);
     const entry = agentEntry(mind, "/w");
     expect(entry.subagents).toEqual({ allowAgents: ["worker"] });
-    expect(entry.tools.exec).toMatchObject({ security: "allowlist", ask: "off" });
+    expect(entry.tools.exec).toMatchObject({ security: "full", ask: "off" });
   });
 
   it("the evolver gets file tools and no shell (it edits a worktree and runs nothing)", () => {
