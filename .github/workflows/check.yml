@@ -1,15 +1,13 @@
 # Lint, test and build on every pull request.
 #
-# - spine: build the image (the TypeScript core and OpenClaw in a node:24
-#   stage, a node:24 runtime), then boot it through bin/spine in a container
-#   with a stub model and run the whole live test: seeding, a shell job,
-#   bin/crons, bin/oh, bin/ask, the Gateway's lockdown and audit, a restart.
+# - spine: build teeny-spine from the vendored OpenHuman (the same release
+#   profile the image builds), then boot it through bin/spine with a stub model
+#   and run the whole live test: seeding, a shell job, bin/crons, bin/oh,
+#   bin/ask, the keyring across a restart.
 # - scripts: shellcheck over bin/ and the reconciliation tests (scripts-shell,
 #   and doctor for bin/test/doctor_test.sh), and the hands' unit tests on
 #   Python 3.11 (the image's version) in four shards (hands); `scripts` itself
 #   passes only when all of them did. None needs a core.
-# - core: the OpenClaw-backed core in core/ (tsc, eslint, vitest on Node 24);
-#   `scripts` passes only when it did too.
 # - web: the Next.js site.
 # - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
 #   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
@@ -29,28 +27,46 @@ on:
 jobs:
   spine:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
-      # The Dockerfile's shape: the node:24 core stage, the node:24 runtime and
-      # its tools, every COPY inside the build context.
+      # OpenHuman and its nested vendors, all public over https.
+      - name: Fetch vendor/openhuman
+        run: git submodule update --init --recursive --depth 1 --jobs 8 vendor/openhuman
+      # The image's modules stage copies OpenHuman scripts piecemeal; their
+      # imports must come along (this job has vendor/openhuman checked out).
       - run: bin/test/dockerfile_test.sh
-      - uses: docker/setup-buildx-action@v3
-      - name: Build the image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: teeny-spine:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      # The live test runs inside the image (Node 24, the built core, Chromium),
-      # over a scratch copy of this checkout, as the runner's own user.
-      - name: bin/test/spine_live_test.sh in the image
+      # The one hands test that reads vendor/openhuman's source: the hands
+      # shards skip it (they do not check the submodule out), so it runs here.
+      - name: Prompt test that reads vendor/openhuman
+        working-directory: hands/tests
+        env:
+          TEENY_REQUIRE_OPENHUMAN: "1"
         run: >-
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e TMPDIR=/tmp
-          -v "$PWD":/srv/teeny --entrypoint bash teeny-spine:ci
-          /srv/teeny/bin/test/spine_live_test.sh
+          python3 -m unittest -v
+          test_prompts.PromptsTest.test_the_runtimes_instructions_update_note_is_named_as_the_operators_own
+      # OpenHuman links X11, xdo, evdev and ALSA on Linux.
+      - name: Install system headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libasound2-dev libxdo-dev libxtst-dev \
+            libx11-dev libxi-dev libevdev-dev libudev-dev sqlite3
+      # Keep in step with rust-toolchain.toml (vendor/openhuman's).
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p teeny-spine
+      # Google Chrome, not the runner's /usr/bin/chromium (the first browser
+      # bin/lib/core_sections/automation.py finds). That one is a bare Chromium
+      # snapshot: it has no AppArmor profile, so it needs --no-sandbox here
+      # (apparmor_restrict_unprivileged_userns=1), and its first cold launch took
+      # ~10 s to DevTools in an idle step against ~4 s for Chrome. Beside a
+      # freshly booted spine it sometimes passed the readiness probe's 30 s cap,
+      # and bin/doctor --live failed "Chrome launch timed out" on about half the
+      # runs. The box runs Debian's chromium (TEENY_CHROME_PATH in the image).
+      - run: bin/test/spine_live_test.sh
+        env:
+          OPENHUMAN_CORE_BIN: target/release/teeny-spine
+          TEENY_CHROME_PATH: /usr/bin/google-chrome
 
   # The shell side of the old scripts job: shellcheck and the bin/ tests, but
   # the doctor's (doctor, below).
@@ -67,7 +83,7 @@ jobs:
           python-version: "3.11"
       - run: python3 -m pip install --quiet "cryptography>=38"
       # shellcheck and sqlite3 ship on the runner image.
-      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/evolve-gate bin/wants bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/moltbook-prune bin/tasks-desk bin/keychain-fill bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/surplus-sweep bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/guard-rescreen bin/studio bin/backroom bin/broker bin/teeny-core bin/openclaw bin/lib/*.sh bin/test/*.sh deploy/*.sh .github/scripts/*.sh
+      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/evolve-gate bin/wants bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/moltbook-prune bin/tasks-desk bin/keychain-fill bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/surplus-sweep bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/guard-rescreen bin/studio bin/backroom bin/broker bin/lib/*.sh bin/test/*.sh deploy/*.sh .github/scripts/*.sh
       - run: bin/test/pr_agent_budget_test.sh
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
@@ -129,33 +145,12 @@ jobs:
         env:
           TEENY_TESTS_REQUIRE_PILLOW: "1"
 
-  # The OpenClaw-backed core (core/): typecheck, lint and the contract tests
-  # on Node 24 (openclaw needs >= 24.16). Nothing here reaches a network
-  # service; npm ci fetches only the locked packages.
-  core:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: core
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: core/package-lock.json
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm run lint
-      - run: npm test
-
   # The required check (the ruleset "main: frozen gate" names `scripts`): green
-  # only when the shell tests, the doctor's, every shard of the hands' tests
-  # and the core's passed.
+  # only when the shell tests, the doctor's and every shard of the hands'
+  # tests passed.
   scripts:
     if: always()
-    needs: [scripts-shell, doctor, hands, core]
+    needs: [scripts-shell, doctor, hands]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -164,10 +159,9 @@ jobs:
           SHELL_TESTS: ${{ needs.scripts-shell.result }}
           DOCTOR_TESTS: ${{ needs.doctor.result }}
           HANDS_TESTS: ${{ needs.hands.result }}
-          CORE_TESTS: ${{ needs.core.result }}
         run: |
-          echo "scripts-shell: $SHELL_TESTS, doctor: $DOCTOR_TESTS, hands: $HANDS_TESTS, core: $CORE_TESTS"
-          [ "$SHELL_TESTS" = success ] && [ "$DOCTOR_TESTS" = success ] && [ "$HANDS_TESTS" = success ] && [ "$CORE_TESTS" = success ]
+          echo "scripts-shell: $SHELL_TESTS, doctor: $DOCTOR_TESTS, hands: $HANDS_TESTS"
+          [ "$SHELL_TESTS" = success ] && [ "$DOCTOR_TESTS" = success ] && [ "$HANDS_TESTS" = success ]
 
   frozen:
     if: >-
