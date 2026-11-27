@@ -798,7 +798,20 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     judge) once, the way round orders() says, or twice with BOTH_ORDERS
     (the baseline shown as draft 1, then the candidate). A turn that fails
     is tried again (Retrier); one that never answers is an unusable answer,
-    so a tie. Up to EVAL_CONCURRENCY turns at once."""
+    so a tie. Up to EVAL_CONCURRENCY turns at once.
+
+    While evals/metagrader/selected.json holds a promoted program (and
+    EVAL_GRADER is not "judge.md"), that program judges instead of
+    judge.md: it writes each task's criteria once and scores each draft
+    alone on them (bin/lib/metagrader.py), its turns kept beside OUT in
+    metagrader-cache/. The verdicts keep judge.md's shape, breaks
+    included, so the score reads them the same."""
+    import metagrader  # here, not at the top: metagrader imports this module
+
+    grader = None
+    prog = metagrader.selected(evals) if os.environ.get("EVAL_GRADER", "") != metagrader.INCUMBENT else None
+    if prog is not None:
+        grader = metagrader.Grader(prog, evals, brain, ask, out.parent / "metagrader-cache")
     jobs = []
     plan = []
     judged = pairs(base_path, cand_path, tasks)
@@ -807,10 +820,13 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
         plan.append((pair, shown))
         for way in shown:
             drafts = {"1": pair["base"], "2": pair["cand"]} if way == "first" else {"1": pair["cand"], "2": pair["base"]}
-            jobs.append((pair, judge_message(evals, brain, task, drafts)))
+            message = None if grader else judge_message(evals, brain, task, drafts)
+            jobs.append((pair, message, task, drafts))
     retrier = Retrier()
 
     def one(job: tuple) -> dict:
+        if grader is not None:
+            return metagrader.judge_verdict(grader, job[2], job[3])
         turn, _ = retrier.run(ask, job[1])
         got = verdict(turn.stdout if turn.returncode == 0 else "")
         if turn.returncode != 0:

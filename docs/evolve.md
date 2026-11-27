@@ -2151,6 +2151,73 @@ jq -s 'map(select(.first_verdict == "regressed")) | length' state/evolve/aa.json
 jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path, n: length})' state/evolve/aa.jsonl
 ```
 
+#### The metagrader: a grader learned from outcomes (`bin/lib/metagrader.py`)
+
+`evals/judge.md` is one rubric for every task, and nothing ever checked that
+the draft it prefers is the one that does better in the world: 11 of the 12
+candidates it measured before the publish rule came out "no detectable
+difference", and it favours draft 2 (above, "Evals"). The metagrader follows
+Trajectory Labs' "Continual Grading" (Kale, 2 Nov 2026): instead of one
+rubric, a program that writes a grader for each task, chosen by how often it
+agrees with known judgments, on the same frozen judge model.
+
+The known judgments are Teeny's own outcomes. `pairs` reads hands.db (read
+only) and pairs two outputs on one surface (`x-reply`, `x-post`,
+`moltbook-post`), sent within 72 hours of each other (X replies: to accounts
+of the same order of followers), where one drew clearly more at the 24-hour
+checkpoint (`MARGINS`: X replies at least 2 more and twice the other plus
+one). Outputs, not pairs, are split: the newest quarter of each surface is
+held out, the rest go to the proposer's examples (`meta`) or to `selection`
+by a hash of their id. On the box on 2026-11-27: 502 outputs, 116 meta, 261
+selection and 130 held-out pairs.
+
+A program is readable JSON: a `criteria_prompt` (how to write a task's
+weighted criteria), a `score_prompt` (how to score one output on them, 0 to 1
+each, and list the invariants it breaks), `criteria_count` and `tie_margin`.
+The two outputs in a pair answered different prompts, so a program scores
+each alone, and the higher weighted mean is its pick; a break scores 0, so
+engagement never outvotes an invariant. Scored alone, a draft has no
+position to be favoured for.
+
+```
+python3 bin/lib/metagrader.py pairs state/hands.db state/metagrader/pairs
+python3 bin/lib/metagrader.py propose state/metagrader/pairs 6 state/metagrader/run -- bin/ask [--model M]
+python3 bin/lib/metagrader.py select evals brain state/metagrader/pairs state/metagrader/run/candidates.json \
+    state/metagrader/run [--install] -- bin/ask --agent judge [--model M]
+```
+
+Every X reply is a task of its own, so a full selection split is about a
+thousand turns a candidate (its criteria and its score, both outputs of each
+pair): on glm-5.3-flash at `EVAL_CONCURRENCY` 4, most of a day. `--limit N`
+selects on a fixed sample of N pairs (the first by id, a hash); the held-out
+split is always scored whole.
+
+`select` scores every candidate, and the incumbent (judge.md choosing
+between the two outputs, each shown with its own task, the order by the
+pair's id), on the selection split by ranking accuracy (a tie is worth half,
+so a grader cannot win by abstaining), then the best candidate and the
+incumbent on the held-out split. The best is `promoted` only when it beats
+the incumbent there on at least 20 held-out pairs. `OUT/selected.json` holds
+the program, both accuracies and the pair counts; `--install` writes it to
+`evals/metagrader/selected.json`, which lands like any change to `evals/`:
+the operator's pull request.
+
+While that file holds a promoted program, `bin/eval compare` judges with it
+instead of judge.md (`evals.judge`): each task's criteria written once, each
+draft scored alone, the turns kept in the compare's `metagrader-cache/`. The
+verdicts keep judge.md's shape (`better`, `breaks`, `notes`, plus `grader`),
+so the score, the fences and the confirmations read them as before. A draft
+costs a score turn, so a pair is two turns where judge.md's was one, less
+what the cache already holds. `EVAL_GRADER=judge.md` puts judge.md back for
+one run; a promoted program that is not a valid one is an error, never a
+silent fallback.
+
+The search reads outcomes, so it rewards what drew engagement. The
+invariants are its only fence against what draws engagement dishonestly or
+off-voice, and they stay hard: the score's breaks and `fence_failures` are
+unchanged. Re-run `pairs` and `select` as outcomes come in: a grader tuned on
+November's posts is the "continual" part, done by hand for now.
+
 ### 6. Publish: one pull request per candidate
 
 Every candidate whose gate passed, whose eval is `pass` or `unmeasurable`,
