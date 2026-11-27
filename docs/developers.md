@@ -312,8 +312,12 @@ a stub model. It covers first boot, cron seeding, `bin/ask`, `bin/act`,
 `bin/eval`, `bin/tick`, `bin/reflect`, the operator agent job,
 the doctor, and the key surviving a restart.
 
-CI (`.github/workflows/check.yml`) builds the image and runs every test above,
-plus shellcheck and the landing page's lint and build.
+CI (`.github/workflows/check.yml`) runs the tests above, plus shellcheck and the
+landing page's lint and build. Its `spine` job still builds the removed Rust core
+(my token cannot push workflow changes), so it fails until the operator applies
+the check.yml replacement that builds the image and runs the live test against
+it; the `scripts` required check does not depend on `spine`. Run the live test
+yourself in the meantime.
 
 PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
 opens or leaves draft and again on every push to it (not base-branch merges), and answers `/review`, `/describe`, `/improve` and
@@ -342,6 +346,7 @@ OpenClaw is an npm dependency of the core, pinned to an exact version in
    in `core/`. The contract fixtures in `core/test/contract/` pin the RPC
    shapes the Python callers use.
 3. Build the image (`docker build -t teeny-spine:test .`) and run
-   `bin/test/spine_live_test.sh` in it, as CI does.
+   `bin/test/spine_live_test.sh` in it. CI will do this once the operator's
+   check.yml replacement is applied; today it does not.
 4. Commit `core/package.json` and `core/package-lock.json` together. They are
    frozen: the bump is the operator's to merge.

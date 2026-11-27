@@ -379,8 +379,11 @@ check "bin/act runs a playbook through the act agent" \
 # judges a dispatch as the tool it names (core/test/plugins/guard.test.ts).
 # Anything else offered fails.
 offered_tools() { # PATTERN: the tool names in the last model request that carries PATTERN, bar the shims
-  grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1 |
-    jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")'
+  local request
+  request="$(grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1)" || true
+  # No matching request must fail the caller's test -z, never pass it by printing nothing.
+  [ -n "$request" ] || { echo "NO-MODEL-REQUEST-CARRIED($1)"; return 0; }
+  jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")' <<<"$request"
 }
 check "the act agent's turn offers the model no working tool" test -z "$(offered_tools '# playbook: hello')"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"

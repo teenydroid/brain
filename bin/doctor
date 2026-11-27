@@ -272,7 +272,7 @@ fi
 # warning; --live, which needs a running core, fails without one); bin/spine
 # runs them again once the core is up, before it seeds anything.
 core_runtime() {
-  local bin="${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}" main version major
+  local bin="${OPENHUMAN_CORE_BIN:-$TEENY_ROOT/bin/teeny-core}" main version major minor
   [ -x "$bin" ] || { echo "no executable core at $bin (OPENHUMAN_CORE_BIN)"; return 1; }
   # Any other command named by OPENHUMAN_CORE_BIN (a test's stand-in) is its own business.
   [ "$(basename "$bin")" = teeny-core ] || { echo "core at $bin"; return 0; }
@@ -280,7 +280,11 @@ core_runtime() {
   version="$(node --version 2>/dev/null)" || { echo "node does not run"; return 1; }
   major="${version#v}"
   major="${major%%.*}"
-  [[ "$major" =~ ^[0-9]+$ ]] && [ "$major" -ge 24 ] || { echo "node $version is under 24 (OpenClaw needs >=24.16)"; return 1; }
+  minor="${version#v}"
+  minor="${minor#*.}"
+  minor="${minor%%.*}"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] && { [ "$major" -gt 24 ] || { [ "$major" -eq 24 ] && [ "$minor" -ge 16 ]; }; } ||
+    { echo "node $version is under 24.16 (the core needs >=24.16)"; return 1; }
   main="$("$bin" --where)"
   [ -f "$main" ] || { echo "the core is not built ($main): cd core && npm ci && npm run build"; return 1; }
   echo "node $version, core at $main"
