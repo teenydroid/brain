@@ -178,3 +178,26 @@ describe("generated OpenClaw config: exec and the guardrails plugin", () => {
     expect(JSON.stringify(agents)).toBe(before);
   });
 });
+
+describe("generated OpenClaw config: no memory plugin, so no dreaming job", () => {
+  const cfg = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+
+  it("turns the memory slot off and memory-core's dreaming with it", () => {
+    expect(cfg.plugins.slots).toEqual({ memory: "none" });
+    expect(cfg.plugins.entries["memory-core"]).toEqual({ enabled: false, config: { dreaming: { enabled: false } } });
+    expect(cfg.plugins.entries["teeny-guardrails"].enabled).toBe(true);
+  });
+
+  it("does so with no guardrails plugin too", () => {
+    const bare = buildGatewayConfig(input()) as Cfg;
+    expect(bare.plugins.slots).toEqual({ memory: "none" });
+    expect(bare.plugins.entries["memory-core"].enabled).toBe(false);
+  });
+
+  it("names no memory_search or memory_get in any agent's tool allowlist", () => {
+    for (const [id, entry] of Object.entries(cfg.agents.entries as Cfg)) {
+      expect(entry.tools.allow, id).not.toContain("memory_search");
+      expect(entry.tools.allow, id).not.toContain("memory_get");
+    }
+  });
+});

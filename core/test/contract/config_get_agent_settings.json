@@ -1,7 +1,7 @@
 {
   "method": "openhuman.config_get_agent_settings",
   "call_sites": [
-    "bin/doctor:122"
+    "bin/doctor:133"
   ],
   "params": {
     "fields": {},

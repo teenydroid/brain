@@ -454,6 +454,18 @@ live_jobs teeny.mail-inbound:-100:true teeny.tick:30:true teeny.late:300:true te
 live_doctor || true
 check "--live passes current next runs" grep -q '^ok   cron next runs are current' "$scratch/doctor.log"
 
+# OpenClaw's memory-core made its own "Memory Dreaming Promotion" job (0 3 * * *) on a lab spine: seed-cron never
+# touches a name outside teeny.*, so the doctor has to say a job nobody seeded is there, and say it on one line.
+live_jobs teeny.tick:30:true mind.wake-1:-100:true
+jq -c '. + [{id: "dream-1", name: "Memory Dreaming Promotion", job_type: "agent", enabled: true, next_run: null}]' "$scratch/jobs.json" >"$scratch/jobs2.json"
+mv "$scratch/jobs2.json" "$scratch/jobs.json"
+live_doctor || true
+check "--live names a job nobody seeded in 'cron in step'" \
+  grep -q '^FAIL cron in step: .*unseeded job(s).*Memory Dreaming Promotion' "$scratch/doctor.log"
+check "and the cron-in-step failure is one readable line, not seed-cron's log" \
+  test "$(grep -c '^FAIL cron in step' "$scratch/doctor.log")" = 1 -a "$(grep '^FAIL cron in step' "$scratch/doctor.log" | grep -c '\[seed-cron\]')" = 0
+check "but not the mind's own wakes or teeny.* jobs" bash -c "! grep '^FAIL cron in step' '$scratch/doctor.log' | grep -q 'mind.wake-1'"
+
 # 2026-11-12: the builder's cron turn ran out of the core's default 120 s
 # (`[agent] agent_timeout_secs`, which bounds a whole cron agent turn) after
 # six model calls, twice, and never reached its tests. bin/spine raises it.

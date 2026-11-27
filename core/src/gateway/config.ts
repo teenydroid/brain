@@ -107,13 +107,24 @@ export function guardrailsIfPresent(path: string): string | undefined {
 export function buildGatewayConfig(input: GatewayConfigInput): Record<string, unknown> {
   const modelRef = input.model ? `${PROVIDER_ID}/${input.model}` : undefined;
   const plugins: Record<string, unknown> = {
+    // schema: plugins.slots.memory "none" turns every memory plugin off (docs/tools/plugin.md). memory-core
+    // would otherwise create its own agent cron job, "Memory Dreaming Promotion" (0 3 * * *), outside
+    // brain/cron.toml; Teeny's memory is CortexDB.
+    slots: { memory: "none" },
     // schema: plugins.allow (non-empty allowlist restricts loading), plugins.deny, plugins.load.paths
     allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : [])],
     deny: DENIED_PLUGINS,
     ...(input.guardrailsPath
       ? {
           load: { paths: [input.guardrailsPath] },
-          entries: {
+        }
+      : {}),
+    entries: {
+      // schema: plugins.entries.<id>.enabled; plugins.entries.memory-core.config.dreaming.enabled
+      // (docs/reference/memory-config.md): belt and braces over the slot.
+      "memory-core": { enabled: false, config: { dreaming: { enabled: false } } },
+      ...(input.guardrailsPath
+        ? {
             [GUARDRAILS_PLUGIN_ID]: {
               enabled: true,
               // before_prompt_build (memory recall) reads the conversation, which a non-bundled plugin may only
@@ -122,9 +133,9 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
               // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
               config: { policy: input.guardrailsPolicy ?? {} },
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
   };
 
   return {

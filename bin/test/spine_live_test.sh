@@ -122,6 +122,17 @@ class Model(BaseHTTPRequestHandler):
             answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
+        # A shell agent (bin/ask --agent worker "# shell e2e"): three exec calls, then an answer that quotes
+        # what each came back with. teeny-guardrails is the only gate on exec (OpenClaw's own allowlist is
+        # off), so the live test asks the real Gateway: a plain `ls` and a read-only hand must run, and a
+        # read of secrets/ (alone, and chained after an allowed command) must be refused.
+        elif isinstance(last, str) and "# shell e2e" in last:
+            steps = ["ls hands", "hands/hn --help", "cat secrets/spine.env", "ls hands && cat secrets/spine.env"]
+            results = [m for m in body.get("messages", []) if m.get("role") == "tool"]
+            if len(results) < len(steps):
+                native_call = {"name": "exec", "arguments": json.dumps({"command": steps[len(results)]})}
+            else:
+                answer = "SHELL-E2E " + json.dumps([str(flat(m.get("content")))[:400] for m in results])
         # The browser operator with a task on its desk: open the start page in
         # the real browser, then write the report with the page's title. Its
         # desk is sys.argv[5].
@@ -353,6 +364,18 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+# --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
+shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e" 2>"$scratch/shell.log" || true)"
+check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"
+shell_results() { sed 's/^SHELL-E2E //' <<<"$shelled" | jq -r ".[$1] // \"NO-RESULT\"" 2>/dev/null; }
+check "exec runs a plain read-only program (ls hands)" grep -q 'guard' <<<"$(shell_results 0)"
+check "exec runs a read-only hand (hands/hn --help)" grep -qi 'usage' <<<"$(shell_results 1)"
+refused() { grep -qiE 'denied|blocked|not allowed|refus|guardrails' <<<"$1"; }
+check "exec refuses cat secrets/spine.env" refused "$(shell_results 2)"
+check "and the file's contents never reach the model" bash -c "! grep -qE 'stub-key|LADDER_URL' <<<\"\$1\"" _ "$shelled"
+check "exec refuses a forbidden command chained after an allowed one (ls hands && cat secrets/...)" refused "$(shell_results 3)"
+if [ -z "$shelled" ]; then tail -n 5 "$scratch/shell.log" >&2; fi
+
 # --- the doctor and bin/act ---------------------------------------------------
 check "the spine ran the doctor before serving, and it passed" \
   test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true

@@ -86,10 +86,21 @@ invariants_hold() {
 }
 # The core's teeny.* jobs are exactly what seeding would make them.
 cron_in_step() {
-  local plan
-  plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan"; return 1; }
+  local plan changes extra problems=""
+  # A job the core holds that neither brain/cron.toml (teeny.*) nor the mind's own wakes (mind.*) put
+  # there: OpenClaw made one itself ("Memory Dreaming Promotion"), and seed-cron never touches a name
+  # outside teeny.*, so it would run unseen.
+  extra="$(oh cron_list | jq -r '[.[] | select((.name // "") | (startswith("teeny.") or startswith("mind.")) | not) | (.name // .id)] | join(", ")')" || return 1
+  [ -z "$extra" ] || problems="unseeded job(s) the core runs that brain/cron.toml does not name: $extra"
+  plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan" | tr '\n' ' '; return 1; }
   if ! grep -q "dry run: 0 change" <<<"$plan"; then
-    grep -E "^\[seed-cron\] (add|update|replace|remove)" <<<"$plan" | head -3
+    # One line, jobs separated by "; ": the report prints it after the check's name.
+    changes="$(grep -E "^\[seed-cron\] (add|update|replace|remove)" <<<"$plan" | head -3 | sed -E 's/^\[seed-cron\] //; s/ +/ /g' | paste -sd ';' - | sed 's/;/; /g')"
+    echo "${changes:-the plan differs from brain/cron.toml}${problems:+; $problems}"
+    return 1
+  fi
+  if [ -n "$problems" ]; then
+    echo "$problems"
     return 1
   fi
   echo "the core runs exactly brain/cron.toml"

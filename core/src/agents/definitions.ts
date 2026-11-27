@@ -46,7 +46,10 @@ export const TOOL_MAP: Record<string, string[]> = {
   edit: ["edit"],
   browser: ["browser"],
   tool_search: ["tool_search"],
-  memory: ["memory_search", "memory_get"],
+  // None: memory-core's memory_search/memory_get belong to a memory plugin, which the Gateway runs without
+  // (plugins.slots.memory "none", gateway/config.ts); Teeny's memory is CortexDB, recalled into the prompt
+  // by teeny-guardrails. Naming them only made OpenClaw warn "allowlist contains unknown entries".
+  memory: [],
   spawn_subagent: ["sessions_spawn", "subagents"],
 };
 
