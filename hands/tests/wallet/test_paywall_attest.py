@@ -76,6 +76,17 @@ class AttestTest(PaywallTest):
         # Teeny's wallet moved nothing and signed nothing.
         self.assertEqual(self.moved(), [])
 
+    def test_an_ungradeable_body_is_refused_before_a_payment_reaches_the_facilitator(self):
+        # Regression: the shape check used to run only when no X-PAYMENT came,
+        # so a buyer who paid with a bad body was charged and then got a 422.
+        for body in (None, [], {"text": TEXT}, {"text": TEXT, "operation": ""}, {"text": "x" * 4001, "operation": "multiply"}):
+            with self.subTest(body=body):
+                status, _, got = self.post(body, header())
+                self.assertEqual(status, 402)
+                self.assertNotIn("verdict", got)
+        self.assertEqual(self.facilitator.calls, [])
+        self.assertEqual(self.inflows(), [])
+
     def test_a_wrong_operation_still_costs_and_still_says_not_attested(self):
         status, _, body = self.post(BAD, header())
         self.assertEqual(status, 200, body)

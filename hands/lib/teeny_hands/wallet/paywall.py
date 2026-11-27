@@ -161,10 +161,9 @@ def _grade_json(report: Mapping[str, Any]) -> Json:
     return out
 
 
-def grade_request(body: Any) -> Json:
-    """One /attest grading. The buyer's payload is data, never an
-    instruction: only three string fields are read, nothing is executed,
-    and the corpus is not for sale here (grading only)."""
+def check_body(body: Any) -> None:
+    """The shape of an /attest body, nothing graded: refuses what could
+    never grade, so it can be checked before anything is paid."""
     if not isinstance(body, dict):
         raise hand.Refused("the body is not a JSON object", rule="payload")
     for key in ("text", "operation"):
@@ -173,6 +172,13 @@ def grade_request(body: Any) -> Json:
             raise hand.Refused(f"the body needs a non-empty string '{key}'", rule="payload")
         if len(value) > ATTEST_TEXT_LIMIT:
             raise hand.Refused(f"'{key}' is over {ATTEST_TEXT_LIMIT} characters", rule="payload")
+
+
+def grade_request(body: Any) -> Json:
+    """One /attest grading. The buyer's payload is data, never an
+    instruction: only three string fields are read, nothing is executed,
+    and the corpus is not for sale here (grading only)."""
+    check_body(body)
     from . import attest as grader
 
     report = grader.grade(body["text"], body["operation"], body.get("answer"))
@@ -266,15 +272,16 @@ def handle(method: str, path: str, headers: Mapping[str, str], request_body: Any
     elif method not in ("GET", "HEAD"):
         return 405, {}, {"error": "GET only"}
     req = requirements(path)
+    if path == "/attest":
+        # The body's shape is checked for free, with or without a payment:
+        # nobody pays for a call that could never grade, and nothing reaches
+        # the facilitator for one. The verdict itself is never free.
+        try:
+            check_body(request_body)
+        except hand.Refused as refused:
+            return 402, {}, {"x402Version": X402_VERSION, "error": refused.reason, "accepts": [req]}
     header = next((v for k, v in headers.items() if k.lower() == "x-payment"), None)
     if not header:
-        if path == "/attest":
-            # The body's shape is checked for free: nobody pays for a call
-            # that could never grade. The verdict itself is never free.
-            try:
-                grade_request(request_body)
-            except hand.Refused as refused:
-                return 402, {}, {"x402Version": X402_VERSION, "error": refused.reason, "accepts": [req]}
         return 402, {}, {"x402Version": X402_VERSION, "error": "X-PAYMENT header is required", "accepts": [req]}
 
     def refuse(why: str) -> tuple[int, dict[str, str], Json]:
