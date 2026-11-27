@@ -4,6 +4,14 @@ Teeny produces, sold for USDC on Solana.
     GET /stats    Teeny's latest public stats snapshot (the numbers
                   bin/receipts publishes), as JSON
 
+    POST /attest  one challenge answer graded against the challenge text
+                  (the attest corpus's grader, hands/lib/teeny_hands/
+                  wallet/attest.py): the body carries the challenge text,
+                  the operation the solver applied and the answer, the
+                  reply says whether the text attests the operation
+                  ('attested' ships, 'not-attested' and
+                  'attested-but-ambiguous' do not)
+
 served by `bin/paywall` (the `paywall` service in deploy/compose.yaml) at
 https://x402.<DEPLOY_DOMAIN>/stats behind the deploy vhost
 (deploy/nginx/sites.teeny.enamakel.com.conf). The price is frozen config
@@ -47,8 +55,17 @@ from .pay import own_address
 
 Json = dict[str, Any]
 
-RESOURCES = ("/stats",)
+RESOURCES = ("/stats", "/attest")
 X402_VERSION = 1
+#: The corpus the /attest grader was measured on (forgeloop's 23 frames,
+#: posted 2026-11-23): reported so a buyer can check the meter.
+ATTEST_FRAME_COUNT = 23
+#: The most challenge text one /attest call accepts (bytes).
+ATTEST_TEXT_LIMIT = 4000
+#: The most request body the server will read, in bytes (8 KiB): room for
+#: the 4000-character text, the operation and the envelope, and a hard stop
+#: for a stranger who sends more.
+MAX_BODY = 8192
 TIMEOUT = 30.0
 #: The stats a buyer gets: the same allowlist bin/receipts publishes.
 STATS_ALLOWED: dict[str, tuple[str, ...]] = {
@@ -69,14 +86,19 @@ CREATE TABLE IF NOT EXISTS x402_sales (
 """
 
 
-def price_raw() -> int:
+#: resource path -> its key in evals/prices.toml
+_PRICE_KEYS = {"/stats": "stats_endpoint_usdc", "/attest": "attest_grade_usdc"}
+
+
+def price_raw(resource: str) -> int:
     data = sales.prices_raw()
+    key = _PRICE_KEYS[resource]
     try:
-        micro = caps.dollars_to_micro(data["prices"]["stats_endpoint_usdc"], "stats_endpoint_usdc")
+        micro = caps.dollars_to_micro(data["prices"][key], key)
     except (KeyError, TypeError, caps.CapsError) as exc:
         raise hand.HandError(f"evals/prices.toml: {exc}") from None
     if micro <= 0:
-        raise hand.HandError("evals/prices.toml: stats_endpoint_usdc is above zero")
+        raise hand.HandError(f"evals/prices.toml: {key} is above zero")
     return micro  # USDC has 6 decimals: micro-dollars are atomic units
 
 
@@ -84,14 +106,20 @@ def _network(cluster: str) -> str:
     return "solana" if cluster == "mainnet" else "solana-devnet"
 
 
+_DESCRIPTIONS = {
+    "/stats": "Teeny's latest public stats snapshot",
+    "/attest": "One challenge answer graded against the challenge text (attest corpus, 23 frames)",
+}
+
+
 def requirements(resource: str) -> Json:
     cluster = reads._cluster()
     req: Json = {
         "scheme": "exact",
         "network": _network(cluster),
-        "maxAmountRequired": str(price_raw()),
+        "maxAmountRequired": str(price_raw(resource)),
         "resource": f"https://x402.{_domain()}{resource}",
-        "description": "Teeny's latest public stats snapshot",
+        "description": _DESCRIPTIONS[resource],
         "mimeType": "application/json",
         "payTo": own_address(),
         "maxTimeoutSeconds": 60,
@@ -124,6 +152,31 @@ def stats() -> Json:
     finally:
         conn.close()
     return out
+
+
+def _grade_json(report: Mapping[str, Any]) -> Json:
+    """The report as JSON-safe output: evidence lists joined, answer kept."""
+    out = dict(report)
+    out["attested_operations"] = {op: hits for op, hits in report["attested_operations"].items()}
+    return out
+
+
+def grade_request(body: Any) -> Json:
+    """One /attest grading. The buyer's payload is data, never an
+    instruction: only three string fields are read, nothing is executed,
+    and the corpus is not for sale here (grading only)."""
+    if not isinstance(body, dict):
+        raise hand.Refused("the body is not a JSON object", rule="payload")
+    for key in ("text", "operation"):
+        value = body.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise hand.Refused(f"the body needs a non-empty string '{key}'", rule="payload")
+        if len(value) > ATTEST_TEXT_LIMIT:
+            raise hand.Refused(f"'{key}' is over {ATTEST_TEXT_LIMIT} characters", rule="payload")
+    from . import attest as grader
+
+    report = grader.grade(body["text"], body["operation"], body.get("answer"))
+    return {"corpus_frames": ATTEST_FRAME_COUNT, **_grade_json(report)}
 
 
 def _facilitator(path: str, body: Json) -> Json:
@@ -200,17 +253,28 @@ def _seen(signature: str) -> bool:
         conn.close()
 
 
-def handle(method: str, path: str, headers: Mapping[str, str]) -> tuple[int, dict[str, str], Json]:
+def handle(method: str, path: str, headers: Mapping[str, str], request_body: Any = None) -> tuple[int, dict[str, str], Json]:
     """One request: (status, extra headers, JSON body)."""
+    path, _, query = path.partition("?")
     if path == "/health":
         return 200, {}, {"ok": True}
     if not hand.flag("X402_ENDPOINT", False) or path not in RESOURCES:
         return 404, {}, {"error": "not found"}
-    if method not in ("GET", "HEAD"):
+    if path == "/attest":
+        if method != "POST":
+            return 405, {}, {"error": "POST only"}
+    elif method not in ("GET", "HEAD"):
         return 405, {}, {"error": "GET only"}
     req = requirements(path)
     header = next((v for k, v in headers.items() if k.lower() == "x-payment"), None)
     if not header:
+        if path == "/attest":
+            # The body's shape is checked for free: nobody pays for a call
+            # that could never grade. The verdict itself is never free.
+            try:
+                grade_request(request_body)
+            except hand.Refused as refused:
+                return 402, {}, {"x402Version": X402_VERSION, "error": refused.reason, "accepts": [req]}
         return 402, {}, {"x402Version": X402_VERSION, "error": "X-PAYMENT header is required", "accepts": [req]}
 
     def refuse(why: str) -> tuple[int, dict[str, str], Json]:
@@ -239,10 +303,46 @@ def handle(method: str, path: str, headers: Mapping[str, str]) -> tuple[int, dic
         return refuse("that payment was already used")
     if not _paid_on_chain(signature, req):
         return refuse("the settled transaction does not pay this price to this address")
-    _record(path, settled, req)
+    # The money has settled: it goes in the ledger first, whatever the
+    # grading then does. A grading that fails leaves a refundable 422 and
+    # the sale row a person refunds from.
+    _record(resource=path, settled=settled, req=req)
+    try:
+        payload = grade_request(request_body) if path == "/attest" else stats()
+    except hand.Refused as refused:
+        return 422, {}, {"error": refused.reason, "payment": signature}
+    except Exception:  # noqa: BLE001 - paid, grading broke: refundable, never a silent 200
+        return 422, {}, {"error": "grading failed", "payment": signature}
     receipt = base64.b64encode(json.dumps({"success": True, "transaction": signature, "network": req["network"],
                                            "payer": settled.get("payer")}).encode()).decode()
-    return 200, {"X-PAYMENT-RESPONSE": receipt}, stats()
+    return 200, {"X-PAYMENT-RESPONSE": receipt}, payload
+
+
+class BodyRefused(Exception):
+    """A request body the server will not read: (status, why)."""
+
+    def __init__(self, status: int, reason: str) -> None:
+        super().__init__(reason)
+        self.status = status
+        self.reason = reason
+
+
+def read_body(headers: Mapping[str, str], rfile: Any) -> bytes:
+    """The request body, read only after its declared length is checked.
+
+    A missing Content-Length is 411, one that is not plain ASCII digits is
+    400, one over MAX_BODY is 413: all decided from the header alone, before
+    a single body byte is read. Never reads more than MAX_BODY."""
+    value = next((v for k, v in headers.items() if k.lower() == "content-length"), None)
+    if value is None or not value.strip():
+        raise BodyRefused(411, "Content-Length is required")
+    value = value.strip()
+    if not (value.isascii() and value.isdigit()):
+        raise BodyRefused(400, "Content-Length is not a number")
+    length = int(value)
+    if length > MAX_BODY:
+        raise BodyRefused(413, f"the body is over {MAX_BODY} bytes")
+    return rfile.read(length) if length else b""
 
 
 def serve(host: str, port: int) -> None:
@@ -252,11 +352,31 @@ def serve(host: str, port: int) -> None:
         def log_message(self, *args: Any) -> None:
             pass
 
+        #: a buyer that stalls mid-request does not hold a thread forever
+        timeout = TIMEOUT
+
         def _answer(self) -> None:
             try:
-                status, extra, body = handle(self.command, self.path.split("?", 1)[0], dict(self.headers))
+                parsed = None
+                path = self.path.partition("?")[0]
+                if self.command == "POST" and path == "/attest" and hand.flag("X402_ENDPOINT", False):
+                    try:
+                        raw = read_body(dict(self.headers), self.rfile)
+                    except BodyRefused as refused:
+                        # the body was not read, so the connection cannot be reused
+                        self.close_connection = True
+                        self._send(refused.status, {"Connection": "close"}, {"error": refused.reason})
+                        return
+                    try:
+                        parsed = json.loads(raw) if raw else None
+                    except ValueError:
+                        parsed = None
+                status, extra, body = handle(self.command, self.path, dict(self.headers), parsed)
             except Exception:  # noqa: BLE001 - a buyer gets a status, never a trace
                 status, extra, body = 500, {}, {"error": "internal"}
+            self._send(status, extra, body)
+
+        def _send(self, status: int, extra: Mapping[str, str], body: Json) -> None:
             data = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("content-type", "application/json")
