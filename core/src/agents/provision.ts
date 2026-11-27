@@ -14,6 +14,8 @@ export const SIMPLE_AGENT: AgentDef = {
   tools: [],
   prompt: "",
   subagentAllowlist: [],
+  browserViewOnly: false,
+  omitMemoryContext: true,
 };
 
 export class AgentCatalog {
@@ -28,6 +30,10 @@ export class AgentCatalog {
 
   reload(): void {
     this.defs = new Map([SIMPLE_AGENT, ...loadAgentDefs(this.brainDir)].map((d) => [d.id, d]));
+  }
+
+  definitions(): AgentDef[] {
+    return [...this.defs.values()];
   }
 
   ids(): string[] {

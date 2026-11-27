@@ -1,0 +1,196 @@
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { hostOnList, judgeAllowedFetch, judgeUrl, maskSecrets, pictureName, picturePaths, prunePictures, readHostList, savePicture } from "../../plugins/teeny-guardrails/browser.js";
+import { blocked, makeFixture, rewritten, write } from "./fixture.js";
+
+const call = (f: ReturnType<typeof makeFixture>, agent: string, params: Record<string, unknown>, session = "s1") =>
+  f.guard.beforeToolCall({ toolName: "browser", params }, { agentId: agent, sessionKey: session, runId: `${session}-${Math.random()}` });
+
+describe("the browser deny list and allow list", () => {
+  it("matches a host and its subdomains, never a lookalike", () => {
+    expect(hostOnList("x.com", ["x.com"])).toBe(true);
+    expect(hostOnList("www.x.com", ["x.com"])).toBe(true);
+    expect(hostOnList("X.COM.", ["x.com"])).toBe(true);
+    expect(hostOnList("notx.com", ["x.com"])).toBe(false);
+    expect(hostOnList("x.com.evil.example", ["x.com"])).toBe(false);
+  });
+
+  it("opens public https pages and refuses everything else", () => {
+    const f = makeFixture();
+    const deny = join(f.root, "deploy/browser-deny.txt");
+    expect(judgeUrl("https://example.org/a?b=1", deny).ok).toBe(true);
+    expect(judgeUrl("https://x.com/home", deny).reason).toMatch(/deny list/);
+    expect(judgeUrl("https://mobile.twitter.com/", deny).reason).toMatch(/deny list/);
+    expect(judgeUrl("https://T.CO/abc", deny).ok).toBe(true); // t.co is not listed in this fixture
+    expect(judgeUrl("http://example.org", deny).reason).toMatch(/https pages only/);
+    expect(judgeUrl("file:///etc/passwd", deny).reason).toMatch(/https pages only/);
+    expect(judgeUrl("javascript:alert(1)", deny).reason).toMatch(/https pages only/);
+    expect(judgeUrl("data:text/html,x", deny).reason).toMatch(/https pages only/);
+    expect(judgeUrl("https://user:pw@example.org/", deny).reason).toMatch(/credentials/);
+    expect(judgeUrl("https://127.0.0.1/", deny).reason).toMatch(/not a public address/);
+    expect(judgeUrl("https://[::1]/", deny).reason).toMatch(/not a public address/);
+    expect(judgeUrl("https://10.1.2.3/", deny).reason).toMatch(/not a public address/);
+    expect(judgeUrl("https://169.254.169.254/latest", deny).reason).toMatch(/not a public address/);
+    expect(judgeUrl("https://localhost/", deny).reason).toMatch(/not a public address/);
+    expect(judgeUrl("not a url", deny).reason).toMatch(/not a URL/);
+    expect(judgeUrl(undefined, deny).reason).toMatch(/needs a url/);
+  });
+
+  it("an unreadable deny list refuses every page, like OpenHuman", () => {
+    expect(judgeUrl("https://example.org/", "/nonexistent/deny.txt").reason).toMatch(/no page opens/);
+    expect(judgeUrl("https://example.org/", undefined).reason).toMatch(/no page opens/);
+    expect(() => readHostList(undefined, "x")).toThrow();
+  });
+
+  it("the raw http tools reach only deploy/browser-allow.txt", () => {
+    const f = makeFixture();
+    const allow = join(f.root, "deploy/browser-allow.txt");
+    expect(judgeAllowedFetch("https://api.example.org/v1", allow).ok).toBe(true);
+    expect(judgeAllowedFetch("https://sub.api.example.org/v1", allow).ok).toBe(true);
+    expect(judgeAllowedFetch("https://example.org/", allow).reason).toMatch(/not on deploy/);
+    expect(judgeAllowedFetch("http://api.example.org/", allow).reason).toMatch(/plain https/);
+    expect(judgeAllowedFetch("https://api.example.org/", "/nonexistent").reason).toMatch(/cannot be read/);
+  });
+});
+
+describe("browser tool calls", () => {
+  it("opens and navigates through the deny list, and pins the profile", async () => {
+    const f = makeFixture();
+    expect(rewritten(await call(f, "mind", { action: "open", url: "https://example.org/" }))?.profile).toBe("view");
+    expect(blocked(await call(f, "mind", { action: "open", url: "https://x.com/" }))).toMatch(/deny list/);
+    expect(blocked(await call(f, "mind", { action: "navigate", url: "https://www.x.com/" }))).toMatch(/deny list/);
+    expect(blocked(await call(f, "mind", { action: "open", url: "http://example.org/" }))).toMatch(/https/);
+    expect(rewritten(await call(f, "operator", { action: "open", url: "https://example.org/" }))?.profile).toBe("teeny");
+    expect(blocked(await call(f, "operator", { action: "open", url: "https://twitter.com/x" }))).toMatch(/deny list/);
+  });
+
+  it("the mind's and the worker's browser is view-only: no act, no emulate, no evaluate, no other profile", async () => {
+    const f = makeFixture();
+    for (const agent of ["mind", "worker"]) {
+      expect(blocked(await call(f, agent, { action: "act", request: { kind: "click", ref: "e1" } })), agent).toMatch(/action act is not allowed/);
+      expect(blocked(await call(f, agent, { action: "emulate", device: "x" })), agent).toMatch(/not allowed/);
+      expect(blocked(await call(f, agent, { action: "snapshot" }))).toBeUndefined();
+      expect(blocked(await call(f, agent, { action: "screenshot" }))).toBeUndefined();
+      expect(blocked(await call(f, agent, { action: "text", targetId: "t1" }))).toBeUndefined();
+      expect(blocked(await call(f, agent, { action: "snapshot", profile: "user" }))).toMatch(/not this agent's/);
+      expect(blocked(await call(f, agent, { action: "snapshot", profile: "teeny" }))).toMatch(/not this agent's/);
+      expect(blocked(await call(f, agent, { action: "snapshot", node: "n1" }))).toMatch(/node/);
+      expect(blocked(await call(f, agent, { action: "snapshot", target: "node" }))).toMatch(/gateway host/);
+      expect(blocked(await call(f, agent, { action: "snapshot", dashboard: "d" }))).toMatch(/dashboards/);
+      expect(blocked(await call(f, agent, {}))).toMatch(/no action/);
+    }
+  });
+
+  it("the operator may take only the unattended kinds", async () => {
+    const f = makeFixture();
+    for (const kind of ["click", "fill", "type", "press", "select", "check", "wait", "scroll", "hover"]) {
+      expect(blocked(await call(f, "operator", { action: "act", request: { kind, ref: "e1", text: "hello" } })), kind).toBeUndefined();
+    }
+    for (const kind of ["evaluate", "drag", "upload", "download", "close", "resize", "click-coords"]) {
+      expect(blocked(await call(f, "operator", { action: "act", request: { kind } })), kind).toMatch(/not allowed/);
+    }
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "evaluate", fn: "x" } }))).toMatch(/evaluate/);
+    expect(blocked(await call(f, "operator", { action: "act" }))).toMatch(/without a kind/);
+    // a batch is only its steps, and one bad step refuses the batch
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "batch", actions: [{ kind: "click" }, { kind: "type" }] } }))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "batch", actions: [{ kind: "click" }, { kind: "evaluate" }] } }))).toMatch(/evaluate/);
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "batch" } }))).toMatch(/not allowed/);
+  });
+
+  it("an agent with no browser has none", async () => {
+    const f = makeFixture();
+    expect(blocked(await f.call("babysitter", "browser", { action: "open", url: "https://example.org" }))).toMatch(/no browser tool/);
+    expect(blocked(await f.call("evolver", "browser", { action: "open", url: "https://example.org" }))).toMatch(/no browser tool/);
+  });
+});
+
+describe("keychain fill", () => {
+  const SECRET = "hunter2-fake-password";
+
+  async function setup(host = "https://login.example.org/signin") {
+    const asked: string[] = [];
+    const f = makeFixture({
+      fill: async (program, h) => {
+        asked.push(`${program.split("/").pop()} ${h}`);
+        return SECRET;
+      },
+    });
+    expect(blocked(await call(f, "operator", { action: "open", url: host, targetId: "t1" }, "kc"))).toBeUndefined();
+    return { f, asked };
+  }
+  const typed = (text: string, extra: Record<string, unknown> = {}) => ({ action: "act", targetId: "t1", request: { kind: "type", ref: "e5", text, ...extra } });
+
+  it("swaps the placeholder for the password only on that site's own page, through bin/keychain-fill", async () => {
+    const { f, asked } = await setup();
+    const d = rewritten(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"));
+    expect(d).toBeDefined();
+    expect((d?.request as { text: string }).text).toBe(SECRET);
+    expect(asked).toEqual(["keychain-fill login.example.org"]);
+    // the profile pin rides along
+    expect(d?.profile).toBe("teeny");
+  });
+
+  it("refuses the placeholder for another site, on a page the guard did not see, and for anything but typing", async () => {
+    const { f, asked } = await setup();
+    expect(blocked(await call(f, "operator", typed("{{keychain:other.org}}"), "kc"))).toMatch(/only on other.org's own pages/);
+    expect(blocked(await call(f, "operator", typed("{{keychain:xexample.org}}"), "kc"))).toMatch(/own pages/);
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}} {{keychain:other.org}}"), "kc"))).toMatch(/one keychain site/);
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "t1", request: { kind: "click", text: "{{keychain:example.org}}" } }, "kc"))).toMatch(/typed or filled/);
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "never-opened"))).toMatch(/has not opened a page/);
+    expect(asked).toEqual([]);
+  });
+
+  it("the mind and the worker never get the keychain", async () => {
+    const f = makeFixture({ fill: async () => SECRET });
+    for (const agent of ["mind", "worker"]) {
+      expect(blocked(await call(f, agent, { action: "act", request: { kind: "type", text: "{{keychain:example.org}}" } }))).toMatch(/not allowed/);
+    }
+  });
+
+  it("fails closed when the keychain gives nothing, and masks the password in every result", async () => {
+    const g = makeFixture({ fill: async () => "" });
+    await call(g, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "kc");
+    expect(blocked(await call(g, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/no password/);
+    const h = makeFixture({ fill: async () => { throw new Error("boom"); } });
+    await call(h, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "kc");
+    expect(blocked(await call(h, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/no password/);
+
+    const { f } = await setup();
+    await call(f, "operator", typed("{{keychain:example.org}}"), "kc");
+    const masked = maskSecrets({ content: [{ type: "text", text: `typed ${SECRET} into the field` }], nested: [SECRET] }, f.guard.browserState.secrets);
+    expect(JSON.stringify(masked)).not.toContain(SECRET);
+    expect(JSON.stringify(masked)).toContain("[keychain]");
+  });
+});
+
+describe("the screenshot sink", () => {
+  it("names pictures so they sort by time, and keeps the newest 24 of its own, nothing else", () => {
+    const dir = join(makeFixture().root, "pics");
+    mkdirSync(dir, { recursive: true });
+    write(join(dir, "notes.txt"), "keep me");
+    write(join(dir, "1700000000000-000001.gif"), "not ours");
+    const src = join(dir, "..", "src.png");
+    writeFileSync(src, "\x89PNG");
+    const kept: string[] = [];
+    for (let i = 0; i < 30; i++) kept.push(savePicture(dir, src, 24, 1_789_369_260_000 + i * 1000) as string);
+    const ours = readdirSync(dir).filter((n) => /^\d{13}-\d{6}\.(png|jpeg)$/.test(n)).sort();
+    expect(ours).toHaveLength(24);
+    expect(ours[0]).toBe(kept[6]?.split("/").pop());
+    expect(readdirSync(dir)).toContain("notes.txt");
+    expect(readdirSync(dir)).toContain("1700000000000-000001.gif");
+    expect(readdirSync(dir).some((n) => n.endsWith(".part"))).toBe(false);
+    expect(pictureName(1_789_369_260_000, 7, "jpg")).toBe("1789369260000-000007.jpeg");
+    prunePictures(join(dir, "missing"), 3);
+  });
+
+  it("refuses what is not a picture, and finds picture paths a result names", () => {
+    const dir = join(makeFixture().root, "pics2");
+    expect(savePicture(dir, "/nonexistent.png", 24)).toBeUndefined();
+    const txt = join(dir, "..", "a.txt");
+    writeFileSync(txt, "x");
+    expect(savePicture(dir, txt, 24)).toBeUndefined();
+    expect(existsSync(dir)).toBe(false);
+    expect(picturePaths({ content: [{ type: "text", text: "saved to /tmp/x/shot-1.png and /tmp/y.JPG" }] })).toEqual(["/tmp/x/shot-1.png", "/tmp/y.JPG"]);
+  });
+});
