@@ -335,8 +335,14 @@ class Grading(Scratch):
         big = pair(0)
         big["a"]["text"] = "x" * (metagrader.MAX_MESSAGE_BYTES + 1)
         got = metagrader.run_incumbent(REPO / "evals", REPO / "brain", self.ask, [big])
-        self.assertEqual(got, ["tie"])
+        self.assertEqual(got, [metagrader.SKIPPED])
         self.assertEqual(self.called(), [])
+
+    def test_skipped_incumbent_pairs_leave_both_sides_of_the_comparison(self):
+        cand, inc = metagrader.both_judged(["a", "b", "a"], ["a", metagrader.SKIPPED, "tie"], ["a", "b", "b"])
+        self.assertEqual(cand, [("a", "a"), ("a", "b")])
+        self.assertEqual(inc, [("a", "a"), ("tie", "b")])
+        self.assertEqual(metagrader.accuracy(inc)["pairs"], 2)
 
     def test_propose_keeps_only_valid_programs(self):
         pairs_dir = self.dir / "pairs"
