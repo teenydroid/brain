@@ -3018,6 +3018,18 @@ error is never cached. Refusals, each with its `rule`:
 - `provider`: any other 4xx or 5xx; an unreadable or truncated body is an
   error that names what was paid.
 
+**Exa's `search` and `cross_origin`.** Since 2026-11-25 Exa answers
+`https://api.exa.ai/search` with a challenge whose resource is
+`http://api.exa.ai/search`: the same host, only the scheme differs. The
+wallet module (tinywallet-x402 `ensure_same_origin`) compares exact origins,
+so it refuses before holding or signing anything, and `search` answers
+`cross_origin` until either Exa names `https` again or the module accepts
+that one difference (an https request whose challenge names the same host
+over plain http, both on default ports; the core already asks only over
+https, with no redirects, to vetted addresses). That fix belongs upstream in
+tinywallet, then an OpenHuman bump. `contents` is unaffected: its challenge
+names `https`.
+
 On `per_day_x402` or `unpaid` it runs `fund` once and returns what it said
 under `funding` (a full rail with a spent day is simply `funded`). The paid
 request itself is never retried in that run.
