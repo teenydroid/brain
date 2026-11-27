@@ -32,7 +32,7 @@ linked module.
                  like every other page; without it nothing is routed
   [http_request] allowed_domains: deploy/browser-allow.txt, for the raw
                  http_request tool
-  [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
+  [modules]      tinywallet from the core's own wallet (core/src/wallet),
                  every other module, TinyComputer included, from its release
   [computer]     (single keys) the captcha solver: a browser task tries a
                  captcha or "verify you are human" check with Jev's image

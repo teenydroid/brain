@@ -1,0 +1,37 @@
+{
+  "method": "openhuman.web3_bridge_execute",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/convert.py:620"
+  ],
+  "params": {
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "confirmed": {
+        "type": "boolean",
+        "required": true,
+        "note": "always true"
+      }
+    },
+    "example": {
+      "quoteId": "q-3",
+      "confirmed": true
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "transactionHash": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "reader": "wallet/convert.py _execute",
+    "example": {
+      "transactionHash": "5Sig"
+    }
+  },
+  "timeout": "120s"
+}

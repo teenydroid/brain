@@ -1,0 +1,40 @@
+{
+  "method": "openhuman.wallet_status",
+  "call_sites": [
+    "bin/wallet-setup:81",
+    "hands/lib/teeny_hands/wallet/pay.py:196"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "configured": {
+        "type": "boolean",
+        "required": false,
+        "note": "bin/wallet-setup refuses when true unless --force"
+      },
+      "accounts": {
+        "type": "array",
+        "required": true,
+        "note": "each {chain: 'solana'|'evm'|'btc', address, derivationPath?}; one EVM address serves every EVM network"
+      }
+    },
+    "reader": "wallet/pay.py own_address, bin/wallet-setup, bin/lib/receipts.py public_wallet",
+    "example": {
+      "configured": true,
+      "accounts": [
+        {
+          "chain": "solana",
+          "address": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+        },
+        {
+          "chain": "evm",
+          "address": "0xabababababababababababababababababababab"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "method": "openhuman.wallet_execute_prepared_program",
+  "call_sites": [
+    "hands/lib/teeny_hands/giveaway/onchain.py:30",
+    "hands/lib/teeny_hands/giveaway/onchain.py:378"
+  ],
+  "params": {
+    "fields": {
+      "accountIndex": {
+        "type": "number",
+        "required": true,
+        "note": "1"
+      },
+      "quoteId": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "accountIndex": 1,
+      "quoteId": "q-9"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "transactionHash": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "reader": "giveaway/onchain.py _execute",
+    "example": {
+      "transactionHash": "5Sig"
+    }
+  },
+  "timeout": "120s",
+  "errors": [
+    "'WALLET_POLICY_REFUSED' in the message"
+  ]
+}

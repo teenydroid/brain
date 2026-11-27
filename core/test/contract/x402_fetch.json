@@ -1,0 +1,100 @@
+{
+  "method": "openhuman.x402_fetch",
+  "call_sites": [
+    "bin/lib/tick.py:457",
+    "bin/lib/tick.py:922",
+    "bin/lib/tick.py:987",
+    "hands/lib/teeny_hands/wallet/x402.py:175",
+    "hands/lib/teeny_hands/wallet/x402.py:8",
+    "hands/lib/teeny_hands/x/twitr.py:7"
+  ],
+  "params": {
+    "fields": {
+      "url": {
+        "type": "string",
+        "required": true
+      },
+      "method": {
+        "type": "string",
+        "required": true
+      },
+      "maxAmountAtomic": {
+        "type": "number",
+        "required": true,
+        "note": "the cap in USDC atomic units, an int"
+      },
+      "network": {
+        "type": "string",
+        "required": false
+      },
+      "signIn": {
+        "type": "boolean",
+        "required": false
+      },
+      "headers": {
+        "type": "object",
+        "required": false
+      },
+      "body": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "example": {
+      "url": "https://example.invalid/x",
+      "method": "GET",
+      "maxAmountAtomic": 50000
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "status": {
+        "type": "number",
+        "required": true,
+        "note": "HTTP status"
+      },
+      "contentType": {
+        "type": "string|null",
+        "required": false
+      },
+      "body": {
+        "type": "string|null",
+        "required": false
+      },
+      "truncated": {
+        "type": "boolean",
+        "required": false
+      },
+      "signedInAs": {
+        "type": "string",
+        "required": false
+      },
+      "payment": {
+        "type": "object|null",
+        "required": false,
+        "note": "{amountAtomic: int-like, asset: string (USDC mint, lower-cased compare), network, recipient, paymentId, settled: bool}; absent = free"
+      }
+    },
+    "reader": "wallet/x402.py _send; an amount over the cap, or a non-USDC asset, marks the request in_doubt",
+    "example": {
+      "status": 200,
+      "contentType": "application/json",
+      "body": "{}",
+      "truncated": false,
+      "payment": {
+        "amountAtomic": "1000",
+        "asset": "usdc-mint",
+        "network": "solana",
+        "recipient": "R",
+        "paymentId": "p1",
+        "settled": true
+      }
+    }
+  },
+  "timeout": "120s",
+  "errors": [
+    "message starting with 'X402_REFUSED:' = the core refused to pay",
+    "cross-origin challenge refusals: see wallet/x402.py CROSS_ORIGIN"
+  ]
+}

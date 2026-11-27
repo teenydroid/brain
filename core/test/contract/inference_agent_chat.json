@@ -1,0 +1,65 @@
+{
+  "method": "openhuman.inference_agent_chat",
+  "call_sites": [
+    "bin/ask:64"
+  ],
+  "params": {
+    "fields": {
+      "message": {
+        "type": "string",
+        "required": true
+      },
+      "agent_id": {
+        "type": "string",
+        "required": false,
+        "note": "omitted when empty"
+      },
+      "thread_id": {
+        "type": "string",
+        "required": false,
+        "note": "omitted when empty; the session key"
+      },
+      "model_override": {
+        "type": "string",
+        "required": false
+      },
+      "cwd": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "example": {
+      "message": "hello",
+      "agent_id": "teeny",
+      "thread_id": "studio-1",
+      "model_override": "glm-5.3-flash",
+      "cwd": "/work"
+    }
+  },
+  "response": {
+    "type": "string|object",
+    "fields": {
+      "response": {
+        "type": "string|object",
+        "required": false,
+        "note": "the turn's text; callers also accept text, message or content, nested up to 4 deep (guard/judge.py _reply_text, bin/lib/health.py _words, bin/ask)"
+      },
+      "text": {
+        "type": "string|object",
+        "required": false
+      },
+      "message": {
+        "type": "string|object",
+        "required": false
+      },
+      "content": {
+        "type": "string|object",
+        "required": false
+      }
+    },
+    "reader": "a bare string, or an object carrying the text under one of response/text/message/content; bin/ask falls back to the whole payload as JSON",
+    "example": "a reply"
+  },
+  "timeout": "OH_TIMEOUT, default 900s via bin/oh",
+  "notes": "One agent turn. bin/ask prints the text; studio_room and act use it through bin/ask. Turn lasts minutes; the core honours agent_timeout_secs."
+}

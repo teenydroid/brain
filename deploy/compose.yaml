@@ -4,7 +4,6 @@
 # Its own compose project, so it runs beside whatever else is on the box. It
 # publishes no port; operators reach it with `exec`.
 #
-#   git submodule update --init --recursive vendor/openhuman
 #   cp deploy/spine.env.example secrets/spine.env      # then fill it in
 #   docker compose -f deploy/compose.yaml up -d --build
 #   docker compose -f deploy/compose.yaml exec spine bin/crons

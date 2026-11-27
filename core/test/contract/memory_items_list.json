@@ -1,0 +1,66 @@
+{
+  "method": "openhuman.memory_items_list",
+  "call_sites": [
+    "bin/lib/dream.py:236"
+  ],
+  "params": {
+    "fields": {
+      "limit": {
+        "type": "number",
+        "required": true
+      },
+      "preview": {
+        "type": "boolean",
+        "required": true,
+        "note": "true"
+      },
+      "filter": {
+        "type": "object",
+        "required": true,
+        "note": "{kinds: ['learning'], observed_after: RFC3339 UTC}"
+      },
+      "cursor": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "example": {
+      "limit": 50,
+      "preview": true,
+      "filter": {
+        "kinds": [
+          "learning"
+        ],
+        "observed_after": "2026-11-26T00:00:00Z"
+      }
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "items": {
+        "type": "array",
+        "required": true,
+        "note": "each {id: string, kind: 'learning', text: string, meta: {observed_at: RFC3339 with nanoseconds}}"
+      },
+      "next_cursor": {
+        "type": "string|null",
+        "required": false
+      }
+    },
+    "reader": "bin/lib/dream.py learnings; bin/oh unwraps a {result: ...} wrapper once (dream's _oh does `got.get('result', got)`)",
+    "example": {
+      "items": [
+        {
+          "id": "aaa111",
+          "kind": "learning",
+          "text": "t",
+          "meta": {
+            "observed_at": "2026-11-27T01:02:03.123456789Z"
+          }
+        }
+      ],
+      "next_cursor": null
+    }
+  }
+}

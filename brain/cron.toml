@@ -424,8 +424,7 @@ command = "bin/tasks-desk"
 # sets EVOLVE=1 (the operator's switch, and its kill switch); its halt
 # thresholds and EVOLVE_GENERATIONS_PER_DAY live in the same file, so moving
 # or adding slots here never runs more generations than that. Detached: a
-# generation outlasts the 300 s a cron shell call gets (docs/oh-gaps.md,
-# G12); it logs to state/evolve/evolve.log. --scheduled: this job's runs are
+# generation outlasts the 300 s a cron shell call gets (the Rust core's gap G12); it logs to state/evolve/evolve.log. --scheduled: this job's runs are
 # the ones EVOLVE_GENERATIONS_PER_DAY counts.
 [jobs.evolve]
 schedule = "40 2,14 * * *"

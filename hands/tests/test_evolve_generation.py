@@ -15,6 +15,9 @@ MEMORY.md with open learnings. It fails when observe() raises."""
 
 import json
 import os
+
+# The cron readers go through bin/lib/cron_store.py; these tests build the old storage.db as their fixture.
+os.environ.setdefault("TEENY_CRON_BACKEND", "sqlite")
 import shutil
 import sqlite3
 import subprocess

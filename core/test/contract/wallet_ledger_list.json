@@ -1,0 +1,25 @@
+{
+  "method": "openhuman.wallet_ledger_list",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/reads.py:243"
+  ],
+  "params": {
+    "fields": {
+      "limit": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "example": {
+      "limit": 50
+    }
+  },
+  "response": {
+    "type": "array",
+    "items": {
+      "type": "any"
+    },
+    "reader": "returned to the operator as `core`; a non-list reads as []",
+    "example": []
+  }
+}

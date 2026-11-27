@@ -1,0 +1,96 @@
+{
+  "method": "openhuman.web3_bridge_quote",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/convert.py:376"
+  ],
+  "params": {
+    "fields": {
+      "srcChainId": {
+        "type": "string|number",
+        "required": true
+      },
+      "srcChainTokenIn": {
+        "type": "string",
+        "required": true
+      },
+      "srcChainTokenInAmount": {
+        "type": "string",
+        "required": true
+      },
+      "dstChainId": {
+        "type": "string|number",
+        "required": true
+      },
+      "dstChainTokenOut": {
+        "type": "string",
+        "required": true
+      },
+      "dstChainTokenOutAmount": {
+        "type": "string",
+        "required": true,
+        "note": "'<provider>:auto'"
+      },
+      "dstChainTokenOutRecipient": {
+        "type": "string",
+        "required": true
+      },
+      "srcChainOrderAuthorityAddress": {
+        "type": "string",
+        "required": true
+      },
+      "dstChainOrderAuthorityAddress": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "srcChainId": "7565164",
+      "srcChainTokenIn": "USDC",
+      "srcChainTokenInAmount": "1000000",
+      "dstChainId": "8453",
+      "dstChainTokenOut": "USDC",
+      "dstChainTokenOutAmount": "debridge:auto",
+      "dstChainTokenOutRecipient": "0xabc",
+      "srcChainOrderAuthorityAddress": "OWN",
+      "dstChainOrderAuthorityAddress": "0xabc"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "kind": {
+        "type": "string",
+        "required": true,
+        "note": "'swap' | 'bridge' (lower-cased compare; buy.py defaults absent to 'swap')"
+      },
+      "signingChain": {
+        "type": "string",
+        "required": false,
+        "note": "evm | solana; absent ok"
+      },
+      "expiresAtMs": {
+        "type": "number",
+        "required": true,
+        "note": "must be in the future by the caller's margin"
+      },
+      "quote": {
+        "type": "object",
+        "required": true,
+        "note": "the provider's own quote, see the notes"
+      }
+    },
+    "reader": "wallet/convert.py check_quote: deBridge quote.estimation{srcChainTokenIn,dstChainTokenOut{amount,recommendedAmount,approximateUsdValue,recommendedApproximateUsdValue}}, quote.tx{to,value}, quote.fixFee, order id in quote; LI.FI as for the swap quote",
+    "example": {
+      "quoteId": "q-3",
+      "kind": "bridge",
+      "expiresAtMs": 1789369260000,
+      "quote": {}
+    }
+  },
+  "timeout": "60s",
+  "notes": "wallet/convert.py _quote picks it for kind 'bridge'; wallet/x402-fund goes through convert."
+}

@@ -1,0 +1,38 @@
+{
+  "name": "teeny-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Teeny's core: an OpenClaw host that answers the openhuman.* JSON-RPC the hands and scripts call.",
+  "engines": {
+    "node": ">=24.16"
+  },
+  "bin": {
+    "teeny-core": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.8.0",
+    "@scure/base": "1.2.6",
+    "@scure/bip32": "1.7.0",
+    "@scure/bip39": "1.6.0",
+    "@solana/spl-token": "0.4.14",
+    "@solana/web3.js": "1.98.4",
+    "openclaw": "2026.11.10",
+    "smol-toml": "1.4.2",
+    "viem": "2.38.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.39.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "method": "openhuman.cron_list",
+  "call_sites": [
+    "bin/doctor:104",
+    "bin/lib/broker.py:491",
+    "bin/lib/cron_store.py:131",
+    "bin/seed-cron:85"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "fields": {
+        "id": {
+          "type": "string|number",
+          "required": true,
+          "note": "bin/broker and seed-cron pass it back as str(id) in job_id"
+        },
+        "name": {
+          "type": "string",
+          "required": false,
+          "note": "teeny.<name> for seeded jobs, mind.<slug> for wakes"
+        },
+        "job_type": {
+          "type": "string",
+          "required": false,
+          "note": "'agent' or anything else (read as shell)"
+        },
+        "schedule": {
+          "type": "object",
+          "required": false,
+          "note": "schedule.expr, schedule.tz, kind, at"
+        },
+        "command": {
+          "type": "string",
+          "required": false,
+          "note": "shell jobs"
+        },
+        "agent_id": {
+          "type": "string",
+          "required": false,
+          "note": "agent jobs"
+        },
+        "prompt": {
+          "type": "string",
+          "required": false,
+          "note": "agent jobs"
+        },
+        "enabled": {
+          "type": "boolean",
+          "required": false,
+          "note": "null/absent means enabled (seed-cron reads `.enabled == null` as true)"
+        },
+        "next_run": {
+          "type": "string",
+          "required": false,
+          "note": "RFC 3339, fractional seconds possible; null when none"
+        }
+      }
+    },
+    "reader": "every job; callers filter by name prefix (teeny., mind.)",
+    "example": [
+      {
+        "id": "job-1",
+        "name": "teeny.heartbeat",
+        "job_type": "shell",
+        "command": "bin/heartbeat",
+        "schedule": {
+          "kind": "cron",
+          "expr": "*/5 * * * *",
+          "tz": "UTC"
+        },
+        "enabled": true,
+        "next_run": "2026-11-27T10:05:00.123456+00:00"
+      }
+    ]
+  },
+  "notes": "Also lists the core's own system jobs (e.g. memory_background) which callers must leave alone."
+}

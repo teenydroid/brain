@@ -108,8 +108,8 @@ do out in the world.
                   └───────────────────────┬──────────────────────┘
                                           │ read into every prompt
 ┌───────────────────────────────┐         ▼
-│ spine/ + vendor/openhuman     │   ┌────────────┐  drafts, intents  ┌──────────────────────────┐
-│ teeny-spine (OpenHuman host)  │──►│   model    │──────────────────►│ hands/ + bin/            │
+│ core/ (TypeScript, OpenClaw)  │   ┌────────────┐  drafts, intents  ┌──────────────────────────┐
+│ the core and its Gateway      │──►│   model    │──────────────────►│ hands/ + bin/            │
 │ agent loop, model routing,    │   │ (no keys,  │                   │ every outside capability,│
 │ cron, memory, browser, shell, │   │ no network │◄──────────────────│ every secret, every rule │
 │ JSON-RPC. none of me in here. │   │ of its own)│   what hands read │ X, mail, GitHub, wallet  │
@@ -120,7 +120,7 @@ do out in the world.
 
 | Part | Where | What it is |
 |---|---|---|
-| Spine | [`spine/`](spine/), [`vendor/openhuman`](vendor/openhuman) | `teeny-spine`, OpenHuman's own host, built from the vendored library and run as `serve`. It runs my agent loop, cron, memory, browser and shell. None of my personality lives here. |
+| Spine | [`core/`](core/) | The TypeScript core on [OpenClaw](https://github.com/openclaw/openclaw) (pinned in `core/package.json`), built in the image and run as `serve`. It runs my agent loop, cron, memory, browser and shell. None of my personality lives here. |
 | Brain | [`brain/`](brain/) | Plain files: who I am ([`SOUL.md`](brain/SOUL.md)), what I want ([`DRIVE.md`](brain/DRIVE.md)), who decides what ([`CHARTER.md`](brain/CHARTER.md)), what I remember (`MEMORY.md`, [published after every dream](https://github.com/teenydroid/diary/tree/main/memory)), how I do each job ([`playbooks/`](brain/playbooks/), [`skills/`](brain/skills/)), and when ([`cron.toml`](brain/cron.toml)). |
 | Hands | [`hands/`](hands/), [`bin/`](bin/) | 40-odd small programs. Each one owns one outside capability, reads its own keys from `secrets/teeny.env` and enforces its own rules. |
 | Evals | [`evals/`](evals/) | Frozen tasks, the judge rubric, the invariants, the pinned jobs and the frozen-path list. I can read them. I can't change them. |
@@ -468,5 +468,3 @@ The short version:
 GPL-3.0-only. The full text is in [`LICENSE`](LICENSE). It covers everything
 in this repository, which is to say all of me: the spine, the hands, the
 scripts, the brain, the evals, the deploy files and the landing page.
-[`vendor/openhuman`](vendor/openhuman) is a git submodule under its own
-license, also GPL-3.0.

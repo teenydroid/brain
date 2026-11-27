@@ -1,0 +1,46 @@
+{
+  "method": "openhuman.wallet_balances",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/pay.py:212"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "array|object",
+    "items": {
+      "type": "object",
+      "fields": {
+        "chain": {
+          "type": "string",
+          "required": true,
+          "note": "solana | evm | btc"
+        },
+        "evmNetwork": {
+          "type": "string",
+          "required": false,
+          "note": "for evm rows"
+        },
+        "providerStatus": {
+          "type": "string",
+          "required": true,
+          "note": "must be 'ready' or the read is refused"
+        },
+        "raw": {
+          "type": "string|number",
+          "required": true,
+          "note": "base units; int()'d"
+        }
+      }
+    },
+    "reader": "wallet/pay.py native_balance: a list of rows, or {native: [rows], tokens: [...]} (the agent tool's shape)",
+    "example": [
+      {
+        "chain": "solana",
+        "providerStatus": "ready",
+        "raw": "1000000000"
+      }
+    ]
+  }
+}

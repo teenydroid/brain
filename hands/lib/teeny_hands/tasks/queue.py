@@ -531,50 +531,22 @@ def _screenshots(task_id: int, value: Any) -> list[str]:
     return kept
 
 
-def _storage() -> Path:
-    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
-    import os
-
-    if os.environ.get("TEENY_STORAGE"):
-        return Path(os.environ["TEENY_STORAGE"])
-    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
-    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
-
-
 def _unreported_run(since: float) -> str | None:
     """When an operator run started after `since` (a claim) and has ended,
     what it said (its first line, short); None when none has, or the core's
-    storage cannot be read (the stale cutoff still applies then). Called
+    cron history cannot be read (the stale cutoff still applies then). Called
     after the desk settled any report, so an ended run here left none.
     Read-only, as bin/crons reads it."""
-    path = _storage()
-    if not path.is_file():
-        return None
+    store = _desk._cron_store()
     try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
-    except sqlite3.Error:
+        ids = {j["id"] for j in store.jobs() if j.get("name") == OPERATOR_JOB}
+        ended = [r for r in store.runs() if str(r.get("job_id")) in ids and isinstance(r.get("started_ms"), (int, float))
+                 and r["started_ms"] >= int(since * 1000) and r.get("finished_ms") is not None]
+    except store.Unavailable:
         return None
-    try:
-        row = conn.execute(
-            "WITH jobs AS MATERIALIZED (SELECT id, body FROM docs WHERE coll = 'cron.jobs' AND deleted = 0"
-            "   AND json_valid(body)),"
-            " runs AS MATERIALIZED (SELECT body FROM docs WHERE coll = 'cron.runs' AND deleted = 0"
-            "   AND json_valid(body) AND body != '{}')"
-            " SELECT json_extract(runs.body, '$.output') FROM runs"
-            " JOIN jobs ON jobs.id = json_extract(runs.body, '$.job_id')"
-            " WHERE json_extract(jobs.body, '$.name') = ?"
-            "   AND json_extract(runs.body, '$.started_ms') >= ?"
-            "   AND json_extract(runs.body, '$.finished_ms') IS NOT NULL"
-            " ORDER BY json_extract(runs.body, '$.seq') DESC LIMIT 1",
-            (OPERATOR_JOB, int(since * 1000)),
-        ).fetchone()
-    except sqlite3.Error:
+    if not ended:
         return None
-    finally:
-        conn.close()
-    if row is None:
-        return None
-    said = str(row[0] or "").strip().splitlines()
+    said = str(max(ended, key=lambda r: r.get("seq") or 0).get("output") or "").strip().splitlines()
     return (said[0] if said else "nothing")[:200]
 
 

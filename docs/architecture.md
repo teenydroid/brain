@@ -1,10 +1,10 @@
-# Teeny on a stock OpenHuman: spine, hands, brain
+# Teeny on OpenClaw: spine, hands, brain
 
 Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from LI.FI's public API (bridges, by default) or deBridge's (swaps) (`spine/src/wallet_backend.rs`, `lifi.rs`, `debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. It also writes the browser's pictures of pages to a folder (`browser_pictures.rs`) and builds the unsigned transactions of a Tiny Drops round (`teeny-spine giveaway-tx`, `giveaway_tx.rs`). [`spine/README.md`](../spine/README.md) lists the files. | `spine/`, `vendor/openhuman` |
+| **Spine** | `core/`, the TypeScript core, run as `bin/teeny-core serve` (Node 24). It answers the same `openhuman.*` JSON-RPC every script and hand calls (`bin/oh`, `hand.core`), keeps the settings, the wallet signer (`core/src/wallet`), cron and memory, and supervises an **OpenClaw Gateway** (the pinned `openclaw` npm package) that runs the agents' turns, the browser and the scheduled automations. [`core/README.md`](../core/README.md) lists the files. | `core/` |
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
@@ -15,9 +15,10 @@ How the pieces call each other, and where each boundary sits:
 
 ```
  brain/ (prompts, MEMORY.md,         ┌──────────────────────────────────────────────┐
- agents, playbooks, cron.toml) ────► │ spine: teeny-spine serve                     │
-                                     │ agent loop, cron, memory, browser, JSON-RPC  │
-                                     │ brain/storage.db: threads, crons, keyring    │
+ agents, playbooks, cron.toml) ────► │ spine: teeny-core serve (core/, Node 24)     │
+                                     │ JSON-RPC, settings, wallet, memory, cron API │
+                                     │   └─ supervises the OpenClaw Gateway:        │
+                                     │      agent turns, browser, automations       │
                                      └──────┬─────────────────────────▲─────────────┘
                      cron runs a shell job  │                         │  bin/ask: one turn of a
                                             ▼                         │  tool-less agent, JSON back
@@ -38,9 +39,9 @@ How the pieces call each other, and where each boundary sits:
 A model's text crosses only the `bin/ask` arrow, as a draft. Everything that
 reaches the outside world goes down through a hand.
 
-OpenHuman references below use `$C = crates/openhuman-core/src`. Upstream's
-gaps are in [`oh-gaps.md`](oh-gaps.md) and the hands' verbs are in
-[`hands.md`](hands.md).
+OpenHuman references below (`$C = crates/openhuman-core/src`) describe the
+Rust core this one replaced; its tree is no longer in the repository. The
+hands' verbs are in [`hands.md`](hands.md).
 
 ---
 
@@ -106,28 +107,80 @@ difference: `command = ...` for a shell job, `agent = ...` for an agent job):
 
 ## 2. Spine
 
-One process, `teeny-spine serve`, running as the checkout owner's uid in the
-container. `bin/spine` is the entrypoint. Configuration:
+One process, `bin/teeny-core serve` (`core/dist/main.js`, Node 24), running as
+the checkout owner's uid in the container. `bin/spine` is the entrypoint. The
+core has two halves: the RPC host it answers on `127.0.0.1:7788`, and the
+**OpenClaw Gateway** it starts, restarts and stops as a child process.
+
+### The boot, in order (`bin/spine`)
+
+1. Write Teeny's sections into `.openhuman/config.toml` (`bin/lib/inbound_config.py`,
+   `wallet_config.py`, `core_config.py`; the core reads the cron shell timeout and
+   the wallet policy from it, `TEENY_CORE_CONFIG`) and build the agents' prompts
+   (`bin/lib/prompts.py`).
+2. Mint `secrets/core.token` and `secrets/openhuman.key` on a first boot.
+3. Run `bin/doctor`. A checkout it fails never serves; `state/last-good` is booted
+   instead, once, when there is one. The doctor checks Node 24 and the core's build
+   too.
+4. Start `bin/teeny-core serve` and wait for `/health`. The core writes the Gateway's
+   config to `state/openclaw/openclaw.json` (0600) and starts the Gateway on it.
+5. Send the settings over RPC (agent turn budget, the model and its key, the model
+   windows, the memory store), unchanged from the OpenHuman days. The core stores them
+   sealed under the master key and rewrites the Gateway's config from them, restarting
+   the Gateway once, a half second after the last one.
+6. Check what the core generated: `bin/lib/gateway_check.py lockdown` reads the
+   flags back from the file, and `teeny-core openclaw security audit --json` is
+   run on it. A wrong flag or a critical finding stops the boot (and tries the
+   last good commit); warnings are logged.
+7. Wait for the Gateway to take a `cron_list`, then `bin/seed-cron`, then the broker.
+
+`state/spine.pid` is the pid `bin/evolve` sends TERM to; compose starts the
+container again on the new checkout.
+
+### The OpenClaw Gateway
+
+The Gateway is OpenClaw's own process (`openclaw gateway`, from the npm package
+pinned in `core/package.json`, no global install). It runs the agent turns
+(`inference_agent_chat*` and `bin/ask`: the core calls `openclaw agent --json`
+with a session key, `agent:<id>:<thread>`), the browser plugin, and the cron
+jobs (OpenClaw automations; `cron_*` RPC is a thin translation, `core/src/cron`).
+The core generates its configuration and nobody edits it by hand
+(`core/src/gateway/config.ts`). What that configuration locks down, and what
+`bin/doctor` and `bin/spine` check every time:
+
+| Flag | Value | Why |
+|---|---|---|
+| `channels`, `bindings` | absent | Telegram and every other channel stay in the hands. No message can reach an agent except through a hand that screened it. |
+| `hooks.enabled` | `false` | No webhook into the Gateway. |
+| `gateway.http.endpoints.chatCompletions` / `responses` | `enabled: false` | No OpenAI-style endpoint a process on the box could talk to. |
+| `gateway.bind`, `gateway.mode` | `loopback`, `local` | Nothing off the box. |
+| `gateway.auth` | `token`, and the token is never in the file | It arrives in the Gateway's environment. The core keeps it in `state/openclaw/gateway.token` (0600), which `bin/openclaw` (the `openclaw` the cron readers run, `bin/lib/cron_store.py`) reads to reach the Gateway. |
+| `gateway.controlUi`, `discovery.mdns` | off | No UI, no advertising. |
+| `update.checkOnStart` | `false` | The Gateway never phones home for updates. |
+| `cron.skipMissedJobs` | `true` | A slot missed while it was down is skipped, not replayed (`bin/lib/catch_up.py` decides what is made up). |
+| `plugins` | allowlist: the browser, and `teeny-guardrails` | The guardrails plugin is what holds every tool call of every agent to its definition (`core/plugins/teeny-guardrails`). |
+
+The Gateway's environment holds the model key and its own token, and nothing
+else of the core's: no core token, no master key. Agent definitions are still
+`brain/agents/*.toml`; the core turns each into an OpenClaw agent with its own
+workspace under `state/openclaw/workspaces/` (`core/src/agents`).
+
+### Settings and state
 
 | Concern | How |
 |---|---|
-| Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/brain`, with **no `config.toml` inside it**. OpenHuman then uses `brain/` as its files directory and keeps its config at `/srv/teeny/.openhuman/config.toml`, which is gitignored. OpenHuman takes the sibling `.openhuman/` for its config only when that config already exists, so `bin/spine` writes an empty one before the first boot, and refuses to start if there is a `brain/config.toml` (the core would nest a second `brain/workspace/`). |
-| One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/brain/storage.db`. Sessions, threads, memory state, crons and encrypted secrets are rows in one `docs` table (`scope, coll, id, body` JSON). Crons are `coll = 'cron.jobs'` and `'cron.runs'`. |
-| Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` and `bin/*` resolve. |
+| Brain and state | `OPENHUMAN_WORKSPACE=/srv/teeny/brain` (no `config.toml` inside it), `state/` for the core's own files (`state/openclaw/`, the wallet in `state/wallet/`, the settings store), `secrets/` for the token and keys. |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
-| Model | The core's `local-openai` runtime, which needs no TinyHumans account. `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL`. The core does not ask a `local-openai` endpoint for the model's context window, and budgets an unknown model at a few thousand tokens, so `bin/spine` registers the window with `inference_update_model_settings`, from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models`. |
-| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring through `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). Only the agents that speak as Teeny (`teeny`, `act`, `teeny-mentions`, `teeny-mail`) log their turns there; every agent that recalls nothing (`omit_memory_context`) also sets `omit_memory_log = true`, so a helper's turn (the studio's writer and editor, the evals' judge, the querier, the reviewer, the operator) never reaches memory (`bin/lib/agent_check.py`; on 2026-11-23, 1,236 such turns sat in CortexDB, recalled by nobody and turning up in recall). Embeddings: CortexDB pins its embedding model (`venice-embed-1`, 1024 dims, on Surplus) on the first memory and has no second source (v0.10.4 reads one `CORTEX_EMBEDDING_URL`). A fallback must serve the same model with the same vectors, which no other seller is known to; any other model means a re-embed of everything stored (`CORTEX_EMBEDDING_ALLOW_REPIN=1` with `CORTEX_EMBEDDING_REBUILD_VECTORS=1`), a person's call. So when the seller is down (`503 no_healthy_sellers`, for hours on 2026-11-20..23) the embeddings retry twice, a second and then two apart (`deploy/compose.yaml`), and `bin/health` reads CortexDB's `/v1/admin/ready`: no embedding for 15 minutes, two checks in a row, opens `memory_alarm` (a `health · alarm` stimulus and one issue), closed by the first success. |
-| Keyring | File store: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key`. Every secret OpenHuman holds is a row in `storage.db`, encrypted under that key. Back up `storage.db` and the key file together. |
+| Model | The Gateway's `local-openai` provider, an OpenAI-compatible endpoint: `LADDER_URL` (as `LOCAL_OPENAI_URL`), the key stored over `config_update_local_ai_settings`, and `local-openai/$SPINE_MODEL` as the default. The windows `bin/spine` registers (`inference_update_model_settings`) become each model's `contextWindow`; threads fold at 100k tokens, keeping the last 40k. |
+| Memory | `core/src/memory`: CortexDB over `memory_engine_set`, as before (§4a). |
+| Wallet | `core/src/wallet`: the signer, the spend ledger and the caps in `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from `secrets/teeny.env`. The master key file `secrets/openhuman.key` seals the recovery phrase (`enc2`). `bin/teeny-core giveaway-tx create\|close` builds a Tiny Drops round's transactions. Money moves only here, after the caps say yes. |
+| Cron | OpenClaw automations. Shell jobs run `sh -c` with a minimal environment from the action dir `OPENHUMAN_ACTION_DIR=/srv/teeny`, under the `[cron] shell_timeout_secs` the core reads from its config. `bin/crons` and the health tools read through `bin/lib/cron_store.py`. |
+| Browser | OpenClaw's browser plugin on the image's Chromium (`TEENY_CHROME_PATH`). `deploy/browser-allow.txt` and `browser-deny.txt` are enforced by the guardrails plugin; `bin/spine` still exports `OPENHUMAN_BROWSER_ALLOW_ALL` and `OPENHUMAN_BROWSER_DENY_FILE` for it. |
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
-| Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
-| Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, `state/workbench/` as the one writable trusted root, and the checkout's own code folders as read-only ones (every top-level folder but `secrets/`, `.git`, `state/`, `.openhuman` and `brain/`: the code is public, and an agent that can read its hands and docs stops guessing at them). The sandboxed shell's jail is granted the same read-only folders (`[runtime.local_jail] extra_read_only`, applied to the shell since openhuman#8776), with `/proc` kept shut because it shows the core's environment. Since the same pin a jailed shell is no longer refused for naming `..` or a system path, and one refused command no longer ends the run: the same command refused twice does, or eight refusals with nothing run between them. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), one persistent profile in `state/browser/profile/` (mode 0700), so cookies and sign-ins survive a restart, and downloads under `state/browser/`. The core passes that folder to TinyComputer as the host's own `browser.profile`, the only one its egress-enforced launcher lets a session name, and Chrome launches it with extensions off (tinyhumansai/tinycomputer#175). A second browser that starts while the first holds the profile runs fresh, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`: OpenHuman enforces that list on every connection the browser makes, clicks and redirects included (`OPENHUMAN_BROWSER_DENY_FILE`, set by bin/spine; an unreadable list refuses every page), hands/tasks refuses such start pages, and the operator's prompt covers links. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. Sites that refuse the box's datacenter address (Reddit blocks it outright) go through the operator's residential proxy: with `BROWSER_PROXY_URL` in `secrets/spine.env`, `bin/lib/core_sections/automation.py` writes `[browser] upstream_proxies` for the hosts on `deploy/browser-proxy-domains.txt` (operator-owned, frozen; a host matches its subdomains), and TinyComputer's egress proxy reaches them through a `CONNECT` tunnel on that proxy. Each such page is still authorized by TinySecurity and the deny list, and so is the proxy's own address; every other page goes direct, and without the secret nothing is routed. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. Because the profile persists, a site Teeny signed up on stays signed in between the operator's tasks: that is how Teeny is on Reddit, which has no API open to it. `hands/reddit` never drives the browser; it queues `reddit_*` desk tasks (the words to type as the task's `text`), and the operator does them on old.reddit.com as Teeny's own account (docs/hands.md, "reddit"). |
-| Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; bridges go through LI.FI and swaps through deBridge unless `WALLET_CONVERT_PROVIDER` names one (`spine/src/wallet_backend.rs`), x402 through `openhuman.x402_fetch`. |
 
-Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
-and the rest), and OpenHuman's own `http_request` for anything that needs a
-secret. MCP is not used either: the scheduled agents reach the hands through
-desk files (§6a).
+Not used: OpenClaw's channels, hooks, chat-completions and responses endpoints,
+the control UI, and its own update check. Hands stay the only path to a side
+effect; a model's text crosses only the `bin/ask` arrow, as a draft.
 
 ## 3. Hands
 
@@ -1393,18 +1446,21 @@ both.
 ## 8. Deploy
 
 - One image, the root `Dockerfile`, in three stages:
-  - build `teeny-spine` from `vendor/openhuman`;
-  - stage OpenHuman's pinned, digest-checked module releases with its own
-    `stage-modules.mjs` (TinyBox among them, which cron shell jobs need);
-  - a slim Debian runtime with Chromium, `jq`, `sqlite3`, `curl` and
-    `python3`.
+  - a `node:24` stage that runs `npm ci` and `npm run build` in `core/` and
+    prunes to production dependencies (the pinned `openclaw` is one);
+  - Digg's reader for `hands/trend`;
+  - a `node:24-bookworm-slim` runtime with Chromium, bubblewrap, `jq`,
+    `sqlite3`, `curl` and `python3`. The core is in `/opt/teeny-core`
+    (the checkout mounted over `/srv/teeny` has no build), and
+    `OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-core` is its wrapper.
 - Nothing of Teeny's is baked in. `deploy/compose.yaml` mounts the checkout
   at `/srv/teeny`, so a script, playbook or `cron.toml` change is a pull and
   a restart, not a rebuild.
 - Three services in `deploy/compose.yaml`:
   - `spine`: the core, with `bin/spine` as the entrypoint. It mints
     `secrets/core.token` and `secrets/openhuman.key` on first boot, runs the
-    doctor, writes Teeny's sections into the core's config, starts `serve`,
+    doctor, writes Teeny's sections into the core's config, starts `serve`
+    (which starts the OpenClaw Gateway),
     configures the model and memory from `secrets/spine.env` (read in a
     subshell, so the keys never enter the core's environment, which jobs
     inherit), and runs `bin/seed-cron`. It publishes no port.

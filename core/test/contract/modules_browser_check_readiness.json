@@ -1,0 +1,35 @@
+{
+  "method": "openhuman.modules_browser_check_readiness",
+  "call_sites": [
+    "bin/doctor:137"
+  ],
+  "params": {
+    "fields": {},
+    "example": {}
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "module_ready": {
+        "type": "boolean",
+        "required": true,
+        "note": "must be true"
+      },
+      "chrome_ready": {
+        "type": "boolean",
+        "required": true,
+        "note": "must be true"
+      },
+      "error": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "reader": "bin/doctor: .module_ready == true and .chrome_ready == true",
+    "example": {
+      "module_ready": true,
+      "chrome_ready": true
+    }
+  },
+  "timeout": "OH_TIMEOUT=60"
+}

@@ -1,0 +1,23 @@
+{
+  "method": "openhuman.inbound_result_ack",
+  "call_sites": [
+    "bin/inbound-consume:157"
+  ],
+  "params": {
+    "fields": {
+      "turn_id": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "turn_id": "t1"
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Response ignored; a failure is logged and the turn is read again next run."
+}

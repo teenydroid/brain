@@ -29,6 +29,14 @@ NOTES = """## What's new
 - Langfuse export without the proxy (tinyhumansai/openhuman/pull/9001, see https://github.com/tinyhumansai/openhuman/issues/8122)
 - what a retard #8120
 """
+GAPS = """| # | Gap | Workaround | Proposed |
+|---|---|---|---|
+| G1 ([#8118](https://github.com/tinyhumansai/openhuman/issues/8118)) | **Solved** (openhuman#8648). | none | none |
+| G2 ([#8119](https://github.com/tinyhumansai/openhuman/issues/8119)) | **Cron jobs can't be declared in a file.** | bin/seed-cron | a file |
+| G3 ([#8120](https://github.com/tinyhumansai/openhuman/issues/8120)) | **Channel replies have no outbound hook.** | none | a hook |
+| G5 ([#8122](https://github.com/tinyhumansai/openhuman/issues/8122)) | **No direct Langfuse export.** | none | export |
+| G11 (resolved, [#8654](https://github.com/tinyhumansai/openhuman/pull/8654)) | **MCP tools dropped.** | none | fixed |
+"""
 
 
 class FakeGitHub:
@@ -58,7 +66,9 @@ class UpstreamTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / "docs").mkdir()
         (self.root / "secrets").mkdir()
-        shutil.copy(REPO / "docs" / "oh-gaps.md", self.root / "docs")
+        # docs/oh-gaps.md left the tree with the Rust core; the hand still reads
+        # a table of that shape, so the test brings its own.
+        (self.root / "docs" / "oh-gaps.md").write_text(GAPS)
         env = {**os.environ, "GIT_AUTHOR_NAME": "o", "GIT_AUTHOR_EMAIL": "o@e", "GIT_COMMITTER_NAME": "o",
                "GIT_COMMITTER_EMAIL": "o@e"}
         for args in (["init", "-q", "-b", "main"], ["update-index", "--add", "--cacheinfo", f"160000,{PIN},vendor/openhuman"],

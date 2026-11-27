@@ -1,0 +1,43 @@
+{
+  "method": "openhuman.wallet_tx_status",
+  "call_sites": [
+    "hands/lib/teeny_hands/wallet/convert.py:583"
+  ],
+  "params": {
+    "fields": {
+      "chain": {
+        "type": "string",
+        "required": true,
+        "note": "'evm'"
+      },
+      "hash": {
+        "type": "string",
+        "required": true
+      },
+      "evmNetwork": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "chain": "evm",
+      "hash": "0xabc",
+      "evmNetwork": "base"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "state": {
+        "type": "string",
+        "required": true,
+        "note": "confirmed | failed | anything else = still pending"
+      }
+    },
+    "reader": "wallet/convert.py _approve polls it; a CoreError reads as pending",
+    "example": {
+      "state": "confirmed"
+    }
+  },
+  "timeout": "30s"
+}

@@ -1,0 +1,41 @@
+{
+  "method": "openhuman.memory_engine_set",
+  "call_sites": [
+    "bin/spine:278"
+  ],
+  "params": {
+    "fields": {
+      "engine": {
+        "type": "string",
+        "required": true,
+        "note": "'cortexdb'"
+      },
+      "endpoint": {
+        "type": "string",
+        "required": true
+      },
+      "api_key": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "example": {
+      "engine": "cortexdb",
+      "endpoint": "http://cortex.invalid"
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "status": {
+        "type": "string",
+        "required": false,
+        "note": "logged; 'unknown' when absent"
+      }
+    },
+    "reader": "bin/spine: jq -r '.status // \"unknown\"'",
+    "example": {
+      "status": "ready"
+    }
+  }
+}

@@ -1,46 +1,22 @@
 # syntax=docker/dockerfile:1.7
 #
-# The spine image: teeny-spine (OpenHuman's host, built here from the
-# vendored library, with tinywallet linked in), OpenHuman's
-# pinned module releases, Chromium for the browser, Digg's reader for
-# hands/trend, and the tools bin/ needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
-# mounts the checkout at /srv/teeny, so a job or cron.toml change is a pull and
-# a restart, not a rebuild.
+# The spine image: teeny-core (the TypeScript core, built here, which hosts the
+# OpenClaw Gateway its agent turns run on), Node 24, Chromium for the browser,
+# Digg's reader for hands/trend, and the tools bin/ needs. Teeny's scripts and
+# brain are not baked in; deploy/compose.yaml mounts the checkout at /srv/teeny,
+# so a job or cron.toml change is a pull and a restart, not a rebuild. The core
+# itself lives in /opt/teeny-core, because that mount hides /srv/teeny/core.
 #
-#   git submodule update --init --recursive vendor/openhuman
 #   docker build -t teeny-spine .
 
-# --- build teeny-spine --------------------------------------------------------
-FROM rust:1.96.1-bookworm AS builder
-ARG CARGO_BUILD_JOBS=4
-ENV DEBIAN_FRONTEND=noninteractive
-# What OpenHuman links on Linux (X11, xdo, evdev, ALSA), as its own image has,
-# plus what the linked TinyComputer needs (Xi, udev), as CI installs.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential cmake pkg-config libssl-dev libasound2-dev libxdo-dev \
-      libxtst-dev libx11-dev libxi-dev libevdev-dev libudev-dev clang mold git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /build
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY spine/ spine/
-COPY vendor/ vendor/
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/target \
-    cargo build --release --locked -p teeny-spine \
- && cp target/release/teeny-spine /teeny-spine
-
-# --- stage the pinned, digest-checked module releases -------------------------
-# OpenHuman's own staging script, from the vendored commit, so the modules are
-# exactly the ones that commit pins (vendor/openhuman/Dockerfile does the same).
-FROM node:24-bookworm-slim AS modules
-WORKDIR /repo
-COPY vendor/openhuman/scripts/lib/module-pins.mjs vendor/openhuman/scripts/lib/git-env.mjs scripts/lib/
-COPY vendor/openhuman/scripts/ci/self-hosted/test-module-assets.mjs scripts/ci/self-hosted/test-module-assets.mjs
-COPY vendor/openhuman/scripts/release/stage-modules.mjs scripts/release/stage-modules.mjs
-COPY vendor/openhuman/crates/openhuman-core/src/modules/registry.rs crates/openhuman-core/src/modules/registry.rs
-COPY vendor/openhuman/crates/openhuman-core/src/modules/registry/ crates/openhuman-core/src/modules/registry/
-RUN node scripts/release/stage-modules.mjs --output /bundled-modules
+# --- build the core -------------------------------------------------------------
+FROM node:24-bookworm-slim AS core
+WORKDIR /build/core
+COPY core/package.json core/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY core/tsconfig.json core/tsconfig.build.json ./
+COPY core/src/ src/
+RUN npm run build && npm prune --omit=dev
 
 # --- digg-pp-cli: what AI X is talking about (hands/trend) -------------------
 # Digg's leaderboard reader (Apache-2.0), from mvanhorn/printing-press-library
@@ -57,26 +33,21 @@ RUN --mount=type=cache,target=/go/pkg/mod \
  && /out/digg-pp-cli version
 
 # --- runtime ----------------------------------------------------------------------
-FROM debian:bookworm-slim
+FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
-# The core's runtime libraries, curl for the health check and bin/oh, jq and
-# sqlite3 for bin/, python3 for bin/seed-cron's TOML and the hands, git for
-# hands/gh's pushes.
+# Node 24 comes with the base image (OpenClaw needs it, and so does the core's
+# node:sqlite). curl for the health check and bin/oh, jq and sqlite3 for bin/,
+# python3 for bin/seed-cron's TOML and the hands, git for hands/gh's pushes.
 #
-# The browser (docs/gitbooks/en/developing/tinycomputer-docker.md in
-# vendor/openhuman): Chromium at /usr/bin/chromium, which
-# bin/lib/core_sections/automation.py writes as `[browser] chrome_path`
-# (TEENY_CHROME_PATH below), with fonts so pages render. TinyComputer itself
-# is its pinned release (bin/lib/core_sections/automation.py says why it is
-# not served linked), staged with the others below. agent-browser adds --no-sandbox and --disable-dev-shm-usage itself
-# inside a container. bubblewrap is TinyBox's namespace sandbox, which the
-# builder's shell commands run under (brain/agents/builder.toml).
+# The browser: Chromium at /usr/bin/chromium (TEENY_CHROME_PATH below, which
+# OpenClaw's browser is pointed at), with fonts so pages render. bubblewrap is
+# the namespace sandbox the builder's shell commands run under.
 # python3-cryptography and python3-pil are the libraries the hands use beyond
 # the standard library: AES-256-GCM for hands/keychain's sealed passwords, and
 # Pillow for hands/meme's captions, the 5 MB shrink of hands/image and the
 # viewer check (hands/guard view).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates libssl3 libasound2 libxdo3 libxtst6 libx11-6 libxi6 libevdev2 libudev1 \
+      ca-certificates \
       curl jq sqlite3 python3 python3-cryptography python3-pil git \
       chromium fonts-liberation bubblewrap \
  && rm -rf /var/lib/apt/lists/*
@@ -92,12 +63,13 @@ RUN git config --system user.name "Teeny" \
  && git config --system safe.directory /srv/teeny \
  && git config --system --add safe.directory '/srv/teeny/*' \
  && git config --system advice.detachedHead false
-COPY --from=builder /teeny-spine /usr/local/bin/teeny-spine
-COPY --from=modules /bundled-modules /opt/openhuman/bundled-modules
+COPY --from=core /build/core/dist /opt/teeny-core/dist
+COPY --from=core /build/core/node_modules /opt/teeny-core/node_modules
+COPY --from=core /build/core/package.json /opt/teeny-core/package.json
+COPY bin/teeny-core bin/openclaw /usr/local/bin/
 # hands/trend runs it with a home of its own under state/trend/home.
 COPY --from=digg /out/digg-pp-cli /usr/local/bin/digg-pp-cli
-ENV OPENHUMAN_BUNDLED_MODULES=/opt/openhuman/bundled-modules \
-    OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-spine \
+ENV OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-core \
     OPENHUMAN_DOCKER=1 \
     OPENHUMAN_CORE_HOST=127.0.0.1 \
     OPENHUMAN_CORE_PORT=7788 \

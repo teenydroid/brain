@@ -1,0 +1,34 @@
+{
+  "method": "openhuman.memory_forget",
+  "call_sites": [
+    "bin/lib/dream.py:282"
+  ],
+  "params": {
+    "fields": {
+      "ids": {
+        "type": "array",
+        "required": true,
+        "note": "string ids"
+      }
+    },
+    "example": {
+      "ids": [
+        "aaa111"
+      ]
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "forgotten": {
+        "type": "number",
+        "required": false,
+        "note": "count; defaults to len(ids)"
+      }
+    },
+    "reader": "bin/lib/dream.py forget",
+    "example": {
+      "forgotten": 1
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "method": "openhuman.wallet_generate_mnemonic",
+  "call_sites": [
+    "bin/wallet-setup:101"
+  ],
+  "params": {
+    "fields": {
+      "wordCount": {
+        "type": "number",
+        "required": true,
+        "note": "the WORDS constant of bin/wallet-setup"
+      }
+    },
+    "example": {
+      "wordCount": 12
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "phrase": {
+        "type": "string",
+        "required": true,
+        "note": "exactly wordCount space-separated words"
+      }
+    },
+    "reader": "bin/wallet-setup only; the phrase is shown on /dev/tty and never logged",
+    "example": {
+      "phrase": "word word word word word word word word word word word word"
+    }
+  }
+}

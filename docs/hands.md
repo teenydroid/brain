@@ -3357,7 +3357,7 @@ policy is written byte for byte as without it). One step:
    `GIVEAWAY_RPC_URL` answers with that cluster's genesis hash (`cluster`), and
    `GIVEAWAY_AUTHORITY` is the address the core has for index 1
    (`wallet_account`; `rule: authority`).
-2. `teeny-spine giveaway-tx create|close` (`spine/src/giveaway_tx.rs`) builds
+2. `teeny-core giveaway-tx create|close` (`core/src/wallet/giveaway.ts`) builds
    the unsigned legacy transaction over a fresh blockhash: one
    CreateMerkleDistribution (amount = total_amount = the round total, the
    root, the clawback time, not revocable; a throwaway seed keypair, made and
@@ -3650,6 +3650,8 @@ Teeny's; how one is built and capped is the operator's.
 
 Teeny notices a release that would let the operator delete a workaround, and asks for the pin bump
 (docs/roadmap.md, G9). Frozen; the playbook that asks (`brain/playbooks/pin-bump.md`) is Teeny's.
+
+The pin it reads (`vendor/openhuman`) and the gap table it matches (`docs/oh-gaps.md`) left the tree with the Rust core, so `releases` now finds no pin and `propose` has nothing to propose. Pointing it at the pinned `openclaw` version in `core/package.json` is follow-up work.
 
 | Verb | | Does |
 |---|---|---|

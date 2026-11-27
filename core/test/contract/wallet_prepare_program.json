@@ -1,0 +1,95 @@
+{
+  "method": "openhuman.wallet_prepare_program",
+  "call_sites": [
+    "hands/lib/teeny_hands/giveaway/onchain.py:21",
+    "hands/lib/teeny_hands/giveaway/onchain.py:303"
+  ],
+  "params": {
+    "fields": {
+      "accountIndex": {
+        "type": "number",
+        "required": true,
+        "note": "1"
+      },
+      "transaction": {
+        "type": "string",
+        "required": true,
+        "note": "base64 transaction"
+      },
+      "expectedDebits": {
+        "type": "array",
+        "required": true,
+        "note": "[{...}] or [] for close"
+      }
+    },
+    "example": {
+      "accountIndex": 1,
+      "transaction": "AAAA",
+      "expectedDebits": []
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "quoteId": {
+        "type": "string",
+        "required": true
+      },
+      "accountIndex": {
+        "type": "number",
+        "required": false,
+        "note": "absent or 1"
+      },
+      "address": {
+        "type": "string",
+        "required": false,
+        "note": "absent or the authority"
+      },
+      "summary": {
+        "type": "object",
+        "required": true,
+        "note": "{feePayer: string, programs: string[], instructions: [{programId, accounts: string[], dataHex}] (exactly one), movements: falsy}"
+      },
+      "simulation": {
+        "type": "object",
+        "required": true,
+        "note": "{err: null, debits: [...]} equal to expectedDebits"
+      },
+      "declaredDebits": {
+        "type": "array",
+        "required": false,
+        "note": "defaults to expectedDebits"
+      }
+    },
+    "reader": "giveaway/onchain.py _check_common/_check_simulation: every field is compared with the plan before execute",
+    "example": {
+      "quoteId": "q-9",
+      "accountIndex": 1,
+      "summary": {
+        "feePayer": "A",
+        "programs": [
+          "P"
+        ],
+        "instructions": [
+          {
+            "programId": "P",
+            "accounts": [
+              "A"
+            ],
+            "dataHex": "01"
+          }
+        ],
+        "movements": []
+      },
+      "simulation": {
+        "err": null,
+        "debits": []
+      },
+      "declaredDebits": []
+    }
+  },
+  "timeout": "60s",
+  "errors": [
+    "message containing 'WALLET_POLICY_REFUSED' is the core's policy refusing the giveaway wallet"
+  ]
+}

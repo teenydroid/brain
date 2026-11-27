@@ -65,7 +65,6 @@ pull requests (`evals/frozen.txt`).
 From the checkout:
 
 ```sh
-git submodule update --init --recursive vendor/openhuman
 mkdir -p secrets && chmod 700 secrets
 cp deploy/spine.env.example secrets/spine.env && chmod 600 secrets/spine.env
 $EDITOR secrets/spine.env            # LADDER_URL, LADDER_API_KEY, SPINE_MODEL; CortexDB and SURPLUS_API_KEY if wanted
@@ -338,8 +337,8 @@ docker compose -f deploy/compose.yaml logs -f xhook
   git pull --ff-only
   mv state/MEMORY.live.md brain/MEMORY.md
   ```
-- For OpenHuman itself, bump `vendor/openhuman` (see `docs/developers.md`), then
-  `up -d --build`.
+- For OpenClaw itself, bump the pinned version in `core/package.json` (see
+  `docs/developers.md`), then `up -d --build`.
 - To change where the browser may go, edit `browser-allow.txt` here (one
   host per line, reviewed by you, never by Teeny), then restart. The operator
   agent's browser profile is in `state/browser/profile/` and its downloads in

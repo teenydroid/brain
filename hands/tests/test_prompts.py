@@ -443,17 +443,12 @@ class PromptsTest(unittest.TestCase):
         # MEMORY.md). Nothing told Teeny where it came from: it saw a header
         # with no instruction inside, filed it as an injection ("data wearing
         # a uniform", memory m103) and set out to log every recurrence (#445).
-        # The world now names the note by its exact opening words, read from
-        # the vendored runtime so a reworded note fails here first.
-        path = (REPO / "vendor/openhuman/crates/openhuman-core/src/agent/session_host"
-                "/runtime_session/prompt_refresh.rs")
-        # CI's hands shards do not check out vendor/openhuman (it is large);
-        # the spine job does, and runs this test there with
-        # TEENY_REQUIRE_OPENHUMAN=1 so a missing file fails instead of skipping.
-        if not path.is_file() and not os.environ.get("TEENY_REQUIRE_OPENHUMAN"):
-            self.skipTest("vendor/openhuman is not checked out")
-        source = path.read_text()
-        marker = re.search(r'PROMPT_UPDATE_NOTE: &str = "(\[[^\]]+\])', source).group(1)
+        # The world now names the note by its exact opening words.
+        # The Rust core's source (vendor/openhuman) is gone, so the marker is
+        # pinned here instead of read from it. The TypeScript core does not
+        # prepend this note; the world keeps naming it so a beat that still
+        # sees one (a resumed thread, an older log) is not filed as an injection.
+        marker = "[instructions update]"
         for agent in prompts.SPEAKING:
             text = self.real_prompt(agent)
             self.assertIn(marker, text, agent)

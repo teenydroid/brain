@@ -1,80 +1,29 @@
 #!/usr/bin/env bash
-# Show the core's cron jobs and their last run, straight from storage.db.
+# Show the core's cron jobs and their last run.
 #
 #   bin/crons            every job, Teeny's and the core's own
 #   bin/crons runs NAME  the last 20 runs of one job (NAME without `teeny.`
 #                        works too)
 #
-# Read-only, and needs no running core: every OpenHuman store is a row in one
-# `docs` table, and cron is `coll = 'cron.jobs'` / `'cron.runs'` (the v2
-# schedule store; v1 was `cron_jobs` / `cron_runs`; docs/architecture.md, §6).
-# Never write here; rows carry claim generations and an admission record, so
-# changes go through `bin/seed-cron`.
+# Read-only. The scheduler is OpenClaw's automations: the jobs and their run
+# history come from the core's cron_list and cron_runs RPCs through
+# bin/lib/cron_store.py, the one adapter every reader uses (needs the core
+# running). Never write here; changes go through `bin/seed-cron`.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
-need sqlite3
+need python3
 
-[ -r "$TEENY_STORAGE" ] || die "no storage at $TEENY_STORAGE (has the core run yet?)"
-# Read-only and tolerant of the live writer's WAL.
-db="file:$TEENY_STORAGE?mode=ro"
-q() { sqlite3 -cmd '.timeout 5000' -column -header "$db" "$@"; }
-# An epoch-milliseconds field of a JSON body, as UTC `YYYY-MM-DD HH:MM:SS`.
-ms() { printf "strftime('%%Y-%%m-%%d %%H:%%M:%%S', json_extract(%s, '\$.%s') / 1000.0, 'unixepoch')" "$2" "$1"; }
-
-# Every query narrows to the cron collections and to valid JSON in a
-# materialized CTE first: other stores keep bodies that are not JSON
-# (transcripts, catalogs), and SQLite may otherwise evaluate json_extract on
-# them before the coll filter. Times are epoch milliseconds (`*_ms`).
-jobs_cte="
-  jobs as materialized (
-    select id, body from docs
-    where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-  ),
-  runs as materialized (
-    select body from docs
-    where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-  )"
+store="$TEENY_ROOT/bin/lib/cron_store.py"
 
 case "${1:-}" in
-  "")
-    q "
-      with $jobs_cte,
-      last as (
-        select json_extract(body, '\$.job_id') as job_id,
-               json_extract(body, '\$.status') as status,
-               json_extract(body, '\$.finished_ms') as finished_ms,
-               row_number() over (partition by json_extract(body, '\$.job_id')
-                                  order by json_extract(body, '\$.seq') desc) as n
-        from runs
-      )
-      select json_extract(jobs.body, '\$.name')                as name,
-             json_extract(jobs.body, '\$.job_type')            as type,
-             json_extract(jobs.body, '\$.expression')          as expr,
-             json_extract(jobs.body, '\$.schedule.tz')        as tz,
-             case json_extract(jobs.body, '\$.enabled') when 0 then 'no' else 'yes' end as on_,
-             $(ms next_run_ms jobs.body)                       as next_run,
-             last.status                                       as last,
-             $(ms finished_ms "json_object('finished_ms', last.finished_ms)") as last_at
-      from jobs left join last on last.job_id = jobs.id and last.n = 1
-      order by name"
-    ;;
+  "") python3 "$store" crons ;;
   runs)
     [ $# -eq 2 ] || die "usage: bin/crons runs NAME"
     name="$2"
     case "$name" in teeny.* | *:*) ;; *) name="teeny.$name" ;; esac
     [[ "$name" =~ ^[A-Za-z0-9._:-]+$ ]] || die "not a job name: $2"
-    # The name is bound as a parameter, not spliced into the SQL.
-    q -cmd ".parameter set :name '$(printf '%s' "$name" | sed "s/'/''/g")'" "
-      with $jobs_cte
-      select $(ms started_ms runs.body)                               as started,
-             json_extract(runs.body, '\$.duration_ms')               as ms,
-             json_extract(runs.body, '\$.status')                    as status,
-             replace(substr(json_extract(runs.body, '\$.output'), 1, 120), char(10), ' ') as output
-      from runs join jobs on jobs.id = json_extract(runs.body, '\$.job_id')
-      where json_extract(jobs.body, '\$.name') = :name
-      order by json_extract(runs.body, '\$.seq') desc
-      limit 20"
+    python3 "$store" runs-of "$name"
     ;;
   *) die "usage: bin/crons [runs NAME]" ;;
 esac

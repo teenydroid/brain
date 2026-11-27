@@ -1,0 +1,40 @@
+{
+  "method": "openhuman.config_update_local_ai_settings",
+  "call_sites": [
+    "bin/spine:231"
+  ],
+  "params": {
+    "fields": {
+      "runtime_enabled": {
+        "type": "boolean",
+        "required": true,
+        "note": "true"
+      },
+      "opt_in_confirmed": {
+        "type": "boolean",
+        "required": true,
+        "note": "true"
+      },
+      "native_tool_calling": {
+        "type": "boolean",
+        "required": true
+      },
+      "api_key": {
+        "type": "string",
+        "required": false,
+        "note": "only when LADDER_API_KEY is set"
+      }
+    },
+    "example": {
+      "runtime_enabled": true,
+      "opt_in_confirmed": true,
+      "native_tool_calling": true
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Response ignored. The key goes to the core's stored config, never its env."
+}

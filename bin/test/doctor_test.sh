@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for bin/doctor, and for bin/spine refusing to boot a checkout the
 # doctor fails. Each case breaks one thing in a scratch copy of the checkout.
-# No OpenHuman needed: the spine is handed a stand-in core that only records
-# that it was started.
+# No core needed: the spine is handed a stand-in that only records that it
+# was started, and the Gateway's config is written by hand.
 #
 #   bin/test/doctor_test.sh
 set -euo pipefail
@@ -420,7 +420,19 @@ live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
   done
   printf '%s\n' "$jobs" >"$scratch/jobs.json"
 }
+# What the core writes for the Gateway, as far as the lockdown reads it.
+good_gateway_config() {
+  jq -cn '{gateway: {mode: "local", bind: "loopback", auth: {mode: "token"}, controlUi: {enabled: false},
+           http: {endpoints: {chatCompletions: {enabled: false}, responses: {enabled: false}}}},
+          hooks: {enabled: false}, update: {checkOnStart: false}, discovery: {mdns: {mode: "off"}},
+          cron: {skipMissedJobs: true}, plugins: {allow: ["browser"]}}'
+}
+put_gateway_config() { # [JQ-FILTER]: write the good config, optionally broken by the filter
+  mkdir -p "$root/state/openclaw"
+  good_gateway_config | jq -c "${1:-.}" >"$root/state/openclaw/openclaw.json"
+}
 live_doctor() {
+  [ -e "$root/state/openclaw/openclaw.json" ] || [ "${NO_GATEWAY_CONFIG:-0}" = 1 ] || put_gateway_config
   FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-1800}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
     "$root/bin/doctor" --live >"$scratch/report.json" 2>"$scratch/doctor.log"
 }
@@ -451,17 +463,22 @@ check "--live fails when a cron agent turn gets only the core's default 120 s" \
 live_doctor || true
 check "--live passes the budget bin/spine sets" grep -q '^ok   cron agent turn budget' "$scratch/doctor.log"
 
-# 2026-11-13: every browser call the operator made failed with "module
-# 'tinycomputer' callback source cannot preserve admitted identity" (the core
-# was told to serve TinyComputer linked), and only the operator's own report
-# said so. The core's readiness probe loads the module and opens Chrome.
-FAKE_BROWSER='{"module_ready": false, "chrome_ready": false, "error": "TinyComputer module is unavailable"}' live_doctor || true
-check "--live fails when the TinyComputer browser module cannot load" \
-  grep -q '^FAIL browser: .*TinyComputer module is unavailable' "$scratch/doctor.log"
-FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "Chrome could not start: no binary"}' live_doctor || true
-check "--live fails when Chrome does not start" grep -q '^FAIL browser: .*Chrome could not start' "$scratch/doctor.log"
+# The core's readiness probe says whether the OpenClaw Gateway is running and
+# Chrome is found (under OpenHuman, 2026-11-13, every browser call failed with
+# a module error and only the operator's own report said so).
+FAKE_BROWSER='{"module_ready": false, "chrome_ready": false, "error": "the OpenClaw gateway is not running"}' live_doctor || true
+check "--live fails when the OpenClaw Gateway is not running" \
+  grep -q '^FAIL gateway: .*the OpenClaw Gateway is not running' "$scratch/doctor.log"
+check "and the browser with it" grep -q '^FAIL browser: .*the OpenClaw gateway is not running' "$scratch/doctor.log"
+FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "no Chrome or Chromium binary found (set CHROME_BIN)"}' live_doctor || true
+check "--live fails when no Chrome is found" grep -q '^FAIL browser: .*no Chrome or Chromium binary' "$scratch/doctor.log"
 live_doctor || true
-check "--live passes a browser that loads and starts Chrome" grep -q '^ok   browser: ' "$scratch/doctor.log"
+check "--live passes a Gateway that is up and a Chrome that is found" grep -q '^ok   browser: ' "$scratch/doctor.log"
+check "and says the Gateway is running" grep -q '^ok   gateway: ' "$scratch/doctor.log"
+rm -f "$root/state/openclaw/openclaw.json"
+NO_GATEWAY_CONFIG=1 live_doctor || true
+check "--live fails when the core has not written the Gateway's config" \
+  grep -q '^FAIL gateway lockdown: no ' "$scratch/doctor.log"
 
 # 2026-11-19: a studio preview's every first writer and editor turn on
 # claude-fable-5.2 and claude-opus-5.5 was refused "messages: at least one
@@ -594,6 +611,82 @@ printf 'STUDIO_FORMATS=post,remake\nMEDIA_REMAKE_MAX_PER_DAY=1\nYOUTUBE_API_KEY=
 live_doctor || true
 check "--live warns, never fails, when ingest does not answer" \
   grep -q '^warn remakes: the ingest service at http://127.0.0.1:9 does not answer' "$scratch/doctor.log"
+rm -f "$root/secrets/teeny.env"
+
+# --- the core and its OpenClaw Gateway: the lockdown, the audit, the runtime ------------
+# The core writes the Gateway's config to state/openclaw/openclaw.json; the
+# doctor reads the flags back and runs `openclaw security audit` on it.
+cat >"$scratch/audit-core" <<'FAKE'
+#!/usr/bin/env bash
+# A stand-in core: `openclaw security audit --json` answers $FAKE_AUDIT.
+[ "$1 $2 $3" = "openclaw security audit" ] || exit 2
+printf '%s\n' "$FAKE_AUDIT"
+FAKE
+chmod +x "$scratch/audit-core"
+audit_doctor() { OPENHUMAN_CORE_BIN="$scratch/audit-core" FAKE_AUDIT="$1" doctor; }
+CLEAN_AUDIT='{"findings": []}'
+fresh
+check "before the core has written a config the lockdown only warns" doctor
+check "and says it waits for the core" grep -q '^warn gateway lockdown: no .*openclaw.json yet' "$scratch/doctor.log"
+put_gateway_config
+check "a locked-down config passes" audit_doctor "$CLEAN_AUDIT"
+put_gateway_config '.gateway.auth.token = {source: "file", provider: "teeny_gateway_token", id: "value"} | .models = {providers: {m: {apiKey: {source: "file", provider: "k", id: "value"}}}}'
+check "and so does one whose secrets are SecretRefs" audit_doctor "$CLEAN_AUDIT"
+check "and says how many flags hold" grep -q '^ok   gateway lockdown: 9 lockdown flags hold' "$scratch/doctor.log"
+for broken in \
+  '.hooks.enabled = true|hooks.enabled is true' \
+  '.gateway.http.endpoints.chatCompletions.enabled = true|chatCompletions.enabled is true' \
+  '.gateway.http.endpoints.responses.enabled = true|responses.enabled is true' \
+  '.update.checkOnStart = true|update.checkOnStart is true' \
+  '.gateway.bind = "lan"|gateway.bind is "lan"' \
+  '.gateway.mode = "remote"|gateway.mode is "remote"' \
+  'del(.hooks)|hooks.enabled is not set' \
+  '.channels = {telegram: {enabled: true}}|channels is configured' \
+  '.bindings = [{agentId: "x"}]|bindings is configured' \
+  '.gateway.auth.token = "abc"|gateway.auth.token is in the config file'; do
+  filter="${broken%%|*}" reason="${broken#*|}"
+  fresh
+  put_gateway_config "$filter"
+  fails "a config with $reason fails the doctor" "gateway lockdown"
+  check "and names it ($reason)" grep -qF "$reason" "$scratch/doctor.log"
+done
+fresh
+put_gateway_config
+printf 'not json' >"$root/state/openclaw/openclaw.json"
+fails "an unreadable config fails the doctor" "gateway lockdown"
+
+fresh
+put_gateway_config
+audit_doctor '{"summary": {"critical": 0, "warn": 0, "info": 1}, "findings": [{"checkId": "x.info", "severity": "info"}]}' || true
+check "a clean security audit passes" grep -q '^ok   openclaw security audit: no critical or warning findings (1 informational)' "$scratch/doctor.log"
+audit_doctor '{"findings": [{"checkId": "tools.exec.fs_tools_disabled_but_exec_enabled", "severity": "warn"}]}' || true
+check "an audit warning only warns" grep -q '^warn openclaw security audit: warning(s): tools.exec.fs_tools_disabled_but_exec_enabled' "$scratch/doctor.log"
+if audit_doctor '{"findings": [{"checkId": "gateway.bind_no_auth", "severity": "critical"}]}'; then
+  fail "a critical audit finding fails the doctor (it passed)"
+else
+  check "a critical audit finding fails the doctor" grep -q '^FAIL openclaw security audit: critical finding(s): gateway.bind_no_auth' "$scratch/doctor.log"
+fi
+if audit_doctor 'the audit crashed'; then
+  fail "an audit that prints no JSON fails the doctor (it passed)"
+else
+  check "an audit that prints no JSON fails the doctor" grep -q '^FAIL openclaw security audit: the audit printed no JSON' "$scratch/doctor.log"
+fi
+fresh
+OPENHUMAN_CORE_BIN="$scratch/no-such-core" fails "a missing core binary fails the doctor" "core runtime"
+check "and says where it looked" grep -q "no executable core at $scratch/no-such-core" "$scratch/doctor.log"
+check "the lockdown script itself refuses a config it cannot read" bash -c "! python3 '$repo/bin/lib/gateway_check.py' lockdown '$scratch/none.json' >/dev/null"
+
+# --- TEENY_INBOX=core: this core has no inbound queue -----------------------------------
+fresh
+check "the default inbox passes" doctor
+check "and is the stimuli inbox" grep -q '^ok   inbox: mind' "$scratch/doctor.log"
+mkdir -p "$root/secrets"
+printf 'TEENY_INBOX=core\n' >"$root/secrets/teeny.env"
+fails "TEENY_INBOX=core in secrets/teeny.env fails the doctor" "inbox"
+printf 'TEENY_INBOX="Core"\n' >"$root/secrets/teeny.env"
+fails "however it is spelled" "inbox"
+printf 'TEENY_INBOX=mind\n' >"$root/secrets/teeny.env"
+check "TEENY_INBOX=mind passes" doctor
 rm -f "$root/secrets/teeny.env"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------

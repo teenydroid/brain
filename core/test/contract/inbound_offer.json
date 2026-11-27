@@ -1,0 +1,56 @@
+{
+  "method": "openhuman.inbound_offer",
+  "call_sites": [
+    "hands/lib/teeny_hands/mail/inbox.py:14",
+    "hands/lib/teeny_hands/mail/inbox.py:89",
+    "hands/lib/teeny_hands/x/mentions.py:114",
+    "hands/lib/teeny_hands/x/mentions.py:20"
+  ],
+  "params": {
+    "fields": {
+      "source": {
+        "type": "string",
+        "required": true,
+        "note": "x:mentions | mail:inbox"
+      },
+      "key": {
+        "type": "string",
+        "required": true,
+        "note": "the batching key"
+      },
+      "event_id": {
+        "type": "string",
+        "required": true
+      },
+      "text": {
+        "type": "string",
+        "required": true
+      },
+      "payload": {
+        "type": "object",
+        "required": true,
+        "note": "source-specific: X {id, author, author_id, conversation_id, created_at, ...}; mail {message_id, thread_id, from, subject, received_at}"
+      }
+    },
+    "example": {
+      "source": "x:mentions",
+      "key": "mentions",
+      "event_id": "11",
+      "text": "hi",
+      "payload": {
+        "id": "11",
+        "author": "a",
+        "author_id": "1",
+        "conversation_id": "9",
+        "created_at": "2026-11-27T10:00:00Z"
+      }
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "timeout": "30s",
+  "notes": "Response ignored. Offers one event to the core's inbound queue, which batches by (source, key) and runs a turn on the batch."
+}

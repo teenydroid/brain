@@ -294,3 +294,7 @@ brain/hooks.json
 # Which commit of the core (and every other submodule) is built: vendor/** is
 # frozen, and so is the file that says where it comes from.
 .gitmodules
+
+# The OpenClaw-backed core (core/): what answers the openhuman.* RPC every
+# hand, guard and spend cap sits behind, and the contract fixtures that pin it.
+core/**

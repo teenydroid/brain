@@ -25,10 +25,10 @@ This folder is frozen to Teeny's own pull requests (`evals/frozen.txt`).
 
 | Script | What it does |
 |---|---|
-| `spine` | The container entrypoint and the laptop way to start Teeny. Mints the core token and master key on first boot, runs `doctor`, writes the core's config, starts `teeny-spine serve`, seeds cron and points the core at the model and memory store. |
+| `spine` | The container entrypoint and the laptop way to start Teeny. Mints the core token and master key on first boot, runs `doctor`, writes the core's config, starts `teeny-core serve`, seeds cron and points the core at the model and memory store. |
 | `oh` | Calls one JSON-RPC method on the running core (`bin/oh cron_list`). |
 | `ask` | Runs one agent turn and prints the answer (`bin/ask --agent act "..."`). |
-| `crons` | Lists the core's cron jobs and last runs straight from `brain/storage.db`. |
+| `crons` | Lists the core's cron jobs and last runs, read from OpenClaw automations, through the core's RPC and `bin/lib/cron_store.py`. |
 | `seed-cron` | Makes the core's cron match `brain/cron.toml` plus `evals/cron.pinned.toml`. `--check` validates without a core. |
 | `doctor` | Is this checkout safe to boot? With `--live`, is the running spine healthy? |
 | `heartbeat` | The smallest cron shell job: proves cron fires a job. |

@@ -281,7 +281,7 @@ probably be one of these rather than a benchmark:
   generation is the evidence.
 - **Expect the plateau.** Teeny can't change its weights. Like DGM, it
   improves the harness around a fixed model, and gains will flatten until the
-  base model in `vendor/openhuman` is upgraded. Measure the slope so the
+  base model the core is pointed at is upgraded. Measure the slope so the
   plateau is visible and isn't mistaken for a bug.
 - **Reliability is the product.** The Vend and RLI failures show that what an
   unattended agent lacks is a floor, not a ceiling. Teeny's guard, held

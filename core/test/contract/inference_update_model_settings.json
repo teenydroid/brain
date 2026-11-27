@@ -1,0 +1,34 @@
+{
+  "method": "openhuman.inference_update_model_settings",
+  "call_sites": [
+    "bin/lib/health.py:1228",
+    "bin/lib/model_window.py:132",
+    "bin/lib/model_windows.sh:87",
+    "bin/lib/model_windows.sh:93",
+    "bin/lib/model_windows.sh:98"
+  ],
+  "params": {
+    "fields": {
+      "model_registry": {
+        "type": "array",
+        "required": true,
+        "note": "the WHOLE registry: the write replaces it; callers read, merge, write back"
+      }
+    },
+    "example": {
+      "model_registry": [
+        {
+          "id": "glm-5.3-flash",
+          "provider": "local-openai",
+          "context_window": 128000
+        }
+      ]
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Replaces the array. Entries: {id, provider, context_window}. Failure stops boot (bin/lib/model_windows.sh)."
+}

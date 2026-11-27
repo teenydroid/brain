@@ -1,0 +1,23 @@
+{
+  "method": "openhuman.cron_run",
+  "call_sites": [
+    "bin/lib/catch_up.py:457"
+  ],
+  "params": {
+    "fields": {
+      "job_id": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "job_id": "job-1"
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Runs the job now (catch-up); response ignored, an error means the slot is given back."
+}

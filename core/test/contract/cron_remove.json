@@ -1,0 +1,26 @@
+{
+  "method": "openhuman.cron_remove",
+  "call_sites": [
+    "bin/lib/broker.py:1433",
+    "bin/lib/broker.py:651",
+    "bin/seed-cron:147",
+    "bin/seed-cron:156"
+  ],
+  "params": {
+    "fields": {
+      "job_id": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "example": {
+      "job_id": "job-1"
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Response ignored."
+}

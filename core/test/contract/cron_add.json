@@ -1,0 +1,133 @@
+{
+  "method": "openhuman.cron_add",
+  "call_sites": [
+    "bin/lib/broker.py:623",
+    "bin/seed-cron:124"
+  ],
+  "params": {
+    "fields": {
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "job_type": {
+        "type": "string",
+        "required": true,
+        "note": "agent | shell"
+      },
+      "command": {
+        "type": "string",
+        "required": false,
+        "note": "shell"
+      },
+      "agent_id": {
+        "type": "string",
+        "required": false,
+        "note": "agent"
+      },
+      "prompt": {
+        "type": "string",
+        "required": false,
+        "note": "agent"
+      },
+      "session_target": {
+        "type": "string",
+        "required": false,
+        "note": "'isolated' for agent jobs"
+      },
+      "schedule": {
+        "type": "object",
+        "required": true,
+        "note": "{kind: 'cron', expr, tz} or {kind: 'at', at: RFC3339 UTC}"
+      },
+      "delivery": {
+        "type": "object",
+        "required": true,
+        "note": "always {mode: 'none'}"
+      },
+      "delete_after_run": {
+        "type": "boolean",
+        "required": false,
+        "note": "one-off wakes (kind 'at')"
+      }
+    },
+    "example": {
+      "name": "teeny.heartbeat",
+      "job_type": "shell",
+      "command": "bin/heartbeat",
+      "schedule": {
+        "kind": "cron",
+        "expr": "*/5 * * * *",
+        "tz": "UTC"
+      },
+      "delivery": {
+        "mode": "none"
+      }
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "id": {
+        "type": "string|number",
+        "required": true,
+        "note": "bin/broker and seed-cron pass it back as str(id) in job_id"
+      },
+      "name": {
+        "type": "string",
+        "required": false,
+        "note": "teeny.<name> for seeded jobs, mind.<slug> for wakes"
+      },
+      "job_type": {
+        "type": "string",
+        "required": false,
+        "note": "'agent' or anything else (read as shell)"
+      },
+      "schedule": {
+        "type": "object",
+        "required": false,
+        "note": "schedule.expr, schedule.tz, kind, at"
+      },
+      "command": {
+        "type": "string",
+        "required": false,
+        "note": "shell jobs"
+      },
+      "agent_id": {
+        "type": "string",
+        "required": false,
+        "note": "agent jobs"
+      },
+      "prompt": {
+        "type": "string",
+        "required": false,
+        "note": "agent jobs"
+      },
+      "enabled": {
+        "type": "boolean",
+        "required": false,
+        "note": "null/absent means enabled (seed-cron reads `.enabled == null` as true)"
+      },
+      "next_run": {
+        "type": "string",
+        "required": false,
+        "note": "RFC 3339, fractional seconds possible; null when none"
+      }
+    },
+    "reader": "seed-cron reads .id; broker returns the whole job to the mind",
+    "example": {
+      "id": "job-1",
+      "name": "teeny.heartbeat",
+      "job_type": "shell",
+      "command": "bin/heartbeat",
+      "schedule": {
+        "kind": "cron",
+        "expr": "*/5 * * * *",
+        "tz": "UTC"
+      },
+      "enabled": true,
+      "next_run": "2026-11-27T10:05:00.123456+00:00"
+    }
+  },
+  "notes": "Created enabled. An agent job: {name, job_type:'agent', agent_id, prompt, session_target:'isolated', schedule, delivery}."
+}

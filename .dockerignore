@@ -1,8 +1,8 @@
-# The image needs the workspace manifest, spine/ and vendor/ only. Never the
-# keys, the core's state or anything local.
+# The image needs core/ (the TypeScript core, built in the image) and the
+# bin/teeny-core wrapper only. Never the keys, the core's state or anything local.
 **/.git
-**/target
 **/node_modules
+**/dist
 worktrees
 secrets
 state
@@ -11,7 +11,11 @@ brain
 web
 deploy
 docs
-bin
-# The reel service's upstream (deploy/reel.Dockerfile builds from it on its
-# own); the spine never needs it.
-vendor/moneyprinter
+hands
+evals
+home
+vendor
+target
+bin/*
+!bin/teeny-core
+!bin/openclaw

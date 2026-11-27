@@ -1,0 +1,23 @@
+{
+  "method": "openhuman.config_update_agent_settings",
+  "call_sites": [
+    "bin/spine:202"
+  ],
+  "params": {
+    "fields": {
+      "agent_timeout_secs": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "example": {
+      "agent_timeout_secs": 1800
+    }
+  },
+  "response": {
+    "type": "any",
+    "fields": {},
+    "reader": "ignored"
+  },
+  "notes": "Cron agent turn budget; bin/spine fails boot if refused."
+}

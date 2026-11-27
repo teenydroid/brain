@@ -227,7 +227,6 @@ SENSITIVE = (
     ("**/pyproject.toml", "dependencies"),
     ("**/Dockerfile", "the image"),
     (".dockerignore", "the image"),
-    ("rust-toolchain.toml", "the toolchain"),
 )
 
 #: On teenydroid/brain, everything Teeny reads into a prompt. A stranger

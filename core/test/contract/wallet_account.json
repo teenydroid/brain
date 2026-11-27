@@ -1,0 +1,44 @@
+{
+  "method": "openhuman.wallet_account",
+  "call_sites": [
+    "hands/lib/teeny_hands/giveaway/onchain.py:281",
+    "hands/lib/teeny_hands/wallet/reads.py:61"
+  ],
+  "params": {
+    "fields": {
+      "chain": {
+        "type": "string",
+        "required": true,
+        "note": "'solana'"
+      },
+      "accountIndex": {
+        "type": "number",
+        "required": true,
+        "note": "1 = the giveaway wallet"
+      }
+    },
+    "example": {
+      "chain": "solana",
+      "accountIndex": 1
+    }
+  },
+  "response": {
+    "type": "object",
+    "fields": {
+      "address": {
+        "type": "string",
+        "required": true,
+        "note": "base58, validated"
+      },
+      "derivationPath": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "reader": "wallet/reads.py giveaway_address; giveaway/onchain.py _check_authority",
+    "example": {
+      "address": "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV",
+      "derivationPath": "m/44'/501'/1'/0'"
+    }
+  }
+}
