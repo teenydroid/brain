@@ -1962,11 +1962,165 @@ def context_pack(tree: Path, touched: Iterable[str], budget: int) -> tuple[list[
             text = (tree / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if used + len(text) > budget:
-            continue
+        if used + len(text) > budget or len(text) > MAX_WHOLE_FILE_CHARS:
+            continue  # too big: target_pack shows it as an excerpt when the change is about it
         files[rel] = text
         used += len(text)
     return editable, files
+
+
+#: The largest file a request shows whole. One bigger (docs/hands.md is
+#: ~360 KB, docs/architecture.md ~100 KB) is shown as an excerpt instead
+#: (file_excerpt), never left out without a word.
+MAX_WHOLE_FILE_CHARS = 30000
+#: How much of an oversized file its excerpt quotes, its outline aside.
+MAX_EXCERPT_CHARS_SHOWN = 10000
+#: How much room the excerpt's outline (the file's headings) may take.
+MAX_OUTLINE_CHARS = 2500
+#: How far from a line naming what the change is about its passage reaches.
+EXCERPT_REACH = 12
+#: Headings of an oversized doc the brief itself sends a change to ("a new
+#: playbook or cron job is named on a line of docs/architecture.md (\"6.
+#: Triggers\")"): always in its excerpt.
+DOC_ANCHORS = {"docs/architecture.md": ("## 6. Triggers",)}
+#: Path stems too common to say what a change is about.
+_PLAIN_STEMS = frozenset({"skill", "readme", "index", "main", "init", "__init__", "test", "tests", "lib"})
+
+
+def focus_terms(paths: Iterable[str], learning: Mapping[str, Any] | None = None,
+                texts: Iterable[str] = ()) -> list[str]:
+    """The words an excerpt is drawn around: the names of the files the
+    change is about (a playbook's stem, a skill's folder), the learning's
+    playbook or source, and the hands those files' TEXTS call (a playbook's
+    `hands/wallet costs`: docs/hands.md's `wallet` section)."""
+    names: list[str] = []
+    for rel in paths:
+        if not isinstance(rel, str) or not rel:
+            continue
+        parts = rel.rstrip("/").split("/")
+        stem = parts[-1].rsplit(".", 1)[0]
+        names.append(parts[-2] if stem.lower() in _PLAIN_STEMS and len(parts) > 1 else stem)
+    check = (learning or {}).get("check")
+    if isinstance(check, Mapping):
+        names += [str(check[k]) for k in ("playbook", "source") if check.get(k)]
+    for text in texts:
+        names += re.findall(r"\bhands/([a-z][\w-]*)\b(?!/)", text or "")
+    out: list[str] = []
+    for name in names:
+        if len(name) >= 4 and name.lower() not in _PLAIN_STEMS and name not in out:
+            out.append(name)
+    return out
+
+
+def file_excerpt(rel: str, text: str, terms: Iterable[str], limit: int = MAX_EXCERPT_CHARS_SHOWN) -> str:
+    """REL, too big to show whole, as the builder is shown it: a note on
+    what it is reading, the file's outline (its headings by line), then the
+    passages naming TERMS (and the headings DOC_ANCHORS holds for REL), each
+    verbatim and marked with its lines, up to LIMIT characters; with nothing
+    named, its first and last lines. apply_edits reads the file itself, so a
+    verbatim passage is all an exact edit needs."""
+    lines = text.splitlines(keepends=True)
+    n = len(lines)
+    own = rel.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    words = [t.lower() for t in terms if t and t.lower() != own]  # docs/hands.md says "hands" throughout
+    anchors = DOC_ANCHORS.get(rel, ())
+    fenced, outlined = False, []
+    for line in lines:  # a heading inside a code block is no heading
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+        outlined.append(not fenced and bool(re.match(r"#{1,3} \S", line)))
+    named = [i for i, line in enumerate(lines) if any(w in line.lower() for w in words)]
+    # The anchors first, then the headings that name the change's files or
+    # hands, then every other line that does.
+    hits = [i for i, line in enumerate(lines) if anchors and line.startswith(anchors)]
+    hits += [i for i in named if outlined[i] and i not in hits]
+    hits += [i for i in named if i not in hits]
+    if not hits and n:
+        hits = [0, n - 1]
+
+    def window(i: int) -> tuple[int, int]:
+        lo = i
+        while lo > 0 and i - lo < EXCERPT_REACH and lines[lo - 1].strip() and not outlined[i]:
+            lo -= 1
+        hi = i
+        if outlined[i]:  # a heading: the start of its section, blank lines and all
+            while hi + 1 < n and hi - i < 2 * EXCERPT_REACH and not outlined[hi + 1]:
+                hi += 1
+            return lo, hi
+        while hi + 1 < n and hi - i < EXCERPT_REACH and lines[hi + 1].strip() and not outlined[hi + 1]:
+            hi += 1
+        return lo, hi
+
+    picked: list[tuple[int, int]] = []
+    used = 0
+    for i in hits:
+        if any(a <= i <= b for a, b in picked):
+            continue
+        lo, hi = window(i)
+        size = sum(len(lines[j]) for j in range(lo, hi + 1))
+        while hi > i and used + size > limit:
+            size -= len(lines[hi])
+            hi -= 1
+        if used + size > limit:
+            continue
+        picked.append((lo, hi))
+        used += size
+    merged: list[tuple[int, int]] = []
+    for lo, hi in sorted(picked):
+        if merged and lo <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(hi, merged[-1][1]))
+        else:
+            merged.append((lo, hi))
+    outline, room = [], MAX_OUTLINE_CHARS
+    for i, line in enumerate(lines):
+        if outlined[i]:
+            row = f"{i + 1}: {line.strip()[:120]}"
+            if len(row) + 1 > room:
+                outline.append("…")
+                break
+            outline.append(row)
+            room -= len(row) + 1
+    shown = ", ".join(f"{lo + 1}-{hi + 1}" for lo, hi in merged) or "none"
+    parts = [f"Too long to show whole ({n} lines, {len(text)} characters), so only lines {shown} are shown, "
+             "verbatim. An edit's old text is copied from inside one passage below, never across a ⟦lines⟧ "
+             "mark and never from memory; to add to the file, quote a line shown here whole and put your text "
+             "after it."]
+    if outline:
+        parts.append("Its headings, by line (to know where things are, not to quote):\n\n" + "\n".join(outline))
+    body = "".join(f"⟦lines {lo + 1}-{hi + 1}⟧\n" + "".join(lines[lo:hi + 1]).rstrip("\n") + "\n"
+                   for lo, hi in merged)
+    parts.append("````text\n" + body + "````")
+    return "\n\n".join(parts)
+
+
+def shown_file(tree: Path, rel: str, terms: Iterable[str]) -> tuple[str, str] | None:
+    """REL as a request shows it: ("files", its text) when it fits whole,
+    ("excerpts", its file_excerpt) when it is too big, None when it is not
+    a text file in TREE."""
+    try:
+        text = (tree / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if len(text) <= MAX_WHOLE_FILE_CHARS:
+        return "files", text
+    return "excerpts", file_excerpt(rel, text, terms)
+
+
+def target_pack(tree: Path, targets: Iterable[str], editable: Iterable[str], files: Mapping[str, str],
+                terms: Iterable[str]) -> dict[str, str]:
+    """The files the change is about (TARGETS: what research named to read
+    or to document, the learning's own) that are too big to show whole: an
+    excerpt of each (file_excerpt). Gens 28 to 34 skipped or parked seven
+    candidates on a file the builder was sent to edit and never shown."""
+    can, terms = set(editable), list(terms)
+    out: dict[str, str] = {}
+    for rel in targets:
+        if rel in files or rel in out or rel not in can:
+            continue
+        got = shown_file(tree, rel, terms)
+        if got and got[0] == "excerpts":
+            out[rel] = got[1]
+    return out
 
 
 #: The fields of a proposal, as both proposers are asked for them.
@@ -2056,7 +2210,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "- Anything that needs a frozen path: skip it as `frozen` instead. Frozen: "
         + ", ".join(request["frozen"]) + ". The frozen things people most often want:\n" + frozen_map(),
         "Rules:\n"
-        + ("" if edits_in_place else "- Edit only the files shown below, whole, or add new files.\n")
+        + ("" if edits_in_place else "- Edit only the files shown below, whole or as an excerpt (then only inside "
+           "the passages shown), or add new files.\n")
         + "- A new hand is hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py together, "
         "and a playbook in the same change that calls it.\n"
         "- A small edit inside an existing hand that is not frozen is yours to make: change or add its test "
@@ -2177,18 +2332,19 @@ def _less_web(fitted: Json, fits: Any) -> str | None:
 
 def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: Any = None) -> Json:
     """The request, cut until its message (RENDER, render_request by
-    default) fits the core's prompt screen: the largest shown files are
-    dropped first, and the message names them (they stay editable), the
-    files in KEEP (research named them, or an edit to them did not apply)
-    last of all: gens 16 and 17 dropped brain/CONTEXT.md, the file their
-    research named, and the proposer quoted it from memory. When the
-    message is still too big with no file in it (gen 24, 2026-11-22: 66 KB
-    with every file dropped, and three candidates held as
-    `input.oversized`), the rest is cut in turn, each cut named in the
-    message (`cut`): the editable paths counted by folder, the evidence's
-    largest parts, the oldest earlier tries, the web results. The findings
-    and the last change of a revising round are never cut. A request that
-    fits comes back as it is."""
+    default) fits the core's prompt screen. First the shown files the
+    change is not about are dropped, largest first, and the message names
+    them (they stay editable). Then what is not a file is cut, each cut
+    named in the message (`cut`): the editable paths counted by folder, the
+    evidence's largest parts, the oldest earlier tries, the web results
+    (gen 24, 2026-11-22: 66 KB with every file dropped). Only then, last of
+    all, the files in KEEP (research named them, or an edit to them did not
+    apply), largest first. Gens 16 and 17 dropped brain/CONTEXT.md, the file
+    their research named, and the proposer quoted it from memory; gens 28
+    to 34 dropped every file, the named ones too, to keep ~40 KB of
+    evidence, and the builder skipped or parked seven candidates on "the
+    file's text is not shown". The findings and the last change of a
+    revising round are never cut. A request that fits comes back as it is."""
     render = render or render_request
 
     def fits(r: Json) -> bool:
@@ -2197,15 +2353,22 @@ def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: A
     if fits(request):
         return request
     fitted = dict(request, files=dict(request.get("files") or {}), readonly=dict(request.get("readonly") or {}),
+                  excerpts=dict(request.get("excerpts") or {}),
                   omitted=list(request.get("omitted", [])), cut=list(request.get("cut") or []))
-    shown = [("readonly", r) for r in fitted["readonly"]] + [("files", r) for r in fitted["files"]]
     keep = set(request.get("keep") or [])
-    for key, rel in sorted(shown, key=lambda kr: (kr[1] in keep, -len(fitted[kr[0]][kr[1]].encode("utf-8")))):
-        del fitted[key][rel]
-        if key == "files":
-            fitted["omitted"].append(rel)
-        if fits(fitted):
-            return fitted
+    shown = [(key, rel) for key in ("readonly", "excerpts", "files") for rel in fitted[key]]
+
+    def drop(items: list[tuple[str, str]]) -> bool:
+        for key, rel in sorted(items, key=lambda kr: -len(fitted[kr[0]][kr[1]].encode("utf-8"))):
+            del fitted[key][rel]
+            if key != "readonly" and rel not in fitted["omitted"]:
+                fitted["omitted"].append(rel)
+            if fits(fitted):
+                return True
+        return False
+
+    if drop([kr for kr in shown if kr[1] not in keep]):
+        return fitted
     named = keep | set((request.get("research") or {}).get("document") or [])
     for step in (lambda f: _fold_paths(f, named), lambda f: _less_evidence(f, fits),
                  lambda f: _fewer_tried(f, fits), lambda f: _less_web(f, fits)):
@@ -2213,7 +2376,8 @@ def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: A
         if what:
             fitted["cut"].append(what)
         if fits(fitted):
-            break
+            return fitted
+    drop([kr for kr in shown if kr[1] in keep])
     return fitted
 
 
@@ -2254,6 +2418,11 @@ def evidence_text(evidence: Mapping[str, Any], lessons_shown: bool = False) -> s
     return out
 
 
+def excerpt_sections(request: Json) -> list[str]:
+    """The files too big to show whole, each as its excerpt (file_excerpt)."""
+    return [f"## file (excerpt): {rel}\n\n{text}" for rel, text in (request.get("excerpts") or {}).items()]
+
+
 def render_request(request: Json) -> str:
     parts = [
         f"# evolve: generation {request['gen']}, candidate {request['cand']}",
@@ -2276,6 +2445,7 @@ def render_request(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     for rel, text in request["files"].items():
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
+    parts += excerpt_sections(request)
     for rel, text in (request.get("readonly") or {}).items():
         parts.append(f"## file (read only, not yours to change): {rel}\n\n````text\n{text}\n````")
     if request.get("omitted"):
@@ -2878,6 +3048,7 @@ def render_research_request(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     for rel, text in request["files"].items():
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
+    parts += excerpt_sections(request)
     if request.get("omitted"):
         parts.append("## files left out to fit the message\n\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
     cut = cut_text(request)
@@ -5572,6 +5743,8 @@ def round_line(rec: Mapping[str, Any]) -> str:
         line = "the reviewer's answer could not be used"
     elif outcome == "refused-skip":
         line = "the skip leaned on the memory page"
+    elif outcome == "unseen-skip":
+        line = "the skip named a file it was not shown; shown next round"
     elif outcome == "approved":
         line = "approved by the reviewer"
         if rec.get("eval"):
@@ -5609,10 +5782,16 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
     add_worktree(src, tree, base)
     in_place = getattr(proposer, "edits_in_place", False)
     rounds = load_rounds(gdir, i, learning)
-    editable, files = context_pack(tree, [], cfg["EVOLVE_CONTEXT_CHARS"])
+    # The learning's own files (a finding's) come first, shown whole or,
+    # too big, as an excerpt (target_pack).
+    targets = [p for p in (learning.get("files") or []) if isinstance(p, str)]
+    editable, files = context_pack(tree, targets, cfg["EVOLVE_CONTEXT_CHARS"])
+    terms = focus_terms(targets, learning, [files.get(p, "") for p in targets])
     request: Json = {"gen": gen, "cand": i, "learning": learning, "unread": unread_components(evidence),
                      "evidence": evidence, "siblings": siblings, "editable": editable,
-                     "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
+                     "files": {} if in_place else files, "terms": terms,
+                     "excerpts": {} if in_place else target_pack(tree, targets, editable, files, terms),
+                     "keep": [p for p in targets if p in editable], "frozen": frozen_patterns(), "tree": str(tree),
                      "gen_dir": str(gdir), "rounds": rounds_max, "horizons": outcome_horizons(cfg),
                      "power_need": power_need(cfg),
                      "max_lines": max_change_lines(tree, base, cfg["EVOLVE_MAX_CHANGE_PCT"])}
@@ -5639,16 +5818,21 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                   "where": (research.get("read") or [""])[0],
                                                   "note": research["why"]}, gate={"ok": False, "checks": []})
             return entry
-        if research.get("read"):
-            # The files research named come first in what the build is shown;
-            # those it may not change are shown read-only, in up to a third
-            # of the room.
+        named = list(dict.fromkeys([*(research.get("read") or []), *(research.get("read_cut") or []),
+                                    *(research.get("document") or []), *targets]))
+        if named:
+            # The files research named, to read or to document, come first
+            # in what the build is shown, and are kept when it is cut to fit
+            # (fit_request); one too big to show whole is shown as an
+            # excerpt. Those it may not change are shown read-only, in up to
+            # a third of the room.
             budget_chars = cfg["EVOLVE_CONTEXT_CHARS"]
-            readonly = {} if in_place else read_pack(tree, research["read"], editable, budget_chars // 3)
-            editable, files = context_pack(tree, research["read"],
-                                           budget_chars - sum(len(t) for t in readonly.values()))
-            request.update(editable=editable, files={} if in_place else files, readonly=readonly,
-                           keep=list(research["read"]))
+            readonly = {} if in_place else read_pack(tree, research.get("read") or [], editable, budget_chars // 3)
+            editable, files = context_pack(tree, named, budget_chars - sum(len(t) for t in readonly.values()))
+            terms = focus_terms(named, learning, [files.get(p) or readonly.get(p) or "" for p in named])
+            request.update(editable=editable, files={} if in_place else files, readonly=readonly, terms=terms,
+                           excerpts={} if in_place else target_pack(tree, named, editable, files, terms),
+                           keep=[p for p in named if p in editable or p in readonly])
 
         if not research.get("error"):
             request["research"] = research
@@ -5678,15 +5862,20 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             if rec["outcome"] == "lesson" and rnd == rounds_max and findings:
                 parked_why = f"round {rnd}: {findings[0]['problem']}"[:600]
             last_patch = rec.get("diff") or last_patch
+            if rec["outcome"] in ("did-not-apply", "unseen-skip"):
+                # The files it was sent back to copy from, shown again.
+                show_files(tree, request, [f["file"] for f in findings if f.get("file") in request["editable"]],
+                           in_place)
             continue
         if rnd > 1:
             reset_tree(tree, base)
+        sent: Json = request
         try:
             if rec is None:
                 if rnd > 1:
                     say(f"candidate {i}: round {rnd} of {rounds_max}, {len(findings)} finding(s)")
-                answer = proposer.propose({**request, "round": rnd, "findings": findings, "rejected": rejected,
-                                           "last_patch": last_patch})
+                sent = {**request, "round": rnd, "findings": findings, "rejected": rejected, "last_patch": last_patch}
+                answer = proposer.propose(sent)
                 proposal = check_proposal(answer)
                 rec = {"round": rnd, "proposal": proposal}
                 if in_place:
@@ -5715,7 +5904,23 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 if rnd == rounds_max:
                     parked_why = f"round {rnd}: the skip leaned on the memory page: {refused}"[:300]
                 continue
-            if rnd == 1 or all(r.get("outcome") == "refused-skip" for r in rounds[:rnd - 1]):
+            unseen = [] if in_place or skip.why != "not-actionable" \
+                else unseen_paths(sent, f"{skip.where} {skip.note}")
+            if unseen and rnd < rounds_max:
+                # Gens 28 to 34: a not-actionable skip for want of a file's
+                # text is no skip. The files it names are shown (whole, or
+                # as an excerpt) and kept next round, which this one spends.
+                say(f"candidate {i}: the skip named {', '.join(unseen)}, not shown; shown next round")
+                if rec is None:
+                    rec = {"round": rnd, "proposal": {"skip": skip.note, "why": skip.why, "where": skip.where}}
+                    rounds.append(rec)
+                show_files(tree, request, unseen, in_place)
+                findings = [{"file": rel, "problem": f"you skipped for want of {rel}, which you were not shown",
+                             "fix": "it is shown now: copy each old text from it, or skip for another reason"}
+                            for rel in unseen[:MAX_FINDINGS]]
+                keep(rec, "unseen-skip", findings)
+                continue
+            if rnd == 1 or all(r.get("outcome") in ("refused-skip", "unseen-skip") for r in rounds[:rnd - 1]):
                 # A skip that names a file, after refused ones only, is the
                 # answer the finding asked for: it settles like a first one.
                 entry.update(verdict="skipped", skip={"why": skip.why, "where": skip.where, "note": skip.note},
@@ -5815,8 +6020,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 say(f"candidate {i}: the edits did not apply ({str(exc)[:120]})")
                 rejected = {"error": str(exc)[:500], "edits": proposal.get("edits")}
                 rec["rejected"] = rejected
-                findings = [{"file": "", "problem": f"the edits did not apply: {str(exc)[:300]}",
+                # g30c2: "brain/skills/moltbook/SKILL.md exists; edit it
+                # with old and new", from a builder never shown that file:
+                # that file is shown next round (and again after a restart,
+                # from the finding's file).
+                unseen = [] if in_place else unseen_paths(sent, str(exc))
+                findings = [{"file": unseen[0] if unseen else "", "problem": f"the edits did not apply: {str(exc)[:300]}",
                              "fix": "copy each old text character for character from the file, so it occurs once"}]
+                show_files(tree, request, unseen, in_place)
                 keep(rec, "did-not-apply", findings)
                 continue
             for note in tolerated:
@@ -6116,20 +6327,45 @@ def edit_problem(failure: Mapping[str, Any]) -> str:
 
 
 def show_files(tree: Path, request: Json, paths: Iterable[str], in_place: bool) -> None:
-    """PATHS shown whole in the next round's request and kept when it is
-    cut to fit (fit_request): an edit to them did not apply, so the next
-    answer copies from the file, not from memory."""
+    """PATHS shown in the next round's request, whole or, too big, as an
+    excerpt (shown_file), and kept when it is cut to fit (fit_request): an
+    edit to them did not apply, or the builder skipped for want of them, so
+    the next answer copies from the file, not from memory."""
     files = dict(request.get("files") or {})
+    excerpts = dict(request.get("excerpts") or {})
     keep_list = list(request.get("keep") or [])
+    terms = list(request.get("terms") or [])
     for rel in paths:
         if not in_place and rel not in files:
-            try:
-                files[rel] = (tree / rel).read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
+            got = shown_file(tree, rel, terms)
+            if got is None:
                 continue
+            if got[0] == "files":
+                files[rel] = got[1]
+                excerpts.pop(rel, None)
+            else:
+                excerpts[rel] = got[1]
         if rel not in keep_list:
             keep_list.append(rel)
-    request.update(files=files, keep=keep_list)
+    request.update(files=files, excerpts=excerpts, keep=keep_list)
+
+
+def unseen_paths(request: Json, text: str) -> list[str]:
+    """The paths TEXT (a skip's where and why, or an edit's error) names
+    that the builder may change and that exist, but that its message did not
+    show, whole or as an excerpt, once cut to fit (fit_request): the
+    builder of gens 28 to 34 skipped on "the file's text is not shown"."""
+    can = set(request.get("editable") or [])
+    fitted = fit_request(request) if request.get("gen") is not None and request.get("evidence") is not None \
+        else request
+    shown = set(fitted.get("files") or {}) | set(fitted.get("excerpts") or {})
+    tree = Path(request["tree"]) if request.get("tree") else None
+    out = []
+    for rel in re.findall(r"[\w.\-]+(?:/[\w.\-]+)+", text or ""):
+        rel = rel.rstrip(".,;:")
+        if rel in can and rel not in shown and rel not in out and (tree is None or (tree / rel).is_file()):
+            out.append(rel)
+    return out
 
 
 def repair_edits(proposer: Proposer, request: Json, proposal: Mapping[str, Any], problem: EditsDidNotApply,
