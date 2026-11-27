@@ -159,6 +159,7 @@ from teeny_hands.guard.judge import permanent  # noqa: E402
 from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
 import catch_up  # noqa: E402  (bin/lib: the claims, the re-arm and the catch-up)
+import cron_store  # noqa: E402  (bin/lib: the one reader of the core's cron jobs and runs)
 import model_window  # noqa: E402  (bin/lib: the core's model windows, merged)
 
 #: Failed probes in a row that raise the alarm.
@@ -327,52 +328,23 @@ def moltbook_unverified(since: float) -> int | None:
     return total - seen
 
 
-def _storage() -> Path:
-    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
-    if os.environ.get("TEENY_STORAGE"):
-        return Path(os.environ["TEENY_STORAGE"])
-    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
-    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
-
-
 def cron_errors(since: float, until: float | None = None) -> dict[str, int]:
     """Failed cron runs since `since` (and before `until`), by job name.
-    Read-only; bin/crons' query, narrowed to valid JSON in the cron
-    collections first."""
-    path = _storage()
-    if not path.is_file():
-        return {}
+    Read-only, through bin/lib/cron_store.py (the core's automations)."""
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            rows = conn.execute(
-                """
-                with jobs as materialized (
-                  select id, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-                ),
-                runs as materialized (
-                  select body from docs where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
-                )
-                select json_extract(jobs.body, '$.name') as name, count(*)
-                from runs join jobs on jobs.id = json_extract(runs.body, '$.job_id')
-                where json_extract(runs.body, '$.status') = 'error'
-                  and json_extract(runs.body, '$.finished_ms') >= ?
-                  and json_extract(runs.body, '$.finished_ms') < ?
-                group by name order by name
-                """,
-                (int(since * 1000), int((until if until is not None else 1e12) * 1000)),
-            ).fetchall()
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        names = {job["id"]: job.get("name") for job in cron_store.jobs()}
+        runs = cron_store.runs()
+    except cron_store.Unavailable:
         return {}
-    return {str(name): int(count) for name, count in rows}
-
-
-def _running(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_ms: int) -> bool:
-    """Whether a recent claim holds the job's slot (bin/lib/catch_up.py, the
-    one reading of the core's claims that bin/seed-cron shares)."""
-    return catch_up._lease_live(conn, job_id, occurrence_ms, now_ms)
+    lo, hi = int(since * 1000), int((until if until is not None else 1e12) * 1000)
+    counts: dict[str, int] = {}
+    for run in runs:
+        finished = run.get("finished_ms")
+        if (run.get("status") == "error" and isinstance(finished, (int, float)) and lo <= finished < hi
+                and str(run.get("job_id")) in names):
+            key = str(names[str(run["job_id"])])
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _iso(ms: int) -> str:
@@ -382,42 +354,25 @@ def _iso(ms: int) -> str:
 def stale_crons(now: float) -> list[Json]:
     """Enabled cron jobs whose next run is more than STALE_SECS past with no
     live run holding it, by name: `{id, name, next_run, schedule}`. Read-only,
-    from the core's storage.db as `cron_errors` reads it."""
-    path = _storage()
-    if not path.is_file():
-        return []
+    through bin/lib/cron_store.py as `cron_errors` reads it."""
     now_ms = int(now * 1000)
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-        try:
-            rows = conn.execute(
-                """
-                with jobs as materialized (
-                  select id, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
-                )
-                select id, coalesce(json_extract(body, '$.name'), id), json_extract(body, '$.next_run_ms'),
-                       json_extract(body, '$.schedule')
-                from jobs
-                where coalesce(json_extract(body, '$.enabled'), 1) != 0
-                  and json_extract(body, '$.next_run_ms') < ?
-                order by 2
-                """,
-                (now_ms - STALE_SECS * 1000,),
-            ).fetchall()
-            stale = [(job_id, name, int(next_ms), schedule) for job_id, name, next_ms, schedule in rows
-                     if not _running(conn, job_id, int(next_ms), now_ms)]
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        jobs = cron_store.jobs()
+    except cron_store.Unavailable:
         return []
+    late = [job for job in jobs if job["enabled"] and isinstance(job["next_run_ms"], (int, float))
+            and job["next_run_ms"] < now_ms - STALE_SECS * 1000]
     out = []
-    for job_id, name, next_ms, schedule in stale:
+    for job in sorted(late, key=lambda j: str(j["name"] if j["name"] is not None else j["id"])):
         try:
-            parsed = json.loads(schedule) if schedule else None
-        except ValueError:
-            parsed = None
-        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "next_ms": next_ms,
-                    "schedule": parsed})
+            _, live = cron_store.claim(job, int(job["next_run_ms"]), now_ms)
+        except cron_store.Unavailable:
+            live = False
+        if live:  # a run still holds the slot (cron_store.claim)
+            continue
+        schedule = job["schedule"] if isinstance(job["schedule"], dict) else None
+        out.append({"id": str(job["id"]), "name": str(job["name"] if job["name"] is not None else job["id"]),
+                    "next_run": _iso(int(job["next_run_ms"])), "next_ms": int(job["next_run_ms"]), "schedule": schedule})
     return out
 
 

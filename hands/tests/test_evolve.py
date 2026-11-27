@@ -9,6 +9,9 @@ import contextlib
 import io
 import json
 import os
+
+# The cron readers go through bin/lib/cron_store.py; these tests build the old storage.db as their fixture.
+os.environ.setdefault("TEENY_CRON_BACKEND", "sqlite")
 import re
 import shutil
 import subprocess
