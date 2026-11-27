@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureGatewayToken, gatewayTokenFile, openclawEnv } from "../../src/gateway/passthrough.js";
+import { passthroughCommand, ensureGatewayToken, gatewayTokenFile, openclawEnv } from "../../src/gateway/passthrough.js";
 
 describe("teeny-core openclaw", () => {
   it("points the CLI at the core's state and generated config, and passes no secret on", () => {
@@ -24,5 +24,12 @@ describe("teeny-core openclaw", () => {
     writeFileSync(gatewayTokenFile(openclawDir), `${first}\n`);
     expect(openclawEnv({ TEENY_ROOT: "/r", TEENY_STATE: state })).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     expect(readFileSync(gatewayTokenFile(openclawDir), "utf8").trim()).toBe(first);
+  });
+
+  it("runs the bundled package even when OPENCLAW_BIN names bin/openclaw, which calls it (no wrapper running itself)", () => {
+    const withBin = passthroughCommand({ OPENCLAW_BIN: "/srv/teeny/bin/openclaw" });
+    expect(withBin.cmd).toBe(process.execPath);
+    expect(withBin.args[0]).toMatch(/openclaw\.mjs$/);
+    expect(passthroughCommand({})).toEqual(withBin);
   });
 });

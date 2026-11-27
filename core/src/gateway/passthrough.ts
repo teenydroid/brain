@@ -42,12 +42,22 @@ export function openclawEnv(env: Env, cwd?: string): Record<string, string> {
   return out;
 }
 
+/**
+ * The command `teeny-core openclaw` runs: always the bundled package, never OPENCLAW_BIN.
+ * The core sets OPENCLAW_BIN to bin/openclaw (which calls this very command) for the cron
+ * module; honouring it here would make the wrapper run itself, once, with a scrubbed
+ * environment that points at the wrong config ("valid but unset: cron.skipMissedJobs").
+ */
+export function passthroughCommand(env: Env): { cmd: string; args: string[] } {
+  return openclawCommand({ ...env, OPENCLAW_BIN: undefined });
+}
+
 /** Runs the OpenClaw CLI with inherited stdio; resolves with its exit code. */
 export function openclawPassthrough(args: readonly string[], env: Env = process.env): Promise<number> {
   return new Promise((resolve) => {
     let command: { cmd: string; args: string[] };
     try {
-      command = openclawCommand(env);
+      command = passthroughCommand(env);
     } catch (e) {
       process.stderr.write(`teeny-core: ${e instanceof Error ? e.message : String(e)}\n`);
       resolve(127);
