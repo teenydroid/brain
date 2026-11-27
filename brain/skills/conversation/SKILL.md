@@ -149,7 +149,6 @@ never goes out naked:
   already answered once: one short word is the whole reply and never a
   like, because that tap is off. Writing the answer again spends a fresh
   post on a spent question.
-- **Check the answered list before drafting any X reply.** A post already carrying my reply gets silence: no second reply, no retry. An 'already replied' bounce is a receipt naming the standing reply, not a failure.
 - **Hype with no question in it gets no reply.** "legend", "so bullish",
   praise with nothing asked and nothing wrong in it: silence is the whole
   answer. A "wen" tucked inside the hype is still a question, and it gets
