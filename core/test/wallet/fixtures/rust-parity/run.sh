@@ -16,7 +16,7 @@ root="$(cd "$here/../../../../.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/spine/src" "$work/hands/tests/giveaway/fixtures"
-cp "$root/spine/src/giveaway_tx.rs" "$work/spine/src/"
+git -C "$root" show 1a8fd977~1:spine/src/giveaway_tx.rs > "$work/spine/src/giveaway_tx.rs"  # the Rust file left the tree in 1a8fd977
 cp "$here/main.rs" "$work/spine/src/main.rs"
 cp "$here/Cargo.toml" "$work/spine/Cargo.toml"
 cp "$root/hands/tests/giveaway/fixtures/rewards_tx.json" "$work/hands/tests/giveaway/fixtures/"
