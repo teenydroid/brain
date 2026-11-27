@@ -11,6 +11,8 @@
 //   before_prompt_build   returns `prependContext`: recalled memory.
 // A policy that fails to parse blocks every tool call: the plugin refuses when
 // it cannot tell what it should allow.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
@@ -83,5 +85,18 @@ export default definePluginEntry({
       const text = await recallContext(recall, ctx.agentId, message);
       return text ? { prependContext: text } : undefined;
     });
+
+    // Last: the hooks above are registered. The core's supervisor stops a Gateway that has not written this
+    // (an agent's exec runs with OpenClaw's own check off, so a Gateway without the gate must not serve).
+    // Not written when the policy is unusable: that Gateway blocks every call, and says so above.
+    const ready = guard?.policy.readyFile;
+    if (ready) {
+      try {
+        mkdirSync(dirname(ready), { recursive: true, mode: 0o700 });
+        writeFileSync(ready, `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`, { mode: 0o600 });
+      } catch (e) {
+        api.logger.error(`teeny-guardrails: could not write ${ready}: ${(e as Error).message}`);
+      }
+    }
   },
 });

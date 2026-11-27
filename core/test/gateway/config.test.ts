@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AgentCatalog } from "../../src/agents/provision.js";
-import { buildGatewayConfig, type GatewayConfigInput } from "../../src/gateway/config.js";
+import { buildGatewayConfig, guardedEntries, type GatewayConfigInput } from "../../src/gateway/config.js";
 import { openclawCommand } from "../../src/gateway/cli.js";
 import { REPO } from "../helpers.js";
 
@@ -150,5 +150,31 @@ describe("generated OpenClaw config: agent models and hand skills", () => {
   it("loads the generated hand skills from the directory it is given", () => {
     expect(cfg.skills).toEqual({ load: { extraDirs: ["/srv/brain/skills/hands"] } });
     expect(buildGatewayConfig(input()) as Cfg).not.toHaveProperty("skills");
+  });
+});
+
+describe("generated OpenClaw config: exec and the guardrails plugin", () => {
+  const execSecurity = (cfg: Cfg) =>
+    Object.fromEntries(Object.entries(cfg.agents.entries as Cfg).filter(([, e]) => e.tools.exec).map(([id, e]) => [id, e.tools.exec.security]));
+
+  it("runs a shell agent's exec with OpenClaw's own check off only when the plugin is in the config", () => {
+    const withPlugin = buildGatewayConfig(input({ guardrailsPath: "/srv/teeny/core/plugins/teeny-guardrails", guardrailsPolicy: {} })) as Cfg;
+    const security = execSecurity(withPlugin);
+    expect(Object.keys(security)).toContain("worker");
+    expect(Object.values(security).every((v) => v === "full")).toBe(true);
+    expect(withPlugin.agents.entries.worker.tools.exec).toMatchObject({ host: "gateway", ask: "off" });
+  });
+
+  it("denies every shell agent's exec when there is no plugin to gate it (fail closed)", () => {
+    const security = execSecurity(buildGatewayConfig(input()) as Cfg);
+    expect(Object.keys(security)).toContain("worker");
+    expect(Object.values(security).every((v) => v === "deny")).toBe(true);
+  });
+
+  it("leaves tool-less agents and the input untouched", () => {
+    const agents = input().agents;
+    const before = JSON.stringify(agents);
+    guardedEntries(agents, false);
+    expect(JSON.stringify(agents)).toBe(before);
   });
 });

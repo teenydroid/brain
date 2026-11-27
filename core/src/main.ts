@@ -14,7 +14,7 @@ import { Sealer, masterKeyFile } from "./config/secrets.js";
 import { SettingsStore } from "./config/store.js";
 import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
-import { buildGuardrailsPolicy } from "./agents/guardrails.js";
+import { buildGuardrailsPolicy, guardrailsReadyFile } from "./agents/guardrails.js";
 import { findChrome } from "./config/chrome.js";
 import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
@@ -193,6 +193,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     ? undefined
     : new GatewaySupervisor({
         port: gatewayPort,
+        ...(guardrails ? { gate: { file: guardrailsReadyFile(paths.openclawDir) } } : {}),
         log: (l, m, f) => log(l, m, f),
         prepare: () => {
           writeConfig();

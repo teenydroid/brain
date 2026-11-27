@@ -85,6 +85,21 @@ export const SECRET_PROVIDER_MODEL_KEY = "teeny_model_key";
 /** A SecretRef into a `singleValue` file provider (docs/gateway/config-secrets-env.md). */
 const fileRef = (provider: string): { source: "file"; provider: string; id: "value" } => ({ source: "file", provider, id: "value" });
 
+/**
+ * The agents' entries as written to the config. A shell agent's exec runs with OpenClaw's own check
+ * off because teeny-guardrails is the gate (agents/definitions.ts); with no plugin in the config there
+ * is no gate, so exec is "deny" and a shell agent can run nothing.
+ */
+export function guardedEntries(agents: Record<string, AgentEntry>, guarded: boolean): Record<string, AgentEntry> {
+  if (guarded) return agents;
+  const out: Record<string, AgentEntry> = {};
+  for (const [id, entry] of Object.entries(agents)) {
+    const exec = entry.tools.exec;
+    out[id] = exec && typeof exec === "object" ? { ...entry, tools: { ...entry.tools, exec: { ...(exec as Record<string, unknown>), security: "deny" } } } : entry;
+  }
+  return out;
+}
+
 export function guardrailsIfPresent(path: string): string | undefined {
   return existsSync(path) ? path : undefined;
 }
@@ -204,7 +219,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
         compaction: { enabled: true, mode: "default", keepRecentTokens: input.keepRecentTokens },
       },
       // schema: agents.entries.<id>
-      entries: input.agents,
+      entries: guardedEntries(input.agents, input.guardrailsPath !== undefined),
     },
     ...(input.skillDirs && input.skillDirs.length > 0 ? { skills: { load: { extraDirs: input.skillDirs } } } : {}),
     // schema: cron.skipMissedJobs (docs/gateway/config-automation.md, docs/automation/cron-jobs/managing-jobs.md):

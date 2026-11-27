@@ -1,11 +1,30 @@
 // Runs `openclaw gateway` as a child, restarts it when it dies (backoff), and
 // stops it on SIGTERM. The spawn function is injected so tests drive a fake.
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
+import { connect } from "node:net";
 import { openclawCommand } from "./cli.js";
 
 export type SpawnFn = (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
 
+/**
+ * The proof that teeny-guardrails loaded. An agent's exec runs with OpenClaw's own allowlist off
+ * (agents/definitions.ts), so a Gateway that came up without the plugin would run any command. The
+ * plugin writes `file` once its hooks are registered, before the Gateway listens; the supervisor
+ * removes it before every start, and a Gateway that listens (or runs out the time) without it is killed
+ * and restarted on the usual backoff, which never lets it serve.
+ */
+export interface GuardrailsGate {
+  file: string;
+  /** Does the Gateway's port answer yet? Defaults to a TCP connect to 127.0.0.1:port. */
+  listening?: () => Promise<boolean>;
+  pollMs?: number;
+  /** Give up waiting for either the file or the port after this long. */
+  maxMs?: number;
+}
+
 export interface SupervisorOptions {
+  gate?: GuardrailsGate;
   /** Called before every (re)start: write the config, refresh the environment. Returns the child's env. */
   prepare: () => Promise<Record<string, string>> | Record<string, string>;
   port: number;
@@ -85,6 +104,7 @@ export class GatewaySupervisor {
 
   private async launchInner(): Promise<void> {
     if (this.stopping) return;
+    if (this.opts.gate) rmSync(this.opts.gate.file, { force: true });
     const env = await this.opts.prepare();
     if (this.stopping) return;
     const { cmd, args } = this.opts.command ?? openclawCommand();
@@ -112,6 +132,36 @@ export class GatewaySupervisor {
       if (child.pid === undefined) finish(null, null); // no pid: it never started. With one, it is a kill or IPC error and the process is still ours.
     });
     child.once("exit", (code, signal) => finish(code, signal));
+    if (this.opts.gate) void this.watchGate(child, this.opts.gate);
+  }
+
+  private tcpOpen(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const sock = connect({ host: "127.0.0.1", port: this.opts.port });
+      sock.once("connect", () => {
+        sock.destroy();
+        resolve(true);
+      });
+      sock.once("error", () => resolve(false));
+    });
+  }
+
+  private async watchGate(child: ChildProcess, gate: GuardrailsGate): Promise<void> {
+    const pollMs = gate.pollMs ?? 100;
+    const deadline = Date.now() + (gate.maxMs ?? 120_000);
+    const listening = gate.listening ?? (() => this.tcpOpen());
+    while (this.child === child && child.exitCode === null && Date.now() < deadline) {
+      if (existsSync(gate.file)) return;
+      if (await listening()) {
+        // The plugin registers before the listener opens; look once more, then judge.
+        if (existsSync(gate.file)) return;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    if (this.child !== child || child.exitCode !== null) return;
+    this.log("error", "the Gateway is up without teeny-guardrails; stopping it (agents' exec has no other gate)", { file: gate.file });
+    child.kill("SIGKILL");
   }
 
   private exited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {

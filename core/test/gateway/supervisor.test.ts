@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewaySupervisor } from "../../src/gateway/supervisor.js";
@@ -235,6 +238,44 @@ describe("GatewaySupervisor", () => {
     // one Gateway from the first launch; the restart then replaced it, never ran beside it
     expect(children.filter((c) => c.exitCode === null)).toHaveLength(1);
     expect(children.length).toBeLessThanOrEqual(2);
+    await s.stop();
+  });
+});
+
+describe("GatewaySupervisor: the guardrails gate", () => {
+  const readyFile = () => join(mkdtempSync(join(tmpdir(), "gate-")), "guardrails.ready");
+
+  it("stops a Gateway that is listening without the plugin's ready file (exec has no other gate)", async () => {
+    const file = readyFile();
+    const s = make({ gate: { file, listening: async () => true, pollMs: 10 } });
+    await s.start();
+    const first = children[0]!;
+    await vi.advanceTimersByTimeAsync(50);
+    expect(first.signals).toEqual(["SIGKILL"]);
+    expect(s.running).toBe(false);
+    await s.stop();
+  });
+
+  it("leaves a Gateway alone once the plugin has written its file, and removes a stale one before a start", async () => {
+    const file = readyFile();
+    writeFileSync(file, "stale");
+    let listening = false;
+    const s = make({ gate: { file, listening: async () => listening, pollMs: 10 } });
+    await s.start();
+    expect(existsSync(file)).toBe(false);
+    writeFileSync(file, "{}");
+    listening = true;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(children[0]!.signals).toEqual([]);
+    expect(s.running).toBe(true);
+    await s.stop();
+  });
+
+  it("stops a Gateway that never listens and never writes the file, after maxMs", async () => {
+    const s = make({ gate: { file: readyFile(), listening: async () => false, pollMs: 10, maxMs: 200 } });
+    await s.start();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(children[0]!.signals).toEqual(["SIGKILL"]);
     await s.stop();
   });
 });

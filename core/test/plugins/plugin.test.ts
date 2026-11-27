@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import plugin from "../../plugins/teeny-guardrails/index.js";
@@ -29,6 +29,18 @@ describe("the plugin", () => {
     expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "before_prompt_build", "before_tool_call", "tool_result_persist"]);
     expect(hooks.get("before_tool_call")?.opts?.priority).toBe(1000);
     expect(plugin.id).toBe("teeny-guardrails");
+  });
+
+  it("writes policy.readyFile once its hooks are registered, and never when the policy is unusable", () => {
+    const f = makeFixture();
+    const ready = join(f.root, "state", "openclaw", "guardrails.ready");
+    rmSync(ready, { force: true });
+    register({ policy: { ...JSON.parse(JSON.stringify(f.policy)), readyFile: ready } });
+    expect(existsSync(ready)).toBe(true);
+    rmSync(ready);
+    const bad = register({ policy: { readyFile: ready } });
+    expect(bad.logs.join("\n")).toContain("every tool call will be blocked");
+    expect(existsSync(ready)).toBe(false);
   });
 
   it("blocks and rewrites through the hook", async () => {

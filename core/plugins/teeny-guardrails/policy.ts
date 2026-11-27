@@ -70,6 +70,8 @@ export interface GuardrailsPolicy {
   keychainFill?: string;
   picturesDir?: string;
   picturesKeep: number;
+  /** Written by the plugin once its hooks are registered: the core's proof that the gate is on. */
+  readyFile?: string;
   agents: Record<string, AgentPolicy>;
   /** How to run `openclaw`, to read the browser's live tab URLs. */
   openclaw?: { cmd: string; args: string[] };
@@ -88,6 +90,7 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
     if (typeof p[k] !== "string" || !(p[k] as string).startsWith("/")) throw new Error(`teeny-guardrails: policy.${k} must be an absolute path`);
   }
   if (!isStringArray(p.systemForbidden)) throw new Error("teeny-guardrails: policy.systemForbidden must be a list");
+  if (p.readyFile !== undefined && (typeof p.readyFile !== "string" || !p.readyFile.startsWith("/"))) throw new Error("teeny-guardrails: policy.readyFile must be an absolute path");
   const agents = p.agents as Record<string, AgentPolicy> | undefined;
   if (!agents || typeof agents !== "object") throw new Error("teeny-guardrails: policy.agents is missing");
   for (const [id, a] of Object.entries(agents)) {

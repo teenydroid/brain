@@ -187,6 +187,11 @@ export const RECALL_BUDGET_TOKENS = 3000;
 /** [memory] recall_each_turn_ms. */
 export const RECALL_EACH_TURN_MS = 5000;
 
+/** Where teeny-guardrails says it is loaded (state/openclaw/guardrails.ready). */
+export function guardrailsReadyFile(openclawDir: string): string {
+  return join(openclawDir, "guardrails.ready");
+}
+
 export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknown> {
   const { paths, env } = input;
   const deny = join(paths.root, "deploy", "browser-deny.txt");
@@ -208,6 +213,8 @@ export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknow
     ...(existsSync(join(paths.root, "bin", "keychain-fill")) ? { keychainFill: join(paths.root, "bin", "keychain-fill") } : {}),
     ...(pictures && pictures.startsWith("/") ? { picturesDir: pictures } : {}),
     picturesKeep: 24,
+    // The plugin writes this file once its hooks are registered; the supervisor stops a Gateway without it.
+    readyFile: guardrailsReadyFile(paths.openclawDir),
     openclaw: openclawCommand(env),
     agents: buildAgentPolicies(input),
     recall: {
