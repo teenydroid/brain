@@ -162,8 +162,11 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       controlUi: { enabled: false },
       // schema: gateway.http.endpoints.{chatCompletions,responses}.enabled
       http: { endpoints: { chatCompletions: { enabled: false }, responses: { enabled: false } } },
-      // The core edits config; a hot reload on its writes is not wanted.
-      reload: { mode: "off" },
+      // schema: gateway.reload.mode (gateway/configuration/hot-reload.md: "off" | "hybrid"). "hybrid", so the
+      // running Gateway applies the core's one live write, exec opening once teeny-guardrails is proven loaded.
+      // With "off" that write never applied and every shell agent stayed on "deny". The core writes exec open
+      // only when nothing else changed (main.ts writeConfig), so a restart the Gateway makes itself starts on "deny".
+      reload: { mode: "hybrid" },
     },
     // schema: hooks.enabled
     hooks: { enabled: false },

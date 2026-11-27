@@ -35,6 +35,9 @@ describe("generated OpenClaw config: the lockdown", () => {
 
   it("turns off hooks, both OpenAI-style HTTP endpoints, the control UI, update checks and mDNS", () => {
     expect(cfg.hooks).toEqual({ enabled: false });
+    // "hybrid", or the core's one live write (exec opening once the plugin is proven) never applies and every
+    // shell agent stays on "deny" (lab boot, 2026-11-27: "config reload disabled (gateway.reload.mode=off)").
+    expect(cfg.gateway.reload).toEqual({ mode: "hybrid" });
     expect(cfg.gateway.http.endpoints.chatCompletions.enabled).toBe(false);
     expect(cfg.gateway.http.endpoints.responses.enabled).toBe(false);
     expect(cfg.gateway.controlUi.enabled).toBe(false);
