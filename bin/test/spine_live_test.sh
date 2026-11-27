@@ -243,7 +243,7 @@ cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy" "$root/core"
 # The guardrails plugin, where the core looks for it: with no plugin in the config every shell agent's exec is "deny".
-cp -R "$repo/core/plugins" "$repo/core/package.json" "$root/core/"
+cp -R "$repo/core/plugins" "$repo/core/src" "$repo/core/package.json" "$root/core/"
 cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 # skills/ too: a playbook names the skills it loads (`skills = [...]`), and the
 # doctor refuses a playbook whose skill file is missing, so the boot stops.
