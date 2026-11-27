@@ -169,14 +169,24 @@ describe("migrate-keyring.ts", () => {
     expect(result.code).toBe(0);
   });
 
-  it("--user-id narrows several phrase documents to the one that owner holds", async () => {
+  it("--owner-id narrows several phrase documents to the one that owner holds", async () => {
     const old = await oldKeyring("storage", { keychainUser: "teeny", docOwners: ["teeny", "other"] });
     const newDir = join(old.dir, "state");
-    const result = run(old, ["--old-storage-db", old.db, "--user-id", "teeny"], newDir);
+    const result = run(old, ["--old-storage-db", old.db, "--owner-id", "teeny"], newDir);
     const unnamed = run(old, ["--old-storage-db", old.db], join(old.dir, "state2"));
     expect(unnamed.err).toMatch(/2 recovery phrase documents/);
     expect(result.err).toBe("");
     expect(result.code).toBe(0);
+  });
+
+  it("--owner-id picks the document while the keyring user keeps its own name (.openhuman vs teeny)", async () => {
+    const old = await oldKeyring("storage", { keychainUser: ".openhuman", docOwners: ["teeny", "other"] });
+    const result = run(old, ["--old-storage-db", old.db, "--owner-id", "teeny"], join(old.dir, "state"));
+    expect(result.err).toBe("");
+    expect(result.code).toBe(0);
+    // --user-id is the keyring's user only: naming the document's owner there finds no master key.
+    const wrong = run(old, ["--old-storage-db", old.db, "--user-id", "teeny"], join(old.dir, "state2"));
+    expect(wrong.code).not.toBe(0);
   });
 
   it("--check reads, verifies and prints, and writes nothing", async () => {
