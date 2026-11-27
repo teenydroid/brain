@@ -27,7 +27,7 @@ describe("the plugin", () => {
   it("registers before_tool_call at the highest priority, and the hooks it documents", () => {
     const f = makeFixture();
     const { hooks } = register({ policy: JSON.parse(JSON.stringify(f.policy)) });
-    expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "before_prompt_build", "before_tool_call", "tool_result_persist"]);
+    expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "agent_end", "before_prompt_build", "before_tool_call", "tool_result_persist"]);
     expect(hooks.get("before_tool_call")?.opts?.priority).toBe(1000);
     expect(plugin.id).toBe("teeny-guardrails");
   });

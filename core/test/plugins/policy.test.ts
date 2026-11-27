@@ -54,8 +54,10 @@ describe("the policy generated from brain/agents/*.toml", () => {
   const f = makeFixture();
 
   it("covers exactly the agents that hold a tool", () => {
-    expect(Object.keys(f.policy.agents).sort()).toEqual(defs.filter((d) => d.tools.length > 0).map((d) => d.id).sort());
-    expect(Object.keys(f.policy.agents).sort()).toEqual(["babysitter", "evolver", "mind", "operator", "worker"]);
+    // plus the agents of the playbooks that run natively (pb-<name>), which hold a shell
+    const native = ["pb-gm", "pb-moltbook-general"];
+    expect(Object.keys(f.policy.agents).sort()).toEqual([...defs.filter((d) => d.tools.length > 0).map((d) => d.id), ...native].sort());
+    expect(Object.keys(f.policy.agents).sort()).toEqual(["babysitter", "evolver", "mind", "operator", ...native, "worker"]);
   });
 
   it("gives each agent exactly the OpenClaw tools its toml maps to, nothing more", () => {
