@@ -139,4 +139,77 @@ describe("GatewaySupervisor", () => {
     await s.restartNow();
     expect(children).toHaveLength(1);
   });
+
+  it("retries a restart whose prepare() threw, on the backoff, until it starts", async () => {
+    let calls = 0;
+    const s = make({
+      prepare: () => {
+        calls += 1;
+        if (calls === 2 || calls === 3) throw new Error("agents/x.toml is mid-edit");
+        return { OPENCLAW_STATE_DIR: "/s" };
+      },
+    });
+    await s.start();
+    expect(children).toHaveLength(1);
+    await s.restartNow(); // prepare #2 throws: no child, but a retry is queued
+    expect(children).toHaveLength(1);
+    expect(s.running).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000); // prepare #3 throws again
+    expect(s.running).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000); // prepare #4 works
+    expect(children).toHaveLength(2);
+    expect(s.running).toBe(true);
+    await s.stop();
+  });
+
+  it("retries a launch whose first start failed", async () => {
+    let calls = 0;
+    const s = make({
+      prepare: () => {
+        calls += 1;
+        if (calls === 1) throw new Error("ENOSPC");
+        return {};
+      },
+    });
+    await s.start().catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(s.running).toBe(true);
+    await s.stop();
+  });
+
+  it("kills a Gateway that ignores SIGTERM during a restart, and restarts it", async () => {
+    const s = make({ killAfterMs: 5000 });
+    await s.start();
+    children[0]!.autoExitOnTerm = false;
+    const restarted = s.restartNow();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(children[0]!.signals).toEqual(["SIGTERM"]);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(children[0]!.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    await restarted;
+    expect(children).toHaveLength(2);
+    await s.stop();
+  });
+
+  it("does not start a second Gateway when a restart arrives while a launch is still preparing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    const s = make({
+      prepare: async () => {
+        calls += 1;
+        if (calls === 1) await gate;
+        return {};
+      },
+    });
+    const starting = s.start();
+    const restarting = s.restartNow();
+    release();
+    await starting;
+    await restarting;
+    // one Gateway from the first launch; the restart then replaced it, never ran beside it
+    expect(children.filter((c) => c.exitCode === null)).toHaveLength(1);
+    expect(children.length).toBeLessThanOrEqual(2);
+    await s.stop();
+  });
 });

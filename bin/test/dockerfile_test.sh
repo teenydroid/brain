@@ -89,7 +89,7 @@ for tool in ("chromium", "bubblewrap", "python3", "jq", "sqlite3", "curl"):
 for needle, why in (
     ("COPY --from=core /build/core/dist /opt/teeny-core/dist", "the built core"),
     ("COPY --from=core /build/core/node_modules /opt/teeny-core/node_modules", "the production node_modules"),
-    ("COPY bin/teeny-core /usr/local/bin/teeny-core", "the teeny-core wrapper"),
+    ("COPY bin/teeny-core bin/openclaw /usr/local/bin/", "the teeny-core and openclaw wrappers"),
     ("OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-core", "OPENHUMAN_CORE_BIN naming the wrapper"),
     ("OPENHUMAN_CORE_PORT=7788", "port 7788"),
     ("TEENY_CHROME_PATH=/usr/bin/chromium", "TEENY_CHROME_PATH"),

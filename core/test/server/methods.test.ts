@@ -42,6 +42,13 @@ describe("contract methods answer in the recorded shape", () => {
   });
 });
 
+describe("inbound_* (the core's queue, TEENY_INBOX=core)", () => {
+  it.each(["inbound_offer", "inbound_results", "inbound_result_ack"])("%s answers that this core does not support it", async (method) => {
+    const answer = await t.rpc(method, {});
+    expect(answer.error?.message).toMatch(/inbound queue is not supported by this core.*TEENY_INBOX/);
+  });
+});
+
 describe("config_update_agent_settings / config_get_agent_settings", () => {
   it("round-trips the turn budget and survives a restart of the store", async () => {
     await t.rpc("config_update_agent_settings", { agent_timeout_secs: 1800 });

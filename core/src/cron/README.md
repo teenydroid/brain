@@ -1,69 +1,81 @@
 # cron
 
-`cron_list`, `cron_add`, `cron_update`, `cron_remove` and `cron_run`, as the
-contract in `test/contract/cron_*.json` records them. `index.ts` exports
-`methods`, plus `startCron(ctx)` / `stopCron()` (the server calls them at boot
-and shutdown) and `setAgentRunner(fn)` (P1 provides the function).
+`cron_list`, `cron_add`, `cron_update`, `cron_remove` and `cron_run`, as the contract in
+`test/contract/cron_*.json` records them, implemented over **OpenClaw automations**. `index.ts`
+exports `methods`, plus `startCron(ctx)` / `stopCron()` (the server calls them at boot and shutdown).
 
-## Decision: an in-core scheduler, not OpenClaw automations
+There is no scheduler in the core. The Gateway fires the jobs; this module translates Teeny's job
+shape to `openclaw automations ... --json` (`automations.ts`, `map.ts`) and back. The binary is
+`$OPENCLAW_BIN` (default `openclaw`); every automations command needs the Gateway running and
+`operator.admin` for add, edit, remove and run (docs `cli/cron.md`).
 
-I checked OpenClaw's automations (`node_modules/openclaw/docs/automation/cron-jobs*`)
-and chose a scheduler in the core, on `croner`, for four reasons.
+## What each call becomes
 
-1. **The store.** Automations keep jobs and history in OpenClaw's own SQLite
-   state database. Teeny's Python (`bin/crons`, `health.py`, `pulse.py`,
-   `catch_up.py`, `evolve.py`) reads `docs` rows in `brain/storage.db`
-   (`cron.jobs`, `cron.runs`, `tsd.leases`) and must keep working unchanged.
-   Only code in this core can write those rows in exactly that shape.
-2. **Missed slots.** Automations replay a missed slot at the next tick unless
-   `cron.skipMissedJobs` is set. Teeny's rule (`cron_policy.py`: no catch-up for
-   posting) puts late runs in `bin/lib/catch_up.py`, so the scheduler must never
-   replay one itself.
-3. **The shell environment.** A shell job gets HOME, PATH and LANG only, with cwd
-   `$OPENHUMAN_ACTION_DIR`, as OpenHuman gave it. Automations document a 10 minute
-   default for command payloads, not that environment.
-4. **Exact semantics.** `croner` gives cron plus an IANA time zone (tested with
-   Asia/Kolkata) and Vixie day-of-month/day-of-week rules.
+Sources are under `node_modules/openclaw/docs/`: `cli/cron.md` (CLI), `automation/cron-jobs/payloads.md`
+(payloads, sessions), `automation/cron-jobs/managing-jobs.md` (config keys), and the `CronJob` schema in
+`dist/index-*.d.ts` for the JSON fields.
 
-`node:sqlite` (built into Node 24) is the driver: no native build or prebuilt
-binary to ship in the image, synchronous calls that suit a one-writer store,
-and it reads and writes the WAL database OpenHuman used. `croner` (9.1.0) is
-the one new dependency.
+| Contract | OpenClaw |
+| --- | --- |
+| `cron_list` | `automations list --all --json` (`{jobs: [...]}`), each job mapped back (`map.ts view`) |
+| `cron_add` | `automations add --name N <schedule> --session isolated --no-deliver <payload> --json` |
+| `cron_update` | `automations edit <id> <flags>`, and `enable` / `disable` for `enabled`; answers `get <id>` |
+| `cron_remove` | `automations remove <id>` |
+| `cron_run` | `automations run <id>` (force; returns after the Gateway queues it: `{ok, enqueued, runId}`) |
 
-## Behaviour
+- Schedule `{kind: "cron", expr, tz}`: `--cron EXPR --tz TZ --exact`. `--exact` turns the Gateway's stagger
+  (up to 5 minutes on top-of-hour expressions) off, so a job fires on its minute. `{kind: "at", at}`: `--at ISO`,
+  plus `--keep-after-run` unless `delete_after_run` is true (one-offs delete after a successful run by default).
+- Agent job: `--agent ID --message PROMPT --session isolated` (an agent-turn payload, a fresh session and
+  `cron:<jobId>` run session per run). `--no-deliver`: nothing goes to a chat; the agent reports through its hands.
+  `delivery` other than `{mode: "none"}` is refused.
+- Shell job: a `command` payload, see below.
+- Response fields: `id`, `name`, `job_type` (`agentTurn` payload is `agent`, anything else `shell`), `schedule`,
+  `enabled`, `command`, `agent_id`, `prompt`, `next_run` (`state.nextRunAtMs`, left out when disabled or none),
+  `last_run`, `last_status`, `running` (`state.runningAtMs` is set). Absent values are omitted, never null
+  (the contract checker rejects null for a string field).
 
-- Jobs: `job_type` `shell` (`command`) or `agent` (`agent_id`, `prompt`,
-  `session_target` `isolated`). `delivery` must be `{mode: "none"}`. Created
-  enabled. `schedule` is `{kind: "cron", expr, tz}` (tz defaults to UTC) or
-  `{kind: "at", at}`; `delete_after_run` removes a one-off after it succeeds.
-- `cron_update` patches `schedule`, `enabled`, `command`, `agent_id`, `prompt`
-  and `name`. A schedule patch (or enabling) re-arms `next_run_ms` to the next slot.
-  A disabled job has `next_run_ms` null and never fires.
-- `cron_run` queues a run now and answers `{job_id, status: "queued"}`. It is refused
-  while that job is already running. A scheduled slot that finds the job running is skipped.
-- Shell jobs: `sh -c`, own process group, killed whole on timeout
-  (`shellTimeoutSecs`, default 1800 = `[cron] shell_timeout_secs`; there is no 300 s cap).
-  Output is recorded as `status=exit status: N\nstdout:\n...\nstderr:\n...`
-  (the OpenHuman layout), clipped at 64 KiB per stream. No retries.
-- Agent jobs go through the injected runner:
-  `runAgent(agentId, prompt, sessionKey, signal) => Promise<string | {ok, output} | void>`.
-  `sessionKey` is `cron:<job name>:<run id>`, a fresh session per run. A throw, a
-  `{ok:false}`, an abort after `agentTimeoutSecs` (3600) or a missing runner fails the run.
-- On start: runs a dead process left open become `error`; slots passed while the
-  core was down are skipped (next_run_ms moves to the next slot); a past-due
-  one-off `at` job still fires once.
-- Polling every 1 s (`pollMs`).
+## Shell jobs: environment, cwd, timeout
 
-## Storage (`OPENHUMAN_STORAGE_URL`, `sqlite:brain/storage.db`)
+OpenClaw's `--command` stores `sh -lc <cmd>`: a login shell that reads profile files, with the Gateway's
+environment. That is not what OpenHuman gave and not what Teeny's jobs were written for. So the core uses
+`--command-argv` (exact argv, no shell parsing) and wraps the command itself:
 
-- `cron.jobs` (id = uuid): `{id, name, job_type, expression, enabled, next_run_ms,
-  schedule, command|agent_id+prompt+session_target, delivery, delete_after_run, created_ms}`.
-  `next_run_ms` moves to the following slot when a run starts.
-- `cron.runs`: `{job_id, status: running|ok|error, started_ms, finished_ms, seq, output}`.
-  200 runs per job are kept; removing a job removes its runs.
-- `tsd.leases`: id `cron/<esc(esc(job_id)/occurrence_ms)>` (`leaseId`), body
-  `{holder, epoch, expires_ms, released}`. Claimed (2 h expiry) when a run
-  starts, renewed every 30 s, released (`released: true`, `expires_ms: 0`) when it ends.
-  `catch_up.py` and `health.py` read these to tell a running job from a stuck one.
+```
+env -i HOME=<HOME> PATH=<PATH> LANG=<LANG> timeout -k 10 1800 sh -c '<command>'
+```
 
-The core has no system jobs of its own (OpenHuman's `memory_background` is gone).
+- `env -i` clears the environment down to exactly HOME, PATH and LANG (taken from the core's own environment,
+  with defaults), as OpenHuman did. `--command-env` can only add variables, never remove the Gateway's, which is why
+  the wrapper is needed.
+- cwd: `--command-cwd $OPENHUMAN_ACTION_DIR` (the repo root when that is unset).
+- timeout: `timeout 1800` inside the wrapper is `[cron] shell_timeout_secs`, and kills the whole command (exit
+  124, children too; tested). The scheduler's own `--timeout-seconds` is 1830, so the wrapper ends the run first
+  and the run history says why. There is no 300 s cap (gap G12 was TinyBox's, not OpenClaw's).
+- `command` in responses is the wrapper's last argument (`commandOf`), so callers see the command they added.
+- Output: the Gateway captures stdout and stderr into run history (`--output-max-bytes` left at its default).
+
+## Missed slots (catch-up)
+
+OpenClaw replays a recurring slot missed while the Gateway was down unless `cron.skipMissedJobs: true`
+(`managing-jobs.md`, "Configuration"). That key is global, not per job. Teeny's rule (`cron_policy.py`: no
+catch-up for anything that posts or pays, a bounded window for the rest) wants no replay by the scheduler at
+all: `bin/lib/catch_up.py` makes up the jobs that allow it, through `cron_run`. So `startCron` reads
+`openclaw config get cron.skipMissedJobs` and, if it is not `true`, sets it (`config set ... true --strict-json`).
+One-shot `at` jobs keep OpenClaw's catch-up either way (documented); wakes are not posts.
+The same key belongs in the OpenClaw config the image ships, so it holds before the core starts.
+
+## Run history and "running"
+
+`openclaw automations runs <id> --json` (or `--all`) is the history. The Python readers go through
+`bin/lib/cron_store.py`, which also documents what replaces `tsd.leases`: the job's `state.runningAtMs`
+marker (set while a run is in flight, cleared when it ends) is the claim on a slot.
+
+## Not here
+
+- `runAgent` injection (the earlier in-core design): agent jobs are OpenClaw agent turns now, so P1 supplies
+  nothing for cron.
+- A real Gateway was not available to the tests. `test/cron/fake.ts` stands in for the CLI and parses the
+  flags the core sends; the JSON shapes it returns are those of the docs and type definitions, but the CLI's exact
+  `--json` envelope for `list`, `add`, `get` and `runs` is tolerated both as a bare array/object and as
+  `{jobs}` / `{entries}`.

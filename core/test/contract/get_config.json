@@ -1,7 +1,7 @@
 {
   "method": "openhuman.get_config",
   "call_sites": [
-    "bin/lib/health.py:1270",
+    "bin/lib/health.py:1225",
     "bin/lib/model_window.py:121"
   ],
   "params": {

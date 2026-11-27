@@ -2,7 +2,6 @@
 // teeny-core: the OpenClaw-backed core. `teeny-core serve` answers the
 // openhuman.* JSON-RPC on $OPENHUMAN_CORE_HOST:$OPENHUMAN_CORE_PORT and
 // supervises the OpenClaw Gateway its agent turns run on.
-import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -10,17 +9,21 @@ import { dirname, join } from "node:path";
 import { AgentCatalog } from "./agents/provision.js";
 import { CostLog } from "./agents/cost.js";
 import { bareModel } from "./agents/model.js";
-import { findChrome } from "./config/chrome.js";
 import { resolvePaths, serveSettings } from "./config/paths.js";
 import { Sealer, masterKeyFile } from "./config/secrets.js";
 import { SettingsStore } from "./config/store.js";
 import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
-import { GATEWAY_TOKEN_ENV, MODEL_KEY_ENV, buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
-import { openclawPassthrough } from "./gateway/passthrough.js";
+import { buildGuardrailsPolicy } from "./agents/guardrails.js";
+import { findChrome } from "./config/chrome.js";
+import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
+import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
 import { createCron, type Cron } from "./cron/index.js";
+import { defaultExec, type Exec } from "./cron/automations.js";
+import { DrainingRunner } from "./gateway/drain.js";
+import { openclawCommand } from "./gateway/cli.js";
 import type { RpcMethods } from "./server/types.js";
 import { createHttpServer } from "./server/http.js";
 import { MODULES, buildRegistry } from "./server/registry.js";
@@ -33,6 +36,8 @@ const DEFAULT_SHELL_TIMEOUT_SECS = 1800;
 const COMPACTION_TRIGGER_TOKENS = 100_000;
 const KEEP_RECENT_TOKENS = 40_000;
 const DEFAULT_GATEWAY_PORT = 18789;
+/** How long a Gateway restart waits for running turns (a cron agent turn may run 30 minutes). */
+const DRAIN_MS = 15 * 60_000;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -43,6 +48,10 @@ export interface StartOptions {
   /** Do not start the Gateway child (tests). */
   noGateway?: boolean;
   spawn?: SpawnFn;
+  /** How long a settings-driven Gateway restart waits for running turns (tests). */
+  drainMs?: number;
+  /** Replace how the cron module runs `openclaw automations` (tests). */
+  exec?: Exec;
   log?: CoreContext["log"];
 }
 
@@ -81,37 +90,24 @@ export function cronShellTimeoutSecs(env: Env, root: string): number {
 }
 
 /**
- * The one place the cron module is hooked up (P2 swaps its body, nothing else):
- * its RPC methods, a start/stop pair, and an agent runner backed by the Gateway
- * client. start() is called once the server listens, stop() before it closes.
+ * The one place the cron module is hooked up: its RPC methods (built with the
+ * [cron] shell timeout) and a start/stop pair. Cron jobs are OpenClaw
+ * automations, so the Gateway runs them and agent jobs need no runner of ours.
+ * The module drives them through the `openclaw automations` CLI, which has to
+ * be the core's own bundled openclaw (not one on PATH) on the Gateway's state,
+ * config and token: GATEWAY is that CLI's command and environment.
  */
-export function wireCron(ctx: CoreContext): { methods: RpcMethods; start: () => void; stop: () => Promise<void> } {
-  const s = ctx.services;
-  if (!s) throw new Error("cron needs the core services");
-  const cron: Cron = createCron({ shellTimeoutSecs: cronShellTimeoutSecs(ctx.env, ctx.root), agentTimeoutSecs: s.store.agentTimeoutSecs });
-  cron.setAgentRunner(async (agentId, prompt, sessionKey, signal) => {
-    if (!s.hasAgent(agentId)) return { ok: false, output: `unknown agent: ${agentId}` };
-    s.prepareAgent(agentId);
-    try {
-      const result = await s.runner.run({
-        agentId,
-        sessionKey: `agent:${agentId}:${sessionKey}`,
-        message: prompt,
-        timeoutSecs: s.store.agentTimeoutSecs,
-      });
-      if (signal.aborted) return { ok: false, output: "aborted" };
-      s.costLog.record({
-        ts: Date.now(),
-        agent: agentId,
-        ...(result.model ? { model: result.model } : {}),
-        ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
-        ...(result.usage?.total !== undefined ? { tokens: result.usage.total } : {}),
-      });
-      return result.text;
-    } catch (e) {
-      return { ok: false, output: e instanceof Error ? e.message : String(e) };
-    }
-  });
+export function wireCron(
+  ctx: CoreContext,
+  gateway: { env: () => Record<string, string>; exec?: Exec },
+): { methods: RpcMethods; start: () => Promise<void>; stop: () => Promise<void> } {
+  const exec: Exec =
+    gateway.exec ??
+    ((_file, args) => {
+      const { cmd, args: lead } = openclawCommand(ctx.env);
+      return defaultExec(cmd, [...lead, ...args], { env: gateway.env() });
+    });
+  const cron: Cron = createCron({ shellTimeoutSecs: cronShellTimeoutSecs(ctx.env, ctx.root), exec });
   return { methods: cron.methods, start: () => cron.start(ctx), stop: () => cron.stop() };
 }
 
@@ -135,12 +131,21 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
   }
   const store = new SettingsStore(paths.stateDir, sealer);
   const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir);
-  const gatewayToken = randomBytes(32).toString("hex");
+  const secretFiles = { gatewayToken: gatewayTokenFile(paths.openclawDir), modelKey: join(paths.openclawDir, "model.key") };
+  ensureGatewayToken(paths.openclawDir);
   const gatewayPort = Number(env.OPENCLAW_GATEWAY_PORT || DEFAULT_GATEWAY_PORT);
   const configPath = join(paths.openclawDir, "openclaw.json");
   const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
 
+  /** The model key, as a private file the Gateway reads through a SecretRef: never in its environment. */
+  const writeModelKey = (): void => {
+    writeFileSync(secretFiles.modelKey, `${store.localAiApiKey() || "unset"}\n`, { mode: 0o600 });
+    chmodSync(secretFiles.modelKey, 0o600);
+  };
+  /** What the running Gateway was started on: the config text and the model key it reads. */
+  let applied = "";
   const writeConfig = (): void => {
+    writeModelKey();
     const s = store.snapshot;
     const defaultModel = s.models.default_model ? bareModel(s.models.default_model) : env.SPINE_MODEL;
     const registry = s.modelRegistry.filter((m) => m.provider === "local-openai");
@@ -157,12 +162,21 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       agentTimeoutSecs: store.agentTimeoutSecs,
       defaultWorkspace: join(paths.openclawDir, "workspaces"),
       agents: catalog.entries(),
-      ...(guardrails ? { guardrailsPath: guardrails } : {}),
+      ...(catalog.has("simple") ? { systemAgentId: "simple" } : {}),
+      secretFiles,
+      ...(guardrails
+        ? {
+            guardrailsPath: guardrails,
+            guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env, workspaceOf: (id) => catalog.workspace(id) }),
+          }
+        : {}),
+      ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
     });
-    writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    const text = JSON.stringify(config, null, 2);
+    writeFileSync(configPath, text, { mode: 0o600 });
     chmodSync(configPath, 0o600);
+    applied = `${text}\n${store.localAiApiKey() ?? ""}`;
   };
-
   /** The environment of the Gateway and of its CLI: no core token, no master key file path, nothing else of ours. */
   const gatewayEnv = (): Record<string, string> => {
     const out: Record<string, string> = {
@@ -171,15 +185,12 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       LANG: env.LANG ?? "C.UTF-8",
       OPENCLAW_STATE_DIR: paths.openclawDir,
       OPENCLAW_CONFIG_PATH: configPath,
-      [GATEWAY_TOKEN_ENV]: gatewayToken,
     };
     for (const k of ["TMPDIR", "CHROME_BIN", "NODE_OPTIONS"]) if (env[k]) out[k] = env[k] as string;
-    const key = store.localAiApiKey();
-    if (key) out[MODEL_KEY_ENV] = key;
     return out;
   };
 
-  const runner = opts.runner ?? new CliAgentRunner({ env: gatewayEnv });
+  const runner = new DrainingRunner(opts.runner ?? new CliAgentRunner({ env: gatewayEnv }));
   const supervisor = opts.noGateway
     ? undefined
     : new GatewaySupervisor({
@@ -191,6 +202,33 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
         },
         ...(opts.spawn ? { spawn: opts.spawn } : {}),
       });
+
+  /**
+   * Settings changed. Rewrite the Gateway's config; restart it only when what it reads
+   * actually changed, and then only after the turns in flight have finished (new ones
+   * wait at the door), so a restart never ends an evolve generation or a cron turn.
+   */
+  const applySettings = async (): Promise<void> => {
+    try {
+      if (!supervisor) {
+        writeConfig();
+        return;
+      }
+      const before = applied;
+      writeConfig();
+      if (applied === before) return;
+      const drained = await runner.quiesce(opts.drainMs ?? DRAIN_MS);
+      if (!drained) log("warn", "restarting the gateway with turns still running", { running: runner.running });
+      try {
+        await supervisor.restartNow();
+      } finally {
+        runner.release();
+      }
+    } catch (e) {
+      runner.release();
+      log("error", "could not apply settings to the gateway", { error: e instanceof Error ? e.message : String(e) });
+    }
+  };
 
   let debounce: NodeJS.Timeout | undefined;
   const ctx: CoreContext = {
@@ -208,14 +246,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       configChanged: () => {
         // bin/spine sends several settings in a row at boot; one restart serves them all.
         clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          try {
-            if (supervisor) void supervisor.restartNow();
-            else writeConfig();
-          } catch (e) {
-            log("error", "could not apply settings to the gateway", { error: e instanceof Error ? e.message : String(e) });
-          }
-        }, 500);
+        debounce = setTimeout(() => void applySettings(), 500);
       },
       hasAgent: (id) => catalog.has(id),
       prepareAgent: (id) => void catalog.prepare(id),
@@ -223,13 +254,13 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     },
   };
 
-  const cron = wireCron(ctx);
+  const cron = wireCron(ctx, { env: gatewayEnv, ...(opts.exec ? { exec: opts.exec } : {}) });
   const server = createHttpServer({ registry: buildRegistry([...MODULES, cron.methods]), token, ctx });
   server.listen(port, host);
   await once(server, "listening");
   const bound = (server.address() as AddressInfo).port;
   if (supervisor) await supervisor.start();
-  cron.start();
+  await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
   log("info", "serving", { host, port: bound });
 
   return {

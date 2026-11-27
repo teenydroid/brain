@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
-# Boots a real OpenHuman core through bin/spine over a scratch root and checks
-# the whole step-1 surface: first-boot minting, the single storage file, the
-# file keyring, cron seeded from brain/cron.toml, a shell job that runs,
-# bin/crons reading storage.db, bin/oh, and bin/ask completing a turn against
-# a stub OpenAI-compatible model.
+# Boots the real TypeScript core (and the OpenClaw Gateway it supervises)
+# through bin/spine over a scratch root and checks the whole boot surface:
+# first-boot minting, the Gateway's generated config and its lockdown,
+# cron seeded from brain/cron.toml, a shell job that runs, bin/crons reading
+# the job store, bin/oh, and bin/ask, bin/act, bin/tick and bin/eval completing
+# turns through the Gateway against a stub OpenAI-compatible model.
 #
-#   OPENHUMAN_CORE_BIN=/path/to/openhuman-core bin/test/spine_live_test.sh
+# It needs Node 24 and a built core, so CI and the box run it in the image:
 #
-# Skips (exit 0) when no core binary is given; CI runs bin/test/seed_cron_test.sh
-# instead. Build one from upstream/main with
-# `cargo build --release -p openhuman-cli --bin openhuman-core`.
+#   docker build -t teeny-spine:test .
+#   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/srv/teeny \
+#     --entrypoint bash teeny-spine:test /srv/teeny/bin/test/spine_live_test.sh
+#
+# On a laptop with Node 24 and `cd core && npm ci && npm run build` done, run it
+# directly. It skips (exit 0) when there is no core to run; CI runs
+# bin/test/seed_cron_test.sh against a stand-in as well.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
+# bin/spine runs from a scratch copy; the core is the image's (OPENHUMAN_CORE_BIN)
+# or this checkout's build, found by the wrapper.
 if [ -z "${OPENHUMAN_CORE_BIN:-}" ]; then
-  echo "skip: set OPENHUMAN_CORE_BIN to an openhuman-core binary to run this test"
+  OPENHUMAN_CORE_BIN="$repo/bin/teeny-core"
+fi
+[ -x "$OPENHUMAN_CORE_BIN" ] || { echo "FAIL no executable at $OPENHUMAN_CORE_BIN" >&2; exit 1; }
+if [ ! -f "$("$OPENHUMAN_CORE_BIN" --where 2>/dev/null || echo /nonexistent)" ] ||
+  ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)' 2>/dev/null; then
+  echo "skip: needs Node 24 and a built core (cd core && npm ci && npm run build), or run it in the image"
   exit 0
 fi
-
-# bin/spine runs from a scratch copy, so a relative path would not resolve.
 OPENHUMAN_CORE_BIN="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$OPENHUMAN_CORE_BIN")"
 export OPENHUMAN_CORE_BIN
-[ -x "$OPENHUMAN_CORE_BIN" ] || { echo "FAIL no executable at $OPENHUMAN_CORE_BIN" >&2; exit 1; }
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-spine.XXXXXX")"
 spine_pid=""
@@ -80,7 +89,16 @@ class Model(BaseHTTPRequestHandler):
         with open(sys.argv[2], "a") as log:
             log.write(self.path + "\n")
         # What the model was actually asked: the last user message it received.
-        users = [m for m in body.get("messages", []) if m.get("role") == "user"]
+        # OpenClaw sends content as a list of parts; the core of the old days sent a string.
+        def flat(content):
+            if isinstance(content, list):
+                return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+            return content
+        # OpenClaw also appends a user message of its own after the prompt ("OpenClaw runtime
+        # context: ... Temporal Context"), and puts a "Conversation info" preamble before the
+        # prompt. The prompt is the last user message that is not that appendix.
+        users = [{**m, "content": flat(m.get("content"))} for m in body.get("messages", []) if m.get("role") == "user"]
+        users = [m for m in users if not str(m["content"]).startswith("OpenClaw runtime context:")]
         # Every request whole, for checks on what an agent was offered.
         with open(sys.argv[4], "a") as log:
             log.write(json.dumps(body) + "\n")
@@ -249,11 +267,27 @@ check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "keeps the core's config (with the model key) private" test "$(mode_of "$root/.openhuman/config.toml")" = 600
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
-check "writes one storage file in the brain" test -s "$root/brain/storage.db"
+check "the Gateway's config is written, private, in state/openclaw/" \
+  test "$(mode_of "$root/state/openclaw/openclaw.json")" = 600
+check "the spine's log says the Gateway is locked down and the audit ran" \
+  bash -c "grep -q '\[spine\] gateway: .*lockdown flags hold' '$scratch/spine.log' && grep -q '\[spine\] gateway: openclaw security audit: ' '$scratch/spine.log'"
+check "the Gateway config skips missed cron slots" \
+  test "$(jq -r .cron.skipMissedJobs "$root/state/openclaw/openclaw.json")" = true
+check "the Gateway's config holds no token and no model key" \
+  bash -c "! grep -q 'stub-key' '$root/state/openclaw/openclaw.json' && ! grep -q \"\$(cat '$root/state/openclaw/gateway.token')\" '$root/state/openclaw/openclaw.json'"
+check "the model key and the Gateway token are private files beside it" \
+  test "$(mode_of "$root/state/openclaw/model.key")$(mode_of "$root/state/openclaw/gateway.token")" = 600600
+# What the Gateway's exec tool hands to every command it runs is the Gateway's own
+# environment: it must hold neither secret, nor the core's token or master key.
+gateway_pid=""
+for proc in /proc/[0-9]*; do
+  if tr '\0' ' ' <"$proc/cmdline" 2>/dev/null | grep -q 'openclaw.mjs gateway run'; then gateway_pid="${proc#/proc/}"; break; fi
+done
+check "the Gateway process has no secret in its environment" bash -c \
+  "[ -n '$gateway_pid' ] && ! tr '\\0' '\\n' </proc/$gateway_pid/environ | grep -E 'stub-key|OPENCLAW_GATEWAY_TOKEN|LOCAL_OPENAI_API_KEY|OPENHUMAN_CORE_TOKEN|KEYRING_MASTER' >/dev/null"
+check "the Gateway answers over the core's readiness probe" \
+  test "$("$root/bin/oh" modules_browser_check_readiness | jq -r .module_ready)" = true
 check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
-# OpenHuman only treats a folder named `workspace` as a workspace beside its
-# config; anything else nests one inside it unless the config already exists.
-check "the core uses brain/ itself, not a folder nested in it" test ! -e "$root/brain/workspace"
 check "keeps config out of the brain" test ! -e "$root/brain/config.toml"
 check "puts config beside the brain" test -s "$root/.openhuman/config.toml"
 check "never exports the model key to the core" \
@@ -263,7 +297,8 @@ check "never exports the model key to the core" \
 crons="$("$root/bin/crons" 2>&1)"
 check "bin/crons lists the seeded heartbeat" grep -q 'teeny.heartbeat' <<<"$crons"
 check "bin/crons shows it as a shell job" grep -Eq 'teeny.heartbeat +shell' <<<"$crons"
-check "bin/crons also shows the core's own jobs" grep -q 'memory_background' <<<"$crons"
+# OpenHuman's own memory_background job is gone with OpenHuman: the store holds Teeny's jobs only.
+check "bin/crons shows no job the core made itself" bash -c "! grep -q memory_background <<<\"\$1\"" _ "$crons"
 check "bin/crons shows the job's timezone" grep -q 'teeny.heartbeat.*UTC' <<<"$crons"
 check "bin/crons refuses a name that is not a job name" bash -c "! '$root/bin/crons' runs \"x'; drop table docs; --\" 2>/dev/null"
 
@@ -305,8 +340,6 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
-# The first turn writes the core's persona defaults beside SOUL.md.
-check "the core writes its persona defaults into brain/ on the first turn" test -s "$root/brain/IDENTITY.md"
 # --- the doctor and bin/act ---------------------------------------------------
 check "the spine ran the doctor before serving, and it passed" \
   test "$(jq -r .ok "$root/state/doctor.json" 2>/dev/null)" = true
@@ -327,14 +360,15 @@ MD
 acted="$("$root/bin/act" hello 2>"$scratch/act.log" || true)"
 check "bin/act runs a playbook through the act agent" \
   test "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" = "hello from a playbook"
-# The stub cannot see this: a local model without native tool calls gets its
-# tools written into the prompt, not in the request's `tools`. The core logs
-# what it offered each agent; the act agent's turn must offer nothing.
-agent_tools() { # ID: what the core offered that agent's first turn
-  awk -v id="building session agent id=$1 " 'index($0, id) {found = 1} found && /tool spec filter:/ {print; exit}' "$scratch/spine.log"
+# The act agent drafts and nothing more: the request the model got offers no
+# working tool (the stub logs every request whole). OpenClaw always offers its
+# three tool-search shims; they run nothing themselves, and the guardrails
+# plugin gates whatever they would dispatch. Anything else offered fails.
+offered_tools() { # PATTERN: the tool names in the last model request that carries PATTERN, bar the shims
+  grep -F -- "$1" "$scratch/model-bodies.jsonl" | tail -n 1 |
+    jq -r '[(.tools // [])[] | .function.name | select(IN("tool_search", "tool_describe", "dispatch_action") | not)] | join(" ")'
 }
-check "the core loaded the act agent from brain/agents/" grep -q 'building session agent id=act ' "$scratch/spine.log"
-check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools act)"
+check "the act agent's turn offers the model no working tool" test -z "$(offered_tools '# playbook: hello')"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
 # Context and memory (docs/architecture.md, 4a): the act turn's system
 # prompt carries Teeny's world and MEMORY.md, the config folds at 100k, and
@@ -344,9 +378,8 @@ act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
 check "and MEMORY.md" grep -q 'the tea tin moved again' <<<"$(act_system)"
 check "the boot started the live MEMORY.md from the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.md"
-config_toml="$root/.openhuman/config.toml"
-check "the core's config folds a thread at 100k tokens" \
-  python3 -c 'import sys, tomllib; c = tomllib.load(open(sys.argv[1], "rb"))["context"]; sys.exit(c["compaction_trigger_tokens"] != 100000 or c["compaction_strategy"] != "summary")' "$config_toml"
+check "the Gateway folds a thread at 100k tokens, keeping the last 40k" \
+  jq -e '.agents.defaults.compaction.keepRecentTokens == 40000 and (.models.providers["local-openai"].models | all(.contextTokens <= 100000))' "$root/state/openclaw/openclaw.json" >/dev/null
 "$root/bin/act" hello >/dev/null 2>>"$scratch/act.log" || true
 check "a second run on the teeny:act thread sees the first exchange" \
   test "$(act_request | jq '[.messages[] | select(.role == "user") | .content | tostring | select(contains("# playbook: hello"))] | length')" -ge 2
@@ -372,8 +405,7 @@ beat() {
 }
 ticked="$(beat)"
 check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"
-check "the core loaded the mind from brain/agents/" grep -q 'building session agent id=teeny ' "$scratch/spine.log"
-check "the mind's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools teeny)"
+check "the mind's turn offers the model no working tool" test -z "$(offered_tools '# since you last looked')"
 check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "system") | .content | tostring] | join("\n")')"
 (cd "$root" && printf '{"surface": "moltbook", "kind": "comment", "ref": "live2", "text": "second thing", "who": "crab"}' | hands/stimuli add >/dev/null)
 beat >/dev/null
@@ -402,8 +434,7 @@ code=0
 check "bin/eval judges the pair through the judge agent" \
   test "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" = "the stub judged it"
 check "a tie promotes nothing" test "$code" = 2
-check "the core loaded the judge agent from brain/agents/" grep -q 'building session agent id=judge ' "$scratch/spine.log"
-check "the judge agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools judge)"
+check "the judge agent's turn offers the model no working tool" test -z "$(offered_tools '# how to judge')"
 if [ "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" != "the stub judged it" ]; then
   { tail -n 5 "$scratch/eval.log"; cat "$evals/base/drafts.jsonl" "$evals/out/judged.jsonl" 2>/dev/null; } >&2
 fi
@@ -415,79 +446,20 @@ check "seeds no builder" \
   test "$(jq -r '[.[] | select(.name | IN("teeny.builder", "teeny.build-ship"))] | length' <<<"$jobs_json")" = 0
 check "seeds the operator as an agent job" \
   test "$(jq -r '[.[] | select(.name == "teeny.operator")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent operator"
-check "the core kept the cron shell timeout" python3 -c 'import sys, tomllib
+check "the core's config keeps the cron shell timeout" python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
-assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")
-assert cfg["autonomy"]["enabled"] and cfg["autonomy"]["workspace_only"]
-assert cfg["browser"]["unattended_actions"]' "$root/.openhuman/config.toml"
-offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr -d ' '; }
-# And one operator run: the browser and its desk's two file tools, no shell.
-# It does a real task in the real browser: the stub model opens the start
-# page and reports its title. On 2026-11-13 the one task on the box failed
-# ("TinyComputer browser unavailable") while every check here passed; a
-# browser that cannot finish a task must fail this test. example.com (IANA's,
-# always up) is on no reviewed list: the browser opens the public web.
-jq -cn '{goal: "read the title of the page", start_url: "https://example.com/", done_when: "you know the title"}' |
-  "$root/hands/tasks" add --source operator >"$scratch/task-add.log" 2>&1 || true
-"$root/bin/tasks-desk" >"$scratch/tasks-desk.log" 2>&1 || true
-operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
-if [ -n "$operator_id" ]; then
-  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 120); do
-    [ -s "$root/state/workbench/desk/task-done.json" ] && break
-    sleep 1
-  done
-fi
-"$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
-task_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
-check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok
-if [ "$(jq -r .status <<<"$task_row")" != ok ]; then
-  printf '     task: %s\n' "$task_row" >&2
-  grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
-fi
-check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
-# The keychain, end to end (LIVE_KEYCHAIN=1: it needs httpbin.org, so CI
-# leaves it out): a password made in hands/keychain, typed by the browser in
-# place of the operator's placeholder on that site's page (httpbin echoes the
-# submitted form back), masked in what the browser read afterwards, and never
-# in a model's request, a log, a ledger or the desk.
-if [ "${LIVE_KEYCHAIN:-0}" = 1 ] && [ -n "$operator_id" ]; then
-  python3 -c 'import base64, os; print("KEYCHAIN_KEY=" + base64.b64encode(os.urandom(32)).decode())' \
-    >"$root/secrets/keychain.env"
-  "$root/hands/keychain" create --site httpbin.org --handle teeny >"$scratch/keychain.log" 2>&1 || true
-  jq -cn '{goal: "keychain e2e: type the password into the form", start_url: "https://httpbin.org/forms/post",
-           done_when: "the form holds it"}' | "$root/hands/tasks" add --source operator >>"$scratch/task-add.log" 2>&1 || true
-  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
-  check "the desk offers the login as a placeholder" \
-    test "$(jq -r '.task.login.password // empty' "$root/state/workbench/desk/task.json")" = "{{keychain:httpbin.org}}"
-  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 120); do [ -s "$root/state/workbench/desk/task-done.json" ] && break; sleep 1; done
-  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
-  kc_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
-  check "the browser typed the keychain's password and showed it masked" test "$(jq -r .status <<<"$kc_row")" = ok
-  [ "$(jq -r .status <<<"$kc_row")" = ok ] || printf '     task: %s\n' "$kc_row" >&2
-  password="$(TEENY_KEYCHAIN_FILL=1 "$root/hands/keychain" secret --host httpbin.org </dev/null)"
-  check "the keychain held a password to type" test -n "$password"
-  holds_none() { local needle="$1"; shift; ! grep -rqaF -- "$needle" "$@"; }
-  check "no model request, log, ledger or desk file holds the password" holds_none "$password" \
-    "$scratch/model-bodies.jsonl" "$scratch/spine.log" "$root/state/hands.db" "$root/state/workbench"
-  unset password
-fi
-check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
-check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
-check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
-printf 'info the operator was offered: %s\n' "$(offered operator | tr '\n' ' ')"
+assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")' "$root/.openhuman/config.toml"
+# Not covered here any more: a browser task in a real browser by the operator
+# agent. It needed OpenHuman's tool-call surface on the model side and a page on
+# the public web; the browser is OpenClaw's now, and the shadow run on a lab
+# spine is where it is watched (docs/architecture.md, "The OpenClaw Gateway").
+check "the operator's agent definition is provisioned on the Gateway" \
+  jq -e '.agents.entries.operator != null' "$root/state/openclaw/openclaw.json" >/dev/null
 
-registered_window() {
-  python3 -c 'import sys, tomllib
-cfg = tomllib.load(open(sys.argv[1], "rb"))
-print(next((e.get("context_window") for e in cfg.get("model_registry", []) if e.get("id") == "stub"), None))' "$root/.openhuman/config.toml"
-}
-check "the model's window comes from the endpoint" test "$(registered_window)" = 128000
+check "the model's window comes from the endpoint" \
+  test "$(jq -r '.models.providers["local-openai"].models[] | select(.id == "stub") | .contextWindow' "$root/state/openclaw/openclaw.json")" = 128000
 
-# The CortexDB key goes into the core's credential store at boot. A core that
-# sent it to TinySecurity's interactive keyring waited out a prompt no one can
-# answer on a headless box (120 s) and refused it, so memory never came up.
+# The memory store's endpoint and key go to the core at boot.
 check "the core stores the cortexdb key at boot" grep -q '\[spine\] memory: cortexdb at' "$scratch/spine.log"
 
 # --- the keyring survives a restart ---------------------------------------------
@@ -502,7 +474,7 @@ sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/spine.env"
 spine_pid=$!
 for _ in $(seq 1 120); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
 answer="$("$root/bin/ask" "say hello" 2>/dev/null || true)"
-check "the model key survives a restart in the core's config" grep -q 'teeny spine says hello' <<<"$answer"
+check "the model key survives a restart in the core's settings" grep -q 'teeny spine says hello' <<<"$answer"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s); spine log:\n' "$failures" >&2

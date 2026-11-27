@@ -50,9 +50,38 @@ export interface GatewayConfigInput {
   agentTimeoutSecs: number;
   defaultWorkspace: string;
   agents: Record<string, AgentEntry>;
+  /**
+   * Files that hold the Gateway's two secrets (each a single value, 0600, in a private
+   * directory). With them the config names SecretRefs of source "file" and the Gateway
+   * process has neither secret in its environment. That matters because OpenClaw's exec
+   * tool merges the Gateway's environment into every command an agent runs: a hand
+   * started through it would otherwise inherit the Gateway token (which can reconfigure
+   * the Gateway and call tools around the guardrails) and the model key. Without them
+   * the config falls back to SecretRefs of source "env" (tests, and nothing else).
+   */
+  secretFiles?: { gatewayToken: string; modelKey: string };
+  /**
+   * The agent that owns jobs and traffic no agent claims: `agents.defaults.systemAgent.agentId`.
+   * OpenClaw refuses to add a shell (command) cron job without an owner, and a multi-agent
+   * roster has none by default. Teeny's shell jobs run no model, so this is the tool-less
+   * `simple` agent, never one with hands.
+   */
+  systemAgentId?: string;
   /** core/plugins/teeny-guardrails when it exists (P3 writes it). */
   guardrailsPath?: string;
+  /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
+  guardrailsPolicy?: Record<string, unknown>;
+  /** Chrome for the browser tool; unset lets OpenClaw find one. */
+  chromePath?: string;
 }
+
+/** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
+export const BROWSER_PROFILES = { operator: "teeny", view: "view" } as const;
+
+export const SECRET_PROVIDER_TOKEN = "teeny_gateway_token";
+export const SECRET_PROVIDER_MODEL_KEY = "teeny_model_key";
+/** A SecretRef into a `singleValue` file provider (docs/gateway/config-secrets-env.md). */
+const fileRef = (provider: string): { source: "file"; provider: string; id: "value" } => ({ source: "file", provider, id: "value" });
 
 export function guardrailsIfPresent(path: string): string | undefined {
   return existsSync(path) ? path : undefined;
@@ -67,7 +96,16 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     ...(input.guardrailsPath
       ? {
           load: { paths: [input.guardrailsPath] },
-          entries: { [GUARDRAILS_PLUGIN_ID]: { enabled: true } },
+          entries: {
+            [GUARDRAILS_PLUGIN_ID]: {
+              enabled: true,
+              // before_prompt_build (memory recall) reads the conversation, which a non-bundled plugin may only
+              // do with this flag (docs/plugins/hooks.md; `openclaw plugins inspect` diagnostics).
+              hooks: { allowConversationAccess: true },
+              // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
+              config: { policy: input.guardrailsPolicy ?? {} },
+            },
+          },
         }
       : {}),
   };
@@ -79,7 +117,8 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       mode: "local",
       port: input.port,
       bind: "loopback",
-      auth: { mode: "token" },
+      // schema: gateway.auth.token is a SecretRef surface (reference/secretref-credential-surface.md).
+      auth: { mode: "token", ...(input.secretFiles ? { token: fileRef(SECRET_PROVIDER_TOKEN) } : {}) },
       controlUi: { enabled: false },
       // schema: gateway.http.endpoints.{chatCompletions,responses}.enabled
       http: { endpoints: { chatCompletions: { enabled: false }, responses: { enabled: false } } },
@@ -95,6 +134,26 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     // schema: telemetry.enabled
     telemetry: { enabled: false },
     plugins,
+    ...(input.secretFiles
+      ? {
+          // schema: secrets.providers.<id> {source: "file", path, mode: "singleValue"}
+          secrets: {
+            providers: {
+              [SECRET_PROVIDER_TOKEN]: { source: "file", path: input.secretFiles.gatewayToken, mode: "singleValue" },
+              [SECRET_PROVIDER_MODEL_KEY]: { source: "file", path: input.secretFiles.modelKey, mode: "singleValue" },
+            },
+          },
+        }
+      : {}),
+    // schema: browser.{enabled,headless,defaultProfile,executablePath,profiles.<name>.cdpPort}
+    // (docs/tools/browser/configuration.md). The plugin pins each agent to one of these profiles.
+    browser: {
+      enabled: true,
+      headless: true,
+      defaultProfile: BROWSER_PROFILES.operator,
+      ...(input.chromePath ? { executablePath: input.chromePath } : {}),
+      profiles: { [BROWSER_PROFILES.operator]: { cdpPort: 18800 }, [BROWSER_PROFILES.view]: { cdpPort: 18801 } },
+    },
     // schema: models.providers.<id> {baseUrl, api, apiKey (SecretRef env), models[]}
     ...(input.modelUrl && input.model
       ? {
@@ -104,7 +163,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
               [PROVIDER_ID]: {
                 baseUrl: input.modelUrl,
                 api: "openai-completions",
-                apiKey: { source: "env", provider: "default", id: MODEL_KEY_ENV },
+                apiKey: input.secretFiles ? fileRef(SECRET_PROVIDER_MODEL_KEY) : { source: "env", provider: "default", id: MODEL_KEY_ENV },
                 models: input.models.map((m) => ({
                   id: m.id,
                   name: m.id,
@@ -124,6 +183,8 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       defaults: {
         ...(modelRef ? { model: { primary: modelRef } } : {}),
         workspace: input.defaultWorkspace,
+        // schema: agents.defaults.systemAgent.agentId (docs/concepts/multi-agent.md)
+        ...(input.systemAgentId ? { systemAgent: { agentId: input.systemAgentId } } : {}),
         // The core writes each workspace's AGENTS.md itself.
         skipBootstrap: true,
         // The built prompts run to tens of thousands of characters.
@@ -136,6 +197,11 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       // schema: agents.entries.<id>
       entries: input.agents,
     },
-    // No `channels`, no `bindings`, no `cron` here: P2 owns automations.
+    // schema: cron.skipMissedJobs (docs/gateway/config-automation.md, docs/automation/cron-jobs/managing-jobs.md):
+    // recurring slots missed while the Gateway was down advance to the next
+    // future one instead of replaying; late runs belong to bin/lib/catch_up.py.
+    // The cron module sets the same key through the CLI at boot; the file says it first.
+    cron: { skipMissedJobs: true },
+    // No `channels`, no `bindings` here.
   };
 }

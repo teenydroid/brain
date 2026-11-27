@@ -19,3 +19,4 @@ vendor
 target
 bin/*
 !bin/teeny-core
+!bin/openclaw

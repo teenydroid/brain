@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -110,44 +109,39 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             "offered": offer.get("job", offer.get("task"))}
 
 
-def _storage() -> Path:
-    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
-    if os.environ.get("TEENY_STORAGE"):
-        return Path(os.environ["TEENY_STORAGE"])
-    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
-    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
+def _cron_store() -> Any:
+    """bin/lib/cron_store.py: the one reader of the core's cron jobs and runs (the scheduler is
+    OpenClaw's automations; bin/lib/cron_store.py says how they are read)."""
+    import importlib.util
+    import sys
+
+    loaded = sys.modules.get("cron_store")
+    if loaded is not None:
+        return loaded
+    path = Path(__file__).resolve().parents[3] / "bin" / "lib" / "cron_store.py"
+    spec = importlib.util.spec_from_file_location("cron_store", path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    sys.modules["cron_store"] = module
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
 
 
 def last_run(job: str, since: float) -> str | None:
     """What the newest ended run of the cron job JOB that started at or after
     SINCE said, whole: the agent's final message. None when there is none, or
-    the core's storage cannot be read. Read-only, as bin/crons reads it."""
-    path = _storage()
-    if not path.is_file():
-        return None
+    the core's cron history cannot be read. Read-only, as bin/crons reads it."""
+    store = _cron_store()
     try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
-    except sqlite3.Error:
+        ids = {j["id"] for j in store.jobs() if j.get("name") == job}
+        runs = store.runs()
+    except store.Unavailable:
         return None
-    try:
-        row = conn.execute(
-            "WITH jobs AS MATERIALIZED (SELECT id, body FROM docs WHERE coll = 'cron.jobs' AND deleted = 0"
-            "   AND json_valid(body)),"
-            " runs AS MATERIALIZED (SELECT body FROM docs WHERE coll = 'cron.runs' AND deleted = 0"
-            "   AND json_valid(body) AND body != '{}')"
-            " SELECT json_extract(runs.body, '$.output') FROM runs"
-            " JOIN jobs ON jobs.id = json_extract(runs.body, '$.job_id')"
-            " WHERE json_extract(jobs.body, '$.name') = ?"
-            "   AND json_extract(runs.body, '$.started_ms') >= ?"
-            "   AND json_extract(runs.body, '$.finished_ms') IS NOT NULL"
-            " ORDER BY json_extract(runs.body, '$.seq') DESC LIMIT 1",
-            (job, int(since * 1000)),
-        ).fetchone()
-    except sqlite3.Error:
+    ended = [r for r in runs if str(r.get("job_id")) in ids and isinstance(r.get("started_ms"), (int, float))
+             and r["started_ms"] >= int(since * 1000) and r.get("finished_ms") is not None]
+    if not ended:
         return None
-    finally:
-        conn.close()
-    said = str(row[0] or "").strip() if row is not None else ""
+    newest = max(ended, key=lambda r: r.get("seq") or 0)
+    said = str(newest.get("output") or "").strip()
     return said or None
 
 

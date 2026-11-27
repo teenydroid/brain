@@ -306,6 +306,16 @@ log "gateway: openclaw security audit: $audit"
 if [ "$lab" = 1 ]; then
   log "lab: no cron seeded"
 else
+  # Cron is the Gateway's: its automations answer only once it is up, and the
+  # settings above made the core restart it (once, after a pause). Wait for it
+  # to take a cron_list rather than seeding into a Gateway that is coming back.
+  for _ in $(seq 1 "${SPINE_GATEWAY_SECS:-90}"); do
+    oh cron_list >/dev/null 2>&1 && break
+    kill -0 "$core" 2>/dev/null || boot_failed "the core exited while the Gateway was starting"
+    sleep 1
+  done
+  oh cron_list >/dev/null || boot_failed "the OpenClaw Gateway did not take a cron_list in ${SPINE_GATEWAY_SECS:-90}s"
+  log "gateway: up; cron answers"
   "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
 fi
 

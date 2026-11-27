@@ -43,10 +43,10 @@ describe("generated OpenClaw config: the lockdown", () => {
     expect(cfg.telemetry.enabled).toBe(false);
   });
 
-  it("configures no channel, no binding and no automation", () => {
+  it("configures no channel and no binding, and skips missed cron slots", () => {
     expect(cfg).not.toHaveProperty("channels");
     expect(cfg).not.toHaveProperty("bindings");
-    expect(cfg).not.toHaveProperty("cron");
+    expect(cfg.cron).toEqual({ skipMissedJobs: true });
   });
 
   it("allows only the browser plugin without the guardrails, and denies the channel plugins", () => {
@@ -114,5 +114,24 @@ describe("generated OpenClaw config is valid for the pinned openclaw", () => {
       stdio: ["ignore", "pipe", "pipe"],
     });
     expect(out).toMatch(/Config valid/);
+  });
+
+  it("names the system agent that owns shell cron jobs, only when asked", () => {
+    const withOwner = buildGatewayConfig(input({ systemAgentId: "simple" })) as { agents: { defaults: { systemAgent?: { agentId: string } } } };
+    expect(withOwner.agents.defaults.systemAgent).toEqual({ agentId: "simple" });
+    const without = buildGatewayConfig(input()) as { agents: { defaults: { systemAgent?: unknown } } };
+    expect(without.agents.defaults.systemAgent).toBeUndefined();
+  });
+
+  it("names the token and the model key as file SecretRefs, never as values or environment variables", () => {
+    const cfg = buildGatewayConfig(input({ secretFiles: { gatewayToken: "/s/gateway.token", modelKey: "/s/model.key" } })) as {
+      gateway: { auth: { token: unknown } };
+      secrets: { providers: Record<string, unknown> };
+      models: { providers: { "local-openai": { apiKey: unknown } } };
+    };
+    expect(cfg.gateway.auth.token).toEqual({ source: "file", provider: "teeny_gateway_token", id: "value" });
+    expect(cfg.models.providers["local-openai"].apiKey).toEqual({ source: "file", provider: "teeny_model_key", id: "value" });
+    expect(cfg.secrets.providers.teeny_gateway_token).toEqual({ source: "file", path: "/s/gateway.token", mode: "singleValue" });
+    expect(JSON.stringify(cfg)).not.toMatch(/OPENCLAW_GATEWAY_TOKEN|LOCAL_OPENAI_API_KEY/);
   });
 });

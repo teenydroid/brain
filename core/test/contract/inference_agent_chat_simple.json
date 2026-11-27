@@ -1,8 +1,8 @@
 {
   "method": "openhuman.inference_agent_chat_simple",
   "call_sites": [
-    "bin/doctor:171",
-    "bin/lib/health.py:251",
+    "bin/doctor:181",
+    "bin/lib/health.py:252",
     "hands/lib/teeny_hands/guard/judge.py:349",
     "hands/lib/teeny_hands/guard/review.py:170",
     "hands/lib/teeny_hands/moltbook/model_read.py:80"

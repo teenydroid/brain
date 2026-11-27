@@ -66,7 +66,7 @@ RUN git config --system user.name "Teeny" \
 COPY --from=core /build/core/dist /opt/teeny-core/dist
 COPY --from=core /build/core/node_modules /opt/teeny-core/node_modules
 COPY --from=core /build/core/package.json /opt/teeny-core/package.json
-COPY bin/teeny-core /usr/local/bin/teeny-core
+COPY bin/teeny-core bin/openclaw /usr/local/bin/
 # hands/trend runs it with a home of its own under state/trend/home.
 COPY --from=digg /out/digg-pp-cli /usr/local/bin/digg-pp-cli
 ENV OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-core \

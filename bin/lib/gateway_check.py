@@ -59,10 +59,19 @@ def lockdown(doc) -> list[str]:
         wrong.append("channels is configured: Telegram and the rest stay in the hands, never on the Gateway")
     if doc.get("bindings") not in (None, {}, []):
         wrong.append("bindings is configured: no channel may route to an agent")
-    # The shared token arrives in the environment, never in the file.
+    # A secret in the file is a SecretRef (an object naming where to read it), never the value.
+    def plain(value):
+        return not (isinstance(value, dict) and "source" in value)
+
     for path in ("gateway.auth.token", "gateway.auth.password", "hooks.token"):
-        if _walk(doc, path) is not _MISSING:
-            wrong.append(f"{path} is in the config file: the token belongs in the environment")
+        got = _walk(doc, path)
+        if got is not _MISSING and plain(got):
+            wrong.append(f"{path} is in the config file as a value: it must be a SecretRef")
+    providers = _walk(doc, "models.providers")
+    for name, provider in (providers.items() if isinstance(providers, dict) else []):
+        key = provider.get("apiKey") if isinstance(provider, dict) else None
+        if key is not None and plain(key):
+            wrong.append(f"models.providers.{name}.apiKey is in the config file as a value: it must be a SecretRef")
     return wrong
 
 
@@ -105,7 +114,7 @@ def main(argv: list[str]) -> int:
         if wrong:
             print("; ".join(wrong))
             return 1
-        print(f"{len(LOCKDOWN)} lockdown flags hold; no channels, no bindings, no token in the file")
+        print(f"{len(LOCKDOWN)} lockdown flags hold; no channels, no bindings, no secret value in the file")
         return 0
     if len(argv) == 2 and argv[1] == "audit":
         status, detail = audit(sys.stdin.read())

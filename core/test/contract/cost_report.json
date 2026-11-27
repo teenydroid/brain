@@ -1,7 +1,7 @@
 {
   "method": "openhuman.cost_report",
   "call_sites": [
-    "bin/lib/health.py:1168",
+    "bin/lib/health.py:1123",
     "hands/lib/teeny_hands/wallet/reads.py:367"
   ],
   "params": {

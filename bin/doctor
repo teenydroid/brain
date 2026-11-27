@@ -308,6 +308,21 @@ else
   note "gateway lockdown" warn "no $gateway_config yet: the core writes it at boot, and bin/spine checks it then"
 fi
 
+# --- the inbox: the core has no inbound queue ----------------------------------------
+# TEENY_INBOX=core would send mail and mentions to OpenHuman's inbound queue and its
+# per-surface agents (`openhuman.inbound_offer`). The TypeScript core does not serve
+# it, so every offer would fail and nothing would be answered. The default, `mind`,
+# feeds the stimuli inbox. The environment can set it, and so can secrets/teeny.env.
+inbox_mode="${TEENY_INBOX:-}"
+if [ -z "$inbox_mode" ] && [ -f "$secrets/teeny.env" ]; then
+  inbox_mode="$(sed -n 's/^TEENY_INBOX=//p' "$secrets/teeny.env" | tail -n 1 | tr -d "\"' " | tr 'A-Z' 'a-z')"
+fi
+if [ "$(printf '%s' "${inbox_mode:-mind}" | tr 'A-Z' 'a-z')" = core ]; then
+  note "inbox" fail "TEENY_INBOX=core needs the core's inbound queue, which this core does not have: unset it (the default, mind, feeds the stimuli inbox)"
+else
+  note "inbox" ok "${inbox_mode:-mind}: the stimuli inbox"
+fi
+
 # --- the two reviewed lists: http_request's allowed hosts, the browser's denied ones -
 run "browser-allow.txt" python3 -I -c '
 import sys
