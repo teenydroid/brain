@@ -80,6 +80,8 @@ export function checkPath(rules: PathRules, raw: unknown, access: Access): strin
         return `${raw} is in a folder closed to agents`;
       }
     }
+    // git runs what is in .git/hooks and .git/config: no tool writes there (git itself does, by its own commands).
+    if (access === "write" && candidate.split(sep).includes(".git")) return `${raw} is inside a .git folder, whose hooks and config run programs`;
     const root = roots.find((r) => isUnder(candidate, r));
     if (!root) {
       return access === "write"

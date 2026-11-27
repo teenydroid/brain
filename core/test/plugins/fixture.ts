@@ -64,7 +64,7 @@ export function makeFixture(extra: { env?: Record<string, string>; fill?: (progr
     home: "/nonexistent-home",
   });
   const policy = parsePolicy({ policy: raw });
-  const guard = new Guardrails(policy, { ...(extra.fill ? { fill: extra.fill } : {}), ...(extra.liveUrl ? { liveUrl: extra.liveUrl } : {}) });
+  const guard = new Guardrails(policy, { ...(extra.fill ? { fill: extra.fill } : {}), liveUrl: extra.liveUrl ?? (async () => "https://example.org/") });
   const agent = (id: string): AgentPolicy => {
     const a = policy.agents[id];
     if (!a) throw new Error(`no policy for ${id}`);
