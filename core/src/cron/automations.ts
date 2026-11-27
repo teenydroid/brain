@@ -18,6 +18,35 @@ export const defaultExec: Exec = (file, args, opts) =>
     });
   });
 
+/**
+ * The CLI could not reach the Gateway: it is restarting (the core restarts it when a setting changes, and bin/spine
+ * sends several in a row at boot), draining, or backing off after a crash. The command was never accepted, so
+ * trying it again is safe.
+ */
+export const GATEWAY_UNREACHABLE = /couldn'?t connect to openclaw|gateway is shutting down|gatewaydrainingerror|gateway not running|econnrefused|gateway closed|connect.*refused/i;
+
+export interface RetryOptions {
+  /** How long to keep trying (ms). */
+  windowMs: number;
+  delayMs: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/** An Exec that tries again, for up to windowMs, while the Gateway cannot be reached. Any other failure is returned as it is. */
+export function retryWhileUnreachable(exec: Exec, opts: RetryOptions): Exec {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  return async (file, args, o) => {
+    const deadline = now() + opts.windowMs;
+    for (;;) {
+      const r = await exec(file, args, o);
+      if (r.code === 0 || !GATEWAY_UNREACHABLE.test(`${r.stderr}\n${r.stdout}`) || now() >= deadline) return r;
+      await sleep(opts.delayMs);
+    }
+  };
+}
+
 /** The fields of an automation job (docs: cli/cron.md, the CronJob schema) that Teeny reads. */
 export interface OcJob {
   id: string;

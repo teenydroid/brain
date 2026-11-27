@@ -1,5 +1,5 @@
 import { RpcError, type CoreContext, type RpcMethods } from "../server/types.js";
-import { Automations, AutomationsError, defaultExec, type Exec } from "./automations.js";
+import { Automations, AutomationsError, defaultExec, retryWhileUnreachable, type Exec } from "./automations.js";
 import { SHELL_TIMEOUT_SECS, parseSchedule, runView, scheduleFlags, shellFlags, view, type ShellEnv } from "./map.js";
 
 export interface CronOptions {
@@ -15,6 +15,10 @@ export interface CronOptions {
    * never put in a shell job's environment. Without it every cron_* call fails closed.
    */
   gatewayEnv?: () => Record<string, string | undefined>;
+  /** How long a call waits out a Gateway that is restarting (default 90 s, one try a second); 0 turns it off. */
+  gatewayWaitMs?: number;
+  /** For tests: the clock and the pause between tries. */
+  retry?: { sleep?: (ms: number) => Promise<void>; now?: () => number; delayMs?: number };
 }
 
 function str(params: Record<string, unknown>, key: string, required = false): string | undefined {
@@ -71,7 +75,9 @@ export function createCron(opts: CronOptions = {}): Cron {
     // The CLI gets the process environment under the Gateway's, so PATH and HOME still resolve it.
     const env = { ...ctx.env, ...gatewayEnv() };
     // Rebuilt each call: the Gateway's token and port can change when it restarts.
-    return new Automations(bin, env, opts.exec ?? defaultExec);
+    const base = opts.exec ?? defaultExec;
+    const wait = opts.gatewayWaitMs ?? 90_000;
+    return new Automations(bin, env, wait > 0 ? retryWhileUnreachable(base, { windowMs: wait, delayMs: opts.retry?.delayMs ?? 1000, ...(opts.retry?.sleep ? { sleep: opts.retry.sleep } : {}), ...(opts.retry?.now ? { now: opts.retry.now } : {}) }) : base);
   };
   let timeout = opts.shellTimeoutSecs ?? SHELL_TIMEOUT_SECS;
   let verified = false;

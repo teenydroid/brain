@@ -85,6 +85,12 @@ python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_BRAIN" "$(dirname "$
 # world-writable ("No safe OpenClaw temp root is available"), and a state/
 # made under umask 002 is. That surfaced only after the "ready" line.
 python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_STATE" >/dev/null || true
+# And what is already under state/openclaw/ (the Gateway's state, which OpenClaw also checks as the temp
+# root's ancestors: "Temp workspace ancestor ... is group/world writable"): directories made under umask 002
+# by an earlier boot or a copy. Only directories this user owns; a failure is the doctor's to say, not a stop.
+if [ -d "$TEENY_STATE/openclaw" ]; then
+  find "$TEENY_STATE/openclaw" -type d -uid "$(id -u)" -perm /022 -exec chmod go-w {} + 2>/dev/null || true
+fi
 # Never a config.toml inside the brain: the core would take the brain
 # for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
@@ -320,7 +326,20 @@ else
   done
   oh cron_list >/dev/null || boot_failed "the OpenClaw Gateway did not take a cron_list in ${SPINE_BOOT_SECS:-120}s"
   log "gateway: up; cron answers"
-  "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
+  # The core restarts the Gateway when a setting above changed what it reads, once, a moment after the last
+  # one; a seed that lands in that restart fails on a connection the core already retries for a while. Seeding
+  # is a reconciliation (a second run only finishes what the first did), so try again before giving up.
+  seeded=0
+  for attempt in 1 2 3; do
+    if "$TEENY_ROOT/bin/seed-cron"; then seeded=1; break; fi
+    log "seeding cron failed (try $attempt of 3); waiting for the Gateway"
+    for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
+      oh cron_list >/dev/null 2>&1 && break
+      kill -0 "$core" 2>/dev/null || boot_failed "the core exited while seeding cron"
+      sleep 1
+    done
+  done
+  [ "$seeded" = 1 ] || boot_failed "seeding cron failed"
 fi
 
 # The broker (bin/broker, docs/mind.md): how the agentic mind acts on the

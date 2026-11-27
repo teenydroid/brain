@@ -242,3 +242,37 @@ describe("failures", () => {
     await expect(call("cron_run", { job_id: "nope" })).rejects.toThrow(/no job nope/);
   });
 });
+
+describe("a Gateway that is restarting", () => {
+  it("is waited out: cron_list and cron_add try again while the CLI cannot connect, then succeed", async () => {
+    let down = 3;
+    let t = 0;
+    const flaky: typeof fake.exec = async (file, argv, opts) => {
+      if (argv[0] !== "config" && down > 0) {
+        down -= 1;
+        return { code: 1, stdout: "", stderr: "Couldn't connect to OpenClaw. Check the Control UI or run `openclaw gateway status` in your terminal." };
+      }
+      return fake.exec(file, argv, opts);
+    };
+    const c = createCron({ exec: flaky, bin: "openclaw", gatewayEnv: GATEWAY_ENV, retry: { sleep: async (ms) => void (t += ms), now: () => t, delayMs: 1000 } });
+    expect(await c.methods.cron_list!({}, ctx)).toEqual([]);
+    expect(t).toBe(3000);
+    down = 2;
+    const job = (await c.methods.cron_add!(shellJob("bin/heartbeat"), ctx)) as Record<string, unknown>;
+    expect(job.name).toBe("teeny.t");
+  });
+
+  it("gives up after the window, with the CLI's own words, and never retries another kind of failure", async () => {
+    let t = 0;
+    let tries = 0;
+    const down: typeof fake.exec = async () => (tries++, { code: 1, stdout: "", stderr: "GatewayDrainingError: Gateway is shutting down" });
+    const c = createCron({ exec: down, bin: "openclaw", gatewayEnv: GATEWAY_ENV, gatewayWaitMs: 5000, retry: { sleep: async (ms) => void (t += ms), now: () => t, delayMs: 1000 } });
+    await expect(c.methods.cron_list!({}, ctx)).rejects.toThrow(/shutting down|cron is closed/);
+    expect(tries).toBeGreaterThanOrEqual(5);
+    let other = 0;
+    const bad: typeof fake.exec = async (f, a, o) => (a[0] === "config" ? fake.exec(f, a, o) : (other++, { code: 1, stdout: "", stderr: "unknown flag --nope" }));
+    const c2 = createCron({ exec: bad, bin: "openclaw", gatewayEnv: GATEWAY_ENV, retry: { sleep: async () => undefined } });
+    await expect(c2.methods.cron_list!({}, ctx)).rejects.toThrow(/unknown flag/);
+    expect(other).toBe(1);
+  });
+});
