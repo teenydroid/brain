@@ -17,6 +17,7 @@ X_ID = re.compile(r"^\d{1,25}$")
 HANDLE = re.compile(r"^[a-z0-9_]{1,15}$")
 DECIMAL = re.compile(r"^(0|[1-9]\d{0,24})(\.\d{1,18})?$")
 ATOMIC = re.compile(r"^(0|[1-9]\d{0,19})$")
+ISO_WITH_ZONE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$")
 POST_URL = re.compile(r"^https://(x|twitter)\.com/[A-Za-z0-9_]{1,15}/status/\d{1,25}$")
 U64_MAX = (1 << 64) - 1
 MAX_SAFE = 2**53 - 1
@@ -62,8 +63,8 @@ def _one_of(o: dict, key: str, allowed: tuple[str, ...]) -> str:
 
 def _iso(o: dict, key: str) -> str:
     value = _str(o, key, None, 40)
-    if not re.match(r"^\d{4}-\d{2}-\d{2}T", value):
-        raise DropsError(f"{key}: not an ISO time")
+    if not ISO_WITH_ZONE.match(value):
+        raise DropsError(f"{key}: not an ISO time with a timezone")
     try:
         _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:

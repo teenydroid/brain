@@ -254,3 +254,16 @@ describe("pinned program and mint", () => {
     expect(parse({ ...settled(), cluster: "devnet", mint: OTHER }).mint).toBe(OTHER)
   })
 })
+
+describe("times name their timezone", () => {
+  it("refuses a deadline or clawback_at without a zone", () => {
+    expect(() => parse({ ...settled(), deadline: "2026-11-20T18:00:00" })).toThrow()
+    expect(() => parse({ ...settled(), clawback_at: "2026-12-20T18:00:00" })).toThrow()
+    expect(() => parse({ ...settled(), deadline: "2026-11-20T" })).toThrow()
+  })
+
+  it("accepts Z and an explicit offset", () => {
+    expect(parse({ ...settled(), deadline: "2026-11-20T18:00:00Z" }).deadline).toBe("2026-11-20T18:00:00Z")
+    expect(parse({ ...settled(), deadline: "2026-11-20T20:00:00+02:00" }).deadline).toBe("2026-11-20T20:00:00+02:00")
+  })
+})

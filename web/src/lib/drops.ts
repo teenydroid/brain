@@ -149,6 +149,8 @@ export class DropsError extends Error {}
 const BASE58_KEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 const BASE58_SIG = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/
 const HEX32 = /^[0-9a-f]{64}$/
+/** An ISO 8601 time that names its zone (Z or +hh:mm): without one Date.parse reads local time and viewers disagree. */
+const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
 const X_ID = /^\d{1,25}$/
 const HANDLE = /^[a-z0-9_]{1,15}$/
 const DECIMAL = /^(0|[1-9]\d{0,24})(\.\d{1,18})?$/
@@ -194,7 +196,7 @@ function oneOf<T extends string>(o: Obj, key: string, allowed: readonly T[]): T 
 
 function iso(o: Obj, key: string): string {
   const value = str(o, key, undefined, 40)
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) throw new DropsError(`${key}: not an ISO time`)
+  if (!ISO_WITH_ZONE.test(value) || Number.isNaN(Date.parse(value))) throw new DropsError(`${key}: not an ISO time with a timezone`)
   return value
 }
 
