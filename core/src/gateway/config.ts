@@ -10,7 +10,8 @@
 //  - hooks.enabled=false, the chat-completions and responses HTTP endpoints
 //    off, the control UI off, update.checkOnStart=false, mDNS off;
 //  - plugins limited by allowlist to the browser plugin and Teeny's own local
-//    `teeny-guardrails` plugin (when its directory exists);
+//    `teeny-guardrails` plugin (when its directory exists) and `teeny-cortexdb`, which owns the
+//    memory slot (when CortexDB is configured; otherwise the slot is "none" and memory-core stays off);
 //  - gateway bound to loopback with a shared token that arrives in the
 //    environment (OPENCLAW_GATEWAY_TOKEN), never in this file.
 import { existsSync } from "node:fs";
@@ -21,6 +22,7 @@ export const GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN";
 export const MODEL_KEY_ENV = "LOCAL_OPENAI_API_KEY";
 export const PROVIDER_ID = "local-openai";
 export const GUARDRAILS_PLUGIN_ID = "teeny-guardrails";
+export const CORTEX_PLUGIN_ID = "teeny-cortexdb";
 
 /** Plugins nothing of Teeny's needs; belt and braces over the allowlist. */
 const DENIED_PLUGINS = ["telegram", "x", "imap", "a2a", "bonjour", "admin-http-rpc", "session-share", "openclaw-id-access", "device-pair"];
@@ -77,6 +79,12 @@ export interface GatewayConfigInput {
   guardrailsProven?: boolean;
   /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
   guardrailsPolicy?: Record<string, unknown>;
+  /**
+   * Teeny's memory plugin, which then owns `plugins.slots.memory`: core/plugins/teeny-cortexdb with its config
+   * (memory/plugin.ts buildCortexPluginConfig). Left out when CortexDB is not configured (no engine stored, no
+   * CORTEX_API_URL): the slot stays "none" and the Gateway has no memory, as in the lab.
+   */
+  cortex?: { path: string; config: Record<string, unknown> };
   /** Extra skill directories (`skills.load.extraDirs`): brain/skills/hands, which the agents' workspaces do not contain. */
   skillDirs?: string[];
   /** Chrome for the browser tool; unset lets OpenClaw find one. */
@@ -121,16 +129,12 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
   const plugins: Record<string, unknown> = {
     // schema: plugins.slots.memory "none" turns every memory plugin off (docs/tools/plugin.md). memory-core
     // would otherwise create its own agent cron job, "Memory Dreaming Promotion" (0 3 * * *), outside
-    // brain/cron.toml; Teeny's memory is CortexDB.
-    slots: { memory: "none" },
+    // brain/cron.toml; Teeny's memory is CortexDB, so the slot is teeny-cortexdb's when it is configured.
+    slots: { memory: input.cortex ? CORTEX_PLUGIN_ID : "none" },
     // schema: plugins.allow (non-empty allowlist restricts loading), plugins.deny, plugins.load.paths
-    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : [])],
+    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : []), ...(input.cortex ? [CORTEX_PLUGIN_ID] : [])],
     deny: DENIED_PLUGINS,
-    ...(input.guardrailsPath
-      ? {
-          load: { paths: [input.guardrailsPath] },
-        }
-      : {}),
+    ...(input.guardrailsPath || input.cortex ? { load: { paths: [...(input.guardrailsPath ? [input.guardrailsPath] : []), ...(input.cortex ? [input.cortex.path] : [])] } } : {}),
     entries: {
       // schema: plugins.entries.<id>.enabled; plugins.entries.memory-core.config.dreaming.enabled
       // (docs/reference/memory-config.md): belt and braces over the slot.
@@ -139,11 +143,20 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
         ? {
             [GUARDRAILS_PLUGIN_ID]: {
               enabled: true,
-              // before_prompt_build (memory recall) reads the conversation, which a non-bundled plugin may only
-              // do with this flag (docs/plugins/hooks.md; `openclaw plugins inspect` diagnostics).
-              hooks: { allowConversationAccess: true },
               // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
               config: { policy: input.guardrailsPolicy ?? {} },
+            },
+          }
+        : {}),
+      ...(input.cortex
+        ? {
+            [CORTEX_PLUGIN_ID]: {
+              enabled: true,
+              // before_prompt_build (recall) and agent_end (capture) read the conversation, which a non-bundled
+              // plugin may only do with this flag (docs/plugins/hooks.md; `openclaw plugins inspect` diagnostics).
+              hooks: { allowConversationAccess: true },
+              // Nothing secret: the CortexDB key stays sealed in state/memory-engine.json.
+              config: input.cortex.config,
             },
           }
         : {}),

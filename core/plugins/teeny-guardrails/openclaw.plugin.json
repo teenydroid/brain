@@ -1,7 +1,7 @@
 {
   "id": "teeny-guardrails",
   "name": "Teeny guardrails",
-  "description": "Teeny's fences on every tool call: workspace jail, exec allowlist, browser deny list, keychain fill, screenshot sink, tool-call budget and memory recall.",
+  "description": "Teeny's fences on every tool call: workspace jail, exec allowlist, browser deny list, keychain fill, screenshot sink, tool-call budget and the memory tools' gate.",
   "categories": ["security"],
   "activation": {
     "onStartup": true

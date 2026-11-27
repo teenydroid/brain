@@ -27,6 +27,40 @@ const PASSIVE = new Set(["tool_search", "memory_search", "memory_get", "process"
 const CONTROLS = new Set(["tool_search", "tool_describe", "dispatch_action"]);
 const MAX_RUNS_KEPT = 4096;
 
+/**
+ * The memory tools teeny-cortexdb registers (agents/definitions.ts MEMORY_TOOLS): the keys each takes. A call
+ * with any other key is refused, so an argument that asks for more than the tool offers (a scope, an `all`, a
+ * `confirmAll`) never reaches it. memory_forget also must name what to forget and why.
+ */
+const MEMORY_PARAMS: Record<string, readonly string[]> = {
+  memory_recall: ["query", "limit"],
+  memory_list: ["limit", "cursor"],
+  memory_store: ["content", "kind"],
+  memory_forget: ["query", "reason"],
+};
+const MEMORY_TEXT_MAX = 4000;
+
+function judgeMemory(tool: string, params: Record<string, unknown>): string | undefined {
+  const allowed = MEMORY_PARAMS[tool] as readonly string[];
+  for (const key of Object.keys(params)) if (!allowed.includes(key)) return `${tool} takes ${allowed.join(", ")} and nothing else (not ${key})`;
+  const text = (key: string, min: number): string | undefined => {
+    const v = params[key];
+    if (typeof v !== "string" || v.trim().length < min) return `${tool}: ${key} must be text of at least ${min} characters`;
+    if (v.length > MEMORY_TEXT_MAX) return `${tool}: ${key} is longer than ${MEMORY_TEXT_MAX} characters`;
+    return undefined;
+  };
+  switch (tool) {
+    case "memory_recall":
+      return text("query", 1);
+    case "memory_store":
+      return text("content", 1);
+    case "memory_forget":
+      return text("query", 3) ?? text("reason", 8);
+    default:
+      return undefined;
+  }
+}
+
 const refuse = (why: string): Decision => ({ block: true, blockReason: `teeny-guardrails: ${why}` });
 
 export interface GuardDeps {
@@ -192,6 +226,13 @@ export class Guardrails {
       }
       case "subagents":
         return agent.subagents.length > 0 ? undefined : refuse("this agent has no helpers");
+      case "memory_recall":
+      case "memory_list":
+      case "memory_store":
+      case "memory_forget": {
+        const why = judgeMemory(tool, params);
+        return why ? refuse(why) : undefined;
+      }
       default:
         return refuse(`${event.toolName} is not a tool this guard knows how to judge`);
     }

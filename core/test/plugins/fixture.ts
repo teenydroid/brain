@@ -32,7 +32,7 @@ export function write(path: string, text = "x\n", mode?: number): void {
   if (mode !== undefined) chmodSync(path, mode);
 }
 
-export function makeFixture(extra: { env?: Record<string, string>; fill?: (program: string, host: string) => Promise<string>; liveUrl?: (profile: string, targetId: string | undefined) => Promise<string> } = {}): Fixture {
+export function makeFixture(extra: { memoryTools?: boolean; env?: Record<string, string>; fill?: (program: string, host: string) => Promise<string>; liveUrl?: (profile: string, targetId: string | undefined) => Promise<string> } = {}): Fixture {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "guard-")));
   made.push(root);
   const brain = join(root, "brain");
@@ -70,6 +70,7 @@ export function makeFixture(extra: { env?: Record<string, string>; fill?: (progr
     env: { TEENY_BROWSER_PICTURES: join(state, "browser", "screenshots"), ...(extra.env ?? {}) },
     workspaceOf: (id) => join(state, "openclaw", "workspaces", id),
     home: "/nonexistent-home",
+    ...(extra.memoryTools ? { memoryTools: true } : {}),
   });
   const policy = parsePolicy({ policy: raw });
   const guard = new Guardrails(policy, { ...(extra.fill ? { fill: extra.fill } : {}), liveUrl: extra.liveUrl ?? (async () => "https://example.org/") });

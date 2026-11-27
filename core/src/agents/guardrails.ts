@@ -51,6 +51,8 @@ export interface PolicyInput {
   /** Where each agent's OpenClaw workspace (its AGENTS.md) is. */
   workspaceOf: (id: string) => string;
   home?: string;
+  /** teeny-cortexdb is in the Gateway's config: the "memory" tool is its four tools. */
+  memoryTools?: boolean;
 }
 
 /** The checkout's own top-level folders the file tools may read (automation.py code_roots). */
@@ -165,7 +167,7 @@ export function buildAgentPolicies(input: PolicyInput) {
       : undefined;
     agents[def.id] = {
       id: def.id,
-      tools: toolIds(def.tools),
+      tools: toolIds(def.tools, input.memoryTools === true),
       workspace: p.workspace,
       rw: p.rw,
       ro: p.ro,
@@ -192,11 +194,6 @@ export const BEAT_REPLY_CAPS = { x: 3, mail: 2 };
 export const WAKE_CONTEXT_CHARS = 1500;
 export const WAKE_CONTEXT_MS = 8000;
 
-/** [memory.recall] budget_tokens (bin/lib/core_sections/context.py). */
-export const RECALL_BUDGET_TOKENS = 3000;
-/** [memory] recall_each_turn_ms. */
-export const RECALL_EACH_TURN_MS = 5000;
-
 /** Where teeny-guardrails says it is loaded (state/openclaw/guardrails.ready). */
 export function guardrailsReadyFile(openclawDir: string): string {
   return join(openclawDir, "guardrails.ready");
@@ -205,11 +202,6 @@ export function guardrailsReadyFile(openclawDir: string): string {
 export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknown> {
   const { paths, env } = input;
   const deny = join(paths.root, "deploy", "browser-deny.txt");
-  const recallAgents: Record<string, { budgetTokens: number }> = {};
-  for (const def of input.defs) {
-    if (def.omitMemoryContext) continue;
-    recallAgents[def.id] = { budgetTokens: Math.min(RECALL_BUDGET_TOKENS, def.memoryBlockMaxTokens ?? RECALL_BUDGET_TOKENS) };
-  }
   const home = input.home ?? homedir();
   const pictures = env.TEENY_BROWSER_PICTURES;
   return {
@@ -230,11 +222,5 @@ export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknow
     ...(existsSync(join(paths.root, "bin", "reply-queue"))
       ? { wakeContext: { agents: ["mind"], argv: [join(paths.root, "bin", "reply-queue")], cwd: paths.root, maxChars: WAKE_CONTEXT_CHARS, timeoutMs: WAKE_CONTEXT_MS } }
       : {}),
-    recall: {
-      agents: recallAgents,
-      engineFile: join(paths.stateDir, "memory-engine.json"),
-      masterKeyFile: env.OPENHUMAN_KEYRING_MASTER_KEY_FILE || join(paths.secretsDir, "openhuman.key"),
-      timeoutMs: RECALL_EACH_TURN_MS,
-    },
   };
 }

@@ -62,10 +62,11 @@ export class AgentCatalog {
     return dir;
   }
 
-  entries(): Record<string, AgentEntry> {
+  /** `memoryTools`: teeny-cortexdb and teeny-guardrails are both in the Gateway's config, so an agent's "memory" tool is real. */
+  entries(memoryTools = false): Record<string, AgentEntry> {
     const out: Record<string, AgentEntry> = {};
     const models = effectiveModels([...this.defs.values()]);
-    for (const def of this.defs.values()) out[def.id] = agentEntry(def, this.prepare(def.id), models.get(def.id));
+    for (const def of this.defs.values()) out[def.id] = agentEntry(def, this.prepare(def.id), models.get(def.id), memoryTools);
     return out;
   }
 

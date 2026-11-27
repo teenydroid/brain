@@ -28,10 +28,11 @@ bin/spine ──► bin/teeny-core serve ──► RPC host (127.0.0.1:7788)
 | `src/agents/` | Agent definitions from `brain/agents/*.toml` as OpenClaw agents, model refs, the cost log, the chat methods. |
 | `src/config/` | Paths, the token, the sealed settings store, Chrome discovery. |
 | `src/cron/` | `cron_*` over OpenClaw automations. |
-| `src/memory/` | `memory_*` (CortexDB). |
+| `src/memory/` | `memory_*` (CortexDB), and `plugin.ts`, the config the memory plugin gets. |
 | `src/wallet/` | The wallet signer, spend policy and ledger, x402, swaps and bridges, `giveaway-tx`. Its own README says more. |
 | `src/playbooks/` | The playbook parser and the agent-turn renderer. |
 | `plugins/teeny-guardrails/` | The OpenClaw plugin that holds every tool call to its agent's definition. |
+| `plugins/teeny-cortexdb/` | The OpenClaw plugin that owns the memory slot: recall into each turn, capture after it, and the `memory_*` tools (derived from `@cortexdb/openclaw` 0.1.4, Apache-2.0; see its NOTICE). |
 | `scripts/` | `gen-skills.ts` (one OpenClaw skill per hand), `migrate-keyring.ts` (the operator's one-shot move from OpenHuman's keyring), `remove-openhuman.sh` (the removal commit). |
 | `test/` | vitest. `test/contract/` is what the Python callers expect of each RPC method. |
 

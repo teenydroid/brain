@@ -1,0 +1,10 @@
+{
+  "name": "teeny-cortexdb",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Teeny's CortexDB memory plugin for the OpenClaw Gateway (a local plugin, never published).",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

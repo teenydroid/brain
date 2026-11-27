@@ -46,20 +46,27 @@ export const TOOL_MAP: Record<string, string[]> = {
   edit: ["edit"],
   browser: ["browser"],
   tool_search: ["tool_search"],
-  // None: memory-core's memory_search/memory_get belong to a memory plugin, which the Gateway runs without
-  // (plugins.slots.memory "none", gateway/config.ts); Teeny's memory is CortexDB, recalled into the prompt
-  // by teeny-guardrails. Naming them only made OpenClaw warn "allowlist contains unknown entries".
+  // None here: memory-core's memory_search/memory_get belong to OpenClaw's own memory plugin, which the Gateway
+  // runs without. Teeny's memory is CortexDB, owned by teeny-cortexdb (plugins.slots.memory), which recalls into
+  // the prompt itself; its four tools exist only when that plugin is in the config, and `toolIds(names, true)`
+  // adds them (MEMORY_TOOLS). Naming a tool no plugin registers made OpenClaw warn "allowlist contains unknown entries".
   memory: [],
   spawn_subagent: ["sessions_spawn", "subagents"],
 };
 
+/**
+ * What the "memory" tool of an agent definition becomes when teeny-cortexdb is in the Gateway's config.
+ * Not OpenClaw's memory_search/memory_get, which are its core's (tool catalog, group:memory).
+ */
+export const MEMORY_TOOLS = ["memory_recall", "memory_list", "memory_store", "memory_forget"];
+
 /** Never reachable by an agent, whatever its list says: config, plugins, messaging, nodes, automations. */
 export const ALWAYS_DENIED = ["group:automation", "group:messaging", "group:nodes", "gateway", "plugins", "openclaw", "canvas", "apply_patch"];
 
-export function toolIds(names: readonly string[]): string[] {
+export function toolIds(names: readonly string[], memoryTools = false): string[] {
   const out = new Set<string>();
   for (const name of names) {
-    const mapped = TOOL_MAP[name];
+    const mapped = name === "memory" && memoryTools ? MEMORY_TOOLS : TOOL_MAP[name];
     if (!mapped) throw new Error(`agent tool "${name}" has no OpenClaw equivalent (agents/definitions.ts TOOL_MAP)`);
     for (const id of mapped) out.add(id);
   }
@@ -119,12 +126,12 @@ export function loadAgentDefs(brainDir: string): AgentDef[] {
 }
 
 /** The OpenClaw tool policy for one agent: tool-less means every tool denied. */
-export function toolPolicy(def: AgentDef): AgentEntry["tools"] {
+export function toolPolicy(def: AgentDef, memoryTools = false): AgentEntry["tools"] {
   if (def.tools.length === 0) {
     // docs: tools.allow/deny are case-insensitive and support `*`; deny wins.
     return { allow: [], deny: ["*"] };
   }
-  const allow = toolIds(def.tools);
+  const allow = toolIds(def.tools, memoryTools);
   return { allow, deny: ALWAYS_DENIED.filter((d) => !allow.includes(d)) };
 }
 
@@ -143,7 +150,7 @@ export function effectiveModels(defs: readonly AgentDef[]): Map<string, string> 
   return out;
 }
 
-export function agentEntry(def: AgentDef, workspace: string, model?: string): AgentEntry {
+export function agentEntry(def: AgentDef, workspace: string, model?: string, memoryTools = false): AgentEntry {
   const holdsShell = def.tools.includes("shell");
   return {
     name: def.displayName,
@@ -151,7 +158,7 @@ export function agentEntry(def: AgentDef, workspace: string, model?: string): Ag
     workspace,
     ...(model ? { model: { primary: toModelRef(model) } } : {}),
     tools: {
-      ...toolPolicy(def),
+      ...toolPolicy(def, memoryTools),
       // Headless: nobody can answer an approval prompt, and OpenClaw's own allowlist is a list of
       // binaries (docs/tools/exec.md, "Allowlist + safe bins") that this core never fills: with
       // security "allowlist" every command, `ls` too, was refused before teeny-guardrails judged it.

@@ -1,25 +1,19 @@
 // memory_engine_set, memory_learn, memory_items_list, memory_forget: the four
 // memory methods the Python calls (core/test/contract/memory_*.json), served
-// from CortexDB over HTTP. Recall into each turn is the guardrails plugin's
-// before_prompt_build hook (plugins/teeny-guardrails/recall.ts), which reads
-// the engine this module stores.
+// from CortexDB over HTTP. Inside the Gateway, memory is the teeny-cortexdb
+// plugin (plugins/teeny-cortexdb): it owns plugins.slots.memory, recalls into
+// each turn, captures turns and serves the memory_* tools, reading the engine
+// this module stores. These four RPCs stay the Python callers' path.
 import { RpcError, type CoreContext, type RpcMethods } from "../server/types.js";
-import { assertSafeEndpoint, CortexClient, CortexError, DEFAULT_SCOPE } from "./cortex.js";
+import { assertSafeEndpoint, CortexClient, CortexError, sameEndpoint } from "./cortex.js";
 import { clientFor, loadEngine, saveEngine } from "./engine.js";
+import { memoryScope } from "./plugin.js";
 
 /** Tests replace this to mock CortexDB's HTTP. */
 export const memoryHttp: { fetch: typeof fetch | undefined } = { fetch: undefined };
 
 function scopeOf(ctx: CoreContext): string {
-  return ctx.env.TEENY_MEMORY_SCOPE || DEFAULT_SCOPE;
-}
-
-function sameEndpoint(a: string, b: string): boolean {
-  try {
-    return new URL(a).href === new URL(b).href;
-  } catch {
-    return false;
-  }
+  return memoryScope(ctx.env);
 }
 
 function client(ctx: CoreContext): CortexClient {
@@ -65,6 +59,9 @@ export const memoryMethods: RpcMethods = {
     }
     saveEngine(ctx.stateDir, { engine: "cortexdb", endpoint: p.endpoint, scope: scopeOf(ctx), ...(sealed ? { apiKeySealed: sealed } : {}) });
     const stored = loadEngine(ctx.stateDir);
+    // The Gateway's config names the memory plugin only once an engine is set: write it now (debounced, and a
+    // restart only when the config really differs), so a first boot's memory reaches the Gateway without a second boot.
+    ctx.services?.configChanged();
     const c = clientFor(stored, ctx.services?.sealer, scopeOf(ctx), memoryHttp.fetch);
     const ready = c ? await c.health() : false;
     return { status: ready ? "ready" : "unreachable" };

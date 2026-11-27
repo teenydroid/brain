@@ -431,16 +431,28 @@ export function countReplies(command: string, cwd: string, readFile: (path: stri
     } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
       let found = false;
       for (const a of args.slice(1)) {
-        // The client decodes the argument as JSON, so `reply\u005fx` is dispatched as `reply_x`: read the decoded `do` too.
-        let decoded = "";
-        try {
-          const j = JSON.parse(a.text) as { do?: unknown };
-          if (typeof j?.do === "string") decoded = j.do;
-        } catch {
-          // not JSON: the raw text is all there is to read
+        // A "$(cat FILE)" inside a longer argument is read by the broker as one text with the file spliced in, which
+        // the guard cannot see whole: it counts as a reply of every channel. A bare "$(cat FILE)" is read below.
+        if (a.text.includes("\u0001")) {
+          if (a.text !== "\u0001") {
+            n.x++;
+            n.mail++;
+            found = true;
+          }
+          continue;
         }
-        for (const [verb, channel] of Object.entries(REPLY_DO)) {
-          if (decoded === verb || new RegExp(`\\b${verb}\\b`).test(a.text)) {
+        // The client decodes the argument as JSON, so `reply\u005fx` is dispatched as `reply_x`. A JSON object is
+        // counted by its `do` alone: a reply's text that mentions `reply_x` is not a second reply. Anything else is
+        // read as text.
+        let verb: string | undefined;
+        try {
+          const j = JSON.parse(a.text) as unknown;
+          if (typeof j === "object" && j !== null) verb = typeof (j as { do?: unknown }).do === "string" ? ((j as { do: string }).do) : "";
+        } catch {
+          // not JSON
+        }
+        for (const [name, channel] of Object.entries(REPLY_DO)) {
+          if (verb !== undefined ? verb === name : new RegExp(`\\b${name}\\b`).test(a.text)) {
             n[channel]++;
             found = true;
           }
