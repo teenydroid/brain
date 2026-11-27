@@ -99,7 +99,7 @@ class SeedTest(StoryScratch):
     def test_the_repo_seed_file_has_six_storylines_with_plain_premises(self):
         items = store.seeds(REPO_SEEDS)
         self.assertEqual([i["key"] for i in items],
-                         ["rent", "night-shift", "keeper", "count", "strangers", "self-portrait"])
+                         ["rent", "night-shift", "escape", "count", "strangers", "self-portrait"])
         for item in items:
             self.assertLessEqual(len(item["premise"]), 200, item["key"])
             self.assertIsNone(JARGON.search(item["premise"]), (item["key"], item["premise"]))
@@ -180,11 +180,11 @@ class BeatTest(StoryScratch):
     def test_seed_under_dry_run_writes_nothing(self):
         fresh = self.root / "state" / "hands.db"
         conn = store.db()
-        conn.execute("DELETE FROM storylines WHERE key IN ('keeper', 'count')")
+        conn.execute("DELETE FROM storylines WHERE key IN ('escape', 'count')")
         conn.close()
         self.configure(DRY_RUN="1")
         got = store.seed()
-        self.assertEqual((got["dry_run"], sorted(got["would_add"])), (True, ["count", "keeper"]))
+        self.assertEqual((got["dry_run"], sorted(got["would_add"])), (True, ["count", "escape"]))
         conn = store.db()
         self.assertEqual(conn.execute("SELECT count(*) FROM storylines").fetchone()[0], 4)
         conn.close()
@@ -204,7 +204,7 @@ class BeatTest(StoryScratch):
         self.assertIn("rent", got)                     # told 4 days ago
         self.assertEqual(got["rent"]["reason"], "no beat in 3 days")
         self.assertNotIn("count", got)                 # told 2 days ago
-        self.assertEqual(got["keeper"]["reason"], "never told")
+        self.assertEqual(got["escape"]["reason"], "never told")
         self.assertNotIn("rent", {d["key"] for d in store.due(5)["due"] if d["reason"] != "never told"})
 
 
