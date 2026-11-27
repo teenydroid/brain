@@ -7,7 +7,7 @@ import { Keypair, MessageV0, PublicKey, SystemProgram, Transaction, TransactionI
 import { describe, expect, it } from "vitest";
 import { build } from "../../src/wallet/giveaway.js";
 import { checkDeclared as checkDeclaredForTest } from "../../src/wallet/policy.js";
-import { ASSOCIATED_TOKEN_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, decodeTransaction, debits, parseTokenAccount, signatureIsValid, summarize } from "../../src/wallet/solana-program.js";
+import { simulate as simulateFn, ASSOCIATED_TOKEN_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, decodeTransaction, debits, parseTokenAccount, signatureIsValid, summarize } from "../../src/wallet/solana-program.js";
 import { type Harness, makeHarness, mockSolana, setupWallet } from "./helpers.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +36,7 @@ interface Round {
 }
 
 /** Builds a create transaction for the giveaway wallet and scripts the RPC the simulation reads. */
-async function round(h: Harness, opts: { debit?: bigint; slotSplit?: boolean; simErr?: unknown } = {}): Promise<Round> {
+async function round(h: Harness, opts: { debit?: bigint; slotSplit?: boolean; simErr?: unknown; nativePre?: number; nativePost?: number } = {}): Promise<Round> {
   const account = (await h.call("wallet_account", { chain: "solana", accountIndex: 1 })) as { address: string };
   const built = build(
     "create",
@@ -61,14 +61,23 @@ async function round(h: Harness, opts: { debit?: bigint; slotSplit?: boolean; si
       value: program === TOKEN_2022_PROGRAM ? [{ pubkey: ata, account: { data: [tokenAccount(MINT, account.address, 10_000_000n), "base64"] } }] : [],
     };
   });
-  h.net.onRpc("simulateTransaction", () => ({
+  h.net.onRpc("getMultipleAccounts", (params) => ({
     context: { slot: opts.slotSplit ? slot++ : 100 },
-    value: {
-      err: opts.simErr ?? null,
-      accounts: opts.simErr ? null : [{ data: [tokenAccount(MINT, account.address, 10_000_000n - debit), "base64"] }],
-      unitsConsumed: 4242,
-    },
+    value: (params[0] as string[]).map(() => ({ lamports: opts.nativePre ?? 1_000_000_000 })),
   }));
+  h.net.onRpc("simulateTransaction", (params) => {
+    const requested = (params[1] as { accounts: { addresses: string[] } }).accounts.addresses.length;
+    return {
+      context: { slot: opts.slotSplit ? slot++ : 100 },
+      value: {
+        err: opts.simErr ?? null,
+        accounts: opts.simErr
+          ? null
+          : [{ data: [tokenAccount(MINT, account.address, 10_000_000n - debit), "base64"] }, ...Array.from({ length: requested - 1 }, () => ({ lamports: opts.nativePost ?? 995_000_000, data: ["", "base64"] }))],
+        unitsConsumed: 4242,
+      },
+    };
+  });
   return { authority: account.address, built, ata };
 }
 
@@ -253,6 +262,60 @@ describe("wallet_execute_prepared_program", () => {
     const ledger = (await h.call("wallet_ledger_list", { limit: 5 })) as Array<Record<string, unknown>>;
     expect(ledger[0]).toMatchObject({ status: "in_doubt", kind: "program" });
     await expect(h.call("wallet_execute_prepared_program", { accountIndex: 1, quoteId: quote.quoteId })).rejects.toThrow(/unavailable or expired/);
+  });
+});
+
+describe("native SOL leaving the wallet", () => {
+  it("is measured on the fee payer and refused above the bound, at prepare and again at execute", async () => {
+    const h = makeHarness({ config: section() });
+    await setupWallet(h);
+    const { sent } = mockSolana(h.net);
+    // a program that CPIs a System transfer: no token debit, but the account loses 0.5 SOL
+    const drain = await round(h, { nativePost: 500_000_000 });
+    expect(await message(prepare(h, drain))).toBe(
+      "WALLET_POLICY_REFUSED: the simulation takes 500000000 lamports of SOL from the wallet's accounts, above the 10000000 a program execute may spend on fees and rent",
+    );
+    // fees and rent for the accounts it creates stay allowed, up to the bound exactly
+    const rent = await round(h, { nativePost: 1_000_000_000 - 10_000_000 });
+    const quote = await prepare(h, rent);
+    expect(quote.simulation.nativeDebitLamports).toBe("10000000");
+    // the chain moves between prepare and execute: the drain is caught before anything is signed
+    await round(h, { nativePost: 1 });
+    expect(await message(h.call("wallet_execute_prepared_program", { accountIndex: 1, quoteId: quote.quoteId }))).toMatch(/takes 999999999 lamports of SOL/);
+    expect(sent).toHaveLength(0);
+    // an account the transaction closes lost everything it had
+    const closing = await round(h);
+    h.net.onRpc("simulateTransaction", (params) => {
+      const n = (params[1] as { accounts: { addresses: string[] } }).accounts.addresses.length;
+      return { context: { slot: 100 }, value: { err: null, accounts: [{ data: [tokenAccount(MINT, closing.authority, 10_000_000n - TOTAL), "base64"] }, ...Array.from({ length: n - 1 }, () => null)] } };
+    });
+    expect(await message(prepare(h, closing))).toMatch(/takes 1000000000 lamports/);
+  });
+
+  it("can be bound lower by the environment, never higher", async () => {
+    const h = makeHarness({ config: section(), env: { OPENHUMAN_WALLET_PROGRAM_MAX_NATIVE_LAMPORTS: "1000" } });
+    await setupWallet(h);
+    expect(await message(prepare(h, await round(h, { nativePost: 999_000_000 })))).toMatch(/above the 1000 a program execute/);
+    const loose = makeHarness({ config: section(), env: { OPENHUMAN_WALLET_PROGRAM_MAX_NATIVE_LAMPORTS: "99999999999" } });
+    await setupWallet(loose);
+    expect(await message(prepare(loose, await round(loose, { nativePost: 500_000_000 })))).toMatch(/above the 10000000 a program execute/);
+  });
+
+  it("also watches the other wallet accounts the message names", async () => {
+    const owner = Keypair.generate().publicKey.toBytes();
+    const other = Keypair.generate().publicKey.toBytes();
+    const calls: unknown[][] = [];
+    const rpc = {
+      call: async (method: string, params: unknown[]) => {
+        calls.push([method, params]);
+        if (method === "getTokenAccountsByOwner") return { context: { slot: 7 }, value: [] };
+        if (method === "getMultipleAccounts") return { context: { slot: 7 }, value: [{ lamports: 100 }, { lamports: 900 }] };
+        return { context: { slot: 7 }, value: { err: null, accounts: [{ lamports: 90 }, { lamports: 100 }] } };
+      },
+    } as unknown as import("../../src/wallet/rpc.js").SolanaRpc;
+    const report = await simulateFn(rpc, new Uint8Array(10), owner, [owner, other], [other]);
+    expect(report.nativeDebitLamports).toBe("810"); // 10 from the fee payer, 800 from the other account
+    expect((calls.find((c) => c[0] === "getMultipleAccounts")![1] as string[][])[0]).toHaveLength(2);
   });
 });
 

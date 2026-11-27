@@ -261,7 +261,7 @@ const permit2Types = {
 } as const;
 
 describe("x402 upto (a ceiling, settled for what was used)", () => {
-  it("signs a Permit2 permit for the upto proxy that verifies, and charges what the receipt says", async () => {
+  it("signs a Permit2 permit for the upto proxy that verifies, and reports what the receipt says without trusting it", async () => {
     const h = makeHarness({ env: { ...MAINNET, OPENHUMAN_X402_DAILY_MAX: "1500", OPENHUMAN_X402_MONTHLY_MAX: "9999" } });
     const { status } = await setupWallet(h);
     const me = (status.accounts as Array<{ chain: string; address: string }>).find((a) => a.chain === "evm")!.address as `0x${string}`;
@@ -283,10 +283,10 @@ describe("x402 upto (a ceiling, settled for what was used)", () => {
         signature: header.payload.signature,
       }),
     ).toBe(true);
-    // the ledger now holds what was charged, so the day's budget (1500) has room for another ceiling of 1000
+    // the server's word about what it charged never lowers what the budget holds: the row stays at the signed ceiling
     const rows = ((await h.call("x402_list_payments", { limit: 5 })) as { payments: Array<Record<string, string>> }).payments;
-    expect(rows[0]).toMatchObject({ status: "settled", amountAtomic: "400" });
-    await fetch402(h);
+    expect(rows[0]).toMatchObject({ status: "settled", amountAtomic: "1000" });
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
   });
 
   it("holds the whole ceiling against the budget while it is pending, and counts a receipt above the ceiling as unsettled", async () => {
@@ -466,5 +466,60 @@ describe("the vetted address is the connected address", () => {
       expect(address).toBe("10.9.9.9");
       resolve();
     }));
+  });
+});
+
+describe("the x402 budget does not take the server's word", () => {
+  const tight = { ...MAINNET, OPENHUMAN_X402_DAILY_MAX: "1500", OPENHUMAN_X402_MONTHLY_MAX: "9999" };
+
+  it("keeps a signed authorization counted when the server answers 4xx, until it has expired", async () => {
+    const h = makeHarness({ env: tight });
+    await setupWallet(h);
+    server(h, [evmAccept()], { status: 400 });
+    const first = await fetch402(h);
+    expect(first.payment.settled).toBe(false);
+    // the server may still submit the authorization itself: the budget has not been freed
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
+    h.clock.now += 30_000;
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
+    // a 402 retry is no different
+    h.clock.now += 40_000; // past validBefore (60s): it can no longer settle
+    server(h, [evmAccept()], { status: 402 });
+    await fetch402(h);
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
+  });
+
+  it("keeps an upto ceiling whatever the receipt reports, even a receipt of nothing", async () => {
+    const h = makeHarness({ env: tight });
+    await setupWallet(h);
+    server(h, [uptoAccept()], { receipt: receipt("eip155:8453", "0") });
+    const out = await fetch402(h);
+    expect(out.payment).toMatchObject({ amountAtomic: "1000", settled: true });
+    const rows = ((await h.call("x402_list_payments", { limit: 5 })) as { payments: Array<Record<string, string>> }).payments;
+    expect(rows[0]).toMatchObject({ amountAtomic: "1000" });
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
+  });
+
+  it("frees only what was never signed: a payment that failed before a signature owes nothing", async () => {
+    const h = makeHarness({ env: { ...tight, OPENHUMAN_X402_DAILY_MAX: "1000" } });
+    await setupWallet(h);
+    server(h, [evmAccept()]);
+    const key = h.ctx.env.OPENHUMAN_KEYRING_MASTER_KEY_FILE as string;
+    h.env({ OPENHUMAN_KEYRING_MASTER_KEY_FILE: "" });
+    await expect(fetch402(h)).rejects.toThrow(/cannot sign/);
+    h.env({ OPENHUMAN_KEYRING_MASTER_KEY_FILE: key });
+    const out = await fetch402(h); // the whole day's 1000 is still there
+    expect(out.payment.settled).toBe(true);
+  });
+
+  it("stops counting a failed payment once its authorization has expired", async () => {
+    const h = makeHarness({ env: { ...tight, OPENHUMAN_X402_DAILY_MAX: "1000" } });
+    await setupWallet(h);
+    server(h, [evmAccept()], { status: 400 });
+    await fetch402(h);
+    expect(await message(fetch402(h))).toBe("X402_REFUSED: x402 daily budget exceeded");
+    h.clock.now += 61_000;
+    server(h, [evmAccept()]);
+    expect((await fetch402(h)).payment.settled).toBe(true);
   });
 });

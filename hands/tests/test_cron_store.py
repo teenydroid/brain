@@ -1,8 +1,7 @@
-"""bin/lib/cron_store.py on its OpenClaw backend: every reader of the core's cron jobs and runs
-(bin/crons, health, pulse, catch_up, evolve, desk) answers from `openclaw automations list|runs
---json`, here a fake `openclaw` that serves two JSON files. The shapes are the ones in
-node_modules/openclaw/docs/cli/cron.md (the job's state.nextRunAtMs / runningAtMs / lastRunAtMs, a
-run's runAtMs / ts / status)."""
+"""bin/lib/cron_store.py on its core backend: every reader of the core's cron jobs and runs
+(bin/crons, health, pulse, catch_up, evolve, desk) answers from the core's `cron_list` and
+`cron_runs` RPCs (never the openclaw CLI, which needs the Gateway's token), here a fake bin/oh
+that serves two JSON files in the shapes core/src/cron/map.ts gives."""
 
 import datetime as dt
 import json
@@ -27,18 +26,14 @@ import health  # noqa: E402
 UTC = dt.timezone.utc
 FAKE = """#!/usr/bin/env python3
 import json, os, sys
-a = sys.argv[1:]
+method, params = sys.argv[1], json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
 if os.environ.get("FAKE_DOWN"):
-    sys.stderr.write("gateway closed"); sys.exit(1)
-assert a[0] == "automations" and a[-1] == "--json", a
+    sys.stderr.write("core unreachable"); sys.exit(1)
 data = json.load(open(os.environ["FAKE_STORE"]))
-if a[1] == "list":
-    assert "--all" in a
-    print(json.dumps({"jobs": data["jobs"], "total": len(data["jobs"])}))
-elif a[1] == "runs":
-    assert "--all" in a
-    lim, off = int(a[a.index("--limit") + 1]), int(a[a.index("--offset") + 1])
-    print(json.dumps({"entries": data["runs"][off:off + lim]}))
+if method == "cron_list":
+    print(json.dumps(data["jobs"]))
+elif method == "cron_runs":
+    print(json.dumps(data["runs"]))
 else:
     sys.exit(2)
 """
@@ -52,27 +47,22 @@ def ms(text: str) -> int:
     return int(ts(text) * 1000)
 
 
-def argv_of(command: str) -> list[str]:
-    return ["env", "-i", "HOME=/h", "PATH=/bin", "LANG=C.UTF-8", "timeout", "-k", "10", "1800", "sh", "-c", command]
-
-
 def shell_job(job_id, name, command, expr="10 15 * * *", tz="Asia/Kolkata", next_run=None, enabled=True, running=None,
               last=None, created="2026-11-01T00:00"):
-    state = {k: v for k, v in {"nextRunAtMs": ms(next_run) if next_run else None,
-                               "runningAtMs": ms(running) if running else None,
-                               "lastRunAtMs": ms(last) if last else None}.items() if v is not None}
-    return {"id": job_id, "name": name, "enabled": enabled, "createdAtMs": ms(created), "sessionTarget": "isolated",
-            "schedule": {"kind": "cron", "expr": expr, "tz": tz},
-            "payload": {"kind": "command", "argv": argv_of(command), "cwd": "/x", "timeoutSeconds": 1830},
-            "delivery": {"mode": "none"}, "state": state}
+    """A job as the core's cron_list answers it (core/src/cron/map.ts view)."""
+    job = {"id": job_id, "name": name, "job_type": "shell", "enabled": enabled, "command": command,
+           "schedule": {"kind": "cron", "expr": expr, "tz": tz}, "delivery": {"mode": "none"},
+           "created_ms": ms(created)}
+    for key, value in (("next_run_ms", next_run), ("running_ms", running), ("last_run_ms", last)):
+        if value:
+            job[key] = ms(value)
+    return job
 
 
 def entry(job_id, started, status="ok", seconds=5, summary="", error=None):
-    out = {"jobId": job_id, "action": "finished", "runAtMs": ms(started), "ts": ms(started) + seconds * 1000,
-           "durationMs": seconds * 1000, "status": status, "summary": summary}
-    if error:
-        out["error"] = error
-    return out
+    """A run as the core's cron_runs answers it (core/src/cron/map.ts runView)."""
+    return {"job_id": job_id, "status": status, "started_ms": ms(started), "finished_ms": ms(started) + seconds * 1000,
+            "seq": ms(started), "duration_ms": seconds * 1000, "output": "\n".join(x for x in (summary, error) if x)}
 
 
 class StoreCase(unittest.TestCase):
@@ -83,11 +73,11 @@ class StoreCase(unittest.TestCase):
         self._env = dict(os.environ)
         for key in ("TEENY_STORAGE", "OPENHUMAN_WORKSPACE", "TEENY_STATE", "CALENDAR_TZ", "FAKE_DOWN"):
             os.environ.pop(key, None)
-        fake = self.root / "openclaw"
+        fake = self.root / "oh"
         fake.write_text(FAKE)
         fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
         self.store = self.root / "store.json"
-        os.environ.update(TEENY_CRON_BACKEND="openclaw", OPENCLAW_BIN=str(fake), FAKE_STORE=str(self.store),
+        os.environ.update(TEENY_CRON_BACKEND="core", TEENY_OH=str(fake), FAKE_STORE=str(self.store),
                           TEENY_ROOT=str(self.root), TEENY_QUIET_HOURS="off")
         hand._ENV_CACHE = None
         self.jobs: list[dict] = []
@@ -105,15 +95,17 @@ class StoreCase(unittest.TestCase):
 
 class AdapterTest(StoreCase):
     def test_jobs_come_back_in_the_rows_the_readers_use(self):
-        self.jobs = [shell_job("j1", "teeny.tick", "bin/tick --detach", "*/5 * * * *", "UTC", next_run="2026-11-27T10:05"),
-                     {"id": "j2", "name": "mind.nap", "enabled": False, "agentId": "mind", "createdAtMs": 5,
-                      "schedule": {"kind": "at", "at": "2026-11-27T12:00:00Z"}, "sessionTarget": "isolated",
-                      "payload": {"kind": "agentTurn", "message": "rest"}, "state": {}}]
+        self.jobs = [shell_job("j1", "teeny.tick", "bin/tick --detach", "*/5 * * * *", "UTC", next_run="2026-11-27T10:05",
+                               running="2026-11-27T10:00", last="2026-11-27T09:55"),
+                     {"id": "j2", "name": "mind.nap", "job_type": "agent", "enabled": False, "agent_id": "mind",
+                      "prompt": "rest", "created_ms": 5, "schedule": {"kind": "at", "at": "2026-11-27T12:00:00Z"}}]
         self.write()
         j1, j2 = cron_store.jobs()
         self.assertEqual((j1["name"], j1["job_type"], j1["command"], j1["expression"], j1["enabled"]),
                          ("teeny.tick", "shell", "bin/tick --detach", "*/5 * * * *", True))
-        self.assertEqual((j1["schedule"], j1["next_run_ms"]), ({"kind": "cron", "expr": "*/5 * * * *", "tz": "UTC"}, ms("2026-11-27T10:05")))
+        self.assertEqual((j1["schedule"], j1["next_run_ms"], j1["running_ms"], j1["last_run_ms"]),
+                         ({"kind": "cron", "expr": "*/5 * * * *", "tz": "UTC"}, ms("2026-11-27T10:05"),
+                          ms("2026-11-27T10:00"), ms("2026-11-27T09:55")))
         self.assertEqual((j2["job_type"], j2["agent_id"], j2["prompt"], j2["enabled"], j2["schedule"]),
                          ("agent", "mind", "rest", False, {"kind": "at", "at": "2026-11-27T12:00:00Z"}))
         self.assertIsNone(j2["command"])
@@ -127,11 +119,19 @@ class AdapterTest(StoreCase):
                          ("j1", "error", ms("2026-11-27T10:00"), ms("2026-11-27T10:00") + 7000, 7000))
         self.assertEqual(run["output"], "out\nexit 3")
 
-    def test_a_long_history_is_read_page_by_page(self):
+    def test_it_never_runs_the_openclaw_cli(self):
+        # the readers have no Gateway token: an `openclaw` on the PATH that records being run must stay unrun
+        trap = self.root / "bin"
+        trap.mkdir()
+        (trap / "openclaw").write_text(f"#!/bin/sh\ntouch {self.root}/openclaw-ran\nexit 1\n")
+        (trap / "openclaw").chmod(0o755)
+        os.environ["PATH"] = f"{trap}:{os.environ['PATH']}"
         self.jobs = [shell_job("j1", "teeny.tick", "true")]
-        self.runs = [entry("j1", "2026-11-27T10:00") | {"runAtMs": 1000 + n} for n in range(450)]
+        self.runs = [entry("j1", "2026-11-27T10:00")]
         self.write()
-        self.assertEqual(len(cron_store.runs()), 450)
+        self.assertEqual([j["name"] for j in cron_store.jobs()], ["teeny.tick"])
+        self.assertEqual(len(cron_store.runs()), 1)
+        self.assertFalse((self.root / "openclaw-ran").exists())
 
     def test_a_gateway_that_is_down_is_unavailable_and_readers_say_nothing(self):
         os.environ["FAKE_DOWN"] = "1"
@@ -268,7 +268,7 @@ class CatchUpOnOpenClawTest(StoreCase):
                   "schedule": {"kind": "cron", "expr": "10 15 * * *", "tz": "Asia/Kolkata"}}]
 
         def call(method, params):  # the Gateway starts the run while the schedule is patched
-            self.jobs[0]["state"]["runningAtMs"] = ms("2026-11-14T11:00")
+            self.jobs[0]["running_ms"] = ms("2026-11-14T11:00")
             self.write()
         out = catch_up.rearm(stale, call, state=self.root / "state")
         self.assertEqual((out["raced"], out["rearmed"]), (["teeny.self-improve"], []))

@@ -147,6 +147,13 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
       : {}),
     // schema: browser.{enabled,headless,defaultProfile,executablePath,profiles.<name>.cdpPort}
     // (docs/tools/browser/configuration.md). The plugin pins each agent to one of these profiles.
+    // The user-data dir of a managed profile cannot be set: `userDataDir` exists only for `existing-session`
+    // profiles (configuration.md, "Set browser.profiles.<name>.userDataDir when an existing-session profile
+    // should attach to a non-default Chromium user profile"), which attach to a running Chrome and need an
+    // approval prompt. A managed profile keeps its cookies in $OPENCLAW_STATE_DIR/browser/<profile>/user-data
+    // (docs/tools/browser-linux-troubleshooting.md), which is state/openclaw/browser/teeny/user-data here and
+    // persists across restarts. P5 MIGRATION: with the browser stopped, copy state/browser/profile/ to
+    // state/openclaw/browser/teeny/user-data/ (mode 0700, same owner) so the sign-ins OpenHuman kept carry over.
     browser: {
       enabled: true,
       headless: true,

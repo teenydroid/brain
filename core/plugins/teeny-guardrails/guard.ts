@@ -5,7 +5,7 @@
 import { resolve } from "node:path";
 import { checkPath, expandHome, type PathRules } from "./paths.js";
 import { judgeExec } from "./exec.js";
-import { judgeAllowedFetch, judgeBrowser, newBrowserState, runKeychainFill, type BrowserState } from "./browser.js";
+import { judgeAllowedFetch, judgeBrowser, newBrowserState, openclawLiveUrl, runKeychainFill, type BrowserState } from "./browser.js";
 import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
 
 export interface ToolEvent {
@@ -29,6 +29,7 @@ const refuse = (why: string): Decision => ({ block: true, blockReason: `teeny-gu
 
 export interface GuardDeps {
   fill?: (program: string, host: string) => Promise<string>;
+  liveUrl?: (profile: string, targetId: string | undefined) => Promise<string>;
 }
 
 export class Guardrails {
@@ -103,7 +104,7 @@ export class Guardrails {
         if (!agent.browser) return refuse("this agent has no browser");
         const v = await judgeBrowser(
           agent.browser,
-          { denyFile: this.policy.browserDenyFile, keychainFill: this.policy.keychainFill, fill: this.deps.fill ?? runKeychainFill },
+          { denyFile: this.policy.browserDenyFile, keychainFill: this.policy.keychainFill, liveUrl: this.deps.liveUrl ?? (this.policy.openclaw ? openclawLiveUrl(this.policy.openclaw) : async () => { throw new Error("no way to ask the browser"); }), fill: this.deps.fill ?? runKeychainFill },
           this.browserState,
           ctx.sessionKey,
           params,

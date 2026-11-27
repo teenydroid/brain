@@ -1,6 +1,6 @@
 // Teeny's job shape (the contract) to and from OpenClaw automation jobs.
 import { RpcError } from "../server/types.js";
-import type { OcJob } from "./automations.js";
+import type { OcJob, OcRun } from "./automations.js";
 
 export type Schedule = { kind: "cron"; expr: string; tz: string } | { kind: "at"; at: string };
 
@@ -101,5 +101,25 @@ export function view(job: OcJob): Record<string, unknown> {
   if (st?.lastRunAtMs !== undefined) out.last_run = new Date(st.lastRunAtMs).toISOString();
   if (st?.lastRunStatus !== undefined) out.last_status = st.lastRunStatus;
   if (st?.runningAtMs !== undefined) out.running = true;
+  // numeric twins for the Python readers (bin/lib/cron_store.py)
+  if (job.createdAtMs !== undefined) out.created_ms = job.createdAtMs;
+  if (st?.runningAtMs !== undefined) out.running_ms = st.runningAtMs;
+  if (st?.lastRunAtMs !== undefined) out.last_run_ms = st.lastRunAtMs;
+  if (st?.nextRunAtMs !== undefined) out.next_run_ms = st.nextRunAtMs;
+  return out;
+}
+
+/** A run-history entry as the readers use it (the shape of the old cron.runs rows). */
+export function runView(run: OcRun): Record<string, unknown> {
+  const out: Record<string, unknown> = { job_id: run.jobId ?? "", status: run.status ?? "" };
+  const started = run.runAtMs;
+  let finished = run.ts;
+  if (finished === undefined && started !== undefined && run.durationMs !== undefined) finished = started + run.durationMs;
+  if (started !== undefined) out.started_ms = started;
+  if (finished !== undefined) out.finished_ms = finished;
+  const seq = started ?? finished;
+  if (seq !== undefined) out.seq = seq;
+  if (run.durationMs !== undefined) out.duration_ms = run.durationMs;
+  out.output = [run.summary, run.error].filter((x) => x).join("\n");
   return out;
 }

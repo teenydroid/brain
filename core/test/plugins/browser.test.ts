@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { hostOnList, judgeAllowedFetch, judgeUrl, maskSecrets, pictureName, picturePaths, prunePictures, readHostList, savePicture } from "../../plugins/teeny-guardrails/browser.js";
+import { hostOnList, judgeAllowedFetch, judgeUrl, maskSecrets, openclawLiveUrl, pickTab, pictureName, picturePaths, prunePictures, readHostList, savePicture } from "../../plugins/teeny-guardrails/browser.js";
 import { blocked, makeFixture, rewritten, write } from "./fixture.js";
 
 const call = (f: ReturnType<typeof makeFixture>, agent: string, params: Record<string, unknown>, session = "s1") =>
@@ -107,60 +107,118 @@ describe("browser tool calls", () => {
 
 describe("keychain fill", () => {
   const SECRET = "hunter2-fake-password";
+  /** where the browser says the tab is, which a test moves like a click or a redirect would */
+  let live = "https://login.example.org/signin";
+  const asked: string[] = [];
+  const looked: { profile: string; targetId: string | undefined }[] = [];
 
-  async function setup(host = "https://login.example.org/signin") {
-    const asked: string[] = [];
+  async function setup(url = "https://login.example.org/signin") {
+    asked.length = 0;
+    looked.length = 0;
+    live = url;
     const f = makeFixture({
       fill: async (program, h) => {
         asked.push(`${program.split("/").pop()} ${h}`);
         return SECRET;
       },
+      liveUrl: async (profile, targetId) => {
+        looked.push({ profile, targetId });
+        return live;
+      },
     });
-    expect(blocked(await call(f, "operator", { action: "open", url: host, targetId: "t1" }, "kc"))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "open", url, targetId: "t1" }, "kc"))).toBeUndefined();
     return { f, asked };
   }
   const typed = (text: string, extra: Record<string, unknown> = {}) => ({ action: "act", targetId: "t1", request: { kind: "type", ref: "e5", text, ...extra } });
 
-  it("swaps the placeholder for the password only on that site's own page, through bin/keychain-fill", async () => {
+  it("swaps the placeholder for the password only on that site's own page, asking bin/keychain-fill for the live host", async () => {
     const { f, asked } = await setup();
     const d = rewritten(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"));
-    expect(d).toBeDefined();
     expect((d?.request as { text: string }).text).toBe(SECRET);
     expect(asked).toEqual(["keychain-fill login.example.org"]);
-    // the profile pin rides along
+    // once for the tab-bound action check, once for the keychain check
+    expect(looked).toEqual([{ profile: "teeny", targetId: "t1" }, { profile: "teeny", targetId: "t1" }]);
     expect(d?.profile).toBe("teeny");
   });
 
-  it("refuses the placeholder for another site, on a page the guard did not see, and for anything but typing", async () => {
+  it("reads the tab's URL right before the type, so a redirect or a click that moved the tab is caught", async () => {
+    const { f, asked } = await setup();
+    // the guard saw the tab opened on example.org; a click since sent it to a lookalike
+    live = "https://login.example.org.evil.test/signin";
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/this tab is on login.example.org.evil.test/);
+    live = "https://example.org@evil.test/";
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/credentials/);
+    live = "http://login.example.org/";
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/https pages only/);
+    live = "about:blank";
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/not a site's own https page/);
+    expect(asked).toEqual([]);
+    // back on the site it types; each type asks the browser again
+    live = "https://example.org/account";
+    expect(rewritten(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toBeDefined();
+    expect(asked).toEqual(["keychain-fill example.org"]);
+  });
+
+  it("refuses when the browser cannot say where the tab is, or does not name it", async () => {
+    const f = makeFixture({ fill: async () => SECRET, liveUrl: async () => { throw new Error("the browser did not answer"); } });
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/could not confirm which page/);
+    const g = makeFixture({ fill: async () => SECRET, liveUrl: async () => { throw new Error("more than one tab fits: name the tab"); } });
+    expect(blocked(await call(g, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/more than one tab/);
+  });
+
+  it("refuses the placeholder for another site, for anything but typing, and for two sites", async () => {
     const { f, asked } = await setup();
     expect(blocked(await call(f, "operator", typed("{{keychain:other.org}}"), "kc"))).toMatch(/only on other.org's own pages/);
     expect(blocked(await call(f, "operator", typed("{{keychain:xexample.org}}"), "kc"))).toMatch(/own pages/);
     expect(blocked(await call(f, "operator", typed("{{keychain:example.org}} {{keychain:other.org}}"), "kc"))).toMatch(/one keychain site/);
     expect(blocked(await call(f, "operator", { action: "act", targetId: "t1", request: { kind: "click", text: "{{keychain:example.org}}" } }, "kc"))).toMatch(/typed or filled/);
-    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "never-opened"))).toMatch(/has not opened a page/);
     expect(asked).toEqual([]);
   });
 
   it("the mind and the worker never get the keychain", async () => {
-    const f = makeFixture({ fill: async () => SECRET });
+    const f = makeFixture({ fill: async () => SECRET, liveUrl: async () => "https://example.org/" });
     for (const agent of ["mind", "worker"]) {
       expect(blocked(await call(f, agent, { action: "act", request: { kind: "type", text: "{{keychain:example.org}}" } }))).toMatch(/not allowed/);
     }
   });
 
   it("fails closed when the keychain gives nothing, and masks the password in every result", async () => {
-    const g = makeFixture({ fill: async () => "" });
-    await call(g, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "kc");
+    const g = makeFixture({ fill: async () => "", liveUrl: async () => "https://example.org/" });
     expect(blocked(await call(g, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/no password/);
-    const h = makeFixture({ fill: async () => { throw new Error("boom"); } });
-    await call(h, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "kc");
+    const h = makeFixture({ fill: async () => { throw new Error("boom"); }, liveUrl: async () => "https://example.org/" });
     expect(blocked(await call(h, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/no password/);
-
     const { f } = await setup();
     await call(f, "operator", typed("{{keychain:example.org}}"), "kc");
     const masked = maskSecrets({ content: [{ type: "text", text: `typed ${SECRET} into the field` }], nested: [SECRET] }, f.guard.browserState.secrets);
     expect(JSON.stringify(masked)).not.toContain(SECRET);
     expect(JSON.stringify(masked)).toContain("[keychain]");
+  });
+
+  it("reads tab lists in the shapes the CLI documents: suggestedTargetId, tabId, label, raw targetId", () => {
+    const doc = { tabs: [{ suggestedTargetId: "t1", tabId: "t1", label: "docs", targetId: "ABCDEF123456", url: "https://example.org/a" }, { suggestedTargetId: "t2", tabId: "t2", targetId: "ZZZZZZ654321", url: "https://other.org/" }] };
+    expect(pickTab(doc, "t1")).toBe("https://example.org/a");
+    expect(pickTab(doc, "docs")).toBe("https://example.org/a");
+    expect(pickTab(doc, "ZZZZZZ")).toBe("https://other.org/");
+    expect(pickTab([{ tabId: "t9", url: "https://solo.org/" }], undefined)).toBe("https://solo.org/");
+    expect(() => pickTab(doc, undefined)).toThrow(/more than one/);
+    expect(() => pickTab(doc, "t7")).toThrow(/no such tab/);
+    expect(() => pickTab(doc, "t")).toThrow();
+    expect(() => pickTab({}, undefined)).toThrow(/no such tab/);
+  });
+
+  it("asks the Gateway's own openclaw CLI, with the operator's profile, and fails closed when it errors or answers badly", async () => {
+    const dir = join(makeFixture().root, "fake");
+    mkdirSync(dir, { recursive: true });
+    const ok = join(dir, "ok.sh");
+    writeFileSync(ok, `#!/bin/sh\necho "$@" > ${dir}/argv\necho '{"tabs":[{"tabId":"t1","url":"https://example.org/x"}]}'\n`, { mode: 0o755 });
+    const bad = join(dir, "bad.sh");
+    writeFileSync(bad, "#!/bin/sh\necho not json\n", { mode: 0o755 });
+    const fail = join(dir, "fail.sh");
+    writeFileSync(fail, "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+    expect(await openclawLiveUrl({ cmd: ok, args: ["x.mjs"] })("teeny", "t1")).toBe("https://example.org/x");
+    expect(readFileSync(join(dir, "argv"), "utf8").trim()).toBe("x.mjs browser --json --browser-profile teeny tabs");
+    await expect(openclawLiveUrl({ cmd: bad, args: [] })("teeny", "t1")).rejects.toThrow();
+    await expect(openclawLiveUrl({ cmd: fail, args: [] })("teeny", "t1")).rejects.toThrow(/did not answer/);
   });
 });
 
@@ -192,5 +250,60 @@ describe("the screenshot sink", () => {
     expect(savePicture(dir, txt, 24)).toBeUndefined();
     expect(existsSync(dir)).toBe(false);
     expect(picturePaths({ content: [{ type: "text", text: "saved to /tmp/x/shot-1.png and /tmp/y.JPG" }] })).toEqual(["/tmp/x/shot-1.png", "/tmp/y.JPG"]);
+  });
+});
+
+describe("review findings: the browser", () => {
+  it("a tab that has come to a denied host is not read or acted on again, whatever the last open said", async () => {
+    let live = "https://example.org/";
+    const f = makeFixture({ liveUrl: async () => live });
+    expect(blocked(await call(f, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "s"))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "t1", request: { kind: "click", ref: "e1" } }, "s"))).toBeUndefined();
+    // the click followed a link, or a redirect, to a host on deploy/browser-deny.txt
+    for (const url of ["https://x.com/home", "https://www.twitter.com/", "https://127.0.0.1/", "https://localhost./"]) {
+      live = url;
+      for (const params of [
+        { action: "act", targetId: "t1", request: { kind: "press", key: "Enter" } },
+        { action: "snapshot", targetId: "t1" },
+        { action: "text", targetId: "t1" },
+        { action: "screenshot", targetId: "t1" },
+        { action: "requests", targetId: "t1" },
+      ]) {
+        expect(blocked(await call(f, "operator", params, "s")), `${url} ${String(params.action)}`).toMatch(/may not be on|close the tab/);
+        if (params.action !== "act") expect(blocked(await call(f, "mind", params, "s")), `mind ${url} ${String(params.action)}`).toMatch(/may not be on|close the tab/);
+      }
+    }
+    // closing it is still allowed
+    expect(blocked(await call(f, "operator", { action: "close", targetId: "t1" }, "s"))).toBeUndefined();
+    // and a tab that cannot be read is refused rather than trusted
+    const g = makeFixture({ liveUrl: async () => { throw new Error("the browser did not answer"); } });
+    expect(blocked(await call(g, "operator", { action: "snapshot" }, "s"))).toMatch(/could not confirm which page/);
+  });
+
+  it("an act request names its tab too: the keychain check follows the tab the type goes to", async () => {
+    const seen: (string | undefined)[] = [];
+    const f = makeFixture({
+      fill: async () => "pw",
+      liveUrl: async (_p, id) => {
+        seen.push(id);
+        return id === "tabB" ? "https://evil.test/" : "https://example.org/";
+      },
+    });
+    const d = await call(f, "operator", { action: "act", request: { kind: "type", targetId: "tabB", text: "{{keychain:example.org}}" } }, "s");
+    expect(blocked(d)).toMatch(/tab is on evil.test|own pages/);
+    expect(seen).toContain("tabB");
+    // the same tab named twice is fine; two different tabs in one call are refused
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "tabA", request: { kind: "click", targetId: "tabA" } }, "s"))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "tabA", request: { kind: "type", targetId: "tabB", text: "{{keychain:example.org}}" } }, "s"))).toMatch(/only one tab/);
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "batch", actions: [{ kind: "click", targetId: "tabA" }, { kind: "type", targetId: "tabB", text: "x" }] } }, "s"))).toMatch(/only one tab/);
+  });
+
+  it("a trailing dot does not make a private host public", () => {
+    const deny = "/nonexistent-not-read-before-private";
+    for (const u of ["https://localhost./", "https://LOCALHOST../", "https://metadata.google.internal./", "https://printer.local./", "https://app.localhost./", "https://127.0.0.1./", "https://[::1]/"]) {
+      const f = makeFixture();
+      expect(judgeUrl(u, join(f.root, "deploy/browser-deny.txt")).reason, u).toMatch(/not a public address/);
+    }
+    void deny;
   });
 });

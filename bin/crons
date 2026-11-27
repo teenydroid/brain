@@ -6,10 +6,9 @@
 #                        works too)
 #
 # Read-only. The scheduler is OpenClaw's automations: the jobs and their run
-# history come from `openclaw automations list|runs --json` through
-# bin/lib/cron_store.py, the one adapter every reader uses (needs the Gateway
-# running, as every automations command does). Never write here; changes go
-# through `bin/seed-cron`.
+# history come from the core's cron_list and cron_runs RPCs through
+# bin/lib/cron_store.py, the one adapter every reader uses (needs the core
+# running). Never write here; changes go through `bin/seed-cron`.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

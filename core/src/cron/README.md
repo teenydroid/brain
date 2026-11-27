@@ -2,7 +2,25 @@
 
 `cron_list`, `cron_add`, `cron_update`, `cron_remove` and `cron_run`, as the contract in
 `test/contract/cron_*.json` records them, implemented over **OpenClaw automations**. `index.ts`
-exports `methods`, plus `startCron(ctx)` / `stopCron()` (the server calls them at boot and shutdown).
+exports `methods`, plus `setGatewayEnv(fn)`, `startCron(ctx)` and `stopCron()`.
+
+## Wiring (for main.ts / registry.ts)
+
+```ts
+import { methods as cronMethods, setGatewayEnv, startCron, stopCron } from "./cron/index.js";
+setGatewayEnv(gatewayEnv);        // main.ts's gatewayEnv(): OPENCLAW_GATEWAY_TOKEN, OPENCLAW_STATE_DIR,
+                                  // OPENCLAW_CONFIG_PATH, the Gateway URL/port. Read afresh on every call.
+// register cronMethods in MODULES (cron_list, cron_runs, cron_add, cron_update, cron_remove, cron_run)
+await startCron(ctx);             // after the Gateway is up: only VERIFIES cron.skipMissedJobs
+```
+
+- The Gateway env goes to the `openclaw` CLI only (merged over the core's own env, so PATH/HOME still resolve
+  it). A shell job's environment is the `env -i` wrapper below and never contains it. Tested.
+- Without `setGatewayEnv`, or while `cron.skipMissedJobs` is not `true`, every `cron_*` RPC fails closed with an
+  error (the key is checked lazily on each call until it passes, so a Gateway restart that fixes the config
+  reopens cron without a core restart). `startCron` only logs. The generated Gateway config must carry
+  `cron: { skipMissedJobs: true }`; this module never sets it, because the core rewrites the config at every
+  start and the Gateway reads the key at startup.
 
 There is no scheduler in the core. The Gateway fires the jobs; this module translates Teeny's job
 shape to `openclaw automations ... --json` (`automations.ts`, `map.ts`) and back. The binary is
@@ -22,6 +40,7 @@ Sources are under `node_modules/openclaw/docs/`: `cli/cron.md` (CLI), `automatio
 | `cron_update` | `automations edit <id> <flags>`, and `enable` / `disable` for `enabled`; answers `get <id>` |
 | `cron_remove` | `automations remove <id>` |
 | `cron_run` | `automations run <id>` (force; returns after the Gateway queues it: `{ok, enqueued, runId}`) |
+| `cron_runs` | `automations runs --all --limit/--offset --json` (or `runs <id>`), paged 200 at a time; params `{job_id?, limit?}` (default 3000); rows `{job_id, status, started_ms, finished_ms, seq, duration_ms, output}` |
 
 - Schedule `{kind: "cron", expr, tz}`: `--cron EXPR --tz TZ --exact`. `--exact` turns the Gateway's stagger
   (up to 5 minutes on top-of-hour expressions) off, so a job fires on its minute. `{kind: "at", at}`: `--at ISO`,
@@ -60,16 +79,17 @@ env -i HOME=<HOME> PATH=<PATH> LANG=<LANG> timeout -k 10 1800 sh -c '<command>'
 OpenClaw replays a recurring slot missed while the Gateway was down unless `cron.skipMissedJobs: true`
 (`managing-jobs.md`, "Configuration"). That key is global, not per job. Teeny's rule (`cron_policy.py`: no
 catch-up for anything that posts or pays, a bounded window for the rest) wants no replay by the scheduler at
-all: `bin/lib/catch_up.py` makes up the jobs that allow it, through `cron_run`. So `startCron` reads
-`openclaw config get cron.skipMissedJobs` and, if it is not `true`, sets it (`config set ... true --strict-json`).
-One-shot `at` jobs keep OpenClaw's catch-up either way (documented); wakes are not posts.
-The same key belongs in the OpenClaw config the image ships, so it holds before the core starts.
+all: `bin/lib/catch_up.py` makes up the jobs that allow it, through `cron_run`. The key lives in the generated
+Gateway config and this module verifies it (see Wiring). One-shot `at` jobs keep OpenClaw's catch-up either way
+(documented); wakes are not posts.
 
 ## Run history and "running"
 
-`openclaw automations runs <id> --json` (or `--all`) is the history. The Python readers go through
-`bin/lib/cron_store.py`, which also documents what replaces `tsd.leases`: the job's `state.runningAtMs`
-marker (set while a run is in flight, cleared when it ends) is the claim on a slot.
+`cron_runs` serves the history. The Python readers go through `bin/lib/cron_store.py`, which calls the core's
+`cron_list` and `cron_runs` (through `bin/oh` / `hand.core`) and never the `openclaw` CLI, since it has no Gateway
+token. It also documents what replaces `tsd.leases`: the job's `state.runningAtMs` marker (set while a run is in
+flight, cleared when it ends; `running_ms` in `cron_list`) is the claim on a slot. `cron_list` rows also carry
+numeric `created_ms`, `next_run_ms`, `last_run_ms` and `running_ms` for the readers.
 
 ## Not here
 

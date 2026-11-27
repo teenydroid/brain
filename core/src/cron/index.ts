@@ -9,7 +9,16 @@ const shared = createCron();
 
 export const methods: RpcMethods = shared.methods;
 
-/** The server calls it once at boot: pins cron.skipMissedJobs. */
+/**
+ * The server calls this once with main.ts's gatewayEnv(): the environment (OPENCLAW_GATEWAY_TOKEN,
+ * OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH, the Gateway URL/port) the `openclaw` CLI needs. Until it
+ * is called every cron_* RPC fails closed. It is passed to the CLI only, never to a shell job.
+ */
+export function setGatewayEnv(fn: (() => Record<string, string | undefined>) | undefined): void {
+  shared.setGatewayEnv(fn);
+}
+
+/** After setGatewayEnv, once the Gateway is up: verifies cron.skipMissedJobs (never sets it). */
 export function startCron(ctx: CoreContext): Promise<void> {
   return shared.start(ctx);
 }
