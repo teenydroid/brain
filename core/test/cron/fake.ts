@@ -4,11 +4,13 @@ import type { Exec, ExecResult } from "../../src/cron/automations.js";
 
 export interface Call {
   args: string[];
+  env: Record<string, string | undefined>;
 }
 
-export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, Record<string, unknown>>; config: Map<string, unknown> } {
+export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, Record<string, unknown>>; config: Map<string, unknown>; runs: Record<string, unknown>[] } {
   const jobs = new Map<string, Record<string, unknown>>();
-  const config = new Map<string, unknown>();
+  const config = new Map<string, unknown>([["cron.skipMissedJobs", true]]);
+  const runs: Record<string, unknown>[] = [];
   const calls: Call[] = [];
   let n = 0;
   const ok = (v: unknown): ExecResult => ({ code: 0, stdout: JSON.stringify(v), stderr: "" });
@@ -41,8 +43,8 @@ export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, R
     if (args.includes("--no-deliver")) job.delivery = { mode: "none" };
     if (args.includes("--keep-after-run")) job.deleteAfterRun = false;
   };
-  const exec: Exec = async (_file, argv) => {
-    calls.push({ args: argv });
+  const exec: Exec = async (_file, argv, opts) => {
+    calls.push({ args: argv, env: opts.env });
     if (argv[0] === "config") {
       if (argv[1] === "get") return config.has(argv[2]!) ? ok(config.get(argv[2]!)) : fail("not set");
       if (argv[1] === "set") {
@@ -61,6 +63,14 @@ export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, R
         apply(job, rest);
         jobs.set(job.id as string, job);
         return ok(job);
+      }
+      case "runs": {
+        const all = rest[0] === "--all";
+        const id = all ? undefined : rest[0];
+        const limit = Number(rest[rest.indexOf("--limit") + 1]);
+        const offset = Number(rest[rest.indexOf("--offset") + 1]);
+        const mine = runs.filter((r) => id === undefined || r.jobId === id);
+        return ok({ entries: mine.slice(offset, offset + limit) });
       }
       case "get":
         return jobs.has(id!) ? ok(jobs.get(id!)) : fail(`no job ${id}`);
@@ -82,5 +92,5 @@ export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, R
     }
     return fail(`unknown subcommand ${sub}`);
   };
-  return { exec, calls, jobs, config };
+  return { exec, calls, jobs, config, runs };
 }

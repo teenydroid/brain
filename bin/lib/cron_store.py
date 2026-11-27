@@ -19,17 +19,18 @@ here instead and get back the rows they always used:
 
 Backends (TEENY_CRON_BACKEND):
 
-- `openclaw` (default): `$OPENCLAW_BIN automations list --all --json` and
-  `... runs --all --json` (docs cli/cron.md). Needs the Gateway running, as
-  every automations command does; with it down the readers get Unavailable
-  and do what they did when storage.db could not be read (nothing).
-  OpenClaw's job fields (docs: the CronJob schema) map as: payload.kind
-  `agentTurn` is an agent job (agentId, payload.message), any other payload
-  is a shell job whose command is the last argument of the `env -i ... sh -c`
-  wrapper bin/core's cron module stores; schedule.{expr,tz,at}; state.
-  nextRunAtMs / runningAtMs / lastRunAtMs. A run's `runAtMs` is its start,
-  `ts` its end, `status` ok|error|skipped, and its output is `summary` plus
-  `error`.
+- `core` (default): the core's own RPC, `cron_list` and `cron_runs`, which the
+  core answers from OpenClaw automations (core/src/cron). It goes through
+  `$TEENY_OH` (bin/oh) when set, else hand.core(), so it needs only the
+  core's URL and token that every hand already has. It never runs the
+  `openclaw` CLI: that needs the Gateway's token, which only the core holds.
+  With the core down, or cron closed, the readers get Unavailable and do what
+  they did when storage.db could not be read (nothing). The core maps
+  OpenClaw's job (payload.kind `agentTurn` is an agent job, anything else a
+  shell job whose command it unwraps from its `env -i ... sh -c` wrapper;
+  schedule; state.nextRunAtMs / runningAtMs / lastRunAtMs) and a run
+  (`runAtMs` start, `ts` end, status ok|error|skipped, summary + error as
+  output) into the rows below.
 - `sqlite`: OpenHuman's old store (the `docs` table at $TEENY_STORAGE), read
   read-only. Kept for the readers' tests, which build that table as fixtures,
   and to read a storage.db from before the move.
@@ -57,9 +58,6 @@ Json = dict[str, Any]
 #: A running marker older than this is a dead run's, not a live claim (the
 #: shell limit is 1800 s; the core's old claims lapsed after two hours too).
 CLAIM_MAX_MS = 2 * 3600 * 1000
-#: One page of run history, and the most pages read.
-RUNS_PAGE = 200
-RUNS_MAX_PAGES = 15
 
 
 class Unavailable(Exception):
@@ -67,7 +65,7 @@ class Unavailable(Exception):
 
 
 def backend() -> str:
-    return os.environ.get("TEENY_CRON_BACKEND") or "openclaw"
+    return os.environ.get("TEENY_CRON_BACKEND") or "core"
 
 
 def storage_path() -> Path:
@@ -81,98 +79,62 @@ def storage_path() -> Path:
     return Path(root) / "brain" / "storage.db"
 
 
-# --- the OpenClaw backend ---------------------------------------------------------------------------
+# --- the core backend ----------------------------------------------------------------------------------
 
 
-def _automations(*args: str) -> Any:
-    bin_ = os.environ.get("OPENCLAW_BIN") or "openclaw"
+def _call(method: str, params: dict[str, Any]) -> Any:
+    """One RPC to the core: through $TEENY_OH (bin/oh, as bin/seed-cron makes them) when set, else hand.core."""
+    oh = os.environ.get("TEENY_OH")
     try:
-        done = subprocess.run([bin_, "automations", *args, "--json"], capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.SubprocessError) as error:
-        raise Unavailable(f"openclaw automations {args[0]}: {error}") from error
-    if done.returncode != 0:
-        raise Unavailable((done.stderr or done.stdout).strip()[-300:] or f"openclaw automations {args[0]} failed")
-    try:
-        return json.loads(done.stdout) if done.stdout.strip() else None
-    except ValueError as error:
-        raise Unavailable(f"openclaw automations {args[0]} printed no JSON") from error
+        if oh:
+            done = subprocess.run([oh, method, json.dumps(params, separators=(",", ":"))], capture_output=True,
+                                  text=True, timeout=120)
+            if done.returncode != 0:
+                raise Unavailable((done.stderr or done.stdout).strip()[-300:] or f"{method} failed")
+            return json.loads(done.stdout) if done.stdout.strip() else None
+        code = Path(__file__).resolve().parents[2]
+        if str(code / "hands" / "lib") not in sys.path:
+            sys.path.insert(0, str(code / "hands" / "lib"))
+        from teeny_hands import hand
+        return hand.core(method, params, timeout=120)
+    except Unavailable:
+        raise
+    except Exception as error:  # noqa: BLE001 - a core that is down or closed is just unavailable
+        raise Unavailable(f"{method}: {error}") from error
 
 
-def _items(out: Any, *keys: str) -> list[Json]:
-    if isinstance(out, list):
-        return [x for x in out if isinstance(x, dict)]
-    if isinstance(out, dict):
-        for key in keys:
-            if isinstance(out.get(key), list):
-                return [x for x in out[key] if isinstance(x, dict)]
-    return []
+def _rows(out: Any) -> list[Json]:
+    return [x for x in out if isinstance(x, dict)] if isinstance(out, list) else []
 
 
-def command_of(argv: Any) -> str | None:
-    """The command inside the `env -i HOME=.. PATH=.. LANG=.. timeout .. sh -c CMD` wrapper
-    the core's cron module stores (core/src/cron/map.ts shellArgv); another argv is joined."""
-    if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
-        return None
-    if argv[0] == "env" and "sh" in argv:
-        i = argv.index("sh")
-        if argv[i + 1 : i + 2] == ["-c"] and len(argv) > i + 2:
-            return argv[i + 2]
-    return " ".join(argv)
-
-
-def _oc_job(job: Json) -> Json:
-    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-    sched = job.get("schedule") if isinstance(job.get("schedule"), dict) else {}
-    state = job.get("state") if isinstance(job.get("state"), dict) else {}
-    agent = payload.get("kind") == "agentTurn"
-    schedule: Json | None = None
-    if sched.get("kind") == "cron":
-        schedule = {"kind": "cron", "expr": sched.get("expr"), "tz": sched.get("tz") or "UTC"}
-    elif sched.get("kind") == "at":
-        schedule = {"kind": "at", "at": sched.get("at")}
-    elif sched:
-        schedule = {"kind": sched.get("kind")}
+def _core_job(job: Json) -> Json:
+    """A job as the core's cron_list gives it (core/src/cron/map.ts view), in the readers' row."""
+    schedule = job.get("schedule") if isinstance(job.get("schedule"), dict) else None
     return {
         "id": str(job.get("id")),
         "name": job.get("name"),
-        "job_type": "agent" if agent else "shell",
-        "expression": sched.get("expr") if sched.get("kind") == "cron" else None,
+        "job_type": "agent" if job.get("job_type") == "agent" else "shell",
+        "expression": schedule.get("expr") if schedule and schedule.get("kind") == "cron" else None,
         "enabled": job.get("enabled") is not False,
-        "next_run_ms": state.get("nextRunAtMs"),
+        "next_run_ms": job.get("next_run_ms"),
         "schedule": schedule,
-        "command": None if agent else command_of(payload.get("argv")),
-        "agent_id": job.get("agentId") if agent else None,
-        "prompt": payload.get("message") if agent else None,
-        "created_ms": job.get("createdAtMs"),
-        "running_ms": state.get("runningAtMs"),
-        "last_run_ms": state.get("lastRunAtMs"),
+        "command": job.get("command"),
+        "agent_id": job.get("agent_id"),
+        "prompt": job.get("prompt"),
+        "created_ms": job.get("created_ms"),
+        "running_ms": job.get("running_ms"),
+        "last_run_ms": job.get("last_run_ms"),
     }
 
 
-def _oc_run(entry: Json) -> Json:
-    started = entry.get("runAtMs")
-    finished = entry.get("ts")
-    if finished is None and started is not None and entry.get("durationMs") is not None:
-        finished = started + entry["durationMs"]
-    status = entry.get("status")
-    output = "\n".join(str(entry[k]) for k in ("summary", "error") if entry.get(k))
-    return {"job_id": str(entry.get("jobId")), "status": status, "started_ms": started, "finished_ms": finished,
-            "seq": started if started is not None else finished, "duration_ms": entry.get("durationMs"), "output": output}
+def _core_jobs() -> list[Json]:
+    return [_core_job(j) for j in _rows(_call("cron_list", {})) if j.get("id") is not None]
 
 
-def _oc_jobs() -> list[Json]:
-    return [_oc_job(j) for j in _items(_automations("list", "--all"), "jobs") if j.get("id") is not None]
-
-
-def _oc_runs() -> list[Json]:
-    out: list[Json] = []
-    for page in range(RUNS_MAX_PAGES):
-        got = _items(_automations("runs", "--all", "--limit", str(RUNS_PAGE), "--offset", str(page * RUNS_PAGE)),
-                     "entries", "runs", "items")
-        out.extend(_oc_run(e) for e in got if e.get("jobId") is not None)
-        if len(got) < RUNS_PAGE:
-            break
-    return out
+def _core_runs() -> list[Json]:
+    return [{"job_id": str(r.get("job_id")), "status": r.get("status"), "started_ms": r.get("started_ms"),
+             "finished_ms": r.get("finished_ms"), "seq": r.get("seq"), "duration_ms": r.get("duration_ms"),
+             "output": r.get("output")} for r in _rows(_call("cron_runs", {}))]
 
 
 # --- the old storage.db backend ---------------------------------------------------------------------
@@ -277,12 +239,12 @@ def _sq_lease(job_id: str, occurrence_ms: int) -> tuple[int, Json] | None:
 
 def jobs() -> list[Json]:
     """Every job. Raises Unavailable when the store cannot be read."""
-    return _sq_jobs() if backend() == "sqlite" else _oc_jobs()
+    return _sq_jobs() if backend() == "sqlite" else _core_jobs()
 
 
 def runs() -> list[Json]:
     """Every run on record, any order. Raises Unavailable."""
-    return _sq_runs() if backend() == "sqlite" else _oc_runs()
+    return _sq_runs() if backend() == "sqlite" else _core_runs()
 
 
 def last_runs(all_runs: list[Json]) -> dict[str, Json]:

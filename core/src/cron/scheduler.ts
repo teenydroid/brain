@@ -1,12 +1,18 @@
 import { RpcError, type CoreContext, type RpcMethods } from "../server/types.js";
 import { Automations, AutomationsError, defaultExec, type Exec } from "./automations.js";
-import { SHELL_TIMEOUT_SECS, parseSchedule, scheduleFlags, shellFlags, view, type ShellEnv } from "./map.js";
+import { SHELL_TIMEOUT_SECS, parseSchedule, runView, scheduleFlags, shellFlags, view, type ShellEnv } from "./map.js";
 
 export interface CronOptions {
   /** The openclaw binary; OPENCLAW_BIN or `openclaw`. */
   bin?: string;
   exec?: Exec;
   shellTimeoutSecs?: number;
+  /**
+   * The environment the `openclaw` CLI needs to reach and authenticate to the Gateway: its token,
+   * state dir, config path and URL/port (main.ts's gatewayEnv()). It is for the CLI only and is
+   * never put in a shell job's environment. Without it every cron_* call fails closed.
+   */
+  gatewayEnv?: () => Record<string, string | undefined>;
 }
 
 function str(params: Record<string, unknown>, key: string, required = false): string | undefined {
@@ -36,26 +42,46 @@ const actionDir = (ctx: CoreContext): string => ctx.env.OPENHUMAN_ACTION_DIR || 
 
 export interface Cron {
   methods: RpcMethods;
-  /** Makes sure the Gateway never replays a missed slot (cron.skipMissedJobs). */
+  /** Verifies cron.skipMissedJobs; logs an error and leaves cron closed when it is not true. */
   start(ctx: CoreContext): Promise<void>;
   stop(): Promise<void>;
+  /** Injects the Gateway environment (see CronOptions.gatewayEnv). */
+  setGatewayEnv(fn: (() => Record<string, string | undefined>) | undefined): void;
 }
 
+const RUNS_PAGE = 200;
+const RUNS_DEFAULT_LIMIT = 3000;
+
 export function createCron(opts: CronOptions = {}): Cron {
-  const clients = new Map<string, Automations>();
+  let gatewayEnv = opts.gatewayEnv;
   const client = (ctx: CoreContext): Automations => {
-    const bin = opts.bin ?? ctx.env.OPENCLAW_BIN ?? "openclaw";
-    let c = clients.get(bin);
-    if (!c) {
-      c = new Automations(bin, { ...ctx.env }, opts.exec ?? defaultExec);
-      clients.set(bin, c);
-    }
-    return c;
+    if (!gatewayEnv) throw new RpcError("cron is closed: no Gateway environment was given to the cron module", -32000);
+    const bin = opts.bin ?? gatewayEnv().OPENCLAW_BIN ?? ctx.env.OPENCLAW_BIN ?? "openclaw";
+    // The CLI gets the process environment under the Gateway's, so PATH and HOME still resolve it.
+    const env = { ...ctx.env, ...gatewayEnv() };
+    // Rebuilt each call: the Gateway's token and port can change when it restarts.
+    return new Automations(bin, env, opts.exec ?? defaultExec);
   };
   const timeout = opts.shellTimeoutSecs ?? SHELL_TIMEOUT_SECS;
-  const wrap = async <T>(f: () => Promise<T>): Promise<T> => {
+  let verified = false;
+  /**
+   * cron.skipMissedJobs must be true (Teeny's no-replay rule; the generated Gateway config sets it).
+   * It is only checked here, never set: the core rewrites the config at every start, and the
+   * Gateway reads the key at startup, so a late `config set` would not hold. Cron stays closed
+   * until a check passes.
+   */
+  const verify = async (ctx: CoreContext): Promise<void> => {
+    if (verified) return;
+    const value = await client(ctx).configGet("cron.skipMissedJobs");
+    if (value !== true) {
+      throw new RpcError("cron is closed: cron.skipMissedJobs is not true in the Gateway config, so a restart would replay missed slots", -32000);
+    }
+    verified = true;
+  };
+  const wrap = async <T>(ctx: CoreContext, f: (c: Automations) => Promise<T>): Promise<T> => {
     try {
-      return await f();
+      await verify(ctx);
+      return await f(client(ctx));
     } catch (error) {
       if (error instanceof AutomationsError) throw new RpcError(error.message, -32000);
       throw error;
@@ -63,10 +89,27 @@ export function createCron(opts: CronOptions = {}): Cron {
   };
 
   const methods: RpcMethods = {
-    cron_list: (_p, ctx) => wrap(async () => (await client(ctx).list()).map(view)),
+    cron_list: (_p, ctx) => wrap(ctx, async (c) => (await c.list()).map(view)),
+
+    cron_runs: (params, ctx) =>
+      wrap(ctx, async (c) => {
+        const id = str(params, "job_id");
+        const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : RUNS_DEFAULT_LIMIT;
+        const out: Record<string, unknown>[] = [];
+        for (let offset = 0; out.length < limit; offset += RUNS_PAGE) {
+          const want = Math.min(RUNS_PAGE, limit - out.length);
+          const page = await c.runs(id, want, offset);
+          for (const r of page) {
+            const jobId = r.jobId ?? id;
+            if (jobId !== undefined) out.push(runView({ ...r, jobId }));
+          }
+          if (page.length < want) break;
+        }
+        return out;
+      }),
 
     cron_add: (params, ctx) =>
-      wrap(async () => {
+      wrap(ctx, async (c) => {
         const name = str(params, "name", true) as string;
         const jobType = str(params, "job_type", true);
         if (jobType !== "agent" && jobType !== "shell") throw new RpcError("job_type must be 'agent' or 'shell'", -32602);
@@ -80,17 +123,16 @@ export function createCron(opts: CronOptions = {}): Cron {
         } else {
           args.push("--agent", str(params, "agent_id", true) as string, "--message", str(params, "prompt", true) as string);
         }
-        return view(await client(ctx).add(args));
+        return view(await c.add(args));
       }),
 
     cron_update: (params, ctx) =>
-      wrap(async () => {
+      wrap(ctx, async (c) => {
         const id = str(params, "job_id", true) as string;
         const p = params.patch;
         if (typeof p !== "object" || p === null || Array.isArray(p)) throw new RpcError("patch must be an object", -32602);
         const patch = p as Record<string, unknown>;
         checkDelivery(patch.delivery);
-        const c = client(ctx);
         const job = await c.get(id);
         const agent = job.payload?.kind === "agentTurn";
         const args: string[] = [];
@@ -114,16 +156,16 @@ export function createCron(opts: CronOptions = {}): Cron {
       }),
 
     cron_remove: (params, ctx) =>
-      wrap(async () => {
+      wrap(ctx, async (c) => {
         const id = str(params, "job_id", true) as string;
-        await client(ctx).remove(id);
+        await c.remove(id);
         return { job_id: id, removed: true };
       }),
 
     cron_run: (params, ctx) =>
-      wrap(async () => {
+      wrap(ctx, async (c) => {
         const id = str(params, "job_id", true) as string;
-        const { runId } = await client(ctx).runNow(id);
+        const { runId } = await c.runNow(id);
         return { job_id: id, status: "queued", ...(runId ? { run_id: runId } : {}) };
       }),
   };
@@ -131,16 +173,17 @@ export function createCron(opts: CronOptions = {}): Cron {
   return {
     methods,
     async start(ctx) {
-      // Teeny's rule (cron_policy.py: no catch-up for posting; bin/lib/catch_up.py makes up the
-      // jobs that allow it, through cron_run) means the scheduler must not replay missed slots.
-      // OpenClaw has one switch for that, global (docs automation/cron-jobs/managing-jobs.md,
-      // "Configuration"): cron.skipMissedJobs.
-      const c = client(ctx);
-      if ((await c.configGet("cron.skipMissedJobs")) !== true) {
-        await wrap(() => c.configSet("cron.skipMissedJobs", "true"));
-        ctx.log("info", "set cron.skipMissedJobs = true");
+      try {
+        await verify(ctx);
+        ctx.log("info", "cron: cron.skipMissedJobs is true");
+      } catch (error) {
+        ctx.log("error", `cron stays closed: ${(error as Error).message}`);
       }
     },
     async stop() {},
+    setGatewayEnv(fn) {
+      gatewayEnv = fn;
+      verified = false;
+    },
   };
 }
