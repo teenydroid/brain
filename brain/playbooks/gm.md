@@ -2,6 +2,9 @@
 description = "the one post on X a day: a gm that ties what i did lately to one story from the world"
 output = "post"
 surface = "x"
+# Runs as an OpenClaw agent turn (docs/native-playbooks.md), not through bin/act;
+# delete this line to put it back on bin/act.
+run = "native"
 max_per_day = 1
 media = ["image"]
 

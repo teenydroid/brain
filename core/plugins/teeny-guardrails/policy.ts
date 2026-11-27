@@ -2,7 +2,25 @@
 // .config.policy). It is data only; the rules that read it are in the sibling
 // modules. A policy that does not parse blocks every tool call.
 
+/** What a playbook that runs natively may run, and how often it may act (core/src/playbooks/native.ts). */
+export interface NativePolicy {
+  playbook: string;
+  maxPerDay: number;
+  /** Calls to the acting hand one run may make. */
+  maxPerRun: number;
+  /** Each input's argv, `hands/<name>` first: the only input commands, run with DRY_RUN=1. */
+  inputs: string[][];
+  /** The one acting hand and its verbs; null for a playbook that only takes notes. */
+  hand: { name: string; verbs: string[] } | null;
+  /** Media helpers (hands/image generate, hands/x upload), allowed by prefix. */
+  helpers: string[][];
+  /** Names the playbook to the hand as TEENY_WRITER, as bin/act does for a `hand:` output. */
+  writer?: string;
+}
+
 export interface ExecPolicy {
+  /** Set for the agent of a native playbook: exec is held to exactly this. */
+  native?: NativePolicy;
   /** May run hands/<name> (repo-relative or absolute), except `handsDeny`. */
   hands: boolean;
   /** Hands this agent never runs (hands that move money or hold keys). */
@@ -70,6 +88,27 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
+function isArgvList(v: unknown): v is string[][] {
+  return Array.isArray(v) && v.every((a) => isStringArray(a) && a.length > 0 && /^hands\/[a-z0-9][a-z0-9-]*$/.test(a[0] as string));
+}
+
+function parseNative(id: string, n: unknown): void {
+  const e = n as Record<string, unknown> | null;
+  const where = `teeny-guardrails: agents.${id}.exec.native`;
+  if (typeof e !== "object" || e === null) throw new Error(`${where} must be an object`);
+  if (typeof e.playbook !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(e.playbook)) throw new Error(`${where}.playbook must be a playbook name`);
+  for (const k of ["maxPerDay", "maxPerRun"]) {
+    if (!Number.isInteger(e[k]) || (e[k] as number) < 1) throw new Error(`${where}.${k} must be a positive integer`);
+  }
+  if (!isArgvList(e.inputs)) throw new Error(`${where}.inputs must be a list of hands/<name> argv lists`);
+  if (!isArgvList(e.helpers)) throw new Error(`${where}.helpers must be a list of hands/<name> argv lists`);
+  const hand = e.hand as { name?: unknown; verbs?: unknown } | null;
+  if (hand !== null && (typeof hand !== "object" || typeof hand.name !== "string" || !isStringArray(hand.verbs) || hand.verbs.length === 0)) {
+    throw new Error(`${where}.hand must be {name, verbs} or null`);
+  }
+  if (e.writer !== undefined && typeof e.writer !== "string") throw new Error(`${where}.writer must be a string`);
+}
+
 /** Reads the policy out of the plugin's config; throws on anything malformed. */
 export function parsePolicy(config: unknown): GuardrailsPolicy {
   const p = (config as { policy?: unknown } | undefined)?.policy as Record<string, unknown> | undefined;
@@ -94,6 +133,7 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
       for (const k of ["handsDeny", "teenyBins", "readOnly", "writers", "tools"]) {
         if (!isStringArray(e[k])) throw new Error(`teeny-guardrails: agents.${id}.exec.${k} must be a list`);
       }
+      if (e.native !== undefined) parseNative(id, e.native);
     }
     if (a.browser !== undefined) {
       const b = a.browser as unknown as Record<string, unknown>;

@@ -22,7 +22,8 @@ export const RECALL_EACH_TURN_MS = 5000;
  * any tool-less checker (judge, querier, reviewer), and not the operator, babysitter or evolver,
  * whose turns are browser or code work with nothing of Teeny's to remember.
  */
-export const CAPTURE_AGENTS = ["mind", "worker", "teeny", "teeny-mail", "teeny-mentions"];
+/** The native playbooks that talk to people or make content (gm, moltbook-general) are on it too: a note-taking playbook would not be. */
+export const CAPTURE_AGENTS = ["mind", "worker", "teeny", "teeny-mail", "teeny-mentions", "pb-gm", "pb-moltbook-general"];
 /** Characters of a turn kept by capture, and writes allowed at once. */
 export const CAPTURE_MAX_CHARS = 2000;
 export const CAPTURE_MAX_IN_FLIGHT = 4;

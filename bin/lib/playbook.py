@@ -128,6 +128,22 @@ NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bount
 #: playbook (which Teeny writes) can pull a password into a model's prompt.
 SECRET_READS = {"keychain": ("list",)}
 MAX_INPUTS = 8
+#: How a playbook runs: `act` is bin/act's tool-less draft and its hand
+#: (the default); `native` is an OpenClaw agent turn of its own, with a shell
+#: that teeny-guardrails holds to the playbook's inputs and its one acting
+#: hand (docs/native-playbooks.md).
+RUNS = ("act", "native")
+#: The acting hands a native playbook may use, each with the verbs allowed.
+#: Only hands that run the guard, their own caps and DRY_RUN inside
+#: themselves belong here (hands/x publish, hands/moltbook actions): bin/act's
+#: own guard pass before a `hand:` output does not exist in a native turn.
+#: Mirrored in core/src/playbooks/native.ts; a test compares the two.
+NATIVE_HANDS = {"x": ("post", "reply", "like"), "moltbook": ("post", "comment")}
+#: Playbooks bin/act holds to the studio's switch (bin/lib/studio_switch.py
+#: REPLACED and VETOED): a native turn would run them whatever STUDIO says.
+STUDIO_HELD = ("x-quote", "morning", "take", "show", "shiplog", "growth", "brief", "peer-quote")
+#: The hand that makes each kind of media a native post may carry.
+NATIVE_MEDIA = ("image", "video")
 
 
 class PlaybookError(Exception):
@@ -195,7 +211,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         raise PlaybookError(f"{path}: the prompt is empty")
 
     extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media", "nudge",
-                       "skills"}
+                       "skills", "run", "max_per_run"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -284,8 +300,19 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             raise PlaybookError(f"{path}: no skill brain/skills/{skill}/SKILL.md") from None
         prompt += "\n\n" + _skill_body(body)
 
+    run = meta.get("run", "act")
+    if run not in RUNS:
+        raise PlaybookError(f"{path}: run is one of {', '.join(RUNS)}, got {run!r}")
+    max_per_run = meta.get("max_per_run", 1)
+    if not isinstance(max_per_run, int) or isinstance(max_per_run, bool) or not 1 <= max_per_run <= max_per_day:
+        raise PlaybookError(f"{path}: max_per_run is a whole number from 1 to max_per_day")
+    if run == "native":
+        _check_native(path, name, output, nudge, media, parsed)
+
     return {
         "name": name,
+        "run": run,
+        "max_per_run": max_per_run,
         "nudge": nudge,
         "description": description.strip(),
         "media": media,
@@ -295,6 +322,27 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         "inputs": parsed,
         "prompt": prompt,
     }
+
+
+def _check_native(path: Path, name: str, output: str, nudge: bool, media: list, inputs: list) -> None:
+    """What a playbook that runs natively may be: its one acting hand must be
+    one that guards inside itself, and it needs nothing a shell cannot run."""
+    if nudge:
+        raise PlaybookError(f"{path}: a nudge goes to the mind and cannot run natively")
+    if name in STUDIO_HELD:
+        raise PlaybookError(f"{path}: bin/act holds {name} to the studio's switch (STUDIO), which a native turn would not")
+    if output.startswith("hand:"):
+        hand, verb = output[len("hand:"):].split()
+    else:
+        hand, verb = {"post": ("x", "post"), "reply": ("x", "reply"), "like": ("x", "like")}.get(output, ("", ""))
+    if output != "none" and verb not in NATIVE_HANDS.get(hand, ()):
+        native = "; ".join(h + " " + "/".join(v) for h, v in NATIVE_HANDS.items())
+        raise PlaybookError(f"{path}: hands/{hand or output} {verb} cannot run natively (the native hands: {native})")
+    if any(m not in NATIVE_MEDIA for m in media):
+        raise PlaybookError(f"{path}: a native playbook's media is image and/or video, not meme")
+    for entry in inputs:
+        if entry["argv"][0] == "datajob":
+            raise PlaybookError(f"{path}: a data job input cannot run natively (the shell runs hands only)")
 
 
 def _skill_body(text: str) -> str:

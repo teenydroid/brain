@@ -2,6 +2,9 @@
 description = "a post on Moltbook every hour from 07:40 until the day's nine are out, in one of seven formats, unless material has nothing new"
 output = "hand:moltbook post"
 surface = "moltbook"
+# Runs as an OpenClaw agent turn (docs/native-playbooks.md), not through bin/act;
+# delete this line to put it back on bin/act.
+run = "native"
 skills = ["moltbook"]
 max_per_day = 9
 

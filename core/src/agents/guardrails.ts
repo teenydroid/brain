@@ -144,11 +144,57 @@ function perAgent(def: AgentDef, input: PolicyInput) {
   return { rw, ro, closed, workspace, home, hasShell, holdsBrowser };
 }
 
+/**
+ * A native playbook's agent: a shell and nothing else. Its exec runs from the checkout's root (as bin/act did) and
+ * is held to the playbook's own inputs, its acting hand and its media helpers (plugins/teeny-guardrails/exec.ts);
+ * no file tool, no browser, no helpers, no way to write a file.
+ */
+function nativePolicy(def: AgentDef & { native: NonNullable<AgentDef["native"]> }, input: PolicyInput) {
+  const p = perAgent(def, input);
+  const root = input.paths.root;
+  const n = def.native;
+  return {
+    id: def.id,
+    tools: toolIds(def.tools),
+    workspace: root,
+    rw: [],
+    ro: p.ro,
+    closed: p.closed,
+    execRw: [],
+    execRo: [...codeRoots(root, input.paths.brainDir), input.workspaceOf(def.id)],
+    exec: {
+      hands: true,
+      handsDeny: HANDS_DENY,
+      teenyBins: [],
+      // printf joins the usual read-only commands: it hands the acting hand its JSON body on stdin.
+      readOnly: [...READ_ONLY, "printf"],
+      writers: [],
+      tools: [],
+      native: {
+        playbook: n.playbook,
+        maxPerDay: n.max_per_day,
+        maxPerRun: n.max_per_run,
+        inputs: n.inputs.filter((i) => i[0] !== "datajob"),
+        hand: n.hand,
+        helpers: n.helpers,
+        // bin/act set TEENY_WRITER to the playbook's name for a `hand:` output (not for hands/x).
+        ...(n.hand && n.hand.name !== "x" ? { writer: n.playbook } : {}),
+      },
+    },
+    subagents: [],
+    maxToolCalls: def.maxIterations ?? 40,
+  };
+}
+
 export function buildAgentPolicies(input: PolicyInput) {
   const agents: Record<string, unknown> = {};
   const view = (def: AgentDef): boolean => def.browserViewOnly || def.id !== "operator";
   for (const def of input.defs) {
     if (def.tools.length === 0) continue;
+    if (def.native) {
+      agents[def.id] = nativePolicy({ ...def, native: def.native }, input);
+      continue;
+    }
     const p = perAgent(def, input);
     const exec = p.hasShell
       ? {
