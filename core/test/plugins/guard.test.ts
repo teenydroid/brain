@@ -221,6 +221,14 @@ describe("the per-run reply caps (the mind's inbox pass)", () => {
     expect(blocked(await f.call("mind", "exec", { command: "hands/x reply --to 2 && hands/x reply --to 3" }, { runId: "b" }))).toMatch(/3 X replies/);
   });
 
+  it("counts a hand named through a dotted path and a broker verb written with a JSON escape", async () => {
+    const f = makeFixture();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/./x reply --to 1" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "hands//x reply --to 1" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "bin/teeny do '{\"do\":\"reply\\u005fx\",\"to\":\"1\",\"text\":\"hi\"}'" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/./x reply --to 1" }, { runId: "d" }))).toMatch(/already sent its 3 X replies/);
+  });
+
   it("a refused call still spends the reply, and a chain of two over the cap is refused whole", async () => {
     const f = makeFixture();
     expect(blocked(await f.call("mind", "exec", { command: "hands/x reply --to 1 && hands/x reply --to 2 && hands/x reply --to 3 && hands/x reply --to 4" }, { runId: "c" }))).toMatch(/3 X replies/);

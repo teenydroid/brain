@@ -141,6 +141,7 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
     if (!Number.isInteger(a.maxToolCalls) || a.maxToolCalls < 1) throw new Error(`teeny-guardrails: agents.${id}.maxToolCalls must be a positive integer`);
     if (a.replyCaps !== undefined) {
       const c = a.replyCaps as unknown as Record<string, unknown>;
+      if (typeof c !== "object" || c === null || Array.isArray(c)) throw new Error(`teeny-guardrails: agents.${id}.replyCaps must be an object`);
       for (const k of ["x", "mail"]) {
         if (c[k] !== undefined && (!Number.isInteger(c[k]) || (c[k] as number) < 0)) throw new Error(`teeny-guardrails: agents.${id}.replyCaps.${k} must be a whole number, 0 or more`);
       }

@@ -91,6 +91,7 @@ export function view(job: OcJob): Record<string, unknown> {
     if (job.agentId !== undefined) out.agent_id = job.agentId;
     if (job.payload?.message !== undefined) out.prompt = job.payload.message;
     out.session_target = job.sessionTarget ?? "isolated";
+    if (job.payload?.timeoutSeconds !== undefined) out.timeout_secs = job.payload.timeoutSeconds;
   } else {
     const command = commandOf(job.payload?.argv);
     if (command !== undefined) out.command = command;

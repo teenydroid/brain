@@ -189,8 +189,12 @@ export function createCron(opts: CronOptions = {}): Cron {
         if (prompt !== undefined) args.push("--message", prompt);
         if (agentId !== undefined) args.push("--agent", agentId);
         if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new RpcError("enabled must be a boolean", -32602);
-        // An edit of an agent job re-states its deadline, so a changed schedule never keeps a stale one.
-        if (args.length > 0) await c.edit(id, agent ? [...args, ...agentTurnFlags(ctx)] : args);
+        // Any update of an agent job (an edit, a re-enable, or a patch that changes nothing, as bin/seed-cron sends a
+        // kept job) re-states its deadline when the one it holds is not the core's, so a job that predates the
+        // setting, or a setting that has changed since, never keeps a stale one.
+        const turn = agent ? agentTurnFlags(ctx) : [];
+        const stale = turn.length > 0 && job.payload?.timeoutSeconds !== Number(turn[1]);
+        if (args.length > 0 || stale) await c.edit(id, agent ? [...args, ...turn] : args);
         if (typeof patch.enabled === "boolean" && patch.enabled !== (job.enabled !== false)) await c.setEnabled(id, patch.enabled);
         return view(await c.get(id));
       }),

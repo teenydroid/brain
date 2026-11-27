@@ -27,6 +27,10 @@ printf '%s %s\n' "$method" "$params" >>"$FAKE_CALLS"
 jobs="$(cat "$FAKE_JOBS")"
 case "$method" in
   cron_list) printf '%s\n' "$jobs" ;;
+  # FAKE_AGENT_SECS: the core's agent_timeout_secs. Unset, the core cannot be asked (the seed then leaves deadlines alone).
+  config_get_agent_settings)
+    [ -n "${FAKE_AGENT_SECS:-}" ] || exit 1
+    jq -cn --argjson s "$FAKE_AGENT_SECS" '{agent_timeout_secs: $s}' ;;
   cron_add)
     id="job-$(( $(jq length <<<"$jobs") + $(wc -l <"$FAKE_CALLS") ))"
     job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true,
@@ -49,8 +53,10 @@ PY
     fi
     # A patched schedule moves the job's next run to its next slot, as the
     # core's does; here that is simply an hour from now.
-    jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch +
-        (if $p.patch | has("schedule") then {next_run: (now + 3600 | todate)} else {} end) else . end)' \
+    # An update of an agent job restates its run deadline, as the core's does.
+    jq -c --argjson p "$params" --arg secs "${FAKE_AGENT_SECS:-}" 'map(if .id == $p.job_id then . + $p.patch +
+        (if $p.patch | has("schedule") then {next_run: (now + 3600 | todate)} else {} end) +
+        (if .job_type == "agent" and $secs != "" then {timeout_secs: ($secs | tonumber)} else {} end) else . end)' \
       <<<"$jobs" >"$FAKE_JOBS"
     echo '{}' ;;
   cron_remove)
@@ -251,6 +257,17 @@ check "gives an agent job no command" test "$(job_field teeny.operator .command)
 : >"$FAKE_CALLS"
 seed
 check "an unchanged agent job is kept" test "$(calls cron_add)$(calls cron_update)$(calls cron_remove)" = 000
+# A kept agent job whose run deadline is not the core's (one added before the setting existed) is patched
+# once, with nothing else changed; then it is kept like any other.
+export FAKE_AGENT_SECS=1500
+: >"$FAKE_CALLS"
+seed
+check "a kept agent job with a stale run deadline is patched" test "$(calls cron_add)$(calls cron_update)$(calls cron_remove)" = 010
+check "and holds the core's deadline now" test "$(job_field teeny.operator .timeout_secs)" = 1500
+: >"$FAKE_CALLS"
+seed
+check "and is then left alone" test "$(calls cron_add)$(calls cron_update)$(calls cron_remove)" = 000
+unset FAKE_AGENT_SECS
 id_before="$(job_field teeny.operator .id)"
 printf '[jobs.operator]\nschedule = "0 */2 * * *"\nagent = "operator"\nprompt = "build something else"\n' >"$toml"
 seed

@@ -35,7 +35,9 @@ export function fakeOpenclaw(): { exec: Exec; calls: Call[]; jobs: Map<string, R
     const argv = flag(args, "--command-argv");
     if (argv !== undefined) job.payload = { kind: "command", argv: JSON.parse(argv), cwd: flag(args, "--command-cwd"), timeoutSeconds: Number(flag(args, "--timeout-seconds")) };
     const message = flag(args, "--message");
-    if (message !== undefined) job.payload = { kind: "agentTurn", message };
+    if (message !== undefined) job.payload = { ...(job.payload as object | undefined), kind: "agentTurn", message };
+    const turnSecs = flag(args, "--timeout-seconds");
+    if (turnSecs !== undefined && argv === undefined) job.payload = { kind: "agentTurn", ...(job.payload as object | undefined), timeoutSeconds: Number(turnSecs) };
     const agent = flag(args, "--agent");
     if (agent !== undefined) job.agentId = agent;
     const session = flag(args, "--session");

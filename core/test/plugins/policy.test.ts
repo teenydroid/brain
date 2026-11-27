@@ -24,6 +24,14 @@ describe("parsePolicy rejects a malformed nested policy at registration", () => 
     const c = good();
     c.agents.mind!.execRw = "x";
     expect(() => parsePolicy({ policy: c })).toThrow(/execRw/);
+    for (const bad of [3, "3", [3], null]) {
+      const e = good();
+      e.agents.mind!.replyCaps = bad;
+      expect(() => parsePolicy({ policy: e }), JSON.stringify(bad)).toThrow(/replyCaps/);
+    }
+    const g = good();
+    g.agents.mind!.replyCaps = { x: 3 };
+    expect(() => parsePolicy({ policy: g })).not.toThrow();
     // an absent optional policy stays valid
     const d = good();
     delete d.agents.operator!.browser;

@@ -8,7 +8,7 @@
 // A path to anything else, however spelled, is refused: the program is never
 // looked up on PATH unless its name is on the list.
 import { readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import { checkPath, expandHome, realish, type PathRules } from "./paths.js";
 import { parseCommand, shellQuote, type Segment, type Word } from "./shell.js";
 import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
@@ -424,14 +424,23 @@ export function countReplies(command: string, cwd: string, readFile: (path: stri
     }
     const prog = words[0]?.text ?? "";
     const args = words.slice(1);
-    const hand = /(^|\/)hands\/(x|mail)$/.exec(prog);
+    // `hands/./x` and `hands//x` run the same hand as `hands/x`; count what the path resolves to.
+    const hand = /(^|\/)hands\/(x|mail)$/.exec(prog.includes("/") ? normalize(prog) : prog);
     if (hand) {
       if (args.find((a) => !isFlag(a))?.text === "reply") n[hand[2] as "x" | "mail"]++;
     } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
       let found = false;
       for (const a of args.slice(1)) {
+        // The client decodes the argument as JSON, so `reply\u005fx` is dispatched as `reply_x`: read the decoded `do` too.
+        let decoded = "";
+        try {
+          const j = JSON.parse(a.text) as { do?: unknown };
+          if (typeof j?.do === "string") decoded = j.do;
+        } catch {
+          // not JSON: the raw text is all there is to read
+        }
         for (const [verb, channel] of Object.entries(REPLY_DO)) {
-          if (new RegExp(`\\b${verb}\\b`).test(a.text)) {
+          if (decoded === verb || new RegExp(`\\b${verb}\\b`).test(a.text)) {
             n[channel]++;
             found = true;
           }
