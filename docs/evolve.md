@@ -803,7 +803,7 @@ that crashed. A run
 waits up to 30 minutes for a dream that still holds the reflection's lock.
 It is a no-op until `secrets/evolve.env` sets `EVOLVE=1`, so seeding it is
 safe. A generation outlasts the 300 s TinyBox gives a cron shell call
-([`oh-gaps.md`](oh-gaps.md), G12), so it detaches (`bin/lib/detach.py`),
+so it detaches (`bin/lib/detach.py`),
 logs to `state/evolve/evolve.log`, and a second call while one runs says
 `busy`. The `evolve-credit` job (`brain/cron.toml`) runs `bin/evolve credit` at 03:50,
 and the pinned `evolve-watch` (`evals/cron.pinned.toml`, so the brain cannot

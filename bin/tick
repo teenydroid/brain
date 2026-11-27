@@ -7,7 +7,7 @@
 #
 # The pinned `tick` cron job runs `bin/tick --detach` every 5 minutes: a beat
 # (its jitter, the guard, a model turn, the hands) can outlast the 300 s the
-# core gives any cron shell call (docs/oh-gaps.md, G12). The detached beat
+# core gives any cron shell call. The detached beat
 # logs to state/tick/beat.log and records itself in state/tick/runs.jsonl;
 # while one is still running the call prints `"kind": "busy"` and starts
 # nothing (bin/lib/detach.py). Every awake beat asks the model (an empty

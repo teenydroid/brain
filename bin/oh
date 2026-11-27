@@ -10,7 +10,7 @@
 #
 # This posts to the server rather than running `openhuman-core call`, which
 # would start a second runtime over the same storage instead of asking the one
-# that is serving (docs/oh-gaps.md, G6).
+# that is serving.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

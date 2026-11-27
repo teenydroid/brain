@@ -37,7 +37,7 @@
 # babysitter (hands/babysit) merges a teeny/gen-* pull request once its audit
 # and CI pass and teeny/eval is success. --detach starts the verb in the
 # background and returns at once (a generation outlasts the 300 s a cron
-# shell call gets, oh-gaps.md G12); `run` logs to state/evolve/evolve.log and
+# shell call gets); `run` logs to state/evolve/evolve.log and
 # `watch` to state/evolve/watch.log, each with a lock of its own, and a
 # second call while one runs says `busy`.
 set -euo pipefail

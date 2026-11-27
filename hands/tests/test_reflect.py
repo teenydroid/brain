@@ -881,7 +881,7 @@ class ReflectTest(unittest.TestCase):
 
     # --- the cron call: bin/reflect --detach -------------------------------
     # A reflection is one long model turn, which can outlast the 300 s the
-    # core gives a cron shell call (docs/oh-gaps.md G12): the pinned jobs
+    # core gives a cron shell call: the pinned jobs
     # start it in the background and return.
 
     def detach(self, *args) -> dict:

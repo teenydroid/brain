@@ -4,7 +4,7 @@
 
 The core runs each cron shell job as one TinyBox call and gives up on that
 call after 300 s (MODULE_CALL_TIMEOUT in the core's TinyBox adapter), whatever
-`[cron] shell_timeout_secs` says (docs/oh-gaps.md, G12). A job that can run
+`[cron] shell_timeout_secs` says. A job that can run
 longer is marked failed and retried while it is still running, and its
 outcome never reaches cron history. So `bin/tick --detach` and `bin/reflect
 --detach` start their work here instead:

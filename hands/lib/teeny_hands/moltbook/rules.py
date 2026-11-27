@@ -307,7 +307,7 @@ def check_post(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 #: The longest wait `post-slot --wait` takes. A cron shell job past 300 s
-#: fails (docs/oh-gaps.md, G12), and a posting playbook's run already takes
+#: fails, and a posting playbook's run already takes
 #: one to six minutes, so the gate never sits out more than this.
 POST_SLOT_MAX_WAIT = 180
 
