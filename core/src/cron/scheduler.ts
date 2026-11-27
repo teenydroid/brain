@@ -44,6 +44,16 @@ function checkDelivery(raw: unknown): void {
 function shellEnv(ctx: CoreContext): ShellEnv {
   return { HOME: ctx.env.HOME ?? "/root", PATH: ctx.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", LANG: ctx.env.LANG ?? "C.UTF-8" };
 }
+/**
+ * The run deadline of an agent job: `[agent] agent_timeout_secs`, which bin/spine sets before it seeds cron
+ * (TEENY_AGENT_TURN_SECS in bin/lib/teeny.sh). Without it OpenClaw's scheduler lets an isolated agent turn run
+ * 60 minutes, so a 15-minute beat of the mind could outlast its slot. Nothing is passed when the core has no
+ * such setting (a bare unit test), which keeps OpenClaw's own default.
+ */
+function agentTurnFlags(ctx: CoreContext): string[] {
+  const secs = ctx.services?.store.agentTimeoutSecs;
+  return Number.isInteger(secs) && (secs as number) > 0 ? ["--timeout-seconds", String(secs)] : [];
+}
 const actionDir = (ctx: CoreContext): string => ctx.env.OPENHUMAN_ACTION_DIR || ctx.root;
 
 export interface Cron {
@@ -150,7 +160,7 @@ export function createCron(opts: CronOptions = {}): Cron {
         if (jobType === "shell") {
           args.push(...shellFlags(str(params, "command", true) as string, shellEnv(ctx), actionDir(ctx), timeout));
         } else {
-          args.push("--agent", str(params, "agent_id", true) as string, "--message", str(params, "prompt", true) as string);
+          args.push("--agent", str(params, "agent_id", true) as string, "--message", str(params, "prompt", true) as string, ...agentTurnFlags(ctx));
         }
         return view(await c.add(args));
       }),
@@ -179,7 +189,8 @@ export function createCron(opts: CronOptions = {}): Cron {
         if (prompt !== undefined) args.push("--message", prompt);
         if (agentId !== undefined) args.push("--agent", agentId);
         if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new RpcError("enabled must be a boolean", -32602);
-        if (args.length > 0) await c.edit(id, args);
+        // An edit of an agent job re-states its deadline, so a changed schedule never keeps a stale one.
+        if (args.length > 0) await c.edit(id, agent ? [...args, ...agentTurnFlags(ctx)] : args);
         if (typeof patch.enabled === "boolean" && patch.enabled !== (job.enabled !== false)) await c.setEnabled(id, patch.enabled);
         return view(await c.get(id));
       }),

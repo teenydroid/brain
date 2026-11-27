@@ -88,8 +88,18 @@ class MindAgentTest(unittest.TestCase):
         # 7 s on the box, so the cap sits above what the turn deadline allows.
         teeny_sh = (REPO / "bin" / "lib" / "teeny.sh").read_text()
         secs = int(re.search(r"^TEENY_AGENT_TURN_SECS=(\d+)$", teeny_sh, re.M).group(1))
-        self.assertEqual(secs, 1800, "a wake may fill the half hour to the next one")
+        self.assertEqual(secs, 1500, "a wake ends 5 minutes before the next 30-minute slot")
+        self.assertLess(secs, 30 * 60, "a wake must end before the next slot, or two would overlap")
         self.assertGreaterEqual(_doc()["max_iterations"], secs // 7)
+
+    def test_the_prompt_opens_a_wake_with_a_bounded_inbox_pass(self):
+        prompt = (MIND.parent / "mind.md").read_text()
+        spend = prompt[prompt.index("## How to spend a wake"):prompt.index("## Lines you do not cross")]
+        pass_ = spend[spend.index("**First, the inbox pass.**"):].split("\n\n")[0]
+        for needle in ("at most 3 X replies", "2 mail replies", "hands/x mark", "skipped", "a step, not the job"):
+            self.assertIn(needle, pass_)
+        self.assertLess(len(pass_), 800, "the inbox pass stays a short block, not a second prompt")
+        self.assertLess(spend.index("**First, the inbox pass.**"), spend.index("1. Read the tail"))
 
     def test_the_prompt_has_it_write_the_journal_first_and_as_it_goes(self):
         prompt = (MIND.parent / "mind.md").read_text()

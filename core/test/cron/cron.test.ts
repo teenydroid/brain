@@ -314,3 +314,23 @@ describe("a Gateway that is restarting", () => {
     expect(await up.methods.cron_list!({ probe: true }, ctx)).toEqual([]);
   });
 });
+
+describe("an agent job's run deadline", () => {
+  const agentJob = { name: "teeny.mind", job_type: "agent", agent_id: "mind", prompt: "wake", schedule: { kind: "cron", expr: "*/30 * * * *", tz: "UTC" }, delivery: { mode: "none" } };
+  const withTimeout = (secs: number): CoreContext => ({ ...ctx, services: { store: { agentTimeoutSecs: secs } } as unknown as CoreContext["services"] });
+
+  it("is the core's agent turn budget, set on add and restated on every edit, so a wake ends before the next slot", async () => {
+    const c = withTimeout(1500);
+    const job = (await cron.methods.cron_add!(agentJob, c)) as { id: string };
+    expect(Number(flagOf(added(), "--timeout-seconds"))).toBe(1500);
+    await cron.methods.cron_update!({ job_id: job.id, patch: { schedule: { kind: "cron", expr: "*/30 * * * *", tz: "UTC" } } }, c);
+    const edit = fake.calls.filter((x) => x.args[1] === "edit").at(-1)!.args;
+    expect(Number(flagOf(edit, "--timeout-seconds"))).toBe(1500);
+    expect(1500).toBeLessThan(30 * 60);
+  });
+
+  it("is left to OpenClaw's own default when the core has no setting (a bare unit test)", async () => {
+    await call("cron_add", agentJob);
+    expect(added()).not.toContain("--timeout-seconds");
+  });
+});
