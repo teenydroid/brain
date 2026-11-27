@@ -1,0 +1,23 @@
+teeny-cortexdb
+Copyright 2026 Teeny
+
+This plugin is derived from @cortexdb/openclaw 0.1.4 ("CortexDB Memory",
+plugin id openclaw-cortexdb), Copyright CortexDB Team, licensed under the
+Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+What carries over from the original: the shape of the integration (auto-recall
+before the prompt is built, non-blocking auto-capture after a turn, and the
+four model-callable tools memory_search/list/store/forget, here renamed
+memory_recall/list/store/forget).
+
+What I changed, so that this is a modified work:
+  - ported from the removed provider API (registerMemoryProvider, after_turn,
+    appendSystem) to OpenClaw 2026.11.10 (registerMemoryCapability,
+    before_prompt_build appendSystemContext, agent_end);
+  - talks to CortexDB through Teeny's own client (core/src/memory/cortex.ts),
+    self-hosted and loopback or https only, instead of the cortexdbai SDK and
+    its cloud default;
+  - memory_forget deletes only the learnings that match its query, needs a
+    reason, and refuses when more than 5 match; the original ignored the query
+    and wiped the whole scope;
+  - capture is limited to an agent allowlist, size-capped and screened.

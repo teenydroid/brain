@@ -17,7 +17,9 @@ was not written by it.
 from __future__ import annotations
 
 import json
+import re
 import sys
+from urllib.parse import urlsplit
 
 #: (path, wanted value, why). A path walks nested objects.
 LOCKDOWN = (
@@ -33,6 +35,26 @@ LOCKDOWN = (
 )
 _MISSING = object()
 
+#: The plugin that owns the memory slot when CortexDB is configured (core/plugins/teeny-cortexdb).
+MEMORY_PLUGIN = "teeny-cortexdb"
+#: Keys that would be a secret value in a plugin's config: the CortexDB key stays sealed in state/memory-engine.json.
+_SECRET_KEY_PARTS = ("apikey", "api_key", "bearer", "password", "secret", "token")
+_LOOPBACK = ("localhost", "::1")
+
+
+def _safe_endpoint(url: str) -> bool:
+    """https anywhere, plain http only on this machine: the rule the core's assertSafeEndpoint holds."""
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    if parts.scheme == "https":
+        return bool(host)
+    if parts.scheme != "http":
+        return False
+    return host in _LOOPBACK or re.fullmatch(r"127(\.\d{1,3}){3}", host) is not None
+
 
 def _walk(doc, path: str):
     node = doc
@@ -41,6 +63,62 @@ def _walk(doc, path: str):
             return _MISSING
         node = node[part]
     return node
+
+
+def _secret_keys(node, path="") -> list[str]:
+    """Paths in a plugin's config whose key names a secret and whose value is not a SecretRef."""
+    found = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else key
+            low = key.lower()
+            # "budgetTokens"-style counts are not secrets: only a key that is, or ends in, a secret name.
+            named = any(low == part or low.endswith(part) for part in _SECRET_KEY_PARTS) and not low.endswith("tokens")
+            if named and isinstance(value, str) and value:
+                found.append(here)
+            else:
+                found.extend(_secret_keys(value, here))
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            found.extend(_secret_keys(value, f"{path}[{i}]"))
+    return found
+
+
+def memory_plugin(doc: dict) -> list[str]:
+    """What the memory slot gets wrong: it is OpenClaw's memory-core (and its dreaming job), or Teeny's plugin set up loosely."""
+    wrong = []
+    plugins = doc.get("plugins") if isinstance(doc.get("plugins"), dict) else {}
+    slot = _walk(doc, "plugins.slots.memory")
+    entries = plugins.get("entries") if isinstance(plugins.get("entries"), dict) else {}
+    allow = plugins.get("allow") if isinstance(plugins.get("allow"), list) else []
+    if slot is _MISSING:
+        wrong.append(f"plugins.slots.memory is not set (want \"none\" or {json.dumps(MEMORY_PLUGIN)}: otherwise OpenClaw runs memory-core and its dreaming job)")
+    elif slot not in ("none", MEMORY_PLUGIN):
+        wrong.append(f"plugins.slots.memory is {json.dumps(slot)} (want \"none\" or {json.dumps(MEMORY_PLUGIN)})")
+    core = entries.get("memory-core")
+    if not isinstance(core, dict) or core.get("enabled") is not False:
+        wrong.append("plugins.entries.memory-core.enabled is not false: its dreaming job would run outside brain/cron.toml")
+    if slot == MEMORY_PLUGIN:
+        entry = entries.get(MEMORY_PLUGIN)
+        if MEMORY_PLUGIN not in allow:
+            wrong.append(f"plugins.allow does not name {MEMORY_PLUGIN}, which owns the memory slot")
+        if not isinstance(entry, dict) or entry.get("enabled") is not True:
+            wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.enabled is not true, but it owns the memory slot")
+        paths = _walk(doc, "plugins.load.paths")
+        if not isinstance(paths, list) or not any(isinstance(p, str) and p.rstrip("/").endswith("/" + MEMORY_PLUGIN) for p in paths):
+            wrong.append(f"plugins.load.paths does not load core/plugins/{MEMORY_PLUGIN}")
+        config = entry.get("config") if isinstance(entry, dict) else None
+        if not isinstance(config, dict):
+            wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.config is not set")
+        else:
+            for found in _secret_keys(config):
+                wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.config.{found} holds a secret value: the key stays sealed in state/memory-engine.json")
+            url = config.get("url")
+            if not (isinstance(url, str) and _safe_endpoint(url)):
+                wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.config.url is not https or loopback: no cloud default, no plain http off this machine")
+    elif MEMORY_PLUGIN in allow or MEMORY_PLUGIN in entries:
+        wrong.append(f"{MEMORY_PLUGIN} is in the plugins config but does not own plugins.slots.memory")
+    return wrong
 
 
 def lockdown(doc) -> list[str]:
@@ -72,6 +150,7 @@ def lockdown(doc) -> list[str]:
         key = provider.get("apiKey") if isinstance(provider, dict) else None
         if key is not None and plain(key):
             wrong.append(f"models.providers.{name}.apiKey is in the config file as a value: it must be a SecretRef")
+    wrong.extend(memory_plugin(doc))
     return wrong
 
 
@@ -114,7 +193,8 @@ def main(argv: list[str]) -> int:
         if wrong:
             print("; ".join(wrong))
             return 1
-        print(f"{len(LOCKDOWN)} lockdown flags hold; no channels, no bindings, no secret value in the file")
+        slot = _walk(doc, "plugins.slots.memory")
+        print(f"{len(LOCKDOWN)} lockdown flags hold; no channels, no bindings, no secret value in the file; memory slot {slot}")
         return 0
     if len(argv) == 2 and argv[1] == "audit":
         status, detail = audit(sys.stdin.read())
