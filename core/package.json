@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "openclaw": "2026.11.10"
+    "openclaw": "2026.11.10",
+    "smol-toml": "1.4.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
