@@ -18,20 +18,6 @@ COPY core/tsconfig.json core/tsconfig.build.json ./
 COPY core/src/ src/
 RUN npm run build && npm prune --omit=dev
 
-# --- digg-pp-cli: what AI X is talking about (hands/trend) -------------------
-# Digg's leaderboard reader (Apache-2.0), from mvanhorn/printing-press-library
-# at a pinned commit, built unmodified. The pin here is the vendoring: that
-# repository is about 500 MB, so it is not a submodule; a new pin is a PR that
-# passes hands/tests/trend. Pure Go (its SQLite is modernc's), so it is built
-# static and does not care which libc the runtime has.
-FROM golang:1.26 AS digg
-ARG DIGG_COMMIT=c51ca2c9232719ee6a82f2316bf6af6df9ddc05e
-ENV CGO_ENABLED=0 GOBIN=/out GOFLAGS=-trimpath
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/mvanhorn/printing-press-library/library/media-and-entertainment/digg/cmd/digg-pp-cli@${DIGG_COMMIT} \
- && /out/digg-pp-cli version
-
 # --- runtime ----------------------------------------------------------------------
 FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -67,8 +53,6 @@ COPY --from=core /build/core/dist /opt/teeny-core/dist
 COPY --from=core /build/core/node_modules /opt/teeny-core/node_modules
 COPY --from=core /build/core/package.json /opt/teeny-core/package.json
 COPY bin/teeny-core bin/openclaw /usr/local/bin/
-# hands/trend runs it with a home of its own under state/trend/home.
-COPY --from=digg /out/digg-pp-cli /usr/local/bin/digg-pp-cli
 ENV OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-core \
     OPENHUMAN_DOCKER=1 \
     OPENHUMAN_CORE_HOST=127.0.0.1 \

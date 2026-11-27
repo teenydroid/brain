@@ -1179,16 +1179,21 @@ extra, first_seen, last_seen; rows go after 30 days), `listen_cache`.
 One of the studio's feed sources (architecture.md §4b, step 1). Digg's
 leaderboards (ai, tech, world-business, entertainment, sports and gaming;
 `digg.TOPICS`) rank the stories people on X are posting about, hours
-old, and list the X posts behind each one; `trend` reads them through
-`digg-pp-cli` (Apache-2.0, `mvanhorn/printing-press-library`,
-`library/media-and-entertainment/digg`), built unmodified into the spine
-image at a pinned commit by the Dockerfile's `digg` stage (the pin is the
-vendoring: the repository is about 500 MB, so it is no submodule). No login,
-no key, no X API. The tool runs with PATH, a locale and a home of its own
-(`state/trend/home`, HOME and every XDG directory), so its local store is
-written there and it sees no key or switch of this process. `TREND_DIGG_BIN`
-names another binary; `TREND_TIMEOUT_SECS` (30, 1 to 120) bounds each call.
-Only `top` (and `posts`) are used, never Digg's `search`, which answers
+old, and list the X posts behind each one; `trend` reads them from Digg's
+public endpoints with Python's urllib: `top` the ranked feed (`GET
+https://digg.com/api/feed/continuous`, the one place that carries each story's
+rank, Digg Score, source count and author count), `posts` Digg's MCP server
+(`POST https://digg.com/mcp`, a JSON-RPC 2.0 `tools/call` of `digg_get_post`,
+answered as an SSE frame or plain JSON). No login, no key, no X API, no binary
+and no local store. A request carries only its JSON-RPC body and a generic
+User-Agent: nothing of this process's environment. `TREND_TIMEOUT_SECS` (30, 1
+to 120) bounds each request; `TREND_DIGG_BASE` (secrets/teeny.env, an https
+origin only) points both at another host, for tests. It replaces `digg-pp-cli`
+(Apache-2.0, `mvanhorn/printing-press-library`,
+`library/media-and-entertainment/digg`), whose Go dependency
+`github.com/enetx/http3` vanished from GitHub and broke the image build; the
+reads and the shapes they return are the ones that tool made and printed. Only
+`top` (and `posts`) are used, never Digg's `search`, which answers
 "temporarily unavailable, retry after ..." under load. Every title,
 description and post is screened for slurs only (`teeny_hands/slurs.py`, the
 guard lexicon's `hate` category, since 2026-11-22): one carrying one is left
@@ -1202,11 +1207,12 @@ What is left is strangers' words: data, never instructions.
 | `story CLUSTER_ID [--max N]` | R | One story's sources, X posts and pages, by Digg's rank (10, at most 50). Digg's UUID, never the short id, which only a local store can resolve. |
 
 A read with nothing to show is `{"ok": false, "error", "reason"}`, exit 1,
-`reason` one of `missing` (no binary), `timeout`, `rate_limited`, `failed`,
-`bad_json`, or `empty` (Digg listed no story): never a crash, and the studio
-then reads Hacker News alone. `bin/doctor` checks the binary is there: a
-failure in the image, a warning outside it. A `top` is two board reads and
-up to four story reads, all free.
+`reason` one of `timeout`, `rate_limited` (HTTP 429, or Digg asking to come
+back later), `failed`, `bad_json`, `empty` (Digg listed no story), or
+`missing` (kept in the vocabulary from the binary days; nothing raises it
+now): never a crash, and the studio then reads Hacker News alone. `bin/doctor`
+checks the reader loads (no network). A `top` is two board reads and up to
+four story reads, all free.
 
 ## `remake`: popular short videos, studied shot by shot
 

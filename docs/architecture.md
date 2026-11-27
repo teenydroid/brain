@@ -1063,8 +1063,8 @@ and what came of each try. Off the box there is no core, so set
 `STUDIO_ASK=openrouter` with `OPENROUTER_API_KEY`, `STUDIO_WRITER_MODEL`,
 `STUDIO_EDITOR_MODEL` (and optionally `STUDIO_FEED_MODEL`, or
 `STUDIO_LOCAL_MODEL` for all three) as OpenRouter model ids, and
-`TEENY_STATE` to a scratch state directory. Digg needs `digg-pp-cli` on PATH
-(or `TREND_DIGG_BIN`); without it that source is skipped. `hands/x post`'s
+`TEENY_STATE` to a scratch state directory. Digg is read over the network from Python
+(no binary); if it cannot be reached that source is skipped. `hands/x post`'s
 guard judge cannot be reached off the box, so every post comes back held:
 the sample shows what would have been tried, in order.
 

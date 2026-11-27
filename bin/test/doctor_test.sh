@@ -93,19 +93,17 @@ rm "$root/brain/SOUL.md"
 doctor || true
 check "the failures file is bounded to the latest 50" test "$(wc -l <"$root/state/doctor-failures.jsonl")" = 50
 
-# --- hands/trend's reader: present, warned outside the image, failed inside it -------
+# --- hands/trend's reader: it loads, and needs no binary or network -----------------
+fresh
+check "names the trend reader as python and digg.com/mcp" doctor
+check "as an ok check" grep -q '^ok   trend reader: python, digg.com/mcp' "$scratch/doctor.log"
 fresh
 mkdir -p "$root/secrets"
-printf '#!/usr/bin/env bash\necho "digg-pp-cli 2026.11.1"\n' >"$scratch/fake-digg"; chmod +x "$scratch/fake-digg"
-printf 'TREND_DIGG_BIN=%s\n' "$scratch/fake-digg" >>"$root/secrets/teeny.env"
-check "names the trend reader's version when it is there" doctor
-check "as an ok check" grep -q '^ok   trend reader: digg-pp-cli 2026.11.1' "$scratch/doctor.log"
-fresh
-mkdir -p "$root/secrets"
-printf 'TREND_DIGG_BIN=%s\n' "$scratch/no-such-digg" >>"$root/secrets/teeny.env"
-check "outside the image a missing trend reader only warns" doctor
-check "and says the studio reads Hacker News alone" grep -q '^warn trend reader: .*Hacker News alone' "$scratch/doctor.log"
-OPENHUMAN_DOCKER=1 fails "inside the image a missing trend reader fails" "trend reader"
+check "a leftover TREND_DIGG_BIN setting changes nothing" doctor
+OPENHUMAN_DOCKER=1 check "inside the image the check is the same" doctor
+check "and is still ok there" grep -q '^ok   trend reader: python, digg.com/mcp' "$scratch/doctor.log"
+printf 'raise SystemExit("broken")\n' >"$root/hands/lib/teeny_hands/trend/digg.py"
+fails "a trend reader that does not load fails" "trend reader"
 
 # --- --root checks another checkout, and writes its report there --------------------
 other="$scratch/other"

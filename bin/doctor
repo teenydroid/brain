@@ -772,20 +772,14 @@ print(f"ok {said}, and it answers")
   note "remakes" "${remake_out%% *}" "${remake_out#* }"
 fi
 
-# hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
-# the studio reads what AI X is talking about. TREND_DIGG_BIN in
-# secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one
-# missing is a broken build and fails; outside it (a laptop, CI) it warns:
-# the studio still runs, on Hacker News alone.
-digg_bin=""
-[ ! -f "$secrets/teeny.env" ] || digg_bin="$(sed -n 's/^TREND_DIGG_BIN=//p' "$secrets/teeny.env" | tail -n 1)"
-[ -n "$digg_bin" ] || digg_bin="$(command -v digg-pp-cli 2>/dev/null || true)"
-if [ -n "$digg_bin" ] && [ -x "$digg_bin" ] && digg_says="$(HOME="$state/trend/home" timeout 10 "$digg_bin" version 2>&1)"; then
-  note "trend reader" ok "$(tail -n 1 <<<"$digg_says")"
-elif [ "${OPENHUMAN_DOCKER:-}" = 1 ]; then
-  note "trend reader" fail "digg-pp-cli is not in the image (${digg_bin:-not on PATH}): rebuild the spine image"
+# hands/trend reads Digg's public endpoints (https://digg.com/mcp and its feed)
+# from Python with urllib: no binary to be missing. This check needs no
+# network; it only sees that the reader's module compiles, so a broken edit
+# shows here and not in the studio's next slot.
+if trend_says="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); from teeny_hands.trend import digg; print(digg.BASE.split("//", 1)[1])' "$root/hands/lib" 2>&1)"; then
+  note "trend reader" ok "python, $trend_says/mcp"
 else
-  note "trend reader" warn "digg-pp-cli is not installed (${digg_bin:-not on PATH}): the studio reads Hacker News alone"
+  note "trend reader" fail "hands/trend's reader does not load: $(tail -n 1 <<<"$trend_says")"
 fi
 
 # --- optional: the hands' tests --------------------------------------------------------

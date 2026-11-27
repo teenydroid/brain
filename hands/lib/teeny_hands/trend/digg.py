@@ -15,7 +15,7 @@ a key or a browser's TLS fingerprint:
 
 This replaces the Go binary `digg-pp-cli` (mvanhorn/printing-press-library,
 Apache-2.0) that used to be built into the image: it made exactly these
-calls, and a dependency of it vanished from GitHub. The shapes `call()`,
+calls (only the calls are the same; none of its code is here), and a dependency of it vanished from GitHub. The shapes `call()`,
 `top()` and `posts()` return are the ones that tool printed, so top.py reads
 them unchanged. Nothing is written to disk and no local store is kept.
 
