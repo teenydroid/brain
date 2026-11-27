@@ -94,6 +94,7 @@ ENVIRONMENT = {
     "EVAL_HELDOUT_DIR": "where the held-out tasks are (tests); under secrets/ by default",
     "SPINE_LAB": "marks a lab spine's own boot, which never runs the production jobs",
     "SPINE_LAST_GOOD_TRIED": "set by bin/spine for its own retry from state/last-good",
+    "SPINE_CRON_SECS": "how long the spine waits to seed cron into the Gateway; a bound on the boot, it cannot turn a watcher off",
     "SPINE_BOOT_SECS": "how long the spine waits for the core to answer",
     "LADDER_URL": "the model endpoint, from secrets/spine.env in a subshell",
     "LADDER_API_KEY": "the model key, from secrets/spine.env in a subshell",
