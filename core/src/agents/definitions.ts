@@ -19,6 +19,12 @@ export interface AgentDef {
   sandboxMode?: string;
   subagentAllowlist: string[];
   scheduledWorkspace?: string;
+  /** `browser_view_only`: the agent's browser may open and read pages, nothing else. */
+  browserViewOnly: boolean;
+  /** `omit_memory_context`: no recalled memory rides in this agent's turns. */
+  omitMemoryContext: boolean;
+  /** `memory_block.max_tokens`, when the definition caps what memory may take. */
+  memoryBlockMaxTokens?: number;
 }
 
 /**
@@ -88,6 +94,11 @@ export function loadAgentDef(brainDir: string, tomlFile: string): AgentDef {
     sandboxMode: typeof d.sandbox_mode === "string" ? d.sandbox_mode : undefined,
     subagentAllowlist: Array.isArray(subagents.allowlist) ? subagents.allowlist.map(String) : [],
     scheduledWorkspace: typeof d.scheduled_workspace === "string" ? d.scheduled_workspace : undefined,
+    browserViewOnly: d.browser_view_only === true,
+    omitMemoryContext: d.omit_memory_context === true,
+    ...(typeof (d.memory_block as { max_tokens?: unknown } | undefined)?.max_tokens === "number"
+      ? { memoryBlockMaxTokens: (d.memory_block as { max_tokens: number }).max_tokens }
+      : {}),
   };
 }
 

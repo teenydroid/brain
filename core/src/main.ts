@@ -10,12 +10,13 @@ import { join } from "node:path";
 import { AgentCatalog } from "./agents/provision.js";
 import { CostLog } from "./agents/cost.js";
 import { bareModel } from "./agents/model.js";
-import { findChrome } from "./config/chrome.js";
 import { resolvePaths, serveSettings } from "./config/paths.js";
 import { Sealer, masterKeyFile } from "./config/secrets.js";
 import { SettingsStore } from "./config/store.js";
 import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
+import { buildGuardrailsPolicy } from "./agents/guardrails.js";
+import { findChrome } from "./config/chrome.js";
 import { GATEWAY_TOKEN_ENV, MODEL_KEY_ENV, buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { createHttpServer } from "./server/http.js";
@@ -96,7 +97,13 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
       agentTimeoutSecs: store.agentTimeoutSecs,
       defaultWorkspace: join(paths.openclawDir, "workspaces"),
       agents: catalog.entries(),
-      ...(guardrails ? { guardrailsPath: guardrails } : {}),
+      ...(guardrails
+        ? {
+            guardrailsPath: guardrails,
+            guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env, workspaceOf: (id) => catalog.workspace(id) }),
+          }
+        : {}),
+      ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
     });
     writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     chmodSync(configPath, 0o600);

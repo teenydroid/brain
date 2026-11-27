@@ -53,7 +53,7 @@ describe("hand skills", () => {
     for (const text of a.values()) expect(text).not.toMatch(/\b20\d\d-\d\d-\d\d[T ]\d\d:\d\d/);
   });
 
-  it("gives every skill OpenClaw frontmatter: name, one-line description, requires.bins", () => {
+  it("gives every skill OpenClaw frontmatter: name, one-line description, a gate that works", () => {
     for (const [path, text] of generate(root)) {
       const hand = path.split("/")[0] as string;
       const m = /^---\nname: (.+)\ndescription: (.+)\nmetadata: (.+)\n---\n/.exec(text);
@@ -62,8 +62,10 @@ describe("hand skills", () => {
       const description = JSON.parse(m?.[2] ?? "") as string;
       expect(description.length).toBeLessThanOrEqual(160);
       expect(description).not.toContain("\n");
-      const meta = JSON.parse(m?.[3] ?? "") as { openclaw: { requires: { bins: string[] } } };
-      expect(meta.openclaw.requires.bins).toEqual([hand]);
+      const meta = JSON.parse(m?.[3] ?? "") as { openclaw: { requires: { bins?: string[]; config: string[] } } };
+      // not requires.bins: a bare hand name is not on PATH and collides with git and gh
+      expect(meta.openclaw.requires.bins, hand).toBeUndefined();
+      expect(meta.openclaw.requires.config).toEqual(["plugins.entries.teeny-guardrails.enabled"]);
     }
   });
 

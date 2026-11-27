@@ -72,6 +72,7 @@ describe("registry", () => {
         "auth_store_provider_credentials", "config_get_agent_settings", "config_update_agent_settings", "config_update_local_ai_settings",
         "config_update_model_settings", "cost_report", "encrypt_secret", "get_config", "inference_agent_chat", "inference_agent_chat_simple",
         "inference_update_model_settings", "modules_browser_check_readiness",
+        "memory_engine_set", "memory_forget", "memory_items_list", "memory_learn",
       ].sort(),
     );
   });

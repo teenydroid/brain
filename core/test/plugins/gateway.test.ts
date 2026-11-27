@@ -1,0 +1,72 @@
+// The strongest check available without a model: the pinned openclaw's own
+// validator and plugin loader, on the config the core generates with the plugin
+// and its real policy.
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
+import { AgentCatalog } from "../../src/agents/provision.js";
+import { openclawCommand } from "../../src/gateway/cli.js";
+import { buildGatewayConfig } from "../../src/gateway/config.js";
+import { REPO } from "../helpers.js";
+
+function openclaw(dir: string, file: string, args: string[]): string {
+  const { cmd, args: lead } = openclawCommand({});
+  return execFileSync(cmd, [...lead, ...args], {
+    env: { PATH: process.env.PATH ?? "", HOME: dir, OPENCLAW_STATE_DIR: dir, OPENCLAW_CONFIG_PATH: file },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+describe("teeny-guardrails in the pinned openclaw", () => {
+  it("validates the config, loads the plugin and registers every hook it documents", { timeout: 120_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-plugin-"));
+    const paths = { root: REPO, brainDir: join(REPO, "brain"), stateDir: join(dir, "state"), secretsDir: join(dir, "secrets"), openclawDir: join(dir, "state", "openclaw") };
+    mkdirSync(paths.openclawDir, { recursive: true });
+    const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir);
+    const file = join(dir, "openclaw.json");
+    const config = buildGatewayConfig({
+      port: 18999,
+      modelUrl: "http://127.0.0.1:1/v1",
+      model: "m",
+      models: [{ id: "m" }],
+      compactionTriggerTokens: 100000,
+      keepRecentTokens: 40000,
+      agentTimeoutSecs: 60,
+      defaultWorkspace: join(paths.openclawDir, "workspaces"),
+      agents: catalog.entries(),
+      guardrailsPath: join(REPO, "core", "plugins", "teeny-guardrails"),
+      guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env: {}, workspaceOf: (id) => catalog.workspace(id) }),
+    });
+    writeFileSync(file, JSON.stringify(config));
+    expect(openclaw(dir, file, ["config", "validate"])).toMatch(/Config valid/);
+    const out = openclaw(dir, file, ["plugins", "inspect", "teeny-guardrails", "--runtime"]);
+    expect(out).toMatch(/CLI status: loaded/);
+    for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call", "before_prompt_build"]) {
+      expect(out).toContain(hook);
+    }
+    expect(out).toMatch(/allowConversationAccess: true/);
+  });
+
+  it("gates every hand skill on the plugin: eligible with it, none without it", { timeout: 120_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-skills-"));
+    const workspace = join(dir, "ws");
+    mkdirSync(workspace, { recursive: true });
+    const base = {
+      gateway: { mode: "local" },
+      skills: { load: { extraDirs: [join(REPO, "brain", "skills", "hands")] } },
+      agents: { defaults: { workspace }, entries: { mind: { workspace } } },
+    };
+    const eligible = (enabled: boolean): number => {
+      const file = join(dir, `c-${enabled}.json`);
+      writeFileSync(file, JSON.stringify({ ...base, plugins: { entries: { "teeny-guardrails": { enabled } } } }));
+      const out = JSON.parse(openclaw(dir, file, ["skills", "list", "--agent", "mind", "--json"])) as { skills: { name: string; eligible: boolean }[] };
+      return out.skills.filter((s) => s.name.startsWith("hand-") && s.eligible).length;
+    };
+    expect(eligible(true)).toBeGreaterThan(40);
+    expect(eligible(false)).toBe(0);
+  });
+});

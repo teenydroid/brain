@@ -52,7 +52,14 @@ export interface GatewayConfigInput {
   agents: Record<string, AgentEntry>;
   /** core/plugins/teeny-guardrails when it exists (P3 writes it). */
   guardrailsPath?: string;
+  /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
+  guardrailsPolicy?: Record<string, unknown>;
+  /** Chrome for the browser tool; unset lets OpenClaw find one. */
+  chromePath?: string;
 }
+
+/** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
+export const BROWSER_PROFILES = { operator: "teeny", view: "view" } as const;
 
 export function guardrailsIfPresent(path: string): string | undefined {
   return existsSync(path) ? path : undefined;
@@ -67,7 +74,16 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     ...(input.guardrailsPath
       ? {
           load: { paths: [input.guardrailsPath] },
-          entries: { [GUARDRAILS_PLUGIN_ID]: { enabled: true } },
+          entries: {
+            [GUARDRAILS_PLUGIN_ID]: {
+              enabled: true,
+              // before_prompt_build (memory recall) reads the conversation, which a non-bundled plugin may only
+              // do with this flag (docs/plugins/hooks.md; `openclaw plugins inspect` diagnostics).
+              hooks: { allowConversationAccess: true },
+              // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
+              config: { policy: input.guardrailsPolicy ?? {} },
+            },
+          },
         }
       : {}),
   };
@@ -95,6 +111,15 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     // schema: telemetry.enabled
     telemetry: { enabled: false },
     plugins,
+    // schema: browser.{enabled,headless,defaultProfile,executablePath,profiles.<name>.cdpPort}
+    // (docs/tools/browser/configuration.md). The plugin pins each agent to one of these profiles.
+    browser: {
+      enabled: true,
+      headless: true,
+      defaultProfile: BROWSER_PROFILES.operator,
+      ...(input.chromePath ? { executablePath: input.chromePath } : {}),
+      profiles: { [BROWSER_PROFILES.operator]: { cdpPort: 18800 }, [BROWSER_PROFILES.view]: { cdpPort: 18801 } },
+    },
     // schema: models.providers.<id> {baseUrl, api, apiKey (SecretRef env), models[]}
     ...(input.modelUrl && input.model
       ? {
