@@ -12,14 +12,42 @@ than one answer or was not written into it beforehand.
 
 The **conscious** part is the agentic mind (`brain/agents/mind.toml`). It
 wakes every 30 minutes with a shell, the file tools and its memory, decides
-for itself what to work on, and keeps going for up to 30 minutes (the turn
-deadline; its 300 model calls are set above what that allows). It is off
+for itself what to work on, and keeps going for up to 25 minutes (the turn
+deadline, 1500 s; its 250 model calls are set above what that allows). It is off
 until the operator sets `MIND=1` in `secrets/teeny.env`.
 
 The scripts are kept on purpose: a post a script writes costs one small
 model call, and the same post from the mind costs a working session. So the
 mind does not take their work over. It watches them, steers them and does
 what they cannot ("Conscious and subconscious", below).
+
+## The wake's inbox pass
+
+Every wake opens with a bounded pass over what waits (2026-11-27, the
+operator's decision), then goes on to its own notes and projects as before.
+`bin/reply-queue` (`bin/lib/reply_pass.py`) prints a block of at most 1,500
+characters: how many X mentions are `offered`, the five most worth answering
+(id, author, one line) and the mail waiting. teeny-guardrails puts it in front
+of each mind turn (`wake.ts`; it fails open), so the pass does not spend tool
+calls listing. The caps are code, not prompt: in one mind run teeny-guardrails
+refuses a fourth `hands/x reply` (or `reply_x`) and a third `hands/mail reply`
+(`reply_mail`), counted when the call is made. The hands' daily caps and the
+guard are untouched, and replies stay on `hands/x reply` and `hands/mail
+reply`. The mind may mark up to about ten mentions it will not answer with
+`hands/x mark ID --status skipped` (mail: `hands/stimuli close`) so the backlog
+drains.
+
+While the heartbeat drains X mentions and mail (`TEENY_HEARTBEAT_DRAIN`, default
+on, and only while `MIND=1`; `0` in `secrets/teeny.env` gives them back), the
+tick leaves those stimuli pending and never offers them to its own model
+(`stimuli.DRAINED`), so nothing is answered twice. A wake that finds one
+answered closes it for the tick as well.
+
+**Overlap.** OpenClaw refuses a scheduled run of a job whose previous run is
+still going (the run request is rejected as `already-running`, not queued), so
+a late wake is skipped. The deadline keeps that from happening anyway: the core
+gives every agent cron job a run deadline equal to `agent_timeout_secs`
+(`core/src/cron/scheduler.ts`), 1500 s, under the 1800 s slot.
 
 ## Why it exists
 
@@ -36,7 +64,7 @@ manages, projects it picks, skills it writes for itself.
 | | Subconscious | Conscious |
 |---|---|---|
 | What | the cron scripts: the tick, the posting slots, Moltbook, dream, evolve, the watchers and the money jobs | the agentic mind and its worker |
-| How it runs | a fixed pipeline around one tool-less model call (`bin/act` and a playbook), or no model at all | an agent with a shell and file tools, up to 30 minutes a wake |
+| How it runs | a fixed pipeline around one tool-less model call (`bin/act` and a playbook), or no model at all | an agent with a shell and file tools, up to 25 minutes a wake |
 | Decides | nothing it was not written to decide | what to work on, and when to wake next |
 | Cost | one small model call a run | a working session a wake |
 | Changed by | a pull request to `brain/cron.toml` or a playbook (Teeny's), or to pinned code (the operator's) | its own prompt, notes, skills and tools |
@@ -455,7 +483,7 @@ helpers of its own, and no tool that schedules or spends. Like the mind, it
 can run `bin/teeny` from its shell, so it reaches the broker exactly as the
 mind does, under the same guard, caps and rehearsal; it holds no key and no
 token of its own. The mind's run waits for its workers before
-it ends, and the run's 30 minutes cover all of them.
+it ends, and the run's 25 minutes cover all of them.
 
 It is held exactly as the mind is. The core runs a spawned agent in its
 parent's workspace with its parent's file tools, so the worker's shell is
