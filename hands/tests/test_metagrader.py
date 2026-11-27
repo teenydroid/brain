@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 import unittest.mock
 from pathlib import Path
 
@@ -343,6 +344,13 @@ class Grading(Scratch):
         self.assertEqual(cand, [("a", "a"), ("a", "b")])
         self.assertEqual(inc, [("a", "a"), ("tie", "b")])
         self.assertEqual(metagrader.accuracy(inc)["pairs"], 2)
+
+    def test_select_stops_when_every_incumbent_comparison_is_skipped(self):
+        pairs_dir = self.dir / "pairs"
+        write_pairs(pairs_dir, sel=2, held=1)
+        with mock.patch.object(metagrader, "run_incumbent", lambda *a: [metagrader.SKIPPED] * 2):
+            with self.assertRaises(metagrader.MetagraderError):
+                metagrader.select(REPO / "evals", REPO / "brain", pairs_dir, [GOOD], self.dir / "out", self.ask)
 
     def test_propose_keeps_only_valid_programs(self):
         pairs_dir = self.dir / "pairs"

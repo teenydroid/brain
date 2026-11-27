@@ -602,6 +602,8 @@ def select(evals_dir: Path, brain: Path, pairs_dir: Path, candidates: list[dict]
         picks = run_program(graders[prog["name"]], selection)
         board.append({"name": prog["name"], "picks": picks})
     inc_picks_sel = run_incumbent(evals_dir, brain, ask, selection)
+    if all(pick == SKIPPED for pick in inc_picks_sel):
+        raise MetagraderError("every selection incumbent comparison was skipped: no selection evidence")
     for row in board:
         row["selection"] = accuracy(both_judged(row.pop("picks"), inc_picks_sel, truth_sel)[0])
     inc_sel = accuracy(both_judged(inc_picks_sel, inc_picks_sel, truth_sel)[1])
