@@ -69,6 +69,12 @@ export interface GatewayConfigInput {
   systemAgentId?: string;
   /** core/plugins/teeny-guardrails when it exists (P3 writes it). */
   guardrailsPath?: string;
+  /**
+   * True once teeny-guardrails has shown it loaded in the running Gateway. Until then a shell agent's exec is
+   * "deny" even with the plugin in the config, so a Gateway whose plugin failed to load (and whose own cron
+   * can start agent turns the moment it is up) has no exec to abuse. Default: false.
+   */
+  guardrailsProven?: boolean;
   /** The policy the plugin enforces (agents/guardrails.ts buildGuardrailsPolicy). */
   guardrailsPolicy?: Record<string, unknown>;
   /** Extra skill directories (`skills.load.extraDirs`): brain/skills/hands, which the agents' workspaces do not contain. */
@@ -87,8 +93,8 @@ const fileRef = (provider: string): { source: "file"; provider: string; id: "val
 
 /**
  * The agents' entries as written to the config. A shell agent's exec runs with OpenClaw's own check
- * off because teeny-guardrails is the gate (agents/definitions.ts); with no plugin in the config there
- * is no gate, so exec is "deny" and a shell agent can run nothing.
+ * off because teeny-guardrails is the gate (agents/definitions.ts); with no plugin in the config, or one
+ * not yet proven loaded, there is no gate, so exec is "deny" and a shell agent can run nothing.
  */
 export function guardedEntries(agents: Record<string, AgentEntry>, guarded: boolean): Record<string, AgentEntry> {
   if (guarded) return agents;
@@ -230,7 +236,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
         compaction: { enabled: true, mode: "default", keepRecentTokens: input.keepRecentTokens },
       },
       // schema: agents.entries.<id>
-      entries: guardedEntries(input.agents, input.guardrailsPath !== undefined),
+      entries: guardedEntries(input.agents, input.guardrailsPath !== undefined && input.guardrailsProven === true),
     },
     ...(input.skillDirs && input.skillDirs.length > 0 ? { skills: { load: { extraDirs: input.skillDirs } } } : {}),
     // schema: cron.skipMissedJobs (docs/gateway/config-automation.md, docs/automation/cron-jobs/managing-jobs.md):

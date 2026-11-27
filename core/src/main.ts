@@ -5,7 +5,7 @@
 import "./quiet.js";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { AgentCatalog } from "./agents/provision.js";
 import { CostLog } from "./agents/cost.js";
@@ -39,6 +39,20 @@ const DEFAULT_GATEWAY_PORT = 18789;
 const DRAIN_MS = 15 * 60_000;
 
 type Env = Readonly<Record<string, string | undefined>>;
+
+/** Whether something accepts connections on 127.0.0.1:port: the Gateway's listener, probed by the supervisor's gate. */
+export function portOpen(port: number, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = connect({ host: "127.0.0.1", port });
+    const done = (ok: boolean): void => {
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(timeoutMs, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
 
 export interface StartOptions {
   cwd?: string;
@@ -140,7 +154,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
   };
   /** What the running Gateway was started on: the config text and the model key it reads. */
   let applied = "";
-  const writeConfig = (): void => {
+  const writeConfig = (guardrailsProven = false): void => {
     writeModelKey();
     const s = store.snapshot;
     const defaultModel = s.models.default_model ? bareModel(s.models.default_model) : env.SPINE_MODEL;
@@ -149,8 +163,11 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     if (defaultModel) ids.set(defaultModel, undefined);
     for (const m of registry) ids.set(m.id, m.context_window);
     for (const pinned of catalog.pinnedModels()) if (!ids.has(bareModel(pinned))) ids.set(bareModel(pinned), undefined);
-    const config = buildGatewayConfig({
+    // Shell agents get exec only once the plugin is proven loaded in this Gateway (supervisor gate); `applied`
+    // is the proven shape, so that opening exec later is never mistaken for a change that needs a restart.
+    const build = (proven: boolean): Record<string, unknown> => buildGatewayConfig({
       port: gatewayPort,
+      guardrailsProven: proven,
       modelUrl: env.LOCAL_OPENAI_URL,
       model: defaultModel,
       models: [...ids].map(([id, contextWindow]) => ({ id, ...(contextWindow ? { contextWindow } : {}) })),
@@ -170,10 +187,11 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
         : {}),
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
     });
-    const text = JSON.stringify(config, null, 2);
+    const text = JSON.stringify(build(guardrailsProven), null, 2);
     writeFileSync(configPath, text, { mode: 0o600 });
     chmodSync(configPath, 0o600);
-    applied = `${text}\n${store.localAiApiKey() ?? ""}`;
+    const settled = JSON.stringify(build(true), null, 2);
+    applied = `${settled}\n${store.localAiApiKey() ?? ""}`;
   };
   /** The environment of the Gateway and of its CLI: no core token, no master key file path, nothing else of ours. */
   const gatewayEnv = (): Record<string, string> => {
@@ -196,7 +214,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
   const runner = new DrainingRunner(
     guardrails && !opts.noGateway
       ? new GuardedRunner(baseRunner, {
-          file: guardrailsReadyFile(paths.openclawDir),
+          proven: () => supervisor?.proven ?? false,
           holdsShell: (id) => catalog.definitions().some((d) => d.id === id && d.tools.includes("shell")),
         })
       : baseRunner,
@@ -205,10 +223,20 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     ? undefined
     : new GatewaySupervisor({
         port: gatewayPort,
-        ...(guardrails ? { gate: { file: guardrailsReadyFile(paths.openclawDir) } } : {}),
+        ...(guardrails
+          ? {
+              gate: {
+                file: guardrailsReadyFile(paths.openclawDir),
+                listening: () => portOpen(gatewayPort),
+                // The Gateway started on a config that denies exec; the plugin is proven, so open it. The Gateway
+                // hot-reloads its config file; if it does not, exec stays denied (fail closed).
+                onProven: () => writeConfig(true),
+              },
+            }
+          : {}),
         log: (l, m, f) => log(l, m, f),
         prepare: () => {
-          writeConfig();
+          writeConfig(false);
           return gatewayEnv();
         },
         ...(opts.spawn ? { spawn: opts.spawn } : {}),
@@ -227,7 +255,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
         return;
       }
       const before = applied;
-      writeConfig();
+      writeConfig(supervisor.proven);
       if (applied === before) return;
       owns = true;
       const drained = await runner.quiesce(opts.drainMs ?? DRAIN_MS);

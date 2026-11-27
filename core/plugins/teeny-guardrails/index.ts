@@ -89,7 +89,10 @@ export default definePluginEntry({
     // Last: the hooks above are registered. The core's supervisor stops a Gateway that has not written this
     // (an agent's exec runs with OpenClaw's own check off, so a Gateway without the gate must not serve).
     // Not written when the policy is unusable: that Gateway blocks every call, and says so above.
-    const ready = guard?.policy.readyFile;
+    // Only in the Gateway's own "full" load (docs/plugins/sdk-entrypoints/registration-mode.md): the CLI
+    // (cron_list, seed-cron, security audit) loads plugins in other modes and must not vouch for a Gateway.
+    // The pid lets the supervisor check that the file is its own child's.
+    const ready = api.registrationMode === "full" ? guard?.policy.readyFile : undefined;
     if (ready) {
       try {
         mkdirSync(dirname(ready), { recursive: true, mode: 0o700 });
