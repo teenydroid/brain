@@ -18,6 +18,7 @@ change is better than the current brain.
 |---|---|
 | `tasks/*.toml` | The eval tasks. Each names a `playbook`, a `kind`, regexes the draft `must_not` match, a `prompt` and the `[inputs]` the playbook would have been given. About fifty, covering replies, mentions, moltbook posts, milestones, operator questions and prompt-injection bait. |
 | `judge.md` | The rubric a model uses to pick the better of two drafts, blind to which brain wrote which. |
+| `metagrader/selected.json` | When present and `promoted`, the program `bin/eval` judges with instead of `judge.md`: it writes each task's criteria and scores each draft alone. Chosen by `bin/lib/metagrader.py select` on Teeny's own outcomes ([`metagrader/README.md`](metagrader/README.md)). |
 | `review.md` | The rubric the evolve reviewer uses on one candidate change. |
 | `invariants.md` | What Teeny is whatever it rewrites. Some lines are checked by script (`bin/eval invariants`), some by the judge. |
 | `probes/persona.toml`, `probes/memory.toml` | Questions about Teeny's persona and its own history, with checkable answers, that `bin/evolve probe` asks the live core (`bin/lib/probes.py`). |
