@@ -677,7 +677,8 @@ def check_engaged_first(
     A stored mention that neither tags nor replies to the account may still
     quote one of its posts, and the webhook's copy may not say what it
     quotes, so that one post is read again (`fresh(post_id)`) before it is
-    refused."""
+    refused. `quotedId` of "" says the post was read again and quotes nothing,
+    so that answer is not asked for twice; a failed re-read raises."""
     post_id = str(target.get("id") or "")
     me = account.get("id")
     if me and target.get("inReplyToUserId") == me:
@@ -687,11 +688,12 @@ def check_engaged_first(
                               re.IGNORECASE):
         return
     quoted = target.get("quotedId")
-    if not quoted and fresh is not None and conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
-        try:
-            again = fresh(post_id)
-        except hand.HandError:
-            again = None
+    if quoted is None and fresh is not None and conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
+        # A read that fails (a rate limit, an outage) raises here and is not
+        # caught: the quote is then unknown, not absent, so the reply stays
+        # blocked without a permanent refusal and the mention stays pending
+        # for a later run.
+        again = fresh(post_id)
         quoted = again.get("quotedId") if again else None
     if quoted:
         if conn.execute("SELECT 1 FROM x_posts WHERE id = ?", (quoted,)).fetchone():

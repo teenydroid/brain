@@ -319,6 +319,23 @@ def _in_doubt(error: XError) -> bool:
     return error.status is None or error.status >= 500
 
 
+def _quote_read(x: Any) -> Any:
+    """The re-read `check_engaged_first` makes of a stored mention that does
+    not say what it quotes: always the X API (twitr's post shape drops quote
+    references), and kept in the post cache with `quotedId` set (to "" when it
+    quotes nothing), so a retry does not pay for it again."""
+    api = getattr(x, "x_api", x)
+
+    def fresh(post_id: str) -> Json | None:
+        post = api.get_post(post_id)
+        if post is not None:
+            post = {**post, "quotedId": post.get("quotedId") or ""}
+            cache.remember([post])
+        return post
+
+    return fresh
+
+
 def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """A reply to post `to`: guard (told whom it answers), length, never the
     account's own post, attachments, then under the replying lock one reply
@@ -349,7 +366,9 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()
     conn = open_db(rules.SCHEMA + mentions.SCHEMA)
-    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id), x.get_post)
+    # A reply already sent or refused by X is turned away before any paid read.
+    rules.check_not_replied(conn, to)
+    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id), _quote_read(x))
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)

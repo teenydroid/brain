@@ -439,6 +439,12 @@ class Routed:
     def username(self) -> str:
         return self._x.username
 
+    @property
+    def x_api(self) -> Any:
+        """The X API itself, for the one read whose answer twitr's post shape
+        cannot carry (which post a post quotes)."""
+        return self._x
+
     def __getattr__(self, name: str) -> Any:
         if name in self.READS and self._reads:
             return self._read(name)

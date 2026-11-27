@@ -392,6 +392,72 @@ class EngagedFirstTest(Replying):
         publish.reply("29", {"text": "hi"})
         self.assertEqual(len(self.posted()), 1)
 
+    def webhook_copy(self, post_id: str, quoting: str, quoted_author: str) -> None:
+        """A stored mention whose cached copy says nothing of its quote, while
+        X's own read of it does."""
+        from teeny_hands.x import cache
+
+        self.x.route("GET", f"/2/tweets/{quoting}", target(quoting, author_id=quoted_author, username="whoever"))
+        cache.remember([{"id": post_id, "text": "we outship the leaderboard", "authorId": "42",
+                         "authorUsername": "someone", "conversationId": post_id}])
+        self.stranger(post_id, "we outship the leaderboard", referenced_tweets=[{"type": "quoted", "id": quoting}])
+        self.stored(post_id)
+
+    def test_a_failed_quote_read_is_not_a_refusal(self):
+        # A rate limit or an outage while reading the stored mention again
+        # leaves the quote unknown, not absent: the error is retryable (not a
+        # Refused, which the mention consumer would record as `refused` for
+        # good) and nothing is claimed or sent.
+        self.webhook_copy("30", "83", "1000")
+        self.x.route("GET", "/2/tweets/30", {"title": "Too Many Requests"}, status=429)
+        with self.assertRaises(XError):
+            publish.reply("30", {"text": "hi"})
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+        # The next run, with X answering, reads it again and replies.
+        self.x.route("GET", "/2/tweets/30", {"data": {"id": "30", "text": "we outship the leaderboard", "author_id": "42",
+                     "conversation_id": "30", "referenced_tweets": [{"type": "quoted", "id": "83"}]},
+                     "includes": {"users": [{"id": "42", "username": "someone"}]}})
+        self.at(T0 + HOUR)
+        publish.reply("30", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_retry_does_not_read_the_same_post_again(self):
+        self.webhook_copy("31", "84", "43")
+        for _ in range(2):
+            with self.assertRaises(hand.Refused) as caught:
+                publish.reply("31", {"text": "hi"})
+            self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        # Once, for the first try; the answer ("quotes somebody else") is kept.
+        self.assertEqual(len(self.x.requests("GET", "/2/tweets/31")), 1)
+
+    def test_an_x_refused_post_is_turned_away_before_any_read(self):
+        self.webhook_copy("32", "85", "1000")
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.claim_reply(conn, "32")
+        posting_rules.note_reply_refused(conn, "32", "403 Authorization Error")
+        conn.commit()
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("32", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "x_refused")
+        self.assertEqual(self.x.requests("GET", "/2/tweets/32"), [])
+        self.assertEqual(self.posted(), [])
+
+    def test_the_quote_is_read_from_the_x_api_when_reads_go_through_twitr(self):
+        # twitr's post shape carries no quote reference, so the re-read goes to
+        # the X API behind the router.
+        class Router:
+            x_api = mock.Mock()
+
+            def get_post(self, post_id):  # pragma: no cover - must not be used
+                raise AssertionError("read through twitr")
+
+        Router.x_api.get_post.return_value = {"id": "33", "text": "t"}
+        post = publish._quote_read(Router())("33")
+        Router.x_api.get_post.assert_called_once_with("33")
+        self.assertEqual(post["quotedId"], "")
+
     def test_a_post_that_tags_the_account_in_any_case_is_answered(self):
         self.stranger("22", "@TeenyDroid what are you")
         publish.reply("22", {"text": "a frog that ships"})
