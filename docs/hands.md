@@ -3645,17 +3645,17 @@ Teeny's; how one is built and capped is the operator's.
 | `fences` | R | The fence ids and fences `docs/governance.md` names, and `ladder:<capability>` for each level. |
 | `propose` | A | `{fence, title, ask, evidence, would_do, risk}`, each required and length-capped, nothing else. `fence` is an id from `fences`; anything else is refused (`rule: fence`). The body is built here: the fence in the charter's words, Teeny's ask, evidence, plan and risk in their own sections, and for `ladder:<capability>` the ladder's own count from frozen code. It opens through `gh open-issue` (guard on title and body) on `LADDER_ISSUE_REPO` (`teenydroid/brain`), titled `fence-proposal: ...`, then adds the label `fence-proposal`. One in seven days (`fence_proposals`; `rule: weekly`). Under `DRY_RUN` it answers with the issue it would open and records nothing. |
 
-## `upstream`: OpenHuman releases against the pin
+## `upstream`: openclaw releases against the pin
 
-Teeny notices a release that would let the operator delete a workaround, and asks for the pin bump
+Teeny notices a newer `openclaw` and opens the pull request that bumps the pin
 (docs/roadmap.md, G9). Frozen; the playbook that asks (`brain/playbooks/pin-bump.md`) is Teeny's.
 
-The pin it reads (`vendor/openhuman`) and the gap table it matches (`docs/oh-gaps.md`) left the tree with the Rust core, so `releases` now finds no pin and `propose` has nothing to propose. Pointing it at the pinned `openclaw` version in `core/package.json` is follow-up work.
+Upstream is the npm registry's `latest` openclaw and its release notes at `openclaw/openclaw`, both only read. The pin is the exact version in `core/package.json`, which `core/package-lock.json` must resolve to the same one.
 
 | Verb | | Does |
 |---|---|---|
-| `releases` | R | The pin (`vendor/openhuman` at the checkout's HEAD) and the `tinyhumansai/openhuman` releases published after that commit, each with `closes`: the open gaps in `docs/oh-gaps.md` (a solved or resolved row is left out) whose issue or PR numbers its notes name, with only those lines, each cut to 300 characters and dropped if the guard's lexicon holds it. |
-| `propose` | A | `{tag, why}`, nothing else. Refused for a release that isn't newer than the pin (`rule: release`), one whose notes name no open gap (`gap`) and one already proposed (`once`, `pin_proposals`). The issue (`pin bump: openhuman <tag> (closes G2, G5)`) carries the release, the pin, each gap with its lines, then Teeny's `why`, and opens through `gh open-issue` (the guard) on `LADDER_ISSUE_REPO`. Under `DRY_RUN` it answers with what it would open and records nothing. |
+| `releases` | R | `{pin, latest, newer}`, and when `newer` the release's `url`, `published_at` and `changelog`: its notes, at most 40 lines of 300 characters, each dropped if the guard's lexicon holds it. |
+| `propose` | A | `{version, why}`, nothing else. Refused for a version that is not the registry's latest or not newer than the pin (`rule: release`) and one already proposed (`once`, `pin_proposals`). It edits `core/package.json` to the exact version, has npm rewrite `core/package-lock.json` (`npm install --package-lock-only --ignore-scripts` in a scratch directory; a lockfile that does not resolve the version from the registry is refused, `rule: lockfile`), pushes both to a new `teeny/pin-bump-openclaw-<version>` branch of `LADDER_ISSUE_REPO` (`teenydroid/brain`) and opens one pull request with the changelog and Teeny's `why` through `gh open-pr`'s code (the guard, the caps). It never merges: the operator reviews it and runs the live test. Under `DRY_RUN` it answers with the pull request it would open and touches nothing. |
 
 ## `state/hands.db`
 
