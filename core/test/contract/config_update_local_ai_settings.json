@@ -1,7 +1,7 @@
 {
   "method": "openhuman.config_update_local_ai_settings",
   "call_sites": [
-    "bin/spine:235"
+    "bin/spine:241"
   ],
   "params": {
     "fields": {

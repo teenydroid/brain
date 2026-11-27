@@ -2,6 +2,7 @@
 // teeny-core: the OpenClaw-backed core. `teeny-core serve` answers the
 // openhuman.* JSON-RPC on $OPENHUMAN_CORE_HOST:$OPENHUMAN_CORE_PORT and
 // supervises the OpenClaw Gateway its agent turns run on.
+import "./quiet.js";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -21,6 +22,7 @@ import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gat
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
 import { setGatewayEnv, setShellTimeoutSecs, startCron, stopCron } from "./cron/index.js";
+import { GuardedRunner } from "./gateway/guarded.js";
 import { DrainingRunner } from "./gateway/drain.js";
 import { createHttpServer } from "./server/http.js";
 import { buildRegistry } from "./server/registry.js";
@@ -115,6 +117,8 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     });
 
   mkdirSync(paths.openclawDir, { recursive: true, mode: 0o700 });
+  // mkdir leaves an existing directory as it was; OpenClaw refuses to start under one others can write.
+  chmodSync(paths.openclawDir, 0o700);
   let sealer: Sealer | undefined;
   try {
     sealer = Sealer.fromFile(masterKeyFile(env, paths.secretsDir));
@@ -188,7 +192,15 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
     return out;
   };
 
-  const runner = new DrainingRunner(opts.runner ?? new CliAgentRunner({ env: gatewayEnv }));
+  const baseRunner = opts.runner ?? new CliAgentRunner({ env: gatewayEnv });
+  const runner = new DrainingRunner(
+    guardrails && !opts.noGateway
+      ? new GuardedRunner(baseRunner, {
+          file: guardrailsReadyFile(paths.openclawDir),
+          holdsShell: (id) => catalog.definitions().some((d) => d.id === id && d.tools.includes("shell")),
+        })
+      : baseRunner,
+  );
   const supervisor = opts.noGateway
     ? undefined
     : new GatewaySupervisor({

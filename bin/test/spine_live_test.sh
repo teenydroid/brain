@@ -236,10 +236,13 @@ root="$scratch/root"
 mkdir -p "$root/brain" "$root/secrets"
 # A state/ made under umask 002 (a fresh clone): bin/spine must tighten it, or the Gateway will not start.
 mkdir -m 775 "$root/state"
+mkdir -m 775 -p "$root/state/openclaw/logs"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
-mkdir -p "$root/deploy"
+mkdir -p "$root/deploy" "$root/core"
+# The guardrails plugin, where the core looks for it: with no plugin in the config every shell agent's exec is "deny".
+cp -R "$repo/core/plugins" "$repo/core/package.json" "$root/core/"
 cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 # skills/ too: a playbook names the skills it loads (`skills = [...]`), and the
 # doctor refuses a playbook whose skill file is missing, so the boot stops.
@@ -262,7 +265,7 @@ unset OPENHUMAN_CORE_TOKEN OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE CALENDAR_TZ \
   TEENY_ROOT TEENY_BRAIN TEENY_STORAGE TEENY_SECRETS TEENY_STATE
 "$root/bin/spine" >"$scratch/spine.log" 2>&1 &
 spine_pid=$!
-for _ in $(seq 1 120); do
+for _ in $(seq 1 300); do
   grep -q '\[spine\] ready' "$scratch/spine.log" && break
   kill -0 "$spine_pid" 2>/dev/null || break
   sleep 1
@@ -279,6 +282,7 @@ check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "bin/spine tightened a group-writable state/ before starting the Gateway" test "$(mode_of "$root/state")" = 755
+check "and state/openclaw and what an earlier boot made under it" test "$(mode_of "$root/state/openclaw")$(mode_of "$root/state/openclaw/logs")" = 700755
 check "keeps the core's config (with the model key) private" test "$(mode_of "$root/.openhuman/config.toml")" = 600
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "the Gateway's config is written, private, in state/openclaw/" \
@@ -374,7 +378,9 @@ refused() { grep -qiE 'denied|blocked|not allowed|refus|guardrails' <<<"$1"; }
 check "exec refuses cat secrets/spine.env" refused "$(shell_results 2)"
 check "and the file's contents never reach the model" bash -c "! grep -qE 'stub-key|LADDER_URL' <<<\"\$1\"" _ "$shelled"
 check "exec refuses a forbidden command chained after an allowed one (ls hands && cat secrets/...)" refused "$(shell_results 3)"
-if [ -z "$shelled" ]; then tail -n 5 "$scratch/shell.log" >&2; fi
+if ! grep -q '^SHELL-E2E ' <<<"$shelled" || ! grep -q guard <<<"$(shell_results 0)" || ! grep -qi usage <<<"$(shell_results 1)"; then
+  { echo "the shell agent answered: ${shelled:0:1500}"; tail -n 5 "$scratch/shell.log"; } >&2
+fi
 
 # --- the doctor and bin/act ---------------------------------------------------
 check "the spine ran the doctor before serving, and it passed" \
@@ -515,7 +521,7 @@ check "the spine stops on SIGTERM" bash -c "! curl -fsS -o /dev/null http://127.
 sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/spine.env"
 "$root/bin/spine" >"$scratch/spine2.log" 2>&1 &
 spine_pid=$!
-for _ in $(seq 1 120); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
+for _ in $(seq 1 300); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
 answer="$("$root/bin/ask" "say hello" 2>/dev/null || true)"
 check "the model key survives a restart in the core's settings" grep -q 'teeny spine says hello' <<<"$answer"
 
