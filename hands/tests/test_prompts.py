@@ -485,6 +485,23 @@ class PromptsTest(unittest.TestCase):
         for skill in ("hooks", "conversation"):
             self.assertNotIn("x_critique", (REPO / "brain" / "skills" / skill / "SKILL.md").read_text(), skill)
 
+    def test_soul_claim_rule_has_no_gap_between_evidence_and_fallback(self):
+        # The sold/hold/paid rule must not accept a fresh balance for a hold
+        # claim and then tell Teeny to say "i don't know" anyway, must not call
+        # an inbound scan proof of a sale, and must not carry a dated example.
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
+        rule = next(l for l in soul.splitlines() if l.startswith("- **a sold/hold/paid claim ships with"))
+        self.assertIn("fresh balance", rule)
+        self.assertIn("with none of the evidence that claim needs", rule)
+        self.assertNotIn("no receipt and no fresh scan", rule)
+        self.assertIn("never proves a sale", rule)
+        # An inbound scan shows deposits only, so it cannot prove a hold either.
+        self.assertIn("never proves a hold", rule)
+        self.assertNotIn("354 transfers", rule)
+        # A reply turn has no tools, so the rule must not tell it to "go count".
+        self.assertNotIn("go count", rule)
+        self.assertIn("a reply turn with no tools never counts", rule)
+
     def test_the_x_playbooks_ask_for_a_story_a_stranger_follows(self):
         # The bar used to ask for "a number, a receipt" from Teeny's own
         # record, which is what put its internal counts into posts.
