@@ -14,7 +14,7 @@ import { parseCommand, shellQuote, type Segment, type Word } from "./shell.js";
 import type { AgentPolicy, GuardrailsPolicy, NativePolicy } from "./policy.js";
 
 /** `acting` counts the calls to a native playbook's acting hand in the command. */
-export type ExecVerdict = { ok: true; command: string; cwd: string; acting: number } | { ok: false; reason: string };
+export type ExecVerdict = { ok: true; command: string; cwd: string; acting: number; actingLast: boolean } | { ok: false; reason: string };
 
 /** In hands/ but not hands. */
 const NOT_HANDS = new Set(["README.md", "lib", "tests"]);
@@ -403,6 +403,7 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   if (params.elevated) return { ok: false, reason: "elevated exec is never allowed" };
   if (params.host !== undefined && params.host !== "auto" && params.host !== "gateway") return { ok: false, reason: "exec runs on the gateway host only" };
   if (params.node !== undefined && params.node !== "") return { ok: false, reason: "exec may not target a node" };
+  if (agent.exec?.native && params.background) return { ok: false, reason: "a background exec outlives its call and its exit code is never read: run in the foreground" };
   if (params.durable) return { ok: false, reason: "a durable process outlives the run and is not allowed" };
 
   let cwd = agent.workspace;
@@ -418,11 +419,15 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   const rules = pathRules(policy, agent, cwd);
   const rewrites: Rewrite[] = [];
   let acting = 0;
+  let lastActing = 0;
+  let pipeline = true;
   for (const seg of parsed.segments) {
+    if (seg.joiner !== "|" && seg.joiner !== "") pipeline = false;
     const verdict = checkSegment(policy, agent, seg, cwd);
     if ("reason" in verdict) return { ok: false, reason: verdict.reason };
     rewrites.push(...verdict.rewrites);
     acting += verdict.acting ?? 0;
+    lastActing = verdict.acting ?? 0;
     for (const path of seg.catReads) {
       if (path.startsWith("~")) return { ok: false, reason: `$(cat ${path}): ~ is expanded by the shell, not by this guard` };
       const why = checkPath(rules, path, "read");
@@ -437,5 +442,6 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   }
   let out = command;
   for (const r of rewrites.sort((a, b) => b.start - a.start)) out = out.slice(0, r.start) + r.to + out.slice(r.end);
-  return { ok: true, command: out, cwd, acting };
+  // The command exits with its last stage: only a pipeline that ends in the acting hand speaks for it.
+  return { ok: true, command: out, cwd, acting, actingLast: pipeline && lastActing > 0 && acting === 1 };
 }

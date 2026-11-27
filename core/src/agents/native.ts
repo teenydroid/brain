@@ -8,16 +8,16 @@ import { join } from "node:path";
 import { loadAgentDef, type AgentDef } from "./definitions.js";
 import { loadPlaybook, nativeSpec } from "../playbooks/index.js";
 
-export const NATIVE_ADDENDUM = [
+export const nativeAddendum = (maxPerRun: number): string => [
   "# how you run a playbook natively",
   "",
-  "In this turn you are not only drafting: you also hold a shell, and you run the playbook yourself. The message names the commands you may run, in order, and the one hand you act through. Your shell refuses any other command, and it counts your calls to the hand, so a second call in a run (or past the day's cap) is refused whatever you write. Where the instructions above say to answer with JSON only, that JSON is the body you give the hand, and your final answer is the one-line report the message asks for.",
+  `In this turn you are not only drafting: you also hold a shell, and you run the playbook yourself. The message names the commands you may run, in order, and the one hand you act through. Your shell refuses any other command, and it counts your calls to the hand, so a call beyond the ${maxPerRun} this playbook allows in a run (or past the day's cap) is refused whatever you write. Where the instructions above say to answer with JSON only, that JSON is the body you give the hand, and your final answer is the one-line report the message asks for.`,
 ].join("\n");
 
 /** Whether a playbook's front matter asks to run natively (read leniently: a broken playbook is reported, not skipped). */
 function wantsNative(text: string): boolean {
   const front = text.split("+++")[1] ?? "";
-  return /^run\s*=\s*"native"\s*(#.*)?$/m.test(front);
+  return /^\s*run\s*=\s*(?:"native"|'native')\s*(#.*)?$/m.test(front);
 }
 
 export interface NativeLoad {
@@ -39,8 +39,8 @@ export function loadNativeDefs(brainDir: string, root: string): NativeLoad {
   const act = existsSync(actFile) ? loadAgentDef(brainDir, actFile) : undefined;
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".md")).sort()) {
     const name = file.slice(0, -3);
-    if (!wantsNative(readFileSync(join(dir, file), "utf8"))) continue;
     try {
+      if (!wantsNative(readFileSync(join(dir, file), "utf8"))) continue;
       const book = loadPlaybook(brainDir, name, { handsDir: join(root, "hands"), repoRoot: root });
       const spec = nativeSpec(book);
       out.defs.push({
@@ -50,7 +50,7 @@ export function loadNativeDefs(brainDir: string, root: string): NativeLoad {
         temperature: act?.temperature,
         maxIterations: nativeMaxToolCalls(spec),
         tools: ["shell"],
-        prompt: [act?.prompt ?? "", NATIVE_ADDENDUM].filter(Boolean).join("\n\n"),
+        prompt: [act?.prompt ?? "", nativeAddendum(spec.max_per_run)].filter(Boolean).join("\n\n"),
         subagentAllowlist: [],
         browserViewOnly: false,
         // CortexDB recall supplies the long-term memory, at the act agent's budget.

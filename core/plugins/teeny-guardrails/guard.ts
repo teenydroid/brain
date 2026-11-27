@@ -40,7 +40,7 @@ export interface GuardDeps {
 export class Guardrails {
   private readonly runs = new Map<string, number>();
   /** The acting-hand calls a judged exec call holds, by the params object judge returned for it. */
-  private readonly actingIn = new WeakMap<Record<string, unknown>, number>();
+  private readonly actingIn = new WeakMap<Record<string, unknown>, { calls: number; last: boolean }>();
   readonly browserState: BrowserState = newBrowserState();
   /** The day's count, the lock and the run log of the native playbooks (native.ts). */
   readonly native: NativeState;
@@ -105,7 +105,7 @@ export class Guardrails {
     if (native && decision && "params" in decision && tool === "exec") {
       const acting = this.actingIn.get(decision.params);
       if (acting) {
-        const why = this.native.reserve(native, runKey, acting, String(decision.params.command));
+        const why = this.native.reserve(native, runKey, acting.calls, String(decision.params.command), acting.last);
         if (why) return refuse(why);
       }
     }
@@ -167,7 +167,7 @@ export class Guardrails {
         const verdict = judgeExec(this.policy, agent, params);
         if (!verdict.ok) return refuse(`exec: ${verdict.reason}`);
         const next = { ...params, command: verdict.command, workdir: verdict.cwd };
-        if (verdict.acting > 0) this.actingIn.set(next, verdict.acting);
+        if (verdict.acting > 0) this.actingIn.set(next, { calls: verdict.acting, last: verdict.actingLast });
         return { params: next };
       }
       case "browser": {

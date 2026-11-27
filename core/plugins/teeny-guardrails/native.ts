@@ -19,8 +19,8 @@ interface RunState {
   /** Acting-hand calls this run has been allowed. */
   acted: number;
   startedMs: number;
-  /** Day reservations by the exact command that made them, so a refusal can give its one back. */
-  pending: Map<string, number>;
+  /** Day reservations by the exact command that made them (the UTC day they were taken on, how many, and whether a refusal may give them back). */
+  pending: Map<string, { day: string; calls: number; refundable: boolean }>;
 }
 
 export type Refusal = string | undefined;
@@ -38,29 +38,42 @@ export class NativeState {
   private today(): string {
     return new Date(this.now()).toISOString().slice(0, 10);
   }
-  private countFile(playbook: string): string {
-    return join(this.stateDir, "act", playbook, this.today());
+  private countFile(playbook: string, day: string = this.today()): string {
+    return join(this.stateDir, "act", playbook, day);
   }
   private lockDir(playbook: string): string {
     return join(this.stateDir, "locks", `act-${playbook}`);
   }
 
   /** The actions this playbook has taken today (bin/act's `taken`). */
-  taken(playbook: string): number {
+  taken(playbook: string, day: string = this.today()): number {
+    let text: string;
     try {
-      const n = Number.parseInt(readFileSync(this.countFile(playbook), "utf8").trim(), 10);
-      return Number.isFinite(n) && n > 0 ? n : 0;
-    } catch {
-      return 0;
+      text = readFileSync(this.countFile(playbook, day), "utf8");
+    } catch (e) {
+      // No file is an unused day; a file that cannot be read is not known to be unused.
+      return (e as NodeJS.ErrnoException).code === "ENOENT" ? 0 : Number.POSITIVE_INFINITY;
     }
+    const n = Number.parseInt(text.trim(), 10);
+    return Number.isFinite(n) && n >= 0 ? n : Number.POSITIVE_INFINITY;
   }
 
-  private writeCount(playbook: string, n: number): void {
-    const file = this.countFile(playbook);
+  private writeCount(playbook: string, n: number, day: string = this.today()): void {
+    const file = this.countFile(playbook, day);
     mkdirSync(join(this.stateDir, "act", playbook), { recursive: true, mode: 0o700 });
     const tmp = `${file}.${this.pid}.tmp`;
     writeFileSync(tmp, `${n}\n`, { mode: 0o600 });
     renameSync(tmp, file);
+  }
+
+  /** A process's start time from /proc/PID/stat, as bin/act's start_of reads it ("-" when it cannot be read, which bin/act treats as no start time). */
+  private startOf(pid: number): string {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] || "-";
+    } catch {
+      return "-";
+    }
   }
 
   private ownerOf(dir: string): { pid: number; host: string; run?: string } | undefined {
@@ -104,12 +117,20 @@ export class NativeState {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         mkdirSync(dir, { mode: 0o700 });
-        writeFileSync(join(dir, "owner"), `${this.pid} ${this.host} 0 ${runKey}\n`, { mode: 0o600 });
+        try {
+          // pid, host and start time are the three fields bin/act's lock_stale reads; the run key follows.
+          writeFileSync(join(dir, "owner"), `${this.pid} ${this.host} ${this.startOf(this.pid)} ${runKey}\n`, { mode: 0o600 });
+        } catch (w) {
+          rmSync(dir, { recursive: true, force: true });
+          throw w;
+        }
         this.keep(runKey, { playbook: n.playbook, acted: 0, startedMs: this.now(), pending: new Map() });
         return undefined;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
         if (attempt === 0 && this.stale(dir, n.playbook)) {
+          const old = this.ownerOf(dir)?.run;
+          if (old) this.runs.delete(old);
           rmSync(dir, { recursive: true, force: true });
           continue;
         }
@@ -129,19 +150,22 @@ export class NativeState {
   }
 
   /** Counts `calls` acting-hand calls of `command` against the run and the day. Undefined when allowed, else why not. */
-  reserve(n: NativePolicy, runKey: string, calls: number, command: string): Refusal {
+  reserve(n: NativePolicy, runKey: string, calls: number, command: string, refundable = true): Refusal {
     const run = this.runs.get(runKey);
     if (!run) return `${n.playbook}: this run holds no lock`;
     if (run.acted + calls > n.maxPerRun) {
       return `${n.playbook} allows ${n.maxPerRun} call${n.maxPerRun === 1 ? "" : "s"} to hands/${n.hand?.name ?? "its hand"} in one run and this run has made ${run.acted}: end the run`;
     }
     const taken = this.taken(n.playbook);
+    if (!Number.isFinite(taken)) return `${n.playbook}: today's count could not be read, so no action is allowed: end the run`;
     if (taken + calls > n.maxPerDay) {
       return `${n.playbook} has taken its ${n.maxPerDay} action${n.maxPerDay === 1 ? "" : "s"} for today (${taken} of ${n.maxPerDay}): end the run`;
     }
-    this.writeCount(n.playbook, taken + calls);
+    const day = this.today();
+    this.writeCount(n.playbook, taken + calls, day);
     run.acted += calls;
-    run.pending.set(command, (run.pending.get(command) ?? 0) + calls);
+    const before = run.pending.get(command);
+    run.pending.set(command, { day, calls: (before?.calls ?? 0) + calls, refundable: refundable && (before?.refundable ?? true) });
     return undefined;
   }
 
@@ -152,10 +176,13 @@ export class NativeState {
    */
   settle(n: NativePolicy, runKey: string, command: string, exitCode: number | undefined): void {
     const run = this.runs.get(runKey);
-    const calls = run?.pending.get(command);
-    if (!run || calls === undefined) return;
+    const held = run?.pending.get(command);
+    if (!run || held === undefined) return;
     run.pending.delete(command);
-    if (exitCode === 2) this.writeCount(n.playbook, Math.max(0, this.taken(n.playbook) - calls));
+    if (exitCode !== 2 || !held.refundable) return;
+    // Back on the day it was taken from, even if midnight UTC has passed since.
+    const now = this.taken(n.playbook, held.day);
+    if (Number.isFinite(now)) this.writeCount(n.playbook, Math.max(0, now - held.calls), held.day);
   }
 
   /** The run is over: its record to state/act/<name>/runs.jsonl (what bin/health reads) and its lock released. */

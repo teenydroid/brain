@@ -1,12 +1,12 @@
 // The agents generated for playbooks that run natively: one per `run = "native"` playbook, a shell and nothing
 // else, in the act agent's voice, with CortexDB recall like any agent that talks to people.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { agentEntry, loadAgentDefs, toolPolicy } from "../../src/agents/definitions.js";
 import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
-import { loadNativeDefs, nativeMaxToolCalls } from "../../src/agents/native.js";
+import { loadNativeDefs, nativeAddendum, nativeMaxToolCalls } from "../../src/agents/native.js";
 import { AgentCatalog } from "../../src/agents/provision.js";
 import { buildGatewayConfig } from "../../src/gateway/config.js";
 import { REPO } from "../helpers.js";
@@ -111,5 +111,21 @@ describe("the agents of native playbooks", () => {
     expect(got.errors.take).toMatch(/studio/);
     // a checkout with no hands/ is an error to report, never a crash
     expect(Object.keys(loadNativeDefs(dir, join(dir, "nowhere")).errors).length).toBe(3);
+  });
+
+  it("reads every TOML spelling of run = native, and reports an unreadable playbook instead of throwing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "native-spell-"));
+    mkdirSync(join(dir, "playbooks"), { recursive: true });
+    const book = (name: string, front: string) => writeFileSync(join(dir, "playbooks", `${name}.md`), `+++\ndescription = "x"\n${front}\n+++\nDo it.\n`);
+    book("single", "output = \"post\"\nrun = 'native'");
+    book("indented", 'output = "post"\n  run = "native"');
+    symlinkSync(join(dir, "nowhere.md"), join(dir, "playbooks", "dangling.md"));
+    const got = loadNativeDefs(dir, REPO);
+    expect(got.defs.map((d) => d.id).sort()).toEqual(["pb-indented", "pb-single"]);
+    expect(Object.keys(got.errors)).toEqual(["dangling"]);
+  });
+
+  it("tells the agent the run cap its playbook sets, not a fixed one", () => {
+    expect(nativeAddendum(2)).toContain("beyond the 2 this playbook allows in a run");
   });
 });

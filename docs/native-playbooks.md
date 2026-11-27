@@ -7,7 +7,8 @@ A playbook normally runs through `bin/act`: the inputs, one tool-less draft, the
 1. In its front matter add `run = "native"`. Optionally `max_per_run = N` (calls to the acting hand in one run, default 1, at most `max_per_day`).
 2. Leave its job in `brain/cron.toml` as `command = "bin/act <name>"`. The schedule, `catch_up` rules and the no-catch-up rule for anything that speaks stay as they were. `bin/seed-cron` sees the playbook is native and seeds an agent job for the agent `pb-<name>` with the playbook's message instead. Do not add `make_up_hours`: a native run keeps no `bin/act` run log, and the policy refuses it.
 3. `bin/seed-cron --check` and `python3 bin/lib/native_playbook.py spec brain <name> hands` tell you whether it can: the rules are in `bin/lib/playbook.py` (`_check_native`) and mirrored in `core/src/playbooks/load.ts`.
-4. To go back to `bin/act`, delete the line. The job changes kind on the next seed.
+4. The running core loads agents at boot: after you change the front matter, restart the core (or the spine) so `pb-<name>` exists or is dropped, then seed. Check that `spine` is not mid-evolve first.
+5. To go back to `bin/act`, delete the line. The job changes kind on the next seed; restart the core to drop the agent.
 
 Can run natively: output `post`, `reply`, `like`, `none`, `hand:x post|reply|like`, `hand:moltbook post|comment`; inputs that are hands; media `image` and `video`.
 Cannot: `nudge`, `meme`, `datajob:` inputs, any other acting hand, and the playbooks `bin/act` holds to the studio switch (`x-quote`, `morning`, `take`, `show`, `shiplog`, `growth`, `brief`, `peer-quote`). A hand joins the native list (`NATIVE_HANDS` in both loaders) only after you have checked that its action path runs the guard, its caps and DRY_RUN inside itself, because `bin/act`'s own guard pass before a `hand:` output does not exist in a native turn.

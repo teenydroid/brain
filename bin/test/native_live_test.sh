@@ -28,7 +28,7 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-native.XXXXXX")"
 spine_pid=""
 model_pid=""
 cleanup() {
-  [ -n "$spine_pid" ] && kill -TERM "$spine_pid" 2>/dev/null && wait "$spine_pid" 2>/dev/null
+  [ -n "$spine_pid" ] && kill -TERM "$spine_pid" 2>/dev/null && { wait "$spine_pid" 2>/dev/null || true; }
   [ -n "$model_pid" ] && kill "$model_pid" 2>/dev/null
   if [ "${KEEP_SCRATCH:-0}" = 1 ]; then echo "scratch kept at $scratch"; else rm -rf "$scratch"; fi
 }

@@ -130,18 +130,17 @@ def _action(book: dict) -> list[str]:
         "in single quotes, written as one line with every apostrophe inside it as \\u0027 and every line break as \\n "
         "(a raw apostrophe or line break breaks the quoting and the shell refuses the command)."
     ).format(hand=hand, verb=verb)
-    output = book["output"]
-    if output == "post":
+    if (hand, verb) == ("x", "post"):
         lines.append(
             "To post, call `hands/x post` with the draft as one JSON object: "
             '{"text": "...", "anchor": "<the one item from the inputs it is about: its id, url or PR number>"}, '
             'adding "quote_of": "<a post id from the inputs>" to quote that post and "format": "<tag>" when the '
             "playbook names one. Say in one plain sentence what the post tells someone who has never heard of you "
             "(the \"meaning\"), and write the post for that person.")
-    elif output == "reply":
+    elif (hand, verb) == ("x", "reply"):
         lines.append('To reply, call `hands/x reply --to <post id from the inputs>` with {"text": "..."}.')
         how = how.replace("hands/x reply", "hands/x reply --to <post id>")
-    elif output == "like":
+    elif (hand, verb) == ("x", "like"):
         lines.append("To like a post, call `hands/x like <post id from the inputs>`; it takes no body.")
         how = ""
     else:

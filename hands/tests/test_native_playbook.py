@@ -108,6 +108,14 @@ class NativePlaybookTest(unittest.TestCase):
         self.assertNotIn("DRY_RUN=1 hands/", text)
         self.assertNotIn("post-thread", text)
 
+    def test_the_explicit_x_hand_form_gets_the_same_instructions_as_the_bare_verb(self):
+        reply = native_playbook.message(self.write(output="hand:x reply"))
+        self.assertIn("hands/x reply --to <post id from the inputs>", reply)
+        like = native_playbook.message(self.write(output="hand:x like"))
+        self.assertIn("takes no body", like)
+        post = native_playbook.message(self.write(output="hand:x post"))
+        self.assertIn("Say in one plain sentence what the post tells", post)
+
     def test_a_message_over_the_prompt_screen_is_refused(self):
         book = self.write()
         book["prompt"] = "x" * (native_playbook.MAX_MESSAGE_BYTES + 1)

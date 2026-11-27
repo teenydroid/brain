@@ -2,7 +2,7 @@
 // hand, the inputs as declared and run with DRY_RUN=1, one run of a playbook at a time. The prompt says the same;
 // none of this depends on the model reading it.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { blocked, makeFixture, rewritten, write, type Fixture } from "./fixture.js";
@@ -154,6 +154,41 @@ describe("a native run's shell: the acting hand", () => {
     expect(taken(h, "gm")).toBe(1);
   });
 
+  it("gives a refusal back to the day it was taken on, even after midnight UTC", async () => {
+    let now = Date.parse("2026-11-27T23:59:59Z");
+    const f = makeFixture({ now: () => now });
+    const command = String(rewritten(await exec(f, "pb-gm", POST, "r1"))?.command);
+    now = Date.parse("2026-11-28T00:00:05Z");
+    f.guard.observe({ toolName: "exec", params: { command }, result: { exitCode: 2 } }, { agentId: "pb-gm", runId: "r1" });
+    expect(taken(f, "gm", "2026-11-27")).toBe(0);
+    expect(taken(f, "gm", "2026-11-28")).toBe(0);
+  });
+
+  it("never gives the day back for an exit 2 that another command of the line may have made", async () => {
+    for (const line of [`${POST} ; hands/x slot`, `hands/x slot && ${POST}`]) {
+      const f = makeFixture({ now: () => NOON });
+      const d = await exec(f, "pb-gm", line, "r1");
+      expect(blocked(d)).toBeUndefined();
+      f.guard.observe({ toolName: "exec", params: { command: String(rewritten(d)?.command) }, result: { exitCode: 2 } }, { agentId: "pb-gm", runId: "r1" });
+      expect(taken(f, "gm")).toBe(1);
+    }
+  });
+
+  it("refuses a background exec, whose exit code would never be read", async () => {
+    const f = makeFixture({ now: () => NOON });
+    expect(blocked(await f.call("pb-gm", "exec", { command: POST, background: true }, { runId: "r1" }))).toMatch(/foreground/);
+    expect(taken(f, "gm")).toBe(0);
+  });
+
+  it("allows no action while today's count file cannot be read, rather than counting it as unused", async () => {
+    const f = makeFixture({ now: () => NOON });
+    mkdirSync(countFile(f, "gm"), { recursive: true });
+    expect(blocked(await exec(f, "pb-gm", POST, "r1"))).toMatch(/could not be read/);
+    const g = makeFixture({ now: () => NOON });
+    write(countFile(g, "gm"), "garbage\n");
+    expect(blocked(await exec(g, "pb-gm", POST, "r1"))).toMatch(/could not be read/);
+  });
+
   it("names the playbook to a hand: output as TEENY_WRITER, as bin/act did, and not to hands/x", async () => {
     const f = makeFixture({ now: () => NOON });
     expect(rewritten(await exec(f, "pb-moltbook-general", MPOST, "r1"))?.command).toContain(`| TEENY_WRITER=moltbook-general ${join(f.root, "hands/moltbook")} post`);
@@ -236,6 +271,16 @@ describe("a native run's lock: one run of a playbook at a time", () => {
     end(f, "pb-gm", "r1");
     write(join(f.paths.stateDir, "locks", "act-gm", "owner"), `${process.pid} ${process.env.HOSTNAME || (await import("node:os")).hostname()} 0 old-run\n`);
     expect(blocked(await exec(f, "pb-gm", "hands/x slot", "r2"))).toBeUndefined();
+  });
+
+  it("writes the owner line bin/act's lock_stale reads: pid, host and the process's real start time", async () => {
+    const f = makeFixture({ now: () => NOON });
+    await exec(f, "pb-gm", "hands/x slot", "r1");
+    const [pid, , start] = readFileSync(join(f.paths.stateDir, "locks", "act-gm", "owner"), "utf8").trim().split(/\s+/);
+    const stat = readFileSync(`/proc/${process.pid}/stat`, "utf8");
+    expect(pid).toBe(String(process.pid));
+    expect(start).toBe(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+    expect(start).not.toBe("0");
   });
 
   it("writes the run's record where bin/health reads bin/act's, and releases the lock", async () => {
