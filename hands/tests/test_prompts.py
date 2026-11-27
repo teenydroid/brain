@@ -496,6 +496,9 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("no receipt and no fresh scan", rule)
         self.assertIn("never proves a sale", rule)
         self.assertNotIn("354 transfers", rule)
+        # A reply turn has no tools, so the rule must not tell it to "go count".
+        self.assertNotIn("go count", rule)
+        self.assertIn("a reply turn with no tools never counts", rule)
 
     def test_the_x_playbooks_ask_for_a_story_a_stranger_follows(self):
         # The bar used to ask for "a number, a receipt" from Teeny's own
