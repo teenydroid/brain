@@ -279,12 +279,22 @@ check "the model key and the Gateway token are private files beside it" \
   test "$(mode_of "$root/state/openclaw/model.key")$(mode_of "$root/state/openclaw/gateway.token")" = 600600
 # What the Gateway's exec tool hands to every command it runs is the Gateway's own
 # environment: it must hold neither secret, nor the core's token or master key.
-gateway_pid=""
+# The Gateway's process: the one whose command line names openclaw and gateway (it may
+# retitle itself), not the core's own (main.js serve).
+gateway_pids=""
 for proc in /proc/[0-9]*; do
-  if tr '\0' ' ' <"$proc/cmdline" 2>/dev/null | grep -q 'openclaw.mjs gateway run'; then gateway_pid="${proc#/proc/}"; break; fi
+  cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+  case "$cmd" in *main.js\ serve*) continue ;; esac
+  case "$cmd" in *openclaw*gateway*|*openclaw-gateway*) gateway_pids="$gateway_pids ${proc#/proc/}" ;; esac
 done
-check "the Gateway process has no secret in its environment" bash -c \
-  "[ -n '$gateway_pid' ] && ! tr '\\0' '\\n' </proc/$gateway_pid/environ | grep -E 'stub-key|OPENCLAW_GATEWAY_TOKEN|LOCAL_OPENAI_API_KEY|OPENHUMAN_CORE_TOKEN|KEYRING_MASTER' >/dev/null"
+gateway_leaks=""
+for pid in $gateway_pids; do
+  if tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -E 'stub-key|OPENCLAW_GATEWAY_TOKEN|LOCAL_OPENAI_API_KEY|OPENHUMAN_CORE_TOKEN|KEYRING_MASTER' >/dev/null; then
+    gateway_leaks="$gateway_leaks $pid"
+  fi
+done
+check "the Gateway process was found" test -n "$gateway_pids"
+check "and has no secret in its environment (the pids: $gateway_pids)" test -z "$gateway_leaks"
 check "the Gateway answers over the core's readiness probe" \
   test "$("$root/bin/oh" modules_browser_check_readiness | jq -r .module_ready)" = true
 check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
