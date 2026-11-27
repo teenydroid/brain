@@ -347,18 +347,17 @@ class PaymentLog {
 }
 
 /**
- * What the budget counts as spent: every payment at the full value it was signed for, until it provably cannot
- * settle. A signed authorization stays valid until it expires whatever the server answered, so a refusal from the
- * server (a 4xx), or a receipt that reports less than the ceiling, frees nothing: the server can still settle the
- * authorization itself. Only a payment that was never signed, or one that failed and whose authorization has
- * expired, stops counting.
+ * What the budget counts as spent: a settled payment at the full value it was signed for (a receipt that reports
+ * less than the ceiling never lowers it), and a payment still in flight or unanswered with a 2xx but no receipt
+ * (pending). A payment that failed stops counting: it was never signed, or the paid request got no 2xx answer (a
+ * refusal, an error status, no response). That is the operator's decision (2026-11): a failed fetch does not spend
+ * the caps, even though a signed authorization can in principle still be settled by whoever holds it until it expires.
  */
-export function spentSince(records: PaymentRecord[], sinceMs: number, nowMs: number): bigint {
+export function spentSince(records: PaymentRecord[], sinceMs: number, _nowMs: number): bigint {
   return records
     .filter((r) => {
       if ((r.reservedAtMs ?? Date.parse(r.timestamp)) < sinceMs) return false;
-      if (r.status !== "failed") return true;
-      return r.signed === true && (r.expiresAtMs ?? Number.POSITIVE_INFINITY) > nowMs;
+      return r.status !== "failed";
     })
     .reduce((sum, r) => sum + BigInt(r.amountAtomic), 0n);
 }
@@ -790,19 +789,25 @@ export function x402Methods(rt: Runtime): RpcMethods {
       await log.update({ ...pending, status: "failed", signed: false, timestamp: new Date(rt.now()).toISOString() });
       throw error;
     }
-    // From here a signature exists. Until it expires it can be settled by whoever holds it, so the row keeps counting
-    // at the full signed value, whatever the server answers. No response (send throws): same, and still pending.
+    // From here a signature exists. The row counts at the full signed value (pending) while the paid request is in
+    // flight; it stops counting only when that request fails (no response, or a non-2xx one).
     const held = { ...pending, signed: true, expiresAtMs: signed.expiresAtMs };
     await log.update({ ...held, timestamp: new Date(rt.now()).toISOString() });
-    const retry = await send(rt, target, addresses, p, ["PAYMENT-SIGNATURE", signed.header]);
+    let retry: Response;
+    try {
+      retry = await send(rt, target, addresses, p, ["PAYMENT-SIGNATURE", signed.header]);
+    } catch (error) {
+      await log.update({ ...held, status: "failed", timestamp: new Date(rt.now()).toISOString() });
+      throw error;
+    }
     const settlement = retry.headers.get("payment-response");
     const charged = retry.status >= 200 && retry.status < 300 ? settledAmount(decodeReceipt(settlement), rail.accept.network, rail.scheme, amount) : undefined;
     const settled = charged !== undefined;
-    // `failed` here only says the server refused; the budget still counts it until the authorization expires (spentSince).
+    // A non-2xx answer is a failed fetch and is not counted (spentSince). A 2xx without a settlement receipt stays pending and counted.
     // An upto receipt's amount is the server's word, so it is kept beside the row and never replaces the ceiling.
     await log.update({
       ...held,
-      status: settled ? "settled" : retry.status >= 400 && retry.status < 500 ? "failed" : "pending",
+      status: settled ? "settled" : retry.status >= 200 && retry.status < 300 ? "pending" : "failed",
       ...(settled && rail.scheme === "upto" ? { reportedChargedAtomic: charged.toString() } : {}),
       timestamp: new Date(rt.now()).toISOString(),
     });
