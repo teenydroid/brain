@@ -312,9 +312,9 @@ fi
 # TEENY_INBOX=core would send mail and mentions to OpenHuman's inbound queue and its
 # per-surface agents (`openhuman.inbound_offer`). The TypeScript core does not serve
 # it, so every offer would fail and nothing would be answered. The default, `mind`,
-# feeds the stimuli inbox. The environment can set it, and so can secrets/teeny.env.
-inbox_mode="${TEENY_INBOX:-}"
-if [ -z "$inbox_mode" ] && [ -f "$secrets/teeny.env" ]; then
+# feeds the stimuli inbox. The hands read it from secrets/teeny.env only.
+inbox_mode=""
+if [ -f "$secrets/teeny.env" ]; then
   inbox_mode="$(sed -n 's/^TEENY_INBOX=//p' "$secrets/teeny.env" | tail -n 1 | tr -d "\"' " | tr 'A-Z' 'a-z')"
 fi
 if [ "$(printf '%s' "${inbox_mode:-mind}" | tr 'A-Z' 'a-z')" = core ]; then

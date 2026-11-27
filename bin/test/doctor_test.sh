@@ -475,6 +475,7 @@ check "--live fails when no Chrome is found" grep -q '^FAIL browser: .*no Chrome
 live_doctor || true
 check "--live passes a Gateway that is up and a Chrome that is found" grep -q '^ok   browser: ' "$scratch/doctor.log"
 check "and says the Gateway is running" grep -q '^ok   gateway: ' "$scratch/doctor.log"
+rm -f "$root/state/openclaw/openclaw.json"
 NO_GATEWAY_CONFIG=1 live_doctor || true
 check "--live fails when the core has not written the Gateway's config" \
   grep -q '^FAIL gateway lockdown: no ' "$scratch/doctor.log"
@@ -615,13 +616,22 @@ rm -f "$root/secrets/teeny.env"
 # --- the core and its OpenClaw Gateway: the lockdown, the audit, the runtime ------------
 # The core writes the Gateway's config to state/openclaw/openclaw.json; the
 # doctor reads the flags back and runs `openclaw security audit` on it.
+cat >"$scratch/audit-core" <<'FAKE'
+#!/usr/bin/env bash
+# A stand-in core: `openclaw security audit --json` answers $FAKE_AUDIT.
+[ "$1 $2 $3" = "openclaw security audit" ] || exit 2
+printf '%s\n' "$FAKE_AUDIT"
+FAKE
+chmod +x "$scratch/audit-core"
+audit_doctor() { OPENHUMAN_CORE_BIN="$scratch/audit-core" FAKE_AUDIT="$1" doctor; }
+CLEAN_AUDIT='{"findings": []}'
 fresh
 check "before the core has written a config the lockdown only warns" doctor
 check "and says it waits for the core" grep -q '^warn gateway lockdown: no .*openclaw.json yet' "$scratch/doctor.log"
 put_gateway_config
-check "a locked-down config passes" doctor
+check "a locked-down config passes" audit_doctor "$CLEAN_AUDIT"
 put_gateway_config '.gateway.auth.token = {source: "file", provider: "teeny_gateway_token", id: "value"} | .models = {providers: {m: {apiKey: {source: "file", provider: "k", id: "value"}}}}'
-check "and so does one whose secrets are SecretRefs" doctor
+check "and so does one whose secrets are SecretRefs" audit_doctor "$CLEAN_AUDIT"
 check "and says how many flags hold" grep -q '^ok   gateway lockdown: 9 lockdown flags hold' "$scratch/doctor.log"
 for broken in \
   '.hooks.enabled = true|hooks.enabled is true' \
@@ -645,14 +655,6 @@ put_gateway_config
 printf 'not json' >"$root/state/openclaw/openclaw.json"
 fails "an unreadable config fails the doctor" "gateway lockdown"
 
-cat >"$scratch/audit-core" <<'FAKE'
-#!/usr/bin/env bash
-# A stand-in core: `openclaw security audit --json` answers $FAKE_AUDIT.
-[ "$1 $2 $3" = "openclaw security audit" ] || exit 2
-printf '%s\n' "$FAKE_AUDIT"
-FAKE
-chmod +x "$scratch/audit-core"
-audit_doctor() { OPENHUMAN_CORE_BIN="$scratch/audit-core" FAKE_AUDIT="$1" doctor; }
 fresh
 put_gateway_config
 audit_doctor '{"summary": {"critical": 0, "warn": 0, "info": 1}, "findings": [{"checkId": "x.info", "severity": "info"}]}' || true
@@ -683,8 +685,6 @@ printf 'TEENY_INBOX=core\n' >"$root/secrets/teeny.env"
 fails "TEENY_INBOX=core in secrets/teeny.env fails the doctor" "inbox"
 printf 'TEENY_INBOX="Core"\n' >"$root/secrets/teeny.env"
 fails "however it is spelled" "inbox"
-rm -f "$root/secrets/teeny.env"
-TEENY_INBOX=core fails "TEENY_INBOX=core in the environment fails it too" "inbox"
 printf 'TEENY_INBOX=mind\n' >"$root/secrets/teeny.env"
 check "TEENY_INBOX=mind passes" doctor
 rm -f "$root/secrets/teeny.env"
