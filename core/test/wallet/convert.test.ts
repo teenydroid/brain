@@ -169,6 +169,23 @@ describe("a quote's life", () => {
   });
 });
 
+/** A live bridge quote on Base whose input is `amount` USDC, from deBridge, whose contract is the pinned DlnSource. */
+async function liveQuote(h: Harness, amount: string): Promise<{ quoteId: string }> {
+  const me = await own(h, "evm");
+  h.net.onHttp((u) => u.includes("dln.debridge.finance"), () => json({ tx: { to: "0xef4fb24ad0916217251f553c0596f8edc630eb66", data: "0x12", value: "0" } }));
+  return (await h.call("web3_bridge_quote", {
+    srcChainId: "8453",
+    srcChainTokenIn: BASE_USDC,
+    srcChainTokenInAmount: amount,
+    dstChainId: "42161",
+    dstChainTokenOut: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    dstChainTokenOutAmount: "debridge:auto",
+    dstChainTokenOutRecipient: me,
+    srcChainOrderAuthorityAddress: me,
+    dstChainOrderAuthorityAddress: me,
+  })) as { quoteId: string };
+}
+
 const approve = (spender: string, amount: bigint): string => `0x095ea7b3${spender.toLowerCase().replace(/^0x/, "").padStart(64, "0")}${amount.toString(16).padStart(64, "0")}`;
 
 describe("a dapp call", () => {
@@ -176,6 +193,7 @@ describe("a dapp call", () => {
     const h = makeHarness();
     await setupWallet(h);
     const { sent } = mockEvm(h.net);
+    await liveQuote(h, "1000000");
     const calldata = approve("ef4fb24ad0916217251f553c0596f8edc630eb66", 1_000_000n);
     const quote = (await h.call("web3_dapp_call", { contractAddress: BASE_USDC, calldata, valueRaw: "0", evmNetwork: "base_mainnet" })) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(quote.quote).toEqual({ contractAddress: BASE_USDC, calldata, valueRaw: "0" });
@@ -190,6 +208,7 @@ describe("a dapp call", () => {
   it("refuses a malformed call", async () => {
     const h = makeHarness();
     await setupWallet(h);
+    await liveQuote(h, "1");
     const base = { contractAddress: BASE_USDC, calldata: approve("ef4fb24ad0916217251f553c0596f8edc630eb66", 1n), valueRaw: "0", evmNetwork: "base_mainnet" };
     await expect(h.call("web3_dapp_call", { ...base, contractAddress: "0xabc" })).rejects.toThrow(/not a valid EVM address/);
     await expect(h.call("web3_dapp_call", { ...base, calldata: "0xzz" })).rejects.toThrow(/calldata is not hex/);
@@ -243,9 +262,28 @@ describe("a dapp call is only ever an exact USDC approval for a contract we can 
     expect(await refused(call(h, { calldata: `${approve(PINNED, 1n)}00` }))).toMatch(/exactly two 32-byte arguments/);
     expect(await refused(call(h, { calldata: `0x095ea7b3${"f".repeat(24)}${PINNED}${"0".repeat(64)}` }))).toMatch(/the spender is not an address/);
     expect(await refused(call(h, { calldata: "0x095ea7b3" }))).toMatch(/exactly two 32-byte arguments/);
+    // a pinned spender needs a live quote too: with none, nothing is approved, however small
+    expect(await refused(call(h, { calldata: approve(PINNED, 1n) }))).toBe(`${prefix}1 of USDC for 0x${PINNED} is not covered by a live swap or bridge quote (there is none, or its input is smaller)`);
     // and a quote id nobody gave us executes nothing
     await expect(h.call("web3_dapp_execute", { quoteId: "q-made-up", confirmed: true })).rejects.toThrow(/unavailable or expired/);
     expect(sent).toHaveLength(0);
+  });
+
+  it("bounds a pinned deBridge spender by the quote about to be executed, not by a very large number", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    mockEvm(h.net);
+    await liveQuote(h, "5000000");
+    expect(await refused(call(h, { calldata: approve(PINNED, 2n ** 254n) }))).toMatch(/is not covered by a live swap or bridge quote/);
+    expect(await refused(call(h, { calldata: approve(PINNED, 5_000_001n) }))).toMatch(/is not covered/);
+    await call(h, { calldata: approve(PINNED, 5_000_000n) });
+    // a quote for a different input token covers nothing
+    const other = makeHarness();
+    await setupWallet(other);
+    other.net.onHttp((u) => u.includes("dln.debridge.finance"), () => json({ tx: { to: `0x${PINNED}`, data: "0x12", value: "0" } }));
+    const me = await own(other, "evm");
+    await other.call("web3_bridge_quote", { srcChainId: "8453", srcChainTokenIn: ZERO, srcChainTokenInAmount: "9999999999", dstChainId: "42161", dstChainTokenOut: "b", dstChainTokenOutAmount: "debridge:auto", dstChainTokenOutRecipient: me, srcChainOrderAuthorityAddress: me, dstChainOrderAuthorityAddress: me });
+    expect(await refused(call(other, { calldata: approve(PINNED, 1n) }))).toMatch(/is not covered/);
   });
 
   it("allows an approval for the contract a live quote of ours names, up to that quote's input, on that chain only", async () => {
@@ -268,12 +306,12 @@ describe("a dapp call is only ever an exact USDC approval for a contract we can 
       srcChainOrderAuthorityAddress: me,
       dstChainOrderAuthorityAddress: me,
     })) as { quoteId: string };
-    expect(await refused(call(h, { calldata: approve(spender, 5_000_001n) }))).toMatch(/neither the contract of a live quote/); // more than the quote's input
+    expect(await refused(call(h, { calldata: approve(spender, 5_000_001n) }))).toMatch(/is not covered by a live swap or bridge quote/); // more than the quote's input
     const approval = (await call(h, { calldata: approve(spender, 5_000_000n) })) as { quoteId: string };
     await h.call("web3_dapp_execute", { quoteId: approval.quoteId, confirmed: true });
     expect(parseEvm(sent[0]!).to?.toLowerCase()).toBe(BASE_USDC.toLowerCase());
     // another chain's USDC is not covered by a Base quote
-    expect(await refused(call(h, { contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", evmNetwork: "arbitrum_one", calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote/);
+    expect(await refused(call(h, { contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", evmNetwork: "arbitrum_one", calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote|is not covered/);
     // once the quote has expired it vouches for nothing
     h.clock.now += 91_000;
     expect(await refused(call(h, { calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote/);

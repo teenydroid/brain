@@ -22,6 +22,7 @@ import { type MintTotal, accountKey, alreadyAttempted, alreadyAttemptedMessage, 
 import type { ProgramQuote, Runtime } from "./runtime.js";
 import { sendTransaction } from "./solana-chain.js";
 import {
+  MAX_NATIVE_DEBIT_LAMPORTS,
   QUOTE_PREFIX,
   QUOTE_TTL_MS,
   type SimulationReport,
@@ -42,6 +43,13 @@ function accountIndexOf(params: Params): number {
   const raw = params.accountIndex ?? params.account_index;
   if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) throw fail("invalid params: accountIndex is a whole number");
   return raw;
+}
+
+/** The native SOL bound: the fixed one, or lower when OPENHUMAN_WALLET_PROGRAM_MAX_NATIVE_LAMPORTS says so (the env can only lower it). */
+function nativeCap(ctx: CoreContext): bigint {
+  const raw = ctx.env.OPENHUMAN_WALLET_PROGRAM_MAX_NATIVE_LAMPORTS?.trim();
+  const lower = raw && /^\d+$/.test(raw) ? BigInt(raw) : undefined;
+  return lower !== undefined && lower < MAX_NATIVE_DEBIT_LAMPORTS ? lower : MAX_NATIVE_DEBIT_LAMPORTS;
 }
 
 function onlyFields(params: Params, allowed: readonly string[], method: string): void {
@@ -98,7 +106,7 @@ function publicQuote(q: ProgramQuote): Record<string, unknown> {
     address: q.address,
     summary: q.summary,
     declaredDebits: q.declaredDebits,
-    simulation: { err: q.simulation.err ?? null, debits: q.simulation.debits, tokenAccounts: q.simulation.tokenAccounts, ...(q.simulation.unitsConsumed !== undefined ? { unitsConsumed: q.simulation.unitsConsumed } : {}) },
+    simulation: { err: q.simulation.err ?? null, debits: q.simulation.debits, nativeDebitLamports: q.simulation.nativeDebitLamports, tokenAccounts: q.simulation.tokenAccounts, ...(q.simulation.unitsConsumed !== undefined ? { unitsConsumed: q.simulation.unitsConsumed } : {}) },
     createdAtMs: q.createdAtMs,
     expiresAtMs: q.expiresAtMs,
   };
@@ -126,8 +134,8 @@ export function programMethods(rt: Runtime): RpcMethods {
     const ledger = rt.ledger(ctx);
     evaluateProgram(policy, "solana", accountIndex, summary, declared, ledger.records(), now);
     const rpc = rt.solana(ctx);
-    const simulation = await simulateQuote(rpc, transaction, decoded);
-    checkSimulation(declared, simulation);
+    const simulation = await simulateQuote(rpc, transaction, decoded, ctx);
+    checkSimulation(declared, simulation, nativeCap(ctx));
     const quote: ProgramQuote = {
       quoteId: `${QUOTE_PREFIX}${newId()}`,
       stateDir: ctx.stateDir,
@@ -179,9 +187,9 @@ export function programMethods(rt: Runtime): RpcMethods {
     // chain's final state.
     let simulated: PolicyRefusal | undefined;
     try {
-      const report = await simulateQuote(rpc, held.transaction, held.decoded);
+      const report = await simulateQuote(rpc, held.transaction, held.decoded, ctx);
       try {
-        checkSimulation(held.declaredDebits, report);
+        checkSimulation(held.declaredDebits, report, nativeCap(ctx));
       } catch (error) {
         if (error instanceof PolicyRefusal) simulated = error;
         else throw error;
@@ -227,11 +235,19 @@ export function programMethods(rt: Runtime): RpcMethods {
   return methods;
 }
 
-async function simulateQuote(rpc: import("./rpc.js").SolanaRpc, transaction: Uint8Array, decoded: ReturnType<typeof decodeTransaction>): Promise<SimulationReport> {
+async function simulateQuote(
+  rpc: import("./rpc.js").SolanaRpc,
+  transaction: Uint8Array,
+  decoded: ReturnType<typeof decodeTransaction>,
+  ctx: CoreContext,
+): Promise<SimulationReport> {
   const owner = decoded.accountKeys[0];
   if (!owner) throw fail("the transaction lists no accounts");
+  // Native SOL is watched on the fee payer and on any other Solana account of this wallet the message names.
+  const mine = new Set((loadState(ctx)?.accounts ?? []).filter((a) => a.chain === "solana").map((a) => a.address));
+  const watch = decoded.accountKeys.filter((k) => mine.has(base58(k)));
   try {
-    return await simulate(rpc, transaction, owner, decoded.accountKeys);
+    return await simulate(rpc, transaction, owner, decoded.accountKeys, watch);
   } catch (error) {
     throw fail(`could not simulate the transaction: ${error instanceof Error ? error.message : "error"}`);
   }

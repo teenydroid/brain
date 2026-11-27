@@ -141,19 +141,20 @@ describe("no method, error, log or file ever carries key material", () => {
       return d.toString("base64");
     };
     h.net.onRpc("getTokenAccountsByOwner", (p) => ({ context: { slot: 9 }, value: (p[1] as { programId: string }).programId === TOKEN_2022_PROGRAM ? [{ pubkey: built.authority_token_account, account: { data: [tokenAccount(9_000_000n), "base64"] } }] : [] }));
-    h.net.onRpc("simulateTransaction", () => ({ context: { slot: 9 }, value: { err: null, accounts: [{ data: [tokenAccount(9_000_000n - 3_500_042n), "base64"] }] } }));
+    h.net.onRpc("getMultipleAccounts", (p) => ({ context: { slot: 9 }, value: (p[0] as string[]).map(() => ({ lamports: 1_000_000_000 })) }));
+    h.net.onRpc("simulateTransaction", (p) => ({ context: { slot: 9 }, value: { err: null, accounts: [{ data: [tokenAccount(9_000_000n - 3_500_042n), "base64"] }, ...Array.from({ length: (p[1] as { accounts: { addresses: string[] } }).accounts.addresses.length - 1 }, () => ({ lamports: 999_990_000 }))] } }));
     const p1 = (await run("wallet_prepare_program", { accountIndex: 1, transaction: built.transaction_b64, expectedDebits: [{ mint: MINT, amountRaw: "3500042" }] })) as { quoteId: string };
     await run("wallet_execute_prepared_program", { accountIndex: 1, quoteId: p1.quoteId });
     await run("wallet_prepare_program", { accountIndex: 1, transaction: built.transaction_b64, expectedDebits: [] });
     // swaps, bridges, dapp
     h.net.onHttp((u) => u.includes("dln.debridge"), () => json({ tx: { to: "0xef4fb24ad0916217251f553c0596f8edc630eb66", data: "0x1234", value: "0" }, estimation: {} }));
-    const s1 = (await run("web3_swap_quote", { chainId: "8453", tokenIn: "0x0000000000000000000000000000000000000000", tokenInAmount: "1", tokenOut: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", slippage: "0.5" })) as { quoteId: string };
-    await run("web3_swap_execute", { quoteId: s1.quoteId, confirmed: true });
+    const s1 = (await run("web3_swap_quote", { chainId: "8453", tokenIn: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", tokenInAmount: "1", tokenOut: "0x1111111111111111111111111111111111111111", slippage: "0.5" })) as { quoteId: string };
     const b1 = (await run("web3_bridge_quote", { srcChainId: "8453", srcChainTokenIn: "a", srcChainTokenInAmount: "1", dstChainId: "42161", dstChainTokenOut: "b", dstChainTokenOutAmount: "debridge:auto", dstChainTokenOutRecipient: "0x1111111111111111111111111111111111111111", srcChainOrderAuthorityAddress: "x", dstChainOrderAuthorityAddress: "y" })) as { quoteId: string };
     await run("web3_bridge_execute", { quoteId: b1.quoteId, confirmed: true });
     const d1 = (await run("web3_dapp_call", { contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", calldata: `0x095ea7b3${"0".repeat(24)}ef4fb24ad0916217251f553c0596f8edc630eb66${"0".repeat(63)}1`, valueRaw: "0", evmNetwork: "base_mainnet" })) as { quoteId: string };
     await run("web3_dapp_execute", { quoteId: d1.quoteId, confirmed: true });
     await run("web3_dapp_execute", { quoteId: d1.quoteId, confirmed: true });
+    await run("web3_swap_execute", { quoteId: s1.quoteId, confirmed: true });
     // x402
     const challenge = Buffer.from(JSON.stringify({ x402Version: 2, resource: { url: "https://api.example.test/x" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "10", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: "0x2222222222222222222222222222222222222222", maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } }] })).toString("base64");
     h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => (call.headers["payment-signature"] ? new Response("ok", { headers: { "payment-response": Buffer.from(JSON.stringify({ success: true, network: "eip155:8453" })).toString("base64") } }) : new Response("", { status: 402, headers: { "payment-required": challenge } })));

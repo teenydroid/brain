@@ -10,6 +10,7 @@
 //     execute instead of falling back to defaults.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { PublicKey } from "@solana/web3.js";
 import { parse as parseToml } from "smol-toml";
 import type { CoreContext } from "../server/types.js";
 import { refusal } from "./errors.js";
@@ -167,12 +168,31 @@ export interface TransferFacts {
   amountRaw: string;
 }
 
+/**
+ * One spelling per recipient or token, so a cap cannot be split across spellings of the same address:
+ * EVM addresses compare lowercase (a checksum is a spelling, not an identity); Solana addresses go through
+ * a base58 decode and encode. Anything that does not parse is compared as written.
+ */
+export function canonicalAddress(chain: string, address: string): string {
+  const text = address.trim();
+  if (chain.toLowerCase() === "evm") return text.toLowerCase();
+  if (chain.toLowerCase() === "solana") {
+    try {
+      return new PublicKey(text).toBase58();
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
 function capMatches(c: AssetCap, a: { chain: string; evmNetwork?: string | undefined; symbol: string; tokenAddress?: string | undefined }): boolean {
   return (
     c.chain.toLowerCase() === a.chain.toLowerCase() &&
     c.symbol.toLowerCase() === a.symbol.toLowerCase() &&
     (c.evmNetwork === undefined || c.evmNetwork === a.evmNetwork) &&
-    (c.tokenAddress === undefined || c.tokenAddress === a.tokenAddress)
+    (c.tokenAddress === undefined ||
+      (a.tokenAddress !== undefined && canonicalAddress(c.chain, c.tokenAddress) === canonicalAddress(a.chain, a.tokenAddress)))
   );
 }
 
@@ -215,7 +235,7 @@ export function evaluateTransfer(policy: WalletPolicy, quote: TransferFacts, rec
   if (matching.recipientWeeklyMaxRaw !== undefined) {
     const since = nowMs - WEEK_MS;
     const spent = counted
-      .filter((r) => r.createdAtMs >= since && r.toAddress === quote.toAddress)
+      .filter((r) => r.createdAtMs >= since && canonicalAddress(r.chain, r.toAddress) === canonicalAddress(quote.chain, quote.toAddress))
       .reduce((sum, r) => sum + recordAmount(r), 0n);
     if (spent + amount > matching.recipientWeeklyMaxRaw) {
       throw refusal(
@@ -345,7 +365,8 @@ export function evaluateProgram(
         (r.accountIndex ?? 0) === accountIndex &&
         r.chain.toLowerCase() === chain.toLowerCase() &&
         countsAgainstCaps(r.status) &&
-        r.tokenAddress === total.mint &&
+        r.tokenAddress !== undefined &&
+        canonicalAddress("solana", r.tokenAddress) === canonicalAddress("solana", total.mint) &&
         r.createdAtMs >= since,
     )
     .reduce((sum, r) => sum + recordAmount(r), 0n);

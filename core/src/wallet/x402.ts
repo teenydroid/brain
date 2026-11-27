@@ -49,6 +49,14 @@ interface PaymentRecord {
   network: string;
   recipient: string;
   host: string;
+  /** When the budget was first charged; the windows count from here, however often the row is updated. */
+  reservedAtMs?: number;
+  /** When the signed authorization stops being usable. Until then it may be settled whatever the server says. */
+  expiresAtMs?: number;
+  /** True once a signature exists. A payment that failed before one was made owes the budget nothing. */
+  signed?: boolean;
+  /** What the server's receipt claimed was charged (upto). Unverified, so it never lowers what is counted. */
+  reportedChargedAtomic?: string;
 }
 
 // --- request validation (port of parse_params) -------------------------------------
@@ -335,9 +343,20 @@ class PaymentLog {
   }
 }
 
-function spentSince(records: PaymentRecord[], sinceMs: number): bigint {
+/**
+ * What the budget counts as spent: every payment at the full value it was signed for, until it provably cannot
+ * settle. A signed authorization stays valid until it expires whatever the server answered, so a refusal from the
+ * server (a 4xx), or a receipt that reports less than the ceiling, frees nothing: the server can still settle the
+ * authorization itself. Only a payment that was never signed, or one that failed and whose authorization has
+ * expired, stops counting.
+ */
+export function spentSince(records: PaymentRecord[], sinceMs: number, nowMs: number): bigint {
   return records
-    .filter((r) => r.status !== "failed" && Date.parse(r.timestamp) >= sinceMs)
+    .filter((r) => {
+      if ((r.reservedAtMs ?? Date.parse(r.timestamp)) < sinceMs) return false;
+      if (r.status !== "failed") return true;
+      return r.signed === true && (r.expiresAtMs ?? Number.POSITIVE_INFINITY) > nowMs;
+    })
     .reduce((sum, r) => sum + BigInt(r.amountAtomic), 0n);
 }
 
@@ -379,7 +398,7 @@ async function uptoProof(
   challenge: Challenge,
   rail: Rail,
   nowSecs: number,
-): Promise<{ payload: Record<string, unknown>; extensions: Record<string, unknown> }> {
+): Promise<{ payload: Record<string, unknown>; extensions: Record<string, unknown>; deadlineSecs: number }> {
   const accepted = rail.accept;
   const network = rail.evm!;
   const extra = accepted.extra ?? {};
@@ -475,13 +494,14 @@ async function uptoProof(
       });
     }
   }
-  return { payload, extensions };
+  return { payload, extensions, deadlineSecs: Number(deadline) };
 }
 
-async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge, rail: Rail, requested: string, now: number): Promise<string> {
+async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge, rail: Rail, requested: string, now: number): Promise<{ header: string; expiresAtMs: number }> {
   const accepted = rail.accept;
   const resource = typeof challenge.resource === "string" ? { url: challenge.resource } : (challenge.resource ?? { url: requested });
   let extensions: Record<string, unknown> = challenge.extensions && Object.keys(challenge.extensions).length > 0 ? challenge.extensions : {};
+  let expiresAtMs = now + 120_000; // a Solana blockhash lives about 60-90s
   const payload = await withSeed(ctx, async (seed, state) => {
     if (rail.chain === "evm") {
       const network = rail.evm!;
@@ -491,6 +511,7 @@ async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge
       if (rail.scheme === "upto") {
         const built = await uptoProof(rt, ctx, signer, challenge, rail, Math.floor(now / 1000));
         extensions = built.extensions;
+        expiresAtMs = built.deadlineSecs * 1000;
         return built.payload;
       }
       const timeout = Math.min(accepted.maxTimeoutSeconds ?? 60, MAX_AUTHORIZATION_SECS);
@@ -530,6 +551,7 @@ async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge
           nonce: authorization.nonce,
         },
       });
+      expiresAtMs = Number(authorization.validBefore) * 1000;
       return { signature, authorization };
     }
     const account = state.accounts.find((a) => a.chain === "solana" && isPrimary(a));
@@ -555,7 +577,7 @@ async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge
     return { transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
   });
   const body = { x402Version: challenge.x402Version ?? 2, resource, accepted, payload, ...(Object.keys(extensions).length > 0 ? { extensions } : {}) };
-  return Buffer.from(JSON.stringify(body)).toString("base64");
+  return { header: Buffer.from(JSON.stringify(body)).toString("base64"), expiresAtMs };
 }
 
 // --- Sign-In-With-X (port of tinywallet-x402 crypto/siwx.rs) -------------------------------
@@ -740,36 +762,42 @@ export function x402Methods(rt: Runtime): RpcMethods {
     const paymentId = `x402-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 24)}`;
     // The reservation, at the full ceiling for an upto payment, is written before anything is signed.
     const pending = await log.reserve((records) => {
-      if (spentSince(records, now - DAY_MS) + amount > daily) throw fail(`${X402_REFUSED_PREFIX} x402 daily budget exceeded`);
-      if (spentSince(records, now - MONTH_MS) + amount > monthly) throw fail(`${X402_REFUSED_PREFIX} x402 monthly budget exceeded`);
+      if (spentSince(records, now - DAY_MS, now) + amount > daily) throw fail(`${X402_REFUSED_PREFIX} x402 daily budget exceeded`);
+      if (spentSince(records, now - MONTH_MS, now) + amount > monthly) throw fail(`${X402_REFUSED_PREFIX} x402 monthly budget exceeded`);
       return {
         id: paymentId,
         status: "pending",
         asset: rail.accept.asset,
         amountAtomic: amount.toString(),
         timestamp: new Date(now).toISOString(),
+        reservedAtMs: now,
         network: rail.accept.network,
         recipient: rail.accept.payTo,
         host: target.hostname,
       };
     });
-    let header: string;
+    let signed: { header: string; expiresAtMs: number };
     try {
-      header = await paymentHeader(rt, ctx, challenge, rail, target.toString(), now);
+      signed = await paymentHeader(rt, ctx, challenge, rail, target.toString(), now);
     } catch (error) {
-      await log.update({ ...pending, status: "failed", timestamp: new Date(rt.now()).toISOString() });
+      // Nothing was signed that could be used: the reservation is released.
+      await log.update({ ...pending, status: "failed", signed: false, timestamp: new Date(rt.now()).toISOString() });
       throw error;
     }
-    // No response (send throws): the proof may or may not have settled, and the pending reservation stays counted.
-    const retry = await send(rt, target, addresses, p, ["PAYMENT-SIGNATURE", header]);
+    // From here a signature exists. Until it expires it can be settled by whoever holds it, so the row keeps counting
+    // at the full signed value, whatever the server answers. No response (send throws): same, and still pending.
+    const held = { ...pending, signed: true, expiresAtMs: signed.expiresAtMs };
+    await log.update({ ...held, timestamp: new Date(rt.now()).toISOString() });
+    const retry = await send(rt, target, addresses, p, ["PAYMENT-SIGNATURE", signed.header]);
     const settlement = retry.headers.get("payment-response");
     const charged = retry.status >= 200 && retry.status < 300 ? settledAmount(decodeReceipt(settlement), rail.accept.network, rail.scheme, amount) : undefined;
     const settled = charged !== undefined;
-    // An upto payment is charged what the receipt says, which may be nothing; the budget then holds only that.
+    // `failed` here only says the server refused; the budget still counts it until the authorization expires (spentSince).
+    // An upto receipt's amount is the server's word, so it is kept beside the row and never replaces the ceiling.
     await log.update({
-      ...pending,
+      ...held,
       status: settled ? "settled" : retry.status >= 400 && retry.status < 500 ? "failed" : "pending",
-      ...(settled && rail.scheme === "upto" ? { amountAtomic: charged.toString() } : {}),
+      ...(settled && rail.scheme === "upto" ? { reportedChargedAtomic: charged.toString() } : {}),
       timestamp: new Date(rt.now()).toISOString(),
     });
     ctx.log("debug", "x402 paid retry", { host: target.hostname, status: retry.status, settled });

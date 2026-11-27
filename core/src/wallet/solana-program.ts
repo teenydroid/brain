@@ -303,9 +303,17 @@ function tokenTransferChecked(position: number, programId: string, instruction: 
 // Simulation
 // ---------------------------------------------------------------------------
 
+/**
+ * The most native SOL a program execute may take from the wallet's own accounts (the fee payer, and any other account
+ * of the wallet the message names): the fee, the rent of accounts it creates, and a little room. Lamports.
+ */
+export const MAX_NATIVE_DEBIT_LAMPORTS = 10_000_000n;
+
 export interface SimulationReport {
   err?: unknown;
   debits: MintTotal[];
+  /** Lamports the simulation takes from the watched accounts (fee payer and wallet-held keys), summed. */
+  nativeDebitLamports: string;
   tokenAccounts: string[];
   unitsConsumed?: number;
 }
@@ -346,9 +354,16 @@ export function debits(owner: Uint8Array, pre: TokenAccountState[], post: Array<
 }
 
 /** Refuse unless the simulation succeeded and every debit equals DECLARED. */
-export function checkSimulation(declared: MintTotal[], report: SimulationReport): void {
+export function checkSimulation(declared: MintTotal[], report: SimulationReport, maxNative: bigint = MAX_NATIVE_DEBIT_LAMPORTS): void {
   if (report.err !== undefined && report.err !== null) {
     throw refusal("simulation_mismatch", `the transaction fails in simulation: ${JSON.stringify(report.err)}`);
+  }
+  const native = BigInt(report.nativeDebitLamports);
+  if (native > maxNative) {
+    throw refusal(
+      "simulation_mismatch",
+      `the simulation takes ${native} lamports of SOL from the wallet's accounts, above the ${maxNative} a program execute may spend on fees and rent`,
+    );
   }
   const mints = declared.map((d) => d.mint);
   for (const d of report.debits) if (!mints.includes(d.mint)) mints.push(d.mint);
@@ -386,10 +401,13 @@ export async function simulate(
   transaction: Uint8Array,
   owner: Uint8Array,
   accountKeys: Uint8Array[],
+  /** Wallet-held accounts whose native SOL is measured too (the fee payer is always one). */
+  watch: Uint8Array[] = [],
 ): Promise<SimulationReport> {
   let seen: number[] = [];
+  const watched = [owner, ...watch.filter((k) => !sameKey(k, owner))];
   for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt++) {
-    const measured = await measure(rpc, transaction, owner, accountKeys);
+    const measured = await measure(rpc, transaction, owner, accountKeys, watched);
     if ("report" in measured) return measured.report;
     seen = measured.slots;
   }
@@ -403,6 +421,7 @@ async function measure(
   transaction: Uint8Array,
   owner: Uint8Array,
   accountKeys: Uint8Array[],
+  watched: Uint8Array[],
 ): Promise<{ report: SimulationReport } | { slots: number[] }> {
   const ownerText = base58(owner);
   const named = new Set(accountKeys.map(base58));
@@ -426,9 +445,16 @@ async function measure(
       pre.push(state);
     }
   }
+  const watchedText = watched.map(base58);
+  const preNative = await rpc.call<{ context?: { slot?: number }; value?: Array<{ lamports?: number } | null> }>("getMultipleAccounts", [
+    watchedText,
+    { encoding: "base64", commitment: "confirmed" },
+  ]);
+  slots.push(contextSlot(preNative, "getMultipleAccounts"));
+  if (!Array.isArray(preNative.value) || preNative.value.length !== watched.length) throw new Error("getMultipleAccounts returned the wrong number of accounts");
   const answer = await rpc.call<{
     context?: { slot?: number };
-    value?: { err?: unknown; accounts?: Array<RpcAccount | null>; unitsConsumed?: number };
+    value?: { err?: unknown; accounts?: Array<(RpcAccount & { lamports?: number }) | null>; unitsConsumed?: number };
   }>("simulateTransaction", [
     Buffer.from(transaction).toString("base64"),
     {
@@ -436,7 +462,7 @@ async function measure(
       sigVerify: false,
       replaceRecentBlockhash: false,
       commitment: "confirmed",
-      accounts: { encoding: "base64", addresses },
+      accounts: { encoding: "base64", addresses: [...addresses, ...watchedText] },
     },
   ]);
   slots.push(contextSlot(answer, "simulateTransaction"));
@@ -445,11 +471,23 @@ async function measure(
   if (!value) throw new Error("simulateTransaction returned no value");
   const err = value.err !== null && value.err !== undefined ? value.err : undefined;
   let post: Array<TokenAccountState | undefined> = [];
+  let native = 0n;
   if (Array.isArray(value.accounts)) {
-    post = value.accounts.map((a) => {
+    post = value.accounts.slice(0, addresses.length).map((a) => {
       const data = accountData(a);
       return data ? parseTokenAccount(data) : undefined;
     });
+    if (err === undefined) {
+      if (value.accounts.length !== addresses.length + watched.length) throw new Error("simulateTransaction returned the wrong number of accounts");
+      watched.forEach((_key, i) => {
+        const before = preNative.value![i];
+        if (!before || typeof before.lamports !== "number") return; // an account that did not exist loses nothing
+        const afterAccount = value.accounts![addresses.length + i];
+        // an account the transaction closed is back to nothing: all its lamports left
+        const after = afterAccount && typeof afterAccount.lamports === "number" ? afterAccount.lamports : 0;
+        if (before.lamports > after) native += BigInt(before.lamports - after);
+      });
+    }
   } else if (err === undefined) {
     throw new Error("simulateTransaction returned no accounts");
   }
@@ -458,6 +496,7 @@ async function measure(
     report: {
       ...(err !== undefined ? { err } : {}),
       debits: err !== undefined ? [] : debits(owner, pre, post),
+      nativeDebitLamports: native.toString(),
       tokenAccounts: addresses,
       ...(typeof value.unitsConsumed === "number" ? { unitsConsumed: value.unitsConsumed } : {}),
     },

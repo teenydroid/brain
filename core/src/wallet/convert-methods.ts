@@ -250,8 +250,8 @@ export function convertMethods(rt: Runtime): RpcMethods {
  * to a spender we can account for. Anything else (a transfer, an unlimited allowance, another token or contract,
  * an unknown spender) is refused before it is stored, so there is nothing to execute.
  *
- * A spender is accounted for when a live swap or bridge quote of this wallet, on this chain, has it as `tx.to`
- * (and the amount is no more than that quote's input), or when it is one of the pinned deBridge contracts.
+ * A spender is accounted for when a live swap or bridge quote of this wallet, on this chain, has it as `tx.to`, or it is one
+ * of the pinned deBridge contracts; and in both cases the amount is no more than that live quote's input.
  */
 function checkApproval(rt: Runtime, network: EvmNetworkInfo, contract: string, calldata: string, valueRaw: string): void {
   const no = (why: string): never => {
@@ -267,18 +267,26 @@ function checkApproval(rt: Runtime, network: EvmNetworkInfo, contract: string, c
   const spender = `0x${word.slice(24)}`;
   const amount = BigInt(`0x${data.slice(74)}`);
   if (amount >= 1n << 255n) no("an unlimited allowance is never signed");
-  const fromQuote = rt
-    .converts.live(rt.now())
-    .some(
-      (q) =>
-        (q.kind === "swap" || q.kind === "bridge") &&
-        q.signingChain === "evm" &&
-        q.evmChainId === network.chainId &&
-        q.tx.to?.toLowerCase() === spender &&
-        q.summary.fromToken.toLowerCase() === network.usdc.toLowerCase() &&
-        amount <= (bigintOf(q.summary.amountRaw) ?? 0n),
+  // Every spender, pinned or not, is bound by the swap or bridge quote about to be executed: a live quote of this wallet
+  // on this chain whose input is this USDC, and whose input is at least the allowance. A quote names a spender as its
+  // `tx.to`; a pinned deBridge contract is accepted for any such quote. There is no quote-free approval.
+  const covered = rt.converts.live(rt.now()).some(
+    (q) =>
+      (q.kind === "swap" || q.kind === "bridge") &&
+      q.signingChain === "evm" &&
+      q.evmChainId === network.chainId &&
+      q.summary.fromToken.toLowerCase() === network.usdc.toLowerCase() &&
+      (q.tx.to?.toLowerCase() === spender || PINNED_SPENDERS.has(spender)) &&
+      amount <= (bigintOf(q.summary.amountRaw) ?? 0n),
+  );
+  if (!covered) {
+    const known = PINNED_SPENDERS.has(spender) || rt.converts.live(rt.now()).some((q) => q.tx.to?.toLowerCase() === spender);
+    no(
+      known
+        ? `${amount} of USDC for ${spender} is not covered by a live swap or bridge quote (there is none, or its input is smaller)`
+        : `${spender} is neither the contract of a live quote nor a pinned deBridge contract`,
     );
-  if (!fromQuote && !PINNED_SPENDERS.has(spender)) no(`${spender} is neither the contract of a live quote nor a pinned deBridge contract`);
+  }
 }
 
 function envelope(quote: ConvertQuote, answer: unknown): Record<string, unknown> {

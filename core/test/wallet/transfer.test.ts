@@ -3,6 +3,7 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddres
 import { PublicKey } from "@solana/web3.js";
 import { base58 } from "@scure/base";
 import { describe, expect, it } from "vitest";
+import { canonicalAddress } from "../../src/wallet/policy.js";
 import { decodeTransaction } from "../../src/wallet/solana-program.js";
 import { createMethods } from "../../src/wallet/index.js";
 import { USDC_DEVNET, makeHarness, mockEvm, mockSolana, parseEvm, policyConfig, setupWallet } from "./helpers.js";
@@ -289,6 +290,38 @@ describe("the spend caps, enforced before anything is signed", () => {
     mockSolana(h.net);
     const q = await prepare(h);
     expect(await refused(h, q.quoteId)).toMatch(/SOL on solana is not in the wallet policy's asset allowlist/);
+  });
+});
+
+describe("one recipient, however it is spelled", () => {
+  it("counts an EVM recipient's checksummed and lowercase spellings together against the weekly cap", async () => {
+    const checksummed = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+    const caps = [{ chain: "evm", symbol: "USDC", evmNetwork: "base_mainnet", tokenAddress: BASE_USDC, perTx: 5_000_000, daily: 100_000_000, weekly: 6_000_000 }];
+    const h = makeHarness({ config: policyConfig(caps), env: { OPENHUMAN_SOLANA_CLUSTER: "mainnet" } });
+    await setupWallet(h);
+    mockEvm(h.net);
+    const send = async (to: string, amount: string): Promise<string> => {
+      const q = (await h.call("wallet_prepare_transfer", { chain: "evm", evmNetwork: "base_mainnet", toAddress: to, amountRaw: amount, assetSymbol: "USDC" })) as { quoteId: string };
+      try {
+        await execute(h, q.quoteId);
+        return "sent";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+    expect(await send(checksummed, "4000000")).toBe("sent");
+    expect(await send(checksummed.toLowerCase(), "3000000")).toBe(
+      "WALLET_POLICY_REFUSED: 3000000 USDC (atomic) would exceed the rolling 7-day cap of 6000000 for this recipient (4000000 already sent)",
+    );
+    expect(await send(checksummed.toLowerCase(), "2000000")).toBe("sent");
+    expect(await send(checksummed, "1")).toMatch(/rolling 7-day cap of 6000000 for this recipient \(6000000 already sent\)/);
+  });
+
+  it("has one spelling per address", () => {
+    expect(canonicalAddress("evm", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed")).toBe(canonicalAddress("evm", " 0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED "));
+    expect(canonicalAddress("solana", ` ${RECIPIENT} `)).toBe(RECIPIENT);
+    expect(canonicalAddress("solana", "not an address")).toBe("not an address");
+    expect(canonicalAddress("evm", "0xABC")).toBe("0xabc");
   });
 });
 
