@@ -30,7 +30,9 @@ export function hostOnList(host: string, list: readonly string[]): boolean {
   return list.some((entry) => h === entry || h.endsWith(`.${entry}`));
 }
 
-function privateAddress(host: string): boolean {
+function privateAddress(rawHost: string): boolean {
+  // `localhost.` and `metadata.google.internal.` are the same hosts: a trailing dot is the root label.
+  const host = rawHost.replace(/\.+$/, "").toLowerCase();
   const bare = host.replace(/^\[|\]$/g, "");
   const kind = isIP(bare);
   if (kind === 4) {
@@ -91,6 +93,9 @@ export function judgeAllowedFetch(raw: unknown, allowFile: string | undefined): 
 }
 
 /** The unattended `act` kinds that read a page without changing it, always allowed with `act`. */
+/** Actions that read or act on a tab already open (not open/navigate, whose URL is judged, nor the lifecycle ones). */
+const TAB_ACTIONS = ["act", "snapshot", "screenshot", "text", "requests", "errors"];
+
 const QUIET_KINDS = ["wait", "scroll", "scrollIntoView", "hover"];
 
 function strings(value: unknown, out: string[] = []): string[] {
@@ -203,6 +208,33 @@ export async function judgeBrowser(
   }
 
   const key = tabKey(sessionKey, params);
+  // act carries its tab in the request as well; two different tabs in one call is refused, not guessed.
+  const body0 = (action === "act" && params.request && typeof params.request === "object" ? params.request : params) as Record<string, unknown>;
+  const named = new Set<string>();
+  const collectTargets = (o: unknown): void => {
+    if (!o || typeof o !== "object") return;
+    const r = o as Record<string, unknown>;
+    if (typeof r.targetId === "string" && r.targetId) named.add(r.targetId);
+    if (Array.isArray(r.actions)) r.actions.forEach(collectTargets);
+  };
+  collectTargets(params);
+  collectTargets(body0);
+  if (named.size > 1) return { block: "one call may name only one tab" };
+  const target = [...named][0];
+  if (TAB_ACTIONS.includes(action)) {
+    // Where is the tab NOW? A click, a key press or a redirect may have taken it to a denied host since the last
+    // open; no further reading or acting happens on such a page.
+    let live: string;
+    try {
+      live = await deps.liveUrl(policy.profile ?? "", target);
+    } catch (e) {
+      return { block: `the guard could not confirm which page the tab is on (${(e as Error).message}), so it will not ${action}` };
+    }
+    if (live !== "about:blank") {
+      const v = judgeUrl(live, deps.denyFile);
+      if (!v.ok) return { block: `the tab is on a page the browser may not be on: ${v.reason ?? "refused"}; close the tab` };
+    }
+  }
   if (action === "open" || action === "navigate") {
     const v = judgeUrl(params.url, deps.denyFile);
     if (!v.ok) return { block: v.reason ?? "refused" };
@@ -241,7 +273,7 @@ export async function judgeBrowser(
   // Where is the tab right now? Not where it was last sent: a click or a redirect may have moved it.
   let host: string;
   try {
-    const live = new URL(await deps.liveUrl(policy.profile ?? "", typeof params.targetId === "string" ? params.targetId : undefined));
+    const live = new URL(await deps.liveUrl(policy.profile ?? "", target));
     if (live.protocol !== "https:") return { block: `the tab is on a ${live.protocol.replace(":", "")} page, not a site's own https page` };
     host = live.hostname.toLowerCase();
   } catch (e) {

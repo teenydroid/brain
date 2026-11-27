@@ -32,8 +32,6 @@ export const WRITERS = ["mkdir", "touch", "cp", "mv", "ln"];
 export const TOOLS = ["git", "npm", "pnpm", "yarn", "cargo", "make", "cmake", "timeout"];
 
 const FIND_DENIED = ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"];
-const GIT_DENIED = ["-c", "--config-env", "--exec-path", "--upload-pack", "--receive-pack", "--exec", "--ext-cmd", "--ext-diff", "--paginate", "-p", "--git-dir", "--work-tree"];
-const GIT_DENIED_SUBCOMMANDS = ["config", "daemon", "difftool", "mergetool", "instaweb", "web--browse", "fast-import", "filter-branch", "credential"];
 
 function isFlag(w: Word): boolean {
   return !w.quoted && w.text.startsWith("-") && w.text.length > 1;
@@ -111,11 +109,16 @@ function checkArgPaths(
 ): string | undefined {
   const positional: Word[] = [];
   for (const w of words) {
+    // The shell would expand these before the program sees them; a path judged as written is not the path used.
+    if (w.text.includes("\u0001")) return `${program}: "$(cat ...)" is only for the arguments of a hand or the broker, where it is data`;
+    if (w.glob) return `${program}: quote the glob ${w.text}: an unquoted * ? [ is expanded by the shell after it was judged`;
+    if (w.text.startsWith("~")) return `${program}: ~ is expanded by the shell, not by this guard: write the path out`;
     if (isFlag(w)) {
       const eq = w.text.indexOf("=");
       if (w.text.startsWith("--") && eq > 0) {
         const value = w.text.slice(eq + 1);
-        if (value.includes("/") || value.startsWith("~") || value.includes("..")) {
+        if (value.startsWith("~")) return `${program}: ~ is expanded by the shell, not by this guard: write the path out`;
+        if (value.includes("/") || value.includes("..")) {
           const why = checkPath(rules, value, mode === "write" ? "write" : "read");
           if (why) return `${program}: ${why}`;
         }
@@ -128,7 +131,6 @@ function checkArgPaths(
   }
   for (let i = 0; i < positional.length; i++) {
     const w = positional[i] as Word;
-    if (w.text.includes("\u0001")) continue; // a "$(cat path)" word: its source path is checked on its own
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w.text)) {
       if (/^file:/i.test(w.text)) return `${program}: a file: URL is a path in disguise`;
       continue; // a URL, not a path
@@ -142,6 +144,60 @@ function checkArgPaths(
   return undefined;
 }
 
+/** git subcommands an agent may run. Everything else (config, submodule, bisect, daemon, worktree, hook ...) is refused by default. */
+const GIT_SUBCOMMANDS = new Set([
+  "status", "log", "diff", "show", "add", "commit", "branch", "checkout", "switch", "restore", "clone", "fetch", "pull", "push", "init",
+  "remote", "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote", "blame", "merge", "rebase", "stash", "tag", "apply", "cherry-pick",
+  "reset", "mv", "rm", "describe", "shortlog", "grep", "show-ref", "cat-file", "diff-tree", "name-rev", "clean", "revert", "version", "help",
+]);
+/** The ones that change files, so their path arguments must be writable. */
+const GIT_WRITES = new Set(["add", "checkout", "switch", "restore", "clone", "init", "mv", "rm", "apply", "reset", "clean", "stash", "revert", "cherry-pick", "merge", "rebase", "pull", "commit"]);
+/** Options anywhere after the subcommand that run a program or write where they are told. */
+const GIT_DENIED_OPTS = [
+  "--upload-pack", "--receive-pack", "--exec", "--exec-path", "--ext-diff", "--textconv", "--open-files-in-pager", "--output", "--output-directory",
+  "--template", "--config", "--config-env", "--git-dir", "--work-tree", "--paginate", "--pager", "--run", "--sshCommand", "--recurse-submodules",
+  "--ext-cmd", "--separate-git-dir", "--bundle-uri",
+];
+
+/**
+ * Reads git's own global options the way git does (so `-C dir` cannot hide the subcommand), allows only
+ * `-C dir` and the harmless switches, then judges the subcommand and its options.
+ */
+function judgeGit(rules: PathRules, args: Word[], cwd: string): string | undefined {
+  let i = 0;
+  let dir = cwd;
+  for (; i < args.length; i++) {
+    const a = (args[i] as Word).text;
+    if (a === "-C") {
+      const d = args[i + 1];
+      if (!d) return "git -C needs a folder";
+      const w = checkArgPaths(rules, [d], "write", "git -C");
+      if (w) return w;
+      dir = d.text;
+      i++;
+      continue;
+    }
+    if (["--no-pager", "-P", "--no-replace-objects", "--literal-pathspecs", "--no-optional-locks", "--bare"].includes(a)) continue;
+    if (a.startsWith("-")) return `git ${a.split("=")[0]} before the subcommand can run a program or change what git trusts`;
+    break;
+  }
+  const sub = args[i]?.text;
+  if (!sub) return "git needs a subcommand";
+  if (!GIT_SUBCOMMANDS.has(sub)) return `git ${sub} is not on the list of git subcommands this agent may run`;
+  const rest = args.slice(i + 1);
+  for (const w of rest) {
+    const t = w.text;
+    if (/^[A-Za-z0-9+.-]+::/.test(t) || /^ext:/i.test(t) || /^fd:/i.test(t)) return "git remote helpers (ext::, fd::, x::y) run programs";
+    if (!isFlag(w)) continue;
+    const name = t.split("=")[0] as string;
+    if (GIT_DENIED_OPTS.some((o) => name === o || (o.length > 2 && name.startsWith(`${o}=`)))) return `git ${sub} ${name} can run a program or write where it is told`;
+    if (/^-O/.test(t) || name === "-x" || name === "-o" || name === "--exec") return `git ${sub} ${name} can run a program or write where it is told`;
+    if (name === "-u" && ["clone", "ls-remote", "fetch", "pull"].includes(sub)) return `git ${sub} -u runs a program (upload-pack)`;
+  }
+  // After -C, relative paths start in that folder.
+  return checkArgPaths({ ...rules, workspace: resolve(cwd, dir) }, rest, GIT_WRITES.has(sub) ? "write" : "read", `git ${sub}`);
+}
+
 function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment, cwd: string): { rewrites: { start: number; end: number; to: string }[] } | { reason: string } {
   const exec = agent.exec as NonNullable<AgentPolicy["exec"]>;
   const rules = pathRules(policy, agent, cwd);
@@ -151,8 +207,9 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first.text) && !first.quoted) {
     return { reason: "a VAR=value prefix could change what a program does (env, PATH, DRY_RUN): set nothing, run the program" };
   }
-  // `timeout N prog ...`: the wrapped program is judged as if run alone.
-  if (first.text === "timeout" && !first.quoted && (exec.readOnly.includes("timeout") || exec.tools.includes("timeout") || exec.writers.includes("timeout"))) {
+  // `timeout N prog ...`: the wrapped program is judged as if run alone. Unwrapped in a loop, so
+  // `timeout 5 timeout 5 rm x` is judged as `rm x`, never as an allowed `timeout`.
+  while (words[0] && words[0].text === "timeout" && !words[0].quoted && (exec.readOnly.includes("timeout") || exec.tools.includes("timeout") || exec.writers.includes("timeout"))) {
     let k = 1;
     while (k < words.length && isFlag(words[k] as Word)) k++;
     if (k >= words.length || !/^[0-9]+(\.[0-9]+)?[smhd]?$/.test((words[k] as Word).text)) return { reason: "timeout needs a duration then a program" };
@@ -194,6 +251,11 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
         : `${name} is not on this agent's command list`,
     };
   }
+  // Whatever the program, no word of it may be a glob or a substituted word the shell will expand after this check.
+  for (const a of args) {
+    if (a.glob) return { reason: `quote the glob ${a.text}: an unquoted * ? [ is expanded by the shell after it was judged` };
+    if (a.text.includes("\u0001")) return { reason: `"$(cat ...)" is only for the arguments of a hand or the broker, where it is data` };
+  }
   if (name === "find") {
     for (const a of args) if (FIND_DENIED.includes(a.text)) return { reason: `find ${a.text} can run or write files` };
     const paths: Word[] = [];
@@ -206,7 +268,26 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
     return { rewrites };
   }
   if (name === "sort") {
-    for (const a of args) if (/^-[a-zA-Z]*o|^--output/.test(a.text) && isFlag(a)) return { reason: "sort -o writes a file" };
+    for (const a of args) {
+      if (!isFlag(a)) continue;
+      if (/^-[a-zA-Z]*o|^--output/.test(a.text)) return { reason: "sort -o writes a file" };
+      if (a.text.startsWith("--compress-program")) return { reason: "sort --compress-program runs a program" };
+      if (/^-[a-zA-Z]*T|^--temporary-directory/.test(a.text)) return { reason: "sort -T writes temporary files where it is told" };
+    }
+  }
+  if (name === "jq") {
+    // jq reads its own environment ($ENV, env) and imports modules from disk: the gateway's environment holds tokens.
+    for (const a of args) {
+      if (isFlag(a) && /^(-L|--library-path|--from-file|-f)/.test(a.text)) return { reason: "jq -f and -L read programs and modules from disk" };
+      if (/env|ENV|include|import|input_filename|\$__prog/.test(a.text)) return { reason: "jq may not read the environment or import modules" };
+    }
+  }
+  if (name === "cp") {
+    for (const a of args) if (isFlag(a) && /^(--link|--symbolic-link|-[a-zA-Z]*[ls])/.test(a.text) && !a.text.startsWith("--no")) return { reason: "cp -l and -s make a second name for a file, which a write could reach through" };
+  }
+  if (name === "ln") {
+    // A hard link to a read-only code file would be a writable name for it.
+    if (!args.some((a) => isFlag(a) && /^(--symbolic|-[a-zA-Z]*s)/.test(a.text))) return { reason: "ln without -s makes a hard link to a file the agent may only read" };
   }
   if (name === "tail") {
     for (const a of args) if (/^-[a-zA-Z]*[fF]|^--follow/.test(a.text) && isFlag(a)) return { reason: "tail -f never ends" };
@@ -219,13 +300,9 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
   }
   if (isTool) {
     if (name === "git") {
-      for (const a of args) {
-        if (!isFlag(a)) continue;
-        const flag = a.text.split("=")[0] as string;
-        if (GIT_DENIED.includes(flag) || /^-c./.test(a.text)) return { reason: `git ${flag} can run a program or change what git trusts` };
-      }
-      const sub = args.find((a) => !isFlag(a));
-      if (sub && GIT_DENIED_SUBCOMMANDS.includes(sub.text)) return { reason: `git ${sub.text} is not allowed` };
+      const why = judgeGit(rules, args, cwd);
+      if (why) return { reason: why };
+      return { rewrites };
     }
     const why = checkArgPaths(rules, args, "read", name);
     if (why) return { reason: why };
@@ -280,11 +357,13 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
     if ("reason" in verdict) return { ok: false, reason: verdict.reason };
     rewrites.push(...verdict.rewrites);
     for (const path of seg.catReads) {
+      if (path.startsWith("~")) return { ok: false, reason: `$(cat ${path}): ~ is expanded by the shell, not by this guard` };
       const why = checkPath(rules, path, "read");
       if (why) return { ok: false, reason: `$(cat ${path}): ${why}` };
     }
     for (const r of seg.redirects) {
       if (r.target.text === "/dev/null") continue;
+      if (r.target.text.startsWith("~")) return { ok: false, reason: `redirect ${r.op} ${r.target.text}: ~ is expanded by the shell, not by this guard` };
       const why = checkPath(rules, r.target.text, r.op === "<" ? "read" : "write");
       if (why) return { ok: false, reason: `redirect ${r.op} ${r.target.text}: ${why}` };
     }

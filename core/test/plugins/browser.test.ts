@@ -136,7 +136,8 @@ describe("keychain fill", () => {
     const d = rewritten(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"));
     expect((d?.request as { text: string }).text).toBe(SECRET);
     expect(asked).toEqual(["keychain-fill login.example.org"]);
-    expect(looked).toEqual([{ profile: "teeny", targetId: "t1" }]);
+    // once for the tab-bound action check, once for the keychain check
+    expect(looked).toEqual([{ profile: "teeny", targetId: "t1" }, { profile: "teeny", targetId: "t1" }]);
     expect(d?.profile).toBe("teeny");
   });
 
@@ -146,9 +147,9 @@ describe("keychain fill", () => {
     live = "https://login.example.org.evil.test/signin";
     expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/this tab is on login.example.org.evil.test/);
     live = "https://example.org@evil.test/";
-    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/this tab is on evil.test/);
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/credentials/);
     live = "http://login.example.org/";
-    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/not a site's own https page/);
+    expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/https pages only/);
     live = "about:blank";
     expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/not a site's own https page/);
     expect(asked).toEqual([]);
@@ -161,8 +162,8 @@ describe("keychain fill", () => {
   it("refuses when the browser cannot say where the tab is, or does not name it", async () => {
     const f = makeFixture({ fill: async () => SECRET, liveUrl: async () => { throw new Error("the browser did not answer"); } });
     expect(blocked(await call(f, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/could not confirm which page/);
-    const g = makeFixture({ fill: async () => SECRET });
-    expect(blocked(await call(g, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/could not confirm which page/);
+    const g = makeFixture({ fill: async () => SECRET, liveUrl: async () => { throw new Error("more than one tab fits: name the tab"); } });
+    expect(blocked(await call(g, "operator", typed("{{keychain:example.org}}"), "kc"))).toMatch(/more than one tab/);
   });
 
   it("refuses the placeholder for another site, for anything but typing, and for two sites", async () => {
@@ -249,5 +250,60 @@ describe("the screenshot sink", () => {
     expect(savePicture(dir, txt, 24)).toBeUndefined();
     expect(existsSync(dir)).toBe(false);
     expect(picturePaths({ content: [{ type: "text", text: "saved to /tmp/x/shot-1.png and /tmp/y.JPG" }] })).toEqual(["/tmp/x/shot-1.png", "/tmp/y.JPG"]);
+  });
+});
+
+describe("review findings: the browser", () => {
+  it("a tab that has come to a denied host is not read or acted on again, whatever the last open said", async () => {
+    let live = "https://example.org/";
+    const f = makeFixture({ liveUrl: async () => live });
+    expect(blocked(await call(f, "operator", { action: "open", url: "https://example.org/", targetId: "t1" }, "s"))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "t1", request: { kind: "click", ref: "e1" } }, "s"))).toBeUndefined();
+    // the click followed a link, or a redirect, to a host on deploy/browser-deny.txt
+    for (const url of ["https://x.com/home", "https://www.twitter.com/", "https://127.0.0.1/", "https://localhost./"]) {
+      live = url;
+      for (const params of [
+        { action: "act", targetId: "t1", request: { kind: "press", key: "Enter" } },
+        { action: "snapshot", targetId: "t1" },
+        { action: "text", targetId: "t1" },
+        { action: "screenshot", targetId: "t1" },
+        { action: "requests", targetId: "t1" },
+      ]) {
+        expect(blocked(await call(f, "operator", params, "s")), `${url} ${String(params.action)}`).toMatch(/may not be on|close the tab/);
+        if (params.action !== "act") expect(blocked(await call(f, "mind", params, "s")), `mind ${url} ${String(params.action)}`).toMatch(/may not be on|close the tab/);
+      }
+    }
+    // closing it is still allowed
+    expect(blocked(await call(f, "operator", { action: "close", targetId: "t1" }, "s"))).toBeUndefined();
+    // and a tab that cannot be read is refused rather than trusted
+    const g = makeFixture({ liveUrl: async () => { throw new Error("the browser did not answer"); } });
+    expect(blocked(await call(g, "operator", { action: "snapshot" }, "s"))).toMatch(/could not confirm which page/);
+  });
+
+  it("an act request names its tab too: the keychain check follows the tab the type goes to", async () => {
+    const seen: (string | undefined)[] = [];
+    const f = makeFixture({
+      fill: async () => "pw",
+      liveUrl: async (_p, id) => {
+        seen.push(id);
+        return id === "tabB" ? "https://evil.test/" : "https://example.org/";
+      },
+    });
+    const d = await call(f, "operator", { action: "act", request: { kind: "type", targetId: "tabB", text: "{{keychain:example.org}}" } }, "s");
+    expect(blocked(d)).toMatch(/tab is on evil.test|own pages/);
+    expect(seen).toContain("tabB");
+    // the same tab named twice is fine; two different tabs in one call are refused
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "tabA", request: { kind: "click", targetId: "tabA" } }, "s"))).toBeUndefined();
+    expect(blocked(await call(f, "operator", { action: "act", targetId: "tabA", request: { kind: "type", targetId: "tabB", text: "{{keychain:example.org}}" } }, "s"))).toMatch(/only one tab/);
+    expect(blocked(await call(f, "operator", { action: "act", request: { kind: "batch", actions: [{ kind: "click", targetId: "tabA" }, { kind: "type", targetId: "tabB", text: "x" }] } }, "s"))).toMatch(/only one tab/);
+  });
+
+  it("a trailing dot does not make a private host public", () => {
+    const deny = "/nonexistent-not-read-before-private";
+    for (const u of ["https://localhost./", "https://LOCALHOST../", "https://metadata.google.internal./", "https://printer.local./", "https://app.localhost./", "https://127.0.0.1./", "https://[::1]/"]) {
+      const f = makeFixture();
+      expect(judgeUrl(u, join(f.root, "deploy/browser-deny.txt")).reason, u).toMatch(/not a public address/);
+    }
+    void deny;
   });
 });
