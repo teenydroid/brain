@@ -3,7 +3,7 @@
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadAgentDefs } from "../../src/agents/definitions.js";
 import { startCore } from "../../src/main.js";
@@ -146,5 +146,21 @@ describe("buildCortexPluginConfig", () => {
     const open = buildCortexPluginConfig({ ...input({ CORTEX_API_URL: "http://127.0.0.1:3141" }, state), defs: [{ ...defs[0]!, id: "free", omitMemoryContext: false, memoryBlockMaxTokens: undefined }] }) as { recall: { agents: Record<string, { budgetTokens: number }> } };
     expect(open.recall.agents.free?.budgetTokens).toBe(RECALL_BUDGET_TOKENS);
     expect(RECALL_BUDGET_TOKENS).toBe(3000);
+  });
+
+  it("leaves out an agent whose memory_block.max_tokens is below one token, so its config stays valid for the rest", () => {
+    const state = mkdtempSync(join(tmpdir(), "cx-state-"));
+    roots.push(state);
+    const mk = (id: string, max: number | undefined) => ({ ...defs[0]!, id, omitMemoryContext: false, memoryBlockMaxTokens: max });
+    const built = buildCortexPluginConfig({ ...input({ CORTEX_API_URL: "http://127.0.0.1:3141" }, state), defs: [mk("zero", 0), mk("neg", -5), mk("frac", 10.9), mk("ok", 500)] }) as { recall: { agents: Record<string, { budgetTokens: number }> } };
+    expect(Object.keys(built.recall.agents).sort()).toEqual(["frac", "ok"]);
+    expect(built.recall.agents.frac?.budgetTokens).toBe(10);
+  });
+
+  it("hands the plugin an absolute key file, as the core resolves a relative override", () => {
+    const state = mkdtempSync(join(tmpdir(), "cx-state-"));
+    roots.push(state);
+    const built = buildCortexPluginConfig(input({ CORTEX_API_URL: "http://127.0.0.1:3141", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "secrets/k.key" }, state)) as { masterKeyFile: string };
+    expect(built.masterKeyFile).toBe(resolve("secrets/k.key"));
   });
 });

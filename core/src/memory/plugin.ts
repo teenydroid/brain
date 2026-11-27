@@ -4,7 +4,7 @@
 // the memory tools); the memory_* RPCs in ./index.ts stay the Python callers' path, on the same
 // CortexDB, scope and client (./cortex.ts).
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { AgentDef } from "../agents/definitions.js";
 import { assertSafeEndpoint, DEFAULT_SCOPE } from "./cortex.js";
 import { loadEngine } from "./engine.js";
@@ -72,13 +72,16 @@ export function buildCortexPluginConfig(input: CortexPluginInput): Record<string
   const recallAgents: Record<string, { budgetTokens: number }> = {};
   for (const def of input.defs) {
     if (def.omitMemoryContext) continue;
-    recallAgents[def.id] = { budgetTokens: Math.min(RECALL_BUDGET_TOKENS, def.memoryBlockMaxTokens ?? RECALL_BUDGET_TOKENS) };
+    const budgetTokens = Math.min(RECALL_BUDGET_TOKENS, Math.floor(def.memoryBlockMaxTokens ?? RECALL_BUDGET_TOKENS));
+    // A budget under one token means this agent takes no memory; leaving it out keeps the plugin's config valid for everyone else.
+    if (!(budgetTokens >= 1)) continue;
+    recallAgents[def.id] = { budgetTokens };
   }
   return {
     url,
     scope: memoryScope(input.env),
     engineFile: join(input.stateDir, "memory-engine.json"),
-    masterKeyFile: input.env.OPENHUMAN_KEYRING_MASTER_KEY_FILE || join(input.secretsDir, "openhuman.key"),
+    masterKeyFile: resolve(input.env.OPENHUMAN_KEYRING_MASTER_KEY_FILE || join(input.secretsDir, "openhuman.key")),
     recall: { agents: recallAgents, timeoutMs: RECALL_EACH_TURN_MS },
     capture: { agents: CAPTURE_AGENTS.filter((id) => ids.has(id)), maxChars: CAPTURE_MAX_CHARS, maxInFlight: CAPTURE_MAX_IN_FLIGHT },
     tools: {

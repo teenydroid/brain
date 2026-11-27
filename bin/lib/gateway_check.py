@@ -17,7 +17,9 @@ was not written by it.
 from __future__ import annotations
 
 import json
+import re
 import sys
+from urllib.parse import urlsplit
 
 #: (path, wanted value, why). A path walks nested objects.
 LOCKDOWN = (
@@ -37,7 +39,21 @@ _MISSING = object()
 MEMORY_PLUGIN = "teeny-cortexdb"
 #: Keys that would be a secret value in a plugin's config: the CortexDB key stays sealed in state/memory-engine.json.
 _SECRET_KEY_PARTS = ("apikey", "api_key", "bearer", "password", "secret", "token")
-_LOOPBACK = ("localhost", "127.0.0.1", "[::1]", "::1")
+_LOOPBACK = ("localhost", "::1")
+
+
+def _safe_endpoint(url: str) -> bool:
+    """https anywhere, plain http only on this machine: the rule the core's assertSafeEndpoint holds."""
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    if parts.scheme == "https":
+        return bool(host)
+    if parts.scheme != "http":
+        return False
+    return host in _LOOPBACK or re.fullmatch(r"127(\.\d{1,3}){3}", host) is not None
 
 
 def _walk(doc, path: str):
@@ -98,8 +114,7 @@ def memory_plugin(doc: dict) -> list[str]:
             for found in _secret_keys(config):
                 wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.config.{found} holds a secret value: the key stays sealed in state/memory-engine.json")
             url = config.get("url")
-            host = url.split("://", 1)[1].split("/", 1)[0].rsplit(":", 1)[0].lower() if isinstance(url, str) and "://" in url else ""
-            if not (isinstance(url, str) and (url.startswith("https://") or (url.startswith("http://") and host in _LOOPBACK))):
+            if not (isinstance(url, str) and _safe_endpoint(url)):
                 wrong.append(f"plugins.entries.{MEMORY_PLUGIN}.config.url is not https or loopback: no cloud default, no plain http off this machine")
     elif MEMORY_PLUGIN in allow or MEMORY_PLUGIN in entries:
         wrong.append(f"{MEMORY_PLUGIN} is in the plugins config but does not own plugins.slots.memory")

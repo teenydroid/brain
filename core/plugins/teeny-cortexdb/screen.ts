@@ -16,7 +16,9 @@ const SECRETS: RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
   /\{\{keychain:[^}]*\}\}/g,
-  /\b(?:api[_-]?key|secret|token|password|passwd|mnemonic|seed phrase)\b\s*[:=]\s*\S{6,}/gi,
+  // A recovery phrase is many words: take up to 24 of them, not just the first.
+  /\b(?:mnemonic|seed phrase|recovery phrase)\b\s*[:=]\s*[A-Za-z]{3,10}(?:[ \t]+[A-Za-z]{3,10}){0,23}/gi,
+  /\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*\S{6,}/gi,
   /\b[0-9a-fA-F]{64}\b/g,
 ];
 

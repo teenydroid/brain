@@ -706,6 +706,7 @@ for broken in \
   '.plugins.entries["teeny-cortexdb"].config.auth.bearer = "abc"@@config.auth.bearer holds a secret value' \
   '.plugins.entries["teeny-cortexdb"].config.url = "http://cortex.example.com:3141"@@config.url is not https or loopback' \
   '.plugins.entries["teeny-cortexdb"].config.url = "ftp://x"@@config.url is not https or loopback' \
+  '.plugins.entries["teeny-cortexdb"].config.url = "http://127.0.0.1:pw@cortex.example.com:3141"@@config.url is not https or loopback' \
   'del(.plugins.entries["teeny-cortexdb"].config)@@plugins.entries.teeny-cortexdb.config is not set'; do
   filter="${broken%%@@*}" reason="${broken#*@@}"
   fresh
@@ -716,6 +717,11 @@ done
 fresh
 put_gateway_config "$with_cortex | .plugins.entries[\"teeny-cortexdb\"].config.recall.agents.mind.budgetTokens = 3000"
 check "budget counts named tokens are not mistaken for secrets" audit_doctor "$CLEAN_AUDIT"
+for loop_url in "http://[::1]:3141" "http://127.0.0.2:3141" "http://localhost:3141"; do
+  fresh
+  put_gateway_config "$with_cortex | .plugins.entries[\"teeny-cortexdb\"].config.url = \"$loop_url\""
+  check "a loopback memory url ($loop_url) passes" audit_doctor "$CLEAN_AUDIT"
+done
 fresh
 put_gateway_config
 printf 'not json' >"$root/state/openclaw/openclaw.json"

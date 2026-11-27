@@ -40,11 +40,12 @@ const refuse = (text: string): ToolResult => ({ ok: false, text, details: { ok: 
 const asString = (v: unknown): string => (typeof v === "string" ? v : "");
 const asLimit = (v: unknown, dflt: number, max: number): number => (typeof v === "number" && Number.isInteger(v) && v > 0 ? Math.min(v, max) : dflt);
 
-/** Every term of the query appears in the text, whatever the case. */
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Every word of the query appears in the text as a whole word, whatever the case ("art" is not in "party"). */
 export function matches(query: string, text: string): boolean {
-  const hay = text.toLowerCase();
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return terms.length > 0 && terms.every((t) => hay.includes(t));
+  const terms = query.split(/\s+/).filter(Boolean);
+  return terms.length > 0 && terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRe(t)}(?![\\p{L}\\p{N}_])`, "iu").test(text));
 }
 
 export class MemoryTools {
@@ -123,6 +124,10 @@ export class MemoryTools {
       scanned += page.items.length;
       cursor = page.next_cursor ?? undefined;
     } while (cursor && scanned < FORGET_SCAN);
+    if (cursor && found.length > 0) {
+      return refuse(`more than ${FORGET_SCAN} memories are stored and I could not look through all of them, so I cannot tell how many match: nothing was deleted. Make the query more specific.`);
+    }
+    if (found.length === 0 && cursor) return done(`Nothing matched in the newest ${scanned} memories, so nothing was deleted.`, { matched: 0, forgotten: 0 });
     if (found.length === 0) return done("Nothing matched, so nothing was deleted.", { matched: 0, forgotten: 0 });
     if (found.length > MAX_FORGET) {
       return refuse(`${found.length} memories match that query, and I delete at most ${MAX_FORGET} at a time: nothing was deleted. Make the query more specific (memory_list shows what is stored).`);
