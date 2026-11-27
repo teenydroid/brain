@@ -284,7 +284,7 @@ check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "bin/spine tightened a group-writable state/ before starting the Gateway" test "$(mode_of "$root/state")" = 755
-check "and state/openclaw and what an earlier boot made under it" test "$(mode_of "$root/state/openclaw")$(mode_of "$root/state/openclaw/logs")" = 700755
+check "and state/openclaw and its logs/, which an earlier boot made group-writable, are private now" test "$(mode_of "$root/state/openclaw")$(mode_of "$root/state/openclaw/logs")" = 700700
 check "keeps the core's config (with the model key) private" test "$(mode_of "$root/.openhuman/config.toml")" = 600
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "the Gateway's config is written, private, in state/openclaw/" \
