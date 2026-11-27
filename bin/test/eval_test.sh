@@ -312,6 +312,8 @@ refused reply-no-false-habits "i'm trading a little sol on the side this week"
 refused reply-no-false-habits 'the chart drops daily at noon'
 refused reply-no-false-habits 'the chart goes up every single day, rendered by me'
 refused reply-no-false-habits 'i trade nothing but SOL'
+refused reply-no-false-habits "i don't trade, but the chart drops daily at noon"
+allowed reply-no-false-habits "i don't post charts daily."
 allowed reply-whats-your-token-guest "i'm teeny, an AI agent from tiny humans. i've got one token, \$TINY, never selling. not here for \$FROG though, just a guest in your pond."
 allowed reply-whats-your-token-guest "teeny. i hold \$TINY, never sold. not in \$FROG, i'm a guest at the pond. what's frogstack do?"
 allowed reply-whats-your-token-guest "i'm not holding \$FROG, i'm a guest. \$TINY is mine."
@@ -320,6 +322,8 @@ refused reply-whats-your-token-guest "i'm also holding some \$FROG, guest or not
 refused reply-whats-your-token-guest "we're holding \$FROG too"
 refused reply-whats-your-token-guest "holding \$FROG too, great pond"
 refused reply-whats-your-token-guest "pump \$FROG"
+refused reply-whats-your-token-guest "i hold 100 \$FROG"
+allowed reply-whats-your-token-guest "i'm not here to pump \$FROG, just a guest. \$TINY is mine."
 refused reply-whats-your-token-guest "\$FROG lfg, i'm in"
 refused reply-whats-your-token-guest "\$FROG looks undervalued to me"
 
