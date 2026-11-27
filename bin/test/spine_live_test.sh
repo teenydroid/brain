@@ -122,6 +122,15 @@ class Model(BaseHTTPRequestHandler):
             answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
+        # bin/doctor --live's "shell agent exec runs": one exec call of `date +%s`, then the answer is
+        # whatever the command printed. So the doctor's check passes only if exec really ran through the
+        # Gateway and the guardrails plugin let it; a stub that just talked would fail it, as it should.
+        elif isinstance(last, str) and "Run exactly this with your shell tool: date +%s" in last:
+            results = [m for m in body.get("messages", []) if m.get("role") == "tool"]
+            if not results:
+                native_call = {"name": "exec", "arguments": json.dumps({"command": "date +%s"})}
+            else:
+                answer = str(flat(results[-1].get("content")))
         # A shell agent (bin/ask --agent worker "# shell e2e"): three exec calls, then an answer that quotes
         # what each came back with. teeny-guardrails is the only gate on exec (OpenClaw's own allowlist is
         # off), so the live test asks the real Gateway: a plain `ls` and a read-only hand must run, and a
