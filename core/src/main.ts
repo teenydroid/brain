@@ -17,6 +17,7 @@ import { SettingsStore } from "./config/store.js";
 import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
 import { GATEWAY_TOKEN_ENV, MODEL_KEY_ENV, buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
+import { openclawPassthrough } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
 import { createCron, type Cron } from "./cron/index.js";
@@ -26,7 +27,7 @@ import { MODULES, buildRegistry } from "./server/registry.js";
 import type { CoreContext } from "./server/types.js";
 import { giveawayTxCli } from "./wallet/cli.js";
 
-const USAGE = "usage: teeny-core serve | giveaway-tx create|close";
+const USAGE = "usage: teeny-core serve | giveaway-tx create|close | openclaw ARGS...";
 const DEFAULT_SHELL_TIMEOUT_SECS = 1800;
 /** bin/lib/core_sections/context.py: COMPACTION_TRIGGER_TOKENS and KEEP_RECENT_TOKENS. */
 const COMPACTION_TRIGGER_TOKENS = 100_000;
@@ -247,6 +248,7 @@ export async function startCore(env: Env, opts: StartOptions = {}): Promise<Runn
 export async function run(argv: readonly string[], env: Env = process.env): Promise<number> {
   const [command] = argv;
   if (command === "giveaway-tx") return giveawayTxCli(argv.slice(1));
+  if (command === "openclaw") return openclawPassthrough(argv.slice(1), env);
   if (command !== "serve") {
     process.stderr.write(`${USAGE}\n`);
     return 2;
