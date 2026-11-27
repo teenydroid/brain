@@ -485,3 +485,41 @@ class SpineSettleTest(RoundCase):
         self.assertEqual((row["distributor"], row["tx_create"]), (out["chain"]["distributor"], SIG))
         prepare = self.fake_core.calls[1][1]
         self.assertEqual(prepare["expectedDebits"], [{"mint": hand.setting("GIVEAWAY_DEVNET_MINT"), "amountRaw": str(row["total_raw"])}])
+
+
+class SpineBinTest(unittest.TestCase):
+    """spine_bin keeps the installed teeny-core on PATH reachable when the checkout wrapper has no build."""
+
+    def _script(self, directory: Path, body: str) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "teeny-core"
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+        return path
+
+    def _run(self, checkout_body: str | None, with_path: bool, named: str | None = None) -> str | None:
+        import shutil
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            if checkout_body is not None:
+                self._script(root / "bin", checkout_body)
+            installed = self._script(Path(tmp) / "installed", "exit 0\n")
+            env = {"PATH": str(installed.parent) if with_path else "/nonexistent"}
+            if named:
+                env["OPENHUMAN_CORE_BIN"] = named
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(hand, "root", return_value=root):
+                got = onchain.spine_bin()
+            self.assertEqual(shutil.which("sh") is not None, True)
+            return None if got is None else got.replace(tmp, "<tmp>")
+
+    def test_an_unbuilt_checkout_wrapper_falls_through_to_the_installed_core(self):
+        self.assertEqual(self._run('echo "no build" >&2\nexit 127\n', True), "<tmp>/installed/teeny-core")
+
+    def test_a_checkout_wrapper_with_a_build_is_used(self):
+        self.assertEqual(self._run('echo /bin/sh\nexit 0\n', True), "<tmp>/root/bin/teeny-core")
+
+    def test_no_wrapper_and_nothing_on_path_is_none(self):
+        self.assertIsNone(self._run(None, False))
