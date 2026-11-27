@@ -1550,16 +1550,19 @@ research named.
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
 happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
-64 KiB prompt screen. Every message is cut to 60 KiB (`fit_request`): the
-largest shown files first (those research named last), and when the message
-is still too big with no file left (gen 24's were 66 KB on what is not a
-file: 13 KB of editable paths, 30 KB of evidence, 6.5 KB of earlier tries),
-then the editable paths research did not name are counted by folder, then
-the evidence's largest parts are dropped (the score stays), then the oldest
-earlier tries, then the web results. Each cut is named in the message
-("left out to fit the message"); a revising round's findings and last change
-are never cut. The build message does not repeat the lessons by kind in its
-evidence: its brief leads with them. The evidence is written once per generation and reused
+64 KiB prompt screen. Every message is cut to 60 KiB (`fit_request`): first
+the largest shown files the change is not about; then what is not a file
+(gen 24's were 66 KB on it: 13 KB of editable paths, 30 KB of evidence, 6.5
+KB of earlier tries): the editable paths research did not name are counted
+by folder, then the evidence's largest parts are dropped (the score stays),
+then the oldest earlier tries, then the web results; and only then, last of
+all, the files research named (or whose edit did not apply, or a skip asked
+for), largest first. Until gen 34 those named files went before anything
+that is not a file, and with ~40 KB of evidence the build was shown no file
+at all: gens 28 to 34 skipped or parked seven candidates on "the file's
+text is not shown". Each cut is named in the message ("left out to fit the
+message"); a revising round's findings and last change are never cut. The
+build message does not repeat the lessons by kind in its evidence: its brief leads with them. The evidence is written once per generation and reused
 when a restart resumes it.
 
 ### 3. Propose
@@ -1724,7 +1727,22 @@ under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
 not `docs/governance.md`). The `ask` proposer is shown whole files: first
 the ones research named to read, then the schedule, the arcs, the
 playbooks, the agent prompts and the skills, while they fit
-`EVOLVE_CONTEXT_CHARS`. A file research named that the candidate may not
+`EVOLVE_CONTEXT_CHARS`. Research's files to document and the learning's own
+files (a finding's) count as named too. A file over `MAX_WHOLE_FILE_CHARS`
+(30,000; `docs/hands.md` is ~360 KB, `docs/architecture.md` ~100 KB) is never
+shown whole: when the change is about it, it is shown as an excerpt
+(`file_excerpt`, "## file (excerpt)"): its headings by line, then up to
+10,000 characters of verbatim passages, each marked `⟦lines a-b⟧`, around
+the lines that name the change's files and the hands they call (a playbook
+running `hands/wallet` brings `wallet`'s section), with the headings the
+brief sends a change to always in (`DOC_ANCHORS`: "6. Triggers"); with
+nothing named, its first and last lines. An old text is copied from inside
+one passage. A `not-actionable` skip whose why or where names an editable
+file the message did not show (once cut to fit), and an edit that created a
+file that already exists, is not the end: that file is shown (whole or as an
+excerpt) and kept next round, which the round spends (`unseen-skip`); on the
+last round it stands, and a skip for any other reason (`frozen`, `already`,
+`not-worth`) settles as before. A file research named that the candidate may not
 change (a frozen hand's code, `bin/`) is shown read-only, in up to a third
 of that room (`read_pack`). The brief says a small edit inside an existing
 hand that is not frozen is allowed with its test, that docs go with the
