@@ -46,6 +46,12 @@ describe("the exec command reader", () => {
     expect(refused("")).toMatch(/empty/);
     expect(refused("ls &&")).toMatch(/ends after/);
     expect(refused("ls; ; ls")).toMatch(/empty part/);
+    expect(refused("echo ok; ;")).toMatch(/empty part/);
+    expect(parseCommand("echo ok;").ok).toBe(true);
+    // the cat exception takes a literal file operand after a blank or tab, never a no-break space, "-" or an option
+    expect(parseCommand('bin/teeny pr "$(cat note.txt)"').ok).toBe(true);
+    expect(parseCommand('bin/teeny pr "$(cat\tnote.txt)"').ok).toBe(true);
+    for (const c of ['x "$(cat\u00a0note.txt)"', 'x "$(cat -)"', 'x "$(cat -n)"']) expect(refused(c), c).toMatch(/command substitution/);
   });
 
   it("keeps a quoted metacharacter as text", () => {

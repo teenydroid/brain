@@ -82,8 +82,8 @@ export function checkPath(rules: PathRules, raw: unknown, access: Access): strin
     }
     // git runs what is in .git/hooks and .git/config: no tool writes there (git itself does, by its own commands).
     if (access === "write" && candidate.split(sep).includes(".git")) return `${raw} is inside a .git folder, whose hooks and config run programs`;
-    const root = roots.find((r) => isUnder(candidate, r));
-    if (!root) {
+    const held = roots.filter((r) => isUnder(candidate, r));
+    if (held.length === 0) {
       return access === "write"
         ? `${raw} is outside the folders this agent may write`
         : `${raw} is outside the folders this agent may read`;
@@ -92,7 +92,8 @@ export function checkPath(rules: PathRules, raw: unknown, access: Access): strin
       // A trusted root lifts the system list beneath it (the checkout may sit under /home), but
       // a forbidden folder inside a root stays forbidden.
       const f = safeReal(expandHome(forbidden, rules.home));
-      if (isUnder(candidate, f) && !isUnder(root, f)) return `${raw} is a forbidden path`;
+      // Any trusted root inside the forbidden folder lifts it, whatever order the roots are listed in.
+      if (isUnder(candidate, f) && !held.some((r) => isUnder(r, f))) return `${raw} is a forbidden path`;
     }
   }
   return undefined;

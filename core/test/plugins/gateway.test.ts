@@ -2,7 +2,7 @@
 // validator and plugin loader, on the config the core generates with the plugin
 // and its real policy.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,6 +17,8 @@ function openclaw(dir: string, file: string, args: string[]): string {
   return execFileSync(cmd, [...lead, ...args], {
     env: { PATH: process.env.PATH ?? "", HOME: dir, OPENCLAW_STATE_DIR: dir, OPENCLAW_CONFIG_PATH: file },
     encoding: "utf8",
+    timeout: 100_000, // a stalled CLI is killed and reported, not waited on forever
+    killSignal: "SIGKILL",
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -60,13 +62,17 @@ describe("teeny-guardrails in the pinned openclaw", () => {
       skills: (buildGatewayConfig({ port: 1, modelUrl: undefined, model: undefined, models: [], compactionTriggerTokens: 1, keepRecentTokens: 1, agentTimeoutSecs: 1, defaultWorkspace: workspace, agents: {}, skillDirs: [join(REPO, "brain", "skills", "hands")] }) as { skills: unknown }).skills,
       agents: { defaults: { workspace }, entries: { mind: { workspace } } },
     };
-    const eligible = (enabled: boolean): number => {
+    const eligible = (enabled: boolean): string[] => {
       const file = join(dir, `c-${enabled}.json`);
       writeFileSync(file, JSON.stringify({ ...base, plugins: { entries: { "teeny-guardrails": { enabled } } } }));
       const out = JSON.parse(openclaw(dir, file, ["skills", "list", "--agent", "mind", "--json"])) as { skills: { name: string; eligible: boolean }[] };
-      return out.skills.filter((s) => s.name.startsWith("hand-") && s.eligible).length;
+      return out.skills.filter((s) => s.name.startsWith("hand-") && s.eligible).map((s) => s.name).sort();
     };
-    expect(eligible(true)).toBeGreaterThan(40);
-    expect(eligible(false)).toBe(0);
+    // every generated hand skill is eligible with the plugin on, none with it off
+    const inventory = readdirSync(join(REPO, "brain", "skills", "hands"), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(REPO, "brain", "skills", "hands", d.name, "SKILL.md"))).map((d) => d.name);
+    const on = eligible(true);
+    expect(on.length).toBeGreaterThan(40);
+    expect(on.map((n) => n.replace(/^hand-/, "")).sort()).toEqual(inventory.map((n) => n.replace(/^hand-/, "")).sort());
+    expect(eligible(false)).toEqual([]);
   });
 });

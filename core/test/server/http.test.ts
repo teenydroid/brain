@@ -13,6 +13,27 @@ afterEach(async () => {
 const post = (body: string, headers: Record<string, string> = {}) =>
   fetch(`${t.url}/rpc`, { method: "POST", headers: { authorization: `Bearer ${t.token}`, "content-type": "application/json", ...headers }, body });
 
+describe("request envelope and size", () => {
+  it("rejects a wrong jsonrpc version or an object id before any handler runs", async () => {
+    const bad = [
+      { jsonrpc: "1.0", id: 1, method: "openhuman.config_update_agent_settings", params: { agent_timeout_secs: 999 } },
+      { id: 1, method: "openhuman.config_update_agent_settings", params: { agent_timeout_secs: 999 } },
+      { jsonrpc: "2.0", id: { a: 1 }, method: "openhuman.config_update_agent_settings", params: { agent_timeout_secs: 999 } },
+    ];
+    for (const b of bad) expect(await (await post(JSON.stringify(b))).json()).toMatchObject({ id: null, error: { code: -32600 } });
+    expect((await (await post(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "openhuman.config_get_agent_settings" }))).json() as { result: { agent_timeout_secs: number } }).result.agent_timeout_secs).not.toBe(999);
+    for (const id of ["a", 7, null]) {
+      expect(await (await post(JSON.stringify({ jsonrpc: "2.0", id, method: "openhuman.config_get_agent_settings" }))).json()).toMatchObject({ id, result: {} });
+    }
+  });
+
+  it("answers an oversized body with 413, not a dropped connection", async () => {
+    const res = await post(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "openhuman.get_config", params: { pad: "x".repeat(17 * 1024 * 1024) } }));
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({ error: { code: -32600 } });
+  });
+});
+
 describe("transport (core/test/contract/_rpc_envelope.json)", () => {
   it("GET /health answers 200 with no token", async () => {
     const res = await fetch(`${t.url}/health`);

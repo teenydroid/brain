@@ -228,6 +228,9 @@ describe("cron wiring", () => {
     expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "none.toml") }, dir)).toBe(1800);
     writeFileSync(join(dir, "config.toml"), "[cron]\nshell_timeout_secs = 900\n");
     expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "config.toml") }, dir)).toBe(900);
+    // a boolean is not a number: `= true` is the default, not one second
+    writeFileSync(join(dir, "bool.toml"), "[cron]\nshell_timeout_secs = true\n");
+    expect(cronShellTimeoutSecs({ TEENY_CORE_CONFIG: join(dir, "bool.toml") }, dir)).toBe(1800);
     expect(cronShellTimeoutSecs({ OPENHUMAN_WORKSPACE: join(dir, "workspace") }, dir)).toBe(1800);
     mkdirSync(join(dir, ".openhuman"));
     writeFileSync(join(dir, ".openhuman", "config.toml"), "[cron]\nshell_timeout_secs = 60\n");
