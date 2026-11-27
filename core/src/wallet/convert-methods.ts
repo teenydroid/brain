@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import type { CoreContext, RpcMethods } from "../server/types.js";
 import { evmPrivateKey, solanaKeypair } from "./derive.js";
-import { evmNetwork, evmNetworkByChainId } from "./endpoints.js";
+import { type EvmNetworkInfo, evmNetwork, evmNetworkByChainId } from "./endpoints.js";
 import { PolicyRefusal, fail, refusal } from "./errors.js";
 import * as evm from "./evm-chain.js";
 import type { LedgerRecord } from "./ledger.js";
@@ -27,6 +27,13 @@ import { bigintOf, hexToBytes, newId, requireConfirmed, requireStr } from "./uti
 
 /** The id the wallet module (after deBridge) gives Solana. */
 const SOLANA_CHAIN_ID = "7565164";
+/**
+ * The contracts hands/wallet (chains.py DEBRIDGE_EVM_CONTRACTS) lets an approval name without a quote of ours
+ * naming them: DlnSource, and the deBridge router a same-chain swap goes through. LI.FI's spender is never
+ * pinned here: it is whatever `tx.to` a live LI.FI quote of ours returned.
+ */
+const PINNED_SPENDERS = new Set(["0xef4fb24ad0916217251f553c0596f8edc630eb66", "0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251"]);
+const APPROVE_SELECTOR = "0x095ea7b3";
 const QUOTE_TTL_MS = 90_000;
 const DAPP_TTL_MS = 120_000;
 
@@ -152,6 +159,7 @@ export function convertMethods(rt: Runtime): RpcMethods {
     const valueRaw = params.valueRaw === undefined ? "0" : String(params.valueRaw);
     if (bigintOf(valueRaw) === undefined) throw fail("invalid params: valueRaw is a whole number of wei");
     own(ctx, "evm");
+    checkApproval(rt, network, contract, calldata, valueRaw);
     const quote = store(
       ctx,
       {
@@ -235,6 +243,42 @@ export function convertMethods(rt: Runtime): RpcMethods {
   methods.web3_dapp_execute = execute("dapp");
 
   return methods;
+}
+
+/**
+ * The one thing a dapp call may be: an exact ERC-20 `approve(spender, amount)` on the network's USDC, no value,
+ * to a spender we can account for. Anything else (a transfer, an unlimited allowance, another token or contract,
+ * an unknown spender) is refused before it is stored, so there is nothing to execute.
+ *
+ * A spender is accounted for when a live swap or bridge quote of this wallet, on this chain, has it as `tx.to`
+ * (and the amount is no more than that quote's input), or when it is one of the pinned deBridge contracts.
+ */
+function checkApproval(rt: Runtime, network: EvmNetworkInfo, contract: string, calldata: string, valueRaw: string): void {
+  const no = (why: string): never => {
+    throw refusal("instruction_not_allowed", `a dapp call may only approve USDC for a swap or bridge contract: ${why}`);
+  };
+  if (contract.toLowerCase() !== network.usdc.toLowerCase()) no(`${contract} is not the USDC on ${network.id}`);
+  if (BigInt(valueRaw) !== 0n) no("it sends value");
+  const data = (calldata.startsWith("0x") ? calldata : `0x${calldata}`).toLowerCase();
+  if (!data.startsWith(APPROVE_SELECTOR)) no("it is not approve(spender, amount)");
+  if (!/^0x095ea7b3[0-9a-f]{128}$/.test(data)) no("approve(spender, amount) takes exactly two 32-byte arguments");
+  const word = data.slice(10, 74);
+  if (!word.startsWith("0".repeat(24))) no("the spender is not an address");
+  const spender = `0x${word.slice(24)}`;
+  const amount = BigInt(`0x${data.slice(74)}`);
+  if (amount >= 1n << 255n) no("an unlimited allowance is never signed");
+  const fromQuote = rt
+    .converts.live(rt.now())
+    .some(
+      (q) =>
+        (q.kind === "swap" || q.kind === "bridge") &&
+        q.signingChain === "evm" &&
+        q.evmChainId === network.chainId &&
+        q.tx.to?.toLowerCase() === spender &&
+        q.summary.fromToken.toLowerCase() === network.usdc.toLowerCase() &&
+        amount <= (bigintOf(q.summary.amountRaw) ?? 0n),
+    );
+  if (!fromQuote && !PINNED_SPENDERS.has(spender)) no(`${spender} is neither the contract of a live quote nor a pinned deBridge contract`);
 }
 
 function envelope(quote: ConvertQuote, answer: unknown): Record<string, unknown> {

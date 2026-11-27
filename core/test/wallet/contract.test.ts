@@ -78,12 +78,12 @@ describe("the contract", () => {
     await check("web3_swap_execute", { quoteId: swap.quoteId, confirmed: true });
     const bridge = await check("web3_bridge_quote", { srcChainId: "8453", srcChainTokenIn: BASE_USDC, srcChainTokenInAmount: "1000", dstChainId: "42161", dstChainTokenOut: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", dstChainTokenOutAmount: "debridge:auto", dstChainTokenOutRecipient: "0x1111111111111111111111111111111111111111", srcChainOrderAuthorityAddress: "0x1111111111111111111111111111111111111111", dstChainOrderAuthorityAddress: "0x1111111111111111111111111111111111111111" });
     await check("web3_bridge_execute", { quoteId: bridge.quoteId, confirmed: true });
-    const dapp = await check("web3_dapp_call", { contractAddress: BASE_USDC, calldata: "0x095ea7b3", valueRaw: "0", evmNetwork: "base_mainnet" });
-    expect(dapp.quote).toMatchObject({ contractAddress: BASE_USDC, calldata: "0x095ea7b3", valueRaw: "0" });
+    const dapp = await check("web3_dapp_call", { contractAddress: BASE_USDC, calldata: `0x095ea7b3${"0".repeat(24)}ef4fb24ad0916217251f553c0596f8edc630eb66${"0".repeat(63)}1`, valueRaw: "0", evmNetwork: "base_mainnet" });
+    expect(dapp.quote).toMatchObject({ contractAddress: BASE_USDC, calldata: `0x095ea7b3${"0".repeat(24)}ef4fb24ad0916217251f553c0596f8edc630eb66${"0".repeat(63)}1`, valueRaw: "0" });
     await check("web3_dapp_execute", { quoteId: dapp.quoteId, confirmed: true });
 
     const challenge = Buffer.from(JSON.stringify({ x402Version: 2, resource: { url: "https://api.example.test/x" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "10", asset: BASE_USDC, payTo: "0x2222222222222222222222222222222222222222", maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } }] })).toString("base64");
-    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => (call.headers["payment-signature"] ? new Response("{}", { headers: { "content-type": "application/json", "payment-response": "x" } }) : new Response("", { status: 402, headers: { "payment-required": challenge } })));
+    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => (call.headers["payment-signature"] ? new Response("{}", { headers: { "content-type": "application/json", "payment-response": Buffer.from(JSON.stringify({ success: true, network: "eip155:8453" })).toString("base64") } }) : new Response("", { status: 402, headers: { "payment-required": challenge } })));
     const paid = await check("x402_fetch", { url: "https://api.example.test/x", method: "GET", maxAmountAtomic: 100 });
     expect(paid.payment).toMatchObject({ amountAtomic: "10", asset: BASE_USDC, settled: true });
     await check("x402_list_payments", { limit: 500 });

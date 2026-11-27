@@ -254,7 +254,7 @@ describe("the HTTP edges", () => {
       () => json(fixture("base_eth_to_usdc_swap.json")),
     );
     const env = { TEENY_LIFI_API: "https://lifi.test.invalid/", LIFI_API_KEY: "  secret-lifi-key  " };
-    const answer = (await backendAnswer(env, { fetch: net.fetch, now: Date.now, resolve: async () => [] }, swap({ ...swapBody(), chainId: 8453, slippage: "lifi:1", tokenOutRecipient: OWN_EVM, senderAddress: OWN_EVM, tokenIn: "0x0000000000000000000000000000000000000000", tokenOut: BASE_USDC }))) as Record<string, unknown>;
+    const answer = (await backendAnswer(env, { fetch: net.fetch, now: Date.now, resolve: async () => [], pinnedFetch: net.fetch }, swap({ ...swapBody(), chainId: 8453, slippage: "lifi:1", tokenOutRecipient: OWN_EVM, senderAddress: OWN_EVM, tokenIn: "0x0000000000000000000000000000000000000000", tokenOut: BASE_USDC }))) as Record<string, unknown>;
     expect(answer.provider).toBe("lifi");
     const call = net.calls[0]!;
     expect(call.headers["x-lifi-api-key"]).toBe("secret-lifi-key");
@@ -269,7 +269,7 @@ describe("the HTTP edges", () => {
       () => json({ errorMessage: "insufficient liquidity" }, 400),
     );
     const env = { TEENY_DEBRIDGE_API: "https://dln.test.invalid", DEBRIDGE_API_KEY: "tok" };
-    const deps = { fetch: net.fetch, now: Date.now, resolve: async () => [] };
+    const deps = { fetch: net.fetch, now: Date.now, resolve: async () => [], pinnedFetch: net.fetch };
     await expect(backendAnswer(env, deps, swap({ chainId: 8453, tokenIn: "a", tokenInAmount: "1", tokenOut: "b", tokenOutRecipient: OWN_EVM, slippage: "debridge:auto" }))).rejects.toThrow(
       /^deBridge answered HTTP 400: insufficient liquidity$/,
     );

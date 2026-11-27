@@ -1,3 +1,5 @@
+import { pinnedFetch } from "./pinned-fetch.js";
+
 // Chains, clusters and their endpoints. The cluster and the RPC URLs come from
 // the boot environment (bin/lib/wallet_config.py writes them); an endpoint URL
 // can carry a provider's API key, so no error here ever names one.
@@ -106,9 +108,12 @@ export interface Deps {
   now: () => number;
   /** Every address HOST resolves to, for the x402 destination guard. */
   resolve: (host: string) => Promise<string[]>;
+  /** A request whose connection goes only to the given, already vetted addresses (see pinned-fetch.ts). */
+  pinnedFetch: (url: string, init: RequestInit, addresses: readonly string[]) => Promise<Response>;
 }
 
 export const defaultDeps: Deps = {
+  pinnedFetch,
   fetch: (...args) => globalThis.fetch(...args),
   now: () => Date.now(),
   resolve: async (host) => {

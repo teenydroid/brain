@@ -78,15 +78,17 @@ returns or throws it (`errors.ts` also scrubs any tracked secret out of an error
 
 ## Methods
 
-See the report that came with this change for the per-method status. In short: every
-method in the fixtures is implemented; `x402_fetch` implements the `exact` scheme only
-(no `upto`), and `signIn` is refused ("not implemented").
+Every method in the fixtures is implemented.
+
+- `x402_fetch` is a port of `vendor/openhuman/vendor/tinywallet/crates/tinywallet-x402`: the `exact` scheme on Solana and Base-style EVM networks, the EVM `upto` scheme (Permit2 `PermitWitnessTransferFrom` for the `x402UptoPermit2Proxy`, plus the optional EIP-2612 gas-sponsoring permit), and `signIn` (Sign-In-With-X, EIP-191, which `hands/x/twitr.py` uses for `connect` and the linked-account list). Preference is Solana exact, EVM exact, EVM upto. An `upto` payment reserves its full ceiling in the budget while pending, and the budget then holds what the receipt says was charged. The connection goes only to the addresses the destination guard vetted (`pinned-fetch.ts`), so a DNS answer that changes between the check and the connect changes nothing.
+- `wallet_balances` reports native balances (SOL, ETH per network on mainnet, BTC). It has no SPL token rows on purpose: the only caller, `hands/wallet/pay.py native_balance`, reads native rows only, and USDC balances are read by the hands straight from Solana RPC (`wallet/solana.py token_balance`, per its own docstring).
 
 ### Prepare and execute
 
 - `wallet_prepare_transfer` validates and stores a quote in memory (5 minutes). Nothing is signed.
 - `wallet_execute_prepared` needs `confirmed: true`, takes the quote (single use; it does not survive a restart or a replaced wallet), then **reserves the spend in the ledger under the policy before anything is signed**: a refusal never opens the key. A failure after the reservation is recorded `in_doubt` and counts as spent; a quote is never executed twice.
 - `wallet_prepare_program` / `wallet_execute_prepared_program` re-simulate and re-check at execute; the quote lives 60 seconds.
+- A dapp call is only ever an exact ERC-20 `approve(spender, amount)` on the network's own USDC, with no value and no unlimited allowance (the one thing `convert.py _approve` sends). The spender must be the `tx.to` of a live swap or bridge quote of this wallet on that chain (amount no more than that quote's input), or one of the two pinned deBridge contracts. Anything else is refused with `WALLET_POLICY_REFUSED:` before a quote is stored, so there is nothing to execute.
 - `web3_*_execute` and `web3_dapp_execute` apply no cap (as in OpenHuman: `hands/wallet` holds those caps), but are single use, expire (90s / 120s), sign only the wallet's own primary account for the four EVM networks and Solana, and are written to the ledger (`kind` swap/bridge/dapp, `policyApplied: false`, never counted against the transfer caps).
 
 ### Where this is stricter than OpenHuman
@@ -138,6 +140,5 @@ three places OpenHuman can have kept the phrase and run the script as a subproce
 ## What was not verified
 
 - Nothing here has touched a real chain. Devnet verification (a transfer, a swap quote, a giveaway create and close) is the operator's step; every RPC and HTTP call in the tests is a mock.
-- The tinywallet module's source is not in the repository (a submodule `vendor/openhuman` does not carry), so the transfer quote fields, expiry, fee policy and the x402 internals follow what the hands read and what the host side of OpenHuman shows, not the module's code.
+- The x402 code follows the tinywallet-x402 crate (the `upto` Permit2 typed data, SIWX message and receipt rules are its own), but no counterparty was reachable: the proofs are verified in tests by recovering the signer, not by a facilitator accepting them. Transfer quote fields and expiry follow what the hands read, not the module's code.
 - BTC and Tron addresses are derived (P2WPKH `bc1q...` at `m/44'/0'/0'/0/0`, Tron base58check at `m/44'/195'/0'/0/0`) because OpenHuman's setup demands all four chains; they were not compared with OpenHuman's own output for a known phrase. EVM and Solana are checked against the well-known derivations of the BIP-39 test phrase.
-- DNS pinning for x402: the destination is resolved and vetted, then `fetch` resolves it again. A rebinding race is possible; OpenHuman pinned the vetted address.

@@ -151,12 +151,12 @@ describe("no method, error, log or file ever carries key material", () => {
     await run("web3_swap_execute", { quoteId: s1.quoteId, confirmed: true });
     const b1 = (await run("web3_bridge_quote", { srcChainId: "8453", srcChainTokenIn: "a", srcChainTokenInAmount: "1", dstChainId: "42161", dstChainTokenOut: "b", dstChainTokenOutAmount: "debridge:auto", dstChainTokenOutRecipient: "0x1111111111111111111111111111111111111111", srcChainOrderAuthorityAddress: "x", dstChainOrderAuthorityAddress: "y" })) as { quoteId: string };
     await run("web3_bridge_execute", { quoteId: b1.quoteId, confirmed: true });
-    const d1 = (await run("web3_dapp_call", { contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", calldata: "0x095ea7b3", valueRaw: "0", evmNetwork: "base_mainnet" })) as { quoteId: string };
+    const d1 = (await run("web3_dapp_call", { contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", calldata: `0x095ea7b3${"0".repeat(24)}ef4fb24ad0916217251f553c0596f8edc630eb66${"0".repeat(63)}1`, valueRaw: "0", evmNetwork: "base_mainnet" })) as { quoteId: string };
     await run("web3_dapp_execute", { quoteId: d1.quoteId, confirmed: true });
     await run("web3_dapp_execute", { quoteId: d1.quoteId, confirmed: true });
     // x402
     const challenge = Buffer.from(JSON.stringify({ x402Version: 2, resource: { url: "https://api.example.test/x" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "10", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: "0x2222222222222222222222222222222222222222", maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } }] })).toString("base64");
-    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => (call.headers["payment-signature"] ? new Response("ok", { headers: { "payment-response": "x" } }) : new Response("", { status: 402, headers: { "payment-required": challenge } })));
+    h.net.onHttp((u) => u.startsWith("https://api.example.test/"), (call) => (call.headers["payment-signature"] ? new Response("ok", { headers: { "payment-response": Buffer.from(JSON.stringify({ success: true, network: "eip155:8453" })).toString("base64") } }) : new Response("", { status: 402, headers: { "payment-required": challenge } })));
     await run("x402_fetch", { url: "https://api.example.test/x", method: "GET", maxAmountAtomic: 100 });
     await run("x402_fetch", { url: "https://api.example.test/x", method: "GET", maxAmountAtomic: 1 });
     await run("x402_list_payments", { limit: 500 });

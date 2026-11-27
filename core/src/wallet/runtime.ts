@@ -91,7 +91,8 @@ export class Runtime {
   readonly deps: Deps;
 
   constructor(deps: Partial<Deps> = {}) {
-    this.deps = { ...defaultDeps, ...deps };
+    // Tests that script `fetch` get the same script for the pinned path; production uses the real, pinning one.
+    this.deps = { ...defaultDeps, ...(deps.fetch && !deps.pinnedFetch ? { pinnedFetch: (u: string, i: RequestInit) => deps.fetch!(u, i) } : {}), ...deps };
   }
 
   now(): number {

@@ -169,12 +169,14 @@ describe("a quote's life", () => {
   });
 });
 
+const approve = (spender: string, amount: bigint): string => `0x095ea7b3${spender.toLowerCase().replace(/^0x/, "").padStart(64, "0")}${amount.toString(16).padStart(64, "0")}`;
+
 describe("a dapp call", () => {
   it("quotes an approval, echoes what it will sign, and signs exactly that to the contract with no value", async () => {
     const h = makeHarness();
     await setupWallet(h);
     const { sent } = mockEvm(h.net);
-    const calldata = `0x095ea7b3${"0".repeat(24)}ef4fb24ad0916217251f553c0596f8edc630eb66${"f".repeat(64)}`;
+    const calldata = approve("ef4fb24ad0916217251f553c0596f8edc630eb66", 1_000_000n);
     const quote = (await h.call("web3_dapp_call", { contractAddress: BASE_USDC, calldata, valueRaw: "0", evmNetwork: "base_mainnet" })) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(quote.quote).toEqual({ contractAddress: BASE_USDC, calldata, valueRaw: "0" });
     await h.call("web3_dapp_execute", { quoteId: quote.quoteId, confirmed: true });
@@ -188,7 +190,7 @@ describe("a dapp call", () => {
   it("refuses a malformed call", async () => {
     const h = makeHarness();
     await setupWallet(h);
-    const base = { contractAddress: BASE_USDC, calldata: "0x095ea7b3", valueRaw: "0", evmNetwork: "base_mainnet" };
+    const base = { contractAddress: BASE_USDC, calldata: approve("ef4fb24ad0916217251f553c0596f8edc630eb66", 1n), valueRaw: "0", evmNetwork: "base_mainnet" };
     await expect(h.call("web3_dapp_call", { ...base, contractAddress: "0xabc" })).rejects.toThrow(/not a valid EVM address/);
     await expect(h.call("web3_dapp_call", { ...base, calldata: "0xzz" })).rejects.toThrow(/calldata is not hex/);
     await expect(h.call("web3_dapp_call", { ...base, valueRaw: "-1" })).rejects.toThrow(/valueRaw/);
@@ -203,5 +205,78 @@ describe("routes", () => {
     await setupWallet(h);
     h.net.onHttp((u) => u.includes("supported-chains-info"), () => json({ chains: [{ chainId: 1 }] }));
     expect(await h.call("web3_swap_routes")).toEqual({ chains: [{ chainId: 1 }] });
+  });
+});
+
+describe("a dapp call is only ever an exact USDC approval for a contract we can account for", () => {
+  const PINNED = "ef4fb24ad0916217251f553c0596f8edc630eb66";
+  const STRANGER = "1234567890123456789012345678901234567890";
+  const call = (h: Harness, over: Record<string, unknown>) =>
+    h.call("web3_dapp_call", { contractAddress: BASE_USDC, calldata: approve(PINNED, 1000n), valueRaw: "0", evmNetwork: "base_mainnet", ...over });
+  const refused = async (p: Promise<unknown>): Promise<string> => {
+    try {
+      await p;
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error("expected a refusal");
+  };
+
+  it("refuses everything else, with a policy refusal, and stores nothing to execute", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    const { sent } = mockEvm(h.net);
+    const prefix = "WALLET_POLICY_REFUSED: a dapp call may only approve USDC for a swap or bridge contract: ";
+    // another contract
+    expect(await refused(call(h, { contractAddress: "0x1111111111111111111111111111111111111111" }))).toBe(`${prefix}0x1111111111111111111111111111111111111111 is not the USDC on base_mainnet`);
+    // the USDC of another network
+    expect(await refused(call(h, { contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" }))).toMatch(/is not the USDC on base_mainnet/);
+    // a transfer, not an approval
+    expect(await refused(call(h, { calldata: `0xa9059cbb${"0".repeat(24)}${PINNED}${"0".repeat(63)}1` }))).toBe(`${prefix}it is not approve(spender, amount)`);
+    // value
+    expect(await refused(call(h, { valueRaw: "1" }))).toBe(`${prefix}it sends value`);
+    // an unlimited allowance
+    expect(await refused(call(h, { calldata: approve(PINNED, 2n ** 256n - 1n) }))).toBe(`${prefix}an unlimited allowance is never signed`);
+    // a spender nobody quoted
+    expect(await refused(call(h, { calldata: approve(STRANGER, 1000n) }))).toBe(`${prefix}0x${STRANGER} is neither the contract of a live quote nor a pinned deBridge contract`);
+    // extra bytes, a dirty address word, selector only
+    expect(await refused(call(h, { calldata: `${approve(PINNED, 1n)}00` }))).toMatch(/exactly two 32-byte arguments/);
+    expect(await refused(call(h, { calldata: `0x095ea7b3${"f".repeat(24)}${PINNED}${"0".repeat(64)}` }))).toMatch(/the spender is not an address/);
+    expect(await refused(call(h, { calldata: "0x095ea7b3" }))).toMatch(/exactly two 32-byte arguments/);
+    // and a quote id nobody gave us executes nothing
+    await expect(h.call("web3_dapp_execute", { quoteId: "q-made-up", confirmed: true })).rejects.toThrow(/unavailable or expired/);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("allows an approval for the contract a live quote of ours names, up to that quote's input, on that chain only", async () => {
+    const h = makeHarness();
+    await setupWallet(h);
+    const { sent } = mockEvm(h.net);
+    const me = await own(h, "evm");
+    const recorded = lifiFixture("base_usdc_to_arbitrum.json");
+    const spender = (recorded.transactionRequest as { to: string }).to;
+    h.net.onHttp((u) => u.includes("li.quest"), () => json(recorded));
+    expect(await refused(call(h, { calldata: approve(spender, 5_000_000n) }))).toMatch(/neither the contract of a live quote/); // before there is a quote
+    const q = (await h.call("web3_bridge_quote", {
+      srcChainId: "8453",
+      srcChainTokenIn: BASE_USDC,
+      srcChainTokenInAmount: "5000000",
+      dstChainId: "42161",
+      dstChainTokenOut: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      dstChainTokenOutAmount: "lifi:auto",
+      dstChainTokenOutRecipient: me,
+      srcChainOrderAuthorityAddress: me,
+      dstChainOrderAuthorityAddress: me,
+    })) as { quoteId: string };
+    expect(await refused(call(h, { calldata: approve(spender, 5_000_001n) }))).toMatch(/neither the contract of a live quote/); // more than the quote's input
+    const approval = (await call(h, { calldata: approve(spender, 5_000_000n) })) as { quoteId: string };
+    await h.call("web3_dapp_execute", { quoteId: approval.quoteId, confirmed: true });
+    expect(parseEvm(sent[0]!).to?.toLowerCase()).toBe(BASE_USDC.toLowerCase());
+    // another chain's USDC is not covered by a Base quote
+    expect(await refused(call(h, { contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", evmNetwork: "arbitrum_one", calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote/);
+    // once the quote has expired it vouches for nothing
+    h.clock.now += 91_000;
+    expect(await refused(call(h, { calldata: approve(spender, 1n) }))).toMatch(/neither the contract of a live quote/);
+    expect(q.quoteId).toBeTruthy();
   });
 });

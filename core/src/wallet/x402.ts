@@ -1,16 +1,18 @@
 // x402_fetch and x402_list_payments: one HTTP request that may pay an HTTP 402
 // challenge within a cap the caller states, from the wallet's own USDC.
 //
-// What is implemented: the x402 v2 `exact` scheme on Base-style EVM networks
-// (an EIP-3009 transferWithAuthorization signed as EIP-712 typed data) and on
-// Solana (a partially signed SPL TransferChecked the facilitator completes and
-// pays the fee for), USDC only.
-//
-// What is NOT implemented, and refused rather than guessed at: the `upto`
-// scheme (twitr.sh's search reads use it), and `signIn` (Sign-In-With-X).
+// What is implemented (a port of tinywallet-x402): the x402 v2 `exact` scheme
+// on Base-style EVM networks (an EIP-3009 transferWithAuthorization signed as
+// EIP-712 typed data) and on Solana (a partially signed SPL TransferChecked the
+// facilitator completes and pays the fee for); the EVM `upto` scheme (a Permit2
+// PermitWitnessTransferFrom for the x402UptoPermit2Proxy, with the optional
+// EIP-2612 gas-sponsoring permit), where the signed amount is a ceiling and the
+// receipt says what was charged; and `signIn` (Sign-In-With-X, EIP-191), which
+// pays nothing. USDC only. Preference: Solana exact, EVM exact, EVM upto.
 //
 // The request goes through a URL guard (https only, no local or private
-// destination, no redirects), the challenge must name the origin that was
+// destination, no redirects) and then connects only to the addresses the guard
+// vetted (pinned-fetch.ts), so DNS cannot change its mind in between, the challenge must name the origin that was
 // requested, the amount must fit `maxAmountAtomic` and the per-request,
 // daily and monthly budgets (OPENHUMAN_X402_*_MAX, written by
 // bin/lib/wallet_config.py), and every payment is written to the ledger
@@ -19,7 +21,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, createTransferCheckedInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { getAddress } from "viem";
+import { encodeFunctionData, getAddress, isAddress, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { CoreContext, RpcMethods } from "../server/types.js";
 import { evmPrivateKey, solanaKeypair } from "./derive.js";
@@ -144,7 +146,7 @@ function privateAddress(address: string): boolean {
 }
 
 /** https only; local and private destinations are refused, including names that resolve to them. */
-export async function guardDestination(rt: Runtime, url: string): Promise<URL> {
+export async function guardDestination(rt: Runtime, url: string): Promise<{ target: URL; addresses: string[] }> {
   const target = new URL(url);
   const host = target.hostname.replace(/^\[|\]$/g, "");
   const lower = host.toLowerCase();
@@ -155,7 +157,7 @@ export async function guardDestination(rt: Runtime, url: string): Promise<URL> {
   if (addresses.length === 0 || addresses.some(privateAddress)) {
     throw fail("x402_fetch: destination refused: local or private hosts are not allowed");
   }
-  return target;
+  return { target, addresses };
 }
 
 // --- the challenge ------------------------------------------------------------------
@@ -175,9 +177,10 @@ interface Challenge {
   x402Version: number;
   resource?: { url?: string } | string;
   accepts: Accept[];
+  extensions?: Record<string, unknown>;
 }
 
-function decodeChallenge(header: string): Challenge {
+function decodeChallenge(header: string, needAccepts: boolean): Challenge {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(header.trim(), "base64").toString("utf8"));
@@ -185,7 +188,11 @@ function decodeChallenge(header: string): Challenge {
     throw fail("x402_fetch: payment failed: the challenge is not base64 JSON");
   }
   const c = parsed as Challenge;
-  if (typeof c !== "object" || c === null || !Array.isArray(c.accepts)) throw fail("x402_fetch: payment failed: the challenge lists no payment options");
+  if (typeof c !== "object" || c === null) throw fail("x402_fetch: payment failed: the challenge is not an object");
+  if (!Array.isArray(c.accepts)) {
+    if (needAccepts) throw fail("x402_fetch: payment failed: the challenge lists no payment options");
+    c.accepts = [];
+  }
   return c;
 }
 
@@ -212,39 +219,79 @@ function matchesPin(network: string, pin: string | undefined): boolean {
 interface Rail {
   accept: Accept;
   chain: "evm" | "solana";
+  scheme: "exact" | "upto";
   evm?: EvmNetworkInfo;
+  /** The exact price, or the ceiling of an `upto` payment. */
   amount: bigint;
+  rank: number;
 }
 
+const isAddr = (a: unknown): a is string => typeof a === "string" && isAddress(a);
+
+/** An `upto` requirement carries what a Permit2 authorization needs: a facilitator to bind, and no other transfer method. */
+function payableUpto(accept: Accept): boolean {
+  const extra = accept.extra ?? {};
+  const method = extra.assetTransferMethod;
+  return isAddr(extra.facilitatorAddress) && (method === undefined || method === "permit2");
+}
+
+/** The best-ranked payable option: Solana exact, then EVM exact, then EVM upto; the first on a tie. */
 function chooseRail(challenge: Challenge, pin: string | undefined, cluster: ReturnType<typeof solanaCluster>): Rail {
   let usdcMismatch: string | undefined;
+  let best: Rail | undefined;
   for (const accept of challenge.accepts) {
     if (!matchesPin(accept.network, pin)) continue;
-    if (accept.scheme !== "exact") continue;
+    if (accept.scheme !== "exact" && accept.scheme !== "upto") continue;
     const amountText = accept.amount ?? accept.maxAmountRequired;
     if (typeof amountText !== "string" || !/^\d+$/.test(amountText)) continue;
     const amount = BigInt(amountText);
+    let candidate: Rail | undefined;
     if (accept.network.startsWith("eip155:")) {
       const network = EVM_NETWORKS.find((n) => `eip155:${n.chainId}` === accept.network);
       if (!network || cluster !== "mainnet") continue;
+      if (accept.scheme === "upto" && !payableUpto(accept)) continue;
       if (accept.asset.toLowerCase() !== network.usdc.toLowerCase()) {
-        usdcMismatch = `${accept.asset} is not the USDC accepted on ${accept.network}`;
+        usdcMismatch ??= `${accept.asset} is not the USDC accepted on ${accept.network}`;
         continue;
       }
-      return { accept, chain: "evm", evm: network, amount };
-    }
-    const wanted = cluster === "mainnet" ? SOLANA_MAINNET_CAIP : cluster === "devnet" ? SOLANA_DEVNET_CAIP : undefined;
-    if (wanted && accept.network === wanted) {
-      const mint = solanaUsdcMint(cluster);
-      if (accept.asset !== mint) {
-        usdcMismatch = `${accept.asset} is not the USDC accepted on ${accept.network}`;
+      candidate = { accept, chain: "evm", scheme: accept.scheme, evm: network, amount, rank: accept.scheme === "exact" ? 1 : 2 };
+    } else {
+      const wanted = cluster === "mainnet" ? SOLANA_MAINNET_CAIP : cluster === "devnet" ? SOLANA_DEVNET_CAIP : undefined;
+      if (accept.scheme !== "exact" || !wanted || accept.network !== wanted) continue;
+      if (accept.asset !== solanaUsdcMint(cluster)) {
+        usdcMismatch ??= `${accept.asset} is not the USDC accepted on ${accept.network}`;
         continue;
       }
-      return { accept, chain: "solana", amount };
+      candidate = { accept, chain: "solana", scheme: "exact", amount, rank: 0 };
     }
+    if (!best || candidate.rank < best.rank) best = candidate;
   }
+  if (best) return best;
   if (usdcMismatch) throw fail(`${X402_REFUSED_PREFIX} x402 asset ${usdcMismatch}`);
-  throw fail(`${X402_REFUSED_PREFIX} no supported payment option in the challenge (this wallet pays the x402 exact scheme in USDC on Base-style EVM networks and Solana)`);
+  throw fail(
+    `${X402_REFUSED_PREFIX} no supported payment option in the challenge (this wallet pays the x402 exact scheme in USDC on Base-style EVM networks and Solana, and the upto scheme on those EVM networks)`,
+  );
+}
+
+/** The amount a receipt says was charged for a payment signed for SIGNED, or undefined when it does not settle it (tinywallet's `settled_amount`). */
+export function settledAmount(receipt: unknown, network: string, scheme: string, signed: bigint): bigint | undefined {
+  if (typeof receipt !== "object" || receipt === null) return undefined;
+  const r = receipt as { success?: unknown; network?: unknown; amount?: unknown };
+  if (r.success !== true || r.network !== network) return undefined;
+  if (r.amount === undefined || r.amount === null) return signed;
+  const reported = typeof r.amount === "string" && /^\d+$/.test(r.amount) ? BigInt(r.amount) : undefined;
+  if (reported === undefined) return undefined;
+  if (scheme === "upto") return reported <= signed ? reported : undefined;
+  return reported === signed ? signed : undefined;
+}
+
+function decodeReceipt(header: string | null): unknown {
+  if (header === null) return undefined;
+  try {
+    return JSON.parse(Buffer.from(header.trim(), "base64").toString("utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 // --- budgets and the payment ledger --------------------------------------------------
@@ -296,16 +343,157 @@ function spentSince(records: PaymentRecord[], sinceMs: number): bigint {
 
 // --- signing -------------------------------------------------------------------------
 
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const UPTO_PERMIT2_PROXY = "0x4020A4f3b7b90ccA423B9fabCc0CE57C6C240002";
+const EIP2612_GAS_SPONSORING = "eip2612GasSponsoring";
+const MAX_AUTHORIZATION_SECS = 300;
+const ERC20_READS = parseAbi(["function allowance(address owner, address spender) view returns (uint256)", "function nonces(address owner) view returns (uint256)"]);
+
+const freshNonce = (): bigint => BigInt(`0x${randomBytes(32).toString("hex")}`);
+
+function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...target };
+  for (const [key, value] of Object.entries(source)) {
+    const existing = out[key];
+    out[key] =
+      typeof existing === "object" && existing !== null && !Array.isArray(existing) && typeof value === "object" && value !== null && !Array.isArray(value)
+        ? mergeInto(existing as Record<string, unknown>, value as Record<string, unknown>)
+        : value;
+  }
+  return out;
+}
+
+async function readUint(rt: Runtime, ctx: CoreContext, network: EvmNetworkInfo, token: string, data: `0x${string}`): Promise<bigint> {
+  const reply = await rt.evm(ctx, network).call<string>("eth_call", [{ to: token, data }, "latest"]);
+  if (typeof reply !== "string" || !/^0x[0-9a-fA-F]*$/.test(reply)) throw new Error("eth_call returned a non-hex result");
+  return BigInt(reply === "0x" ? "0x0" : reply);
+}
+
+type Signer = ReturnType<typeof privateKeyToAccount>;
+
+/** The `upto` proof: a Permit2 PermitWitnessTransferFrom for the x402UptoPermit2Proxy, and the EIP-2612 permit when the server sponsors it. */
+async function uptoProof(
+  rt: Runtime,
+  ctx: CoreContext,
+  signer: Signer,
+  challenge: Challenge,
+  rail: Rail,
+  nowSecs: number,
+): Promise<{ payload: Record<string, unknown>; extensions: Record<string, unknown> }> {
+  const accepted = rail.accept;
+  const network = rail.evm!;
+  const extra = accepted.extra ?? {};
+  const token = getAddress(accepted.asset);
+  const to = getAddress(accepted.payTo);
+  const facilitator = getAddress(extra.facilitatorAddress as string);
+  const deadline = BigInt(nowSecs + Math.min(Math.max(accepted.maxTimeoutSeconds ?? 60, 1), MAX_AUTHORIZATION_SECS));
+  const nonce = freshNonce();
+  const amountText = (accepted.amount ?? accepted.maxAmountRequired ?? "").trim();
+  const signature = await signer.signTypedData({
+    domain: { name: "Permit2", chainId: network.chainId, verifyingContract: PERMIT2 },
+    types: {
+      PermitWitnessTransferFrom: [
+        { name: "permitted", type: "TokenPermissions" },
+        { name: "spender", type: "address" },
+        { name: "nonce", type: "uint256" },
+        { name: "deadline", type: "uint256" },
+        { name: "witness", type: "Witness" },
+      ],
+      TokenPermissions: [
+        { name: "token", type: "address" },
+        { name: "amount", type: "uint256" },
+      ],
+      Witness: [
+        { name: "to", type: "address" },
+        { name: "facilitator", type: "address" },
+        { name: "validAfter", type: "uint256" },
+      ],
+    },
+    primaryType: "PermitWitnessTransferFrom",
+    message: {
+      permitted: { token, amount: rail.amount },
+      spender: UPTO_PERMIT2_PROXY,
+      nonce,
+      deadline,
+      witness: { to, facilitator, validAfter: 0n },
+    },
+  });
+  const payload = {
+    signature,
+    permit2Authorization: {
+      from: signer.address,
+      permitted: { token, amount: amountText },
+      spender: UPTO_PERMIT2_PROXY,
+      nonce: nonce.toString(),
+      deadline: deadline.toString(),
+      witness: { to, facilitator, validAfter: "0" },
+    },
+  };
+  let extensions: Record<string, unknown> = { ...(challenge.extensions ?? {}) };
+  if (challenge.extensions && EIP2612_GAS_SPONSORING in challenge.extensions && typeof extra.name === "string" && typeof extra.version === "string") {
+    let covered = false;
+    try {
+      const allowance = await readUint(rt, ctx, network, token, encodeFunctionData({ abi: ERC20_READS, functionName: "allowance", args: [signer.address, PERMIT2] }));
+      covered = allowance >= rail.amount;
+    } catch {
+      covered = false; // unreadable: treated as insufficient, as the reference client does
+    }
+    if (!covered) {
+      let tokenNonce: bigint;
+      try {
+        tokenNonce = await readUint(rt, ctx, network, token, encodeFunctionData({ abi: ERC20_READS, functionName: "nonces", args: [signer.address] }));
+      } catch {
+        throw fail("x402_fetch: payment failed: could not read the EIP-2612 nonce");
+      }
+      const permitSignature = await signer.signTypedData({
+        domain: { name: extra.name, version: extra.version, chainId: network.chainId, verifyingContract: token },
+        types: {
+          Permit: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" },
+          ],
+        },
+        primaryType: "Permit",
+        message: { owner: signer.address, spender: PERMIT2, value: rail.amount, nonce: tokenNonce, deadline },
+      });
+      extensions = mergeInto(extensions, {
+        [EIP2612_GAS_SPONSORING]: {
+          info: {
+            from: signer.address,
+            asset: token,
+            spender: PERMIT2,
+            amount: amountText,
+            nonce: tokenNonce.toString(),
+            deadline: deadline.toString(),
+            signature: permitSignature,
+            version: "1",
+          },
+        },
+      });
+    }
+  }
+  return { payload, extensions };
+}
+
 async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge, rail: Rail, requested: string, now: number): Promise<string> {
   const accepted = rail.accept;
   const resource = typeof challenge.resource === "string" ? { url: challenge.resource } : (challenge.resource ?? { url: requested });
+  let extensions: Record<string, unknown> = challenge.extensions && Object.keys(challenge.extensions).length > 0 ? challenge.extensions : {};
   const payload = await withSeed(ctx, async (seed, state) => {
     if (rail.chain === "evm") {
       const network = rail.evm!;
       const account = state.accounts.find((a) => a.chain === "evm" && isPrimary(a));
       if (!account) throw fail("no wallet account derived for chain 'evm'");
       const signer = privateKeyToAccount(evmPrivateKey(seed, account.derivationPath));
-      const timeout = accepted.maxTimeoutSeconds ?? 60;
+      if (rail.scheme === "upto") {
+        const built = await uptoProof(rt, ctx, signer, challenge, rail, Math.floor(now / 1000));
+        extensions = built.extensions;
+        return built.payload;
+      }
+      const timeout = Math.min(accepted.maxTimeoutSeconds ?? 60, MAX_AUTHORIZATION_SECS);
       const authorization = {
         from: signer.address,
         to: getAddress(accepted.payTo),
@@ -366,25 +554,118 @@ async function paymentHeader(rt: Runtime, ctx: CoreContext, challenge: Challenge
     tx.partialSign(keypair);
     return { transaction: tx.serialize({ requireAllSignatures: false }).toString("base64") };
   });
-  const body = { x402Version: challenge.x402Version ?? 2, resource, accepted, payload };
+  const body = { x402Version: challenge.x402Version ?? 2, resource, accepted, payload, ...(Object.keys(extensions).length > 0 ? { extensions } : {}) };
   return Buffer.from(JSON.stringify(body)).toString("base64");
+}
+
+// --- Sign-In-With-X (port of tinywallet-x402 crypto/siwx.rs) -------------------------------
+
+interface SiwxInfo {
+  domain: string;
+  uri: string;
+  statement?: string;
+  version: string;
+  nonce: string;
+  issuedAt: string;
+  expirationTime?: string;
+  notBefore?: string;
+  requestId?: string;
+  resources?: string[];
+}
+
+const SIWX_REFUSED = (reason: string): Error => fail(`x402_fetch: sign-in failed: sign-in refused: ${reason}`);
+const hasControl = (s: string | undefined): boolean => s !== undefined && Array.from(s).some((ch) => ch.charCodeAt(0) < 0x20 || (ch.charCodeAt(0) >= 0x7f && ch.charCodeAt(0) <= 0x9f));
+
+function siweMessage(info: SiwxInfo, chainId: number, address: string): string {
+  const lines = [`URI: ${info.uri}`, `Version: ${info.version}`, `Chain ID: ${chainId}`, `Nonce: ${info.nonce}`, `Issued At: ${info.issuedAt}`];
+  if (info.expirationTime !== undefined) lines.push(`Expiration Time: ${info.expirationTime}`);
+  if (info.notBefore !== undefined) lines.push(`Not Before: ${info.notBefore}`);
+  if (info.requestId !== undefined) lines.push(`Request ID: ${info.requestId}`);
+  if (info.resources !== undefined) lines.push("Resources:", ...info.resources.map((r) => `- ${r}`));
+  const header = `${info.domain} wants you to sign in with your Ethereum account:\n${address}`;
+  const prefix = info.statement === undefined ? `${header}\n\n` : `${header}\n\n${info.statement}\n`;
+  return `${prefix}\n${lines.join("\n")}`;
+}
+
+async function signIn(ctx: CoreContext, challenge: Challenge, requestUrl: string, nowMs: number): Promise<{ header: string; address: string }> {
+  const extension = challenge.extensions?.["sign-in-with-x"] as { info?: SiwxInfo; supportedChains?: Array<{ chainId?: string; type?: string }> } | undefined;
+  if (!extension) throw SIWX_REFUSED("the challenge does not ask for sign-in-with-x");
+  const info = extension.info;
+  if (!info || typeof info.domain !== "string" || typeof info.uri !== "string" || typeof info.version !== "string" || typeof info.nonce !== "string" || typeof info.issuedAt !== "string" || !Array.isArray(extension.supportedChains)) {
+    throw SIWX_REFUSED("unreadable sign-in-with-x extension");
+  }
+  // Before anything is parsed: URL parsing drops CR, LF and tab, so a value could pass the origin check yet forge a line of the message.
+  for (const [field, value] of [["domain", info.domain], ["uri", info.uri], ["statement", info.statement], ["version", info.version], ["nonce", info.nonce], ["issuedAt", info.issuedAt], ["expirationTime", info.expirationTime], ["notBefore", info.notBefore], ["requestId", info.requestId], ...(info.resources ?? []).map((r) => ["resources", r] as const), ...extension.supportedChains.map((c) => ["chainId", c.chainId] as const)] as Array<[string, string | undefined]>) {
+    if (hasControl(value)) throw SIWX_REFUSED(`${field} contains a control character`);
+  }
+  const request = new URL(requestUrl);
+  if (request.protocol !== "https:") throw SIWX_REFUSED("sign-in is only answered for an https request");
+  if (info.domain !== request.host) throw SIWX_REFUSED(`domain ${info.domain} is not the requested host ${request.host}`);
+  const sameOrigin = (uri: string): boolean => {
+    try {
+      const u = new URL(uri);
+      return u.protocol === "https:" && u.origin === request.origin;
+    } catch {
+      return false;
+    }
+  };
+  if (!sameOrigin(info.uri)) throw SIWX_REFUSED(`uri ${info.uri} is not https on the requested origin`);
+  for (const resource of info.resources ?? []) if (!sameOrigin(resource)) throw SIWX_REFUSED(`resource ${resource} is not https on the requested origin`);
+  if (info.version !== "1") throw SIWX_REFUSED(`unsupported version ${info.version}`);
+  if (info.nonce.length < 8 || !/^[A-Za-z0-9]+$/.test(info.nonce)) throw SIWX_REFUSED("the nonce is not at least 8 alphanumeric characters");
+  const instant = (field: string, value: string): number => {
+    const t = Date.parse(value);
+    if (Number.isNaN(t) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) throw SIWX_REFUSED(`${field} is not an RFC 3339 time`);
+    return t;
+  };
+  if (instant("issuedAt", info.issuedAt) > nowMs + 300_000) throw SIWX_REFUSED("issuedAt is in the future");
+  if (info.expirationTime === undefined) throw SIWX_REFUSED("the challenge has no expirationTime");
+  const expiresAt = instant("expirationTime", info.expirationTime);
+  if (expiresAt <= nowMs) throw SIWX_REFUSED("the challenge has expired");
+  if (info.notBefore !== undefined) instant("notBefore", info.notBefore);
+  const ids = extension.supportedChains
+    .filter((c) => c.type === "eip191" && typeof c.chainId === "string" && /^eip155:\d+$/.test(c.chainId))
+    .map((c) => Number((c.chainId as string).slice(7)));
+  const chainId = ids.find((id) => id === 8453) ?? ids[0];
+  if (chainId === undefined) throw SIWX_REFUSED("no eip155 chain with eip191 signatures is offered");
+  return withSeed(ctx, async (seed, state) => {
+    const account = state.accounts.find((a) => a.chain === "evm" && isPrimary(a));
+    if (!account) throw fail("no wallet account derived for chain 'evm'");
+    const signer = privateKeyToAccount(evmPrivateKey(seed, account.derivationPath));
+    const signature = await signer.signMessage({ message: siweMessage(info, chainId, signer.address) });
+    const proof = {
+      domain: info.domain,
+      address: signer.address,
+      ...(info.statement !== undefined ? { statement: info.statement } : {}),
+      uri: info.uri,
+      version: info.version,
+      chainId: `eip155:${chainId}`,
+      type: "eip191",
+      nonce: info.nonce,
+      issuedAt: info.issuedAt,
+      expirationTime: info.expirationTime,
+      ...(info.notBefore !== undefined ? { notBefore: info.notBefore } : {}),
+      ...(info.requestId !== undefined ? { requestId: info.requestId } : {}),
+      ...(info.resources !== undefined ? { resources: info.resources } : {}),
+      signature,
+    };
+    return { header: Buffer.from(JSON.stringify(proof)).toString("base64"), address: signer.address };
+  });
 }
 
 // --- the fetch -----------------------------------------------------------------------
 
-async function send(rt: Runtime, target: URL, p: FetchParams, credential?: [string, string]): Promise<Response> {
+async function send(rt: Runtime, target: URL, addresses: string[], p: FetchParams, credential?: [string, string]): Promise<Response> {
   const headers = new Headers();
   for (const [k, v] of p.headers) headers.set(k, v);
   if (credential) headers.set(credential[0], credential[1]);
   headers.set("user-agent", "teeny-core");
   try {
-    return await rt.deps.fetch(target.toString(), {
-      method: p.method,
-      headers,
-      ...(p.body !== undefined ? { body: p.body } : {}),
-      redirect: "manual",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    return await rt.deps.pinnedFetch(
+      target.toString(),
+      { method: p.method, headers, ...(p.body !== undefined ? { body: p.body } : {}), redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      addresses,
+    );
   } catch {
     throw fail("x402_fetch: request failed");
   }
@@ -397,10 +678,10 @@ async function bodyOf(response: Response): Promise<{ body: string; truncated: bo
   return { body: new TextDecoder("utf-8").decode(cut), truncated };
 }
 
-async function reply(response: Response, payment: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+async function reply(response: Response, payment: Record<string, unknown> | null, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const { body, truncated } = await bodyOf(response);
   const contentType = response.headers.get("content-type");
-  return { status: response.status, ...(contentType ? { contentType } : {}), body, truncated, payment };
+  return { status: response.status, ...(contentType ? { contentType } : {}), body, truncated, payment, ...extra };
 }
 
 export function x402Methods(rt: Runtime): RpcMethods {
@@ -425,15 +706,21 @@ export function x402Methods(rt: Runtime): RpcMethods {
 
   methods.x402_fetch = async (params, ctx) => {
     const p = parseParams(params);
-    const target = await guardDestination(rt, p.url);
+    const { target, addresses } = await guardDestination(rt, p.url);
     ctx.log("debug", "x402_fetch", { method: p.method, host: target.hostname, cap: p.maxAmountAtomic });
-    const first = await send(rt, target, p);
+    const first = await send(rt, target, addresses, p);
     const challengeHeader = first.headers.get("payment-required") ?? first.headers.get("x-payment-required");
     if (first.status !== 402 || challengeHeader === null) return reply(first, null);
-    if (p.signIn) throw fail("x402_fetch: sign-in failed: Sign-In-With-X is not implemented by this core");
     if (!loadState(ctx)) throw fail("wallet is not configured; run wallet setup first");
 
-    const challenge = decodeChallenge(challengeHeader);
+    const challenge = decodeChallenge(challengeHeader, !p.signIn);
+    if (p.signIn) {
+      // Nothing is paid: a challenge that asks for payment rather than sign-in is refused, and the response comes back with payment: null.
+      const proof = await signIn(ctx, challenge, target.toString(), rt.now());
+      const retry = await send(rt, target, addresses, p, ["SIGN-IN-WITH-X", proof.header]);
+      ctx.log("debug", "x402 sign-in retry", { host: target.hostname, status: retry.status });
+      return reply(retry, null, { signedInAs: proof.address });
+    }
     ensureSameOrigin(challenge, target.toString());
     const cluster = solanaCluster(ctx.env);
     const rail = chooseRail(challenge, p.network, cluster);
@@ -451,7 +738,7 @@ export function x402Methods(rt: Runtime): RpcMethods {
     const now = rt.now();
     const log = new PaymentLog(rt.x402File(ctx));
     const paymentId = `x402-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 24)}`;
-    // The reservation is written before anything is signed.
+    // The reservation, at the full ceiling for an upto payment, is written before anything is signed.
     const pending = await log.reserve((records) => {
       if (spentSince(records, now - DAY_MS) + amount > daily) throw fail(`${X402_REFUSED_PREFIX} x402 daily budget exceeded`);
       if (spentSince(records, now - MONTH_MS) + amount > monthly) throw fail(`${X402_REFUSED_PREFIX} x402 monthly budget exceeded`);
@@ -474,14 +761,23 @@ export function x402Methods(rt: Runtime): RpcMethods {
       throw error;
     }
     // No response (send throws): the proof may or may not have settled, and the pending reservation stays counted.
-    const retry = await send(rt, target, p, ["PAYMENT-SIGNATURE", header]);
+    const retry = await send(rt, target, addresses, p, ["PAYMENT-SIGNATURE", header]);
     const settlement = retry.headers.get("payment-response");
-    const settled = retry.status >= 200 && retry.status < 300 && settlement !== null;
-    await log.update({ ...pending, status: settled ? "settled" : retry.status >= 400 && retry.status < 500 ? "failed" : "pending", timestamp: new Date(rt.now()).toISOString() });
+    const charged = retry.status >= 200 && retry.status < 300 ? settledAmount(decodeReceipt(settlement), rail.accept.network, rail.scheme, amount) : undefined;
+    const settled = charged !== undefined;
+    // An upto payment is charged what the receipt says, which may be nothing; the budget then holds only that.
+    await log.update({
+      ...pending,
+      status: settled ? "settled" : retry.status >= 400 && retry.status < 500 ? "failed" : "pending",
+      ...(settled && rail.scheme === "upto" ? { amountAtomic: charged.toString() } : {}),
+      timestamp: new Date(rt.now()).toISOString(),
+    });
     ctx.log("debug", "x402 paid retry", { host: target.hostname, status: retry.status, settled });
     return reply(retry, {
       paymentId,
       amountAtomic: amount.toString(),
+      scheme: rail.scheme,
+      ...(settled ? { chargedAtomic: charged.toString() } : {}),
       asset: rail.accept.asset,
       recipient: rail.accept.payTo,
       network: rail.accept.network,
@@ -492,4 +788,3 @@ export function x402Methods(rt: Runtime): RpcMethods {
 
   return methods;
 }
-
