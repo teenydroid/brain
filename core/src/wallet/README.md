@@ -99,8 +99,8 @@ method in the fixtures is implemented; `x402_fetch` implements the `exact` schem
 ## giveaway-tx
 
 `giveaway.ts` is `giveaway_tx.rs`. `core/test/wallet/fixtures/giveaway_tx_rust.json`
-holds what the **unmodified** Rust file answered, for 31 requests (every success and
-every error it has), recorded in a throwaway `rust:1.96.1` container by
+holds what the **unmodified** Rust file answered, for 32 requests (5 successes and 27 failures, covering every
+error the file has), recorded in a throwaway `rust:1.96.1` container by
 `fixtures/rust-parity/run.sh`. The test compares stdout byte for byte (serde_json
 prints keys sorted, so does this) and exit codes, and the error text for all but four
 cases where it holds the prefix only (serde's own words for malformed JSON and an
