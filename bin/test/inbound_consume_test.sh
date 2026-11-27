@@ -182,6 +182,24 @@ check "mail: hands/x is never called" bash -c "! grep -q '^x ' '$FAKE_HANDS'"
 check "mail: the record names its source" test "$(jq -r .source <<<"$out")" = mail:inbox
 check "an unknown source is an error" bash -c "! '$consume' --source telegram:dm 2>/dev/null"
 
+# A core with no inbound queue answers "not supported": a quiet exit 0, no record.
+cat >"$scratch/fake-oh-unsupported" <<'FAKE'
+#!/usr/bin/env bash
+echo "[oh] openhuman.inbound_results: the inbound queue is not supported by this core: unset TEENY_INBOX=core" >&2
+exit 1
+FAKE
+chmod +x "$scratch/fake-oh-unsupported"
+before="$(wc -l <"$TEENY_STATE/inbound/runs.jsonl" 2>/dev/null || echo 0)"
+rc=0
+out="$(TEENY_OH="$scratch/fake-oh-unsupported" "$consume" 2>"$scratch/stderr")" || rc=$?
+check "unsupported core: exits 0" test "$rc" = 0
+check "unsupported core: prints no record" test -z "$out"
+check "unsupported core: appends nothing to runs.jsonl" test "$(wc -l <"$TEENY_STATE/inbound/runs.jsonl" 2>/dev/null || echo 0)" = "$before"
+check "unsupported core: says why, not 'could not read'" bash -c "grep -q 'no inbound queue' '$scratch/stderr' && ! grep -q 'could not read' '$scratch/stderr'"
+rc=0
+TEENY_OH="$scratch/fake-oh-broken" "$consume" >/dev/null 2>&1 || rc=$?
+check "any other oh failure is still an error" test "$rc" = 1
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1

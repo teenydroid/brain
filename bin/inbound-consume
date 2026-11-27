@@ -64,8 +64,21 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 # $source is one of the names above, so it is safe to write into the JSON.
-results="$(oh inbound_results "$(printf '{"source": "%s", "status": "completed", "limit": 20}' "$source")")" ||
+# A core without the inbound queue (the TypeScript one; TEENY_INBOX=mind, the
+# default, feeds the stimuli inbox instead) answers with "not supported". That
+# is not an error: there is nothing to consume, so say so once and stop.
+oh_err="$(mktemp "${TMPDIR:-/tmp}/inbound-consume-err.XXXXXX")"
+if ! results="$(oh inbound_results "$(printf '{"source": "%s", "status": "completed", "limit": 20}' "$source")" 2>"$oh_err")"; then
+  if grep -q 'inbound queue is not supported' "$oh_err"; then
+    rm -f "$oh_err"
+    log "the core has no inbound queue (TEENY_INBOX is not core): nothing to consume"
+    exit 0
+  fi
+  cat "$oh_err" >&2
+  rm -f "$oh_err"
   die "could not read the core's results"
+fi
+rm -f "$oh_err"
 jq -e 'type == "object" and (.results | type == "array")' <<<"$results" >/dev/null ||
   die "unexpected answer from inbound_results"
 
