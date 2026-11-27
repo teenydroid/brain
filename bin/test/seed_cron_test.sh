@@ -595,6 +595,70 @@ check "and no two of its enabled jobs fire on the same schedule" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' /dev/null |
     jq -e '[.[] | select(.enabled) | [.expr, .tz]] | (length == (unique | length))' >/dev/null"
 
+# --- native playbooks: `run = "native"` seeds an agent job, bin/act ones stay shell jobs ---
+# The playbook keeps its job in cron.toml as `bin/act <name>` (schedule, catch-up
+# and make-up rules all read it there); the seed turns it into an agent turn of
+# the playbook's own agent, with the playbook's message (bin/lib/native_playbook.py).
+printf '+++\ndescription = "a native test"\noutput = "post"\nrun = "native"\nmax_per_day = 2\nmax_per_run = 2\n[[inputs]]\nname = "slot"\nrun = "hands/x slot"\nrequired = true\n+++\nwrite one short post\n' >"$scratch/playbooks/native-post.md"
+printf '+++\ndescription = "a native note"\noutput = "none"\nrun = "native"\n+++\njot something down\n' >"$scratch/playbooks/native-note.md"
+reset
+cat >"$toml" <<'TOML'
+[jobs.native-post]
+schedule = "40 7-18 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act native-post"
+
+[jobs.plain]
+schedule = "0 7 * * *"
+command = "bin/act morning"
+TOML
+seed
+check "a native playbook becomes an agent job" test "$(job_field teeny.native-post .job_type)" = agent
+check "of the agent named for the playbook" test "$(job_field teeny.native-post .agent_id)" = pb-native-post
+check "with no command" test "$(job_field teeny.native-post .command)" = null
+check "in a session of its own" test "$(job_field teeny.native-post .session_target)" = isolated
+check "on the playbook's own schedule" test "$(job_field teeny.native-post .schedule.expr)/$(job_field teeny.native-post .schedule.tz)" = "40 7-18 * * */Asia/Kolkata"
+check "its message names the playbook, its body, its input and its hand" bash -c "
+  jq -r '.[] | select(.name == \"teeny.native-post\") | .prompt' '$FAKE_JOBS' > '$scratch/msg'
+  grep -q '^# playbook: native-post' '$scratch/msg' && grep -q 'write one short post' '$scratch/msg' &&
+  grep -q '\`slot\`: \`hands/x slot\`' '$scratch/msg' && grep -q 'hands/x post' '$scratch/msg' &&
+  grep -q 'at most 2 a day and 2 in this run' '$scratch/msg'"
+check "a bin/act playbook stays a shell job, unchanged" test "$(job_field teeny.plain .job_type)/$(job_field teeny.plain .command)" = "shell/bin/act morning"
+check "and has no agent" test "$(job_field teeny.plain .agent_id)" = null
+: >"$FAKE_CALLS"
+seed
+check "an unchanged native job is kept" test "$(calls cron_add)$(calls cron_update)$(calls cron_remove)" = 000
+id_before="$(job_field teeny.native-post .id)"
+sed -i.bak 's/write one short post/write one longer post/' "$scratch/playbooks/native-post.md"
+seed
+check "a playbook edit updates the message in place" test "$(job_field teeny.native-post .prompt | grep -c 'write one longer post')" = 1
+check "keeping the job's id" test "$(job_field teeny.native-post .id)" = "$id_before"
+# Back to bin/act by deleting the line: the job changes kind and is replaced.
+sed -i.bak '/^run = "native"/d' "$scratch/playbooks/native-post.md"
+seed
+check "dropping run = native puts the playbook back on bin/act" test "$(job_field teeny.native-post .job_type)/$(job_field teeny.native-post .command)" = "shell/bin/act native-post"
+sed -i.bak 's/^output = "post"/output = "post"\nrun = "native"/' "$scratch/playbooks/native-post.md"
+refuses "refuses make_up_hours on a native playbook" $'[jobs.native-post]\nschedule = "40 7 * * *"\ncommand = "bin/act native-post"\nmake_up_hours = 2'
+check "--check refuses a catch-up on a native playbook that posts" bash -c "
+  printf '[jobs.native-post]\nschedule = \"40 7 * * *\"\ncommand = \"bin/act native-post\"\ncatch_up = true\n' > '$scratch/c.toml'
+  ! '$seed' --check --file '$scratch/c.toml' --pinned '$pinned' 2>'$scratch/stderr' && grep -q 'speaks in public' '$scratch/stderr'"
+# A playbook that cannot run natively is an error when seeding, not a job that fails each slot.
+printf '+++\ndescription = "x"\noutput = "hand:tasks add"\nrun = "native"\n+++\nqueue it\n' >"$scratch/playbooks/native-tasks.md"
+refuses "refuses a native playbook whose acting hand is not a native one" $'[jobs.native-tasks]\nschedule = "40 7 * * *"\ncommand = "bin/act native-tasks"'
+printf '+++\ndescription = "x"\noutput = "post"\nrun = "sideways"\n+++\nqueue it\n' >"$scratch/playbooks/native-bad.md"
+refuses "refuses an unknown run mode" $'[jobs.native-bad]\nschedule = "40 7 * * *"\ncommand = "bin/act native-bad"'
+rm -f "$scratch/playbooks/native-tasks.md" "$scratch/playbooks/native-bad.md"
+# The real brain: gm and moltbook-general run natively, everything else on bin/act.
+check "the shipped gm and moltbook-general are agent jobs of their own agents" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name == \"teeny.gm\" or .name == \"teeny.moltbook-general\") | [.kind, .agent]] | sort == [[\"agent\", \"pb-gm\"], [\"agent\", \"pb-moltbook-general\"]]' >/dev/null"
+check "and every other bin/act job is still a shell job" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.kind == \"shell\" and ((.command // \"\") | startswith(\"bin/act \")))] | length > 5' >/dev/null"
+check "no native job carries a catch-up or a make-up window" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.agent != null and (.agent | startswith(\"pb-\"))) | .catch_up_secs + .make_up_secs] | length == 2 and all(. == 0)' >/dev/null"
+
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
   exit 1

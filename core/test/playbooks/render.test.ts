@@ -27,7 +27,7 @@ describe("renderAgentTurn", () => {
   });
 
   it("names hands/x for post, reply and like", () => {
-    const base: Playbook = { name: "t", nudge: false, description: "a test", media: [], output: "post", surface: "x", max_per_day: 2, inputs: [], prompt: "Draft." };
+    const base: Playbook = { name: "t", run: "act", max_per_run: 1, nudge: false, description: "a test", media: [], output: "post", surface: "x", max_per_day: 2, inputs: [], prompt: "Draft." };
     expect(renderAgentTurn(base)).toContain("`hands/x post`");
     expect(renderAgentTurn(base)).toContain("`hands/x post-thread`");
     expect(renderAgentTurn(base)).toContain("nothing to run first");
@@ -43,7 +43,7 @@ describe("renderAgentTurn", () => {
 
   it("marks optional inputs, nudges, media and quotes awkward arguments", () => {
     const book: Playbook = {
-      name: "t", nudge: true, description: "a test.", media: ["image"], output: "post", surface: "x", max_per_day: 1, prompt: "Draft.",
+      name: "t", run: "act", max_per_run: 1, nudge: true, description: "a test.", media: ["image"], output: "post", surface: "x", max_per_day: 1, prompt: "Draft.",
       inputs: [
         { name: "a", argv: ["hands/x", "search", "two words"], required: false, optional: true },
         { name: "b", argv: ["datajob", "trend"], required: false, optional: false },

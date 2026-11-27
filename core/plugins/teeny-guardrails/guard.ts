@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { checkPath, expandHome, type PathRules } from "./paths.js";
 import { countReplies, judgeExec } from "./exec.js";
 import { judgeAllowedFetch, judgeBrowser, newBrowserState, openclawLiveUrl, runKeychainFill, type BrowserState } from "./browser.js";
+import { exitCodeOf, NativeState } from "./native.js";
 import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
 
 export interface ToolEvent {
@@ -66,18 +67,45 @@ const refuse = (why: string): Decision => ({ block: true, blockReason: `teeny-gu
 export interface GuardDeps {
   fill?: (program: string, host: string) => Promise<string>;
   liveUrl?: (profile: string, targetId: string | undefined) => Promise<string>;
+  /** The clock, for the native playbooks' UTC day. */
+  now?: () => number;
 }
 
 export class Guardrails {
   private readonly runs = new Map<string, number>();
   /** Replies sent so far by each run (the same key as `runs`), against AgentPolicy.replyCaps. */
   private readonly replies = new Map<string, { x: number; mail: number }>();
+  /** The acting-hand calls a judged exec call holds, by the params object judge returned for it. */
+  private readonly actingIn = new WeakMap<Record<string, unknown>, { calls: number; last: boolean }>();
   readonly browserState: BrowserState = newBrowserState();
+  /** The day's count, the lock and the run log of the native playbooks (native.ts). */
+  readonly native: NativeState;
 
   constructor(
     readonly policy: GuardrailsPolicy,
     private readonly deps: GuardDeps = {},
-  ) {}
+  ) {
+    this.native = new NativeState(policy.stateDir, deps.now);
+  }
+
+  private runKeyOf(agent: AgentPolicy, ctx: ToolContext, event?: ToolEvent): string {
+    return `${agent.id}|${ctx.runId ?? event?.runId ?? ctx.sessionKey ?? ""}`;
+  }
+
+  /** after_tool_call: a native hand's refusal (exit 2) gives the day's reservation back. Observation only. */
+  observe(event: { toolName: string; params: Record<string, unknown>; result?: unknown; runId?: string }, ctx: ToolContext): void {
+    const agent = ctx.agentId ? this.policy.agents[ctx.agentId] : undefined;
+    const n = agent?.exec?.native;
+    if (!agent || !n || event.toolName.toLowerCase() !== "exec" || typeof event.params.command !== "string") return;
+    this.native.settle(n, this.runKeyOf(agent, ctx, event), event.params.command, exitCodeOf(event.result));
+  }
+
+  /** agent_end: the run is over; its lock is released and its record written. */
+  runEnded(event: { runId?: string; success: boolean; error?: string }, ctx: ToolContext): void {
+    const agent = ctx.agentId ? this.policy.agents[ctx.agentId] : undefined;
+    if (!agent?.exec?.native) return;
+    this.native.end(this.runKeyOf(agent, { ...ctx, ...(event.runId ? { runId: event.runId } : {}) }), { ok: event.success, ...(event.error ? { error: event.error } : {}) });
+  }
 
   /** Counts a tool call against its run; true when the run has spent its budget. */
   private spent(agent: AgentPolicy, key: string): { used: number; over: boolean } {
@@ -99,10 +127,25 @@ export class Guardrails {
     const agent = ctx.agentId ? this.policy.agents[ctx.agentId] : undefined;
     if (!agent) return refuse(`agent ${ctx.agentId ?? "(unknown)"} holds no tools`);
     const tool = event.toolName.toLowerCase();
-    const runKey = `${agent.id}|${ctx.runId ?? event.runId ?? ctx.sessionKey ?? ""}`;
+    const runKey = this.runKeyOf(agent, ctx, event);
     const budget = this.spent(agent, runKey);
     if (budget.over) return refuse(`this run has made its ${agent.maxToolCalls} tool calls (the budget for ${agent.id}); end the run`);
-    return this.judge(agent, ctx, tool, event.toolName, event.params ?? {}, runKey);
+    // A native playbook runs one at a time: the first call of a run takes its lock (the same one bin/act takes).
+    const native = agent.exec?.native;
+    if (native) {
+      const held = this.native.begin(native, runKey);
+      if (held) return refuse(held);
+    }
+    const decision = await this.judge(agent, ctx, tool, event.toolName, event.params ?? {}, runKey);
+    // The acting hand is counted here, before it runs, and only for a call that is otherwise allowed.
+    if (native && decision && "params" in decision && tool === "exec") {
+      const acting = this.actingIn.get(decision.params);
+      if (acting) {
+        const why = this.native.reserve(native, runKey, acting.calls, String(decision.params.command), acting.last);
+        if (why) return refuse(why);
+      }
+    }
+    return decision;
   }
 
   /**
@@ -189,7 +232,9 @@ export class Guardrails {
         if (!verdict.ok) return refuse(`exec: ${verdict.reason}`);
         const over = this.repliesSpent(agent, runKey, params.command as string, verdict.cwd);
         if (over) return refuse(`exec: ${over}`);
-        return { params: { ...params, command: verdict.command, workdir: verdict.cwd } };
+        const next = { ...params, command: verdict.command, workdir: verdict.cwd };
+        if (verdict.acting > 0) this.actingIn.set(next, { calls: verdict.acting, last: verdict.actingLast });
+        return { params: next };
       }
       case "browser": {
         if (!agent.browser) return refuse("this agent has no browser");

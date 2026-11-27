@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
 import { loadAgentDefs } from "../../src/agents/definitions.js";
+import { loadNativeDefs } from "../../src/agents/native.js";
 import { Guardrails, type Decision } from "../../plugins/teeny-guardrails/guard.js";
 import { parsePolicy, type AgentPolicy, type GuardrailsPolicy } from "../../plugins/teeny-guardrails/policy.js";
 import { afterEach } from "vitest";
@@ -32,12 +33,13 @@ export function write(path: string, text = "x\n", mode?: number): void {
   if (mode !== undefined) chmodSync(path, mode);
 }
 
-export function makeFixture(extra: { memoryTools?: boolean; env?: Record<string, string>; fill?: (program: string, host: string) => Promise<string>; liveUrl?: (profile: string, targetId: string | undefined) => Promise<string> } = {}): Fixture {
+export function makeFixture(extra: { now?: () => number; memoryTools?: boolean; env?: Record<string, string>; fill?: (program: string, host: string) => Promise<string>; liveUrl?: (profile: string, targetId: string | undefined) => Promise<string> } = {}): Fixture {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "guard-")));
   made.push(root);
   const brain = join(root, "brain");
   const state = join(root, "state");
-  for (const hand of ["x", "mail", "gh", "wallet", "keychain", "stats"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
+  // The native playbooks' hands (gm, moltbook-general) exist too, so their inputs and acting hands are real files.
+  for (const hand of ["x", "mail", "gh", "wallet", "keychain", "stats", "listen", "hn", "story", "moltbook", "image", "video", "tasks"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
   write(join(root, "hands", "README.md"));
   write(join(root, "hands", "lib", "mod.py"));
   write(join(root, "hands", "not-exec"), "text", 0o644);
@@ -63,7 +65,8 @@ export function makeFixture(extra: { memoryTools?: boolean; env?: Record<string,
   write(join(root, "deploy", "browser-allow.txt"), "api.example.org\n");
   write(join(root, "bin", "keychain-fill"), "#!/bin/sh\n", 0o755);
   const paths = { root, brainDir: brain, stateDir: state, secretsDir: join(root, "secrets"), openclawDir: join(state, "openclaw") };
-  const defs = loadAgentDefs(join(REPO, "brain"));
+  // The agents of the shipped native playbooks (pb-gm, pb-moltbook-general) are built from the real playbooks.
+  const defs = [...loadAgentDefs(join(REPO, "brain")), ...loadNativeDefs(join(REPO, "brain"), REPO).defs];
   const raw = buildGuardrailsPolicy({
     defs,
     paths,
@@ -73,7 +76,7 @@ export function makeFixture(extra: { memoryTools?: boolean; env?: Record<string,
     ...(extra.memoryTools ? { memoryTools: true } : {}),
   });
   const policy = parsePolicy({ policy: raw });
-  const guard = new Guardrails(policy, { ...(extra.fill ? { fill: extra.fill } : {}), liveUrl: extra.liveUrl ?? (async () => "https://example.org/") });
+  const guard = new Guardrails(policy, { ...(extra.now ? { now: extra.now } : {}), ...(extra.fill ? { fill: extra.fill } : {}), liveUrl: extra.liveUrl ?? (async () => "https://example.org/") });
   const agent = (id: string): AgentPolicy => {
     const a = policy.agents[id];
     if (!a) throw new Error(`no policy for ${id}`);
