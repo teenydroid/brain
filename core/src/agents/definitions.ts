@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parse } from "smol-toml";
 import type { AgentEntry } from "../gateway/config.js";
 import { toModelRef } from "./model.js";
+import type { NativeSpec } from "../playbooks/native.js";
 
 export interface AgentDef {
   id: string;
@@ -28,6 +29,8 @@ export interface AgentDef {
   omitMemoryContext: boolean;
   /** `memory_block.max_tokens`, when the definition caps what memory may take. */
   memoryBlockMaxTokens?: number;
+  /** Set for the agent of a playbook that runs natively (agents/native.ts): what its shell may run, and how often it may act. */
+  native?: NativeSpec;
 }
 
 /**

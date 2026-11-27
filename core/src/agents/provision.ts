@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentEntry } from "../gateway/config.js";
 import { agentEntry, effectiveModels, loadAgentDefs, type AgentDef } from "./definitions.js";
+import { loadNativeDefs } from "./native.js";
 
 /** A tool-less, prompt-less agent for one-shot completions (inference_agent_chat_simple, the judge). */
 export const SIMPLE_AGENT: AgentDef = {
@@ -20,16 +21,22 @@ export const SIMPLE_AGENT: AgentDef = {
 
 export class AgentCatalog {
   private defs = new Map<string, AgentDef>();
+  /** Playbooks that say `run = "native"` and could not become an agent, with why (their cron job then has no agent and fails). */
+  nativeErrors: Record<string, string> = {};
 
   constructor(
     private readonly brainDir: string,
     private readonly openclawDir: string,
+    /** The checkout: where hands/ is, so a native playbook's hands are checked. Without it no playbook runs natively. */
+    private readonly root?: string,
   ) {
     this.reload();
   }
 
   reload(): void {
-    this.defs = new Map([SIMPLE_AGENT, ...loadAgentDefs(this.brainDir)].map((d) => [d.id, d]));
+    const native = this.root ? loadNativeDefs(this.brainDir, this.root) : { defs: [], errors: {} };
+    this.nativeErrors = native.errors;
+    this.defs = new Map([SIMPLE_AGENT, ...loadAgentDefs(this.brainDir), ...native.defs].map((d) => [d.id, d]));
   }
 
   definitions(): AgentDef[] {
