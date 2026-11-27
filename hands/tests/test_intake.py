@@ -131,17 +131,14 @@ class IntakeTest(unittest.TestCase):
     def test_the_old_x_slots_are_kept_switched_off(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
         slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name]["command"])
-                 for name in ("studio-0430", "studio-1500", "studio-sunday", "studio-2300", "brief",
-                              "shiplog")}
+                 for name in ("studio-0430", "studio-1500", "studio-sunday", "studio-2300", "shiplog")}
         for name in slots:
             self.assertIs(jobs[name].get("enabled"), False, name)
-        self.assertIs(jobs["peer-quote"].get("enabled"), False)
         self.assertEqual(slots, {
             "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote --detach"),
             "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take --detach"),
             "studio-sunday": ("0 15 * * 0", "Asia/Kolkata", "bin/studio --slot 1500 --legacy growth --detach"),
             "studio-2300": ("0 23 * * *", "Asia/Kolkata", "bin/studio --slot 2300 --legacy show --detach"),
-            "brief": ("55 14,22 * * *", "Asia/Kolkata", "bin/act brief"),
             "shiplog": ("10 23 * * *", "Asia/Kolkata", "bin/act shiplog"),
         })
         # Three a day since 2026-11-23: the 09:30 slot is gone.
@@ -149,6 +146,9 @@ class IntakeTest(unittest.TestCase):
                          ["studio-0430", "studio-1500", "studio-2300", "studio-sunday"])
         # The replaced jobs are gone from cron: their slots are the studio's,
         # and each studio job names the old playbook it runs with STUDIO=0.
+        # brief and peer-quote were taken out of cron on 2026-11-27 (the operator's call).
+        for gone in ("brief", "peer-quote", "episode", "goals", "giveaway-plan", "reddit-browse"):
+            self.assertNotIn(gone, jobs)
         for gone in ("x-quote", "morning", "take", "show", "growth"):
             self.assertNotIn(gone, jobs)
             self.assertTrue((BRAIN / "playbooks" / f"{gone}.md").is_file(), gone)
