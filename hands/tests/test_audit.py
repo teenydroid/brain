@@ -159,7 +159,9 @@ class AuditTest(unittest.TestCase):
         self.jsonl("evolve/halts.jsonl",
                    {"kind": "persona-drift", "detail": SECRET_TEXT, "at": audit.iso(at(2))},
                    {"kind": "generations", "detail": "x", "at": audit.iso(at(3))},
-                   {"kind": "j-rise", "detail": "x", "at": audit.iso(at(-2))})
+                   {"kind": "j-rise", "detail": "x", "at": audit.iso(at(-2))},
+                   # A run noticing a person closed the issue is not a halt.
+                   {"kind": "persona-drift", "issue": 7, "closed": True, "at": audit.iso(at(4))})
         self.jsonl("evolve/archive.jsonl",
                    {"id": "gen-4", "verdict": "won", "recorded_at": audit.iso(at(1)), "pr_number": 9,
                     "probe": {"drift": 0.41}},
