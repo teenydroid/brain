@@ -495,6 +495,8 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("with none of the evidence that claim needs", rule)
         self.assertNotIn("no receipt and no fresh scan", rule)
         self.assertIn("never proves a sale", rule)
+        # An inbound scan shows deposits only, so it cannot prove a hold either.
+        self.assertIn("never proves a hold", rule)
         self.assertNotIn("354 transfers", rule)
         # A reply turn has no tools, so the rule must not tell it to "go count".
         self.assertNotIn("go count", rule)
