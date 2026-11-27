@@ -252,6 +252,26 @@ describe("the spend caps, enforced before anything is signed", () => {
     expect(sent).toHaveLength(0);
   });
 
+  it("decides before it opens the key: a refusal needs no master key, so none was read", async () => {
+    const h = makeHarness({ config: policyConfig([USDC_CAPS]) });
+    await setupWallet(h);
+    mockSolana(h.net);
+    const q = await prepare(h, { assetSymbol: "USDC", amountRaw: "5000001" });
+    h.env({ OPENHUMAN_KEYRING_MASTER_KEY_FILE: "" }); // the key is gone; a cap refusal must still be the answer
+    expect(await refused(h, q.quoteId)).toBe("WALLET_POLICY_REFUSED: 5000001 USDC (atomic) exceeds the per-transaction cap of 5000000");
+    const ok = await prepare(h, { assetSymbol: "USDC", amountRaw: "1" });
+    await expect(execute(h, ok.quoteId)).rejects.toThrow(/the wallet cannot sign: the wallet's master key is not set/);
+  });
+
+  it("has no DRY_RUN of its own: hands/wallet decides that before it ever asks for an execute", async () => {
+    const h = makeHarness({ config: policyConfig([SOL_CAPS]), env: { DRY_RUN: "1" } });
+    await setupWallet(h);
+    const { sent } = mockSolana(h.net);
+    const q = await prepare(h);
+    await execute(h, q.quoteId);
+    expect(sent).toHaveLength(1);
+  });
+
   it("applies the caps whatever apply_to_interactive says: there is no uncapped RPC execute", async () => {
     const h = makeHarness({ config: policyConfig([USDC_CAPS]).replace("apply_to_interactive = true", "apply_to_interactive = false") });
     await setupWallet(h);
