@@ -688,6 +688,13 @@ def check_engaged_first(
     if username and re.search(rf"(?<![A-Za-z0-9_])@{re.escape(username)}(?![A-Za-z0-9_])", str(target.get("text") or ""),
                               re.IGNORECASE):
         return
+    root = target.get("conversationId")
+    # The ledger answers without a read, so it goes before the paid quote
+    # re-read: a post under one of the account's own posts qualifies even when
+    # that re-read would have failed.
+    if root and root != post_id:
+        if conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (root,)).fetchone():
+            return
     quoted = target.get("quotedId")
     if quoted is None and fresh is not None:
         # A read that fails (a rate limit, an outage) raises here and is not
@@ -701,12 +708,8 @@ def check_engaged_first(
             return
         if me and author_of(quoted) == me:
             return
-    root = target.get("conversationId")
-    if root and root != post_id:
-        if conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (root,)).fetchone():
-            return
-        if me and author_of(root) == me:
-            return
+    if root and root != post_id and me and author_of(root) == me:
+        return
     raise hand.Refused(
         f"post {post_id} never summoned the account: its text does not tag @{username or 'the account'} (a tag past the "
         "first 280 characters of a long post does not count), it does not reply to the account or quote one of its "

@@ -513,6 +513,24 @@ class EngagedFirstTest(Replying):
         publish.reply("24", {"text": "hi"})
         self.assertEqual(len(self.posted()), 1)
 
+    def test_a_ledger_conversation_is_accepted_before_the_paid_quote_read(self):
+        # Under one of the account's own posts it already qualifies, so a
+        # rate-limited quote re-read must not block the reply.
+        from teeny_hands.x import cache
+
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "77", "post", "gm", created_at=T0 - HOUR)
+        conn.commit()
+        cache.remember([{"id": "35", "text": "deep in the thread", "authorId": "42", "authorUsername": "someone",
+                         "conversationId": "77"}])
+        self.stranger("35", "deep in the thread", conversation_id="77")
+        self.stored("35")
+        self.x.route("GET", "/2/tweets/35", {"title": "Too Many Requests"}, status=429)
+        publish.reply("35", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(self.x.requests("GET", "/2/tweets/35"), [])
+
     def test_a_post_under_an_own_post_the_ledger_never_saw_is_answered(self):
         self.x.route("GET", "/2/tweets/78", target("78", author_id="1000", username="teenydroid"))
         self.stranger("25", "deep in the thread", conversation_id="78")
