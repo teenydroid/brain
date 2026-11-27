@@ -380,16 +380,26 @@ function readObject(op: string, input: string, fields: string[], required: strin
   return object;
 }
 
+/** serde's `Unexpected` display for a JSON value. */
+function unexpected(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return `string ${JSON.stringify(value)}`;
+  if (typeof value === "bigint") return `integer \`${value}\``;
+  if (typeof value === "number") return `floating point \`${value}\``;
+  if (typeof value === "boolean") return `boolean \`${value}\``;
+  return Array.isArray(value) ? "sequence" : "map";
+}
+
 function stringField(op: string, object: Record<string, unknown>, k: string): string {
   const value = object[k];
-  if (typeof value !== "string") throw new GiveawayError(`bad ${op} request: invalid type for \`${k}\`, expected a string`);
+  if (typeof value !== "string") throw new GiveawayError(`bad ${op} request: invalid type: ${unexpected(value)}, expected a string`);
   return value;
 }
 
 function intField(op: string, object: Record<string, unknown>, k: string, min: bigint, max: bigint, type: string): bigint {
   const value = object[k];
-  if (typeof value !== "bigint") throw new GiveawayError(`bad ${op} request: invalid type for \`${k}\`, expected ${type}`);
-  if (value < min || value > max) throw new GiveawayError(`bad ${op} request: invalid value for \`${k}\`, expected ${type}`);
+  if (typeof value !== "bigint") throw new GiveawayError(`bad ${op} request: invalid type: ${unexpected(value)}, expected ${type}`);
+  if (value < min || value > max) throw new GiveawayError(`bad ${op} request: invalid value: integer \`${value}\`, expected ${type}`);
   return value;
 }
 
@@ -397,7 +407,7 @@ function parseCreate(input: string): CreateRequest {
   const o = readObject("create", input, CREATE_FIELDS, CREATE_FIELDS.slice(0, 8));
   const seed = o.seed_secret_hex;
   if (seed !== undefined && seed !== null && typeof seed !== "string") {
-    throw new GiveawayError("bad create request: invalid type for `seed_secret_hex`, expected a string");
+    throw new GiveawayError(`bad create request: invalid type: ${unexpected(seed)}, expected a string`);
   }
   return {
     program_id: stringField("create", o, "program_id"),

@@ -1,0 +1,261 @@
+{
+ "note": "Recorded from the unmodified spine/src/giveaway_tx.rs built in a throwaway rust:1.96.1 container (a crate holding only that file and a main that calls giveaway_tx::run). Regenerate with giveaway_tx_gen_cases.py; see core/src/wallet/README.md.",
+ "cases": [
+  {
+   "name": "create_vector",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 0,
+   "stdout": "{\"authority_token_account\":\"DtWTyHuXwD9xgekQ46cQ2pyiJ8DxSa57dMBmMf7Ytsxg\",\"data_hex\":\"05fe000a6835000000000047dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb0a68350000000000804d2b6b00000000\",\"distribution\":\"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\",\"distribution_bump\":254,\"event_authority\":\"8LZgvUJZE3RvMbNUxRuGw5AzKnTRuFisAWiRmS26od7J\",\"seed_pubkey\":\"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\",\"transaction_b64\":\"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC8378Vu5BzxEsDg9//VYf9P/ejFFy8E3c0s+Q2+llgRkZvDX0FCmhaamTCK/W7VBSXshhE8veBaSIsvmlhNiMJAgEGC+pKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIs/RckOFqgx1tk+3jNYC+h2ZH96/drE8WO1wLqyDXp9hjkAENS82LFnS2y8XYaScZo+IttN3dFakC13VYEpcHdIgLnvNhYL7KKa7o4VHVx3Iu7NErDSjCIKzdHLCgxQxC0v34uOeyKBrx+eAlyQoq3/yMjewyXHtQs+tq1GMxRKc0GNTUM0D1ollLixgqorjWRtv+9qH1OQdezRXQcRZ997RE53XE3Ce878gYsrT8EIgerwCtFSKIYQTv6TghaMhzfAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/IyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZbQTN/T677B0MXTjPpnizcVllQW6qa/u+MN+ybnGyTN0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQEFDAAAAQIGAwQHCAkKBTsF/gAKaDUAAAAAAEffvn+glitON5JS+EHl0L7AuzYyo0eOZ1T8IZa4u3vLCmg1AAAAAACATStrAAAAAA==\",\"vault\":\"CLmPi5mSHZUZ6N1rMWBsMnRDncDPUkBp6wiX89J5DaT\"}\n",
+   "stderr": ""
+  },
+  {
+   "name": "close_vector",
+   "op": "close",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"distribution_seed\": \"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\", \"distributor\": \"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\", \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\"}",
+   "code": 0,
+   "stdout": "{\"authority_token_account\":\"DtWTyHuXwD9xgekQ46cQ2pyiJ8DxSa57dMBmMf7Ytsxg\",\"data_hex\":\"08\",\"distribution\":\"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\",\"event_authority\":\"8LZgvUJZE3RvMbNUxRuGw5AzKnTRuFisAWiRmS26od7J\",\"transaction_b64\":\"AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAQI6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0izkAENS82LFnS2y8XYaScZo+IttN3dFakC13VYEpcHdIgLnvNhYL7KKa7o4VHVx3Iu7NErDSjCIKzdHLCgxQxC0v34uOeyKBrx+eAlyQoq3/yMjewyXHtQs+tq1GMxRKc0GNTUM0D1ollLixgqorjWRtv+9qH1OQdezRXQcRZ997RE53XE3Ce878gYsrT8EIgerwCtFSKIYQTv6TghaMhzfBt324e51j94YQl285GzN2rYa/E2DuQ0n/r35KNihi/xtBM39PrvsHQxdOM+meLNxWWVBbqpr+74w37JucbJM3QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFAQQIAAEFAgMGBwQBCA==\",\"vault\":\"CLmPi5mSHZUZ6N1rMWBsMnRDncDPUkBp6wiX89J5DaT\"}\n",
+   "stderr": ""
+  },
+  {
+   "name": "create_u64_max",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU\", \"token_program\": \"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\", \"authority\": \"4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T\", \"merkle_root\": \"abababababababababababababababababababababababababababababababab\", \"total_amount\": 18446744073709551615, \"clawback_ts\": 9223372036854775807, \"recent_blockhash\": \"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG\", \"seed_secret_hex\": \"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a\"}",
+   "code": 0,
+   "stdout": "{\"authority_token_account\":\"624mo8iacoaXLdedsvtqcNN2QCYsiWt7SXzELE6ryQSj\",\"data_hex\":\"05ff00ffffffffffffffffababababababababababababababababababababababababababababababababffffffffffffffffffffffffffffff7f\",\"distribution\":\"8FYqEk51Jv9Givybf8vhNTEfB9nvPBwgA3aqGY7KRVH2\",\"distribution_bump\":255,\"event_authority\":\"8LZgvUJZE3RvMbNUxRuGw5AzKnTRuFisAWiRmS26od7J\",\"seed_pubkey\":\"5Z6Ay5NEcbg3xhopc522sBCRXQujkTiuDRnHGfQdcnSf\",\"transaction_b64\":\"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACu36w9L6sIr406EoeKRG+dPhzApYPTlaA9KZH3t9OM5tKsAWFR2z4ved9QtGIagBJc01St9ATSWITkWimFbm0NAgEGCzIc+lrdGF6Ik6X9iAE+xNfhIt7UY1TK3/UNlWOV51tgQ6cucUQBdi32a2jCbfvfJoKq7J8kdOykYT5CSg+6/Txru+6XXMjh1Q3uECPtcTpumH77DPavuMrsNzh1WBI9cQDFwYn7zY7IUS0pNQmaq3tUSiBKPh197DMor7q/6tybSpBH5Kujmco+jpgv2R1BtRASaSjQf7EQNhqt8Z4wKMAGNTUM0D1ollLixgqorjWRtv+9qH1OQdezRXQcRZ997TtELLORIVfxOpM9ATQoLQMrX/7NAaLb8bd5BgjfAC6nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqYyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZbQTN/T677B0MXTjPpnizcVllQW6qa/u+MN+ybnGyTN3OWdtQgPwsbTvPfKkHEtPC5ebCjyfw37uZU72wiUwDqwEFDAAAAQIGAwQHCAkKBTsF/wD//////////6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur////////////////////fw==\",\"vault\":\"141tzZ9xfXY9CR4qEXvdLiSuuWAAt2jrkEXx5dHvFKjG\"}\n",
+   "stderr": ""
+  },
+  {
+   "name": "create_minimum",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU\", \"token_program\": \"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\", \"authority\": \"4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T\", \"merkle_root\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"total_amount\": 1, \"clawback_ts\": 1, \"recent_blockhash\": \"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG\", \"seed_secret_hex\": \"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"}",
+   "code": 0,
+   "stdout": "{\"authority_token_account\":\"624mo8iacoaXLdedsvtqcNN2QCYsiWt7SXzELE6ryQSj\",\"data_hex\":\"05fc000100000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000100000000000000\",\"distribution\":\"Djw8qZpywvHELWWNtL2SijafywWStsSX12qhmczjL2cz\",\"distribution_bump\":252,\"event_authority\":\"8LZgvUJZE3RvMbNUxRuGw5AzKnTRuFisAWiRmS26od7J\",\"seed_pubkey\":\"8z5oiZDBaCrP7ZCP1vQZbxkUt2eevdpPnyvpQAvAYuiL\",\"transaction_b64\":\"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADyIVFlExeubXifp+rQmj2lceesYRStMXKtqwFK4+pGGawMRbYbtt2tjU5GoljlGInXSD8iAtsrWWN5OMVr3/QAAgEGCzIc+lrdGF6Ik6X9iAE+xNfhIt7UY1TK3/UNlWOV51tgdqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fW9S9kOrVjYUqaRiHvzUu6dvdnRtKpzJmBmapgy3kuwQ0r+UPKblGPpWMqzvvOQp6Wtom+/Pb4F1JZFIKXI6ZhoSpBH5Kujmco+jpgv2R1BtRASaSjQf7EQNhqt8Z4wKMAGNTUM0D1ollLixgqorjWRtv+9qH1OQdezRXQcRZ997TtELLORIVfxOpM9ATQoLQMrX/7NAaLb8bd5BgjfAC6nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqYyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZbQTN/T677B0MXTjPpnizcVllQW6qa/u+MN+ybnGyTN3OWdtQgPwsbTvPfKkHEtPC5ebCjyfw37uZU72wiUwDqwEFDAAAAQIGAwQHCAkKBTsF/AABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAA==\",\"vault\":\"63k67cWxBNR99TyeyX5Sd9ZcLLSCsBi23ZdVhTNtmpPZ\"}\n",
+   "stderr": ""
+  },
+  {
+   "name": "create_uppercase_root",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47DFBE7FA0962B4E379252F841E5D0BEC0BB3632A3478E6754FC2196B8BB7BCB\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 0,
+   "stdout": "{\"authority_token_account\":\"DtWTyHuXwD9xgekQ46cQ2pyiJ8DxSa57dMBmMf7Ytsxg\",\"data_hex\":\"05fe000a6835000000000047dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb0a68350000000000804d2b6b00000000\",\"distribution\":\"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\",\"distribution_bump\":254,\"event_authority\":\"8LZgvUJZE3RvMbNUxRuGw5AzKnTRuFisAWiRmS26od7J\",\"seed_pubkey\":\"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\",\"transaction_b64\":\"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC8378Vu5BzxEsDg9//VYf9P/ejFFy8E3c0s+Q2+llgRkZvDX0FCmhaamTCK/W7VBSXshhE8veBaSIsvmlhNiMJAgEGC+pKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIs/RckOFqgx1tk+3jNYC+h2ZH96/drE8WO1wLqyDXp9hjkAENS82LFnS2y8XYaScZo+IttN3dFakC13VYEpcHdIgLnvNhYL7KKa7o4VHVx3Iu7NErDSjCIKzdHLCgxQxC0v34uOeyKBrx+eAlyQoq3/yMjewyXHtQs+tq1GMxRKc0GNTUM0D1ollLixgqorjWRtv+9qH1OQdezRXQcRZ997RE53XE3Ce878gYsrT8EIgerwCtFSKIYQTv6TghaMhzfAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/IyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZbQTN/T677B0MXTjPpnizcVllQW6qa/u+MN+ybnGyTN0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQEFDAAAAQIGAwQHCAkKBTsF/gAKaDUAAAAAAEffvn+glitON5JS+EHl0L7AuzYyo0eOZ1T8IZa4u3vLCmg1AAAAAACATStrAAAAAA==\",\"vault\":\"CLmPi5mSHZUZ6N1rMWBsMnRDncDPUkBp6wiX89J5DaT\"}\n",
+   "stderr": ""
+  },
+  {
+   "name": "err_program_not_base58",
+   "op": "create",
+   "stdin": "{\"program_id\": \"0OIl\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"program_id is not base58\"}\n"
+  },
+  {
+   "name": "err_program_short",
+   "op": "create",
+   "stdin": "{\"program_id\": \"11111111\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"program_id is not a 32-byte address\"}\n"
+  },
+  {
+   "name": "err_mint_empty",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"mint is not a 32-byte address\"}\n"
+  },
+  {
+   "name": "err_authority_bad",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"not base58 !\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"authority is not base58\"}\n"
+  },
+  {
+   "name": "err_blockhash_short",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"3Bxs\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"recent_blockhash is not a 32-byte address\"}\n"
+  },
+  {
+   "name": "err_root_short",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"abcd\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"merkle_root is not 32 bytes of hex\"}\n"
+  },
+  {
+   "name": "err_root_nonhex",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"merkle_root is not 32 bytes of hex\"}\n"
+  },
+  {
+   "name": "err_total_zero",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 0, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"total_amount is above zero\"}\n"
+  },
+  {
+   "name": "err_clawback_zero",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 0, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"clawback_ts is a unix time\"}\n"
+  },
+  {
+   "name": "err_clawback_negative",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": -5, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"clawback_ts is a unix time\"}\n"
+  },
+  {
+   "name": "err_seed_short",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"abcd\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"seed_secret_hex is not 32 bytes of hex\"}\n"
+  },
+  {
+   "name": "err_close_distributor",
+   "op": "close",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"distribution_seed\": \"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\", \"distributor\": \"CLmPi5mSHZUZ6N1rMWBsMnRDncDPUkBp6wiX89J5DaT\", \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"distributor is not the address distribution_seed derives for this mint and authority\"}\n"
+  },
+  {
+   "name": "err_close_seed_bad",
+   "op": "close",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"distribution_seed\": \"xx\", \"distributor\": \"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\", \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"distribution_seed is not a 32-byte address\"}\n"
+  },
+  {
+   "name": "err_unknown_op",
+   "op": "send",
+   "stdin": "{}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"usage: teeny-spine giveaway-tx create|close < request.json\"}\n"
+  },
+  {
+   "name": "err_empty_op",
+   "op": "",
+   "stdin": "{}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"usage: teeny-spine giveaway-tx create|close < request.json\"}\n"
+  },
+  {
+   "name": "err_unknown_field",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\", \"extra\": 1}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: unknown field `extra`, expected one of `program_id`, `mint`, `token_program`, `authority`, `merkle_root`, `total_amount`, `clawback_ts`, `recent_blockhash`, `seed_secret_hex` at line 1 column 539\"}\n"
+  },
+  {
+   "name": "err_close_unknown_field",
+   "op": "close",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"distribution_seed\": \"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\", \"distributor\": \"GM2BtLXFnZfFhYALJrLFruep4ezgxp4fWJssgY6Yr4SM\", \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0000000000000000000000000000000000000000000000000000000000000000\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad close request: unknown field `seed_secret_hex`, expected one of `program_id`, `mint`, `token_program`, `authority`, `distribution_seed`, `distributor`, `recent_blockhash` at line 1 column 459\"}\n"
+  },
+  {
+   "name": "err_missing_field",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: missing field `mint` at line 1 column 475\"}\n"
+  },
+  {
+   "name": "err_close_missing_field",
+   "op": "close",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"distribution_seed\": \"J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\", \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad close request: missing field `distributor` at line 1 column 378\"}\n"
+  },
+  {
+   "name": "err_total_string",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": \"5\", \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid type: string \\\"5\\\", expected u64 at line 1 column 345\"}\n"
+  },
+  {
+   "name": "err_total_float",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 1.5, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid type: floating point `1.5`, expected u64 at line 1 column 345\"}\n"
+  },
+  {
+   "name": "err_total_negative",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": -1, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid value: integer `-1`, expected u64 at line 1 column 344\"}\n"
+  },
+  {
+   "name": "err_total_overflow",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": \"2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump\", \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 18446744073709551616, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid type: floating point `1.8446744073709552e+19`, expected u64 at line 1 column 362\"}\n"
+  },
+  {
+   "name": "err_mint_number",
+   "op": "create",
+   "stdin": "{\"program_id\": \"REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi\", \"mint\": 5, \"token_program\": \"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\", \"authority\": \"GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB\", \"merkle_root\": \"47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb\", \"total_amount\": 3500042, \"clawback_ts\": 1798000000, \"recent_blockhash\": \"LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\", \"seed_secret_hex\": \"0909090909090909090909090909090909090909090909090909090909090909\"}",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid type: integer `5`, expected a string at line 1 column 71\"}\n"
+  },
+  {
+   "name": "err_not_json",
+   "op": "create",
+   "stdin": "{not json",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: key must be a string at line 1 column 2\"}\n"
+  },
+  {
+   "name": "err_empty_input",
+   "op": "create",
+   "stdin": "",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: EOF while parsing a value at line 1 column 0\"}\n"
+  },
+  {
+   "name": "err_array",
+   "op": "create",
+   "stdin": "[1,2]",
+   "code": 2,
+   "stdout": "",
+   "stderr": "{\"error\":\"bad create request: invalid type: integer `1`, expected a string at line 1 column 2\"}\n"
+  }
+ ]
+}

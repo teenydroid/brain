@@ -98,7 +98,7 @@ function publicQuote(q: ProgramQuote): Record<string, unknown> {
     address: q.address,
     summary: q.summary,
     declaredDebits: q.declaredDebits,
-    simulation: q.simulation,
+    simulation: { err: q.simulation.err ?? null, debits: q.simulation.debits, tokenAccounts: q.simulation.tokenAccounts, ...(q.simulation.unitsConsumed !== undefined ? { unitsConsumed: q.simulation.unitsConsumed } : {}) },
     createdAtMs: q.createdAtMs,
     expiresAtMs: q.expiresAtMs,
   };
