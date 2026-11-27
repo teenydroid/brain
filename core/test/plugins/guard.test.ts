@@ -186,3 +186,57 @@ describe("the per-run tool-call budget", () => {
     expect(blocked(await f.call("operator", "tool_search", {}, { runId: "recent" }))).toMatch(/30 tool calls/);
   });
 });
+
+describe("the memory tools of teeny-cortexdb", () => {
+  const all = ["memory_recall", "memory_list", "memory_store", "memory_forget"];
+
+  it("belong to no agent while the memory plugin is not in the config", async () => {
+    const f = makeFixture();
+    for (const tool of all) expect(blocked(await f.call("mind", tool, { query: "x", content: "x", reason: "a good reason" })), tool).toMatch(/mind has no .* tool/);
+    expect(f.agent("mind").tools).not.toContain("memory_recall");
+  });
+
+  it("are the mind's, and no other shell agent's", async () => {
+    const f = makeFixture({ memoryTools: true });
+    expect(f.agent("mind").tools).toEqual(expect.arrayContaining(all));
+    expect(blocked(await f.call("mind", "memory_recall", { query: "ships" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "memory_list", { limit: 5 }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "memory_store", { content: "the harbour opens at dawn" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "memory_forget", { query: "harbour", reason: "it was retracted" }))).toBeUndefined();
+    for (const id of ["worker", "operator", "evolver", "babysitter"]) {
+      for (const tool of all) expect(blocked(await f.call(id, tool, { query: "x", content: "x", reason: "a good reason" })), `${id} ${tool}`).toMatch(/has no .* tool/);
+    }
+  });
+
+  it("leave a tool-less agent tool-less, even with the plugin in", async () => {
+    const f = makeFixture({ memoryTools: true });
+    for (const id of ["teeny", "simple", "judge", "act", "writer", "editor", "teeny-mail"]) {
+      expect(f.policy.agents[id], id).toBeUndefined();
+      expect(blocked(await f.call(id, "memory_recall", { query: "x" })), id).toMatch(/holds no tools/);
+    }
+  });
+
+  it("refuse a forget without a reason or a query, and any argument that asks for more than the tool offers", async () => {
+    const f = makeFixture({ memoryTools: true });
+    expect(blocked(await f.call("mind", "memory_forget", { query: "harbour" }))).toMatch(/reason/);
+    expect(blocked(await f.call("mind", "memory_forget", { query: "harbour", reason: "short" }))).toMatch(/reason/);
+    expect(blocked(await f.call("mind", "memory_forget", { reason: "it was retracted" }))).toMatch(/query/);
+    expect(blocked(await f.call("mind", "memory_forget", { query: "ha", reason: "it was retracted" }))).toMatch(/query/);
+    for (const extra of [{ confirmAll: true }, { all: true }, { scope: "app:x" }, { cascade: "redact_events" }, { ids: ["a"] }]) {
+      expect(blocked(await f.call("mind", "memory_forget", { query: "harbour", reason: "it was retracted", ...extra })), JSON.stringify(extra)).toMatch(/takes query, reason and nothing else/);
+    }
+    expect(blocked(await f.call("mind", "memory_recall", { query: "" }))).toMatch(/query/);
+    expect(blocked(await f.call("mind", "memory_recall", { query: "x", scope: "other" }))).toMatch(/nothing else/);
+    expect(blocked(await f.call("mind", "memory_store", { content: "x".repeat(4001) }))).toMatch(/longer than/);
+    expect(blocked(await f.call("mind", "memory_store", {}))).toMatch(/content/);
+    expect(blocked(await f.call("mind", "memory_list", { query: "x" }))).toMatch(/nothing else/);
+  });
+
+  it("count against the run's tool-call budget like any other tool", async () => {
+    const f = makeFixture({ memoryTools: true });
+    const max = f.agent("mind").maxToolCalls;
+    let last: string | undefined;
+    for (let i = 0; i <= max; i++) last = blocked(await f.call("mind", "memory_list", {}, { runId: "budget" }));
+    expect(last).toMatch(/tool calls/);
+  });
+});

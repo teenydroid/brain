@@ -37,7 +37,7 @@ The hand still runs the guard, its own caps and `DRY_RUN` inside itself; the kil
 
 ## Memory
 
-The agent gets CortexDB recall before each turn like any agent. Add `pb-<name>` to the capture allowlist of `core/plugins/teeny-cortexdb` for any playbook that talks to people or makes content (`pb-gm` and `pb-moltbook-general` do) once that plugin is on main.
+The agent gets CortexDB recall before each turn like any agent. `pb-gm` and `pb-moltbook-general` are on the capture allowlist (`CAPTURE_AGENTS` in `core/src/memory/plugin.ts`, which the `teeny-cortexdb` plugin is configured from). Add `pb-<name>` to it, with a test, for any other playbook that talks to people or makes content.
 
 ## Tests to copy
 

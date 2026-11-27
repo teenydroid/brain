@@ -66,17 +66,6 @@ export interface AgentPolicy {
   maxToolCalls: number;
 }
 
-export interface RecallPolicy {
-  /** Agents whose turns get recalled memory. */
-  agents: Record<string, { budgetTokens: number }>;
-  /** state/memory-engine.json, written by memory_engine_set. */
-  engineFile: string;
-  /** The master key file the engine's API key is sealed under. */
-  masterKeyFile: string;
-  /** Wait for the pack at most this long. */
-  timeoutMs: number;
-}
-
 export interface GuardrailsPolicy {
   root: string;
   stateDir: string;
@@ -93,7 +82,6 @@ export interface GuardrailsPolicy {
   agents: Record<string, AgentPolicy>;
   /** How to run `openclaw`, to read the browser's live tab URLs. */
   openclaw?: { cmd: string; args: string[] };
-  recall?: RecallPolicy;
 }
 
 function isStringArray(v: unknown): v is string[] {

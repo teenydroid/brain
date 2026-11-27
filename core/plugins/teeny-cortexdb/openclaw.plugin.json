@@ -1,0 +1,67 @@
+{
+  "id": "teeny-cortexdb",
+  "name": "Teeny CortexDB memory",
+  "description": "Teeny's long-term memory on OpenClaw's memory slot: CortexDB recall into each turn, capture after a turn, and the memory tools.",
+  "kind": "memory",
+  "categories": ["memory"],
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": ["memory_recall", "memory_list", "memory_store", "memory_forget"]
+  },
+  "toolMetadata": {
+    "memory_recall": { "optional": true },
+    "memory_list": { "optional": true },
+    "memory_store": { "optional": true },
+    "memory_forget": { "optional": true }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["url", "scope", "engineFile", "masterKeyFile", "recall", "capture", "tools"],
+    "properties": {
+      "url": { "type": "string" },
+      "scope": { "type": "string" },
+      "engineFile": { "type": "string" },
+      "masterKeyFile": { "type": "string" },
+      "recall": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agents", "timeoutMs"],
+        "properties": {
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["budgetTokens"],
+              "properties": { "budgetTokens": { "type": "integer", "minimum": 1 } }
+            }
+          },
+          "timeoutMs": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "capture": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agents", "maxChars", "maxInFlight"],
+        "properties": {
+          "agents": { "type": "array", "items": { "type": "string" } },
+          "maxChars": { "type": "integer", "minimum": 100 },
+          "maxInFlight": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "tools": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agents", "resultTokens", "maxStoreChars"],
+        "properties": {
+          "agents": { "type": "array", "items": { "type": "string" } },
+          "resultTokens": { "type": "integer", "minimum": 1 },
+          "maxStoreChars": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

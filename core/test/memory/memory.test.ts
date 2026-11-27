@@ -391,3 +391,19 @@ describe("memory review fixes", () => {
     expect(cortex.forgot.length).toBe(before);
   });
 });
+
+describe("memory_forget with a reason (the plugin's tool)", () => {
+  it("writes the reason into the audit note, and the plain RPC keeps its note", async () => {
+    const { CortexClient } = await import("../../src/memory/cortex.js");
+    const client = new CortexClient({ endpoint: "https://cortex.test", fetch: cortex.fetch });
+    const a = await client.storeLearning({ text: "forget me", learningKind: "other", confidence: 0.8 });
+    const b = await client.storeLearning({ text: "forget me too", learningKind: "other", confidence: 0.8 });
+    await client.forget([a.id], { reason: "the  operator\nretracted it" });
+    expect(cortex.forgot.at(-1)?.body.audit_note).toBe("teeny: forget: the operator retracted it");
+    await client.forget([b.id], { reason: "x".repeat(500) });
+    expect(String(cortex.forgot.at(-1)?.body.audit_note).length).toBeLessThanOrEqual("teeny: forget: ".length + 200);
+    const c = await client.storeLearning({ text: "third", learningKind: "other", confidence: 0.8 });
+    await client.forget([c.id]);
+    expect(cortex.forgot.at(-1)?.body.audit_note).toBe("teeny: forget");
+  });
+});

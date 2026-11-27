@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { agentEntry, loadAgentDefs, toolPolicy } from "../../src/agents/definitions.js";
-import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
+import { buildCortexPluginConfig } from "../../src/memory/plugin.js";
 import { loadNativeDefs, nativeAddendum, nativeMaxToolCalls } from "../../src/agents/native.js";
 import { AgentCatalog } from "../../src/agents/provision.js";
 import { buildGatewayConfig } from "../../src/gateway/config.js";
@@ -54,15 +54,14 @@ describe("the agents of native playbooks", () => {
       expect(def.memoryBlockMaxTokens).toBe(act.memoryBlockMaxTokens);
     }
     const root = mkdtempSync(join(tmpdir(), "native-recall-"));
-    const raw = buildGuardrailsPolicy({
-      defs,
-      paths: { root: REPO, brainDir: BRAIN, stateDir: join(root, "state"), secretsDir: join(root, "secrets"), openclawDir: join(root, "openclaw") },
-      env: {},
-      workspaceOf: (id) => join(root, "ws", id),
-      home: "/nonexistent",
-    }) as { recall: { agents: Record<string, { budgetTokens: number }> } };
-    expect(Object.keys(raw.recall.agents).sort()).toEqual(["pb-gm", "pb-moltbook-general"]);
-    expect(raw.recall.agents["pb-gm"]?.budgetTokens).toBe(act.memoryBlockMaxTokens);
+    // recall is the teeny-cortexdb plugin's: its config is built from every def, and captures the playbooks that talk to people
+    const built = buildCortexPluginConfig({ defs, stateDir: join(root, "state"), secretsDir: join(root, "secrets"), env: { CORTEX_API_URL: "http://127.0.0.1:3141" } }) as {
+      recall: { agents: Record<string, { budgetTokens: number }> };
+      capture: { agents: string[] };
+    };
+    expect(Object.keys(built.recall.agents).sort()).toEqual(["pb-gm", "pb-moltbook-general"]);
+    expect(built.recall.agents["pb-gm"]?.budgetTokens).toBe(act.memoryBlockMaxTokens);
+    expect(built.capture.agents.sort()).toEqual(["pb-gm", "pb-moltbook-general"]);
   });
 
   it("gives a run room for its inputs, the hand and some retries, and no more", () => {

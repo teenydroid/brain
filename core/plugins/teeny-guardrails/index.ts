@@ -8,7 +8,8 @@
 //   tool_result_persist   synchronous; masks a typed keychain password.
 //   after_tool_call       observation only; feeds the screenshot sink. It is
 //                         never used to enforce anything.
-//   before_prompt_build   returns `prependContext`: recalled memory.
+// Memory recall is not here: it is the teeny-cortexdb plugin's (plugins.slots.memory), so it
+// happens once. The memory tools it registers are judged here like every other tool.
 // A policy that fails to parse blocks every tool call: the plugin refuses when
 // it cannot tell what it should allow.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -17,14 +18,13 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
 import { parsePolicy } from "./policy.js";
-import { recallContext } from "./recall.js";
 
 export const PLUGIN_ID = "teeny-guardrails";
 
 export default definePluginEntry({
   id: PLUGIN_ID,
   name: "Teeny guardrails",
-  description: "Teeny's fences on every tool call: workspace jail, exec allowlist, browser deny list, keychain fill, screenshot sink, tool-call budget and memory recall.",
+  description: "Teeny's fences on every tool call: workspace jail, exec allowlist, browser deny list, keychain fill, screenshot sink, tool-call budget and the memory tools' gate.",
   register(api) {
     let guard: Guardrails | undefined;
     let problem: string | undefined;
@@ -89,14 +89,6 @@ export default definePluginEntry({
     // The run is over: its lock is released and its record written (native.ts).
     api.on("agent_end", (event, ctx) => {
       guard?.runEnded(event, { ...(ctx.agentId ? { agentId: ctx.agentId } : {}), ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), ...(ctx.runId ? { runId: ctx.runId } : {}) });
-    });
-
-    api.on("before_prompt_build", async (event, ctx) => {
-      const recall = guard?.policy.recall;
-      if (!recall) return undefined;
-      const message = (event as { currentUserMessage?: string; prompt?: string }).currentUserMessage ?? (event as { prompt?: string }).prompt ?? "";
-      const text = await recallContext(recall, ctx.agentId, message);
-      return text ? { prependContext: text } : undefined;
     });
 
     // Last: the hooks above are registered. The core's supervisor stops a Gateway that has not written this

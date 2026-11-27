@@ -10,6 +10,7 @@ import { buildGuardrailsPolicy } from "../../src/agents/guardrails.js";
 import { AgentCatalog } from "../../src/agents/provision.js";
 import { openclawCommand } from "../../src/gateway/cli.js";
 import { buildGatewayConfig } from "../../src/gateway/config.js";
+import { buildCortexPluginConfig } from "../../src/memory/plugin.js";
 import { REPO } from "../helpers.js";
 
 function openclaw(dir: string, file: string, args: string[]): string {
@@ -47,9 +48,42 @@ describe("teeny-guardrails in the pinned openclaw", () => {
     expect(openclaw(dir, file, ["config", "validate"])).toMatch(/Config valid/);
     const out = openclaw(dir, file, ["plugins", "inspect", "teeny-guardrails", "--runtime"]);
     expect(out).toMatch(/CLI status: loaded/);
-    for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call", "before_prompt_build"]) {
+    for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call"]) {
       expect(out).toContain(hook);
     }
+    // recall is the memory plugin's: the guardrails neither hook the prompt nor ask to read the conversation
+    expect(out).not.toContain("before_prompt_build");
+    expect(out).not.toMatch(/allowConversationAccess: true/);
+  });
+
+  it("loads teeny-cortexdb as the memory slot owner with its hooks and its four tools", { timeout: 120_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-cortex-"));
+    const paths = { root: REPO, brainDir: join(REPO, "brain"), stateDir: join(dir, "state"), secretsDir: join(dir, "secrets"), openclawDir: join(dir, "state", "openclaw") };
+    mkdirSync(paths.openclawDir, { recursive: true });
+    const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir);
+    const file = join(dir, "openclaw.json");
+    const cortexConfig = buildCortexPluginConfig({ defs: catalog.definitions(), stateDir: paths.stateDir, secretsDir: paths.secretsDir, env: { CORTEX_API_URL: "http://127.0.0.1:3141" } });
+    expect(cortexConfig).toBeDefined();
+    const config = buildGatewayConfig({
+      port: 18999,
+      modelUrl: "http://127.0.0.1:1/v1",
+      model: "m",
+      models: [{ id: "m" }],
+      compactionTriggerTokens: 100000,
+      keepRecentTokens: 40000,
+      agentTimeoutSecs: 60,
+      defaultWorkspace: join(paths.openclawDir, "workspaces"),
+      agents: catalog.entries(true),
+      guardrailsPath: join(REPO, "core", "plugins", "teeny-guardrails"),
+      guardrailsPolicy: buildGuardrailsPolicy({ defs: catalog.definitions(), paths, env: {}, workspaceOf: (id) => catalog.workspace(id), memoryTools: true }),
+      cortex: { path: join(REPO, "core", "plugins", "teeny-cortexdb"), config: cortexConfig as Record<string, unknown> },
+    });
+    writeFileSync(file, JSON.stringify(config));
+    expect(openclaw(dir, file, ["config", "validate"])).toMatch(/Config valid/);
+    const out = openclaw(dir, file, ["plugins", "inspect", "teeny-cortexdb", "--runtime"]);
+    expect(out).toMatch(/CLI status: loaded/);
+    for (const hook of ["before_prompt_build", "agent_end"]) expect(out).toContain(hook);
+    for (const tool of ["memory_recall", "memory_list", "memory_store", "memory_forget"]) expect(out).toContain(tool);
     expect(out).toMatch(/allowConversationAccess: true/);
   });
 
