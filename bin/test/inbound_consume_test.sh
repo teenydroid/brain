@@ -51,7 +51,7 @@ esac
 FAKE
 chmod +x "$scratch/fake-oh" "$scratch/hands/x"
 
-export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" TEENY_STATE="$scratch/state" \
+export TEENY_INBOX=core TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" TEENY_STATE="$scratch/state" \
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RESULTS="$scratch/results.json"
 
 results() { # TEXT EVENT_IDS_JSON
@@ -181,6 +181,47 @@ check "mail: a message the draft left out is skipped" grep -qF 'mail mark <b@x> 
 check "mail: hands/x is never called" bash -c "! grep -q '^x ' '$FAKE_HANDS'"
 check "mail: the record names its source" test "$(jq -r .source <<<"$out")" = mail:inbox
 check "an unknown source is an error" bash -c "! '$consume' --source telegram:dm 2>/dev/null"
+
+# TEENY_INBOX unset or mind (production): exit 0 and make no RPC at all.
+export TEENY_SECRETS="$scratch/secrets"
+mkdir -p "$TEENY_SECRETS"
+for mode in unset mind Mind from-file-mind; do
+  : >"$FAKE_CALLS"
+  rc=0
+  case "$mode" in
+    unset) out="$(env -u TEENY_INBOX "$consume" 2>"$scratch/stderr")" || rc=$? ;;
+    from-file-mind) printf 'TEENY_INBOX=mind\n' >"$TEENY_SECRETS/teeny.env"; out="$(env -u TEENY_INBOX "$consume" 2>"$scratch/stderr")" || rc=$? ;;
+    *) out="$(TEENY_INBOX=$mode "$consume" 2>"$scratch/stderr")" || rc=$? ;;
+  esac
+  check "TEENY_INBOX $mode: exits 0" test "$rc" = 0
+  check "TEENY_INBOX $mode: makes no RPC" test ! -s "$FAKE_CALLS"
+  check "TEENY_INBOX $mode: prints no record" test -z "$out"
+done
+rm -f "$TEENY_SECRETS/teeny.env"
+printf 'TEENY_INBOX=core\n' >"$TEENY_SECRETS/teeny.env"
+: >"$FAKE_CALLS"
+echo '{"results": []}' >"$FAKE_RESULTS"
+env -u TEENY_INBOX "$consume" >/dev/null 2>&1 || true
+check "TEENY_INBOX=core in secrets/teeny.env still calls inbound_results" grep -q '^inbound_results ' "$FAKE_CALLS"
+rm -f "$TEENY_SECRETS/teeny.env"
+
+# A core with no inbound queue answers "not supported": a quiet exit 0, no record.
+cat >"$scratch/fake-oh-unsupported" <<'FAKE'
+#!/usr/bin/env bash
+echo "[oh] openhuman.inbound_results: the inbound queue is not supported by this core: unset TEENY_INBOX=core" >&2
+exit 1
+FAKE
+chmod +x "$scratch/fake-oh-unsupported"
+before="$(wc -l <"$TEENY_STATE/inbound/runs.jsonl" 2>/dev/null || echo 0)"
+rc=0
+out="$(TEENY_OH="$scratch/fake-oh-unsupported" "$consume" 2>"$scratch/stderr")" || rc=$?
+check "unsupported core: exits 0" test "$rc" = 0
+check "unsupported core: prints no record" test -z "$out"
+check "unsupported core: appends nothing to runs.jsonl" test "$(wc -l <"$TEENY_STATE/inbound/runs.jsonl" 2>/dev/null || echo 0)" = "$before"
+check "unsupported core: says why, not 'could not read'" bash -c "grep -q 'no inbound queue' '$scratch/stderr' && ! grep -q 'could not read' '$scratch/stderr'"
+rc=0
+TEENY_OH="$scratch/fake-oh-broken" "$consume" >/dev/null 2>&1 || rc=$?
+check "any other oh failure is still an error" test "$rc" = 1
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
