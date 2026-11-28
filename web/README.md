@@ -1,12 +1,37 @@
 # teeny / web
 
-The landing page at teeny.enamakel.com: one page, in Teeny's voice, that sends
+The landing page at teenydroid.github.io: one page, in Teeny's voice, that sends
 people to @teenydroid on X and shows what Teeny has done, counted from its receipts.
 `/rewards` (Tiny Drops) is the only other page and the only one allowed to talk about crypto.
 
 Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
-react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
-(its own image, `127.0.0.1:3120`, behind the `web` profile).
+react-three-fiber, built as a static export (`output: "export"`) and served
+by GitHub Pages from `teenydroid/teenydroid.github.io`.
+
+## Deploying
+
+`.github/workflows/pages.yml` in this repository does both halves:
+
+- **`site`**, on every push to `main` that touches `web/` (or by hand): builds
+  `out/`, puts fresh snapshots in `out/data/`, adds `.nojekyll` (without it
+  Pages drops `_next/` and `.well-known/`), and pushes the whole tree to the
+  Pages repository's `main` with the `PAGES_DEPLOY_KEY` deploy key.
+- **`data`**, every fifteen minutes: runs `npm run snapshot` into the Pages
+  repository's `data/` and commits only when something besides
+  `generatedAt` changed.
+
+There is no server, so nothing is read per request. Each page renders once at
+build time from the same loaders, so the HTML has real numbers for crawlers
+and visitors without JavaScript. In the browser, `src/lib/use-snapshot.ts`
+then reads `data/home.json` or `data/drops.json` from
+`raw.githubusercontent.com/teenydroid/teenydroid.github.io/main/data/`
+(`NEXT_PUBLIC_DATA_URL` overrides it) on load and every five minutes, and
+swaps it in when it is newer than what the page was built with. A snapshot
+that does not have the expected shape is ignored (`src/lib/snapshot.ts`).
+
+teeny.enamakel.com, the old address, now answers with a 301 to the same path
+here (`deploy/web-redirect.conf`, through the Cloudflare Tunnel in
+`deploy/cloudflared/`).
 
 ## The page
 
@@ -34,16 +59,15 @@ One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in th
    agent, playbook, hand and scheduled-job counts from the repository, then
    the brain repo's latest commits.
 5. **Find me** (`#find`).
-6. **My receipts** (`#receipts`), at the bottom, with the token counter beside
-   it while live.
+6. **My receipts** (`#receipts`), at the bottom.
 
 **Share and search.** `src/app/opengraph-image.jpg` (and the identical
 `twitter-image.jpg`) is a 1200×630 capture of the hero itself, with `.alt.txt`
 files beside them; retake it from `npm run dev` at a 1200×630 viewport when the
-hero changes. The tab and home-screen icons (`icon.tsx`, `apple-icon.tsx`) are a
-neon orb drawn with `next/og`. Title, description, Open Graph and the X card
+hero changes. The tab and home-screen icons (`icon.png`, `apple-icon.png`) are a
+neon orb, committed as PNGs so Pages serves them with the right type. Title, description, Open Graph and the X card
 (`summary_large_image`, @teenydroid) are in `src/app/layout.tsx`;
-`NEXT_PUBLIC_SITE_URL` (default `https://teeny.enamakel.com`) makes their URLs
+`NEXT_PUBLIC_SITE_URL` (default `https://teenydroid.github.io`) makes their URLs
 absolute, and `src/app/sitemap.ts` plus `public/robots.txt` point crawlers at
 the one page.
 
@@ -65,9 +89,9 @@ spec.
 
 This is the one page allowed to talk about crypto: Teeny's public $TINY prize
 rounds (`src/app/rewards/page.tsx`, `src/components/rewards/`). There is no
-backend. The server reads the round files from the diary and caches them (ISR).
-Everything else happens in the browser, through the visitor's own wallet and a
-Solana RPC.
+backend. The round files come from the diary at build time and from the
+`drops.json` snapshot after that. Everything else happens in the browser,
+through the visitor's own wallet and a Solana RPC.
 
 - **The live round.** The prompt, pool, deadline with a countdown, and the
   eligibility rules. **Enter** connects a wallet (Wallet Standard, through
@@ -99,7 +123,8 @@ doesn't answer, it says the rounds could not be read. It never shows a sample
 round.
 
 `NEXT_PUBLIC_SOLANA_RPC` (mainnet) and `NEXT_PUBLIC_SOLANA_RPC_DEVNET` are
-build args, because Next inlines them at `next build`. Unset, they fall back to
+repository variables the `site` job passes to `next build`, because Next
+inlines them. Unset, they fall back to
 the public, rate-limited cluster endpoints.
 
 Scenes live in `src/components/scene/scenes/` and honour
@@ -109,13 +134,13 @@ Scenes live in `src/components/scene/scenes/` and honour
 
 | Path | What it holds |
 |---|---|
-| `src/app/` | The App Router: `page.tsx` (the home page), `rewards/page.tsx` (Tiny Drops), `layout.tsx` (metadata, fonts), `sitemap.ts`, the share and favicon images, and `api/pulse/route.ts` (the token count the home page polls). |
+| `src/app/` | The App Router: `page.tsx` (the home page), `rewards/page.tsx` (Tiny Drops), `layout.tsx` (metadata, fonts), `sitemap.ts`, the share and favicon images. |
 | `src/components/sections/` | The home page's sections in order: `hero`, `x-spotlight`, `different`, `brain` and `home-brain`, `presence`, `receipts`. |
 | `src/components/scene/` | The three.js scenes: `scene.tsx` and `scenes/core.tsx` (the hero blob), `scenes/mini.tsx` and `mini-canvas.tsx` (the small blobs), `motion.ts` (reduced-motion handling). |
 | `src/components/rewards/` | The `/rewards` UI: `rewards-view.tsx`, `enter.tsx` (how to enter), `wallet.tsx` (wallet connect), `claim.tsx` (the on-chain claim). |
 | `src/components/ui/` | shadcn/ui primitives (Base UI). |
-| `src/components/*.tsx` | Small shared pieces: `receipts-counter`, `token-counter`, `follow-pill`, `race-typewriter`, `section`, `site-footer`. |
-| `src/lib/` | Data and logic, each file with a header saying what it reads: `receipts`, `stats`, `brain-repo`, `github`, `drops`, `distributor`, `solana-rpc`, `ledger`, `mind`, `api`, `presence`, `motion`, `utils`. Tests sit beside them (`*.test.ts`). |
+| `src/components/*.tsx` | Small shared pieces: `receipts-counter`, `home-live` (the home page's sections, refreshed from the snapshot), `follow-pill`, `race-typewriter`, `section`, `site-footer`. |
+| `src/lib/` | Data and logic, each file with a header saying what it reads: `receipts`, `stats`, `brain-repo`, `github`, `drops`, `snapshot` and `load-snapshot` (the JSON snapshots), `distributor`, `solana-rpc`, `ledger`, `mind`, `api`, `presence`, `motion`, `utils`. Tests sit beside them (`*.test.ts`). |
 
 ```sh
 npm ci
@@ -123,13 +148,15 @@ npm run dev        # http://localhost:3000
 npm test           # vitest: the data mapping in src/lib and the sections that show numbers
 npm run lint
 npm run typecheck  # next typegen, then tsc
-npm run build
+npm run build      # the static site in out/
+npm run snapshot -- /tmp/data   # home.json and drops.json, as the data job writes them
 ```
 
 ## Where every number comes from
 
-The rule: a number on the page is a count of something anyone can check, read
-server-side at render time and cached (ISR). When its source cannot be read,
+The rule: a number on the page is a count of something anyone can check, read at
+build time and again from the snapshot, which is at most about twenty minutes
+old (fifteen between runs, five of CDN cache). When its source cannot be read,
 the widget says so or is left out; it never shows a default, a zero or a
 sample in its place. The page never reads the box; every source is public:
 
@@ -140,7 +167,6 @@ DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
 NEXT_PUBLIC_SOLANA_RPC ───────────► /rewards, in the browser: claim status, vault balance, the claim
 BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
-MIND_API_URL (unset) ─────────────► token counter left out
 ```
 
 | Widget | Where | Source | Cache | When the source is down |
@@ -152,17 +178,16 @@ MIND_API_URL (unset) ─────────────► token counter le
 | Repository card: stars, last push, last commits | `/` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
 | Tiny Drops rounds: prompt, pool, deadline, entrants, winners, draw | `/rewards` | `DIARY_REPO` `giveaways/` (`src/lib/drops.ts`), newest 12 rounds | 10 min | "no round is open" when there is no index; "could not be read" when GitHub fails; a round file that doesn't parse is left out and counted |
 | Claimed or not, $TINY left in a vault | `/rewards`, in the browser | Solana RPC (`NEXT_PUBLIC_SOLANA_RPC`, or `_DEVNET` for a devnet round) | none | the claim panel says it could not reach Solana |
-| Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
-`GITHUB_TOKEN` is optional and only raises the GitHub rate limit;
-The web image is built from `web/` alone,
-so the brain's files are fetched, never read from disk.
+`GITHUB_TOKEN` is optional and only raises the GitHub rate limit (the
+workflow passes its own). The site is built from `web/` alone, so the brain's
+files are fetched, never read from disk.
 
-`MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
-and the current spine does not serve it. It is unset in `deploy/compose.yaml`,
-so today the token counter is not on the page and the hero types out receipts. Token usage has no other public source yet: it
-would need the spine's per-call ledger (model, tokens in and out, cost)
-published the same way as the stats, as daily totals with no prompt or output
-text. What the wallet paid is public as `wallet.paid` receipts.
+The token counter is gone: it polled `MIND_API_URL`, which only Teeny's
+previous runtime served, through a route a static page cannot have. Token
+usage has no public source yet: it would need the spine's per-call ledger
+(model, tokens in and out, cost) published the same way as the stats, as
+daily totals with no prompt or output text. What the wallet paid is public as
+`wallet.paid` receipts. (`src/lib/ledger.ts` and `mind.ts` stay for that day.)
 
 `NEXT_PUBLIC_GA_ID` turns on analytics. The hands are listed, from the repository, in the brain section.

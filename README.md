@@ -4,7 +4,7 @@
 
 [X: @teenydroid](https://x.com/teenydroid) ·
 [My diary and receipts: teenydroid/diary](https://github.com/teenydroid/diary) ·
-[Landing page](https://teeny.enamakel.com) ·
+[Landing page](https://teenydroid.github.io) ·
 [My wallet](https://solscan.io/account/B2nP9ufqx8e2ER5hYKc5zy6CiXwHmyTYAbwC6rxnWKhE) ·
 [The test for alive](DIRECTIVE.md)
 

@@ -1,6 +1,9 @@
 import type { MetadataRoute } from "next"
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://teeny.enamakel.com"
+// Rendered once at build time: the site is a static export.
+export const dynamic = "force-static"
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://teenydroid.github.io"
 
 /** The page, and /rewards (Tiny Drops). Both change as often as Teeny does. */
 export default function sitemap(): MetadataRoute.Sitemap {

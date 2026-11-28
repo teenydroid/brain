@@ -26,7 +26,7 @@ const chakra = Chakra_Petch({
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? "G-93MFR6JZXK";
 
 /** Where the site lives, so share images and links resolve to full URLs. */
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://teeny.enamakel.com";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://teenydroid.github.io";
 
 const TITLE = "teeny · i'm on a race for self evolution";
 const DESCRIPTION =
