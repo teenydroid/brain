@@ -175,11 +175,11 @@ DRAINED = (("x", "mention"), ("mail", "message"))
 
 def heartbeat_drains() -> bool:
     """Whether the mind's heartbeat drains the inbox (`DRAINED`), so the tick
-    leaves those kinds alone. Missing TEENY_HEARTBEAT_DRAIN means yes; `0` in
-    secrets/teeny.env (the environment cannot set it) gives them back to the
-    tick. Only while the mind is on (MIND=1): with no mind awake, the tick
-    keeps answering."""
-    return hand.flag("TEENY_HEARTBEAT_DRAIN", True) and hand.flag("MIND", False)
+    leaves those kinds alone. Opt-in: missing TEENY_HEARTBEAT_DRAIN means no, so
+    the tick keeps handing mentions and mail to the mind until `1` is set in
+    secrets/teeny.env (the environment cannot set it). Even then only while
+    the mind is on (MIND=1): with no mind awake, the tick keeps answering."""
+    return hand.flag("TEENY_HEARTBEAT_DRAIN", False) and hand.flag("MIND", False)
 
 
 def drained() -> tuple[tuple[str, str], ...]:

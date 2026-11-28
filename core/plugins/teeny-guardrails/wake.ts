@@ -14,14 +14,22 @@ const runCommand: RunCommand = (file, args, opts) =>
  * not spend tool calls listing it. A read-only command with only HOME, PATH and LANG in its environment; like
  * recall it fails open (no block, the turn goes on) and is cut to `maxChars`.
  */
-export async function wakeContext(policy: WakeContextPolicy | undefined, agentId: string | undefined, run: RunCommand = runCommand): Promise<string | undefined> {
+export async function wakeContext(
+  policy: WakeContextPolicy | undefined,
+  agentId: string | undefined,
+  run: RunCommand = runCommand,
+  log: (line: string) => void = () => undefined,
+): Promise<string | undefined> {
   if (!policy || !agentId || !policy.agents.includes(agentId)) return undefined;
   try {
     const [file, ...args] = policy.argv as [string, ...string[]];
     const env = { HOME: process.env.HOME ?? "/", PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", LANG: process.env.LANG ?? "C.UTF-8" };
     const out = (await run(file, args, { cwd: policy.cwd, env, timeoutMs: policy.timeoutMs })).trim();
+    // One line per run of an agent that gets the block, so the log says whether a run was given it.
+    log(out ? `teeny-guardrails: inbox pass injected for ${agentId} (${Math.min(out.length, policy.maxChars)} chars)` : `teeny-guardrails: inbox pass for ${agentId} is empty, nothing injected`);
     return out ? out.slice(0, policy.maxChars) : undefined;
-  } catch {
+  } catch (e) {
+    log(`teeny-guardrails: inbox pass for ${agentId} failed, nothing injected: ${(e as Error).message}`);
     return undefined;
   }
 }

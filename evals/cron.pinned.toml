@@ -121,7 +121,7 @@ catch_up = true
 [jobs.mind]
 schedule = "*/30 * * * *"
 agent = "mind"
-prompt = "You are awake. Read your notes, pick what matters most, do a real piece of it, and write down where you stopped."
+prompt = "You are awake. First, the inbox pass, before anything else: answer the X mentions and mail that wait, at most 3 X replies and 2 mail replies, from the [inbox pass] block at the top of this turn (no block: `hands/x mentions --status offered`, and `hands/stimuli pending` for mail). Then read your notes, pick what matters most, do a real piece of it, and write down where you stopped."
 switch = "MIND"
 
 # The browser operator (brain/agents/operator.toml), an agent job: the one

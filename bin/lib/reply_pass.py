@@ -101,11 +101,21 @@ def _reconcile_mail(conn: Any) -> None:
 
 
 def _offered(conn: Any) -> list[Mapping[str, Any]]:
-    """The offered mentions not yet answered, newest first."""
+    """The offered mentions not yet answered and X will take a reply to
+    (`mentions.replyable`), newest first."""
+    from teeny_hands.x import mentions
+
     rows = conn.execute(
-        f"SELECT m.id, m.author_username, m.text FROM x_mentions m WHERE m.status = 'offered' AND NOT {ANSWERED}"
-        " ORDER BY CAST(m.id AS INTEGER) DESC LIMIT ?", (X_SCAN,)).fetchall()
-    return [{k: r[k] for k in r.keys() if r[k] is not None} for r in rows]
+        f"SELECT m.id, m.author_username, m.text, m.conversation_id FROM x_mentions m WHERE m.status = 'offered' AND NOT {ANSWERED}"
+        " ORDER BY CAST(m.id AS INTEGER) DESC").fetchall()
+    out = []
+    for r in rows:
+        if not mentions.replyable(conn, r["text"], r["conversation_id"], r["id"]):
+            continue
+        out.append({k: r[k] for k in ("id", "author_username", "text") if r[k] is not None})
+        if len(out) >= X_SCAN:
+            break
+    return out
 
 
 def _mail(conn: Any) -> list[Mapping[str, Any]]:

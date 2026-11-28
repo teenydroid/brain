@@ -5,6 +5,8 @@
 #      inbound guard and offered (source x:mentions). X itself is read once an
 #      hour (X_MENTIONS_POLL_HOURS), for a mention the webhook lost: the other
 #      runs make no X call;
+#   1b. `hands/x skip-unreplyable`: offered mentions X would refuse a reply to
+#      (no @tag in their text) are marked skipped, so only answerable ones wait;
 #   2. `hands/x requests`: the stored mentions that ask Teeny to build
 #      something, into build_requests (no second call to X; one row each);
 #   3. `bin/inbound-consume`: the answers the core has drafted since, each
@@ -23,6 +25,7 @@ set -euo pipefail
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 status=0
 (cd "$TEENY_ROOT" && "$hands/x" ingest </dev/null) || status=$?
+(cd "$TEENY_ROOT" && "$hands/x" skip-unreplyable </dev/null) || status=$?
 (cd "$TEENY_ROOT" && "$hands/x" requests </dev/null) || status=$?
 "$TEENY_ROOT/bin/inbound-consume" || status=$?
 exit "$status"

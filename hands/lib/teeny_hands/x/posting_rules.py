@@ -653,6 +653,19 @@ def check_not_own(target: Mapping[str, Any], account_id: str) -> None:
         raise hand.Refused("refused: the account wrote this post; never reply to it", rule="self")
 
 
+#: How much of a post X counts when it decides whether the post tagged the account.
+TAG_WINDOW = 280
+
+
+def tags_account(text: Any, username: Any) -> bool:
+    """Whether `text` tags @username. The one test for "this post summoned the
+    account by name", shared by the reply gate and the mentions queue, so a
+    mention the queue offers is one the gate will accept."""
+    if not username:
+        return False
+    return bool(re.search(rf"(?<![A-Za-z0-9_])@{re.escape(str(username))}(?![A-Za-z0-9_])", str(text or ""), re.IGNORECASE))
+
+
 def check_engaged_first(
     conn: sqlite3.Connection,
     target: Mapping[str, Any],
@@ -685,8 +698,7 @@ def check_engaged_first(
     if me and target.get("inReplyToUserId") == me:
         return
     username = account.get("username")
-    if username and re.search(rf"(?<![A-Za-z0-9_])@{re.escape(username)}(?![A-Za-z0-9_])", str(target.get("text") or ""),
-                              re.IGNORECASE):
+    if tags_account(target.get("text"), username):
         return
     root = target.get("conversationId")
     # The ledger answers without a read, so it goes before the paid quote

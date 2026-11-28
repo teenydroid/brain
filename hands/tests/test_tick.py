@@ -299,6 +299,18 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.chats()[-1]["message"].count("### self · quiet"), 1)
 
+    def test_a_mention_goes_to_the_mind_while_the_drain_switch_is_missing(self):
+        # 2026-11-28 regression: with MIND=1 and no TEENY_HEARTBEAT_DRAIN the
+        # tick left mentions alone and nobody answered them.
+        (self.root / "secrets" / "teeny.env").write_text("MIND=1\n")
+        hand._ENV_CACHE = None
+        stimuli.add("x", "mention", "1", "@teenydroid gm")
+        self.answer({"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(got["kind"], "beat")
+        self.assertIn("@teenydroid gm", self.chats()[0]["message"])
+        self.assertEqual(stimuli.counts()["pending"], 0)
+
     # --- every beat leaves a trace -----------------------------------------
 
     def test_every_kind_of_beat_is_logged(self):

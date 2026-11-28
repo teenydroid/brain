@@ -35,6 +35,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   J  ingest [--max N] [--no-offer] [--poll]   queued mentions screened and offered; X's timeline read once a day, or now with --poll
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
+  J  skip-unreplyable       offered mentions with no @tag in their text (X refuses a reply), marked skipped
   J  requests [--max N]     asks to build something in the stored mentions, into build_requests
   J  metrics refresh        own posts and replies due a checkpoint (1h, 24h, 72h) into x_post_metrics
   R  metrics list [--days N]  the latest row per own post measured in the last N days (7)
@@ -159,6 +160,10 @@ def _mentions(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 def _mark(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return mentions.mark(args.id, args.status, args.note)
+
+
+def _skip_unreplyable(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return mentions.skip_unreplyable()
 
 
 def _requests(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -319,6 +324,7 @@ def parser() -> argparse.ArgumentParser:
     marking.add_argument("id")
     marking.add_argument("--status", required=True, choices=mentions.MARKS)
     marking.add_argument("--note", default=None)
+    verb("skip-unreplyable", _skip_unreplyable, "offered mentions X would refuse a reply to (no tag in text), marked skipped")
     noting = verb("requests", _requests, "asks to build something in the stored mentions, into build_requests")
     noting.add_argument("--max", type=_bounded_scan, default=200)
     measuring = verb("metrics", _metrics, "how the account's own posts and replies landed")

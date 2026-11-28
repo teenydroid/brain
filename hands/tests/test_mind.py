@@ -101,6 +101,17 @@ class MindAgentTest(unittest.TestCase):
         self.assertLess(len(pass_), 800, "the inbox pass stays a short block, not a second prompt")
         self.assertLess(spend.index("**First, the inbox pass.**"), spend.index("1. Read the tail"))
 
+    def test_the_cron_message_itself_opens_with_the_inbox_pass(self):
+        # 2026-11-28: the mind ignored an inbox block that only the plugin's
+        # context carried; the wake's own message now says it first.
+        import tomllib
+        pinned = tomllib.loads((MIND.parents[2] / "evals" / "cron.pinned.toml").read_text())["jobs"]["mind"]
+        prompt = pinned["prompt"]
+        self.assertTrue(prompt.startswith("You are awake. First, the inbox pass"), prompt)
+        self.assertLess(prompt.index("inbox pass"), prompt.index("Read your notes") if "Read your notes" in prompt else prompt.index("read your notes"))
+        for needle in ("at most 3 X replies and 2 mail replies", "[inbox pass]", "hands/x mentions --status offered"):
+            self.assertIn(needle, prompt)
+
     def test_the_prompt_has_it_write_the_journal_first_and_as_it_goes(self):
         prompt = (MIND.parent / "mind.md").read_text()
         spend = prompt[prompt.index("## How to spend a wake"):prompt.index("## Lines you do not cross")]

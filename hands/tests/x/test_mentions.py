@@ -16,9 +16,15 @@ from teeny_hands.x import posting_rules as rules
 MENTIONS = "/2/users/1000/mentions"
 
 
+def tagged(text: str) -> str:
+    """Most fixtures are mentions that tag the account, the only kind X takes a
+    reply to (`mentions.replyable`); the not-replyable cases say so explicitly."""
+    return text if "@teenydroid" in text else "@teenydroid " + text
+
+
 def page(*posts: tuple[str, str, str], newest: str | None = None) -> dict:
     """A mentions page: (id, author id, text) each, newest first as X sends them."""
-    data = [{"id": i, "author_id": a, "text": t, "conversation_id": "c" + i} for i, a, t in posts]
+    data = [{"id": i, "author_id": a, "text": tagged(t), "conversation_id": "c" + i} for i, a, t in posts]
     users = [{"id": a, "username": f"user{a}"} for _, a, _ in posts]
     meta = {"newest_id": newest or (posts[0][0] if posts else None), "result_count": len(posts)}
     return {"data": data, "includes": {"users": users}, "meta": meta}
@@ -229,7 +235,7 @@ class PollIntervalTest(IngestBase):
         conn = mentions._db()
         with hand.transaction(conn):
             mentions._store(conn, {"id": "1000"}, {"id": post_id, "authorId": "7", "authorUsername": "user7",
-                                                   "conversationId": "c" + post_id, "text": text},
+                                                   "conversationId": "c" + post_id, "text": tagged(text)},
                             {s: 0 for s in mentions.STATUSES}, hand.now(), screen=False)
 
     def test_a_run_inside_the_hour_does_not_read_x_and_still_offers_what_the_webhook_queued(self):
@@ -292,3 +298,58 @@ class MindInboxTest(IngestBase):
         mentions.ingest()
         mentions.ingest()
         self.assertEqual(stimuli.counts()["pending"], 1)
+
+
+def raw_page(*posts: tuple[str, str, str]) -> dict:
+    """Like `page`, but the text is exactly as given (not tagged)."""
+    out = page(*posts)
+    out["data"] = [{**d, "text": t} for d, (_, _, t) in zip(out["data"], posts)]
+    return out
+
+
+class ReplyableTest(IngestBase):
+    """X answers 403 to an API reply unless the post's author tagged the
+    account in its text, so such a mention is never offered, and one that
+    tags is never skipped."""
+
+    INBOX = None
+
+    def test_a_mention_with_no_tag_in_its_text_is_skipped_not_offered(self):
+        from teeny_hands import stimuli
+
+        self.x.route("GET", MENTIONS, raw_page(("13", "9", "@someone @teenydroid wen moon"), ("12", "7", "gm friend"),
+                                                ("11", "8", "@teenydroidfan hello")))
+        out = mentions.ingest()
+        self.assertEqual(out["offered"], 1)
+        self.assertEqual(self.statuses(), {"11": "skipped", "12": "skipped", "13": "offered"})
+        notes = {r["id"]: r["note"] for r in hand.db().execute("SELECT id, note FROM x_mentions").fetchall()}
+        self.assertEqual((notes["11"], notes["12"], notes["13"]), (mentions.NOT_REPLYABLE, mentions.NOT_REPLYABLE, None))
+        self.assertEqual([s["ref"] for s in stimuli.take(max_items=10, max_chars=10_000)["stimuli"]], ["13"])
+
+    def test_a_reply_under_one_of_the_accounts_own_posts_counts(self):
+        mentions._db().execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('c11', 'post', 'my post', 1)")
+        self.x.route("GET", MENTIONS, raw_page(("11", "8", "nice one")))
+        mentions.ingest()
+        self.assertEqual(self.statuses(), {"11": "offered"})
+
+    def offered(self, mention_id: str, text: str, conversation: str = "c") -> None:
+        conn = mentions._db()
+        conn.execute("INSERT INTO x_mentions (id, author_id, author_username, conversation_id, text, post, status, seen_at, updated_at)"
+                     " VALUES (?, 'u', 'ana', ?, ?, '{}', 'offered', 1, 1)", (mention_id, conversation, text))
+
+    def test_the_backlog_verb_skips_only_the_unreplyable_offered_ones_and_closes_their_stimuli(self):
+        from teeny_hands import stimuli
+
+        self.offered("1", "@teenydroid yes")
+        self.offered("2", "no tag here")
+        self.offered("3", "@x @y then @TeenyDroid at the end")
+        for ref in ("1", "2", "3"):
+            stimuli.add("x", "mention", ref, "t", who="ana")
+        self.assertEqual(mentions.skip_unreplyable(), {"skipped": 1})
+        self.assertEqual(self.statuses(), {"1": "offered", "2": "skipped", "3": "offered"})
+        self.assertEqual([s["ref"] for s in stimuli.pending()], ["1", "3"])
+        self.assertEqual(mentions.skip_unreplyable(), {"skipped": 0}, "nothing left to do the second time")
+
+    def test_the_rule_is_the_one_the_reply_gate_uses(self):
+        for text in ("@teenydroid hi", "x @TEENYDROID", "(@teenydroid)", "@teenydroidx", "mail me@teenydroid.com", "no tag"):
+            self.assertEqual(mentions.replyable(hand.db(), text), rules.tags_account(text, "teenydroid"), text)

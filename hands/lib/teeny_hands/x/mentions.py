@@ -15,7 +15,8 @@ once. Each new one becomes a row in `x_mentions`, unique on its post id:
   pending  stored, not yet offered (or the offer failed; the next run retries)
   held     the inbound guard held it, or the core's prompt-injection guard
            kept it out of the drafting turn; nothing answers it
-  skipped  never offered: the account's own post, or already answered
+  skipped  never offered: the account's own post, already answered, or one X
+           would refuse a reply to ("not replyable: no tag in text")
   offered  handed on: to Teeny's mind (the stimuli inbox, bin/tick) or, with
            TEENY_INBOX=core, the core's queue (`openhuman.inbound_offer`,
            source x:mentions)
@@ -96,6 +97,48 @@ def _screen(post: Json) -> Any:
     from ..guard.gate import inbound
 
     return inbound(post["text"], surface="x", context={"post_id": post["id"], "author": post.get("authorUsername")})
+
+
+#: The note on a mention X will not take a reply to.
+NOT_REPLYABLE = "not replyable: no tag in text"
+
+
+def _username() -> str:
+    return (hand.setting("X_BOT_USERNAME", "teenydroid") or "teenydroid").lstrip("@")
+
+
+def replyable(conn: sqlite3.Connection, text: Any, conversation_id: Any = None, post_id: Any = None) -> bool:
+    """Whether X will take an API reply to this mention: the author tagged the
+    account in the post's text (`posting_rules.tags_account`, the rule the
+    reply gate applies, which counts only the first 280 characters X puts in
+    `text`), or the post sits in a conversation rooted at one of the account's
+    own posts (the gate's ledger step). A mention that fails both can never be
+    answered by reply."""
+    if rules.tags_account(text, _username()):
+        return True
+    if conversation_id and str(conversation_id) != str(post_id or ""):
+        return conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (str(conversation_id),)).fetchone() is not None
+    return False
+
+
+def skip_unreplyable(conn: sqlite3.Connection | None = None) -> Mapping[str, Any]:
+    """Marks `offered` mentions that can never be replied to `skipped` (note
+    `NOT_REPLYABLE`) and closes their waiting stimuli, so the backlog shows
+    what is answerable. A mention that tags the account is never touched.
+    Local only: no call to X, nothing posted."""
+    from .. import stimuli
+
+    conn = conn or _db()
+    skipped = 0
+    for row in conn.execute("SELECT id, text, conversation_id FROM x_mentions WHERE status = 'offered'").fetchall():
+        if replyable(conn, row["text"], row["conversation_id"], row["id"]):
+            continue
+        cur = conn.execute("UPDATE x_mentions SET status = 'skipped', note = ?, updated_at = ? WHERE id = ? AND status = 'offered'",
+                           (NOT_REPLYABLE, hand.now(), row["id"]))
+        if cur.rowcount:
+            skipped += 1
+            stimuli.close("x", row["id"])
+    return {"skipped": skipped}
 
 
 def _offer(post: Json) -> None:
@@ -274,6 +317,10 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
                     # this row; answering every entry would be reply spam.
                     conn.execute("UPDATE x_mentions SET status = 'skipped', note = 'drop entry', updated_at = ? WHERE id = ?",
                                  (hand.now(), post["id"]))
+                    continue
+                if not replyable(conn, post.get("text"), pending["conversation_id"], post.get("id")):
+                    conn.execute("UPDATE x_mentions SET status = 'skipped', note = ?, updated_at = ? WHERE id = ?",
+                                 (NOT_REPLYABLE, hand.now(), post["id"]))
                     continue
                 try:
                     _offer(post)
