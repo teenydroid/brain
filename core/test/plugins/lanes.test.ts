@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -166,6 +166,21 @@ describe("the ledger (log only)", () => {
     expect(row).toMatchObject({ threadDay: 10, laneDay: 10 });
     const over = ledger.record({ ts: now + 2, session: "agent:x-reply:x:1", total: 350 });
     expect(over.over).toEqual(["thread"]);
+  });
+
+  it("rebuilds from the file after a failed append, so live totals match what a restart reads", () => {
+    const cfg = config();
+    const now = Date.UTC(2026, 10, 28, 12);
+    const file = join(cfg.ledgerDir, "usage-2026-11-28.jsonl");
+    const ledger = new Ledger(cfg);
+    ledger.record({ ts: now, session: "agent:x-reply:x:1", total: 5 });
+    // simulate an append that failed after persisting a complete row without its newline
+    appendFileSync(file, '{"lane":"locked","session":"agent:x-reply:x:1","total":7}');
+    chmodSync(file, 0o400); // makes the next append fail
+    expect(() => ledger.record({ ts: now + 1, session: "agent:x-reply:x:1", total: 1 })).toThrow();
+    chmodSync(file, 0o600);
+    expect(ledger.record({ ts: now + 1, session: "agent:x-reply:x:1", total: 1 }).threadDay).toBe(13);
+    expect(new Ledger(cfg).record({ ts: now + 2, session: "agent:x-reply:x:1", total: 1 }).threadDay).toBe(14);
   });
 
   it("retries the day's file when reading it failed", () => {

@@ -219,7 +219,14 @@ export class Ledger {
     const file = this.file(day);
     // A crash can leave a last line without its newline; start on a fresh line so this row stays readable.
     const prefix = endsMidLine(file) ? "\n" : "";
-    appendFileSync(file, `${prefix}${JSON.stringify(row)}\n`, { mode: 0o600 });
+    try {
+      appendFileSync(file, `${prefix}${JSON.stringify(row)}\n`, { mode: 0o600 });
+    } catch (e) {
+      // A failed append may still have left bytes that a reload would count; rebuild from the file next time
+      // so the live totals and the file never disagree.
+      this.day = "";
+      throw e;
+    }
     // Totals and warning markers move only once the row is on disk.
     this.lanes.set(laneId, laneDay);
     this.threads.set(call.session, threadDay);
