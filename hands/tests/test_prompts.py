@@ -914,7 +914,8 @@ class OneVoiceTest(unittest.TestCase):
     def test_voice_md_is_scene_craft_that_defers_to_soul(self):
         voice = self.read("narrative/VOICE.md")
         self.assertIn("is `SOUL.md`, and only there", voice)
-        self.assertLess(len(voice), 2500)
+        self.assertIn("SOUL.md wins", voice)
+        self.assertLess(len(voice), 3000)
 
     def test_the_writer_who_cannot_read_soul_writes_the_same_robot(self):
         # The studio's writer has no SOUL.md in its prompt (writer.toml,

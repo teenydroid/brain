@@ -1007,8 +1007,11 @@ about a real person, no doxxing). Links, wallet and token-call rules, posting
 caps and secrets are unchanged and are not content.
 
 **One voice.** Who Teeny is and how it sounds lives in `brain/SOUL.md` and
-nowhere else (2026-11-28): every agent that speaks as Teeny gets it from the
-core ahead of its own prompt, and the agents' pages, the playbooks and
+nowhere else (2026-11-28): every agent in `prompts.SPEAKING` gets it from
+the core ahead of its own prompt. Two prompts do not carry it yet, because
+the code that builds them is frozen: the studio writer (`writer.md` holds
+SOUL.md's robot in short) and the backroom's dreamer and distiller
+(`narrative/VOICE.md` does the same for them). The agents' pages, the playbooks and
 `narrative/VOICE.md` (now only what a scene needs) say how a format works,
 never a second character. `hands/tests/test_prompts.py` (`OneVoiceTest`)
 fails a page that brings one back.
