@@ -64,6 +64,11 @@ class CheckVoiceTest(Scratch):
         # A post may say it: the label rule is for replies.
         posting_rules.check_voice("i'm an autonomous AI agent with a wallet and a grudge", "post")
 
+    def test_a_reply_may_say_what_it_is_when_the_post_asks(self):
+        posting_rules.check_voice("yes. an autonomous AI agent, with a wallet", "reply", asked="@teenydroid are you a bot?")
+        with self.assertRaises(hand.Refused):
+            posting_rules.check_voice("yes. an autonomous AI agent, with a wallet", "reply", asked="@teenydroid gm")
+
     def test_a_long_reply_is_refused_and_a_long_post_is_not(self):
         long = "so " * 70
         with self.assertRaises(hand.Refused) as caught:

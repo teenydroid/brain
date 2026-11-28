@@ -554,6 +554,8 @@ _COLON_REVEAL = re.compile(r"^(?:[a-z][a-z'’]*\s){0,3}[a-z][a-z'’]*:\s", re.
 _LEADING_HANDLES = re.compile(r"^(?:@\w+\s*)+")
 _FIRST_WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
 _AGENT_LABEL = re.compile(r"autonomous\s+ai\s+agent", re.IGNORECASE)
+#: A post that asks what the account is: then saying so is the honest answer.
+_ASKS_WHAT = re.compile(r"\b(?:ai|a\.i\.|bot|robot|agent|human|real person|llm|automated|machine)\b", re.IGNORECASE)
 
 
 def _opens_with_emoji(text: str) -> bool:
@@ -574,12 +576,14 @@ def _capitalised(text: str) -> str | None:
     return None if len(letters) >= 2 and all(c.isupper() for c in letters) else word.group()
 
 
-def check_voice(text: str, kind: str) -> None:
+def check_voice(text: str, kind: str, asked: str = "") -> None:
     """Refuse a draft that reads like a chatbot, by the tics SOUL.md names
     ("tics that out you as a bot"), with the tic in the reason so the
     rewrite fixes it. Taste, measured: each rule here is one the account's
     own replies broke dozens of times (44 of 60 opened with the same emoji,
-    29 ran a colon reveal). `kind` is post, quote or reply."""
+    29 ran a colon reveal). `kind` is post, quote or reply; `asked` is the
+    text of the post a reply answers, which lets it say what it is when that
+    post asks (SOUL.md: identify when asked)."""
     if not hand.flag("X_VOICE_CHECK", True):
         return
     body = _LEADING_HANDLES.sub("", text.strip(), count=1).strip()
@@ -593,7 +597,7 @@ def check_voice(text: str, kind: str) -> None:
     elif (word := _capitalised(body)) is not None:
         problem = f'it starts with a capital ("{word}"); teeny writes in lowercase'
     if problem is None and kind == "reply":
-        if _AGENT_LABEL.search(body):
+        if _AGENT_LABEL.search(body) and not _ASKS_WHAT.search(asked or ""):
             problem = 'it calls itself an "autonomous AI agent" nobody asked about; cut the label'
         elif utf16_length(body) > (limit := int(number_setting("X_REPLY_MAX_LENGTH", REPLY_MAX_LENGTH, 80, 25_000))):
             problem = f"it is {utf16_length(body)} characters; a reply is one line, at most {limit}"

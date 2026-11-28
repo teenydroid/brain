@@ -77,7 +77,7 @@ def context(conversation_id: str) -> str:
     worn = recall.worn_phrases()
     if worn:
         lines += ["", "## words you have worn out in your replies (say something else)", ", ".join(worn)]
-    for who in _waiting_first(conversation_id, recall.thread_authors(conversation_id)):
+    for who in recall.thread_authors(conversation_id, first=_waiting(conversation_id)):
         known = recall.history(who)
         try:
             from teeny_hands.people import records
@@ -93,19 +93,19 @@ def context(conversation_id: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _waiting_first(conversation_id: str, authors: list[str]) -> list[str]:
-    """The thread's authors with whoever still waits for an answer there
-    first: the turn is answering one of them, and the block may be cut."""
+def _waiting(conversation_id: str) -> list[str]:
+    """Who in the thread still waits for an answer there: the turn is
+    answering one of them, so they are kept when the author list is cut."""
     try:
         from teeny_hands.x import mentions
 
         conn = mentions._db()
-        waiting = {r["author_username"] for r in conn.execute(
-            "SELECT author_username FROM x_mentions m WHERE conversation_id = ? AND status = 'offered' AND NOT EXISTS"
-            " (SELECT 1 FROM x_replies r WHERE r.in_reply_to = m.id AND r.reply_id IS NOT NULL)", (conversation_id,))}
+        return sorted({r["author_username"] for r in conn.execute(
+            "SELECT author_username FROM x_mentions m WHERE conversation_id = ? AND status = 'offered'"
+            " AND author_username IS NOT NULL AND NOT EXISTS"
+            " (SELECT 1 FROM x_replies r WHERE r.in_reply_to = m.id AND r.reply_id IS NOT NULL)", (conversation_id,))})
     except Exception:  # noqa: BLE001 - order is a nicety
-        return authors
-    return sorted(authors, key=lambda who: who not in waiting)
+        return []
 
 
 # --- the run ---------------------------------------------------------------------------------
@@ -221,6 +221,10 @@ def answer(mention: Mapping[str, Any], turn=ask, send=None) -> Json:
             return out
         code, sent = send(mid, got["reply"])
         out["text"] = got["reply"]
+        if code == 0 and sent.get("dry_run"):
+            # A rehearsal posted nothing: the mention stays offered for a live run.
+            out.update(outcome="dry_run", attempt=attempt)
+            return out
         if code == 0:
             _mark(mid, "replied", "answered by x-reply")
             out.update(outcome="replied", reply_id=sent.get("id"), attempt=attempt)
@@ -233,6 +237,10 @@ def answer(mention: Mapping[str, Any], turn=ask, send=None) -> Json:
             out.setdefault("refusals", []).append(reason[:300])
             message = retry_message(reason)
             continue
+        if code == 2 and sent.get("judge_failed") is True:
+            # The judge could not answer; it did not say no. Try again next run.
+            out.update(outcome="held", why="the judge did not answer; it is tried again next run")
+            return out
         if code == 2:
             _mark(mid, "skipped", f"refused: {reason}")
             out.update(outcome="refused", why=reason[:300])
@@ -249,7 +257,7 @@ def run() -> Json:
     for mention in waiting():
         got = answer(mention)
         results.append(got)
-        if got["outcome"] in ("paced", "error"):
+        if got["outcome"] in ("paced", "error", "held"):
             break
     record = {"at": hand.now(), "answered": results}
     path = hand.state_dir() / "x-replies" / "runs.jsonl"

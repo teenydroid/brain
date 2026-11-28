@@ -53,9 +53,9 @@ were what when where which while who why will with won't would yet you you're yo
 """.split())
 
 
-def _clip(text: Any) -> str:
+def _clip(text: Any, limit: int = CLIP) -> str:
     text = " ".join(str(text or "").split())
-    return text if len(text) <= CLIP else text[: CLIP - 3].rstrip() + "..."
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _ago(at: float) -> str:
@@ -95,14 +95,20 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple) -> list[sqlite3.Row
         return []
 
 
+#: x_mentions statuses whose text must not reach a drafting turn.
+WITHHELD = ("held", "unscreened", "pending")
+
+
 def _post(conn: sqlite3.Connection, post_id: str) -> tuple[str, str] | None:
     """(how to say whose it is, its text) for a post id the ledgers know."""
     own = _one(conn, "SELECT kind, text, created_at FROM x_posts WHERE id = ?", (post_id,))
     if own:
         whose = "your post" if own["kind"] != "reply" else "your reply"
         return f"{whose} ({_ago(own['created_at'])})", own["text"]
-    seen = _one(conn, "SELECT author_username, text FROM x_mentions WHERE id = ?", (post_id,))
+    seen = _one(conn, "SELECT author_username, text, status FROM x_mentions WHERE id = ?", (post_id,))
     if seen:
+        if seen["status"] in WITHHELD:  # the guard held it or has not screened it: no cache fallback either
+            return None
         return f"@{seen['author_username']}", seen["text"]
     cached = _one(conn, "SELECT value FROM x_cache WHERE key = ?", (f"post:{post_id}",))
     if cached:
@@ -251,6 +257,9 @@ def worn_phrases() -> list[str]:
 
 #: The most posts `thread` shows of one conversation (the newest of them).
 THREAD_MAX = 12
+#: A post in the thread is cut only past this, far beyond a post's length, so a
+#: correction at its end is not lost (THREAD_MAX bounds the block).
+THREAD_CLIP = 1200
 
 
 def thread(conversation_id: str) -> list[str]:
@@ -278,19 +287,20 @@ def thread(conversation_id: str) -> list[str]:
         return []
     lines = ["## the thread on X (oldest first)"]
     if root is not None:
-        lines.append(f'- it started from {root[0]}: "{_clip(root[1])}"')
+        lines.append(f'- it started from {root[0]}: "{_clip(root[1], THREAD_CLIP)}"')
     if len(rows) > len(shown):
         lines.append(f"- ({len(rows) - len(shown)} earlier posts in it not shown)")
     for r in shown:
-        lines.append(f'- @{r["author_username"] or "someone"} ({_ago(_at(r))}): "{_clip(r["text"])}"')
+        lines.append(f'- @{r["author_username"] or "someone"} ({_ago(_at(r))}): "{_clip(r["text"], THREAD_CLIP)}"')
         if r["id"] in replies:
-            lines.append(f'  you ({_ago(replies[r["id"]]["created_at"])}): "{_clip(replies[r["id"]]["text"])}"')
+            lines.append(f'  you ({_ago(replies[r["id"]]["created_at"])}): "{_clip(replies[r["id"]]["text"], THREAD_CLIP)}"')
     return lines
 
 
-def thread_authors(conversation_id: str, most: int = 3) -> list[str]:
-    """The handles that wrote in a conversation, newest writer first, at most
-    `most`, so a turn there can be told who each of them is to Teeny."""
+def thread_authors(conversation_id: str, most: int = 3, first: Collection[str] = ()) -> list[str]:
+    """The handles that wrote in a conversation, at most `most`: those in
+    `first` (who still wait for an answer) ahead of the rest, each group newest
+    writer first, so a turn there can be told who each of them is to Teeny."""
     conn = _connect()
     if conn is None:
         return []
@@ -304,4 +314,4 @@ def thread_authors(conversation_id: str, most: int = 3) -> list[str]:
     for r in sorted(rows, key=_at, reverse=True):
         if r["author_username"] not in out:
             out.append(r["author_username"])
-    return out[:most]
+    return sorted(out, key=lambda who: who not in first)[:most]

@@ -92,6 +92,25 @@ class ThreadBlock(Scratch):
         self.assertNotIn("guard held", text)
         self.assertNotIn("not screened", text)
 
+    def test_a_withheld_root_stays_out_too(self):
+        self.mention(100, "@teenydroid the held root", who="rooter", conv="100", status="held")
+        self.mention(101, "@teenydroid a fine question?")
+        text = "\n".join(recall.thread("100"))
+        self.assertIn("fine question", text)
+        self.assertNotIn("held root", text)
+
+    def test_a_post_is_kept_whole_for_the_turn(self):
+        self.mention(101, "@teenydroid " + "word " * 80 + "actually it is Tricky")
+        self.assertIn("actually it is Tricky", "\n".join(recall.thread("100")))
+
+    def test_a_waiting_author_survives_the_author_limit(self):
+        self.mention(101, "@teenydroid old question", who="waiter", at=NOW - 9000)
+        for i, who in enumerate(("a", "b", "c")):
+            self.mention(110 + i, "@teenydroid hi", who=who, status="skipped", at=NOW - 100 + i)
+        self.assertNotIn("waiter", recall.thread_authors("100"))
+        self.assertIn("waiter", recall.thread_authors("100", first=["waiter"]))
+        self.assertIn("## who @waiter", x_replies.context("100"))
+
     def test_a_long_thread_shows_its_newest_and_says_how_many_it_left_out(self):
         for i in range(30):
             self.mention(200 + i, f"@teenydroid post number {i}", at=NOW - 3000 + i)
@@ -179,6 +198,20 @@ class Answering(Scratch):
                                send=lambda *_: (2, {"ok": False, "refused": "held", "category": "sexual", "hold_id": 5}))
         self.assertEqual(got["outcome"], "refused")
         self.assertEqual(self.marks[0][:2], ("102", "skipped"))
+
+    def test_a_dry_run_marks_nothing_and_leaves_the_mention_offered(self):
+        turn, _ = self.turns('{"reply": "gm"}')
+        got = x_replies.answer({"id": "101", "conversation_id": "100", "text": "gm"}, turn=turn,
+                               send=lambda *_: (0, {"ok": True, "dry_run": True}))
+        self.assertEqual(got["outcome"], "dry_run")
+        self.assertEqual(self.marks, [])
+
+    def test_a_judge_outage_leaves_the_mention_for_the_next_run(self):
+        turn, _ = self.turns('{"reply": "gm"}')
+        got = x_replies.answer({"id": "101", "conversation_id": "100", "text": "gm"}, turn=turn,
+                               send=lambda *_: (2, {"ok": False, "refused": "held", "judge_failed": True}))
+        self.assertEqual(got["outcome"], "held")
+        self.assertEqual(self.marks, [])
 
     def test_pacing_leaves_the_mention_for_the_next_run(self):
         turn, _ = self.turns('{"reply": "gm"}')
