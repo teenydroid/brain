@@ -30,9 +30,10 @@ Gateway (in the spine)                 langfuse-net                 langfuse-dat
   would leave the box in the clear (only https, loopback, or plain http to
   the `otel-collector` service by name) and any header in the file.
 - **The collector** (`otel-collector.yaml`) is the only thing that holds
-  Langfuse's project key (`secrets/langfuse-otlp.env`). It drops traces that
-  are nothing but the core's RPC chatter with the Gateway (9 in 10 on the
-  live test) and forwards the rest to Langfuse's OTLP endpoint.
+  Langfuse's project key (`secrets/langfuse-otlp.env`). It drops the core's
+  RPC chatter with the Gateway span by span (9 traces in 10 on the live test
+  were nothing else), so no agent span is ever lost to a sampling decision,
+  and forwards the rest to Langfuse's OTLP endpoint.
 - **Langfuse** (web, worker, Postgres, ClickHouse, Redis, MinIO) follows
   Langfuse's own `docker-compose.yml` at the pinned tag. The datastores and
   the worker are only on `langfuse-data`, an internal network with no route

@@ -42,13 +42,17 @@ describe("tracing from the core's environment", () => {
 const inspected = (over: Record<string, unknown> = {}): string =>
   JSON.stringify({ plugin: { id: "diagnostics-otel", origin: "global", trustedOfficialInstall: true, version: "2026.11.10", ...over } });
 
-/** A stand-in CLI: answers inspect from `state`, and an install flips it to the trusted install at the asked version. */
+/**
+ * A stand-in CLI: answers inspect from `state`, and an install flips it to the trusted install at the asked version.
+ * Like OpenClaw 2026.11.10, it refuses to install over an existing plugin without --force ("plugin already exists").
+ */
 function fakeCli(initial: string, installCode = 0, installs: string = inspected()): { run: OpenclawRun; calls: string[][] } {
   let state = initial;
   const calls: string[][] = [];
   const run: OpenclawRun = async (args) => {
     calls.push(args);
     if (args[1] === "inspect") return { code: state ? 0 : 1, stdout: state };
+    if (state && !args.includes("--force")) return { code: 1, stdout: "" };
     if (installCode === 0) state = installs;
     return { code: installCode, stdout: "" };
   };
@@ -75,7 +79,7 @@ describe("the official diagnostics-otel install", () => {
   it("installs the pinned version from the npm registry, leaving activation to the core's config", async () => {
     const cli = fakeCli("");
     expect(await ensureOtelPlugin(cli.run, "2026.11.10")).toEqual({ ok: true, installed: true });
-    expect(cli.calls[1]).toEqual(["plugins", "install", "npm:@openclaw/diagnostics-otel@2026.11.10", "--pin", "--no-enable"]);
+    expect(cli.calls[1]).toEqual(["plugins", "install", "npm:@openclaw/diagnostics-otel@2026.11.10", "--pin", "--no-enable", "--force"]);
   });
 
   it("moves an install of another version to the Gateway's", async () => {

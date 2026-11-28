@@ -77,7 +77,8 @@ export function spawnOpenclaw(command: { cmd: string; args: string[] }, env: Rec
         clearTimeout(timer);
         resolve({ code: 127, stdout });
       });
-      child.on("exit", (code) => {
+      // "close", not "exit": the child can exit with stdout still unread, and inspect's JSON would come up short.
+      child.on("close", (code) => {
         clearTimeout(timer);
         resolve({ code: code ?? 1, stdout });
       });
@@ -101,7 +102,8 @@ export function trustedInstallAt(stdout: string, version: string): boolean {
 /**
  * Makes sure the Gateway's state holds the official diagnostics-otel at `version`: inspects it, and installs it from
  * the npm registry when it is missing or another version. `--no-enable`: the core's config owns activation, so the
- * installer touches no allowlist or entry. Fails (and the caller leaves tracing off) when the registry cannot be
+ * installer touches no allowlist or entry. `--force`: over another version the installer refuses with "plugin already
+ * exists" without it; with it the install is replaced and stays the trusted official one (checked 2026-11-28). Fails (and the caller leaves tracing off) when the registry cannot be
  * reached or the install is not trusted.
  *
  * The whole of it stays inside `budgetMs`: it runs before the core listens, and bin/spine fails the boot when the
@@ -130,7 +132,7 @@ export async function ensureOtelPlugin(
   const first = await inspect();
   if (!first) return late;
   if (trustedInstallAt(first.stdout, version)) return { ok: true, installed: false };
-  const install = await timed(["plugins", "install", `npm:${OTEL_PACKAGE}@${version}`, "--pin", "--no-enable"]);
+  const install = await timed(["plugins", "install", `npm:${OTEL_PACKAGE}@${version}`, "--pin", "--no-enable", "--force"]);
   if (!install) return late;
   if (install.code !== 0) return { ok: false, why: `openclaw plugins install npm:${OTEL_PACKAGE}@${version} exited ${install.code}` };
   const second = await inspect();
