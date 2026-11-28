@@ -1,0 +1,19 @@
+{
+  "id": "teeny-lanes",
+  "name": "Teeny lanes",
+  "description": "Routes each session to its lane's model and logs the tokens every lane and thread spends against its daily cap.",
+  "categories": ["models"],
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["provider", "ledgerDir", "lanes"],
+    "properties": {
+      "provider": { "type": "string" },
+      "ledgerDir": { "type": "string" },
+      "lanes": { "type": "array" }
+    }
+  }
+}

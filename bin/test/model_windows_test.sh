@@ -66,6 +66,19 @@ printf 'STUDIO_WRITER_MODEL=claude-fable-5.2\n' >"$TEENY_SECRETS/teeny.env"
 TEENY_BRAIN="$scratch/brain" register_windows
 check "a model both the studio and an agent use is written once" test "$(ids)" = glm-5.3-flash,claude-fable-5.2
 
+# A model a lane routes to (brain/lanes.toml) is asked for by name on every
+# turn of the lane's sessions, its fallbacks too.
+reset
+printf '[[lane]]\nid = "free"\nmodel = "gemini-3.1-pro"\nfallbacks = ["glm-5.3-flash"]\nmatch = ["agent:mind:*"]\n[[lane]]\nid = "wake"\nmatch = ["x"]\n' >"$scratch/brain/lanes.toml"
+TEENY_BRAIN="$scratch/brain" register_windows
+check "a lane's model and fallbacks get their windows, SPINE_MODEL once" \
+  test "$(ids)" = glm-5.3-flash,claude-fable-5.2,gemini-3.1-pro
+reset
+printf 'not toml [' >"$scratch/brain/lanes.toml"
+TEENY_BRAIN="$scratch/brain" register_windows
+check "a broken lanes.toml costs nothing else" test "$(ids)" = glm-5.3-flash,claude-fable-5.2
+rm -f "$scratch/brain/lanes.toml"
+
 reset
 printf 'STUDIO_WRITER_MODEL=claude-fable-5.2\nSTUDIO_EDITOR_MODEL="gemini-3.1-pro"\n' >"$TEENY_SECRETS/teeny.env"
 register_windows
