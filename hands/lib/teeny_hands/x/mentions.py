@@ -107,37 +107,45 @@ def _username() -> str:
     return (hand.setting("X_BOT_USERNAME", "teenydroid") or "teenydroid").lstrip("@")
 
 
-def replyable(conn: sqlite3.Connection, text: Any, conversation_id: Any = None, post_id: Any = None) -> bool:
+def replyable(conn: sqlite3.Connection, text: Any, conversation_id: Any = None, post_id: Any = None, post: Any = None) -> bool:
     """Whether X will take an API reply to this mention: the author tagged the
     account in the post's text (`posting_rules.tags_account`, the rule the
     reply gate applies, which counts only the first 280 characters X puts in
-    `text`), or the post sits in a conversation rooted at one of the account's
-    own posts (the gate's ledger step). A mention that fails both can never be
-    answered by reply."""
+    `text`), or the stored post answers or quotes one of the account's own posts,
+    or sits in a conversation rooted at one (the gate's ledger steps, which
+    look in `x_posts`). A mention that fails all of these can never be
+    answered by reply. `post` is the stored post (a dict or its JSON)."""
     if rules.tags_account(text, _username()):
         return True
+    if isinstance(post, str):
+        try:
+            post = json.loads(post)
+        except ValueError:
+            post = None
+    mine = {str(i) for i in ((post or {}).get("inReplyToId"), (post or {}).get("quotedId")) if i}
     if conversation_id and str(conversation_id) != str(post_id or ""):
-        return conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (str(conversation_id),)).fetchone() is not None
-    return False
+        mine.add(str(conversation_id))
+    return any(conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote', 'reply', 'thread')", (i,)).fetchone()
+               for i in mine) if mine else False
 
 
 def skip_unreplyable(conn: sqlite3.Connection | None = None) -> Mapping[str, Any]:
     """Marks `offered` mentions that can never be replied to `skipped` (note
     `NOT_REPLYABLE`) and closes their waiting stimuli, so the backlog shows
     what is answerable. A mention that tags the account is never touched.
-    Local only: no call to X, nothing posted."""
+    The stimulus is closed first, so a failure leaves the mention offered for
+    the next run. Local only: no call to X, nothing posted."""
     from .. import stimuli
 
     conn = conn or _db()
     skipped = 0
-    for row in conn.execute("SELECT id, text, conversation_id FROM x_mentions WHERE status = 'offered'").fetchall():
-        if replyable(conn, row["text"], row["conversation_id"], row["id"]):
+    for row in conn.execute("SELECT id, text, conversation_id, post FROM x_mentions WHERE status = 'offered'").fetchall():
+        if replyable(conn, row["text"], row["conversation_id"], row["id"], row["post"]):
             continue
+        stimuli.close("x", row["id"])
         cur = conn.execute("UPDATE x_mentions SET status = 'skipped', note = ?, updated_at = ? WHERE id = ? AND status = 'offered'",
                            (NOT_REPLYABLE, hand.now(), row["id"]))
-        if cur.rowcount:
-            skipped += 1
-            stimuli.close("x", row["id"])
+        skipped += cur.rowcount
     return {"skipped": skipped}
 
 
@@ -318,7 +326,7 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
                     conn.execute("UPDATE x_mentions SET status = 'skipped', note = 'drop entry', updated_at = ? WHERE id = ?",
                                  (hand.now(), post["id"]))
                     continue
-                if not replyable(conn, post.get("text"), pending["conversation_id"], post.get("id")):
+                if not replyable(conn, post.get("text"), pending["conversation_id"], post.get("id"), post):
                     conn.execute("UPDATE x_mentions SET status = 'skipped', note = ?, updated_at = ? WHERE id = ?",
                                  (NOT_REPLYABLE, hand.now(), post["id"]))
                     continue

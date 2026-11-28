@@ -4,6 +4,7 @@ what became of them. X and the core are faked; the guard is stood in for."""
 
 from __future__ import annotations
 
+import json
 import os
 from types import SimpleNamespace
 
@@ -363,3 +364,13 @@ class ReplyableTest(IngestBase):
             stimuli.add("x", "mention", ref, "t", who="ana")
         mentions.mark("1", "skipped", "not worth it")
         self.assertEqual([s["ref"] for s in stimuli.pending()], ["2"])
+
+    def test_an_untagged_reply_to_or_quote_of_one_of_the_accounts_own_posts_is_not_skipped(self):
+        conn = mentions._db()
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('900', 'reply', 'my reply', 1)")
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('901', 'post', 'my post', 1)")
+        for mention_id, post in (("1", {"inReplyToId": "900"}), ("2", {"quotedId": "901"}), ("3", {"inReplyToId": "555", "quotedId": "556"})):
+            conn.execute("INSERT INTO x_mentions (id, author_id, author_username, conversation_id, text, post, status, seen_at, updated_at)"
+                         " VALUES (?, 'u', 'ana', 'c', 'nice one', ?, 'offered', 1, 1)", (mention_id, json.dumps(post)))
+        self.assertEqual(mentions.skip_unreplyable(), {"skipped": 1})
+        self.assertEqual(self.statuses(), {"1": "offered", "2": "offered", "3": "skipped"})

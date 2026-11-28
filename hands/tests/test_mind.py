@@ -109,7 +109,7 @@ class MindAgentTest(unittest.TestCase):
         prompt = pinned["prompt"]
         self.assertTrue(prompt.startswith("You are awake. First, the inbox pass"), prompt)
         self.assertLess(prompt.index("inbox pass"), prompt.index("Read your notes") if "Read your notes" in prompt else prompt.index("read your notes"))
-        for needle in ("at most 3 X replies and 2 mail replies", "[inbox pass]", "hands/x mentions --status offered"):
+        for needle in ("at most 3 X replies and 2 mail replies", "[inbox pass]", "nothing is owed this wake"):
             self.assertIn(needle, prompt)
 
     def test_the_prompt_has_it_write_the_journal_first_and_as_it_goes(self):

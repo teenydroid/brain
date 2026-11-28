@@ -266,7 +266,7 @@ def inbox_passes(since: float) -> Json | None:
     path = hand.state_dir() / "mind" / "inbox-pass.jsonl"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()[-2000:]
-    except OSError:
+    except (OSError, ValueError):  # missing, or not UTF-8: no record, never a broken pulse
         return None
     given, owed = 0, []
     for line in lines:

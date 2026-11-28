@@ -46,6 +46,11 @@ class InboxPassPulse(unittest.TestCase):
         self.assertEqual(got, {"wakes_given_the_block": 3, "wakes_that_skipped_it": 2,
                                "last_skipped": ["2026-11-29T10:30:00.000Z", "2026-11-29T10:00:00.000Z"]})
 
+    def test_a_log_that_is_not_text_is_no_record_and_never_breaks_the_pulse(self):
+        (self.root / "state" / "mind" / "inbox-pass.jsonl").write_bytes(b"\xff\xfe not utf-8\n")
+        self.assertIsNone(pulse.inbox_passes(T0 - 86400))
+        self.assertNotIn("inbox_pass", pulse.pulse(1))
+
     def test_the_pulse_carries_it(self):
         self.record({"at": "2026-11-29T10:00:00.000Z", "agent": "mind", "block": True, "owed": True})
         self.assertEqual(pulse.pulse(1)["inbox_pass"]["wakes_that_skipped_it"], 1)

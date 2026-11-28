@@ -28,9 +28,10 @@ export OPENHUMAN_CORE_BIN
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-mindlab.XXXXXX")"
 spine_pid="" model_pid="" x_pid=""
 cleanup() {
-  [ -n "$spine_pid" ] && kill -TERM "$spine_pid" 2>/dev/null && { wait "$spine_pid" 2>/dev/null || true; }
-  [ -n "$model_pid" ] && kill "$model_pid" 2>/dev/null
-  [ -n "$x_pid" ] && kill "$x_pid" 2>/dev/null
+  # each one best-effort: a child that has already exited must not stop the rest of the cleanup
+  if [ -n "$spine_pid" ]; then kill -TERM "$spine_pid" 2>/dev/null || true; wait "$spine_pid" 2>/dev/null || true; fi
+  if [ -n "$model_pid" ]; then kill "$model_pid" 2>/dev/null || true; fi
+  if [ -n "$x_pid" ]; then kill "$x_pid" 2>/dev/null || true; fi
   if [ "${KEEP_SCRATCH:-0}" = 1 ]; then echo "scratch kept at $scratch"; else rm -rf "$scratch"; fi
 }
 trap cleanup EXIT
@@ -262,7 +263,8 @@ check "the answered and skipped mentions' stimuli are closed; the two still offe
 # --- tick does not answer them too ---------------------------------------------------------
 before="$(db "select count(*) from x_mentions where status = 'offered'")/$(db "select count(*) from x_replies")"
 ticked="$(for _ in 1 2 3 4 5 6 7 8 9 10; do o="$("$root/bin/tick" 2>>"$scratch/tick.log" || true)"; [ "$(jq -r .kind <<<"$o" 2>/dev/null)" = busy ] || break; sleep 3; done; printf '%s' "$o")"
-check "tick ran a beat (kind: $(jq -r .kind <<<"$ticked" 2>/dev/null)) and left the mentions to the mind" \
+check "tick completed a beat that found nothing for it (kind quiet, not busy or failed)" test "$(jq -r .kind <<<"$ticked" 2>/dev/null)" = quiet
+check "and left the mentions to the mind: the offered and reply counts are unchanged" \
   test "$(db "select count(*) from x_mentions where status = 'offered'")/$(db "select count(*) from x_replies")" = "$before"
 check "and the beat's prompt carried none of the mentions" bash -c "! jq -e -s 'any(.[]; .kind == \"tick\" and .mentions_in_prompt == true)' '$scratch/bodies.jsonl' >/dev/null"
 
