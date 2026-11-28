@@ -395,6 +395,30 @@ def dispatches(body: Json, entry: Json) -> Json:
     return _hand_answer(*tick._run_hand("moltbook", ["dispatch", "list", "--days", str(days)], None), entry)
 
 
+def _settle_reply(verb: str, body: Json, code: int, out: Json) -> None:
+    """Tells the surface's queue what became of a reply the mind sent itself
+    (`bin/teeny do reply_x` / `reply_mail`), as tick.carry_out does for the
+    beat's: a reply that went out marks the mention `replied` with the note
+    "answered from the mind", a rehearsed one `drafted`, and either closes its waiting stimulus; and an X reply refused as `unsolicited` (X would answer 403: the
+    post never tagged the account) marks it `skipped`, so it is not offered
+    again. Best effort: the answer the mind reads does not depend on it."""
+    if verb not in ("reply_x", "reply_mail"):
+        return
+    from teeny_hands import stimuli
+    from teeny_hands.x import mentions
+
+    surface, ref = ("x", str(body.get("to"))) if verb == "reply_x" else ("mail", str(body.get("message_id")))
+    try:
+        if code == 0:
+            tick._mark(verb, body, "drafted" if out.get("dry_run") else "replied")
+            stimuli.close(surface, ref)
+        elif code == 2 and verb == "reply_x" and out.get("rule") == "unsolicited":
+            tick._run_hand("x", ["mark", ref, "--status", "skipped", "--note", mentions.NOT_REPLYABLE], None)
+            stimuli.close(surface, ref)
+    except Exception:  # the queue's bookkeeping never blocks the answer
+        pass
+
+
 def do(body: Json, entry: Json) -> Json:
     """One intent, the way a beat carries it out (tick.carry_out): the route
     (its fields, and its daily cap where one applies), the cap counted once
@@ -428,11 +452,14 @@ def do(body: Json, entry: Json) -> Json:
         # A rehearsal spends nothing of the day: the hand says what it would
         # send, and the live allowance is still there for the real one.
         code, out = tick._run_hand(name, argv, hand_body)
+        _settle_reply(verb, body, code, out)
         return _say_filed(_hand_answer(code, out, entry), entry, name, hand_body)
     try:
         code, out, held = tick._send(verb, name, argv, hand_body, 0.0)
     except ValueError as exc:  # the day's cap, spent between the check and the count
         raise Refused(str(exc)) from None
+    if not held:
+        _settle_reply(verb, body, code, out)
     answer = _hand_answer(code, out, entry)
     if held:
         answer["held"] = {k: held[k] for k in ("rule", "wait_seconds") if k in held}

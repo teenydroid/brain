@@ -88,7 +88,8 @@ export default definePluginEntry({
     );
 
     api.on("before_prompt_build", async (_event, ctx) => {
-      const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId);
+      const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId, undefined, (line) => api.logger.info(line));
+      if (queue) guard?.blockGiven({ ...(ctx.agentId ? { agentId: ctx.agentId } : {}), ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), ...(ctx.runId ? { runId: ctx.runId } : {}) });
       return queue ? { prependContext: queue } : undefined;
     });
 

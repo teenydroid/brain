@@ -335,7 +335,7 @@ class DoTest(BrokerCase):
         self.assertEqual(out["status"], "ok")
         self.assertEqual(out["exit"], 0)
         self.assertEqual(out["result"], {"ok": True, "dry_run": False})
-        calls = self.hand_calls()
+        calls = [c for c in self.hand_calls() if c["argv"][:1] != ["mark"]]  # the queue's mark has its own tests
         self.assertEqual([(c["hand"], c["argv"], c["body"]) for c in calls],
                          [("x", ["reply", "--to", "123"], {"text": "hi there", "gif_id": "abc"})])
 
@@ -463,7 +463,31 @@ class MoltbookIsTheScriptsTest(BrokerCase):
         self.start()
         code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
         self.assertEqual((code, out["status"]), (200, "ok"), out)
-        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        self.assertEqual([c["hand"] for c in self.hand_calls() if c["argv"][:1] != ["mark"]], ["x"])
+
+    def hand_marks(self):
+        return [(c["hand"], c["argv"]) for c in self.hand_calls() if c["argv"][:1] == ["mark"]]
+
+    def test_a_reply_the_mind_sent_marks_the_mention_replied_from_the_mind(self):
+        self.start()
+        self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual(self.hand_marks(), [("x", ["mark", "123", "--status", "replied", "--note", "answered from the mind"])])
+        self.post("/do", {"do": "reply_mail", "message_id": "m9", "text": "hello there"})
+        self.assertEqual(self.hand_marks()[-1], ("mail", ["mark", "m9", "--status", "replied", "--note", "answered from the mind"]))
+
+    def test_a_rehearsed_reply_marks_drafted_and_a_refusal_leaves_the_mention_alone(self):
+        self.start(MIND_DRY_RUN=None)
+        self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual(self.hand_marks()[-1][1][2:], ["--status", "drafted", "--note", "answered from the mind"])
+
+    def test_an_x_reply_refused_as_unsolicited_marks_the_mention_skipped_not_replyable(self):
+        _exe(self.hands / "x", FAKE_HAND.replace("if (name, verb) == (\"goals\", \"list\"):",
+             "if (name, verb) == (\"x\", \"reply\"):\n    print(json.dumps({\"ok\": False, \"refused\": \"never summoned\", \"rule\": \"unsolicited\"})); sys.exit(2)\n"
+             "if (name, verb) == (\"goals\", \"list\"):", 1))
+        self.start()
+        code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
+        self.assertEqual(out["status"], "refused")
+        self.assertEqual(self.hand_marks(), [("x", ["mark", "123", "--status", "skipped", "--note", "not replyable: no tag in text"])])
 
     DISPATCH = {"do": "dispatch_moltbook", "post_id": "8c95feab-bda8-4bea-b8ee-5137d5e97337",
                 "parent_id": "8738e440-ea37-4498-8a78-fd382e154820", "body": "the exact words",
@@ -631,7 +655,7 @@ class RehearsalQueuesTest(BrokerCase):
     def test_a_rehearsed_post_still_reaches_its_hand_which_rehearses_it(self):
         self.start(MIND_DRY_RUN="1")
         code, out = self.post("/do", {"do": "reply_x", "to": "123", "text": "hi there"})
-        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x"])
+        self.assertEqual([c["hand"] for c in self.hand_calls() if c["argv"][:1] != ["mark"]], ["x"])
         self.assertIs(out["result"]["dry_run"], True)
 
     def test_a_rehearsal_drops_no_wake(self):

@@ -1,8 +1,8 @@
 {
   "method": "openhuman.cron_remove",
   "call_sites": [
-    "bin/lib/broker.py:1433",
-    "bin/lib/broker.py:651",
+    "bin/lib/broker.py:1460",
+    "bin/lib/broker.py:678",
     "bin/seed-cron:160",
     "bin/seed-cron:169"
   ],

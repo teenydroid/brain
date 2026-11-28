@@ -57,7 +57,8 @@ def render(x_total: int, x_more: bool, x_top: list[Mapping[str, Any]], mail_tota
     """The block, cut to `limit` characters at a line end."""
     if not x_total and not mail_total:
         return ""
-    lines = ["[inbox pass] Your beat opens here: at most 3 X replies and 2 mail replies, then your own work."]
+    lines = ["[inbox pass] Your beat opens here: at most 3 X replies and 2 mail replies (bin/teeny do reply_x / reply_mail), "
+             "and each top one you will not answer marked (hands/x mark ID --status skipped --note why), before your own work."]
     if x_total:
         lines.append(f"X mentions waiting: {x_total}{'+' if x_more else ''} (hands/x mentions --status offered). Best first:")
         lines += [f"- x {m['id']} @{m.get('author_username') or '?'}: {_line(str(m.get('text') or ''))}" for m in x_top]
@@ -101,11 +102,21 @@ def _reconcile_mail(conn: Any) -> None:
 
 
 def _offered(conn: Any) -> list[Mapping[str, Any]]:
-    """The offered mentions not yet answered, newest first."""
+    """The offered mentions not yet answered and X will take a reply to
+    (`mentions.replyable`), newest first."""
+    from teeny_hands.x import mentions
+
     rows = conn.execute(
-        f"SELECT m.id, m.author_username, m.text FROM x_mentions m WHERE m.status = 'offered' AND NOT {ANSWERED}"
-        " ORDER BY CAST(m.id AS INTEGER) DESC LIMIT ?", (X_SCAN,)).fetchall()
-    return [{k: r[k] for k in r.keys() if r[k] is not None} for r in rows]
+        f"SELECT m.id, m.author_username, m.text, m.conversation_id, m.post FROM x_mentions m WHERE m.status = 'offered' AND NOT {ANSWERED}"
+        " ORDER BY CAST(m.id AS INTEGER) DESC").fetchall()
+    out = []
+    for r in rows:
+        if not mentions.replyable(conn, r["text"], r["conversation_id"], r["id"], r["post"]):
+            continue
+        out.append({k: r[k] for k in ("id", "author_username", "text") if r[k] is not None})
+        if len(out) >= X_SCAN:
+            break
+    return out
 
 
 def _mail(conn: Any) -> list[Mapping[str, Any]]:

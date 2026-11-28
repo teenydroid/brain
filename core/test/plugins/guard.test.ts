@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { countMarks } from "../../plugins/teeny-guardrails/exec.js";
 import { describe, expect, it } from "vitest";
 import { blocked, link, makeFixture, rewritten } from "./fixture.js";
 
@@ -209,6 +211,46 @@ describe("the per-run reply caps (the mind's inbox pass)", () => {
     expect(blocked(await x(f, "beat-2"))).toBeUndefined();
     // the worker's own run has its own count
     expect(blocked(await x(f, "beat-1", "worker"))).toBeUndefined();
+  });
+
+  describe("the inbox-pass record", () => {
+    const lines = (f: ReturnType<typeof makeFixture>) => {
+      const file = join(f.paths.stateDir, "mind", "inbox-pass.jsonl");
+      return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+    };
+    const end = (f: ReturnType<typeof makeFixture>, runId: string, agent = "mind") => f.guard.runEnded({ runId, success: true }, { agentId: agent, sessionKey: `agent:${agent}:t`, runId });
+
+    it("flags a wake that was given the block and neither replied nor marked", async () => {
+      const f = makeFixture();
+      f.guard.blockGiven({ agentId: "mind", sessionKey: "agent:mind:t", runId: "w1" });
+      await f.call("mind", "exec", { command: "hands/x mentions --status offered" }, { runId: "w1" });
+      end(f, "w1");
+      expect(lines(f)).toMatchObject([{ agent: "mind", run: "w1", block: true, replies: { x: 0, mail: 0 }, marks: 0, owed: true }]);
+    });
+
+    it("a reply, or a mark of a mention or mail as not worth answering, pays the pass", async () => {
+      const f = makeFixture();
+      for (const [run, command] of [["a", "bin/teeny do '{\"do\": \"reply_x\", \"to\": \"1\", \"text\": \"hi\"}'"], ["b", "hands/x mark 5 --status skipped --note 'a bare link'"], ["c", "hands/stimuli close"], ["d", "hands/x reply --to 1"]] as const) {
+        f.guard.blockGiven({ agentId: "mind", sessionKey: "agent:mind:t", runId: run });
+        await f.call("mind", "exec", { command }, { runId: run });
+        end(f, run);
+      }
+      expect(lines(f).map((l) => [l.run, l.owed])).toEqual([["a", false], ["b", false], ["c", false], ["d", false]]);
+      expect(lines(f)[0]).toMatchObject({ replies: { x: 1, mail: 0 }, marks: 0 });
+      expect(lines(f)[1]).toMatchObject({ replies: { x: 0, mail: 0 }, marks: 1 });
+    });
+
+    it("a run that was given no block owes nothing", async () => {
+      const f = makeFixture();
+      end(f, "quiet");
+      expect(lines(f)).toMatchObject([{ run: "quiet", block: false, owed: false }]);
+    });
+
+    it("counts only the marking hands: hands/x mentions and a mark of something else are not marks", () => {
+      expect(countMarks("hands/x mentions --status offered")).toBe(0);
+      expect(countMarks("hands/x mark 5 --status skipped && hands/stimuli close")).toBe(2);
+      expect(countMarks("echo hands/x mark")).toBe(0);
+    });
   });
 
   it("refuses the 3rd mail reply, counts the broker's reply_x and the timeout wrapper, and the channels are separate", async () => {

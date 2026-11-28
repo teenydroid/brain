@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import plugin from "../../plugins/teeny-guardrails/index.js";
@@ -13,7 +13,7 @@ function register(config: unknown, registrationMode = "full") {
   const api = {
     pluginConfig: config,
     registrationMode,
-    logger: { error: (m: string) => logs.push(m), warn: (m: string) => logs.push(m), info: () => undefined, debug: () => undefined },
+    logger: { error: (m: string) => logs.push(m), warn: (m: string) => logs.push(m), info: (m: string) => logs.push(m), debug: () => undefined },
     on: (name: string, handler: Handler, opts?: Record<string, unknown>) => hooks.set(name, { handler, opts }),
   };
   (plugin as unknown as { register: (api: unknown) => void }).register(api);
@@ -21,6 +21,20 @@ function register(config: unknown, registrationMode = "full") {
 }
 
 describe("the plugin", () => {
+  it("puts the inbox-pass block in front of the mind's cron run, logs it, and leaves other agents alone", async () => {
+    const f = makeFixture();
+    const queue = join(f.root, "bin", "reply-queue");
+    mkdirSync(join(f.root, "bin"), { recursive: true });
+    writeFileSync(queue, "#!/bin/sh\necho '[inbox pass] Your beat opens here: X mentions waiting: 2'\n", { mode: 0o755 });
+    const policy = { ...JSON.parse(JSON.stringify(f.policy)), wakeContext: { agents: ["mind"], argv: [queue], cwd: f.root, maxChars: 1500, timeoutMs: 8000 } };
+    const { hooks, logs } = register({ policy });
+    const build = hooks.get("before_prompt_build")!.handler;
+    const cron = { agentId: "mind", trigger: "cron", sessionKey: "agent:mind:cron:teeny.mind" };
+    expect(await build({ prompt: "You are awake." }, cron)).toEqual({ prependContext: "[inbox pass] Your beat opens here: X mentions waiting: 2" });
+    expect(logs.join("\n")).toContain("inbox pass injected for mind");
+    expect(await build({ prompt: "p" }, { agentId: "worker", trigger: "cron" })).toBeUndefined();
+  });
+
   it("registers before_tool_call at the highest priority, and the hooks it documents", () => {
     const f = makeFixture();
     const { hooks } = register({ policy: JSON.parse(JSON.stringify(f.policy)) });

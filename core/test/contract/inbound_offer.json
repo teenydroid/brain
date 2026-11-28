@@ -3,8 +3,8 @@
   "call_sites": [
     "hands/lib/teeny_hands/mail/inbox.py:14",
     "hands/lib/teeny_hands/mail/inbox.py:89",
-    "hands/lib/teeny_hands/x/mentions.py:114",
-    "hands/lib/teeny_hands/x/mentions.py:20"
+    "hands/lib/teeny_hands/x/mentions.py:165",
+    "hands/lib/teeny_hands/x/mentions.py:21"
   ],
   "params": {
     "fields": {

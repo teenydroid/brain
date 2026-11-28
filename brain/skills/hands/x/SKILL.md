@@ -57,7 +57,7 @@ Run it from the repository root with your shell (exec) tool: `hands/x <verb> [fl
 
 Kinds: R = read: no side effect beyond its read cache; A = acting: posts, sends, pays or opens something in the world; O = operator-only: the operator runs it, never you; J = job: writes state or calls the core, says nothing to anyone; scheduled jobs run it, you do not.
 
-Verbs named in the hand's source: `follow-up`, `get`, `ingest`, `like`, `links`, `mark`, `mentions`, `metrics`, `peer-suggest`, `peers`, `post`, `post-thread`, `quoted`, `reply`, `report`, `requests`, `search`, `slot`, `subscribe`, `suggestions`, `thread`, `trending`, `twitr-accounts`, `twitr-connect`, `unsay`, `upload`, `user`, `users`, `whoami`.
+Verbs named in the hand's source: `follow-up`, `get`, `ingest`, `like`, `links`, `mark`, `mentions`, `metrics`, `peer-suggest`, `peers`, `post`, `post-thread`, `quoted`, `reply`, `report`, `requests`, `search`, `skip-unreplyable`, `slot`, `subscribe`, `suggestions`, `thread`, `trending`, `twitr-accounts`, `twitr-connect`, `unsay`, `upload`, `user`, `users`, `whoami`.
 
 Flags named in the hand's source: `--alt`, `--confirm`, `--days`, `--file`, `--ids`, `--limit`, `--max`, `--max-age-hours`, `--no-offer`, `--note`, `--per-peer`, `--per-story`, `--poll`, `--quote`, `--reuse-hours`, `--skip-quoted`, `--status`, `--stories`, `--to`, `--webhook-id`.
 

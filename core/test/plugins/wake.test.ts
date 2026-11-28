@@ -21,6 +21,18 @@ describe("the inbox-pass block put in front of the mind's turn", () => {
     expect(await wakeContext(undefined, "mind", run)).toBeUndefined();
   });
 
+  it("logs one line per run of the mind: injected, empty, or failed", async () => {
+    const lines: string[] = [];
+    await wakeContext(policy, "mind", async () => "block", (l) => lines.push(l));
+    await wakeContext(policy, "mind", async () => "", (l) => lines.push(l));
+    await wakeContext(policy, "mind", async () => { throw new Error("boom"); }, (l) => lines.push(l));
+    await wakeContext(policy, "worker", async () => "block", (l) => lines.push(l));
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/injected for mind \(5 chars\)/);
+    expect(lines[1]).toMatch(/empty/);
+    expect(lines[2]).toMatch(/failed.*boom/);
+  });
+
   it("fails open: a command that fails or prints nothing adds nothing", async () => {
     expect(await wakeContext(policy, "mind", async () => { throw new Error("boom"); })).toBeUndefined();
     expect(await wakeContext(policy, "mind", async () => "  \n")).toBeUndefined();

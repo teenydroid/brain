@@ -63,7 +63,7 @@ class Scratch(unittest.TestCase):
         hand._ENV_CACHE = None
         self.tmp.cleanup()
 
-    def mention(self, i, status="offered", text="what is the plan this week?"):
+    def mention(self, i, status="offered", text="@teenydroid what is the plan this week?"):
         from teeny_hands.x import mentions
         conn = mentions._db()
         conn.execute("INSERT INTO x_mentions (id, author_id, author_username, text, post, status, seen_at, updated_at)"
@@ -96,6 +96,24 @@ class Backlogs(Scratch):
         text = reply_pass.build()
         self.assertIn("Mail waiting: 1", text)
         self.assertIn("- mail m1 ", text)
+
+
+class OnlyAnswerable(Scratch):
+    def test_the_candidates_are_only_mentions_x_will_take_a_reply_to(self):
+        self.mention(5, text="@teenydroid a real question for you?")
+        self.mention(6, text="@friend @other what do you think? (never tagged the account)")
+        self.mention(7, text="@teenydroid gm")
+        text = reply_pass.build()
+        self.assertIn("X mentions waiting: 2", text)
+        self.assertIn("- x 5 ", text)
+        self.assertIn("- x 7 ", text)
+        self.assertNotIn("- x 6 ", text)
+
+    def test_the_block_is_empty_when_the_drain_is_switched_off(self):
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
+        hand._ENV_CACHE = None
+        self.mention(5)
+        self.assertEqual(reply_pass.build(), "")
 
 
 class TickLeavesTheDrain(unittest.TestCase):

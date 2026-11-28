@@ -446,6 +446,30 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   return { ok: true, command: out, cwd, acting, actingLast: pipeline && lastActing > 0 && acting === 1 };
 }
 
+/**
+ * How many mentions or mail one exec command marks as not worth an answer: `hands/x mark` and
+ * `hands/stimuli close`. With replies, what counts as the mind having worked its inbox pass.
+ */
+export function countMarks(command: string): number {
+  const parsed = parseCommand(command);
+  if (!parsed.ok) return 0;
+  let n = 0;
+  for (const seg of parsed.segments) {
+    let words = seg.words;
+    while (words[0] && words[0].text === "timeout") {
+      let k = 1;
+      while (k < words.length && isFlag(words[k] as Word)) k++;
+      words = words.slice(k + 1);
+    }
+    const prog = words[0]?.text ?? "";
+    const m = /(^|\/)hands\/(x|stimuli)$/.exec(prog.includes("/") ? normalize(prog) : prog);
+    if (!m) continue;
+    const verb = words.slice(1).find((a) => !isFlag(a))?.text;
+    if ((m[2] === "x" && verb === "mark") || (m[2] === "stimuli" && verb === "close")) n++;
+  }
+  return n;
+}
+
 export type ReplyCounts = { x: number; mail: number };
 const REPLY_DO: Record<string, keyof ReplyCounts> = { reply_x: "x", reply_mail: "mail" };
 

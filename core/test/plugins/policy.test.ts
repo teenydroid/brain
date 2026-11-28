@@ -134,12 +134,12 @@ describe("the policy generated from brain/agents/*.toml", () => {
 describe("the Gateway config that carries it", () => {
   const base = { port: 1, modelUrl: undefined, model: undefined, models: [], compactionTriggerTokens: 1, keepRecentTokens: 1, agentTimeoutSecs: 1, defaultWorkspace: "/w", agents: {} };
 
-  it("loads the plugin by path with its policy, and asks for no conversation access: recall is the memory plugin's", () => {
+  it("loads the plugin by path with its policy, and the hook flag the Gateway needs for the wake block and a run's record: recall is the memory plugin's", () => {
     const cfg = buildGatewayConfig({ ...base, guardrailsPath: "/x/teeny-guardrails", guardrailsPolicy: { root: "/r" } }) as { plugins: Record<string, unknown> };
     expect(cfg.plugins.load).toEqual({ paths: ["/x/teeny-guardrails"] });
     expect(cfg.plugins.entries).toEqual({
       "memory-core": { enabled: false, config: { dreaming: { enabled: false } } },
-      "teeny-guardrails": { enabled: true, config: { policy: { root: "/r" } } },
+      "teeny-guardrails": { enabled: true, hooks: { allowConversationAccess: true }, config: { policy: { root: "/r" } } },
     });
     expect(cfg.plugins.allow).toEqual(["browser", "teeny-guardrails"]);
   });
