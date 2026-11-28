@@ -78,6 +78,11 @@ describe("the prompt cache key", () => {
 });
 
 describe("billing a Surplus answer", () => {
+  it("falls back to OpenRouter's rate when the serving provider's row has none", () => {
+    const book = readPriceBook({ models: [{ model: "m", providers: [{ provider: "mistral", pricing: {} }, { provider: "openrouter", pricing: { input: 1, output: 2 } }] }] });
+    expect(listCostMicro(book, { model: "m", status: 200, startMs: 0, endMs: 1, provider: "mistral", promptTokens: 10, outputTokens: 5 })).toBe(20);
+  });
+
   it("adds Surplus's charge as OpenClaw's provider-billed usage.cost, in USD", () => {
     expect(billUsage(SURPLUS_USAGE)).toEqual({ ...SURPLUS_USAGE, cost: 0.000232 });
     expect(billUsage({ prompt_tokens: 1 })).toEqual({ prompt_tokens: 1 }); // no charge reported: nothing invented
@@ -224,6 +229,29 @@ describe("the meter between the Gateway and the endpoint", () => {
     expect(upstreamClosed).toBe(true);
   });
 
+  it("settles a billed call whose stream breaks off, as a failure", async () => {
+    const { meter, spans } = await rig((_req, _sent, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream", "x-si-buyer-cost-micro": "232" });
+      res.write('data: {"choices":[{"delta":{"content":"o"}}]}\n\n');
+      setTimeout(() => res.destroy(), 20);
+    });
+    await post(`${meter.url}/chat/completions`, { model: "glm-5.3-flash", stream: true, messages: [{ role: "user", content: "hi" }] }).catch(() => undefined);
+    await until(() => spans.length > 0);
+    const attrs = JSON.stringify(firstSpan(spans[0]).attributes);
+    expect(attrs).toContain("cost_details");
+    expect(attrs).toContain("ERROR");
+  });
+
+  it("waits for a finished call's bill when it closes", async () => {
+    const { meter, spans } = await rig((_req, _sent, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ model: "glm-5.3-flash", usage: SURPLUS_USAGE }));
+    });
+    await post(`${meter.url}/chat/completions`, { model: "glm-5.3-flash", messages: [{ role: "user", content: "hi" }] });
+    await meter.close();
+    expect(spans).toHaveLength(1);
+  });
+
   it("sends the bill without a list cost when the price lookup stalls", async () => {
     const upstream = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -289,6 +317,24 @@ describe("exporting a charge to the collector", () => {
     await expect(exportSpan(c.url, { resourceSpans: [] }, 1)).rejects.toThrow("500");
     expect(c.hits()).toBe(3);
   });
+
+  it("reports a partial rejection in a 200 answer, without retrying it", async () => {
+    const server = createServer(async (req, res) => {
+      await body(req);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end('{"partialSuccess":{"rejectedSpans":"1","errorMessage":"no"}}');
+    });
+    servers.push(server);
+    const url = `http://127.0.0.1:${await listen(server)}`;
+    await expect(exportSpan(url, { resourceSpans: [] }, 1)).rejects.toThrow("rejected 1");
+  });
+
+  it("gives up on a collector that accepts the connection and never answers", async () => {
+    const server = createServer(() => undefined);
+    servers.push(server);
+    const url = `http://127.0.0.1:${await listen(server)}`;
+    await expect(exportSpan(url, { resourceSpans: [] }, 1, 50)).rejects.toThrow();
+  }, 20000);
 
   it("does not retry a request the collector will never accept", async () => {
     const c = await collectorAnswering([400]);

@@ -238,12 +238,14 @@ function forwardHeaders(h: IncomingHttpHeaders): Record<string, string | string[
   return out;
 }
 
-/** One outgoing request. `signal` cancels it (and its response) when the Gateway's own connection goes; `timeoutMs` bounds the wait for headers. */
+/** One outgoing request. `signal` cancels it (and its response) when the Gateway's own connection goes; `timeoutMs` is the whole request's deadline. */
 function send(url: URL, method: string, headers: Record<string, string | string[]>, body?: Buffer, signal?: AbortSignal, timeoutMs?: number): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method, headers, ...(signal ? { signal } : {}) }, resolve);
+    // An absolute deadline (not a socket-idle one): it also covers a connect that never completes, and it destroys the
+    // request and its response when it passes.
+    const signals = [...(signal ? [signal] : []), ...(timeoutMs ? [AbortSignal.timeout(timeoutMs)] : [])];
+    const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method, headers, ...(signals.length ? { signal: AbortSignal.any(signals) } : {}) }, resolve);
     req.on("error", reject);
-    if (timeoutMs) req.setTimeout(timeoutMs, () => req.destroy(new Error(`no answer from ${url.host} in ${timeoutMs}ms`)));
     req.end(body);
   });
 }
@@ -282,25 +284,38 @@ export function readPriceBook(doc: unknown): PriceBook {
 export function listCostMicro(book: PriceBook | undefined, c: Charge): number | undefined {
   const rates = book?.[c.model];
   if (!rates) return undefined;
-  const rate = (c.provider && rates[c.provider]) || rates.openrouter;
-  if (!rate || typeof rate.input !== "number" || typeof rate.output !== "number" || c.promptTokens === undefined) return undefined;
+  // A provider row with no usable rates is no row: fall back to OpenRouter's, as for a provider with none.
+  const usable = (r: PriceBook[string][string] | undefined): r is PriceBook[string][string] & { input: number; output: number } => typeof r?.input === "number" && typeof r.output === "number";
+  const rate = [c.provider ? rates[c.provider] : undefined, rates.openrouter].find(usable);
+  if (!rate || c.promptTokens === undefined) return undefined;
   const cached = Math.min(c.cachedTokens ?? 0, c.promptTokens);
   const usd = (c.promptTokens - cached) * rate.input + cached * (rate.cacheRead ?? rate.input) + (c.outputTokens ?? 0) * rate.output;
   return Math.round(usd);
 }
 
 /** Sends one span to the collector; a 4xx/5xx or a refused connection is retried a few times, then thrown. */
-export async function exportSpan(otlpUrl: string, span: Record<string, unknown>, backoffMs = 500): Promise<void> {
+export async function exportSpan(otlpUrl: string, span: Record<string, unknown>, backoffMs = 500, timeoutMs = 5000): Promise<void> {
   const url = new URL(`${otlpUrl.replace(/\/+$/, "")}/v1/traces`);
   const payload = Buffer.from(JSON.stringify(span));
   let failure = "";
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, backoffMs * 2 ** (attempt - 1)));
     try {
-      const res = await send(url, "POST", { "content-type": "application/json" }, payload, undefined, 5000);
-      res.resume();
+      const res = await send(url, "POST", { "content-type": "application/json" }, payload, undefined, timeoutMs);
       const status = res.statusCode ?? 0;
-      if (status >= 200 && status < 300) return;
+      const answer = (await readAll(res)).toString("utf8");
+      if (status >= 200 && status < 300) {
+        // OTLP answers a partly rejected export with 200 and says so in the body; retrying it would not help.
+        let rejected = 0;
+        try {
+          rejected = Number((JSON.parse(answer) as { partialSuccess?: { rejectedSpans?: unknown } }).partialSuccess?.rejectedSpans ?? 0);
+        } catch {
+          // an empty or non-JSON success body is a success
+        }
+        if (rejected === 0) return;
+        failure = `the collector rejected ${rejected} span(s)`;
+        break;
+      }
       failure = `the collector answered ${status}`;
       // A request the collector will never accept is not worth retrying.
       if (status >= 400 && status < 500 && status !== 429 && status !== 408) break;
@@ -340,6 +355,13 @@ export async function startMeter(opts: MeterOptions): Promise<{ url: string; por
       book = { until: Date.now() + (got.ok ? 3_600_000 : 60_000), book: got.b };
     }
     return book.book;
+  };
+  // Charges still being priced or sent; close() waits (a little) for them so a stop does not lose a finished call's bill.
+  const pending = new Set<Promise<void>>();
+  const settleSoon = (c: Charge): void => {
+    const p = settle(c).catch(() => undefined);
+    pending.add(p);
+    void p.finally(() => pending.delete(p));
   };
   const settle = async (c: Charge): Promise<void> => {
     if (opts.otlpUrl) {
@@ -414,8 +436,15 @@ export async function startMeter(opts: MeterOptions): Promise<{ url: string; por
         return;
       }
       charge.endMs = Date.now();
-      void settle(charge).catch(() => undefined);
+      settleSoon(charge);
     } catch (e) {
+      // A chat call that broke off (the stream reset, or the Gateway hung up) may already carry what Surplus billed
+      // (its x-si-buyer-cost-micro header): settle it once, as a failure, so the charge is not lost.
+      if (isChat && charge.buyerCostMicro !== undefined) {
+        charge.status = gone.signal.aborted ? 499 : 502;
+        charge.endMs = Date.now();
+        settleSoon(charge);
+      }
       // Cancelled by the Gateway's own hang-up: nothing left to answer.
       if (!gone.signal.aborted) throw e;
       res.destroy();
@@ -435,11 +464,16 @@ export async function startMeter(opts: MeterOptions): Promise<{ url: string; por
   return {
     url: `http://127.0.0.1:${port}/v1`,
     port,
-    close: () =>
-      new Promise((r) => {
+    close: async () => {
+      await new Promise<void>((r) => {
         server.closeAllConnections();
         server.close(() => r());
-      }),
+      });
+      // Bills of calls that just finished: wait for them, but not past what a collector outage would cost.
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([Promise.allSettled([...pending]), new Promise((r) => (timer = setTimeout(r, 5000)))]);
+      clearTimeout(timer);
+    },
   };
 }
 

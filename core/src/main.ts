@@ -430,15 +430,22 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
     }
   }
   const server = createHttpServer({ registry: buildRegistry(), token, ctx });
-  server.listen(port, host);
-  await once(server, "listening");
-  const bound = (server.address() as AddressInfo).port;
-  servingSince = Date.now();
-  if (supervisor) await supervisor.start();
-  // With no Gateway (a test core) there is nothing to check cron against, and asking the CLI would
-  // wait out the Gateway-unreachable retry window before the core serves anything.
-  if (!opts.noGateway) await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
-  log("info", "serving", { host, port: bound });
+  let bound = 0;
+  try {
+    server.listen(port, host);
+    await once(server, "listening");
+    bound = (server.address() as AddressInfo).port;
+    servingSince = Date.now();
+    if (supervisor) await supervisor.start();
+    // With no Gateway (a test core) there is nothing to check cron against, and asking the CLI would
+    // wait out the Gateway-unreachable retry window before the core serves anything.
+    if (!opts.noGateway) await cron.start().catch((e: unknown) => log("error", "cron could not start", { error: e instanceof Error ? e.message : String(e) }));
+    log("info", "serving", { host, port: bound });
+  } catch (e) {
+    // A start that fails after the meter listens must not leave it holding its port (an in-process caller can retry).
+    await closeMeter?.().catch(() => undefined);
+    throw e;
+  }
 
   return {
     host,
