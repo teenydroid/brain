@@ -1493,13 +1493,14 @@ both.
     only writes `x_mentions` in `state/hands.db`, unscreened: it has its own
     network namespace, so the core (and the safety judge) is out of its
     reach, and the spine's `hands/x ingest` screens what it queued.
-  - `web`: nginx answering teeny.enamakel.com with a 301 to the site on
-    GitHub Pages (`deploy/web-redirect.conf`). The site itself (`web/`) is a
+  - `web`: nginx answering teeny.enamakel.com's bare root with a 301 to the
+    site on GitHub Pages, and any other path with a 404
+    (`deploy/web-redirect.conf`). The site itself (`web/`) is a
     static export that `teenydroid/teenydroid.github.io` builds from this
     repository and publishes (its own `build.yml`, every fifteen minutes).
-  - `tunnel`: the Cloudflare Tunnel for teeny.enamakel.com
-    (`deploy/cloudflared/config.yml`), on the `edge` network with `xhook`
-    and `web` alone.
+  - `tunnel`: the Cloudflare Tunnel for X's webhook on Teeny's own
+    Cloudflare account (`deploy/cloudflared/config.yml`), on the `edge`
+    network with `xhook` alone, behind the `tunnel` profile.
   - `reel`: clips with voice and captions, and songs, for `hands/reel`:
     MoneyPrinterTurbo (`vendor/moneyprinter`, the upstream repository at a
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
@@ -1520,9 +1521,10 @@ both.
     `memegen` compose profile; posts nothing. `bin/doctor` names it when
     `STUDIO_FORMATS` has `meme` (`--live` asks it for its templates; a
     warning, never a failure).
-- The Cloudflare Tunnel serves `teeny.enamakel.com`: `/api/webhooks/x`
-  goes to the webhook, everything else to the redirect. Nothing takes a
-  public port.
+- The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
+  `teeny.enamakel.com`, kept for backwards compatibility: `/api/webhooks/x`
+  goes to the webhook, everything else to `web`. The tunnel carries only
+  `/api/webhooks/x` on its own name.
 - **The receipts.** `teenydroid/diary` is a hash-chained, append-only
   ledger of Teeny's actions at `receipts/YYYY/MM/YYYY-MM-DD.jsonl`, with the
   head in `head.json`. Each line holds checkable references (X post ids,

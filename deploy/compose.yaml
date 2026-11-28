@@ -141,9 +141,10 @@ services:
       - cortexdb-data:/data
 
   # X's webhook (bin/x-webhook): mentions, replies and quotes pushed by X as
-  # they happen, so nothing is searched or billed per post. The tunnel routes
-  # https://teeny.enamakel.com/api/webhooks/x to xhook:3110 over `edge`, its
-  # only network: cortexdb and the spine are not on it.
+  # they happen, so nothing is searched or billed per post. The host vhost
+  # routes https://teeny.enamakel.com/api/webhooks/x to 127.0.0.1:3110, and
+  # the Cloudflare Tunnel routes the same path on its own name to xhook:3110
+  # over `edge`, its only network: cortexdb and the spine are not on it.
   # Same image and checkout as the spine; it only writes x_mentions in
   # state/hands.db. It screens nothing: it has its own network namespace, so
   # the core on 127.0.0.1:7788 (and with it the safety judge) is out of its
@@ -387,16 +388,14 @@ services:
     volumes:
       - ingest-storage:/data
 
-  # teeny.enamakel.com's old landing page, now a 301 to the same path on
-  # https://teenydroid.github.io, where the site lives (web/, built and
-  # published by teenydroid/teenydroid.github.io's build.yml). nginx with one config file
-  # (web-redirect.conf). The tunnel sends it everything on that name but X's
-  # webhook. It keeps 127.0.0.1:3120 so the host's old vhost redirects too
-  # until the name's DNS points at the tunnel.
+  # teeny.enamakel.com's old landing page (nginx/teeny.enamakel.com.conf
+  # proxies everything but X's webhook to 127.0.0.1:3120). The site lives at
+  # https://teenydroid.github.io now, built and published by
+  # teenydroid/teenydroid.github.io; this answers the bare root with a 301
+  # there and any other path with a 404 (web-redirect.conf).
   web:
     image: nginx:1.30.8-alpine
     restart: unless-stopped
-    networks: [edge]
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"
     volumes:
@@ -407,18 +406,21 @@ services:
       timeout: 5s
       retries: 3
 
-  # The Cloudflare Tunnel for teeny.enamakel.com (cloudflared/config.yml): X's
-  # webhook to xhook, everything else to web. It dials out, so no public port
-  # is opened, and it shares the `edge` network with those two alone: nothing
-  # else in the stack is reachable from it. The tunnel's credentials are
-  # secrets/cloudflared/creds.json (deploy/README.md, "The tunnel").
+  # The Cloudflare Tunnel for X's webhook, on Teeny's own Cloudflare account
+  # (cloudflared/config.yml): https://<its name>/api/webhooks/x to xhook,
+  # everything else 404. It dials out, so no public port is opened, and it
+  # shares the `edge` network with xhook alone: nothing else in the stack is
+  # reachable from it. Behind the `tunnel` profile until
+  # secrets/cloudflared/creds.json exists (deploy/README.md, "The tunnel");
+  # name it: `--profile tunnel up -d tunnel`.
   tunnel:
+    profiles: [tunnel]
     image: cloudflare/cloudflared:2026.11.2
     restart: unless-stopped
     user: "${TEENY_UID:-1000}:${TEENY_GID:-1000}"
     command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
     networks: [edge]
-    depends_on: [xhook, web]
+    depends_on: [xhook]
     volumes:
       - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       - ../secrets/cloudflared/creds.json:/etc/cloudflared/creds.json:ro
@@ -584,7 +586,7 @@ services:
     mem_limit: 512m
 
 networks:
-  # What the Cloudflare Tunnel reaches: tunnel, xhook and web, nothing else.
+  # What the Cloudflare Tunnel reaches: tunnel and xhook, nothing else.
   edge:
   # Only the ingest service and cortexdb (so the spine) are on it.
   ingest-net:
