@@ -45,6 +45,7 @@ case "$1" in
     ;;
   mark) echo '{"ok": true}' ;;
   ingest) echo '{"ok": true, "read": 0}'; exit "${FAKE_INGEST_EXIT:-0}" ;;
+  skip-unreplyable) echo '{"ok": true, "skipped": 0}' ;;
   requests) echo '{"ok": true, "noted": 0}' ;;
   *) echo '{"ok": false}'; exit 1 ;;
 esac
@@ -147,7 +148,8 @@ reset
 jq -cn '{results: []}' >"$FAKE_RESULTS"
 "$mentions_bin" >/dev/null 2>"$scratch/stderr"
 check "mentions: ingests first" test "$(sed -n 1p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x ingest"
-check "mentions: then scans the stored mentions for build requests" test "$(sed -n 2p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x requests"
+check "mentions: then skips the offered ones X would refuse a reply to" test "$(sed -n 2p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x skip-unreplyable"
+check "mentions: then scans the stored mentions for build requests" test "$(sed -n 3p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x requests"
 check "mentions: then asks the core for its drafts" grep -q '^inbound_results ' "$FAKE_CALLS"
 reset
 jq -cn '{results: []}' >"$FAKE_RESULTS"
