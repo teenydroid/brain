@@ -90,6 +90,15 @@ Every request is POST with a JSON object body of at most MAX_BODY bytes:
               comment passes the guard. Never merges, never reopens
 - /reviews    `{"pr": N}`: the review threads, verdicts and conversation of
               a pull request of Teeny's own, as data. Reads only
+- /diary      `{}`: teeny_hands.build.diaryclone.prepare, a checkout of
+              the diary's main (teenydroid/diary) at state/home/diary/,
+              left alone while it holds edits
+- /diary-commit `{"message"}`: the mind's edits under mind/ in that copy
+              as one commit on the diary's main (diaryclone.commit: mind/
+              only, plain UTF-8 files, 20 files and 2,000 lines, the secret
+              scan, the guard, the receipts' lock, git's lease), within
+              MIND_DIARY_COMMITS_PER_DAY (0, the default, is off; at most
+              24), counted in state/broker/diary-commits.json once pushed
 - /gh         `{"verb", "args"?}`: one verb of hands/gh, which holds the
               token, the guard, the owner rule, the secret scan, DISCLOSURE,
               the AI-policy check and the caps on other people's projects
@@ -130,7 +139,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
-from teeny_hands.build import mindclone  # noqa: E402
+from teeny_hands.build import diaryclone, mindclone  # noqa: E402
 
 import cron_policy  # noqa: E402
 import mind_home  # noqa: E402
@@ -841,6 +850,65 @@ def close_pr(body: Json, entry: Json) -> Json:
     return {"status": "ok", **_clone_call(lambda: mindclone.close(body["pr"], body.get("comment")))}
 
 
+# --- the mind's copy of its diary: state/home/diary/, its mind/ folder pushed ---------
+#
+# teeny_hands.build.diaryclone holds every rule of the commit (mind/ only,
+# plain text files, the size, the secret scan, the guard, the receipts' lock
+# and git's lease); the broker adds the day's count.
+
+#: The most MIND_DIARY_COMMITS_PER_DAY may be set to.
+MAX_DIARY_COMMITS = 24
+
+
+def _diary_path() -> Path:
+    return hand.state_dir() / "broker" / "diary-commits.json"
+
+
+def _diary_today() -> Json:
+    """The diary commits pushed today (UTC), in the broker's own state."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_diary_path().read_text())
+    except (OSError, ValueError):
+        saved = None
+    if isinstance(saved, dict) and saved.get("day") == day and isinstance(saved.get("count"), int):
+        return saved
+    return {"day": day, "count": 0}
+
+
+def _count_diary() -> None:
+    today = _diary_today()
+    today["count"] += 1
+    path = _diary_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _write(path, json.dumps(today) + "\n", 0o600)
+
+
+def diary(body: Json, entry: Json) -> Json:
+    """A fresh checkout of the diary at state/home/diary/, unless it holds edits."""
+    entry["verb"] = "diary"
+    entry["intent"] = _clipped(body)
+    _fields(body, (), (), "a copy of your diary is {}")
+    return {"status": "ok", **_clone_call(diaryclone.prepare)}
+
+
+def diary_commit(body: Json, entry: Json) -> Json:
+    """The mind's edits under mind/ in its diary copy, pushed as one commit,
+    within MIND_DIARY_COMMITS_PER_DAY, counted once pushed."""
+    entry["verb"] = "diary-commit"
+    entry["intent"] = _clipped(body)
+    _fields(body, ("message",), ("message",), 'a diary commit is {"message": "<one line>"}')
+    limit = hand.number("MIND_DIARY_COMMITS_PER_DAY", 0, 0, MAX_DIARY_COMMITS)
+    if limit == 0:
+        raise Refused("commits to your diary are off (MIND_DIARY_COMMITS_PER_DAY=0)")
+    if _diary_today()["count"] >= limit:
+        raise Refused(f"today's {limit} diary commit(s) are spent (MIND_DIARY_COMMITS_PER_DAY)")
+    out = _clone_call(lambda: diaryclone.commit(body.get("message")))
+    if not out.get("dry_run"):
+        _count_diary()
+    return {"status": "ok", **out}
+
+
 def reviews(body: Json, entry: Json) -> Json:
     """The review threads and verdicts of a pull request of the mind's own,
     as data (mindclone.reviews). Reads only, no cap."""
@@ -1326,6 +1394,8 @@ PATHS: dict[str, Callable[[Json, Json], Json]] = {
     "/pr": pr,
     "/repo": repo,
     "/close-pr": close_pr,
+    "/diary": diary,
+    "/diary-commit": diary_commit,
     "/reviews": reviews,
     "/gh": gh,
 }
