@@ -670,7 +670,7 @@ class PromptsTest(unittest.TestCase):
             source = tomllib.loads(toml.read_text()).get("system_prompt", {})
             if "file" in source:
                 pointed.append(source["file"]["path"].removesuffix(".md"))
-        built = set(prompts.SPEAKING + prompts.STUDIO + prompts.TOOLED)
+        built = set(prompts.SPEAKING + prompts.STUDIO + prompts.TOOLED + prompts.LEAN)
         self.assertIn("mind", pointed)
         self.assertEqual(sorted(set(pointed) - built), [])
 
