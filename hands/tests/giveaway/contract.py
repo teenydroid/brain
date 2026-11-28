@@ -168,10 +168,11 @@ def parse_round(text: str) -> dict:
     if head["status"] in ("settled", "clawed_back"):
         winner_count = _int(o, "winners", 0, 10_000)
         each = (pool_atomic - best_atomic) // winner_count if winner_count else 0
-        best_leaf = (best_atomic, each + best_atomic) if best_atomic else ()
+        drawn = set(draw_order[:winner_count])
         for c in claims:
             amount = int(c["amount_atomic"])
-            ok = amount == each if c["kind"] == "random" else amount in best_leaf
+            expected = each if c["kind"] == "random" else (each + best_atomic if c["handle"] in drawn else best_atomic)
+            ok = (c["kind"] == "random" or best_atomic > 0) and amount == expected
             if not ok:
                 raise DropsError(f"claims: {c['handle']}'s leaf is not its prize")
     t = _obj(o.get("txs") if o.get("txs") is not None else {}, "txs")

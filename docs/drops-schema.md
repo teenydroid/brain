@@ -88,7 +88,8 @@ of the wins was that.
 - Once the round is `settled` or `clawed_back`, each leaf is exactly its
   prize: a `random` leaf is `(pool - best_reply) // winners`, a `best_reply`
   leaf is the best-reply prize, and one address holding both gets their sum
-  (a `best_reply` leaf). The remainder of the division stays unclaimed, so
+  (a `best_reply` leaf); a handle among the first `winners` of `draw_order`
+  holds both. The remainder of the division stays unclaimed, so
   the sum check above stays as the backstop.
 - `proof` is the list of sibling hashes from leaf to root, as 64-hex strings.
 - Every leaf uses the Immediate vesting schedule, so the whole amount is

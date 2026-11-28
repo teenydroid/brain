@@ -308,10 +308,12 @@ export function parseRound(text: string): Round {
     // prize, one address holding both gets their sum. The remainder of the division stays unclaimed.
     const winnerCount = int(o, 'winners', 0, 10_000)
     const each = winnerCount > 0 ? (poolAtomic - bestAtomic) / BigInt(winnerCount) : 0n
-    const bestLeaf: bigint[] = bestAtomic > 0n ? [bestAtomic, each + bestAtomic] : []
+    // A handle among the first `winners` of draw_order also won a random prize, so its single leaf holds both.
+    const drawn = new Set(drawOrder.slice(0, winnerCount))
     for (const c of claims) {
       const amount = BigInt(c.amount_atomic)
-      const ok = c.kind === 'random' ? amount === each : bestLeaf.includes(amount)
+      const expected = c.kind === 'random' ? each : drawn.has(c.handle) ? each + bestAtomic : bestAtomic
+      const ok = (c.kind === 'random' || bestAtomic > 0n) && amount === expected
       if (!ok) throw new DropsError(`claims: ${c.handle}'s leaf is not its prize`)
     }
   }

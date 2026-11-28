@@ -287,6 +287,12 @@ describe("each leaf is its prize", () => {
   it("accepts one address holding both prizes as a single best_reply leaf", () => {
     const r = settled() as unknown as Leaves
     const alice = r.claims.find((c) => c.handle === "alice")!
-    expect(() => parse({ ...r, claims: [{ ...alice, index: 0, amount_atomic: "100000000000" }] })).not.toThrow()
+    const rest = (r as unknown as { draw_order: string[] }).draw_order.filter((h) => h !== "alice")
+    const drawn = ["alice", ...rest]
+    expect(() => parse({ ...r, draw_order: drawn, claims: [{ ...alice, index: 0, amount_atomic: "100000000000" }] })).not.toThrow()
+    // drawn too, but only the best prize in the leaf: the random prize is missing
+    expect(() => parse({ ...r, draw_order: drawn, claims: [{ ...alice, index: 0, amount_atomic: "40000000000" }] })).toThrow()
+    // not drawn, but the leaf holds the sum
+    expect(() => parse({ ...r, claims: [{ ...alice, index: 0, amount_atomic: "100000000000" }] })).toThrow()
   })
 })
