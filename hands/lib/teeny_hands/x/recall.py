@@ -99,7 +99,7 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple) -> list[sqlite3.Row
 WITHHELD = ("held", "unscreened", "pending")
 
 
-def _post(conn: sqlite3.Connection, post_id: str) -> tuple[str, str] | None:
+def _post(conn: sqlite3.Connection, post_id: str, cached: bool = True) -> tuple[str, str] | None:
     """(how to say whose it is, its text) for a post id the ledgers know."""
     own = _one(conn, "SELECT kind, text, created_at FROM x_posts WHERE id = ?", (post_id,))
     if own:
@@ -110,10 +110,10 @@ def _post(conn: sqlite3.Connection, post_id: str) -> tuple[str, str] | None:
         if seen["status"] in WITHHELD:  # the guard held it or has not screened it: no cache fallback either
             return None
         return f"@{seen['author_username']}", seen["text"]
-    cached = _one(conn, "SELECT value FROM x_cache WHERE key = ?", (f"post:{post_id}",))
-    if cached:
+    stored = _one(conn, "SELECT value FROM x_cache WHERE key = ?", (f"post:{post_id}",)) if cached else None
+    if stored:
         try:
-            post = json.loads(cached["value"])
+            post = json.loads(stored["value"])
         except (TypeError, ValueError):
             return None
         if isinstance(post, dict) and post.get("text"):
@@ -267,13 +267,14 @@ def thread(conversation_id: str) -> list[str]:
     started from when known, then every mention in it with the reply Teeny
     sent under each, so a turn answering one post in the thread sees what
     everyone else said there and what it already said back. Read from
-    x_mentions, x_posts and x_cache only, never X. What the guard held or has
+    x_mentions and x_posts only (x_cache holds unscreened reads), never X. What the guard held or has
     not screened is left out. [] when the ledgers know nothing of it."""
     conn = _connect()
     if conn is None:
         return []
     try:
-        root = _post(conn, conversation_id)
+        # A root only the cache knows was never screened: own posts and screened mentions only.
+        root = _post(conn, conversation_id, cached=False)
         rows = _rows(conn, "SELECT id, author_username, text, created_at, seen_at FROM x_mentions"
                            " WHERE conversation_id = ? AND id != ? AND status NOT IN ('held', 'unscreened', 'pending')",
                      (conversation_id, conversation_id))
@@ -288,6 +289,8 @@ def thread(conversation_id: str) -> list[str]:
     lines = ["## the thread on X (oldest first)"]
     if root is not None:
         lines.append(f'- it started from {root[0]}: "{_clip(root[1], THREAD_CLIP)}"')
+        if conversation_id in replies:
+            lines.append(f'  you ({_ago(replies[conversation_id]["created_at"])}): "{_clip(replies[conversation_id]["text"], THREAD_CLIP)}"')
     if len(rows) > len(shown):
         lines.append(f"- ({len(rows) - len(shown)} earlier posts in it not shown)")
     for r in shown:

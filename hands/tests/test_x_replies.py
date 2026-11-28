@@ -99,6 +99,20 @@ class ThreadBlock(Scratch):
         self.assertIn("fine question", text)
         self.assertNotIn("held root", text)
 
+    def test_a_cache_only_root_stays_out_and_my_reply_to_the_root_shows(self):
+        from teeny_hands.x import cache
+
+        self.conn.executescript(cache._SCHEMA)
+        self.conn.execute("INSERT INTO x_cache (key, kind, value, stored_at, expires_at) VALUES ('post:100', 'post', ?, ?, ?)",
+                          ('{"text": "an unscreened cached root", "authorUsername": "x"}', NOW, NOW + 999))
+        self.mention(101, "@teenydroid a fine question?")
+        self.assertNotIn("unscreened cached root", "\n".join(recall.thread("100")))
+        self.mention(100, "@teenydroid the screened root", who="rooter", conv="100", status="skipped")
+        self.own_reply(900, 100, "my answer to the root")
+        text = "\n".join(recall.thread("100"))
+        self.assertIn("screened root", text)
+        self.assertIn("my answer to the root", text)
+
     def test_a_post_is_kept_whole_for_the_turn(self):
         self.mention(101, "@teenydroid " + "word " * 80 + "actually it is Tricky")
         self.assertIn("actually it is Tricky", "\n".join(recall.thread("100")))

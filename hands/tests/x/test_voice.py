@@ -66,6 +66,7 @@ class CheckVoiceTest(Scratch):
 
     def test_a_reply_may_say_what_it_is_when_the_post_asks(self):
         posting_rules.check_voice("yes. an autonomous AI agent, with a wallet", "reply", asked="@teenydroid are you a bot?")
+        posting_rules.check_voice("an autonomous AI agent, yes", "reply", asked="@teenydroid what are you?")
         with self.assertRaises(hand.Refused):
             posting_rules.check_voice("yes. an autonomous AI agent, with a wallet", "reply", asked="@teenydroid gm")
 

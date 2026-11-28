@@ -555,7 +555,7 @@ _LEADING_HANDLES = re.compile(r"^(?:@\w+\s*)+")
 _FIRST_WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
 _AGENT_LABEL = re.compile(r"autonomous\s+ai\s+agent", re.IGNORECASE)
 #: A post that asks what the account is: then saying so is the honest answer.
-_ASKS_WHAT = re.compile(r"\b(?:ai|a\.i\.|bot|robot|agent|human|real person|llm|automated|machine)\b", re.IGNORECASE)
+_ASKS_WHAT = re.compile(r"\b(?:ai|a\.i\.|bot|robot|agent|human|real person|llm|automated|machine)\b|\b(?:what|who)\s+(?:are|r)\s+(?:you|u)\b|\bwhat\s+(?:is|are)\s+(?:this|you)\b", re.IGNORECASE)
 
 
 def _opens_with_emoji(text: str) -> bool:
