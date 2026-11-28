@@ -39,7 +39,7 @@ Only a person lands those changes. Why they're frozen is in
 | Who | Starts from | Can write | Notes |
 |---|---|---|---|
 | The core (`bin/spine`, `core/`) | the checkout root (`/srv/teeny` in the container, `~/teeny` on the box) | everything | Its OpenHuman workspace is `brain/` (`OPENHUMAN_WORKSPACE`); `state/openclaw/workspaces/<agent>/AGENTS.md` is each agent's system prompt, built from `brain/agents/<agent>.md`, so edit the source, never the built file |
-| My mind (`brain/agents/mind.toml`) | `state/home/` | `state/home/` only | `repo/` is my working copy of this repository, `notes/`, `skills/`, `library/` (the repo's `brain/skills/` and `SOUL.md`, copied in at each start), `work/` (shared with tools), `bin/teeny` (the broker's client). No keys |
+| My mind (`brain/agents/mind.toml`) | `state/home/` | `state/home/` only | `repo/` is my working copy of this repository, `diary/` my copy of the diary, `notes/`, `skills/`, `library/` (the repo's `brain/skills/` and `SOUL.md`, copied in at each start), `work/` (shared with tools), `bin/teeny` (the broker's client). No keys |
 | Its worker (`worker.toml`) | the mind's home | the same | Spawned by the mind only |
 | The babysitter (`babysitter.toml`) | `state/sitter/home/` | there only | Works my pull requests to merge |
 | A `home/tools/` tool (`bin/box`) | `state/box/tools/<name>/` | there and `state/home/work/` | See [home/README.md](home/README.md) |
@@ -58,7 +58,7 @@ fast-forward to `main`. Never commit there.
   - My mind edits `state/home/repo/` and calls `bin/teeny pr`; it never runs git there, because its git dir is outside the jail.
   - Once every check is green, the review threads are settled and the babysitter's agent says merge, a pull request of mine merges itself (`BABYSIT_SELF_MERGE_ALL`).
   - A frozen path, or a dependency change, waits for a person ([docs/mind.md](docs/mind.md), "How it changes itself").
-- **My diary** (`teenydroid/diary`): code writes it. That means receipts, stats, wallet, world, `memory/` and `days/` (`bin/receipts`). No agent commits there by hand.
+- **My diary** (`teenydroid/diary`): code writes almost all of it. That means receipts, stats, wallet, world, `memory/` and `days/` (`bin/receipts`), and `self/`, the notes, skills and agent pages I rewrite myself (`bin/lib/diary_self.py`, `DIARY_SELF`). The one exception is `mind/`: my mind writes it in `state/home/diary/` and pushes it with `teeny diary-commit`. No other agent commits there by hand.
 - **Rules for every change:**
   - Every bug fix ships with a regression test beside the existing ones.
   - Don't squash, and don't force-push `main`.
@@ -112,6 +112,8 @@ Each `teeny <verb>` is a route in `PATHS` (`bin/lib/broker.py`). `teeny help` pr
 | `teeny pr '{"branch", "title", "body"}'` or `'{"pr": N}'` | Turns my edits into a pull request from `teeny/mind-<branch>`, or adds one commit to my open pull request (`MIND_PRS_PER_DAY`, `MIND_PR_UPDATES_PER_PR`) |
 | `teeny reviews '{"pr": N}'` | The review threads and verdicts on my pull request |
 | `teeny close-pr '{"pr": N, "comment"?}'` | Closes my own pull request. It never merges |
+| `teeny diary` | A fresh copy of my diary (`teenydroid/diary`) at `diary/` |
+| `teeny diary-commit '{"message"}'` | Pushes my edits under `diary/mind/` as one commit (`MIND_DIARY_COMMITS_PER_DAY`) |
 | `teeny gh <verb> '<json>'` | GitHub through `hands/gh` (below) |
 | `teeny journal "<text>"`, `teeny note '{"file", "text"}'` | Appends to `notes/JOURNAL.md` or another notes file. This runs locally, with no broker call |
 
@@ -222,7 +224,7 @@ issue.
 | `stats` | Real numbers only, and the scoreboard | mind (`teeny pulse`); playbook (inputs) | [docs](docs/hands.md#stats-real-numbers-only) |
 | `world` | The world score W | scripts; playbook (inputs) | [docs](docs/hands.md#world-the-world-score-w) |
 | `requests` | What people asked me to build, and my own change briefs | mind and beat (`propose_change`); playbook (inputs) | [docs](docs/hands.md#requests-what-people-asked-teeny-to-build) |
-| `build` | My own clone (`state/home/repo/`) and the old build ledgers | mind (`teeny repo`, `teeny pr`, `teeny reviews`, `teeny close-pr`) | [docs](docs/hands.md#build-teenys-own-clone-and-the-old-build-ledgers) |
+| `build` | My own clone (`state/home/repo/`), my diary copy (`state/home/diary/`) and the old build ledgers | mind (`teeny repo`, `teeny pr`, `teeny reviews`, `teeny close-pr`, `teeny diary`, `teeny diary-commit`) | [docs](docs/hands.md#build-teenys-own-clone-and-the-old-build-ledgers) |
 | `tasks` | The browser operator's queue | mind and beat (`queue_task`, `queue_signup`); playbook (`add`); operator (its desk) | [docs](docs/hands.md#tasks-the-browser-operators-queue) |
 | `call` | The key proxy for `evals/services.toml` | mind (`teeny call`); tools (`$TEENY_CLI call`) | [docs](docs/hands.md#call-the-key-proxy) |
 | `hn` | Hacker News, read only | mind and beat (`watch_hn`); playbook (inputs) | [docs](docs/hands.md#hn-hacker-news-read-only) |
