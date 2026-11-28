@@ -190,10 +190,12 @@ class Scratch(unittest.TestCase):
         self.tmp.cleanup()
 
     def configure(self, **overrides: str | None) -> None:
-        """Rewrites secrets/teeny.env: the fake keys, X_API_BASE, DRY_RUN=0
-        unless a test says otherwise, the class's settings, then overrides
+        """Rewrites secrets/teeny.env: the fake keys, X_API_BASE, DRY_RUN=0 and
+        X_VOICE_CHECK=0 unless a test says otherwise, the class's settings, then overrides
         (None removes a key)."""
-        values: dict[str, str | None] = {**SECRETS, "X_API_BASE": self.x.base, "DRY_RUN": "0"}
+        # The voice check (posting_rules.check_voice) is off here: these
+        # fixtures test the other rules with plain text; VoiceTest turns it on.
+        values: dict[str, str | None] = {**SECRETS, "X_API_BASE": self.x.base, "DRY_RUN": "0", "X_VOICE_CHECK": "0"}
         values.update(self.settings)
         values.update(overrides)
         text = "".join(f"{k}={v}\n" for k, v in values.items() if v is not None)

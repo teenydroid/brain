@@ -89,7 +89,8 @@ from studio_room import (  # noqa: E402,F401
     texts_of)
 from formats.skit import (  # noqa: E402,F401
     SKIT_ASK, SKIT_CUT_SECS, SKIT_PREMISE_MAX, SKIT_RESERVE_SECS, SKIT_RULES, SKIT_SCRIPT_LIMIT, SKIT_SHAPE,
-    SKIT_SHOT_MAX_SECS, _make_skit, _skit_rules, skit_budget, skit_of, skit_outcome, skit_over, skit_script_length)
+    SKIT_SHOT_MAX_SECS, _make_skit, _skit_rules, skit_budget, skit_of, skit_outcome, skit_over, skit_script_length,
+    skit_trim)
 from formats.remake import (  # noqa: E402,F401
     REMAKE_ASK, REMAKE_RULES, REMAKE_SHAPE, REMAKE_STUDIES, _make_remake, chart_items, load_charts, remake_of,
     remake_outcome, study_for_writer, study_seconds, study_source)

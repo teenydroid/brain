@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# The thread block for one X conversation (bin/lib/x_replies.py, `context`):
+# the thread as the ledgers know it, who is in it, what Teeny said on X lately
+# and the words it has worn out. teeny-guardrails runs it before each turn of
+# the x-reply agent with the conversation id its session key ends in, and puts
+# what it prints in front of the turn. Read-only; prints nothing for an id the
+# ledgers do not know.
+#
+#   bin/x-thread CONVERSATION_ID
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+[ $# -eq 1 ] || die "usage: bin/x-thread CONVERSATION_ID"
+exec python3 -I "$TEENY_ROOT/bin/lib/x_replies.py" context "$1"

@@ -121,6 +121,9 @@ class TickTest(unittest.TestCase):
         self.scratch = Path(self.tmp.name)
         self.root = self.scratch / "root"
         (self.root / "secrets").mkdir(parents=True)
+        # X_REPLIES=0: these beats take X mentions as they did before bin/x-replies
+        # (test_x_mentions_are_bin_x_replies_by_default is the new default).
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n")
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
@@ -227,7 +230,7 @@ class TickTest(unittest.TestCase):
         from teeny_hands.moltbook import dispatch
 
         # Live: under DRY_RUN the beat starts no dispatch run (dispatch.due).
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "DRY_RUN=0\n")
         hand._ENV_CACHE = None
         conn = dispatch.db()
         dispatch._insert(conn, {"kind": "comment", "post_id": "8c95feab-bda8-4bea-b8ee-5137d5e97337",
@@ -245,7 +248,7 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("the filed words", self.chats()[0]["message"])
 
     def test_a_beat_with_no_dispatch_due_starts_no_dispatch_hand(self):
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "DRY_RUN=0\n")
         got = self.tick()
         self.assertNotIn("dispatched", got)
         self.assertEqual([c for c in self.hand_calls() if c["argv"][:1] == ["dispatch"]], [])
@@ -301,7 +304,7 @@ class TickTest(unittest.TestCase):
 
     def test_a_mention_goes_back_to_the_tick_when_the_drain_is_switched_off(self):
         # The stopgap of 2026-11-28: MIND=1 and TEENY_HEARTBEAT_DRAIN=0.
-        (self.root / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
         hand._ENV_CACHE = None
         stimuli.add("x", "mention", "1", "@teenydroid gm")
         self.answer({"thought": "", "intents": []})
@@ -310,8 +313,17 @@ class TickTest(unittest.TestCase):
         self.assertIn("@teenydroid gm", self.chats()[0]["message"])
         self.assertEqual(stimuli.counts()["pending"], 0)
 
+    def test_x_mentions_are_bin_x_replies_by_default(self):
+        # 2026-11-28: each X mention is answered in its own conversation's session (bin/lib/x_replies.py).
+        (self.root / "secrets" / "teeny.env").write_text("")
+        hand._ENV_CACHE = None
+        stimuli.add("x", "mention", "1", "@teenydroid gm")
+        self.tick()
+        self.assertEqual(stimuli.counts()["pending"], 1, "bin/x-replies owns it, not the tick")
+        self.assertTrue(all("@teenydroid gm" not in c["message"] for c in self.chats()))
+
     def test_the_tick_leaves_a_mention_to_the_mind_while_the_drain_is_on(self):
-        (self.root / "secrets" / "teeny.env").write_text("MIND=1\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "MIND=1\n")
         hand._ENV_CACHE = None
         stimuli.add("x", "mention", "1", "@teenydroid gm")
         self.tick()
@@ -812,7 +824,7 @@ class TickTest(unittest.TestCase):
                       [(m["hand"], m["argv"][:4]) for m in self.marks()])
 
     def test_wallet_intents_go_to_the_wallet_hands_own_verbs_when_switched_on(self):
-        (self.root / "secrets" / "teeny.env").write_text("WALLET_MIND_ACTIONS=1\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "WALLET_MIND_ACTIONS=1\n")
         hand._ENV_CACHE = None
         vendor = "0x" + "ab" * 20
         self.answer({"thought": "tidy the treasury", "intents": [
@@ -926,7 +938,7 @@ class TickTest(unittest.TestCase):
     # --- issues, browser tasks and new mail (docs/roadmap.md, A3) ---------------------
 
     def caps(self, **caps):
-        (self.root / "secrets" / "teeny.env").write_text("".join(f"{k}={v}\n" for k, v in caps.items()))
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "".join(f"{k}={v}\n" for k, v in caps.items()))
         hand._ENV_CACHE = None
 
     ISSUE = {"do": "open_issue", "repo": "teenydroid/brain", "title": "the morning post failed twice", "text": "see the health line"}
@@ -1474,7 +1486,7 @@ class TickTest(unittest.TestCase):
         ingests = lambda: [c for c in map(json.loads, self.hands_log.read_text().splitlines())
                            if c["hand"] == "telegram" and c["argv"] == ["ingest"]] if self.hands_log.exists() else []
         self.assertEqual(ingests(), [])
-        (self.root / "secrets" / "teeny.env").write_text("TELEGRAM_BOT_TOKEN=123:abc\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + "TELEGRAM_BOT_TOKEN=123:abc\n")
         hand._ENV_CACHE = None
         self.tick()
         self.assertEqual(len(ingests()), 1)
@@ -2316,7 +2328,7 @@ class TickTest(unittest.TestCase):
         seconds back, by a long-claimed agent (the cap is 50)."""
         from teeny_hands.moltbook import rules
 
-        (self.root / "secrets" / "teeny.env").write_text(f"MOLTBOOK_CLAIMED_AT={T0 - 30 * 86400}\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + f"MOLTBOOK_CLAIMED_AT={T0 - 30 * 86400}\n")
         hand._ENV_CACHE = None
         conn = rules.db()
         for i in range(n):
@@ -2736,7 +2748,7 @@ class TickTest(unittest.TestCase):
     # --- the studio owns the posts (STUDIO=1) ---------------------------------
 
     def studio(self, on: bool) -> None:
-        (self.root / "secrets" / "teeny.env").write_text(f"STUDIO={1 if on else 0}\n")
+        (self.root / "secrets" / "teeny.env").write_text("X_REPLIES=0\n" + f"STUDIO={1 if on else 0}\n")
         hand._ENV_CACHE = None
 
     def filed(self) -> list[dict]:

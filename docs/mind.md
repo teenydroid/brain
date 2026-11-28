@@ -43,6 +43,33 @@ tick leaves those stimuli pending and never offers them to its own model
 (`stimuli.DRAINED`), so nothing is answered twice. A wake that finds one
 answered closes it for the tick as well.
 
+## X replies
+
+Since 2026-11-28, X mentions are not the wake's (`X_REPLIES`, default on; `0`
+in `secrets/teeny.env` hands them back to the inbox pass and the tick).
+`bin/x-replies` (`bin/lib/x_replies.py`, every five minutes in
+`evals/cron.pinned.toml`) answers them, a few a run, one per conversation,
+each as a turn of the tool-less `x-reply` agent in the OpenClaw session of
+its X conversation (`bin/ask --agent x-reply --thread x:<conversation id>`).
+So a thread Teeny already spoke in resumes with what it said there.
+teeny-guardrails runs `bin/x-thread <conversation id>` before each such turn
+(`policy.threadContext`, keyed on the session key) and puts in front of it
+the thread as the ledgers know it (everyone's posts, oldest first, with what
+Teeny replied under each), who the people in it are to Teeny, the words its
+replies have worn out and what it said on X lately; teeny-cortexdb recalls
+memory into the same turn. The agent's prompt is SOUL.md and
+`brain/agents/x-reply.md`, nothing else. Its answer goes out through `hands/x
+reply` (the guard, the voice check, the posting rules, DRY_RUN); a refusal
+that asks for a rewrite gets one more turn in the same session, told why.
+Run records: `state/x-replies/runs.jsonl`.
+
+Before this the wake answered mentions from a 90-character excerpt in its
+inbox-pass block, between grepping its notes, and three paths could answer
+the same mention. OpenClaw's own X channel plugin was looked at and left off:
+it is built as a repository help desk (every guest turn is told to "answer
+from the OpenClaw repo only"), it gives each guest mention a fresh session,
+and it posts around `hands/x`.
+
 **Overlap.** OpenClaw refuses a scheduled run of a job whose previous run is
 still going (the run request is rejected as `already-running`, not queued), so
 a late wake is skipped. The deadline keeps that from happening anyway: the core

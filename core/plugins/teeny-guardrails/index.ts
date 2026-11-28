@@ -18,7 +18,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
 import { parsePolicy } from "./policy.js";
-import { wakeContext } from "./wake.js";
+import { threadContext, wakeContext } from "./wake.js";
 
 export const PLUGIN_ID = "teeny-guardrails";
 
@@ -90,7 +90,10 @@ export default definePluginEntry({
     api.on("before_prompt_build", async (_event, ctx) => {
       const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId, undefined, (line) => api.logger.info(line));
       if (queue) guard?.blockGiven({ ...(ctx.agentId ? { agentId: ctx.agentId } : {}), ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), ...(ctx.runId ? { runId: ctx.runId } : {}) });
-      return queue ? { prependContext: queue } : undefined;
+      // An X reply turn: the thread it is in, from the ledgers (bin/x-thread), keyed on the session's conversation.
+      const thread = queue ? undefined : await threadContext(guard?.policy.threadContext, ctx.agentId, ctx.sessionKey, undefined, (line) => api.logger.info(line));
+      const block = queue ?? thread;
+      return block ? { prependContext: block } : undefined;
     });
 
     // The run is over: its lock is released and its record written (native.ts).

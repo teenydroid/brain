@@ -182,9 +182,20 @@ def heartbeat_drains() -> bool:
     return hand.flag("TEENY_HEARTBEAT_DRAIN", True) and hand.flag("MIND", False)
 
 
+def x_replies() -> bool:
+    """Whether X mentions are answered by bin/x-replies, one OpenClaw session
+    per conversation (bin/lib/x_replies.py), and by nothing else. On unless
+    secrets/teeny.env says X_REPLIES=0 (the environment cannot set it)."""
+    return hand.flag("X_REPLIES", True)
+
+
 def drained() -> tuple[tuple[str, str], ...]:
-    """The (surface, kind) pairs the tick must leave to the heartbeat now."""
-    return DRAINED if heartbeat_drains() else ()
+    """The (surface, kind) pairs the tick must leave alone now: what the mind's
+    heartbeat answers, and X mentions whenever bin/x-replies answers them."""
+    left = DRAINED if heartbeat_drains() else ()
+    if x_replies() and ("x", "mention") not in left:
+        left = (*left, ("x", "mention"))
+    return left
 
 
 def close(surface: str, ref: str) -> int:

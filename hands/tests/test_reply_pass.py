@@ -53,7 +53,8 @@ class Scratch(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = self.tmp.name
         os.environ["TEENY_NOW"] = "1789369200"
-        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\n")
+        # X_REPLIES=0: the inbox pass as it was, with X mentions in it; XRepliesOwnX turns it on.
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nX_REPLIES=0\n")
         os.environ.pop("DRY_RUN", None)
         hand._ENV_CACHE = None
 
@@ -110,7 +111,7 @@ class OnlyAnswerable(Scratch):
         self.assertNotIn("- x 6 ", text)
 
     def test_the_block_is_empty_when_the_drain_is_switched_off(self):
-        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nX_REPLIES=0\nTEENY_HEARTBEAT_DRAIN=0\n")
         hand._ENV_CACHE = None
         self.mention(5)
         self.assertEqual(reply_pass.build(), "")
@@ -129,7 +130,32 @@ class TickLeavesTheDrain(unittest.TestCase):
             self.assertTrue(stimuli.heartbeat_drains(), "switch missing means the new behaviour")
             self.assertEqual(stimuli.drained(), stimuli.DRAINED)
             values["TEENY_HEARTBEAT_DRAIN"] = "0"
+            self.assertEqual(stimuli.drained(), (("x", "mention"),), "X mentions stay bin/x-replies' either way")
+            values["X_REPLIES"] = "0"
             self.assertEqual(stimuli.drained(), ())
+
+    def test_with_x_replies_on_the_tick_never_takes_an_x_mention(self):
+        from unittest import mock
+        values = {}
+        with mock.patch.object(stimuli.hand, "setting", side_effect=lambda n, d=None: values.get(n, d)):
+            self.assertTrue(stimuli.x_replies(), "on by default")
+            self.assertIn(("x", "mention"), stimuli.drained())
+            self.assertNotIn(("mail", "message"), stimuli.drained(), "mail is still the tick's with no mind awake")
+
+
+class XRepliesOwnX(Scratch):
+    def setUp(self):
+        super().setUp()
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\n")
+        hand._ENV_CACHE = None
+
+    def test_the_inbox_pass_leaves_x_mentions_to_bin_x_replies_and_keeps_the_mail(self):
+        self.mention(5)
+        stimuli.add("mail", "message", "m1", "a question for you", who="bo@example.com")
+        text = reply_pass.build()
+        self.assertNotIn("X mentions waiting", text)
+        self.assertNotIn("- x 5 ", text)
+        self.assertIn("- mail m1 ", text)
 
 
 if __name__ == "__main__":

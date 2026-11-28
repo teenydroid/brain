@@ -42,7 +42,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail", "writer", "editor")
+NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail", "writer", "editor", "x-reply")
 #: The tool-less agents that must also load no memory and no identity: they
 #: are not Teeny, and are shown only what their message carries (the
 #: querier's queries leave the box; the studio's editor judges drafts blind).

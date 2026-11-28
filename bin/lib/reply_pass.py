@@ -142,7 +142,9 @@ def build() -> str:
             step(conn)
         except Exception:  # a table that is not there yet
             pass
-    offered = _offered(conn)
+    # X mentions are bin/x-replies' when X_REPLIES is on (bin/lib/x_replies.py):
+    # each is answered in its own conversation's session, never from this block.
+    offered = [] if stimuli.x_replies() else _offered(conn)
     mail = _mail(conn)
     return render(len(offered), len(offered) >= X_SCAN, candidates(offered), len(mail), mail[:MAIL_SHOWN])
 

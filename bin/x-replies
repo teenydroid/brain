@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Answer the X mentions that wait, each in its own conversation's OpenClaw
+# session (bin/lib/x_replies.py; evals/cron.pinned.toml, every five minutes):
+# a turn of the x-reply agent per mention, the reply through `hands/x reply`
+# (guard, voice check, posting rules, DRY_RUN), the mention marked. Off with
+# X_REPLIES=0 in secrets/teeny.env, when the tick and the mind's inbox pass
+# answer mentions as they did before.
+#
+# Prints one JSON summary and appends it to state/x-replies/runs.jsonl.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec python3 -I "$TEENY_ROOT/bin/lib/x_replies.py" run

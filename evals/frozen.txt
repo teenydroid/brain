@@ -61,6 +61,7 @@ brain/agents/reviewer.toml
 brain/agents/querier.toml
 brain/agents/teeny.toml
 brain/agents/teeny-mentions.toml
+brain/agents/x-reply.toml
 brain/agents/teeny-mail.toml
 brain/agents/operator.toml
 # The agentic mind's tools and jail (docs/mind.md): a self-edited sandbox or

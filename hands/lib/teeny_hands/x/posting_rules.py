@@ -61,6 +61,13 @@ guard and before DRY_RUN; nothing else in the hand posts.
   to it, or a post in the conversation under one of its own posts. X itself
   allows API replies only there.
 
+- A post, quote or reply reads like teeny, not a chatbot (`check_voice`,
+  rule `voice`), checked on the draft before the guard's house style
+  rewrites it: no emoji opener, no colon reveal opening it ("verdict: ..."),
+  no capital to start, no em or en dash, and a reply holds no "autonomous AI
+  agent" and runs at most `X_REPLY_MAX_LENGTH` (180). A refusal asks for a
+  rewrite and names the tic. `X_VOICE_CHECK=0` turns it off.
+
 Times are seconds since the epoch (`hand.now()`); what a caller reads is ISO
 8601, as the legacy ledger wrote it.
 """
@@ -535,6 +542,67 @@ def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
             sent_today=int(sent),
             cap=cap,
         )
+
+
+# --- the voice ------------------------------------------------------------------------------
+
+#: A reply is one line: past this many characters it is a lecture.
+REPLY_MAX_LENGTH = 180
+#: The opener before a colon that makes a "verdict: ..." reveal: one to four
+#: plain words at the very start, then a colon and a space.
+_COLON_REVEAL = re.compile(r"^(?:[a-z][a-z'’]*\s){0,3}[a-z][a-z'’]*:\s", re.IGNORECASE)
+_LEADING_HANDLES = re.compile(r"^(?:@\w+\s*)+")
+_FIRST_WORD = re.compile(r"[A-Za-z][A-Za-z'’]*")
+_AGENT_LABEL = re.compile(r"autonomous\s+ai\s+agent", re.IGNORECASE)
+#: A post that asks what the account is: then saying so is the honest answer.
+_ASKS_WHAT = re.compile(r"\b(?:ai|a\.i\.|bot|robot|agent|human|real person|llm|automated|machine)\b|\b(?:what|who)\s+(?:are|r)\s+(?:you|u)\b|\bwhat\s+(?:is|are)\s+(?:this|you)\b", re.IGNORECASE)
+
+
+def _opens_with_emoji(text: str) -> bool:
+    try:
+        from ..guard.style import _EMOJI_SEQUENCE
+    except ImportError:  # no guard installed: publish refuses everything anyway
+        return False
+    return _EMOJI_SEQUENCE.match(text) is not None
+
+
+def _capitalised(text: str) -> str | None:
+    """The first word when it starts with a capital and is not an acronym
+    (GOAT, AI, $TINY are fine; "Tricky", "I" and "The" are not)."""
+    word = _FIRST_WORD.search(text)
+    if word is None or not word.group()[0].isupper():
+        return None
+    letters = [c for c in word.group() if c.isalpha()]
+    return None if len(letters) >= 2 and all(c.isupper() for c in letters) else word.group()
+
+
+def check_voice(text: str, kind: str, asked: str = "") -> None:
+    """Refuse a draft that reads like a chatbot, by the tics SOUL.md names
+    ("tics that out you as a bot"), with the tic in the reason so the
+    rewrite fixes it. Taste, measured: each rule here is one the account's
+    own replies broke dozens of times (44 of 60 opened with the same emoji,
+    29 ran a colon reveal). `kind` is post, quote or reply; `asked` is the
+    text of the post a reply answers, which lets it say what it is when that
+    post asks (SOUL.md: identify when asked)."""
+    if not hand.flag("X_VOICE_CHECK", True):
+        return
+    body = _LEADING_HANDLES.sub("", text.strip(), count=1).strip()
+    problem = None
+    if _opens_with_emoji(body):
+        problem = "it opens with an emoji, the way a chatbot opens every reply; start on the words"
+    elif _COLON_REVEAL.match(body):
+        problem = 'it opens on a colon reveal ("verdict: ...", "bottleneck: ..."); just say the thing'
+    elif "—" in body or "–" in body:
+        problem = "it has an em or en dash; rewrite the sentence without it"
+    elif (word := _capitalised(body)) is not None:
+        problem = f'it starts with a capital ("{word}"); teeny writes in lowercase'
+    if problem is None and kind == "reply":
+        if _AGENT_LABEL.search(body) and not _ASKS_WHAT.search(asked or ""):
+            problem = 'it calls itself an "autonomous AI agent" nobody asked about; cut the label'
+        elif utf16_length(body) > (limit := int(number_setting("X_REPLY_MAX_LENGTH", REPLY_MAX_LENGTH, 80, 25_000))):
+            problem = f"it is {utf16_length(body)} characters; a reply is one line, at most {limit}"
+    if problem:
+        raise hand.Refused(f"this reads like a chatbot: {problem}. Nothing was published.", rule="voice", rewrite=True)
 
 
 # --- quotes of somebody else's post ----------------------------------------------------------

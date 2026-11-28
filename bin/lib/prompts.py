@@ -128,6 +128,11 @@ AGENT_SKILLS = {"teeny": ("moltbook",)}
 #: they need beyond it they read with their tools, from the skill library
 #: the broker copies into their home (bin/lib/broker.py, `library/`).
 TOOLED = ("mind", "worker", "babysitter")
+#: The agents whose prompt is their instructions alone though they speak in
+#: public: x-reply (after SOUL.md, which the core puts first) is handed the
+#: thread and the people in it per turn (bin/x-thread), so the world block
+#: (MEMORY.md, the lore, the arcs) would only pull its replies off the thread.
+LEAN = ("x-reply",)
 #: The editor's rubric and taste.
 STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
@@ -459,7 +464,7 @@ def render(brain: Path, agent: str) -> str:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
     if agent in STUDIO:
         return render_studio(brain, agent, instructions)
-    if agent in TOOLED:
+    if agent in TOOLED or agent in LEAN:
         return instructions.rstrip("\n") + "\n"
     parts = [instructions]
     if agent in PUBLIC:
@@ -480,7 +485,7 @@ def build(brain: Path) -> list[Path]:
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for agent in SPEAKING + STUDIO + TOOLED:
+    for agent in SPEAKING + STUDIO + TOOLED + LEAN:
         if not (brain / "agents" / f"{agent}.toml").is_file():
             continue
         text = render(brain, agent)

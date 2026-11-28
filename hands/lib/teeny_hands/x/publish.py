@@ -144,6 +144,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     anchor = rules.check_anchor(body.get("anchor"), quote_of)
     kind = "quote" if quote_of else "post"
     if not approved:
+        rules.check_voice(text, kind)
         text = _guarded(text, kind, context={"anchor": anchor})
     rules.check_length(text)
     # A quote of somebody else's post is outward: it goes to their community.
@@ -360,6 +361,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
         raise hand.Refused(f"X does not have post {to} (deleted, protected or not visible); nothing was published", rule="target")
     account = reads.identity()
     if not approved:
+        rules.check_voice(text, "reply", asked=str(target.get("text") or ""))
         text = _guarded(
             text,
             "reply",

@@ -224,6 +224,44 @@ def skit_shorten_message(skit: Json, why: str) -> str:
             "cannot be cut.")
 
 
+#: How far over its budget a cut skit may still be for `skit_trim` to make
+#: it fit: past this, trimming would be rewriting, and the skit is let go.
+SKIT_TRIM_SLACK = 1.3
+#: No field `skit_trim` shortens goes under this many characters.
+SKIT_TRIM_FLOOR = 30
+
+
+def skit_trim(skit: Json) -> Json | None:
+    """SKIT made to fit the guard's cap without the writer: the writer's cut
+    on 2026-11-27 left three ranked skits 6 to 101 characters over (1006,
+    1031 and 1101 of 1000), and each was thrown away for the image ranked
+    below it. Four shots go down to three (the middle one with the longest
+    prompt), then the longest of the shot prompts, looks, setting and score
+    loses its last word until the script fits. None when the skit is more
+    than SKIT_TRIM_SLACK over its budget or a field would fall under
+    SKIT_TRIM_FLOOR: that is a rewrite, not a trim."""
+    budget = skit_budget(len(skit.get("figures") or []))
+    if not skit_over(skit):
+        return skit
+    if _written(skit) > budget * SKIT_TRIM_SLACK:
+        return None
+    out = json.loads(json.dumps(skit))
+    shots = out.get("shots") or []
+    if len(shots) > 3:
+        middle = max(range(1, len(shots) - 1), key=lambda i: _length(shots[i].get("prompt") or ""))
+        del shots[middle]
+    while skit_over(out):
+        fields = [(shot, "prompt") for shot in shots] + [(out.get("look") or {}, name) for name in (out.get("look") or {})]
+        fields += [(out, key) for key in ("setting", "score") if out.get(key)]
+        holder, key = max(fields, key=lambda f: _length(str(f[0].get(f[1]) or "")))
+        text = str(holder.get(key) or "")
+        shorter = text.rsplit(" ", 1)[0].rstrip(" ,;:-") if " " in text else ""
+        if _length(shorter) < SKIT_TRIM_FLOOR:
+            return None
+        holder[key] = shorter
+    return out
+
+
 def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> Json | None:
     """SKIT as it fits the guard's cap on the one-take script: itself when it
     does; else the writer's one cut of it (`skit_shorten_message`), shaped
@@ -262,9 +300,15 @@ def _fit_skit(room: "Room", draft: Json, skit: Json, hook: Json, note: Json) -> 
     log["after"] = skit_script_length(again)
     still = skit_over(again)
     if still:
-        log["why"] = still
-        note["failed"] = f"the skit's one-take script could not be made to fit, even after one cut: {still}"
-        return None
+        trimmed = skit_trim(again)
+        kept, bad = skit_of(trimmed, {"id": skit.get("story")}) if trimmed else ({}, "no trim")
+        if trimmed is None or bad or skit_over(kept):
+            log["why"] = still
+            note["failed"] = f"the skit's one-take script could not be made to fit, even after one cut: {still}"
+            return None
+        again = kept
+        log["trimmed"] = True
+        log["after"] = skit_script_length(again)
     log["kept"] = True
     draft["skit"] = again
     note["shots"] = len(again.get("shots") or [])

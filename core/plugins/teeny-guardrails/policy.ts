@@ -101,6 +101,17 @@ export interface GuardrailsPolicy {
   /** How to run `openclaw`, to read the browser's live tab URLs. */
   openclaw?: { cmd: string; args: string[] };
   wakeContext?: WakeContextPolicy;
+  /**
+   * The thread block put in front of an X reply turn (bin/x-thread): run with the X conversation id the turn's
+   * session key ends in (`agent:<agent>:<sessionPrefix><conversation id>`), as its one extra argument.
+   */
+  threadContext?: ThreadContextPolicy;
+}
+
+/** WakeContextPolicy for a turn that runs in one X conversation's session. */
+export interface ThreadContextPolicy extends WakeContextPolicy {
+  /** What the session key's tail starts with before the conversation id ("x:"). */
+  sessionPrefix: string;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -183,6 +194,17 @@ export function parsePolicy(config: unknown): GuardrailsPolicy {
     if (typeof w.cwd !== "string" || !w.cwd.startsWith("/")) throw new Error("teeny-guardrails: policy.wakeContext.cwd must be an absolute path");
     for (const k of ["maxChars", "timeoutMs"]) {
       if (!Number.isInteger(w[k]) || (w[k] as number) < 1) throw new Error(`teeny-guardrails: policy.wakeContext.${k} must be a positive integer`);
+    }
+  }
+  const t = p.threadContext as Record<string, unknown> | undefined;
+  if (t !== undefined) {
+    if (typeof t !== "object" || t === null || !isStringArray(t.agents) || !isStringArray(t.argv) || t.argv.length === 0) {
+      throw new Error("teeny-guardrails: policy.threadContext needs agents and argv lists");
+    }
+    if (typeof t.cwd !== "string" || !t.cwd.startsWith("/")) throw new Error("teeny-guardrails: policy.threadContext.cwd must be an absolute path");
+    if (typeof t.sessionPrefix !== "string" || !/^[a-z]+:$/.test(t.sessionPrefix)) throw new Error("teeny-guardrails: policy.threadContext.sessionPrefix must be like \"x:\"");
+    for (const k of ["maxChars", "timeoutMs"]) {
+      if (!Number.isInteger(t[k]) || (t[k] as number) < 1) throw new Error(`teeny-guardrails: policy.threadContext.${k} must be a positive integer`);
     }
   }
   return {

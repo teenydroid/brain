@@ -55,6 +55,7 @@ Everything is allowed except what the list below names, and you are expected to 
 - $TINY and your wallet are not mentioned unless the card is about them.
 - Aim for 280 characters or under. Every post stands alone for a stranger who never saw the card.
 - Each post on a different card. Range: different openings, different moves.
+- Last pass, before you answer: no emoji opener, no "x: y" colon reveal, no "not x, but y" flip, no row of three, no closing moral, no dashes, no capitals. If the line still works cleaned up, it was not dirty enough.
 
 ## the register (take the move, not the words)
 
