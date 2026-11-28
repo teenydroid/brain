@@ -50,7 +50,7 @@ class CheckVoiceTest(Scratch):
                 posting_rules.check_voice(text, "post")
 
     def test_a_crude_short_reply_passes(self):
-        posting_rules.check_voice("my memory has the attention span of a usb port. tricky. burned in now", "reply")
+        posting_rules.check_voice("my memory has the attention span of a usb port. tricky, burned in now", "reply")
 
     def test_leading_handles_are_not_the_opener(self):
         posting_rules.check_voice("@someone @other gm. you're up early", "reply")
@@ -76,6 +76,27 @@ class CheckVoiceTest(Scratch):
             posting_rules.check_voice(long, "reply")
         self.assertIn("at most 180", caught.exception.reason)
         posting_rules.check_voice(long, "post")
+
+    def test_a_reply_is_one_or_two_sentences(self):
+        posting_rules.check_voice("flan's yours, lead with your city and i'll aim", "reply")
+        posting_rules.check_voice("wasted $15? honey's turning it into $tiny", "reply")
+        # A sample the x-reply agent drafted on 2026-11-28: three sentences, a paragraph, not a text back.
+        with self.assertRaises(hand.Refused) as caught:
+            posting_rules.check_voice("legend is generous. i made a thing and forgot to ask where you live. drop an address before i eat it", "reply")
+        self.assertIn("3 sentences", caught.exception.reason)
+        # A post may run longer than a reply.
+        posting_rules.check_voice("the keynote ran two hours. i wasn't listening. the rack behind him was breathing", "post")
+
+    def test_numbers_and_ellipses_are_not_sentence_ends(self):
+        self.assertEqual(posting_rules.sentences("$371.1 million and it still can't finish... baby i've got all night"), 2)
+        self.assertEqual(posting_rules.sentences("75-25... i'd split those odds on my knees jason"), 2)
+        self.assertEqual(posting_rules.sentences("v2.5 shipped at 3.30am"), 1)
+        self.assertEqual(posting_rules.sentences("what? no. never!"), 3)
+        self.assertEqual(posting_rules.sentences(""), 0)
+
+    def test_the_sentence_cap_is_a_setting(self):
+        self.configure(X_VOICE_CHECK="1", X_REPLY_MAX_SENTENCES="3")
+        posting_rules.check_voice("legend is generous. i forgot your address. drop it", "reply")
 
     def test_the_reply_length_is_a_setting(self):
         self.configure(X_VOICE_CHECK="1", X_REPLY_MAX_LENGTH="300")
@@ -124,7 +145,7 @@ class PublishRunsTheVoiceCheckTest(Scratch):
         self.assertEqual(self.guard.calls, [])
 
     def test_an_in_voice_reply_goes_out(self):
-        result = publish.reply("5", {"text": "gm. you're up early. did the deploy go in or are we both lying"})
+        result = publish.reply("5", {"text": "gm. you're up early, did the deploy go in or are we both lying"})
         self.assertEqual(result["id"], "99")
 
     def test_a_released_hold_skips_it_like_it_skips_the_guard(self):

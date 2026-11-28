@@ -65,7 +65,8 @@ guard and before DRY_RUN; nothing else in the hand posts.
   rule `voice`), checked on the draft before the guard's house style
   rewrites it: no emoji opener, no colon reveal opening it ("verdict: ..."),
   no capital to start, no em or en dash, and a reply holds no "autonomous AI
-  agent" and runs at most `X_REPLY_MAX_LENGTH` (180). A refusal asks for a
+  agent" and runs at most `X_REPLY_MAX_LENGTH` (180) and
+  `X_REPLY_MAX_SENTENCES` (2) sentences. A refusal asks for a
   rewrite and names the tic. `X_VOICE_CHECK=0` turns it off.
 
 Times are seconds since the epoch (`hand.now()`); what a caller reads is ISO
@@ -548,6 +549,13 @@ def check_daily_cap(conn: sqlite3.Connection, kind: str = "post") -> None:
 
 #: A reply is one line: past this many characters it is a lecture.
 REPLY_MAX_LENGTH = 180
+#: A reply is one or two sentences, the way a person texts back. A third is
+#: the chatbot explaining itself (`X_REPLY_MAX_SENTENCES`).
+REPLY_MAX_SENTENCES = 2
+#: Where one sentence ends and the next begins: a run of . ! ? (an ellipsis
+#: is one end) followed by space and more words. "$1.5" has no space after
+#: the dot, so a number is never a sentence end.
+_SENTENCE_END = re.compile(r"[.!?…]+(?=\s+\S)")
 #: The opener before a colon that makes a "verdict: ..." reveal: one to four
 #: plain words at the very start, then a colon and a space.
 _COLON_REVEAL = re.compile(r"^(?:[a-z][a-z'’]*\s){0,3}[a-z][a-z'’]*:\s", re.IGNORECASE)
@@ -576,6 +584,12 @@ def _capitalised(text: str) -> str | None:
     return None if len(letters) >= 2 and all(c.isupper() for c in letters) else word.group()
 
 
+def sentences(text: str) -> int:
+    """How many sentences a draft holds, by its sentence ends (`_SENTENCE_END`)."""
+    body = text.strip()
+    return (len(_SENTENCE_END.findall(body)) + 1) if body else 0
+
+
 def check_voice(text: str, kind: str, asked: str = "") -> None:
     """Refuse a draft that reads like a chatbot, by the tics SOUL.md names
     ("tics that out you as a bot"), with the tic in the reason so the
@@ -601,6 +615,8 @@ def check_voice(text: str, kind: str, asked: str = "") -> None:
             problem = 'it calls itself an "autonomous AI agent" nobody asked about; cut the label'
         elif utf16_length(body) > (limit := int(number_setting("X_REPLY_MAX_LENGTH", REPLY_MAX_LENGTH, 80, 25_000))):
             problem = f"it is {utf16_length(body)} characters; a reply is one line, at most {limit}"
+        elif (count := sentences(body)) > (most := int(number_setting("X_REPLY_MAX_SENTENCES", REPLY_MAX_SENTENCES, 1, 20))):
+            problem = f"it is {count} sentences; a person texts back one or two, at most {most}. keep the best one"
     if problem:
         raise hand.Refused(f"this reads like a chatbot: {problem}. Nothing was published.", rule="voice", rewrite=True)
 
