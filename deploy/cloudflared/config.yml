@@ -1,0 +1,32 @@
+# The Cloudflare Tunnel in front of teeny.enamakel.com (the `tunnel` service in
+# deploy/compose.yaml). cloudflared dials out to Cloudflare, so nothing on the
+# box takes a public port and the host's nginx no longer serves this name.
+#
+# A locally managed tunnel: this file is the routing, reviewed like any other
+# change, and the dashboard holds none. The credentials JSON is the tunnel's
+# secret and lives in secrets/cloudflared/creds.json, never here.
+#
+# The tunnel sits on the compose network `edge` with xhook and web alone: it has
+# no route to the spine, cortexdb, the Gateway or the core. One path reaches
+# the stack, X's webhook, and xhook verifies X's signature on every delivery.
+# It cannot sit behind Cloudflare Access, because X cannot log in; a private
+# route to anything else belongs on its own hostname behind an Access policy.
+#
+# bin/test/tunnel_test.sh holds these rules in place.
+tunnel: teeny
+credentials-file: /etc/cloudflared/creds.json
+no-autoupdate: true
+
+ingress:
+  # X's Account Activity webhook, registered as
+  # https://teeny.enamakel.com/api/webhooks/x since 2026-09-14. xhook answers
+  # this path as well as /webhooks/x (hands/lib/teeny_hands/x/webhook.py,
+  # PATHS); its /health and /queue are not reachable from here.
+  - hostname: teeny.enamakel.com
+    path: ^/api/webhooks/x$
+    service: http://xhook:3110
+  # Everything else on the old address: a 301 to the same path on
+  # https://teenydroid.github.io (deploy/web-redirect.conf).
+  - hostname: teeny.enamakel.com
+    service: http://web:3000
+  - service: http_status:404

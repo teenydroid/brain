@@ -17,16 +17,17 @@ mkdir -p secrets && chmod 700 secrets
 cp deploy/spine.env.example secrets/spine.env    # the model; CortexDB if wanted
 cp deploy/teeny.env.example secrets/teeny.env    # the hands' keys; DRY_RUN=1
 chmod 600 secrets/*.env
-TEENY_UID=$(id -u) TEENY_GID=$(id -g) docker compose -f deploy/compose.yaml --profile web up -d --build
+TEENY_UID=$(id -u) TEENY_GID=$(id -g) docker compose -f deploy/compose.yaml up -d --build spine cortexdb xhook
 docker compose -f deploy/compose.yaml logs -f spine      # "[spine] ready" once seeded
 ```
 
-That starts three services: `spine` (the core), `xhook` (the X webhook on
-`127.0.0.1:3110`) and `web` (the landing page on `127.0.0.1:3120`, behind
-the `web` profile). Run anything below inside the container with
+That starts `spine` (the core), `cortexdb` (its memory) and `xhook` (the X
+webhook on `127.0.0.1:3110`). The `tunnel` and the `web` redirect only matter
+on the box that answers teeny.enamakel.com; the site itself is `web/`, run
+with `npm run dev` and published to GitHub Pages by CI. Run anything below inside the container with
 `docker compose -f deploy/compose.yaml exec spine <command>`.
 [`deploy/README.md`](../deploy/README.md) covers the server: updates, backups,
-the webhook and the landing page.
+the webhook and the tunnel.
 
 ### On a laptop
 

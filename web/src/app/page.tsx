@@ -1,39 +1,8 @@
-import { Hero } from "@/components/sections/hero"
-import { HomeBrain } from "@/components/sections/home-brain"
-import { PresenceSection } from "@/components/sections/presence"
-import { Different } from "@/components/sections/different"
-import { ReceiptsSection } from "@/components/sections/receipts"
-import { XSpotlight } from "@/components/sections/x-spotlight"
-import { loadAnatomy, loadRepo } from "@/lib/brain-repo"
-import { loadMind } from "@/lib/mind"
-import { loadReceipts } from "@/lib/receipts"
-import { loadStats } from "@/lib/stats"
+import { HomeLive } from "@/components/home-live"
+import { loadHomeSnapshot } from "@/lib/load-snapshot"
 
-// Everything is read at render time and the page is rebuilt at most once a
-// minute; each fetch keeps its own cache (GitHub reads for ten minutes to an
-// hour, the bot's feeds for a minute).
-export const revalidate = 60
-
+// Read once at build time (the page is a static export on GitHub Pages); the
+// browser then refreshes it from the published snapshot (src/lib/snapshot.ts).
 export default async function Home() {
-  const [feed, anatomy, repo, receipts, stats] = await Promise.all([
-    loadMind(),
-    loadAnatomy(),
-    loadRepo(),
-    loadReceipts(),
-    loadStats(),
-  ])
-  return (
-    <>
-      <Hero receipts={receipts} />
-      <XSpotlight stats={stats} receipts={receipts} />
-      <Different />
-      <div id="brain" className="scroll-mt-4">
-        <HomeBrain anatomy={anatomy} repo={repo} />
-      </div>
-      <div id="find">
-        <PresenceSection />
-      </div>
-      <ReceiptsSection feed={feed} receipts={receipts} />
-    </>
-  )
+  return <HomeLive initial={await loadHomeSnapshot()} />
 }

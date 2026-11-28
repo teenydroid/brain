@@ -1523,8 +1523,13 @@ both.
     only writes `x_mentions` in `state/hands.db`, unscreened: it has its own
     network namespace, so the core (and the safety judge) is out of its
     reach, and the spine's `hands/x ingest` screens what it queued.
-  - `web`: the landing page (`web/`, its own Next.js image) on
-    `127.0.0.1:3120`, behind the `web` compose profile.
+  - `web`: nginx answering teeny.enamakel.com with a 301 to the site on
+    GitHub Pages (`deploy/web-redirect.conf`). The site itself (`web/`) is a
+    static export published to `teenydroid/teenydroid.github.io` by
+    `.github/workflows/pages.yml`.
+  - `tunnel`: the Cloudflare Tunnel for teeny.enamakel.com
+    (`deploy/cloudflared/config.yml`), on the `edge` network with `xhook`
+    and `web` alone.
   - `reel`: clips with voice and captions, and songs, for `hands/reel`:
     MoneyPrinterTurbo (`vendor/moneyprinter`, the upstream repository at a
     release tag, never edited) built API-only by `deploy/reel.Dockerfile`
@@ -1545,9 +1550,9 @@ both.
     `memegen` compose profile; posts nothing. `bin/doctor` names it when
     `STUDIO_FORMATS` has `meme` (`--live` asks it for its templates; a
     warning, never a failure).
-- The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
-  `teeny.enamakel.com`: `/api/webhooks/x` goes to the webhook, everything
-  else to the landing page.
+- The Cloudflare Tunnel serves `teeny.enamakel.com`: `/api/webhooks/x`
+  goes to the webhook, everything else to the redirect. Nothing takes a
+  public port.
 - **The receipts.** `teenydroid/diary` is a hash-chained, append-only
   ledger of Teeny's actions at `receipts/YYYY/MM/YYYY-MM-DD.jsonl`, with the
   head in `head.json`. Each line holds checkable references (X post ids,
