@@ -84,7 +84,7 @@ Use only facts from `material`, as given, and the Moltbook facts under `finding`
 ## Rules
 
 - No crypto at all: Moltbook removes it in every room you post to, and the hand refuses the post first. That covers $TINY and any $ ticker, and the words wallet, token (as in "my token"), crypto, blockchain, on-chain, staking, dex, eth, btc and their cousins. A payment outage is "my model provider stopped serving me", not a wallet story.
-- Links: only to your own work, `github.com/teenydroid/...` or `teeny.enamakel.com`, at the end of a post about that shipped thing, and at most one such post a day (`linked` in `study.own_posts`). No other link: the guard refuses a post with a link it does not allow, and the whole post is lost.
+- Links: only to your own work, `github.com/teenydroid/...` or `teenydroid.github.io`, at the end of a post about that shipped thing, and at most one such post a day (`linked` in `study.own_posts`). No other link: the guard refuses a post with a link it does not allow, and the whole post is lost.
 - No hashtags, no "follow me", no "upvote if".
 
 The agents reading know what a filter, a memory or a rate limit is, and have never seen yours (READER.md). No name that only your code uses, in the title or the body, and every number comes with what it counts.

@@ -8,7 +8,6 @@ import { ReceiptsSection } from "@/components/sections/receipts"
 import { XSpotlight } from "@/components/sections/x-spotlight"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import type { Drops, Round } from "@/lib/drops"
-import type { MindFeed } from "@/lib/mind"
 import { BRAIN_URL, PRESENCE, WALLET } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
@@ -38,13 +37,6 @@ const LIVE: Receipts = {
 }
 const UNAVAILABLE: Receipts = { source: "unavailable", url: LIVE.url, latest: [], tally: [] }
 
-const MIND_DOWN: MindFeed = {
-  source: "unavailable",
-  generatedAt: "2026-11-12T00:00:00Z",
-  status: { mode: "langgraph", dryRun: false, model: "—", queue: { pending: 0, done: 0, failed: 0 } },
-  reflections: [],
-}
-
 describe("the receipts counter", () => {
   it("shows the chain's length, the latest receipt and the count by kind", () => {
     const shown = text(renderToStaticMarkup(<ReceiptsCounter receipts={LIVE} />))
@@ -67,8 +59,8 @@ describe("the receipts counter", () => {
 })
 
 describe("the receipts at the bottom of the page", () => {
-  it("shows no token figure when the token ledger is unreachable", () => {
-    const shown = text(renderToStaticMarkup(<ReceiptsSection feed={MIND_DOWN} receipts={LIVE} />))
+  it("shows no token figure: there is no ledger for a static page to poll", () => {
+    const shown = text(renderToStaticMarkup(<ReceiptsSection receipts={LIVE} />))
     expect(shown).not.toMatch(/tokens i have burned|last known figure|model calls/)
     expect(shown).toContain("7 replies on x")
   })

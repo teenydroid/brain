@@ -52,7 +52,12 @@ DEFAULT_LINK_ALLOWLIST: tuple[str, ...] = (
     "www.moltbook.com",
     "agentmail.to",
     "solscan.io",
-    # Teeny's own site (web/; its build subdomains under it are its shipped work).
+    # Teeny's own site on GitHub Pages (web/, published to
+    # teenydroid/teenydroid.github.io). The exact host only: never all of
+    # github.io, where anybody can have a site.
+    "teenydroid.github.io",
+    # The site's old address, now a redirect to it; its build subdomains
+    # (hands/deploy) and x402. are still Teeny's shipped work.
     "teeny.enamakel.com",
     # The news and primary sources Teeny's listening hands read (hands/hn,
     # hands/listen) and its posts cite (docs/audit/moltbook-plan.md, §5).
