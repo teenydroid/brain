@@ -117,5 +117,43 @@ class IsoTimezoneCase(unittest.TestCase):
         self.assertEqual(contract.parse_round(base_round(deadline="2026-11-20T20:00:00+02:00"))["deadline"], "2026-11-20T20:00:00+02:00")
 
 
+def settled_round(*leaves: tuple, draw_order: tuple = ()) -> str:
+    """A settled round: pool 100000, one random winner, a best prize of 40000."""
+    claims = [{"index": i, "handle": h, "kind": k, "address": a, "amount_atomic": str(amt), "proof": []}
+              for i, (h, k, a, amt) in enumerate(leaves)]
+    return base_round(
+        status="settled", pool_tiny="100000", winners=1, best_reply_tiny="40000",
+        seed={"slot": 1, "blockhash": "1" * 32, "sha256": "0" * 64},
+        authority=contract.TINY_MINT, distribution_seed=contract.TINY_MINT, distributor=contract.TINY_MINT,
+        vault=contract.TINY_MINT, merkle_root="0" * 64, clawback_at="2026-12-20T18:00:00Z", claims=claims,
+        draw_order=list(draw_order),
+    )
+
+
+CAROL = "11111111111111111111111111111112"
+ALICE = "11111111111111111111111111111113"
+M = 10**6
+
+
+class LeafAmountCase(unittest.TestCase):
+    def test_the_exact_prizes_parse(self) -> None:
+        contract.parse_round(settled_round(("carol", "random", CAROL, 60_000 * M), ("alice", "best_reply", ALICE, 40_000 * M)))
+
+    def test_a_leaf_bigger_than_its_prize_is_refused_under_the_pool(self) -> None:
+        with self.assertRaisesRegex(contract.DropsError, "not its prize"):
+            contract.parse_round(settled_round(("carol", "random", CAROL, 70_000 * M), ("alice", "best_reply", ALICE, 30_000 * M)))
+
+    def test_one_address_with_both_prizes_is_one_best_reply_leaf(self) -> None:
+        contract.parse_round(settled_round(("alice", "best_reply", ALICE, 100_000 * M), draw_order=("alice",)))
+
+    def test_a_drawn_winner_with_only_the_best_prize_is_refused(self) -> None:
+        with self.assertRaisesRegex(contract.DropsError, "not its prize"):
+            contract.parse_round(settled_round(("alice", "best_reply", ALICE, 40_000 * M), draw_order=("alice",)))
+
+    def test_a_handle_that_was_not_drawn_cannot_hold_the_sum(self) -> None:
+        with self.assertRaisesRegex(contract.DropsError, "not its prize"):
+            contract.parse_round(settled_round(("alice", "best_reply", ALICE, 100_000 * M), draw_order=("carol",)))
+
+
 if __name__ == "__main__":
     unittest.main()

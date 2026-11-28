@@ -165,6 +165,16 @@ def parse_round(text: str) -> dict:
         raise DropsError("claims: duplicate index")
     if sum(int(c["amount_atomic"]) for c in claims) > pool_atomic:
         raise DropsError("claims: more than the pool")
+    if head["status"] in ("settled", "clawed_back"):
+        winner_count = _int(o, "winners", 0, 10_000)
+        each = (pool_atomic - best_atomic) // winner_count if winner_count else 0
+        drawn = set(draw_order[:winner_count])
+        for c in claims:
+            amount = int(c["amount_atomic"])
+            expected = each if c["kind"] == "random" else (each + best_atomic if c["handle"] in drawn else best_atomic)
+            ok = (c["kind"] == "random" or best_atomic > 0) and amount == expected
+            if not ok:
+                raise DropsError(f"claims: {c['handle']}'s leaf is not its prize")
     t = _obj(o.get("txs") if o.get("txs") is not None else {}, "txs")
     txs = {k: _str(t, k, BASE58_SIG) for k in ("create", "fund", "clawback") if t.get(k) is not None}
     round_ = {

@@ -303,6 +303,20 @@ export function parseRound(text: string): Round {
   if (new Set(claims.map((c) => c.index)).size !== claims.length) throw new DropsError('claims: duplicate index')
   const total = claims.reduce((sum, c) => sum + BigInt(c.amount_atomic), 0n)
   if (total > poolAtomic) throw new DropsError('claims: more than the pool')
+  if (head.status === 'settled' || head.status === 'clawed_back') {
+    // Each leaf is exactly its prize: a random winner gets (pool - best) / winners, the best reply gets the best
+    // prize, one address holding both gets their sum. The remainder of the division stays unclaimed.
+    const winnerCount = int(o, 'winners', 0, 10_000)
+    const each = winnerCount > 0 ? (poolAtomic - bestAtomic) / BigInt(winnerCount) : 0n
+    // A handle among the first `winners` of draw_order also won a random prize, so its single leaf holds both.
+    const drawn = new Set(drawOrder.slice(0, winnerCount))
+    for (const c of claims) {
+      const amount = BigInt(c.amount_atomic)
+      const expected = c.kind === 'random' ? each : drawn.has(c.handle) ? each + bestAtomic : bestAtomic
+      const ok = (c.kind === 'random' || bestAtomic > 0n) && amount === expected
+      if (!ok) throw new DropsError(`claims: ${c.handle}'s leaf is not its prize`)
+    }
+  }
 
   const t = obj(o.txs ?? {}, 'txs')
   const txs: Round['txs'] = {}
