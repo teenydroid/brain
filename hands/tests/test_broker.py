@@ -2077,5 +2077,105 @@ class NotesKeepTest(BrokerCase):
         self.assertIsNone(json.loads(proc.stdout)["taken"])
 
 
+class DiaryTest(BrokerCase):
+    """/diary and /diary-commit: the mind's copy of teenydroid/diary and its
+    mind/ folder, within MIND_DIARY_COMMITS_PER_DAY (teeny_hands.build.diaryclone
+    holds the rules; tests/build/test_diaryclone.py covers them)."""
+
+    def setUp(self):
+        super().setUp()
+        self.origin = self.scratch / "diary.git"
+        _git("init", "-q", "--bare", "-b", "main", str(self.origin))
+        work = self.scratch / "diary-upstream"
+        _git("init", "-q", "-b", "main", str(work))
+        (work / "README.md").write_text("# diary\n")
+        _git("-C", str(work), "add", "-A")
+        _git("-C", str(work), "-c", "user.name=op", "-c", "user.email=op@e", "commit", "-q", "-m", "seed")
+        _git("-C", str(work), "push", "-q", str(self.origin), "main")
+
+    def settings(self, **more):
+        super().settings(RECEIPTS_REMOTE=str(self.origin), RECEIPTS_GITHUB_TOKEN="fake-token-for-tests",
+                         SAFETY_JUDGE="0", **more)
+
+    @property
+    def tree(self):
+        return self.home / "diary"
+
+    def written(self):
+        code, out = self.post("/diary")
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        (self.tree / "mind").mkdir(exist_ok=True)
+        (self.tree / "mind" / "log.md").write_text("a week of building\n")
+
+    def on_origin(self, path):
+        done = subprocess.run(["git", "--git-dir", str(self.origin), "show", f"main:{path}"],
+                              capture_output=True, text=True)
+        return done.stdout if done.returncode == 0 else None
+
+    def today(self):
+        path = self.root / "state" / "broker" / "diary-commits.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def test_diary_checks_out_a_copy_beside_repo(self):
+        self.start()
+        code, out = self.post("/diary")
+        self.assertEqual((code, out["status"], Path(out["path"]), out["yours"]), (200, "ok", self.tree, "mind/"))
+        self.assertEqual((self.tree / "README.md").read_text(), "# diary\n")
+        self.assertEqual(self.ledger()[-1]["verb"], "diary")
+
+    def test_commits_are_off_until_the_setting_says_how_many(self):
+        self.start()
+        self.written()
+        code, out = self.post("/diary-commit", {"message": "mind: a week"})
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("MIND_DIARY_COMMITS_PER_DAY", out["reason"])
+        self.assertIsNone(self.on_origin("mind/log.md"))
+
+    def test_a_commit_is_pushed_and_counts_against_the_day(self):
+        self.start(MIND_DIARY_COMMITS_PER_DAY="1")
+        self.written()
+        code, out = self.post("/diary-commit", {"message": "mind: a week"})
+        self.assertEqual((code, out["status"]), (200, "ok"), out)
+        self.assertEqual(self.on_origin("mind/log.md"), "a week of building\n")
+        self.assertEqual(self.today(), {"day": "2026-09-14", "count": 1})
+        (self.tree / "mind" / "more.md").write_text("more\n")
+        code, out = self.post("/diary-commit", {"message": "mind: more"})
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("spent", out["reason"])
+
+    def test_a_refused_commit_spends_nothing(self):
+        self.start(MIND_DIARY_COMMITS_PER_DAY="1")
+        self.written()
+        (self.tree / "wallet.json").write_text("{}\n")
+        code, out = self.post("/diary-commit", {"message": "mind: forged"})
+        self.assertEqual((code, out["status"]), (403, "refused"))
+        self.assertIn("mind/", out["reason"])
+        self.assertIsNone(self.today())
+        for body in ({}, {"message": "m", "path": "x"}):
+            code, out = self.post("/diary-commit", body)
+            self.assertEqual((code, out["status"]), (403, "refused"), body)
+
+    def test_a_rehearsing_mind_pushes_nothing_and_spends_nothing(self):
+        self.start(MIND_DIARY_COMMITS_PER_DAY="1", MIND_DRY_RUN="1")
+        self.written()
+        code, out = self.post("/diary-commit", {"message": "mind: a week"})
+        self.assertEqual((code, out["status"], out.get("dry_run")), (200, "ok", True), out)
+        self.assertIsNone(self.on_origin("mind/log.md"))
+        self.assertIsNone(self.today())
+
+    def test_the_client_reaches_both(self):
+        self.start(MIND_DIARY_COMMITS_PER_DAY="1")
+        client = lambda *argv: subprocess.run([str(self.home / "bin" / "teeny"), *argv], capture_output=True,
+                                              text=True, timeout=60, env={"PATH": os.environ["PATH"]})
+        proc = client("diary")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        (self.tree / "mind").mkdir()
+        (self.tree / "mind" / "log.md").write_text("hi\n")
+        proc = client("diary-commit", json.dumps({"message": "mind: hi"}))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.on_origin("mind/log.md"), "hi\n")
+        self.assertIn("teeny diary-commit", client("help").stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
