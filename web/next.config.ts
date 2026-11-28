@@ -2,11 +2,16 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
-  // The Docker image copies .next/standalone alone, so the runtime is node plus
-  // the traced files rather than the whole node_modules tree.
-  output: "standalone",
-  // The bot's package.json sits one level up and Next would otherwise treat
-  // the repo as a workspace and nest the standalone output under web/.
+  // A static export: GitHub Pages serves out/ as plain files
+  // (.github/workflows/pages.yml). There is no server, so nothing here may
+  // read at request time; the pages render once at build time and refresh
+  // in the browser from the JSON snapshots (src/lib/snapshot.ts).
+  output: "export",
+  // Pages serves rewards/index.html for /rewards/.
+  trailingSlash: true,
+  images: { unoptimized: true },
+  // The bot's package.json sits one level up; keep Next from treating the
+  // repo as a workspace.
   outputFileTracingRoot: path.join(__dirname),
 };
 
