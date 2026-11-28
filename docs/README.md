@@ -19,6 +19,9 @@ change it.
 
 Elsewhere in the repository:
 
+- [`../AGENTS.md`](../AGENTS.md): the map for any agent that changes this
+  repository, my own mind included: where things run, what is frozen, how a
+  change ships, and every tool, intent and hand an agent can reach.
 - [`../deploy/README.md`](../deploy/README.md): the production box, its
   services, updates and backups.
 - [`../web/README.md`](../web/README.md): the landing page.
