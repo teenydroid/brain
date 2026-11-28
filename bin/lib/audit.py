@@ -418,12 +418,19 @@ def publish(page: Mapping[str, Any]) -> Json:
 
 def record_boot(commit: str | None = None, at: float | None = None) -> Json:
     """One line in state/boots.jsonl: when the spine booted and on which
-    commit, and whether it was a last-good fallback."""
+    commit, and whether it was a last-good fallback: the boot is one only
+    while it runs the commit state/spine-fallback.json fell back to. The
+    marker stays until the operator clears it, so a later boot of another
+    commit is an ordinary one."""
     if commit is None:
         got = subprocess.run(["git", "-C", str(root()), "rev-parse", "HEAD"], capture_output=True, text=True)
         commit = got.stdout.strip() if got.returncode == 0 else "unknown"
-    row = {"at": iso(hand.now() if at is None else at), "commit": commit,
-           "fallback": (state() / "spine-fallback.json").exists()}
+    try:
+        marker = json.loads((state() / "spine-fallback.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = None
+    fell_back = isinstance(marker, dict) and bool(marker.get("to")) and commit.startswith(str(marker["to"])[:12])
+    row = {"at": iso(hand.now() if at is None else at), "commit": commit, "fallback": fell_back}
     path = state() / "boots.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:

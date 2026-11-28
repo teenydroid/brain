@@ -283,6 +283,15 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(rows[0]["at"], audit.iso(NOW))
         self.assertFalse(rows[0]["fallback"])
 
+    def test_a_stale_fallback_marker_does_not_flag_a_boot_of_another_commit(self):
+        # #634: the marker stays until the operator clears it; boots of HEAD after it are not fallbacks.
+        (self.root / "state").mkdir(exist_ok=True)
+        (self.root / "state" / "spine-fallback.json").write_text(json.dumps({"from": "d" * 40, "to": "b" * 40}))
+        audit.record_boot("c" * 40, at=NOW)
+        audit.record_boot("b" * 40, at=NOW)
+        rows = [json.loads(line) for line in (self.root / "state" / "boots.jsonl").read_text().splitlines()]
+        self.assertEqual([r["fallback"] for r in rows], [False, True])
+
     def test_the_page_goes_beside_the_receipts_through_the_secret_gate(self):
         remote = self.root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
