@@ -525,6 +525,44 @@ class OneTakeBudgetTest(unittest.TestCase):
                 self.assertIn("over the guard's 1000", note["failed"])
                 self.assertIn("could not be made", attempt["result"])
 
+    def test_a_cut_a_few_characters_over_is_trimmed_and_goes_out(self):
+        # The 23:00 slot of 2026-11-27: the writer's cuts came back at 1006,
+        # 1031 and 1101 characters, and each ranked skit was thrown away for
+        # the image below it. A cut that close is trimmed to fit instead.
+        shots = copy.deepcopy(SHORT_SHOTS)
+        padding = " The crowd of chrome robots cheers and throws bolts like confetti."
+        probe = skit_post(raw={**RAW, "shots": shots})["skit"]
+        while studio.skit_script_length(probe) <= studio.SKIT_SCRIPT_LIMIT + 10:
+            shots[1]["prompt"] += padding
+            probe = skit_post(raw={**RAW, "shots": shots})["skit"]
+        over = studio.skit_script_length(probe)
+        room = self.room([{"skit": {"look": LOOK, "setting": SETTING, "score": SCORE, "shots": shots}}])
+        result, attempt, calls = self.go(room, long_skit_post())
+        self.assertEqual(result, "posted", attempt)
+        note = attempt["skit"]["shortened"]
+        self.assertTrue(note["kept"])
+        self.assertTrue(note["trimmed"])
+        self.assertLess(note["after"], over)
+        self.assertLessEqual(note["after"], studio.SKIT_SCRIPT_LIMIT)
+        self.assertTrue(all(len(b["text"]) <= 1000 for a, b, *_ in room.seen if a[:2] == ["guard", "check"]))
+
+    def test_trimming_never_rewrites_a_skit_far_over_its_budget(self):
+        far = skit_post(raw={**RAW, "shots": LONG_SHOTS})["skit"]
+        self.assertIsNone(studio.skit_trim(far))
+
+    def test_trimming_drops_a_middle_shot_and_keeps_the_first_and_last(self):
+        shots = [{"prompt": f"shot {n}: " + "the robotaxi honks at the moon and Musk bows " * (3 if n == 2 else 1),
+                  "seconds": 5} for n in range(1, 5)]
+        skit = skit_post(raw={**RAW, "shots": shots})["skit"]
+        while studio.skit_script_length(skit) <= studio.SKIT_SCRIPT_LIMIT:
+            skit["setting"] += " under a second moon"
+        trimmed = studio.skit_trim(skit)
+        self.assertIsNotNone(trimmed)
+        prompts = [s["prompt"] for s in trimmed["shots"]]
+        self.assertEqual(len(prompts), 3)
+        self.assertTrue(prompts[0].startswith("shot 1") and prompts[-1].startswith("shot 4"))
+        self.assertEqual(studio.skit_over(trimmed), "")
+
     def test_a_cut_that_breaks_the_skits_shape_is_not_kept(self):
         room = self.room([{"skit": {"shots": SHORT_SHOTS + SHORT_SHOTS}}])
         result, attempt, calls = self.go(room, long_skit_post())
