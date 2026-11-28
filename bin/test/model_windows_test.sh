@@ -74,6 +74,11 @@ TEENY_BRAIN="$scratch/brain" register_windows
 check "a lane's model and fallbacks get their windows, SPINE_MODEL once" \
   test "$(ids)" = glm-5.3-flash,claude-fable-5.2,gemini-3.1-pro
 reset
+printf '[[lane]]\nid = "free"\nmodel = "local-openai/gemini-3.1-pro"\nfallbacks = 1\nmatch = ["agent:mind:*"]\n[[lane]]\nid = "bad"\nfallbacks = "x"\nmodel = "gemini-3.1-pro"\nmatch = ["y"]\n' >"$scratch/brain/lanes.toml"
+TEENY_BRAIN="$scratch/brain" register_windows
+check "a prefixed lane model gets its bare id's window, and a scalar fallbacks costs nothing" \
+  test "$(ids)" = glm-5.3-flash,claude-fable-5.2,gemini-3.1-pro
+reset
 printf 'not toml [' >"$scratch/brain/lanes.toml"
 TEENY_BRAIN="$scratch/brain" register_windows
 check "a broken lanes.toml costs nothing else" test "$(ids)" = glm-5.3-flash,claude-fable-5.2

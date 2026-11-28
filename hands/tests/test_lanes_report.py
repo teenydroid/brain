@@ -66,6 +66,13 @@ class LanesReportTest(unittest.TestCase):
         self.assertEqual((top["agent:x-reply:x:1"]["tokens"], top["agent:x-reply:x:1"]["peak_day"]), (500, 400))
         self.assertEqual(top["agent:x-reply:x:1"]["days_over"], ["2026-11-27"])
 
+    def test_a_session_that_changes_lanes_is_counted_separately_in_each(self):
+        self.day("2026-11-28", row("wake", "agent:x-reply:x:1", 900), row("locked", "agent:x-reply:x:1", 350))
+        out = lanes_report.report(self.toml, self.ledger, 1, today=TODAY)
+        by_lane = {t["lane"]: t for t in out["top_threads"]}
+        self.assertEqual((by_lane["wake"]["tokens"], by_lane["wake"]["days_over"]), (900, []))
+        self.assertEqual((by_lane["locked"]["tokens"], by_lane["locked"]["peak_day"], by_lane["locked"]["days_over"]), (350, 350, ["2026-11-28"]))
+
     def test_only_the_days_asked_for(self):
         self.day("2026-11-27", row("locked", "agent:x-reply:x:1", 400))
         self.day("2026-11-28", row("locked", "agent:x-reply:x:1", 10))

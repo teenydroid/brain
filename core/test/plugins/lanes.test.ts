@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -139,6 +139,44 @@ describe("the ledger (log only)", () => {
     const now = Date.UTC(2026, 10, 28, 12);
     writeFileSync(join(cfg.ledgerDir, "usage-2026-11-28.jsonl"), '{"lane":"locked","session":"agent:x-reply:x:1","total":5}\n{"lane":"lo');
     expect(new Ledger(cfg).record({ ts: now, session: "agent:x-reply:x:1", total: 1 }).threadDay).toBe(6);
+    // the new row starts on its own line, so a restart still finds it
+    expect(new Ledger(cfg).record({ ts: now, session: "agent:x-reply:x:1", total: 1 }).threadDay).toBe(7);
+  });
+
+  it("keeps a row recoverable when it follows a torn last line", () => {
+    const cfg = config();
+    const now = Date.UTC(2026, 10, 28, 12);
+    writeFileSync(join(cfg.ledgerDir, "usage-2026-11-28.jsonl"), '{"lane":"locked","session":"agent:x-reply:x:1","total":5}\n{"lane":"lo');
+    new Ledger(cfg).record({ ts: now, session: "agent:x-reply:x:1", total: 350 });
+    const reloaded = new Ledger(cfg).record({ ts: now + 1, session: "agent:x-reply:x:1", total: 1 });
+    expect(reloaded.threadDay).toBe(356);
+    expect(reloaded.over).toBeUndefined(); // the cap warning saved in the row survived
+  });
+
+  it("counts nothing and warns nothing for a row it could not write, then recovers", () => {
+    const good = mkdtempSync(join(tmpdir(), "lanes-"));
+    const blocker = join(good, "blocker");
+    writeFileSync(blocker, "x");
+    const cfg = config({ ledgerDir: join(blocker, "ledger") }); // a file where the directory should be
+    const ledger = new Ledger(cfg);
+    const now = Date.UTC(2026, 10, 28, 12);
+    expect(() => ledger.record({ ts: now, session: "agent:x-reply:x:1", total: 350 })).toThrow();
+    (cfg as { ledgerDir: string }).ledgerDir = good;
+    const row = ledger.record({ ts: now + 1, session: "agent:x-reply:x:1", total: 10 });
+    expect(row).toMatchObject({ threadDay: 10, laneDay: 10 });
+    const over = ledger.record({ ts: now + 2, session: "agent:x-reply:x:1", total: 350 });
+    expect(over.over).toEqual(["thread"]);
+  });
+
+  it("retries the day's file when reading it failed", () => {
+    const cfg = config();
+    const now = Date.UTC(2026, 10, 28, 12);
+    mkdirSync(join(cfg.ledgerDir, "usage-2026-11-28.jsonl")); // a directory: readFileSync throws EISDIR
+    const ledger = new Ledger(cfg);
+    expect(() => ledger.record({ ts: now, session: "agent:x-reply:x:1", total: 1 })).toThrow();
+    rmSync(join(cfg.ledgerDir, "usage-2026-11-28.jsonl"), { recursive: true });
+    writeFileSync(join(cfg.ledgerDir, "usage-2026-11-28.jsonl"), '{"lane":"locked","session":"agent:x-reply:x:1","total":5}\n');
+    expect(ledger.record({ ts: now, session: "agent:x-reply:x:1", total: 1 }).threadDay).toBe(6);
   });
 });
 

@@ -54,10 +54,17 @@ if len(sys.argv) > 2 and sys.argv[2]:
     except (OSError, tomllib.TOMLDecodeError):
         lanes = []
 for lane in lanes if isinstance(lanes, list) else []:
-    names = [lane.get("model")] + list(lane.get("fallbacks") or []) if isinstance(lane, dict) else []
+    if not isinstance(lane, dict):
+        continue
+    fallbacks = lane.get("fallbacks")
+    names = [lane.get("model")] + (fallbacks if isinstance(fallbacks, list) else [])
     for value in names:
-        if isinstance(value, str) and value.strip() and value.strip() not in seen:
-            seen.append(value.strip())
+        if not isinstance(value, str) or not value.strip():
+            continue
+        # The plugin passes a prefixed id through; the endpoint lists bare ids.
+        value = value.strip().removeprefix("local-openai/")
+        if value and value not in seen:
+            seen.append(value)
 print(" ".join(seen))
 PY
   )" || studio_models=""

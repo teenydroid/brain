@@ -62,9 +62,9 @@ def report(lanes_toml: Path, ledger: Path, days: int, today: dt.date | None = No
     span = [(today - dt.timedelta(days=n)).isoformat() for n in range(days - 1, -1, -1)]
     limits = caps(lanes_toml)
     lane_day: dict[tuple[str, str], int] = {}
-    thread_day: dict[tuple[str, str], int] = {}
+    thread_day: dict[tuple[str, str, str], int] = {}
     lanes: dict[str, dict[str, Any]] = {}
-    threads: dict[str, dict[str, Any]] = {}
+    threads: dict[tuple[str, str], dict[str, Any]] = {}
     for day, r in rows(ledger, span):
         lane, session, total = r["lane"], r["session"], r["total"]
         l = lanes.setdefault(lane, {"tokens": 0, "calls": 0, "models": {}})
@@ -72,21 +72,21 @@ def report(lanes_toml: Path, ledger: Path, days: int, today: dt.date | None = No
         l["calls"] += 1
         model = r.get("model") if isinstance(r.get("model"), str) else "unknown"
         l["models"][model] = l["models"].get(model, 0) + total
-        t = threads.setdefault(session, {"session": session, "lane": lane, "tokens": 0, "calls": 0})
+        t = threads.setdefault((lane, session), {"session": session, "lane": lane, "tokens": 0, "calls": 0})
         t["tokens"] += total
         t["calls"] += 1
         lane_day[(lane, day)] = lane_day.get((lane, day), 0) + total
-        thread_day[(session, day)] = thread_day.get((session, day), 0) + total
+        thread_day[(lane, session, day)] = thread_day.get((lane, session, day), 0) + total
     for lane, l in lanes.items():
         cap = limits.get(lane, {}).get("daily")
         l["daily_cap"] = cap
         l["days_over"] = sorted(d for (ln, d), n in lane_day.items() if ln == lane and cap and n > cap)
-    top = sorted(threads.values(), key=lambda t: (-t["tokens"], t["session"]))[:TOP_THREADS]
+    top = sorted(threads.values(), key=lambda t: (-t["tokens"], t["session"], t["lane"]))[:TOP_THREADS]
     for t in top:
         cap = limits.get(t["lane"], {}).get("thread_daily")
         t["daily_cap"] = cap
-        t["peak_day"] = max((n for (s, _), n in thread_day.items() if s == t["session"]), default=0)
-        t["days_over"] = sorted(d for (s, d), n in thread_day.items() if s == t["session"] and cap and n > cap)
+        t["peak_day"] = max((n for (ln, s, _), n in thread_day.items() if ln == t["lane"] and s == t["session"]), default=0)
+        t["days_over"] = sorted(d for (ln, s, d), n in thread_day.items() if ln == t["lane"] and s == t["session"] and cap and n > cap)
     return {"days": span, "enforced": False, "lanes": dict(sorted(lanes.items())), "top_threads": top}
 
 

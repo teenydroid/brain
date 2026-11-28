@@ -1,7 +1,7 @@
 // The lanes: which model a session runs on, and a ledger of the tokens each lane and each thread spends.
 // Pure and synchronous so the tests can drive it without a Gateway. The config comes from brain/lanes.toml,
 // parsed and checked by the core (core/src/agents/lanes.ts) and checked again here, since a plugin trusts no one.
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Lane {
@@ -122,6 +122,25 @@ export interface UsageRow {
   over?: ("lane" | "thread")[];
 }
 
+/** True when the file exists, is not empty and does not end in a newline. */
+function endsMidLine(file: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(file, "r");
+  } catch {
+    return false;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    if (size === 0) return false;
+    const b = Buffer.alloc(1);
+    readSync(fd, b, 0, 1, size - 1);
+    return b[0] !== 0x0a;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export const utcDay = (ts: number): string => new Date(ts).toISOString().slice(0, 10);
 
 /**
@@ -141,24 +160,30 @@ export class Ledger {
   }
 
   private load(day: string): void {
-    this.day = day;
-    this.lanes.clear();
-    this.threads.clear();
-    this.warned.clear();
+    // Read into temporary state and commit only once the whole file has been read, so a failed read
+    // leaves the ledger untouched and is retried on the next call.
+    const lanes = new Map<string, number>();
+    const threads = new Map<string, number>();
+    const warned = new Set<string>();
     const file = this.file(day);
-    if (!existsSync(file)) return;
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const r = JSON.parse(line) as UsageRow;
-        if (typeof r.total !== "number" || typeof r.lane !== "string" || typeof r.session !== "string") continue;
-        this.lanes.set(r.lane, (this.lanes.get(r.lane) ?? 0) + r.total);
-        this.threads.set(r.session, (this.threads.get(r.session) ?? 0) + r.total);
-        for (const o of r.over ?? []) this.warned.add(o === "lane" ? `lane:${r.lane}` : `thread:${r.session}`);
-      } catch {
-        // a torn line is skipped, never fatal
+    if (existsSync(file)) {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const r = JSON.parse(line) as UsageRow;
+          if (typeof r.total !== "number" || typeof r.lane !== "string" || typeof r.session !== "string") continue;
+          lanes.set(r.lane, (lanes.get(r.lane) ?? 0) + r.total);
+          threads.set(r.session, (threads.get(r.session) ?? 0) + r.total);
+          for (const o of r.over ?? []) warned.add(o === "lane" ? `lane:${r.lane}` : `thread:${r.session}`);
+        } catch {
+          // a torn line is skipped, never fatal
+        }
       }
     }
+    this.day = day;
+    this.lanes = lanes;
+    this.threads = threads;
+    this.warned = warned;
   }
 
   /** Records one model call's tokens; returns the row written. Never blocks or changes anything else. */
@@ -173,17 +198,9 @@ export class Ledger {
     const total = call.total ?? input + output;
     const laneDay = (this.lanes.get(laneId) ?? 0) + total;
     const threadDay = (this.threads.get(call.session) ?? 0) + total;
-    this.lanes.set(laneId, laneDay);
-    this.threads.set(call.session, threadDay);
     const over: ("lane" | "thread")[] = [];
-    if (lane?.dailyTokens && laneDay > lane.dailyTokens && !this.warned.has(`lane:${laneId}`)) {
-      this.warned.add(`lane:${laneId}`);
-      over.push("lane");
-    }
-    if (lane?.threadDailyTokens && threadDay > lane.threadDailyTokens && !this.warned.has(`thread:${call.session}`)) {
-      this.warned.add(`thread:${call.session}`);
-      over.push("thread");
-    }
+    if (lane?.dailyTokens && laneDay > lane.dailyTokens && !this.warned.has(`lane:${laneId}`)) over.push("lane");
+    if (lane?.threadDailyTokens && threadDay > lane.threadDailyTokens && !this.warned.has(`thread:${call.session}`)) over.push("thread");
     const row: UsageRow = {
       ts: call.ts,
       lane: laneId,
@@ -199,7 +216,15 @@ export class Ledger {
       ...(over.length ? { over } : {}),
     };
     mkdirSync(this.cfg.ledgerDir, { recursive: true, mode: 0o700 });
-    appendFileSync(this.file(day), `${JSON.stringify(row)}\n`, { mode: 0o600 });
+    const file = this.file(day);
+    // A crash can leave a last line without its newline; start on a fresh line so this row stays readable.
+    const prefix = endsMidLine(file) ? "\n" : "";
+    appendFileSync(file, `${prefix}${JSON.stringify(row)}\n`, { mode: 0o600 });
+    // Totals and warning markers move only once the row is on disk.
+    this.lanes.set(laneId, laneDay);
+    this.threads.set(call.session, threadDay);
+    if (over.includes("lane")) this.warned.add(`lane:${laneId}`);
+    if (over.includes("thread")) this.warned.add(`thread:${call.session}`);
     return row;
   }
 }
