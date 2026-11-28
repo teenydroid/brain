@@ -111,6 +111,13 @@ catch_up = true
 # is also what lets bin/spine start the broker. Pinned so the brain cannot
 # move or silence its base wake; the mind adds its own in brain/cron.toml
 # and through `teeny wake`.
+#
+# 2026-11-27 (the operator's decision): each wake opens with a bounded inbox
+# pass over what waits (X mentions at `offered`, mail): at most 3 X replies and
+# 2 mail replies, enforced per run by teeny-guardrails, then its own work
+# (brain/agents/mind.md). The turn deadline is 1500 s (bin/lib/teeny.sh), under
+# the 1800 s between slots, and OpenClaw refuses a scheduled run of a job that
+# is still running, so wakes skip rather than queue (docs/mind.md, "The wake").
 [jobs.mind]
 schedule = "*/30 * * * *"
 agent = "mind"

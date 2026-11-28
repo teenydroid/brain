@@ -7,13 +7,14 @@
 //   - a plain program name on this agent's list (read-only, writers, tools).
 // A path to anything else, however spelled, is refused: the program is never
 // looked up on PATH unless its name is on the list.
-import { statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import { checkPath, expandHome, realish, type PathRules } from "./paths.js";
 import { parseCommand, shellQuote, type Segment, type Word } from "./shell.js";
-import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
+import type { AgentPolicy, GuardrailsPolicy, NativePolicy } from "./policy.js";
 
-export type ExecVerdict = { ok: true; command: string; cwd: string } | { ok: false; reason: string };
+/** `acting` counts the calls to a native playbook's acting hand in the command. */
+export type ExecVerdict = { ok: true; command: string; cwd: string; acting: number; actingLast: boolean } | { ok: false; reason: string };
 
 /** In hands/ but not hands. */
 const NOT_HANDS = new Set(["README.md", "lib", "tests"]);
@@ -222,7 +223,26 @@ function judgePackageManager(name: string, args: Word[]): string | undefined {
   return undefined;
 }
 
-function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment, cwd: string): { rewrites: { start: number; end: number; to: string }[] } | { reason: string } {
+type Rewrite = { start: number; end: number; to: string };
+
+const sameArgv = (a: string[], b: string[]): boolean => a.length === b.length && a.every((w, i) => w === b[i]);
+const startsWith = (a: string[], prefix: string[]): boolean => prefix.length <= a.length && prefix.every((w, i) => w === a[i]);
+
+/**
+ * A native playbook's shell runs exactly its own commands: each input as declared (and with DRY_RUN=1 put in
+ * front of it, whatever the agent typed), its acting hand's verb (counted), and its media helpers. Any other
+ * hand, or another verb of these, is refused.
+ */
+function judgeNative(n: NativePolicy, handName: string, args: string[]): { kind: "input" | "acting" | "helper" } | { reason: string } {
+  const argv = [`hands/${handName}`, ...args];
+  if (n.inputs.some((i) => sameArgv(i, argv))) return { kind: "input" };
+  if (n.hand && n.hand.name === handName && n.hand.verbs.includes(args[0] ?? "")) return { kind: "acting" };
+  if (n.helpers.some((h) => startsWith(argv, h))) return { kind: "helper" };
+  const verbs = n.hand ? `, and hands/${n.hand.name} ${n.hand.verbs.join("/")}` : "";
+  return { reason: `${n.playbook} may not run ${argv.slice(0, 3).join(" ")}: it runs its own inputs${verbs} (docs/native-playbooks.md)` };
+}
+
+function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment, cwd: string): { rewrites: Rewrite[]; acting?: number } | { reason: string } {
   const exec = agent.exec as NonNullable<AgentPolicy["exec"]>;
   const rules = pathRules(policy, agent, cwd);
   const rewrites: { start: number; end: number; to: string }[] = [];
@@ -254,12 +274,26 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
     const resolved = resolveProgramPath(policy, agent, prog, cwd);
     if ("reason" in resolved) return resolved;
     // Run exactly the file that was judged, whatever the shell's working folder is.
-    rewrites.push({ start: prog.start, end: prog.start + prog.text.length, to: shellQuote(resolved.path) });
+    let to = shellQuote(resolved.path);
+    let acting = 0;
+    if (exec.native) {
+      const judged = judgeNative(exec.native, basename(resolved.path), words.slice(1).map((w) => w.text));
+      if ("reason" in judged) return judged;
+      // An input only reads: DRY_RUN=1 is put in front of it, as bin/act forced it. The acting hand keeps the
+      // environment it was started with (DRY_RUN and the kill switches reach it unchanged), plus the playbook's
+      // name as TEENY_WRITER for a `hand:` output, which bin/act set the same way.
+      if (judged.kind === "input") to = `DRY_RUN=1 ${to}`;
+      else if (judged.kind === "acting") {
+        acting = 1;
+        if (exec.native.writer) to = `TEENY_WRITER=${shellQuote(exec.native.writer)} ${to}`;
+      }
+    }
+    rewrites.push({ start: prog.start, end: prog.start + prog.text.length, to });
     // A hand or the broker client takes its own words; they own their rules (the guard, caps, DRY_RUN).
     for (const w of args) {
       if (w.glob) return { reason: "a glob in a hand's arguments could name a file the hand was not meant to read" };
     }
-    return { rewrites };
+    return { rewrites, acting };
   }
 
   // A plain name: must be on this agent's list.
@@ -280,6 +314,9 @@ function checkSegment(policy: GuardrailsPolicy, agent: AgentPolicy, seg: Segment
     if (a.glob) return { reason: `quote the glob ${a.text}: an unquoted * ? [ is expanded by the shell after it was judged` };
     if (a.text.includes("\u0001")) return { reason: `"$(cat ...)" is only for the arguments of a hand or the broker, where it is data` };
   }
+  // A native playbook hands its body to the acting hand as `printf '%s' '<json>' | hands/x post`: the words are
+  // printed, never opened, so they are not paths (a post may say "and/or"). Substitution and globs are refused above.
+  if (exec.native && (name === "echo" || name === "printf") && seg.joiner === "|") return { rewrites };
   if (name === "find") {
     for (const a of args) if (FIND_DENIED.includes(a.text)) return { reason: `find ${a.text} can run or write files` };
     const paths: Word[] = [];
@@ -366,6 +403,7 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   if (params.elevated) return { ok: false, reason: "elevated exec is never allowed" };
   if (params.host !== undefined && params.host !== "auto" && params.host !== "gateway") return { ok: false, reason: "exec runs on the gateway host only" };
   if (params.node !== undefined && params.node !== "") return { ok: false, reason: "exec may not target a node" };
+  if (agent.exec?.native && params.background) return { ok: false, reason: "a background exec outlives its call and its exit code is never read: run in the foreground" };
   if (params.durable) return { ok: false, reason: "a durable process outlives the run and is not allowed" };
 
   let cwd = agent.workspace;
@@ -379,11 +417,17 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   const parsed = parseCommand(command);
   if (!parsed.ok) return { ok: false, reason: `command refused: ${parsed.reason}` };
   const rules = pathRules(policy, agent, cwd);
-  const rewrites: { start: number; end: number; to: string }[] = [];
+  const rewrites: Rewrite[] = [];
+  let acting = 0;
+  let lastActing = 0;
+  let pipeline = true;
   for (const seg of parsed.segments) {
+    if (seg.joiner !== "|" && seg.joiner !== "") pipeline = false;
     const verdict = checkSegment(policy, agent, seg, cwd);
     if ("reason" in verdict) return { ok: false, reason: verdict.reason };
     rewrites.push(...verdict.rewrites);
+    acting += verdict.acting ?? 0;
+    lastActing = verdict.acting ?? 0;
     for (const path of seg.catReads) {
       if (path.startsWith("~")) return { ok: false, reason: `$(cat ${path}): ~ is expanded by the shell, not by this guard` };
       const why = checkPath(rules, path, "read");
@@ -398,5 +442,88 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   }
   let out = command;
   for (const r of rewrites.sort((a, b) => b.start - a.start)) out = out.slice(0, r.start) + r.to + out.slice(r.end);
-  return { ok: true, command: out, cwd };
+  // The command exits with its last stage: only a pipeline that ends in the acting hand speaks for it.
+  return { ok: true, command: out, cwd, acting, actingLast: pipeline && lastActing > 0 && acting === 1 };
+}
+
+export type ReplyCounts = { x: number; mail: number };
+const REPLY_DO: Record<string, keyof ReplyCounts> = { reply_x: "x", reply_mail: "mail" };
+
+/**
+ * How many replies, by channel, one exec command would send: `hands/x reply`, `hands/mail reply` and
+ * `bin/teeny do` of a `reply_x` or `reply_mail`. Read from the same parse the judge used, so a
+ * `timeout N hands/x reply` or a chain counts each. A JSON body passed as "$(cat FILE)" is read from FILE (best
+ * effort; one that cannot be read counts as a reply of every channel, because the guard cannot tell it is not
+ * one). Used by the per-run caps in guard.ts, which count before the call.
+ */
+export function countReplies(command: string, cwd: string, readFile: (path: string) => string = (p) => readFileSync(p, "utf8")): ReplyCounts {
+  const n: ReplyCounts = { x: 0, mail: 0 };
+  const parsed = parseCommand(command);
+  if (!parsed.ok) return n;
+  for (const [index, seg] of parsed.segments.entries()) {
+    let words = seg.words;
+    while (words[0] && words[0].text === "timeout") {
+      let k = 1;
+      while (k < words.length && isFlag(words[k] as Word)) k++;
+      words = words.slice(k + 1);
+    }
+    const prog = words[0]?.text ?? "";
+    const args = words.slice(1);
+    // `hands/./x` and `hands//x` run the same hand as `hands/x`; count what the path resolves to.
+    const hand = /(^|\/)hands\/(x|mail)$/.exec(prog.includes("/") ? normalize(prog) : prog);
+    if (hand) {
+      // A verb that comes from a "$(cat FILE)" is unknown here: it counts as a reply, so it cannot be used to send one unseen.
+      const verb = args.find((a) => !isFlag(a))?.text;
+      if (verb === "reply" || verb?.includes("\u0001")) n[hand[2] as "x" | "mail"]++;
+    } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
+      let found = false;
+      for (const a of args.slice(1)) {
+        // A "$(cat FILE)" inside a longer argument is read by the broker as one text with the file spliced in, which
+        // the guard cannot see whole: it counts as a reply of every channel. A bare "$(cat FILE)" is read below.
+        if (a.text.includes("\u0001")) {
+          if (a.text !== "\u0001") {
+            n.x++;
+            n.mail++;
+            found = true;
+          }
+          continue;
+        }
+        // The client decodes the argument as JSON, so `reply\u005fx` is dispatched as `reply_x`. A JSON object is
+        // counted by its `do` alone: a reply's text that mentions `reply_x` is not a second reply. Anything else is
+        // read as text.
+        let verb: string | undefined;
+        try {
+          const j = JSON.parse(a.text) as unknown;
+          if (typeof j === "object" && j !== null) verb = typeof (j as { do?: unknown }).do === "string" ? ((j as { do: string }).do) : "";
+        } catch {
+          // not JSON
+        }
+        for (const [name, channel] of Object.entries(REPLY_DO)) {
+          if (verb !== undefined ? verb === name : new RegExp(`\\b${name}\\b`).test(a.text)) {
+            n[channel]++;
+            found = true;
+          }
+        }
+      }
+      if (found) continue;
+      for (const path of seg.catReads) {
+        // The file is read now, but the shell reads it when the command runs: an earlier part of the same command
+        // (cp, a redirect, a pipe) may have changed it by then. Only the first part is read as it stands; a later one
+        // counts as a reply of every channel.
+        if (index > 0) {
+          n.x++;
+          n.mail++;
+          continue;
+        }
+        try {
+          const verb = String((JSON.parse(readFile(resolve(cwd, path))) as { do?: unknown }).do);
+          if (REPLY_DO[verb]) n[REPLY_DO[verb]]++;
+        } catch {
+          n.x++;
+          n.mail++;
+        }
+      }
+    }
+  }
+  return n;
 }

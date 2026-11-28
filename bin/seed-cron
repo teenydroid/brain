@@ -88,7 +88,10 @@ current="$(oh cron_list | jq -c '[.[] | select((.name // "") | startswith("teeny
    command: (if .job_type == "agent" then null else .command end),
    agent: (if .job_type == "agent" then .agent_id else null end),
    prompt: (if .job_type == "agent" then .prompt else null end),
-   enabled: (if .enabled == null then true else .enabled end), next_run: (.next_run // null)}]')"
+   enabled: (if .enabled == null then true else .enabled end), next_run: (.next_run // null),
+   timeout_secs: (.timeout_secs // null)}]')"
+# The run deadline the core holds for agent jobs (bin/spine sets it at boot); empty when it cannot be read.
+want_secs="$(oh config_get_agent_settings 2>/dev/null | jq -r '.agent_timeout_secs // .result.agent_timeout_secs // empty' 2>/dev/null)" || want_secs=""
 
 plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
   ($have | group_by(.name) | map({key: .[0].name, value: .}) | from_entries) as $byname
@@ -136,6 +139,16 @@ while IFS= read -r step; do
   name="$(jq -r .name <<<"$job")"
   if [ "$op" = keep ]; then
     log "$(printf '%-6s %s' keep "$name")"
+    # An agent job keeps the run deadline it was added with. One that predates the setting, or whose setting has
+    # changed, is touched with a patch that changes nothing else: the core restates the deadline on any update of an
+    # agent job that holds a stale one.
+    if [ "$dry_run" != 1 ] && [ -n "$want_secs" ] && [ "$(jq -r .kind <<<"$job")" = agent ]; then
+      stale="$(jq -r --arg n "$name" --argjson w "$want_secs" '[.[] | select(.name == $n)][0] | if . != null and .timeout_secs != $w then .id else empty end' <<<"$current")"
+      if [ -n "$stale" ]; then
+        log "$(printf '%-6s %s  run deadline %ss' fix "$name" "$want_secs")"
+        oh cron_update "$(jq -cn --arg id "$stale" --argjson e "$(jq -c '.enabled' <<<"$job")" '{job_id: $id, patch: {enabled: $e}}')" >/dev/null
+      fi
+    fi
     continue
   fi
   log "$(printf '%-7s %s  %s' "$op" "$name" "$(jq -r '"\(.expr) \(.tz) " + (if .kind == "agent" then "agent:\(.agent)" else .command end)' <<<"$job")")"

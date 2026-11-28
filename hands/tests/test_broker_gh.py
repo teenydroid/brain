@@ -376,7 +376,7 @@ class GhClientTest(GhCase):
     def test_the_mind_prompt_and_its_skill_say_shipping_is_its_own(self):
         prompt = (REPO / "brain" / "agents" / "mind.md").read_text()
         self.assertIn("teeny gh", prompt)
-        self.assertLess(len(prompt), 9_100)  # test_prompts.test_the_minds_prompt_stays_lean says why
+        self.assertLess(len(prompt), 9_400)  # test_prompts.test_the_minds_prompt_stays_lean says why
         skill = (REPO / "brain" / "skills" / "home-tools" / "SKILL.md").read_text()
         for word in ("teeny gh create-repo", "teeny gh push", "teeny gh fork", "teeny gh open-pr", '"base"'):
             self.assertIn(word, skill)

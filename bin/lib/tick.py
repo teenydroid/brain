@@ -2466,7 +2466,9 @@ def _beat(deadline: float) -> Json:
     dispatched = dispatch()
     if dispatched:
         more["dispatched"] = dispatched
-    waiting = stimuli.pending()
+    # What the mind's heartbeat answers (stimuli.DRAINED) is not the tick's to dispatch.
+    heartbeat = stimuli.drained()
+    waiting = stimuli.pending(leave=heartbeat)
     asleep = rhythm.night_gate(waiting)
     if asleep:
         return _idle("asleep", raised, gathered, **asleep, **more)
@@ -2477,14 +2479,14 @@ def _beat(deadline: float) -> Json:
     if waiting:
         rhythm.stirred()
     elif rhythm.wander(_run_hand) or rhythm.quiet():
-        waiting = stimuli.pending()
+        waiting = stimuli.pending(leave=heartbeat)
     if not waiting:
         return _idle("idle", raised, gathered, resting=True, **more)
     # With no Moltbook comment left, the comments owed one wait in their
     # place, unshown, until the cap has room (rule 10).
     allowance = _comment_allowance()
     spent = allowance is not None and not allowance["left"]
-    batch = stimuli.take(MAX_STIMULI, MAX_CHARS, leave=[("moltbook", "comment")] if spent else ())
+    batch = stimuli.take(MAX_STIMULI, MAX_CHARS, leave=[*heartbeat, *([("moltbook", "comment")] if spent else [])])
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
         return _idle("idle", raised, gathered, **more)

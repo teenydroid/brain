@@ -60,6 +60,12 @@ export const NEVER_OUTPUTS: Record<string, string[]> = {
 /** Hands that hold secrets: an input runs only these verbs of theirs. */
 export const SECRET_READS: Record<string, string[]> = { keychain: ["list"] };
 export const MAX_INPUTS = 8;
+export const RUNS = ["act", "native"] as const;
+/** Mirrors playbook.py NATIVE_HANDS: the acting hands a native playbook may use, which guard inside themselves. */
+export const NATIVE_HANDS: Record<string, string[]> = { x: ["post", "reply", "like"], moltbook: ["post", "comment"] };
+/** Mirrors playbook.py STUDIO_HELD: bin/act holds these to the studio's switch. */
+export const STUDIO_HELD = ["x-quote", "morning", "take", "show", "shiplog", "growth", "brief", "peer-quote"];
+export const NATIVE_MEDIA = ["image", "video"];
 /** What a nudged playbook may ask of the mind. */
 export const NUDGE_OUTPUTS = ["post", "reply", "like", "none"];
 /** An input that runs a data job Teeny wrote: `datajob:<name>`. */
@@ -81,6 +87,9 @@ export interface PlaybookInput {
 
 export interface Playbook {
   name: string;
+  /** `act` is bin/act's draft and its hand; `native` is an OpenClaw agent turn of its own (docs/native-playbooks.md). */
+  run: "act" | "native";
+  max_per_run: number;
   nudge: boolean;
   description: string;
   media: string[];
@@ -198,6 +207,22 @@ function splitFrontMatter(text: string): string[] {
   return parts;
 }
 
+/** What a playbook that runs natively may be (playbook.py _check_native). */
+function checkNative(path: string, name: string, output: string, nudge: boolean, media: string[], inputs: PlaybookInput[]): void {
+  if (nudge) throw new PlaybookError(`${path}: a nudge goes to the mind and cannot run natively`);
+  if (STUDIO_HELD.includes(name)) throw new PlaybookError(`${path}: bin/act holds ${name} to the studio's switch (STUDIO), which a native turn would not`);
+  let hand = "";
+  let verb = "";
+  if (output.startsWith("hand:")) [hand, verb] = output.slice("hand:".length).split(/\s+/).filter((x) => x !== "") as [string, string];
+  else if (output === "post" || output === "reply" || output === "like") [hand, verb] = ["x", output];
+  if (output !== "none" && !(own(NATIVE_HANDS, hand) ?? []).includes(verb)) {
+    const native = Object.entries(NATIVE_HANDS).map(([h, v]) => `${h} ${v.join("/")}`).join("; ");
+    throw new PlaybookError(`${path}: hands/${hand || output} ${verb} cannot run natively (the native hands: ${native})`);
+  }
+  if (media.some((m) => !NATIVE_MEDIA.includes(m))) throw new PlaybookError(`${path}: a native playbook's media is image and/or video, not meme`);
+  if (inputs.some((i) => i.argv[0] === "datajob")) throw new PlaybookError(`${path}: a data job input cannot run natively (the shell runs hands only)`);
+}
+
 export function loadPlaybook(brain: string, name: string, options: LoadOptions = {}): Playbook {
   const { handsDir, repoRoot } = options;
   if (!fullMatch(NAME, name)) throw new PlaybookError(`bad playbook name ${pyRepr(name)}`);
@@ -222,7 +247,7 @@ export function loadPlaybook(brain: string, name: string, options: LoadOptions =
   let prompt = (parts[2] as string).trim();
   if (!prompt) throw new PlaybookError(`${path}: the prompt is empty`);
 
-  const known = new Set(["description", "output", "surface", "max_per_day", "inputs", "media", "nudge", "skills"]);
+  const known = new Set(["description", "output", "surface", "max_per_day", "inputs", "media", "nudge", "skills", "run", "max_per_run"]);
   const extra = Object.keys(meta).filter((k) => !known.has(k));
   if (extra.length > 0) throw new PlaybookError(`${path}: unknown keys: ${extra.sort().join(", ")}`);
   const description = meta.description;
@@ -326,8 +351,20 @@ export function loadPlaybook(brain: string, name: string, options: LoadOptions =
     prompt += `\n\n${skillBody(readFileSync(file, "utf8"))}`;
   }
 
+  const run = "run" in meta ? meta.run : "act";
+  if (typeof run !== "string" || !(RUNS as readonly string[]).includes(run)) {
+    throw new PlaybookError(`${path}: run is one of ${RUNS.join(", ")}, got ${pyRepr(run)}`);
+  }
+  const maxPerRun = "max_per_run" in meta ? meta.max_per_run : 1;
+  if (typeof maxPerRun !== "number" || !Number.isInteger(maxPerRun) || maxPerRun < 1 || maxPerRun > maxPerDay) {
+    throw new PlaybookError(`${path}: max_per_run is a whole number from 1 to max_per_day`);
+  }
+  if (run === "native") checkNative(path, name, output, nudge, media as string[], parsed);
+
   return {
     name,
+    run: run as "act" | "native",
+    max_per_run: maxPerRun,
     nudge,
     description: description.trim(),
     media: media as string[],

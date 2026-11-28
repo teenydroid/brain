@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# The inbox-pass block for the mind's beat (bin/lib/reply_pass.py): what waits
+# at `offered` and in the mail, about 1.5k characters, read-only. teeny-guardrails
+# runs it before each mind turn; it prints nothing when there is nothing to do.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec python3 -I "$TEENY_ROOT/bin/lib/reply_pass.py"

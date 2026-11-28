@@ -186,7 +186,8 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   const store = new SettingsStore(paths.stateDir, sealer);
   const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
   const cortexDir = cortexPluginIfPresent(join(paths.root, "core", "plugins", "teeny-cortexdb"));
-  const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir);
+  const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir, paths.root);
+  for (const [playbook, why] of Object.entries(catalog.nativeErrors)) log("warn", "a playbook says run = native but has no agent; its cron job will fail until it is fixed", { playbook, why });
   const secretFiles = { gatewayToken: gatewayTokenFile(paths.openclawDir), modelKey: join(paths.openclawDir, "model.key") };
   ensureGatewayToken(paths.openclawDir);
   const gatewayPort = Number(env.OPENCLAW_GATEWAY_PORT || DEFAULT_GATEWAY_PORT);

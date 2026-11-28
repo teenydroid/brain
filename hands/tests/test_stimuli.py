@@ -254,3 +254,24 @@ class CliTest(Scratch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HeartbeatDrainTest(Scratch):
+    def test_pending_and_take_leave_what_the_heartbeat_drains_and_close_finishes_one(self):
+        stimuli.add("x", "mention", "111", "hi @teeny", who="a")
+        stimuli.add("mail", "message", "m1", "hello", who="b")
+        stimuli.add("gh", "star", "r:1", "starred")
+        left = stimuli.DRAINED
+        self.assertEqual([s["ref"] for s in stimuli.pending(leave=left)], ["r:1"])
+        self.assertEqual(len(stimuli.pending()), 3)
+        batch = stimuli.take(20, 30_000, leave=left)
+        self.assertEqual([s["ref"] for s in batch["stimuli"]], ["r:1"])
+        self.assertEqual(stimuli.close("x", "111"), 1)
+        self.assertEqual(stimuli.close("x", "111"), 0, "closing twice changes nothing")
+        self.assertEqual([s["ref"] for s in stimuli.pending()], ["m1"])
+
+    def test_the_close_verb_is_a_hand_verb(self):
+        stimuli.add("mail", "message", "m2", "hello")
+        out = subprocess.run([str(HAND), "close"], input=json.dumps({"surface": "mail", "ref": "m2"}),
+                             capture_output=True, text=True, env={**os.environ})
+        self.assertEqual(json.loads(out.stdout)["closed"], 1, out.stderr)

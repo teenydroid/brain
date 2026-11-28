@@ -18,6 +18,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
 import { parsePolicy } from "./policy.js";
+import { wakeContext } from "./wake.js";
 
 export const PLUGIN_ID = "teeny-guardrails";
 
@@ -61,9 +62,17 @@ export default definePluginEntry({
 
     api.on(
       "after_tool_call",
-      (event) => {
+      (event, ctx) => {
+        const tool = event.toolName.toLowerCase();
+        // A native playbook's hand that refused (exit 2) gives its day's reservation back (native.ts). Observation
+        // only: the count and the lock are taken in before_tool_call, and a lost hook leaves the count where it was.
+        if (tool === "exec") {
+          const runId = event.runId ?? ctx.runId;
+          guard?.observe({ toolName: event.toolName, params: (event.params ?? {}) as Record<string, unknown>, result: event.result }, { ...(ctx.agentId ? { agentId: ctx.agentId } : {}), ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), ...(runId ? { runId } : {}) });
+          return;
+        }
         const policy = guard?.policy;
-        if (!policy?.picturesDir || event.toolName.toLowerCase() !== "browser") return;
+        if (!policy?.picturesDir || tool !== "browser") return;
         if ((event.params as { action?: unknown } | undefined)?.action !== "screenshot") return;
         // Never keep a picture of a page a password was just typed into.
         if (guard && guard.browserState.secrets.size > 0) return;
@@ -75,8 +84,18 @@ export default definePluginEntry({
           }
         }
       },
-      { matcher: ["browser"] },
+      { matcher: ["browser", "exec"] },
     );
+
+    api.on("before_prompt_build", async (_event, ctx) => {
+      const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId);
+      return queue ? { prependContext: queue } : undefined;
+    });
+
+    // The run is over: its lock is released and its record written (native.ts).
+    api.on("agent_end", (event, ctx) => {
+      guard?.runEnded(event, { ...(ctx.agentId ? { agentId: ctx.agentId } : {}), ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), ...(ctx.runId ? { runId: ctx.runId } : {}) });
+    });
 
     // Last: the hooks above are registered. The core's supervisor stops a Gateway that has not written this
     // (an agent's exec runs with OpenClaw's own check off, so a Gateway without the gate must not serve).

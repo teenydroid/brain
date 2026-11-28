@@ -142,20 +142,20 @@ describe("raw http tools", () => {
 });
 
 describe("the per-run tool-call budget", () => {
-  it("lets the mind make 300 calls a wake and refuses the 301st", async () => {
+  it("lets the mind make 250 calls a wake and refuses the 251st", async () => {
     const f = makeFixture();
-    expect(f.agent("mind").maxToolCalls).toBe(300);
-    for (let i = 1; i <= 299; i++) {
+    expect(f.agent("mind").maxToolCalls).toBe(250);
+    for (let i = 1; i <= 249; i++) {
       const d = await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" });
       if (d) throw new Error(`call ${i} was refused: ${blocked(d)}`);
     }
-    // a call refused by an ordinary policy check is call 300 and counts
+    // a call refused by an ordinary policy check is call 250 and counts
     expect(blocked(await f.call("mind", "read", { path: "../../secrets/teeny.env" }, { runId: "wake-1" }))).toMatch(/closed/);
     // the next call would be allowed on its merits: it is the budget that refuses it
-    expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
-    expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
+    expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/250 tool calls/);
+    expect(blocked(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-1" }))).toMatch(/250 tool calls/);
     // a refused call still counts: the run cannot probe its way past the cap
-    expect(blocked(await f.call("mind", "read", { path: "work/a.txt" }, { runId: "wake-1" }))).toMatch(/300 tool calls/);
+    expect(blocked(await f.call("mind", "read", { path: "work/a.txt" }, { runId: "wake-1" }))).toMatch(/250 tool calls/);
     // another wake starts fresh
     expect(await f.call("mind", "tool_search", { query: "x" }, { runId: "wake-2" })).toBeUndefined();
   });
@@ -184,6 +184,90 @@ describe("the per-run tool-call budget", () => {
     for (let i = 0; i < 30; i++) await f.call("operator", "tool_search", {}, { runId: "recent" });
     expect(await f.call("operator", "tool_search", {}, { runId: "old" })).toBeUndefined();
     expect(blocked(await f.call("operator", "tool_search", {}, { runId: "recent" }))).toMatch(/30 tool calls/);
+  });
+});
+
+describe("the per-run reply caps (the mind's inbox pass)", () => {
+  const x = (f: ReturnType<typeof makeFixture>, runId: string, agent = "mind") => f.call(agent, "exec", { command: "hands/x reply --to 1" }, { runId });
+  const mail = (f: ReturnType<typeof makeFixture>, runId: string) => f.call("mind", "exec", { command: "hands/mail reply" }, { runId });
+
+  it("the mind and its worker hold 3 X replies and 2 mail replies a run, and no one else holds a cap", () => {
+    const f = makeFixture();
+    expect(f.agent("mind").replyCaps).toEqual({ x: 3, mail: 2 });
+    expect(f.agent("worker").replyCaps).toEqual({ x: 3, mail: 2 });
+    expect(f.agent("operator").replyCaps).toBeUndefined();
+  });
+
+  it("refuses the 4th hands/x reply in one mind run; another run and another agent are unaffected", async () => {
+    const f = makeFixture();
+    for (let i = 0; i < 3; i++) expect(blocked(await x(f, "beat-1")), `reply ${i + 1}`).toBeUndefined();
+    expect(blocked(await x(f, "beat-1"))).toMatch(/already sent its 3 X replies/);
+    expect(blocked(await x(f, "beat-1"))).toMatch(/already sent its 3 X replies/);
+    // a read of the same hand is not a reply
+    expect(blocked(await f.call("mind", "exec", { command: "hands/x mentions --status offered" }, { runId: "beat-1" }))).toBeUndefined();
+    // the next beat starts fresh
+    expect(blocked(await x(f, "beat-2"))).toBeUndefined();
+    // the worker's own run has its own count
+    expect(blocked(await x(f, "beat-1", "worker"))).toBeUndefined();
+  });
+
+  it("refuses the 3rd mail reply, counts the broker's reply_x and the timeout wrapper, and the channels are separate", async () => {
+    const f = makeFixture();
+    expect(blocked(await mail(f, "b"))).toBeUndefined();
+    expect(blocked(await mail(f, "b"))).toBeUndefined();
+    expect(blocked(await mail(f, "b"))).toMatch(/already sent its 2 mail replies/);
+    expect(blocked(await f.call("mind", "exec", { command: "timeout 30 hands/x reply --to 1" }, { runId: "b" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "bin/teeny do '{\"do\": \"reply_x\", \"to\": \"1\", \"text\": \"hi\"}'" }, { runId: "b" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/x reply --to 2 && hands/x reply --to 3" }, { runId: "b" }))).toMatch(/3 X replies/);
+  });
+
+  it("counts a hand named through a dotted path and a broker verb written with a JSON escape", async () => {
+    const f = makeFixture();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/./x reply --to 1" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "hands//x reply --to 1" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "bin/teeny do '{\"do\":\"reply\\u005fx\",\"to\":\"1\",\"text\":\"hi\"}'" }, { runId: "d" }))).toBeUndefined();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/./x reply --to 1" }, { runId: "d" }))).toMatch(/already sent its 3 X replies/);
+  });
+
+  it("counts a body built from a file fragment as a reply, and reads only the verb of a JSON body", async () => {
+    const f = makeFixture();
+    const call = (command: string, runId: string) => f.call("mind", "exec", { command }, { runId });
+    // `"{\"do\":$(cat work/verb.json)...}"` is one text with a file spliced in: the guard cannot read it whole.
+    const mixed = 'bin/teeny do "{\\"do\\":$(cat work/verb.json),\\"to\\":\\"1\\"}"';
+    expect(blocked(await call(mixed, "e"))).toBeUndefined();
+    expect(blocked(await call(mixed, "e"))).toBeUndefined();
+    expect(blocked(await call(mixed, "e"))).toMatch(/already sent its 2 mail replies|already sent its 3 X replies/);
+    // a mail reply that mentions reply_x is one mail reply, not an X reply
+    const g = makeFixture();
+    const text = (n: number) => g.call("mind", "exec", { command: `bin/teeny do '{"do":"reply_mail","text":"not a reply_x ${n}"}'` }, { runId: "g" });
+    expect(blocked(await text(1))).toBeUndefined();
+    expect(blocked(await text(2))).toBeUndefined();
+    expect(blocked(await g.call("mind", "exec", { command: "hands/x reply --to 1" }, { runId: "g" }))).toBeUndefined();
+    // a JSON body whose do is something else counts nothing, whatever its text says
+    for (let i = 0; i < 4; i++) {
+      expect(blocked(await g.call("mind", "exec", { command: "bin/teeny do '{\"do\":\"status\",\"text\":\"reply_x reply_mail\"}'" }, { runId: "g" })), `status ${i}`).toBeUndefined();
+    }
+  });
+
+  it("counts a verb that comes from a file, and a body that an earlier part of the command could have replaced", async () => {
+    const f = makeFixture();
+    const call = (command: string, runId: string) => f.call("mind", "exec", { command }, { runId });
+    // hands/mail "$(cat verb)": the verb is unknown, so it is a mail reply
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toBeUndefined();
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toBeUndefined();
+    expect(blocked(await call('hands/mail "$(cat work/verb)" < work/mail.json', "h"))).toMatch(/2 mail replies/);
+    // a body read after another command of the same call (which may have rewritten the file) counts on every channel
+    const g = makeFixture();
+    const chained = 'cp work/reply.json work/intent.json && bin/teeny do "$(cat work/intent.json)"';
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toBeUndefined();
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toBeUndefined();
+    expect(blocked(await g.call("mind", "exec", { command: chained }, { runId: "i" }))).toMatch(/2 mail replies/);
+  });
+
+  it("a refused call still spends the reply, and a chain of two over the cap is refused whole", async () => {
+    const f = makeFixture();
+    expect(blocked(await f.call("mind", "exec", { command: "hands/x reply --to 1 && hands/x reply --to 2 && hands/x reply --to 3 && hands/x reply --to 4" }, { runId: "c" }))).toMatch(/3 X replies/);
+    expect(blocked(await x(f, "c"))).toBeUndefined();
   });
 });
 

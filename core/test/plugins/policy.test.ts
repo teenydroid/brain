@@ -24,6 +24,14 @@ describe("parsePolicy rejects a malformed nested policy at registration", () => 
     const c = good();
     c.agents.mind!.execRw = "x";
     expect(() => parsePolicy({ policy: c })).toThrow(/execRw/);
+    for (const bad of [3, "3", [3], null]) {
+      const e = good();
+      e.agents.mind!.replyCaps = bad;
+      expect(() => parsePolicy({ policy: e }), JSON.stringify(bad)).toThrow(/replyCaps/);
+    }
+    const g = good();
+    g.agents.mind!.replyCaps = { x: 3 };
+    expect(() => parsePolicy({ policy: g })).not.toThrow();
     // an absent optional policy stays valid
     const d = good();
     delete d.agents.operator!.browser;
@@ -54,8 +62,10 @@ describe("the policy generated from brain/agents/*.toml", () => {
   const f = makeFixture();
 
   it("covers exactly the agents that hold a tool", () => {
-    expect(Object.keys(f.policy.agents).sort()).toEqual(defs.filter((d) => d.tools.length > 0).map((d) => d.id).sort());
-    expect(Object.keys(f.policy.agents).sort()).toEqual(["babysitter", "evolver", "mind", "operator", "worker"]);
+    // plus the agents of the playbooks that run natively (pb-<name>), which hold a shell
+    const native = ["pb-gm", "pb-moltbook-general"];
+    expect(Object.keys(f.policy.agents).sort()).toEqual([...defs.filter((d) => d.tools.length > 0).map((d) => d.id), ...native].sort());
+    expect(Object.keys(f.policy.agents).sort()).toEqual(["babysitter", "evolver", "mind", "operator", ...native, "worker"]);
   });
 
   it("gives each agent exactly the OpenClaw tools its toml maps to, nothing more", () => {
@@ -78,7 +88,7 @@ describe("the policy generated from brain/agents/*.toml", () => {
       const raw = parse(readFileSync(join(REPO, "brain", "agents", `${def.id}.toml`), "utf8")) as { max_iterations?: number };
       expect(f.agent(def.id).maxToolCalls, def.id).toBe(raw.max_iterations);
     }
-    expect(f.agent("mind").maxToolCalls).toBe(300);
+    expect(f.agent("mind").maxToolCalls).toBe(250);
   });
 
   it("only the mind and its worker may run hands and the broker; money hands are closed to both", () => {

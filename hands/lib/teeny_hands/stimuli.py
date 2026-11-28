@@ -167,6 +167,39 @@ def again(surface: str, kind: str, ref: str, payload: Mapping[str, Any]) -> bool
 FIRST = ("hand",)
 
 
+#: What the mind's 15-minute heartbeat answers itself (docs/mind.md, "The beat"):
+#: X mentions and mail. While it does, the tick leaves them pending in their
+#: place and never offers them to the tick's model, so nothing is answered twice.
+DRAINED = (("x", "mention"), ("mail", "message"))
+
+
+def heartbeat_drains() -> bool:
+    """Whether the mind's heartbeat drains the inbox (`DRAINED`), so the tick
+    leaves those kinds alone. Missing TEENY_HEARTBEAT_DRAIN means yes; `0` in
+    secrets/teeny.env (the environment cannot set it) gives them back to the
+    tick. Only while the mind is on (MIND=1): with no mind awake, the tick
+    keeps answering."""
+    return hand.flag("TEENY_HEARTBEAT_DRAIN", True) and hand.flag("MIND", False)
+
+
+def drained() -> tuple[tuple[str, str], ...]:
+    """The (surface, kind) pairs the tick must leave to the heartbeat now."""
+    return DRAINED if heartbeat_drains() else ()
+
+
+def close(surface: str, ref: str) -> int:
+    """The heartbeat dealt with this one (answered, or not worth an answer):
+    its pending row is done, so it is never offered again."""
+    now = hand.now()
+    conn = db()
+    with hand.transaction(conn):
+        cur = conn.execute(
+            "UPDATE stimuli SET status = 'done', updated_at = ? WHERE status = 'pending' AND surface = ? AND ref = ?",
+            (now, surface, ref),
+        )
+    return cur.rowcount
+
+
 def take(max_items: int = 20, max_chars: int = 30_000, leave: Iterable[tuple[str, str]] = ()) -> Json:
     """The oldest pending stimuli, up to `max_items` and about `max_chars` of
     text (always at least one), marked taken under a new tick id. The
@@ -230,10 +263,17 @@ def release(tick: str) -> int:
     return _finish(tick, "pending")
 
 
-def pending(max_items: int = 200) -> list[Json]:
-    """What is waiting, oldest first, without taking it."""
+def pending(max_items: int = 200, leave: Iterable[tuple[str, str]] = ()) -> list[Json]:
+    """What is waiting, oldest first, without taking it. Those of a
+    (surface, kind) in `leave` are not counted, so a long queue the heartbeat
+    drains never crowds out the rest."""
+    left = [(str(a), str(b)) for a, b in leave]
+    clause = "".join(" AND NOT (surface = ? AND kind = ?)" for _ in left)
     conn = db()
-    rows = conn.execute("SELECT * FROM stimuli WHERE status = 'pending' ORDER BY at, rowid LIMIT ?", (max_items,)).fetchall()
+    rows = conn.execute(
+        f"SELECT * FROM stimuli WHERE status = 'pending'{clause} ORDER BY at, rowid LIMIT ?",
+        (*[v for pair in left for v in pair], max_items),
+    ).fetchall()
     return [_row(r) for r in rows]
 
 

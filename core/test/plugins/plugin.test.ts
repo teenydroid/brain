@@ -24,7 +24,7 @@ describe("the plugin", () => {
   it("registers before_tool_call at the highest priority, and the hooks it documents", () => {
     const f = makeFixture();
     const { hooks } = register({ policy: JSON.parse(JSON.stringify(f.policy)) });
-    expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "before_tool_call", "tool_result_persist"]);
+    expect([...hooks.keys()].sort()).toEqual(["after_tool_call", "agent_end", "before_prompt_build", "before_tool_call", "tool_result_persist"]);
     expect(hooks.get("before_tool_call")?.opts?.priority).toBe(1000);
     expect(plugin.id).toBe("teeny-guardrails");
   });
@@ -97,16 +97,17 @@ describe("the plugin", () => {
 });
 
 describe("the core no longer injects recall itself", () => {
-  it("teeny-guardrails hooks no prompt build, and its policy carries no recall", () => {
+  it("teeny-guardrails carries no recall, and hooks the prompt only for the wake's inbox block", () => {
     const f = makeFixture();
     expect(f.policy).not.toHaveProperty("recall");
     expect(JSON.stringify(f.policy)).not.toMatch(/recall|engineFile|masterKeyFile/);
     const { hooks } = register({ policy: JSON.parse(JSON.stringify(f.policy)) });
-    for (const name of ["before_prompt_build", "agent_turn_prepare", "before_agent_run", "llm_input"]) expect(hooks.has(name), name).toBe(false);
+    // before_prompt_build is the mind's wake block (bin/reply-queue), which has nothing to do with memory.
+    for (const name of ["agent_turn_prepare", "before_agent_run", "llm_input"]) expect(hooks.has(name), name).toBe(false);
     expect(existsSync(join(REPO, "core", "plugins", "teeny-guardrails", "recall.ts"))).toBe(false);
   });
 
-  it("leaves recall one home: of the two plugins the core loads, only teeny-cortexdb hooks before_prompt_build, once", async () => {
+  it("leaves recall one home: teeny-cortexdb injects it once; the guardrails' own before_prompt_build is only the wake block", async () => {
     const f = makeFixture();
     const prompt: string[] = [];
     const api = (id: string, config: unknown) => ({
@@ -130,6 +131,6 @@ describe("the core no longer injects recall itself", () => {
         tools: { agents: [], resultTokens: 1, maxStoreChars: 1 },
       }),
     );
-    expect(prompt).toEqual(["teeny-cortexdb"]);
+    expect(prompt).toEqual(["teeny-guardrails", "teeny-cortexdb"]);
   });
 });

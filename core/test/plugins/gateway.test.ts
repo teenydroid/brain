@@ -48,11 +48,10 @@ describe("teeny-guardrails in the pinned openclaw", () => {
     expect(openclaw(dir, file, ["config", "validate"])).toMatch(/Config valid/);
     const out = openclaw(dir, file, ["plugins", "inspect", "teeny-guardrails", "--runtime"]);
     expect(out).toMatch(/CLI status: loaded/);
-    for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call"]) {
+    for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call", "before_prompt_build"]) {
       expect(out).toContain(hook);
     }
-    // recall is the memory plugin's: the guardrails neither hook the prompt nor ask to read the conversation
-    expect(out).not.toContain("before_prompt_build");
+    // recall is the memory plugin's: the guardrails hook the prompt only for the mind's wake block, and do not ask to read the conversation
     expect(out).not.toMatch(/allowConversationAccess: true/);
   });
 

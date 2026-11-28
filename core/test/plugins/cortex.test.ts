@@ -12,6 +12,7 @@ import { Sealer } from "../../src/config/secrets.js";
 import { MEMORY_TOOLS } from "../../src/agents/definitions.js";
 import { CortexClient, DEFAULT_SCOPE } from "../../src/memory/cortex.js";
 import { saveEngine } from "../../src/memory/engine.js";
+import { loadNativeDefs } from "../../src/agents/native.js";
 import { buildCortexPluginConfig, CAPTURE_AGENTS } from "../../src/memory/plugin.js";
 import { loadAgentDefs } from "../../src/agents/definitions.js";
 import { FAKE_KEY, REPO } from "../helpers.js";
@@ -249,9 +250,12 @@ describe("auto-capture", () => {
 
   it("the core's allowlist names none of them either", () => {
     for (const never of ["judge", "simple", "act", "editor", "writer", "querier", "reviewer", "operator", "babysitter", "evolver"]) expect(CAPTURE_AGENTS).not.toContain(never);
-    const defs = loadAgentDefs(join(REPO, "brain"));
+    // the native playbooks' agents are defs of their own, beside the brain's agents/*.toml
+    const defs = [...loadAgentDefs(join(REPO, "brain")), ...loadNativeDefs(join(REPO, "brain"), REPO).defs];
     const built = buildCortexPluginConfig({ defs, stateDir: join(dir, "state"), secretsDir: join(dir, "secrets"), env: { CORTEX_API_URL: cortex.url } }) as { capture: { agents: string[] } };
     expect(built.capture.agents.sort()).toEqual([...CAPTURE_AGENTS].sort());
+    // gm and moltbook-general talk to people, so their turns are kept; a native playbook that only takes notes is not named
+    expect(built.capture.agents).toEqual(expect.arrayContaining(["pb-gm", "pb-moltbook-general"]));
   });
 
   it("never blocks the turn: the hook returns at once while a slow CortexDB is still writing", async () => {
