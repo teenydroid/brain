@@ -1,0 +1,66 @@
+# The otel-collector between the Gateway and Langfuse (deploy/langfuse/README.md).
+#
+# The Gateway's diagnostics-otel exporter posts OTLP/HTTP here with no
+# credential (core/src/gateway/otel.ts); this collector adds Langfuse's project
+# key, which only it holds (secrets/langfuse-otlp.env, LANGFUSE_OTLP_AUTH =
+# base64 of "public:secret"), and forwards to Langfuse's OTLP endpoint. Both
+# sit on the private langfuse-net; nothing here listens on the host.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+  # Only traces with agent work in them: a run, a model call, a tool, context
+  # assembly. The core talks to the Gateway over RPC all day (cron, settings,
+  # health), and each call is a trace of nothing but openclaw.gateway.rpc.*
+  # spans; on the live test they were 9 traces in 10. A span that arrives
+  # after its trace was dropped is judged again on its own, so a long turn's
+  # late run span still lands.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    policies:
+      - name: agent-work
+        type: ottl_condition
+        ottl_condition:
+          error_mode: ignore
+          span:
+            - 'not IsMatch(name, "^openclaw\\.(gateway\\.rpc\\.|diagnostic\\.phase$)")'
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+exporters:
+  otlp_http/langfuse:
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_OTLP_AUTH}"
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    # Langfuse takes traces only; the Gateway sends nothing else (metrics and
+    # logs are off in its config).
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlp_http/langfuse]
