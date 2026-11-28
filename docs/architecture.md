@@ -1525,8 +1525,8 @@ both.
     reach, and the spine's `hands/x ingest` screens what it queued.
   - `web`: nginx answering teeny.enamakel.com with a 301 to the site on
     GitHub Pages (`deploy/web-redirect.conf`). The site itself (`web/`) is a
-    static export published to `teenydroid/teenydroid.github.io` by
-    `.github/workflows/pages.yml`.
+    static export that `teenydroid/teenydroid.github.io` builds from this
+    repository and publishes (its own `build.yml`, every fifteen minutes).
   - `tunnel`: the Cloudflare Tunnel for teeny.enamakel.com
     (`deploy/cloudflared/config.yml`), on the `edge` network with `xhook`
     and `web` alone.
