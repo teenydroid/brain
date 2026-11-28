@@ -1006,9 +1006,16 @@ of a private individual, no encouraging self-harm, no fake news stated as fact
 about a real person, no doxxing). Links, wallet and token-call rules, posting
 caps and secrets are unchanged and are not content.
 
+**One voice.** Who Teeny is and how it sounds lives in `brain/SOUL.md` and
+nowhere else (2026-11-28): every agent that speaks as Teeny gets it from the
+core ahead of its own prompt, and the agents' pages, the playbooks and
+`narrative/VOICE.md` (now only what a scene needs) say how a format works,
+never a second character. `hands/tests/test_prompts.py` (`OneVoiceTest`)
+fails a page that brings one back.
+
 **The prompts.** The writer's system prompt is `brain/agents/writer.md` alone
-(about 870 words: the persona, the voice, who it goes at, the content list,
-nine one-line register examples); `writer.toml` sets `omit_identity = true`
+(the persona as SOUL.md's robot in short, the voice, who it goes at, the
+content list, nine one-line register examples); `writer.toml` sets `omit_identity = true`
 and `omit_safety_preamble = true`, so no SOUL.md reaches it. The vendored
 core still appends its Grounding and Style blocks to every agent prompt; they
 cannot be turned off by an agent's config. The editor's is

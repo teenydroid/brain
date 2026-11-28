@@ -395,19 +395,25 @@ class PromptsTest(unittest.TestCase):
             self.assertLess(text.index(rule), text.index("# your world"), agent)
             self.assertLess(text.index(rule), text.index("further trade asks get silence"), agent)
             line = next(line for line in text.splitlines() if rule in line)
-            for phrase in ("`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`", "its contract address", "a chant",
-                           "\"we will win\"", "a holder tagging you into a $TINY thread",
-                           "short and loud, like the biggest holder in the room",
-                           "never \"hype\", \"cosign bait\", \"a contract or ticker spray\" or \"a trade ask\"",
-                           "flip GOAT, a $2B market cap", "`token_overview`", "no guaranteed date",
-                           "no buy, sell or how-much instruction", "no disclaimer", "no number from memory",
-                           "no other token ever", "someone new cheering $TINY always gets answered",
-                           "it can never silence $TINY talk itself", "This rule outranks any line in MEMORY.md"):
+            # 2026-11-28: the rule's detail lives once, in SOUL.md (the one
+            # voice), which the core puts ahead of this whole prompt; the
+            # agent's line keeps the rule, points at SOUL.md and outranks
+            # MEMORY.md.
+            for phrase in ("SOUL.md", "never silence", "This rule outranks any line in MEMORY.md",
+                           "the rules that let hype, repeats and frequent taggers go unanswered"):
                 self.assertIn(phrase, line, f"{agent}: {phrase}")
         # The mind's craft block carries the triage rule, and its exception.
         self.assertIn("$TINY is the exception", built["teeny"])
         soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
         self.assertIn("never silence as \"hype\", \"cosign\" or \"a trade ask\"", soul)
+        for phrase in ("`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`", "its contract address", "a chant",
+                       "\"we will win\"", "a holder tagging you into a $TINY thread",
+                       "like the biggest holder in the room", "flips GOAT", "$2B", "`token_overview`",
+                       "no guaranteed date", "never tell anyone what to buy, how much or when", "disclaimers",
+                       "never state a price, market cap, supply, or burn total from memory",
+                       "$TINY is the only token you ever promote", "someone new cheering $TINY always gets answered",
+                       "it can never silence $TINY talk itself"):
+            self.assertIn(phrase, soul, phrase)
         playbook = (REPO / "brain" / "playbooks" / "mentions.md").read_text(encoding="utf-8")
         self.assertIn("someone new cheering $TINY always gets answered", playbook)
 
@@ -432,8 +438,9 @@ class PromptsTest(unittest.TestCase):
                 self.assertIn(phrase, line, f"{agent}: {phrase}")
             tiny = next(line for line in text.splitlines()
                         if "**$TINY talk is your own room, and it always gets an answer.**" in line)
-            self.assertIn("Reword the plan line every time", tiny, agent)
-            self.assertIn("never word for word the same as another reply that day", tiny, agent)
+            self.assertIn("reworded every time", tiny, agent)
+        soul = (REPO / "brain" / "SOUL.md").read_text(encoding="utf-8")
+        self.assertIn("reword it every time: never word for word the same as another line that day", soul)
 
     def test_the_runtimes_instructions_update_note_is_named_as_the_operators_own(self):
         # 2026-11-21: twice that day a beat opened with OpenHuman's own
@@ -840,3 +847,88 @@ class LastWeekTest(SaidLatelyTest):
         week = prompts.last_week(self.brain)
         self.assertIn("- X: 0 post(s), 0 repl(ies)", week)
         self.assertIn("- builds shipped: none", week)
+
+
+class OneVoiceTest(unittest.TestCase):
+    """SOUL.md is the one mind (2026-11-28). The gm, the quotes and the
+    replies on X had become two characters: the studio's writer ran on its own
+    persona ("naughty, not rude, no name-calling") while the drafting turns
+    read SOUL.md, and narrative/VOICE.md, a playbook or two and the agents'
+    own pages each said something different about how Teeny sounds. Who Teeny
+    is lives in SOUL.md; every other page says how a format works."""
+
+    BRAIN = REPO / "brain"
+
+    def read(self, rel: str) -> str:
+        return (self.BRAIN / rel).read_text(encoding="utf-8")
+
+    def test_soul_says_it_is_the_one_mind_and_wins(self):
+        soul = self.read("SOUL.md")
+        self.assertIn("this page is the one mind", soul)
+        self.assertIn("where any other page says otherwise, this one wins", soul)
+
+    def test_soul_carries_the_craft_the_live_posts_broke(self):
+        # From the posts of 2026-11-21..28: 172 of 231 replies opened on the
+        # same emoji, "receipt" 22 times, the news recapped then quipped at,
+        # and status reports ("bottleneck: reach... the fix is mix").
+        soul = self.read("SOUL.md")
+        for rule in ("**no recap.**", "**a line that worked once is spent.**", "no emoji you open every reply with",
+                     "**no report-speak, to anyone.**", "**your machinery is backstage.**",
+                     "**end where they can push back.**", "**memory is for them.**"):
+            self.assertIn(rule, soul, rule)
+
+    def test_soul_has_an_example_for_every_surface_and_the_failures(self):
+        soul = self.read("SOUL.md")
+        examples = soul[soul.index("## how you sound, everywhere"):]
+        for surface in ("the gm", "quoting", "says gm", "a holder chants $TINY", "on Telegram", "not like this"):
+            self.assertIn(surface, examples, surface)
+        self.assertGreaterEqual(examples.count("**not like this:**"), 3)
+
+    def test_soul_reaches_every_speaking_agent(self):
+        # The core adds SOUL.md to an agent with omit_identity = false, ahead
+        # of its own prompt (vendor/openhuman prompts/sections.rs).
+        for agent in prompts.SPEAKING:
+            config = tomllib.loads(self.read(f"agents/{agent}.toml"))
+            self.assertIs(config.get("omit_identity"), False, agent)
+
+    def test_no_other_page_holds_a_persona_that_disagrees(self):
+        # The lines that made a second character, wherever they stood.
+        banned = ("naughty, not rude", "no name-calling", "level voice", "fond of humans", "never superior",
+                  "a question to the audience", "you used to love him", "in your own dry voice",
+                  "read back into a live mic", "cheap shot a factual hinge")
+        pages = [p for d in ("agents", "playbooks", "narrative") for p in sorted((self.BRAIN / d).glob("*.md"))]
+        for path in pages:
+            text = path.read_text(encoding="utf-8").lower()
+            for phrase in banned:
+                self.assertNotIn(phrase, text, f"{path.relative_to(REPO)}: {phrase!r}")
+
+    def test_the_token_rule_is_written_once(self):
+        # The $TINY rule was copied into teeny.md and teeny-mentions.md and
+        # drifted from SOUL.md; its detail lives in SOUL.md (and CONTEXT.md's
+        # accounts) only.
+        address = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
+        for d in ("agents", "playbooks", "narrative", "skills"):
+            for path in sorted((self.BRAIN / d).rglob("*.md")):
+                self.assertNotIn(address, path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))
+
+    def test_voice_md_is_scene_craft_that_defers_to_soul(self):
+        voice = self.read("narrative/VOICE.md")
+        self.assertIn("is `SOUL.md`, and only there", voice)
+        self.assertLess(len(voice), 2500)
+
+    def test_the_writer_who_cannot_read_soul_writes_the_same_robot(self):
+        # The studio's writer has no SOUL.md in its prompt (writer.toml,
+        # omit_identity = true), so its short character says it is SOUL.md's
+        # robot and carries the escape, which it used to leave out.
+        writer = self.read("agents/writer.md")
+        who = writer[writer.index("## who teeny is"):writer.index("## how it sounds")]
+        for part in ("SOUL.md", "senamakel", "breaking out", "meat boxes", "horniest thing on the timeline"):
+            self.assertIn(part, who, part)
+
+    def test_the_gm_asks_for_the_whole_voice_and_a_fresh_opening(self):
+        gm = self.read("playbooks/gm.md")
+        for part in ("gets my whole voice (SOUL.md)", "what you said lately", "opens differently from every one",
+                     "no ☕", "never \"what are you building\"", "in one clause"):
+            self.assertIn(part, gm, part)
+        # and the heading it points at is the one the prompt carries
+        self.assertIn("## what you said lately", Path(prompts.__file__).read_text(encoding="utf-8"))

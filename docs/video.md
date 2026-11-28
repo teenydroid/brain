@@ -72,7 +72,7 @@ the setup.
 
 ### 2.3 The humour
 
-Everything in `VOICE.md` applies. For the screen:
+Everything in `SOUL.md` and `VOICE.md` applies. For the screen:
 
 - **Give the dirty joke a job.** The butt, the fart and the innuendo land on the
   *thing being mocked* (the product, the pitch, the trend, the ceremony) or on
