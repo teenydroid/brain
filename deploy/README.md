@@ -55,6 +55,7 @@ the checkout, mounted at /srv/teeny in spine and xhook
 | `nginx/` | The host's vhosts: `teeny.enamakel.com.conf` (webhook and landing page) and `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`). |
 | `web-vhost.sh` | Installs the landing-page vhost and its certificate, once. |
 | `tell.sh` | Tells Teeny something from the host and has it act now. |
+| `langfuse/` | The private Langfuse that traces every Gateway turn: the collector's config, `init.sh` (mints its secrets) and its README. |
 
 The spine's own image is the `Dockerfile` at the repository root, and the
 landing page's is `web/Dockerfile`. The whole folder is frozen to Teeny's own
@@ -215,6 +216,20 @@ answered 429. Compose does not restrict egress at the network level (as for
 `reel`): what keeps it from fetching anything but video pages is the address
 allowlist in `deploy/ingest/policy.py`, which `python3 -m unittest discover -s
 hands/tests -t hands/tests -p 'test_policy.py'` pins.
+
+## Traces: the private Langfuse
+
+Every agent turn the Gateway runs, traced into a Langfuse on this box, behind
+the `langfuse` profile, with its UI on `127.0.0.1:3140` only.
+[`langfuse/README.md`](langfuse/README.md) has how it fits together; to start it:
+
+```sh
+deploy/langfuse/init.sh
+docker compose -f deploy/compose.yaml --profile langfuse up -d \
+  otel-collector langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
+# name the services: a bare up or down with the profile takes the spine and cortexdb along too
+# then TRACES_OTLP_URL=http://otel-collector:4318 in secrets/spine.env, and up -d cortexdb spine
+```
 
 ## The X webhook
 

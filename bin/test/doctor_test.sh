@@ -722,6 +722,25 @@ for loop_url in "http://[::1]:3141" "http://127.0.0.2:3141" "http://localhost:31
   put_gateway_config "$with_cortex | .plugins.entries[\"teeny-cortexdb\"].config.url = \"$loop_url\""
   check "a loopback memory url ($loop_url) passes" audit_doctor "$CLEAN_AUDIT"
 done
+# Turns traced to the private Langfuse: the exporter as the core writes it (core/src/gateway/otel.ts).
+with_otel='.plugins.allow += ["diagnostics-otel"] | .plugins.entries["diagnostics-otel"] = {enabled: true}
+  | .diagnostics = {enabled: true, otel: {enabled: true, endpoint: "http://otel-collector:4318", protocol: "http/protobuf",
+      traces: true, metrics: false, logs: false, sampleRate: 1, captureContent: true}}'
+fresh
+put_gateway_config "$with_otel"
+check "a config tracing turns to the private collector passes" audit_doctor "$CLEAN_AUDIT"
+for broken in \
+  '.diagnostics.otel.endpoint = "http://traces.example.com:4318"@@diagnostics.otel.endpoint is not https, loopback or the otel-collector service' \
+  '.diagnostics.otel.endpoint = "http://collector:4318"@@diagnostics.otel.endpoint is not https' \
+  '.diagnostics.otel.tracesEndpoint = "http://10.1.2.3:4318/v1/traces"@@diagnostics.otel.tracesEndpoint is not https' \
+  '.diagnostics.otel.endpoint = "http://pk:sk@otel-collector:4318"@@diagnostics.otel.endpoint is not https' \
+  '.diagnostics.otel.headers = {Authorization: "Basic cGs6c2s="}@@diagnostics.otel.headers is set'; do
+  filter="${broken%%@@*}" reason="${broken#*@@}"
+  fresh
+  put_gateway_config "$with_otel | $filter"
+  fails "a tracing config with $reason fails the doctor" "gateway lockdown"
+  check "and names it ($reason)" grep -qF "$reason" "$scratch/doctor.log"
+done
 fresh
 put_gateway_config
 printf 'not json' >"$root/state/openclaw/openclaw.json"

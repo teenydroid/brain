@@ -11,7 +11,8 @@
 //    off, the control UI off, update.checkOnStart=false, mDNS off;
 //  - plugins limited by allowlist to the browser plugin and Teeny's own local
 //    `teeny-guardrails` plugin (when its directory exists) and `teeny-cortexdb`, which owns the
-//    memory slot (when CortexDB is configured; otherwise the slot is "none" and memory-core stays off);
+//    memory slot (when CortexDB is configured; otherwise the slot is "none" and memory-core stays off),
+//    plus `diagnostics-otel` when turns are traced to the private collector (TEENY_OTEL_URL);
 //  - gateway bound to loopback with a shared token that arrives in the
 //    environment (OPENCLAW_GATEWAY_TOKEN), never in this file.
 import { existsSync } from "node:fs";
@@ -23,6 +24,8 @@ export const MODEL_KEY_ENV = "LOCAL_OPENAI_API_KEY";
 export const PROVIDER_ID = "local-openai";
 export const GUARDRAILS_PLUGIN_ID = "teeny-guardrails";
 export const CORTEX_PLUGIN_ID = "teeny-cortexdb";
+/** OpenClaw's OpenTelemetry exporter (`@openclaw/diagnostics-otel`), installed by the core as an official plugin (gateway/otel.ts). */
+export const OTEL_PLUGIN_ID = "diagnostics-otel";
 
 /** Plugins nothing of Teeny's needs; belt and braces over the allowlist. */
 const DENIED_PLUGINS = ["telegram", "x", "imap", "a2a", "bonjour", "admin-http-rpc", "session-share", "openclaw-id-access", "device-pair"];
@@ -95,6 +98,14 @@ export interface GatewayConfigInput {
    * every record with "log file append failed". An explicit file skips that resolution.
    */
   logFile?: string;
+  /**
+   * Trace every turn to an OTLP/HTTP collector (deploy/compose.yaml's otel-collector, which forwards to the
+   * private Langfuse). `endpoint` is the collector's base URL. The plugin is the official install in the Gateway's
+   * own state (gateway/otel.ts ensureOtelPlugin), never a load path: only that one gets the diagnostic events. No
+   * headers: the collector holds Langfuse's key, so nothing secret is in this file or the Gateway's environment.
+   * Left out, no exporter loads and no span leaves the Gateway.
+   */
+  otel?: { endpoint: string; captureContent: boolean };
 }
 
 /** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
@@ -126,15 +137,19 @@ export function guardrailsIfPresent(path: string): string | undefined {
 
 export function buildGatewayConfig(input: GatewayConfigInput): Record<string, unknown> {
   const modelRef = input.model ? `${PROVIDER_ID}/${input.model}` : undefined;
+  const loadPaths = [
+    ...(input.guardrailsPath ? [input.guardrailsPath] : []),
+    ...(input.cortex ? [input.cortex.path] : []),
+  ];
   const plugins: Record<string, unknown> = {
     // schema: plugins.slots.memory "none" turns every memory plugin off (docs/tools/plugin.md). memory-core
     // would otherwise create its own agent cron job, "Memory Dreaming Promotion" (0 3 * * *), outside
     // brain/cron.toml; Teeny's memory is CortexDB, so the slot is teeny-cortexdb's when it is configured.
     slots: { memory: input.cortex ? CORTEX_PLUGIN_ID : "none" },
     // schema: plugins.allow (non-empty allowlist restricts loading), plugins.deny, plugins.load.paths
-    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : []), ...(input.cortex ? [CORTEX_PLUGIN_ID] : [])],
+    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : []), ...(input.cortex ? [CORTEX_PLUGIN_ID] : []), ...(input.otel ? [OTEL_PLUGIN_ID] : [])],
     deny: DENIED_PLUGINS,
-    ...(input.guardrailsPath || input.cortex ? { load: { paths: [...(input.guardrailsPath ? [input.guardrailsPath] : []), ...(input.cortex ? [input.cortex.path] : [])] } } : {}),
+    ...(loadPaths.length > 0 ? { load: { paths: loadPaths } } : {}),
     entries: {
       // schema: plugins.entries.<id>.enabled; plugins.entries.memory-core.config.dreaming.enabled
       // (docs/reference/memory-config.md): belt and braces over the slot.
@@ -165,6 +180,8 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
             },
           }
         : {}),
+      // schema: plugins.entries.<id>.enabled. Its own configSchema takes no keys; it reads `diagnostics.otel`.
+      ...(input.otel ? { [OTEL_PLUGIN_ID]: { enabled: true } } : {}),
     },
   };
 
@@ -194,6 +211,28 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     discovery: { mdns: { mode: "off" } },
     // schema: telemetry.enabled
     telemetry: { enabled: false },
+    // schema: diagnostics.{enabled,otel.*} (docs/gateway/opentelemetry/configuration.md). Traces only: Langfuse
+    // takes no OTLP metrics or logs. Every turn is sampled (sampleRate 1), since the point is to see all of them.
+    // captureContent puts prompts, replies, tool input and output, and the session id on the spans; the collector
+    // and Langfuse behind it sit on a private compose network on this box, so that content never leaves it.
+    ...(input.otel
+      ? {
+          diagnostics: {
+            enabled: true,
+            otel: {
+              enabled: true,
+              endpoint: input.otel.endpoint,
+              protocol: "http/protobuf",
+              serviceName: "teeny",
+              traces: true,
+              metrics: false,
+              logs: false,
+              sampleRate: 1,
+              captureContent: input.otel.captureContent,
+            },
+          },
+        }
+      : {}),
     plugins,
     ...(input.secretFiles
       ? {

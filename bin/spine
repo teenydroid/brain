@@ -162,6 +162,18 @@ if [ -n "$ladder_url" ]; then
   export LOCAL_OPENAI_URL="$ladder_url"
 fi
 
+# Every Gateway turn traced to the private Langfuse (docs/architecture.md,
+# "Traces"): TRACES_OTLP_URL is the otel-collector on the compose network
+# (http://otel-collector:4318, with `--profile langfuse` up). Not a secret: the
+# collector holds Langfuse's key. TRACES_CAPTURE=0 keeps prompts, replies and
+# tool payloads off the spans. Unset, nothing is exported.
+traces_url="$(spine_env TRACES_OTLP_URL)"
+if [ -n "$traces_url" ]; then
+  export TEENY_OTEL_URL="$traces_url"
+  traces_capture="$(spine_env TRACES_CAPTURE)"
+  [ -n "$traces_capture" ] && export TEENY_OTEL_CAPTURE="$traces_capture"
+fi
+
 export TEENY_CORE_CONFIG="$config_dir/config.toml"
 export OPENHUMAN_WORKSPACE="$TEENY_BRAIN"
 export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"

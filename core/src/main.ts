@@ -20,7 +20,9 @@ import { buildGuardrailsPolicy, guardrailsReadyFile } from "./agents/guardrails.
 import { buildCortexPluginConfig, cortexPluginIfPresent } from "./memory/plugin.js";
 import { findChrome } from "./config/chrome.js";
 import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
-import { ensureGatewayToken, gatewayTokenFile, openclawPassthrough } from "./gateway/passthrough.js";
+import { ensureOtelPlugin, otelFromEnv, spawnOpenclaw, type OtelSetting } from "./gateway/otel.js";
+import { openclawVersion } from "./gateway/cli.js";
+import { ensureGatewayToken, gatewayTokenFile, openclawEnv, openclawPassthrough, passthroughCommand } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
 import { setGatewayEnv, setShellTimeoutSecs, startCron, stopCron } from "./cron/index.js";
@@ -186,6 +188,9 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   const store = new SettingsStore(paths.stateDir, sealer);
   const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
   const cortexDir = cortexPluginIfPresent(join(paths.root, "core", "plugins", "teeny-cortexdb"));
+  // Every turn traced to the private Langfuse when TEENY_OTEL_URL names its collector (gateway/otel.ts).
+  let tracing: OtelSetting = otelFromEnv(env);
+  if (tracing.otel === undefined && tracing.why) log("warn", tracing.why);
   const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir, paths.root);
   for (const [playbook, why] of Object.entries(catalog.nativeErrors)) log("warn", "a playbook says run = native but has no agent; its cron job will fail until it is fixed", { playbook, why });
   const secretFiles = { gatewayToken: gatewayTokenFile(paths.openclawDir), modelKey: join(paths.openclawDir, "model.key") };
@@ -239,6 +244,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       ...(cortexDir && cortexConfig ? { cortex: { path: cortexDir, config: cortexConfig } } : {}),
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
       logFile: join(logDir, "openclaw-YYYY-MM-DD.log"),
+      ...(tracing.otel ? { otel: tracing.otel } : {}),
     });
     const settled = JSON.stringify(build(true), null, 2);
     // The proven shape is what is compared, so opening exec later is never mistaken for a change that needs a restart.
@@ -382,6 +388,25 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   };
 
   const cron = wireCron(ctx, gatewayEnv);
+  // The exporter must be OpenClaw's official install in the Gateway's state, in place before the Gateway starts
+  // (gateway/otel.ts). Without it, tracing stays off and the Gateway boots as it would have. Before the RPC server
+  // listens: bin/spine's first settings call restarts (so starts) the Gateway, and a Gateway started mid-install was
+  // a second one beside the supervisor's own (live test, 2026-11-28).
+  if (tracing.otel && supervisor) {
+    try {
+      const version = openclawVersion();
+      const ensured = await ensureOtelPlugin(spawnOpenclaw(passthroughCommand(env), openclawEnv(env, paths.root)), version);
+      if (ensured.ok) {
+        log("info", "tracing the gateway's turns", { endpoint: tracing.otel.endpoint, captureContent: tracing.otel.captureContent, plugin: version, installed: ensured.installed });
+      } else {
+        log("warn", "turns are not traced", { why: ensured.why });
+        tracing = { otel: undefined };
+      }
+    } catch (e) {
+      log("warn", "turns are not traced", { why: e instanceof Error ? e.message : String(e) });
+      tracing = { otel: undefined };
+    }
+  }
   const server = createHttpServer({ registry: buildRegistry(), token, ctx });
   server.listen(port, host);
   await once(server, "listening");

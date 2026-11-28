@@ -4,7 +4,10 @@
 # first-boot minting, the Gateway's generated config and its lockdown,
 # cron seeded from brain/cron.toml, a shell job that runs, bin/crons reading
 # the job store, bin/oh, and bin/ask, bin/act, bin/tick and bin/eval completing
-# turns through the Gateway against a stub OpenAI-compatible model.
+# turns through the Gateway against a stub OpenAI-compatible model, and the
+# Gateway tracing those turns to a stub OTLP collector (TRACES_OTLP_URL).
+# LIVE_TRACES_URL=http://otel-collector:4318 sends them to a real collector
+# instead (deploy/langfuse/README.md), and skips the stub's checks.
 #
 # It needs Node 24 and a built core, so CI and the box run it in the image:
 #
@@ -36,9 +39,11 @@ export OPENHUMAN_CORE_BIN
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-spine.XXXXXX")"
 spine_pid=""
 model_pid=""
+otlp_pid=""
 cleanup() {
   [ -n "$spine_pid" ] && kill -TERM "$spine_pid" 2>/dev/null && wait "$spine_pid" 2>/dev/null
   [ -n "$model_pid" ] && kill "$model_pid" 2>/dev/null
+  [ -n "$otlp_pid" ] && kill "$otlp_pid" 2>/dev/null
   if [ "${KEEP_SCRATCH:-0}" = 1 ]; then echo "scratch kept at $scratch"; else rm -rf "$scratch"; fi
 }
 trap cleanup EXIT
@@ -238,6 +243,53 @@ python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratc
   "$scratch/root/state/workbench/desk/task.json" &
 model_pid=$!
 
+# --- a stub OTLP collector: records every export the Gateway's diagnostics-otel posts ---
+otlp_port="$(free_port)"
+cat >"$scratch/otlp.py" <<'PY'
+import gzip, sys, zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+class Collector(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _body(self):
+        # The OTLP exporter streams its requests chunked, with no content-length.
+        if "chunked" in (self.headers.get("transfer-encoding") or "").lower():
+            out = b""
+            while True:
+                size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                if size == 0:
+                    self.rfile.readline()
+                    return out
+                out += self.rfile.read(size)
+                self.rfile.readline()
+        return self.rfile.read(int(self.headers.get("content-length", 0)))
+
+    def do_POST(self):
+        body = self._body()
+        encoding = (self.headers.get("content-encoding") or "").lower()
+        if encoding == "gzip":
+            body = gzip.decompress(body)
+        elif encoding == "deflate":
+            body = zlib.decompress(body)
+        # One line per export: the path, then the protobuf's raw bytes, so a check can grep the
+        # service name and span names out of it without a protobuf decoder.
+        with open(sys.argv[2], "ab") as log:
+            log.write(self.path.encode() + b" " + body.replace(b"\n", b" ") + b"\n")
+        with open(sys.argv[3], "a") as headers:
+            headers.write(repr(sorted(k.lower() for k in self.headers.keys())) + "\n")
+        self.send_response(200)
+        self.send_header("content-type", "application/x-protobuf")
+        self.send_header("content-length", "0")
+        self.end_headers()
+
+ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Collector).serve_forever()
+PY
+python3 -I "$scratch/otlp.py" "$otlp_port" "$scratch/otlp.log" "$scratch/otlp-headers.log" &
+otlp_pid=$!
+traces_url="${LIVE_TRACES_URL:-http://127.0.0.1:$otlp_port}"
+
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
 # Cron shell jobs get an allowlisted environment and run from the action dir,
 # so a job finds state/ and secrets/ only from the root it runs in. Relocating
@@ -268,6 +320,7 @@ LADDER_API_KEY=stub-key
 SPINE_MODEL=stub
 CORTEX_API_URL=http://127.0.0.1:$(free_port)
 CORTEX_API_KEY=stub-cortex-key
+TRACES_OTLP_URL=$traces_url
 ENV
 
 core_port="$(free_port)"
@@ -379,6 +432,22 @@ check "the turn went to the configured endpoint" grep -q 'chat/completions' "$sc
 # thousand tokens; its own system prompt is bigger, so the trim drops the
 # user's message and the model answers a turn with nothing in it.
 check "the model is asked what bin/ask asked" grep -q 'please say hello' "$scratch/model-asked.log"
+# --- the turn, traced: diagnostics-otel loaded from the core's own dependency ---
+# shellcheck disable=SC2016 # $u is jq's, not the shell's
+check "the Gateway's config loads diagnostics-otel and exports traces to TRACES_OTLP_URL" \
+  jq -e --arg u "$traces_url" '(.plugins.allow | index("diagnostics-otel")) and .diagnostics.otel.endpoint == $u
+    and .diagnostics.otel.traces == true and (.diagnostics.otel | has("headers") | not)' "$root/state/openclaw/openclaw.json"
+check "and the lockdown accepts it" python3 "$root/bin/lib/gateway_check.py" lockdown "$root/state/openclaw/openclaw.json"
+if [ -z "${LIVE_TRACES_URL:-}" ]; then
+  # The batch span processor flushes every few seconds; give it a generous margin.
+  for _ in $(seq 1 60); do grep -qa 'please say hello' "$scratch/otlp.log" 2>/dev/null && break; sleep 1; done
+  check "the Gateway posts the turn's spans to the collector's /v1/traces" grep -qa '^/v1/traces ' "$scratch/otlp.log"
+  check "as service teeny" grep -qa 'teeny' "$scratch/otlp.log"
+  check "with the model call on them" grep -qa 'openclaw.model' "$scratch/otlp.log"
+  check "and, with content capture on, what was asked" grep -qa 'please say hello' "$scratch/otlp.log"
+  check "and no Authorization header: the collector holds the key, never the Gateway" \
+    bash -c "! grep -q authorization '$scratch/otlp-headers.log'"
+fi
 # --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
 shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e $root" 2>"$scratch/shell.log" || true)"
 check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"

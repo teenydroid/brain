@@ -121,6 +121,46 @@ def memory_plugin(doc: dict) -> list[str]:
     return wrong
 
 
+#: The exporter the core loads when it traces turns (core/src/gateway/otel.ts).
+OTEL_PLUGIN = "diagnostics-otel"
+_OTEL_ENDPOINTS = ("endpoint", "tracesEndpoint", "metricsEndpoint", "logsEndpoint")
+# The core's OTEL_PLAIN_HOSTS: compose services reachable over plain http. Named, not any dotless host: Docker hands
+# a name it cannot resolve to the host's DNS, where a search domain could send it off the box.
+_OTEL_PLAIN_HOSTS = ("otel-collector",)
+
+
+def _safe_otel_endpoint(url: str) -> bool:
+    """The core's safeOtelEndpoint: https, plain http on this machine, or plain http to a compose service in
+    _OTEL_PLAIN_HOSTS. No credentials, no query."""
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        parts.port  # noqa: B018 - raises on a bad port
+    except ValueError:
+        return False
+    if parts.username or parts.password or parts.query or parts.fragment:
+        return False
+    if _safe_endpoint(url):
+        return True
+    return parts.scheme == "http" and host in _OTEL_PLAIN_HOSTS
+
+
+def diagnostics(doc: dict) -> list[str]:
+    """What the trace export gets wrong: spans (which can carry whole prompts) sent off the box in the clear, or a
+    secret written into the file as an export header. The collector holds Langfuse's key, never the Gateway."""
+    wrong = []
+    otel = _walk(doc, "diagnostics.otel")
+    if not isinstance(otel, dict):
+        return wrong
+    for key in _OTEL_ENDPOINTS:
+        url = otel.get(key)
+        if url is not None and not (isinstance(url, str) and _safe_otel_endpoint(url)):
+            wrong.append(f"diagnostics.otel.{key} is not https, loopback or the otel-collector service: spans would leave the box in the clear")
+    if otel.get("headers") not in (None, {}):
+        wrong.append("diagnostics.otel.headers is set: an export credential belongs to the collector, never the Gateway's config")
+    return wrong
+
+
 def lockdown(doc) -> list[str]:
     """What the config gets wrong, one line each; empty when it is locked down."""
     if not isinstance(doc, dict):
@@ -151,6 +191,7 @@ def lockdown(doc) -> list[str]:
         if key is not None and plain(key):
             wrong.append(f"models.providers.{name}.apiKey is in the config file as a value: it must be a SecretRef")
     wrong.extend(memory_plugin(doc))
+    wrong.extend(diagnostics(doc))
     return wrong
 
 
