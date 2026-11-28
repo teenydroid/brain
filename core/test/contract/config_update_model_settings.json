@@ -2,7 +2,7 @@
   "method": "openhuman.config_update_model_settings",
   "call_sites": [
     "bin/lib/health.py:1217",
-    "bin/spine:248"
+    "bin/spine:260"
   ],
   "params": {
     "fields": {

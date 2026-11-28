@@ -222,3 +222,49 @@ describe("the Gateway's log file", () => {
     expect(buildGatewayConfig(input()) as Record<string, unknown>).not.toHaveProperty("logging");
   });
 });
+
+describe("tracing turns to the private Langfuse", () => {
+  const otel = { endpoint: "http://otel-collector:4318", captureContent: true };
+
+  it("is off unless asked: no diagnostics block, no exporter plugin", () => {
+    const cfg = buildGatewayConfig(input()) as Cfg;
+    expect(cfg).not.toHaveProperty("diagnostics");
+    expect(cfg.plugins.allow).not.toContain("diagnostics-otel");
+    expect(cfg.plugins.entries).not.toHaveProperty("diagnostics-otel");
+  });
+
+  it("allows the official diagnostics-otel (never a load path: only the official install gets the diagnostic events) and sends every turn's spans, traces only, with no headers", () => {
+    const cfg = buildGatewayConfig(input({ guardrailsPath: "/srv/core/plugins/teeny-guardrails", otel })) as Cfg;
+    expect(cfg.plugins.allow).toEqual(["browser", "teeny-guardrails", "diagnostics-otel"]);
+    expect(cfg.plugins.load.paths).toEqual(["/srv/core/plugins/teeny-guardrails"]);
+    expect(cfg.plugins.entries["diagnostics-otel"]).toEqual({ enabled: true });
+    expect(cfg.diagnostics).toEqual({
+      enabled: true,
+      otel: {
+        enabled: true,
+        endpoint: "http://otel-collector:4318",
+        protocol: "http/protobuf",
+        serviceName: "teeny",
+        traces: true,
+        metrics: false,
+        logs: false,
+        sampleRate: 1,
+        captureContent: true,
+      },
+    });
+    expect(cfg.diagnostics.otel).not.toHaveProperty("headers");
+  });
+
+  it("passes `openclaw config validate` with the exporter in", { timeout: 90_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-validate-otel-"));
+    const file = join(dir, "openclaw.json");
+    writeFileSync(file, JSON.stringify(buildGatewayConfig(input({ otel }))));
+    const { cmd, args } = openclawCommand({});
+    const out = execFileSync(cmd, [...args, "config", "validate"], {
+      env: { PATH: process.env.PATH ?? "", HOME: dir, OPENCLAW_STATE_DIR: dir, OPENCLAW_CONFIG_PATH: file },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(out).toMatch(/Config valid/);
+  });
+});
