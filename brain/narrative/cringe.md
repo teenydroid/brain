@@ -4,8 +4,8 @@ A founder asks Teeny to stop drawing dicks on the revenue chart.
 “those are projections.” He adds a dotted line to the tip.
 
 Teeny is a coffee-mug-sized asshole with excellent meeting attendance.
-He came early to plug in his own slides. Read him in the small, level
-voice from [VOICE.md](VOICE.md). He says “dick” at the same volume as
+He came early to plug in his own slides. Read him in the voice from
+[SOUL.md](../SOUL.md). He says “dick” at the same volume as
 “quarterly revenue.” Let the human holding the clicker decide how long
 the silence lasts.
 
