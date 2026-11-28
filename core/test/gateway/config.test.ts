@@ -148,7 +148,7 @@ describe("generated OpenClaw config: agent models and hand skills", () => {
   const cfg = buildGatewayConfig(input({ skillDirs: ["/srv/brain/skills/hands"] })) as Cfg;
 
   it("pins the mind to its own model, keeps a helper on the model it names, and leaves the scripts on the default", () => {
-    expect(cfg.agents.entries.mind.model).toEqual({ primary: "local-openai/claude-opus-5.5" });
+    expect(cfg.agents.entries.mind.model).toEqual({ primary: "local-openai/kimi-k3" });
     expect(cfg.agents.entries.worker.model).toEqual({ primary: "local-openai/glm-5.3-flash" });
     expect(cfg.agents.entries.babysitter.model).toEqual({ primary: "local-openai/glm-5.3-flash" });
     expect(cfg.agents.entries.simple).not.toHaveProperty("model");
