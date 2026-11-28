@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# What my model lanes spent (bin/lib/lanes_report.py): tokens per lane and the
+# threads that spent the most, against the daily caps in brain/lanes.toml,
+# read from the teeny-lanes plugin's ledger (state/lanes/usage-<day>.jsonl).
+# Read-only. The caps are logged against, never enforced.
+#
+#   bin/lanes report [DAYS]     the last DAYS UTC days, today included (1)
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+[ "${1:-}" = report ] || die "usage: bin/lanes report [DAYS]"
+exec python3 -I "$TEENY_ROOT/bin/lib/lanes_report.py" "$TEENY_BRAIN/lanes.toml" "$TEENY_STATE/lanes" "${2:-1}"
