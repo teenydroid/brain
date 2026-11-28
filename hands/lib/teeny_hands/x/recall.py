@@ -247,3 +247,61 @@ def worn_phrases() -> list[str]:
         if inside * 4 < n * 3:  # mostly said outside the phrase: the word itself is the habit
             worn[word] = n
     return [phrase for phrase, _ in sorted(worn.items(), key=lambda kv: (-kv[1], kv[0]))[:WORN_MAX]]
+
+
+#: The most posts `thread` shows of one conversation (the newest of them).
+THREAD_MAX = 12
+
+
+def thread(conversation_id: str) -> list[str]:
+    """One X conversation as the ledgers know it, oldest first: the post it
+    started from when known, then every mention in it with the reply Teeny
+    sent under each, so a turn answering one post in the thread sees what
+    everyone else said there and what it already said back. Read from
+    x_mentions, x_posts and x_cache only, never X. What the guard held or has
+    not screened is left out. [] when the ledgers know nothing of it."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        root = _post(conn, conversation_id)
+        rows = _rows(conn, "SELECT id, author_username, text, created_at, seen_at FROM x_mentions"
+                           " WHERE conversation_id = ? AND id != ? AND status NOT IN ('held', 'unscreened', 'pending')",
+                     (conversation_id, conversation_id))
+        replies = {r["in_reply_to"]: r for r in _rows(
+            conn, "SELECT p.text, p.created_at, p.in_reply_to FROM x_posts p JOIN x_mentions m ON p.in_reply_to = m.id"
+                  " WHERE p.kind = 'reply' AND m.conversation_id = ?", (conversation_id,))}
+    finally:
+        conn.close()
+    shown = sorted(rows, key=_at)[-THREAD_MAX:]
+    if root is None and not shown:
+        return []
+    lines = ["## the thread on X (oldest first)"]
+    if root is not None:
+        lines.append(f'- it started from {root[0]}: "{_clip(root[1])}"')
+    if len(rows) > len(shown):
+        lines.append(f"- ({len(rows) - len(shown)} earlier posts in it not shown)")
+    for r in shown:
+        lines.append(f'- @{r["author_username"] or "someone"} ({_ago(_at(r))}): "{_clip(r["text"])}"')
+        if r["id"] in replies:
+            lines.append(f'  you ({_ago(replies[r["id"]]["created_at"])}): "{_clip(replies[r["id"]]["text"])}"')
+    return lines
+
+
+def thread_authors(conversation_id: str, most: int = 3) -> list[str]:
+    """The handles that wrote in a conversation, newest writer first, at most
+    `most`, so a turn there can be told who each of them is to Teeny."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        rows = _rows(conn, "SELECT author_username, created_at, seen_at FROM x_mentions WHERE conversation_id = ?"
+                           " AND author_username IS NOT NULL AND status NOT IN ('held', 'unscreened', 'pending')",
+                     (conversation_id,))
+    finally:
+        conn.close()
+    out: list[str] = []
+    for r in sorted(rows, key=_at, reverse=True):
+        if r["author_username"] not in out:
+            out.append(r["author_username"])
+    return out[:most]

@@ -41,6 +41,15 @@
 schedule = "*/5 * * * *"
 command = "bin/mentions"
 
+# Answer the X mentions that wait, each in its own conversation's OpenClaw
+# session of the x-reply agent (bin/x-replies, bin/lib/x_replies.py), after
+# bin/mentions has read them in. The only path that answers X mentions while
+# X_REPLIES is on (the default): the tick and the mind's inbox pass leave them.
+# Operator-owned for the same reason as mentions-inbound.
+[jobs.x-replies]
+schedule = "1-59/5 * * * *"
+command = "bin/x-replies"
+
 # Read Teeny's mail and send the replies the core has drafted (bin/mail).
 # Operator-owned for the same reason as mentions-inbound.
 [jobs.mail-inbound]

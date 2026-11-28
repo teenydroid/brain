@@ -84,7 +84,7 @@ describe("the memory plugin in the Gateway's config", () => {
         scope: "app:test/scope",
         engineFile: join(root, "state", "memory-engine.json"),
         recall: { timeoutMs: 5000, agents: { mind: { budgetTokens: 2000 }, teeny: { budgetTokens: 2000 }, act: { budgetTokens: 1500 } } },
-        capture: { agents: ["mind", "worker", "teeny", "teeny-mail", "teeny-mentions"] },
+        capture: { agents: ["mind", "worker", "teeny", "teeny-mail", "teeny-mentions", "x-reply"] },
         tools: { agents: ["mind"] },
       });
       // no secret of any kind in the plugin's config: the key stays sealed in the engine file

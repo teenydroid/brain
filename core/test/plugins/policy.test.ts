@@ -131,6 +131,23 @@ describe("the policy generated from brain/agents/*.toml", () => {
   });
 });
 
+describe("the thread block for X replies", () => {
+  it("is in the policy for the x-reply agent once bin/x-thread exists, keyed on x: sessions", () => {
+    const f = makeFixture();
+    const input = { defs, paths: f.paths, env: {}, workspaceOf: (id: string) => `/w/${id}` };
+    expect(buildGuardrailsPolicy(input).threadContext).toBeUndefined(); // the fixture's bin/ has no x-thread
+    mkdirSync(join(f.root, "bin"), { recursive: true });
+    symlinkSync("/bin/true", join(f.root, "bin", "x-thread"));
+    const raw = buildGuardrailsPolicy(input);
+    expect(raw.threadContext).toEqual({
+      agents: ["x-reply"], argv: [join(f.root, "bin", "x-thread")], cwd: f.root, sessionPrefix: "x:", maxChars: 8000, timeoutMs: 8000,
+    });
+    expect(parsePolicy({ policy: raw }).threadContext?.agents).toEqual(["x-reply"]);
+    // Without the agent there is nothing to key it on.
+    expect(buildGuardrailsPolicy({ ...input, defs: defs.filter((d) => d.id !== "x-reply") }).threadContext).toBeUndefined();
+  });
+});
+
 describe("the Gateway config that carries it", () => {
   const base = { port: 1, modelUrl: undefined, model: undefined, models: [], compactionTriggerTokens: 1, keepRecentTokens: 1, agentTimeoutSecs: 1, defaultWorkspace: "/w", agents: {} };
 

@@ -239,6 +239,12 @@ export const BEAT_REPLY_CAPS = { x: 3, mail: 2 };
 /** The reply-pass block put in front of a mind turn (bin/reply-queue): about 1.5k characters. */
 export const WAKE_CONTEXT_CHARS = 1500;
 export const WAKE_CONTEXT_MS = 8000;
+/** The thread block put in front of an X reply turn (bin/x-thread): the thread, the people in it, what Teeny said lately. */
+export const THREAD_CONTEXT_CHARS = 8000;
+export const THREAD_CONTEXT_MS = 8000;
+/** The agent that drafts X replies, one session per conversation (bin/lib/x_replies.py), and its sessions' prefix. */
+export const X_REPLY_AGENT = "x-reply";
+export const X_THREAD_PREFIX = "x:";
 
 /** Where teeny-guardrails says it is loaded (state/openclaw/guardrails.ready). */
 export function guardrailsReadyFile(openclawDir: string): string {
@@ -267,6 +273,18 @@ export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknow
     agents: buildAgentPolicies(input),
     ...(existsSync(join(paths.root, "bin", "reply-queue"))
       ? { wakeContext: { agents: ["mind"], argv: [join(paths.root, "bin", "reply-queue")], cwd: paths.root, maxChars: WAKE_CONTEXT_CHARS, timeoutMs: WAKE_CONTEXT_MS } }
+      : {}),
+    ...(existsSync(join(paths.root, "bin", "x-thread")) && input.defs.some((d) => d.id === X_REPLY_AGENT)
+      ? {
+          threadContext: {
+            agents: [X_REPLY_AGENT],
+            argv: [join(paths.root, "bin", "x-thread")],
+            cwd: paths.root,
+            sessionPrefix: X_THREAD_PREFIX,
+            maxChars: THREAD_CONTEXT_CHARS,
+            timeoutMs: THREAD_CONTEXT_MS,
+          },
+        }
       : {}),
   };
 }

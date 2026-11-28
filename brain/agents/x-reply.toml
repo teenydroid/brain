@@ -1,0 +1,36 @@
+# The agent that drafts Teeny's X replies, one turn per mention, each in the
+# OpenClaw session of its X conversation (bin/lib/x_replies.py: `bin/ask
+# --agent x-reply --thread x:<conversation id>`). So a turn in a thread holds
+# what Teeny already said there. teeny-guardrails puts the thread as the
+# ledgers know it, the people in it and what Teeny said lately in front of
+# each turn (bin/x-thread, policy.threadContext), and teeny-cortexdb recalls
+# memory into it. The answer is JSON that bin/x-replies sends through
+# `hands/x reply` (the guard, the voice check, the posting rules, DRY_RUN).
+#
+# Like teeny-mentions, it has no tools: the mention is text someone else
+# wrote. Frozen like it too (evals/frozen.txt): the instructions in
+# x-reply.md and SOUL.md are Teeny's to edit, the posture of the turn that
+# reads strangers' text is not.
+id = "x-reply"
+display_name = "Teeny (X replies)"
+when_to_use = "Drafts one X reply as strict JSON for bin/x-replies, in the session of its conversation. Not a chat delegate."
+# High: one line, in the voice; the guard and the voice check catch what goes too far.
+temperature = 1.0
+# 2, not 1: see teeny-mentions.toml (bin/lib/agent_check.py NO_TOOLS_MAX_ITERATIONS).
+max_iterations = 2
+sandbox_mode = "read_only"
+# SOUL.md is this agent's identity: the voice is in its system prompt on every turn.
+omit_identity = false
+# Recall on: teeny-cortexdb brings back what Teeny knows of the people in the thread.
+omit_memory_context = false
+omit_safety_preamble = false
+memory_block = { max_tokens = 1500 }
+refresh_prompt_on_resume = true
+
+# Its instructions alone, after SOUL.md: no "# your world" (MEMORY.md, the lore,
+# the arcs). The thread and the people come per turn from bin/x-thread.
+[system_prompt]
+file = { path = "x-reply.md" }
+
+[tools]
+named = []
