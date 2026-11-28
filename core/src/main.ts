@@ -22,6 +22,7 @@ import { findChrome } from "./config/chrome.js";
 import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
 import { ensureOtelPlugin, otelFromEnv, spawnOpenclaw, type OtelSetting } from "./gateway/otel.js";
 import { openclawVersion } from "./gateway/cli.js";
+import { METER_PORT, startMeter } from "./gateway/meter.js";
 import { ensureGatewayToken, gatewayTokenFile, openclawEnv, openclawPassthrough, passthroughCommand } from "./gateway/passthrough.js";
 import { GatewaySupervisor, type SpawnFn } from "./gateway/supervisor.js";
 import { parse as parseToml } from "smol-toml";
@@ -191,6 +192,9 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   // Every turn traced to the private Langfuse when TEENY_OTEL_URL names its collector (gateway/otel.ts).
   let tracing: OtelSetting = otelFromEnv(env);
   if (tracing.otel === undefined && tracing.why) log("warn", tracing.why);
+  /** The model meter's URL once it listens (gateway/meter.ts); until then, and without it, the Gateway calls LOCAL_OPENAI_URL. */
+  let meterUrl: string | undefined;
+  let closeMeter: (() => Promise<void>) | undefined;
   const catalog = new AgentCatalog(paths.brainDir, paths.openclawDir, paths.root);
   for (const [playbook, why] of Object.entries(catalog.nativeErrors)) log("warn", "a playbook says run = native but has no agent; its cron job will fail until it is fixed", { playbook, why });
   const secretFiles = { gatewayToken: gatewayTokenFile(paths.openclawDir), modelKey: join(paths.openclawDir, "model.key") };
@@ -224,7 +228,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
     const build = (proven: boolean): Record<string, unknown> => buildGatewayConfig({
       port: gatewayPort,
       guardrailsProven: proven,
-      modelUrl: env.LOCAL_OPENAI_URL,
+      modelUrl: meterUrl ?? env.LOCAL_OPENAI_URL,
       model: defaultModel,
       models: [...ids].map(([id, contextWindow]) => ({ id, ...(contextWindow ? { contextWindow } : {}) })),
       compactionTriggerTokens: compactionTrigger(env),
@@ -407,6 +411,24 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       tracing = { otel: undefined };
     }
   }
+  // The meter sits between the Gateway and the model endpoint (gateway/meter.ts). It must listen before the Gateway's
+  // config is first written, which happens when the supervisor starts it below. If it cannot (its port is taken, say),
+  // the Gateway calls the endpoint directly, as it did before the meter: model calls go on, unmetered.
+  if (supervisor && env.LOCAL_OPENAI_URL && !/^(0|false|no|off)$/i.test((env.TEENY_METER ?? "").trim())) {
+    try {
+      const meter = await startMeter({
+        upstream: env.LOCAL_OPENAI_URL,
+        port: Number(env.TEENY_METER_PORT || METER_PORT),
+        ...(tracing.otel ? { otlpUrl: tracing.otel.endpoint } : {}),
+        log,
+      });
+      meterUrl = meter.url;
+      closeMeter = meter.close;
+      log("info", "metering model calls", { port: meter.port, charges: tracing.otel ? "traced" : "not traced" });
+    } catch (e) {
+      log("warn", "model calls are not metered", { why: e instanceof Error ? e.message : String(e) });
+    }
+  }
   const server = createHttpServer({ registry: buildRegistry(), token, ctx });
   server.listen(port, host);
   await once(server, "listening");
@@ -428,6 +450,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       await supervisor?.stop();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
+      await closeMeter?.();
     },
   };
 }

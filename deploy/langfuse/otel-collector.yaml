@@ -28,6 +28,20 @@ processors:
     traces:
       span:
         - 'IsMatch(name, "^openclaw\\.(gateway\\.rpc\\.|diagnostic\\.phase$)")'
+        # The run's usage total, a second generation per run: Langfuse would add its tokens to the calls' own.
+        - 'name == "openclaw.model.usage"'
+  # Tokens and money come from one place: the core's model meter (core/src/gateway/meter.ts), which writes a
+  # surplus.charge generation per call with Surplus's own counts and its actual charge. The Gateway's model-call span
+  # keeps the prompt, the reply and its timings, but loses its gen_ai.usage.* figures, which Langfuse would count a
+  # second time. (Its openclaw.model_call.usage.* attributes stay, as metadata Langfuse does not add up.)
+  transform/usage-from-the-bill:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        conditions:
+          - 'name == "openclaw.model.call"'
+        statements:
+          - 'delete_matching_keys(attributes, "^gen_ai\\.usage\\.")'
   batch:
     send_batch_size: 512
     timeout: 5s
@@ -58,5 +72,5 @@ service:
     # logs are off in its config).
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, filter/rpc-chatter, batch]
+      processors: [memory_limiter, filter/rpc-chatter, transform/usage-from-the-bill, batch]
       exporters: [otlp_http/langfuse]
