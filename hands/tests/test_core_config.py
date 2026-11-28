@@ -155,7 +155,10 @@ class CoreConfigTest(unittest.TestCase):
         spec.loader.exec_module(automation)
         pins = automation.agent_models(REPO / "brain")
         self.assertTrue(pins["mind"]["lead_model"])
-        self.assertEqual(pins["worker"], {"agent_model": pins["mind"]["lead_model"]})
+        # The worker names its own model since 2026-11-28, and a helper that
+        # pins one keeps it rather than inheriting the mind's.
+        self.assertEqual(pins["worker"]["agent_model"], "glm-5.3-flash")
+        self.assertNotEqual(pins["worker"]["agent_model"], pins["mind"]["lead_model"])
 
     def test_the_headless_core_answers_its_own_secret_unlock(self):
         # bin/wallet-setup's encrypt_secret needs the config secret master
