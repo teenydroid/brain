@@ -68,6 +68,10 @@ brain/agents/operator.toml
 # tool list is a way out of state/home/. Its prompt (mind.md) stays Teeny's.
 brain/agents/mind.toml
 brain/agents/worker.toml
+# My model lanes (core/plugins/teeny-lanes): which sessions run on which model
+# and the token caps they are logged against. A self-edited lane is a way to
+# move a stranger's thread onto a freer model, or to hide what a thread spends.
+brain/lanes.toml
 # The pull-request babysitter's tools and jail: it reads reviewers' words, and
 # its report is what pushes to Teeny's pull requests. Its prompt stays Teeny's.
 brain/agents/babysitter.toml

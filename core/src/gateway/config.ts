@@ -12,6 +12,7 @@
 //  - plugins limited by allowlist to the browser plugin and Teeny's own local
 //    `teeny-guardrails` plugin (when its directory exists) and `teeny-cortexdb`, which owns the
 //    memory slot (when CortexDB is configured; otherwise the slot is "none" and memory-core stays off),
+//    `teeny-lanes` (brain/lanes.toml: each session's model, and a token ledger per lane and thread),
 //    plus `diagnostics-otel` when turns are traced to the private collector (TEENY_OTEL_URL);
 //  - gateway bound to loopback with a shared token that arrives in the
 //    environment (OPENCLAW_GATEWAY_TOKEN), never in this file.
@@ -24,6 +25,7 @@ export const MODEL_KEY_ENV = "LOCAL_OPENAI_API_KEY";
 export const PROVIDER_ID = "local-openai";
 export const GUARDRAILS_PLUGIN_ID = "teeny-guardrails";
 export const CORTEX_PLUGIN_ID = "teeny-cortexdb";
+export const LANES_PLUGIN_ID = "teeny-lanes";
 /** OpenClaw's OpenTelemetry exporter (`@openclaw/diagnostics-otel`), installed by the core as an official plugin (gateway/otel.ts). */
 /** The Gateway's OTLP service name when the meter reports tokens and cost (deploy/langfuse/otel-collector.yaml matches it). */
 export const METERED_SERVICE_NAME = "teeny-metered";
@@ -91,6 +93,12 @@ export interface GatewayConfigInput {
    * CORTEX_API_URL): the slot stays "none" and the Gateway has no memory, as in the lab.
    */
   cortex?: { path: string; config: Record<string, unknown> };
+  /**
+   * core/plugins/teeny-lanes with brain/lanes.toml as its config (agents/lanes.ts): each session's lane picks its
+   * model, and every model call's tokens are logged against the lane's daily caps. Left out when the plugin's
+   * directory or the file is absent: every session runs on its agent's own model.
+   */
+  lanes?: { path: string; config: Record<string, unknown> };
   /** Extra skill directories (`skills.load.extraDirs`): brain/skills/hands, which the agents' workspaces do not contain. */
   skillDirs?: string[];
   /** Chrome for the browser tool; unset lets OpenClaw find one. */
@@ -152,6 +160,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
   const loadPaths = [
     ...(input.guardrailsPath ? [input.guardrailsPath] : []),
     ...(input.cortex ? [input.cortex.path] : []),
+    ...(input.lanes ? [input.lanes.path] : []),
   ];
   const plugins: Record<string, unknown> = {
     // schema: plugins.slots.memory "none" turns every memory plugin off (docs/tools/plugin.md). memory-core
@@ -159,7 +168,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
     // brain/cron.toml; Teeny's memory is CortexDB, so the slot is teeny-cortexdb's when it is configured.
     slots: { memory: input.cortex ? CORTEX_PLUGIN_ID : "none" },
     // schema: plugins.allow (non-empty allowlist restricts loading), plugins.deny, plugins.load.paths
-    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : []), ...(input.cortex ? [CORTEX_PLUGIN_ID] : []), ...(input.otel ? [OTEL_PLUGIN_ID] : [])],
+    allow: ["browser", ...(input.guardrailsPath ? [GUARDRAILS_PLUGIN_ID] : []), ...(input.cortex ? [CORTEX_PLUGIN_ID] : []), ...(input.lanes ? [LANES_PLUGIN_ID] : []), ...(input.otel ? [OTEL_PLUGIN_ID] : [])],
     deny: DENIED_PLUGINS,
     ...(loadPaths.length > 0 ? { load: { paths: loadPaths } } : {}),
     entries: {
@@ -189,6 +198,18 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
               hooks: { allowConversationAccess: true },
               // Nothing secret: the CortexDB key stays sealed in state/memory-engine.json.
               config: input.cortex.config,
+            },
+          }
+        : {}),
+      ...(input.lanes
+        ? {
+            [LANES_PLUGIN_ID]: {
+              enabled: true,
+              // before_model_resolve and llm_output are typed hooks a non-bundled plugin may only register with
+              // this flag (see teeny-guardrails above). The plugin reads the session key and the usage counts,
+              // never the prompt or the reply.
+              hooks: { allowConversationAccess: true },
+              config: input.lanes.config,
             },
           }
         : {}),

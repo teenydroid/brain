@@ -274,3 +274,37 @@ describe("tracing turns to the private Langfuse", () => {
     expect(out).toMatch(/Config valid/);
   });
 });
+
+// teeny-lanes (agents/lanes.ts, brain/lanes.toml): each session's model, and the token ledger.
+describe("generated OpenClaw config: the lanes plugin", () => {
+  const lanes = {
+    path: join(REPO, "core", "plugins", "teeny-lanes"),
+    config: { provider: "local-openai", ledgerDir: "/srv/state/lanes", lanes: [{ id: "free", model: "kimi-k3", fallbacks: ["glm-5.3-flash"], match: ["agent:mind:*"] }] },
+  };
+
+  it("is absent unless asked", () => {
+    const cfg = buildGatewayConfig(input()) as Cfg;
+    expect(cfg.plugins.allow).not.toContain("teeny-lanes");
+    expect(cfg.plugins.entries).not.toHaveProperty("teeny-lanes");
+  });
+
+  it("is allowed, loaded from its path, and given brain/lanes.toml and conversation access for its typed hooks", () => {
+    const cfg = buildGatewayConfig(input({ lanes })) as Cfg;
+    expect(cfg.plugins.allow).toContain("teeny-lanes");
+    expect(cfg.plugins.load.paths).toEqual([lanes.path]);
+    expect(cfg.plugins.entries["teeny-lanes"]).toEqual({ enabled: true, hooks: { allowConversationAccess: true }, config: lanes.config });
+  });
+
+  it("passes `openclaw config validate` with the real plugin's manifest", { timeout: 90_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "oc-validate-lanes-"));
+    const file = join(dir, "openclaw.json");
+    writeFileSync(file, JSON.stringify(buildGatewayConfig(input({ lanes }))));
+    const { cmd, args } = openclawCommand({});
+    const out = execFileSync(cmd, [...args, "config", "validate"], {
+      env: { PATH: process.env.PATH ?? "", HOME: dir, OPENCLAW_STATE_DIR: dir, OPENCLAW_CONFIG_PATH: file },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(out).toMatch(/Config valid/);
+  });
+});

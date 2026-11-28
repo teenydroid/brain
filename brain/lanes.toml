@@ -1,0 +1,72 @@
+# My model lanes (core/plugins/teeny-lanes, read by core/src/agents/lanes.ts).
+#
+# Each OpenClaw session I run has a key, `agent:<agent>:<thread>`: bin/ask
+# --thread X becomes `agent:<agent>:X`, and a cron run of the mind is
+# `agent:mind:cron:<job>`. A lane claims sessions by glob over that key (`*`
+# is any run of characters, colons too). The first lane in this file that
+# matches wins. A session no lane claims runs on its agent's own model and is
+# logged under "other".
+#
+#   model                the model the lane's sessions run on, on the
+#                        ladder (local-openai). Left out: the agent's own
+#                        model stands (its brain/agents/*.toml pin, else
+#                        SPINE_MODEL), and the lane only labels the ledger.
+#   fallbacks            the run's fallback chain. [] is strict: a failed
+#                        model fails the run, it never quietly moves to
+#                        another one.
+#   daily_tokens         tokens a UTC day the whole lane should stay under.
+#   thread_daily_tokens  tokens a UTC day any one session in it should stay
+#                        under.
+#
+# The caps are logged, not enforced: every model call is a line in
+# state/lanes/usage-<day>.jsonl, and the first call of the day that takes a
+# lane or a thread past its cap is marked `over` and warned about in the
+# Gateway log. `bin/lanes report` reads it. Once a week of that shows what
+# normal is, the caps get set from it and enforcement can come.
+
+# Conversations with people: the turns that read what strangers wrote. They
+# stay on GLM with no fallback, so a stranger's thread never runs on a
+# freer model. x-reply drafts each X mention in the session of its
+# conversation (`agent:x-reply:x:<conversation id>`); teeny-mentions and
+# teeny-mail are the older per-surface drafters.
+[[lane]]
+id = "locked"
+model = "glm-5.3-flash"
+fallbacks = []
+match = ["agent:x-reply:*", "agent:teeny-mentions:*", "agent:teeny-mail:*"]
+daily_tokens = 1_500_000
+thread_daily_tokens = 60_000
+
+# The thinking I do alone: dreams (bin/dream, `teeny:dream`), reflection
+# (`teeny:reflect`) and the evolve proposer's candidates (`evolve:<gen>:…`,
+# on the evolver agent or act). Kimi, with GLM to fall back on. The evolve
+# reviewer (`evolve-review:*`) and judge stay on their own models: a
+# candidate is not judged by the model that wrote it.
+[[lane]]
+id = "free"
+model = "kimi-k3"
+fallbacks = ["glm-5.3-flash"]
+match = [
+  "agent:teeny:teeny:dream*",
+  "agent:teeny:teeny:reflect*",
+  "agent:evolver:evolve:*",
+  "agent:act:evolve:*",
+]
+daily_tokens = 3_000_000
+thread_daily_tokens = 600_000
+
+# My wakes: the mind and its worker. No model here. Their pins in
+# brain/agents/mind.toml and worker.toml decide, so going back to Opus
+# stays a one-line change there. This lane only shows the wakes in the
+# ledger.
+[[lane]]
+id = "wake"
+match = ["agent:mind:*", "agent:worker:*"]
+daily_tokens = 4_000_000
+
+# The one long thread bin/tick sends every beat to (`teeny:mind`), on
+# SPINE_MODEL.
+[[lane]]
+id = "home"
+match = ["agent:teeny:teeny:mind*"]
+daily_tokens = 2_000_000

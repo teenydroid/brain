@@ -44,6 +44,27 @@ for path in sorted(glob.glob(os.path.join(sys.argv[2], "agents", "*.toml"))) if 
         continue
     if isinstance(value, str) and value.strip() and not value.startswith("hint:") and value.strip() not in seen:
         seen.append(value.strip())
+# A model a lane routes to (brain/lanes.toml, `model` and `fallbacks`): the
+# teeny-lanes plugin asks for it by name on every turn of the lane's sessions.
+lanes = []
+if len(sys.argv) > 2 and sys.argv[2]:
+    try:
+        with open(os.path.join(sys.argv[2], "lanes.toml"), "rb") as fh:
+            lanes = tomllib.load(fh).get("lane", [])
+    except (OSError, tomllib.TOMLDecodeError):
+        lanes = []
+for lane in lanes if isinstance(lanes, list) else []:
+    if not isinstance(lane, dict):
+        continue
+    fallbacks = lane.get("fallbacks")
+    names = [lane.get("model")] + (fallbacks if isinstance(fallbacks, list) else [])
+    for value in names:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        # The plugin passes a prefixed id through; the endpoint lists bare ids.
+        value = value.strip().removeprefix("local-openai/")
+        if value and value not in seen:
+            seen.append(value)
 print(" ".join(seen))
 PY
   )" || studio_models=""

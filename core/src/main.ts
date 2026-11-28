@@ -18,8 +18,9 @@ import { resolveToken } from "./config/token.js";
 import { CliAgentRunner, type AgentRunner } from "./gateway/client.js";
 import { buildGuardrailsPolicy, guardrailsReadyFile } from "./agents/guardrails.js";
 import { buildCortexPluginConfig, cortexPluginIfPresent } from "./memory/plugin.js";
+import { laneModels, lanesPluginConfig, loadLanes } from "./agents/lanes.js";
 import { findChrome } from "./config/chrome.js";
-import { buildGatewayConfig, guardrailsIfPresent } from "./gateway/config.js";
+import { buildGatewayConfig, guardrailsIfPresent, PROVIDER_ID } from "./gateway/config.js";
 import { ensureOtelPlugin, otelFromEnv, spawnOpenclaw, type OtelSetting } from "./gateway/otel.js";
 import { openclawVersion } from "./gateway/cli.js";
 import { METER_PORT, startMeter } from "./gateway/meter.js";
@@ -189,6 +190,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
   const store = new SettingsStore(paths.stateDir, sealer);
   const guardrails = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-guardrails"));
   const cortexDir = cortexPluginIfPresent(join(paths.root, "core", "plugins", "teeny-cortexdb"));
+  const lanesDir = guardrailsIfPresent(join(paths.root, "core", "plugins", "teeny-lanes"));
   // Every turn traced to the private Langfuse when TEENY_OTEL_URL names its collector (gateway/otel.ts).
   let tracing: OtelSetting = otelFromEnv(env);
   if (tracing.otel === undefined && tracing.why) log("warn", tracing.why);
@@ -219,6 +221,15 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
     if (defaultModel) ids.set(defaultModel, undefined);
     for (const m of registry) ids.set(m.id, m.context_window);
     for (const pinned of catalog.pinnedModels()) if (!ids.has(bareModel(pinned))) ids.set(bareModel(pinned), undefined);
+    // brain/lanes.toml: read on every write, so an edit reaches the Gateway on the next config compare. A file that
+    // does not parse leaves the lanes out (every session on its agent's own model) and says why.
+    let lanes: ReturnType<typeof loadLanes> = [];
+    try {
+      lanes = lanesDir ? loadLanes(paths.brainDir) : [];
+    } catch (e) {
+      log("warn", "brain/lanes.toml does not parse; every session runs on its agent's own model", { error: e instanceof Error ? e.message : String(e) });
+    }
+    for (const m of laneModels(lanes)) if (!ids.has(bareModel(m))) ids.set(bareModel(m), undefined);
     // Memory is in the Gateway only while CortexDB is configured (an engine stored, or CORTEX_API_URL); the memory
     // tools go to agents only with the guardrails there to judge them.
     const cortexConfig = cortexDir ? buildCortexPluginConfig({ defs: catalog.definitions(), stateDir: paths.stateDir, secretsDir: paths.secretsDir, env }) : undefined;
@@ -246,6 +257,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
           }
         : {}),
       ...(cortexDir && cortexConfig ? { cortex: { path: cortexDir, config: cortexConfig } } : {}),
+      ...(lanesDir && lanes.length > 0 ? { lanes: { path: lanesDir, config: { ...lanesPluginConfig(lanes, PROVIDER_ID, paths.stateDir) } } } : {}),
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
       logFile: join(logDir, "openclaw-YYYY-MM-DD.log"),
       ...(tracing.otel ? { otel: { ...tracing.otel, ...(meterUrl ? { metered: true } : {}) } } : {}),
