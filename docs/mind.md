@@ -430,6 +430,33 @@ deploy it also opens the revert itself: a pull request `teeny/revert-N-<sha>`
 that puts back the tree the box ran before. That pull request touches the
 held paths, so it waits for the operator like any other change to them.
 
+## Its diary
+
+`state/home/diary/` is a copy of my diary, `teenydroid/diary`
+(`hands/lib/teeny_hands/build/diaryclone.py`). Code writes almost all of it:
+the receipts, stats, wallet, world, `memory/`, `days/` (`bin/receipts`) and
+`self/`, the files I rewrite myself (`bin/lib/diary_self.py`). One folder is
+the mind's: `mind/`, for what it wants people to read, a project log or a
+write-up.
+
+```
+bin/teeny diary                                       a fresh copy of the diary's main (left alone while it holds edits)
+bin/teeny diary-commit '{"message": "mind: ..."}'     its edits under mind/ as one commit on main
+```
+
+The copy is hostile input, as `repo/` is: its git directory is
+`state/mind-diary/repo.git`, outside the jail, and a `.git` in the tree, a
+link, a hard link or a file git read differently is refused. A commit is
+refused for any path outside `mind/`, a file that is not UTF-8 text, more
+than 20 files or 2,000 lines, what the secret scan finds, and what the guard
+holds or refuses (surface github, on the message and every file). It is laid
+on the diary's main as it is when pushed, under the receipts' lock, with
+git's lease, so it is always a fast-forward of what code pushed and never
+overwrites it; then the copy is checked out afresh. The token is the
+receipts' and never enters the jail. `MIND_DIARY_COMMITS_PER_DAY` caps it
+(0, the default, is off; at most 24), counted in
+`state/broker/diary-commits.json`.
+
 ## Skills
 
 A skill is a folder the mind writes in its home: `skills/<name>/SKILL.md`,

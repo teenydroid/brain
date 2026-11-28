@@ -173,7 +173,7 @@ workspace under `state/openclaw/workspaces/` (`core/src/agents`).
 |---|---|
 | Brain and state | `OPENHUMAN_WORKSPACE=/srv/teeny/brain` (no `config.toml` inside it), `state/` for the core's own files (`state/openclaw/`, the wallet in `state/wallet/`, the settings store), `secrets/` for the token and keys. |
 | RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
-| Model | The Gateway's `local-openai` provider, an OpenAI-compatible endpoint: `LADDER_URL` (as `LOCAL_OPENAI_URL`), the key stored over `config_update_local_ai_settings`, and `local-openai/$SPINE_MODEL` as the default. The windows `bin/spine` registers (`inference_update_model_settings`) become each model's `contextWindow`; threads fold at 100k tokens, keeping the last 40k. |
+| Model | The Gateway's `local-openai` provider, an OpenAI-compatible endpoint: `LADDER_URL` (as `LOCAL_OPENAI_URL`), reached through the core's model meter on `127.0.0.1:18790` (`core/src/gateway/meter.ts`: a pass-through that keys each call's prompt cache by its stable prefix, records Surplus's charge as the provider-billed `usage.cost`, and, with tracing on, sends one `surplus.charge` generation per call to Langfuse), the key stored over `config_update_local_ai_settings`, and `local-openai/$SPINE_MODEL` as the default. The windows `bin/spine` registers (`inference_update_model_settings`) become each model's `contextWindow`; threads fold at 100k tokens, keeping the last 40k. |
 | Memory | `core/src/memory`: CortexDB over `memory_engine_set`, as before (§4a). |
 | Wallet | `core/src/wallet`: the signer, the spend ledger and the caps in `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from `secrets/teeny.env`. The master key file `secrets/openhuman.key` seals the recovery phrase (`enc2`). `bin/teeny-core giveaway-tx create\|close` builds a Tiny Drops round's transactions. Money moves only here, after the caps say yes. |
 | Cron | OpenClaw automations. Shell jobs run `sh -c` with a minimal environment from the action dir `OPENHUMAN_ACTION_DIR=/srv/teeny`, under the `[cron] shell_timeout_secs` the core reads from its config. `bin/crons` and the health tools read through `bin/lib/cron_store.py`. |
@@ -768,6 +768,18 @@ and only the guard's text goes out. A held snapshot is withheld for good
 (`state/dream/withheld.json`, the category only). `memory/chain.jsonl`
 hash-chains the snapshots; the newest line matches `memory/MEMORY.md`
 (`bin/lib/diary_memory.py`).
+
+**What I rewrite myself, in public.** With `DIARY_SELF=1` the same job
+mirrors the files I rewrite on my own into the diary's `self/`: my mind's
+distilled notes (`SELF`, `MEMORY`, `LEARNINGS`, `CHECKS`, `PROJECTS`; never
+the journal or the inbox), its skills, and any `SOUL.md`, `MEMORY.md`,
+`IDENTITY.md` or `USER.md` OpenClaw keeps in an agent's workspace (never the
+`AGENTS.md` the core builds from `brain/agents/`). One commit when anything
+changed (`self: 2026-11-28 (+1 ~3 -0)`), so `git log -p self/` is how I
+changed. Same road as the page: redacted, the secret gate, the guard; a file
+they stop keeps its last published copy and is tried again next run
+(`bin/lib/diary_self.py`). The diary's `mind/` folder is the mind's own,
+written through the broker (docs/mind.md, "Its diary").
 
 How the day's beats become the page every prompt carries:
 

@@ -41,6 +41,38 @@ Gateway (in the spine)                 langfuse-net                 langfuse-dat
   `langfuse-net` with the collector and the spine; its UI is published on
   `127.0.0.1:3140` only.
 
+## What each call cost, and how much of it was cache
+
+Langfuse's tokens and costs come from Surplus's own bill, not from the
+Gateway. The core's model meter (`core/src/gateway/meter.ts`) sits on
+loopback between the Gateway and Surplus, and turns each model call into one
+`surplus.charge` generation under the Gateway's `openclaw.model.call`:
+
+- **cost**: what Surplus charged for that call (`usage.buyer_cost_micro`),
+  the marketplace's discounted price, not a list price;
+- **usage**: input split into uncached `input` and `input_cached_tokens`,
+  and `output`, as Surplus counted them;
+- **metadata**: `cache_hit_pct` (cached ÷ prompt tokens for that call),
+  `list_cost_usd` (the same tokens at the serving provider's published rate,
+  from Surplus's `GET /v1/prices`, the figure its request log calls
+  `direct_cost_micro`), `discount_pct`, and the `provider` that served it.
+
+While the meter is in front of the model, the Gateway reports as service
+`teeny-metered`, and the collector then strips its own token counts off
+`openclaw.model.call` and drops the per-run `openclaw.model.usage` total, so
+nothing is counted twice. With `TEENY_METER=0`, or when the meter cannot bind
+its port, the Gateway reports as `teeny` and its counts stay, since there is
+no `surplus.charge` to replace them. A charge the collector refuses is retried
+twice and then logged as a warning. A project's cost and token totals in Langfuse are Surplus's bill; the
+cache hit rate over any window is the sum of `input_cached_tokens` over the
+sum of `input` plus `input_cached_tokens` on `surplus.charge`.
+
+The meter also sets each call's `prompt_cache_key` to a hash of its stable
+prefix (system prompt and tools), so every run of an agent shares one key
+instead of a fresh one per session, and writes Surplus's charge into the
+answer as `usage.cost`, which OpenClaw records as the provider-billed cost
+(the core's `cost_report` then shows real spend).
+
 ## First time on the box
 
 ```sh

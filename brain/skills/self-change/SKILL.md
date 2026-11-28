@@ -8,7 +8,7 @@ description: How to change yourself - your soul, playbooks, schedule, prompts, s
     bin/teeny repo                      a fresh copy of your repository in repo/ (kept as it is while it holds edits)
     bin/teeny pr '{"branch": "calmer-mornings", "title": "...", "body": "what changes and why"}'
 
-Edit the files in `repo/` with your file tools, then ask for a pull request.
+`repo/AGENTS.md` is the map: what is frozen, how a change ships, and every tool, intent and hand you can reach. Edit the files in `repo/` with your file tools, then ask for a pull request.
 The broker turns the whole working copy into a branch `teeny/mind-<branch>`
 and opens the pull request. From there your babysitter works it: it fixes red
 checks, answers review, merges it once it is green and good, or closes it,

@@ -135,6 +135,7 @@ from teeny_hands.wallet import caps as wallet_caps, pay as wallet_pay, solana  #
 
 import diary_days  # noqa: E402  (bin/lib, beside this file: the public diary pages, A14)
 import diary_memory  # noqa: E402  (bin/lib: each dream's MEMORY.md, one commit per snapshot)
+import diary_self  # noqa: E402  (bin/lib: my notes, skills and agent pages, self/)
 
 DEFAULT_REPO = "teenydroid/diary"
 GENESIS = "0" * 64
@@ -795,14 +796,29 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
         except hand.Refused as why:
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the memory page carries a secret, nothing committed", why=why.reason) from None
+
+        def commit_self(message: str) -> bool:
+            # Its own commit too, so `git log -p self/` is how I changed.
+            _git(repo, "add", "-A", "--", diary_self.SELF_DIR)
+            if not _git(repo, "diff", "--cached", "--name-only", "--", diary_self.SELF_DIR).strip():
+                return False
+            check_secrets(_git(repo, "diff", "--cached", "--unified=0", "--", diary_self.SELF_DIR))
+            _git(repo, "commit", "-q", "-m", message, "--", diary_self.SELF_DIR)
+            return True
+
+        try:
+            me = diary_self.add(repo, True, check_secrets, _repo_name(), commit_self)
+        except hand.Refused as why:
+            _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
+            raise hand.Refused("my self/ files carry a secret, nothing committed", why=why.reason) from None
         days = diary_days.add(repo, True, check_secrets, _repo_name())
         paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, WORLD_DIR, ACCOUNTS_DIR, diary_days.DAYS_DIR)
                  if (repo / p).exists()]
         if paths:
             _git(repo, "add", "--", *paths)
         staged = bool(_git(repo, "diff", "--cached", "--name-only").strip())
-        if not staged and not memory.get("published"):
-            return {"issued": 0, "head": seq, "pushed": 0, "days": days, "memory": memory}
+        if not staged and not memory.get("published") and not me.get("committed"):
+            return {"issued": 0, "head": seq, "pushed": 0, "days": days, "memory": memory, "self": me}
         if staged:
             try:
                 check_secrets(_git(repo, "diff", "--cached", "--unified=0"))
@@ -828,7 +844,7 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
             finally:
                 conn.close()
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1, "days": days,
-            "memory": memory}
+            "memory": memory, "self": me}
 
 
 def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None,
@@ -840,8 +856,10 @@ def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet
     write_numbers(root, stats, wallet, world)
     write_accounts(root, accounts or {})
     memory = diary_memory.add(root, False, check_secrets, _repo_name())
+    me = diary_self.add(root, False, check_secrets, _repo_name())
     days = diary_days.add(root, False, check_secrets, _repo_name())
-    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0, "days": days, "memory": memory}
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0, "days": days, "memory": memory,
+            "self": me}
 
 
 def reveal(seq: int) -> Json:

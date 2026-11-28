@@ -750,6 +750,101 @@ class PublishedAccountsTest(ReceiptsCase):
         self.assertEqual(json.loads((published / "accounts" / "2026-W37.json").read_text())["net"], "-4.82")
 
 
+class SelfFilesTest(ReceiptsCase):
+    """The files I rewrite myself (my mind's notes and skills, and the pages
+    OpenClaw lets an agent rewrite) mirrored into the diary's self/, one
+    commit when anything changed: redacted, then the secret gate and the
+    guard. Off unless DIARY_SELF=1 (bin/lib/diary_self.py)."""
+
+    def on(self, bare, extra=""):
+        self.live(bare, f"DIARY_SELF=1\nSAFETY_JUDGE=0\n{extra}")
+
+    def write(self, rel, text):
+        path = self.root / "state" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def mine(self):
+        self.write("home/notes/SELF.md", "# self\n\ni like small tools.\n")
+        self.write("home/notes/JOURNAL.md", "private working notes\n")
+        self.write("home/notes/SELF.md.bak-1910", "old\n")
+        self.write("home/skills/INDEX.md", "- crab-count: count crabs\n")
+        self.write("home/skills/crab-count/SKILL.md", "count the crabs, then stop.\n")
+        self.write("openclaw/workspaces/mind/SOUL.md", "soft spoken\n")
+        self.write("openclaw/workspaces/mind/AGENTS.md", "the built prompt\n")
+
+    def log(self, clone):
+        return subprocess.run(["git", "log", "--format=%s", "--", "self"], cwd=clone, check=True,
+                              capture_output=True, text=True).stdout.splitlines()
+
+    def test_off_unless_switched_on(self):
+        bare = self.remote()
+        self.mine()
+        self.live(bare, "SAFETY_JUDGE=0\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("off", out["self"]["skipped"])
+        self.assertFalse((self.clone(bare) / "self").exists())
+
+    def test_my_own_files_are_published_and_nothing_else(self):
+        bare = self.remote()
+        self.mine()
+        (self.root / "state" / "home" / "notes" / "MEMORY.md").symlink_to(self.root / "secrets" / "teeny.env")
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["pushed"], 1)  # self/ alone is worth a push
+        clone = self.clone(bare)
+        published = sorted(p.relative_to(clone / "self").as_posix() for p in (clone / "self").rglob("*") if p.is_file())
+        self.assertEqual(published, ["notes/SELF.md", "skills/INDEX.md", "skills/crab-count/SKILL.md",
+                                     "workspaces/mind/SOUL.md"])
+        self.assertEqual((clone / "self" / "notes" / "SELF.md").read_text(), "# self\n\ni like small tools.\n")
+        self.assertEqual(self.log(clone), ["self: 2026-09-15 (+4 ~0 -0)"])
+
+    def test_an_unchanged_run_commits_nothing_and_a_change_is_one_commit(self):
+        bare = self.remote()
+        self.mine()
+        self.on(bare)
+        self.run_receipts()
+        code, out = self.run_receipts()
+        self.assertEqual((out["self"]["committed"], out["pushed"]), (False, 0))
+        self.write("home/notes/SELF.md", "# self\n\ni like smaller tools.\n")
+        (self.root / "state" / "home" / "skills" / "crab-count" / "SKILL.md").unlink()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        clone = self.clone(bare)
+        self.assertEqual(self.log(clone)[0], "self: 2026-09-15 (+0 ~1 -1)")
+        self.assertIn("smaller", (clone / "self" / "notes" / "SELF.md").read_text())
+        self.assertFalse((clone / "self" / "skills" / "crab-count").exists())
+
+    def test_a_secret_or_a_held_file_is_withheld_and_its_last_copy_kept(self):
+        bare = self.remote()
+        self.mine()
+        self.on(bare, "SOME_KEY=1789000000000000001\n")
+        self.run_receipts()
+        self.write("home/notes/SELF.md", "my key is 1789000000000000001\n")
+        self.write("home/notes/LEARNINGS.md", "what a retard\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted((w["path"], w["why"]) for w in out["self"]["withheld"]),
+                         [("self/notes/LEARNINGS.md", "held"), ("self/notes/SELF.md", "secret")])
+        clone = self.clone(bare)
+        self.assertEqual((clone / "self" / "notes" / "SELF.md").read_text(), "# self\n\ni like small tools.\n")
+        self.assertFalse((clone / "self" / "notes" / "LEARNINGS.md").exists())
+        self.assertNotIn("1789000000000000001", self.published_text(clone))
+
+    def test_the_preview_redacts_but_does_not_screen(self):
+        self.mine()
+        self.write("home/notes/PROJECTS.md", "mail ana@example.com about the cli\n")
+        self.secrets("DIARY_SELF=1\n")
+        code, out = self.run_receipts("--preview", str(self.scratch / "preview"))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["self"]["would_screen"])
+        text = (self.scratch / "preview" / "self" / "notes" / "PROJECTS.md").read_text()
+        self.assertNotIn("ana@example.com", text)
+
+
 if __name__ == "__main__":
     unittest.main()
 
