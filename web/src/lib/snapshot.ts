@@ -3,8 +3,8 @@
  * files, so nothing is read at request time any more: the pages render once
  * at build time, and the browser then refreshes them from these snapshots.
  *
- * .github/workflows/pages.yml runs scripts/snapshot.ts every fifteen minutes
- * and commits its output to the Pages repository under data/. The browser
+ * teenydroid/teenydroid.github.io's build workflow runs scripts/snapshot.ts
+ * every fifteen minutes and commits its output there under data/. The browser
  * reads it straight from GitHub (raw.githubusercontent.com answers any origin
  * and caches for about five minutes).
  *

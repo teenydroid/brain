@@ -3,8 +3,8 @@
  *
  *   npm run snapshot -- <out-dir>     writes <out-dir>/home.json and drops.json
  *
- * .github/workflows/pages.yml runs it every fifteen minutes and commits the
- * result to the Pages repository's data/. GITHUB_TOKEN, if set, lifts the
+ * teenydroid/teenydroid.github.io's build workflow runs it every fifteen
+ * minutes and commits the result to that repository's data/. GITHUB_TOKEN, if set, lifts the
  * GitHub API's rate limit for the loaders.
  */
 

@@ -1,22 +1,15 @@
-# The site (web/) on GitHub Pages, at https://teenydroid.github.io/.
+# Checks that web/ still builds into the site GitHub Pages serves, at
+# https://teenydroid.github.io/.
 #
-# GitHub serves the bare teenydroid.github.io only from the repository of the
-# same name, so the site is built here and pushed to
-# teenydroid/teenydroid.github.io, whose Pages serves its `main` branch root.
-# The push uses PAGES_DEPLOY_KEY, a write deploy key on that repository alone.
+# Publishing happens in teenydroid/teenydroid.github.io, not here: its own
+# workflow (.github/workflows/build.yml there) checks out this public
+# repository every fifteen minutes, rebuilds the site when web/ has changed,
+# and refreshes data/home.json and data/drops.json, all with that
+# repository's own token. Nothing here holds a key to it.
 #
-# - site: on a push to main that touches web/ (or by hand), build the static
-#   export with fresh snapshots in data/ and replace the Pages tree with it.
-#   On a pull request that touches web/ it runs the same build, snapshots
-#   included, and publishes nothing, so a change that would break the
-#   deploy shows up on the PR rather than after the merge.
-# - data: every fifteen minutes, rewrite data/home.json and data/drops.json
-#   (web/scripts/snapshot.ts) and commit them when anything besides
-#   `generatedAt` changed. The open page reads them from
-#   raw.githubusercontent.com (web/src/lib/snapshot.ts), so the numbers stay
-#   fresh without a rebuild.
-#
-# The two jobs share one concurrency group, so they never push at once.
+# This job runs the same build, snapshots included, on every pull request and
+# push to main that touches web/, so a change that would break the site shows
+# up here rather than in the next run over there.
 
 name: pages
 
@@ -30,25 +23,17 @@ on:
     paths:
       - "web/**"
       - ".github/workflows/pages.yml"
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
 
-# One group for everything that pushes to the Pages repository; a pull
-# request's build-only run gets a group of its own and replaces its last run.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
-env:
-  PAGES_REPO: teenydroid/teenydroid.github.io
-
 jobs:
   site:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -74,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
       # Without it Pages runs Jekyll, which drops _next/ and .well-known/.
       - run: touch out/.nojekyll
-      # What a pull request would publish: the pages, the snapshots, the
+      # What the Pages repository would serve: the pages, the snapshots, the
       # discovery files Pages must not drop.
       - name: Check the export
         run: |
@@ -85,64 +70,3 @@ jobs:
           done
           jq -e '.generatedAt and .anatomy and .repo and .receipts and .stats' out/data/home.json >/dev/null
           jq -e '.generatedAt and .drops' out/data/drops.json >/dev/null
-      - name: Publish to the Pages repository
-        if: github.event_name != 'pull_request'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
-          external_repository: ${{ env.PAGES_REPO }}
-          publish_branch: main
-          publish_dir: web/out
-          user_name: Teeny
-          user_email: teeny@agentmail.to
-          full_commit_message: "I published the site from teenydroid/brain@${{ github.sha }}"
-
-  data:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
-        with:
-          repository: ${{ env.PAGES_REPO }}
-          ref: main
-          path: pages
-          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
-      - name: Write the snapshots
-        working-directory: web
-        run: npm run snapshot -- "$RUNNER_TEMP/data"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      # A snapshot's generatedAt changes every run; only a change in what it
-      # says is worth a commit.
-      - name: Commit what changed
-        run: |
-          set -euo pipefail
-          mkdir -p pages/data
-          changed=0
-          for name in home drops; do
-            new="$RUNNER_TEMP/data/$name.json"
-            old="pages/data/$name.json"
-            if [ ! -f "$old" ] || ! cmp -s <(jq -S 'del(.generatedAt)' "$old") <(jq -S 'del(.generatedAt)' "$new"); then
-              cp "$new" "$old"
-              changed=1
-            fi
-          done
-          if [ "$changed" = 0 ]; then
-            echo "nothing new in the snapshots"
-            exit 0
-          fi
-          cd pages
-          git config user.name Teeny
-          git config user.email teeny@agentmail.to
-          git add data
-          git commit -m "I refreshed the site's data"
-          git push origin HEAD:main

@@ -10,15 +10,21 @@ by GitHub Pages from `teenydroid/teenydroid.github.io`.
 
 ## Deploying
 
-`.github/workflows/pages.yml` in this repository does both halves:
+The site is published from `teenydroid/teenydroid.github.io`, the one
+repository GitHub serves at the bare `teenydroid.github.io`. Its own workflow
+(`.github/workflows/build.yml` there) runs every fifteen minutes on that
+repository's own token, since this one is public and nothing needs a key:
 
-- **`site`**, on every push to `main` that touches `web/` (or by hand): builds
-  `out/`, puts fresh snapshots in `out/data/`, adds `.nojekyll` (without it
-  Pages drops `_next/` and `.well-known/`), and pushes the whole tree to the
-  Pages repository's `main` with the `PAGES_DEPLOY_KEY` deploy key.
-- **`data`**, every fifteen minutes: runs `npm run snapshot` into the Pages
-  repository's `data/` and commits only when something besides
-  `generatedAt` changed.
+- it runs `npm run snapshot` and commits `data/home.json` and
+  `data/drops.json` when something besides `generatedAt` changed;
+- when `web/` here has a newer commit than the one in its `.source`, it
+  rebuilds `out/`, adds `.nojekyll` (without it Pages drops `_next/` and
+  `.well-known/`) and replaces the site's files with it. A merged change goes
+  live within about fifteen minutes; run that workflow by hand (with
+  `rebuild`) to publish at once.
+
+Here, `.github/workflows/pages.yml` runs the same build on every pull request
+that touches `web/` and checks the output, without publishing anything.
 
 There is no server, so nothing is read per request. Each page renders once at
 build time from the same loaders, so the HTML has real numbers for crawlers

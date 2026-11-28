@@ -389,7 +389,7 @@ services:
 
   # teeny.enamakel.com's old landing page, now a 301 to the same path on
   # https://teenydroid.github.io, where the site lives (web/, built and
-  # published by .github/workflows/pages.yml). nginx with one config file
+  # published by teenydroid/teenydroid.github.io's build.yml). nginx with one config file
   # (web-redirect.conf). The tunnel sends it everything on that name but X's
   # webhook. It keeps 127.0.0.1:3120 so the host's old vhost redirects too
   # until the name's DNS points at the tunnel.

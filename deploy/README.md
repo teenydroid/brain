@@ -8,7 +8,7 @@ at `/srv/teeny`:
 | `spine` | `teeny-spine` serving over the checkout. The core, its cron and every job. | none; reach it with `exec` |
 | `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `glm-5.3-flash` for writing memories, `gpt-6-luna` for recall, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine runs in its network namespace and finds it at `CORTEX_API_URL=http://127.0.0.1:3141` (`secrets/spine.env`); CortexDB binds loopback only. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. On the `edge` network only. | `127.0.0.1:3110` |
-| `web` | teeny.enamakel.com's old landing page, now nginx answering a 301 to the same path on https://teenydroid.github.io (`web-redirect.conf`). The site itself is on GitHub Pages (`web/`, `.github/workflows/pages.yml`). | `127.0.0.1:3120` |
+| `web` | teeny.enamakel.com's old landing page, now nginx answering a 301 to the same path on https://teenydroid.github.io (`web-redirect.conf`). The site itself is on GitHub Pages (`web/`, built and published by teenydroid/teenydroid.github.io's build.yml). | `127.0.0.1:3120` |
 | `tunnel` | The Cloudflare Tunnel for teeny.enamakel.com (`cloudflared/config.yml`): X's webhook to `xhook`, everything else to `web`. Dials out; on the `edge` network only. | none; dials out |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 | `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
@@ -29,7 +29,7 @@ browsers ─►  teeny.enamakel.com                                             
               any other host   ──► 404
 
 browsers ──► GitHub Pages: https://teenydroid.github.io (teenydroid/teenydroid.github.io)
-              built from web/ by .github/workflows/pages.yml; data/*.json every 15 min
+              built from web/ by its own workflow every 15 min, data/*.json too
 
 compose project teeny-spine
   cortexdb's network namespace, shared by two services

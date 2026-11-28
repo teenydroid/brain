@@ -18,8 +18,8 @@
 #   (docs/evolve.md, "What Teeny may change"). The operator's PRs skip it.
 #
 # Nothing here deploys the stack: the box runs deploy/compose.yaml by hand
-# (deploy/README.md). The site is the exception: pages.yml publishes web/ to
-# GitHub Pages on merge.
+# (deploy/README.md). pages.yml checks that web/ still builds into the site;
+# teenydroid/teenydroid.github.io builds and publishes it.
 
 name: check
 
