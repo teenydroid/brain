@@ -192,6 +192,33 @@ describe("the Gateway's exec stays denied until the plugin is proven loaded", ()
     }
   });
 
+  it("does not leave the model meter listening when the core fails to start", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teeny-core-"));
+    mkdirSync(join(root, "secrets"));
+    mkdirSync(join(root, "core", "plugins", "teeny-guardrails"), { recursive: true });
+    const free = async (): Promise<{ port: number; srv: ReturnType<typeof createServer> }> => {
+      const srv = createServer().listen(0, "127.0.0.1");
+      await new Promise((r) => srv.once("listening", r));
+      return { port: (srv.address() as { port: number }).port, srv };
+    };
+    const taken = await free(); // the RPC port is in use, so listen fails after the meter is up
+    const meterSlot = await free();
+    const meterPort = meterSlot.port;
+    await new Promise((r) => meterSlot.srv.close(r));
+    try {
+      await expect(
+        startCore(
+          { PATH: "/usr/bin", TEENY_ROOT: root, OPENHUMAN_WORKSPACE: join(REPO, "brain"), OPENHUMAN_CORE_PORT: String(taken.port), OPENHUMAN_CORE_TOKEN: "tok", OPENHUMAN_KEYRING_MASTER_KEY_FILE: "/nonexistent", LOCAL_OPENAI_URL: "http://127.0.0.1:1/v1", SPINE_MODEL: "m", TEENY_METER_PORT: String(meterPort) },
+          { log: () => undefined, drainMs: 100, settleMs: 100, bootSettleMs: 100, spawn: () => new QuietChild() as never },
+        ),
+      ).rejects.toThrow();
+      expect(await portOpen(meterPort)).toBe(false);
+    } finally {
+      await new Promise((r) => taken.srv.close(r));
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("portOpen says whether something listens", async () => {
     const srv = createServer().listen(0, "127.0.0.1");
     await new Promise((r) => srv.once("listening", r));

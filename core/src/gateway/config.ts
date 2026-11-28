@@ -25,6 +25,9 @@ export const PROVIDER_ID = "local-openai";
 export const GUARDRAILS_PLUGIN_ID = "teeny-guardrails";
 export const CORTEX_PLUGIN_ID = "teeny-cortexdb";
 /** OpenClaw's OpenTelemetry exporter (`@openclaw/diagnostics-otel`), installed by the core as an official plugin (gateway/otel.ts). */
+/** The Gateway's OTLP service name when the meter reports tokens and cost (deploy/langfuse/otel-collector.yaml matches it). */
+export const METERED_SERVICE_NAME = "teeny-metered";
+
 export const OTEL_PLUGIN_ID = "diagnostics-otel";
 
 /** Plugins nothing of Teeny's needs; belt and braces over the allowlist. */
@@ -105,7 +108,16 @@ export interface GatewayConfigInput {
    * headers: the collector holds Langfuse's key, so nothing secret is in this file or the Gateway's environment.
    * Left out, no exporter loads and no span leaves the Gateway.
    */
-  otel?: { endpoint: string; captureContent: boolean };
+  otel?: {
+    endpoint: string;
+    captureContent: boolean;
+    /**
+     * The model meter is in front of the model endpoint and writes its own `surplus.charge` generation per call. The
+     * collector then drops the Gateway's token counts so Langfuse does not count them twice, and it tells the two
+     * cases apart by this service name. Left out, the Gateway's counts are the only ones and stay.
+     */
+    metered?: boolean;
+  };
 }
 
 /** The two browser profiles the guardrails plugin pins agents to: Teeny's own (signed in) and a throwaway for readers. */
@@ -223,7 +235,7 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
               enabled: true,
               endpoint: input.otel.endpoint,
               protocol: "http/protobuf",
-              serviceName: "teeny",
+              serviceName: input.otel.metered ? METERED_SERVICE_NAME : "teeny",
               traces: true,
               metrics: false,
               logs: false,

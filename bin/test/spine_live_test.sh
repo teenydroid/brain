@@ -62,6 +62,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ANSWER = "teeny spine says hello"
 
+# Usage the way Surplus reports it: what the call was charged in buyer_cost_micro (micro-USD), which the core's meter
+# turns into OpenClaw's provider-billed usage.cost, and the cache reads in prompt_tokens_details.
+USAGE = {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6,
+         "prompt_tokens_details": {"cached_tokens": 0}, "buyer_cost_micro": 7}
+
+
 class Model(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -208,7 +214,7 @@ class Model(BaseHTTPRequestHandler):
                      "choices": [{"index": 0, "delta": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": None}]},
                     {**base, "object": "chat.completion.chunk",
                      "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
-                     "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
+                     "usage": USAGE},
                 ]
                 for chunk in chunks:
                     self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
@@ -216,7 +222,7 @@ class Model(BaseHTTPRequestHandler):
                 return
             self._json({**base, "object": "chat.completion",
                         "choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": "tool_calls"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
+                        "usage": USAGE})
             return
         if body.get("stream"):
             self.send_response(200)
@@ -227,7 +233,7 @@ class Model(BaseHTTPRequestHandler):
                  "choices": [{"index": 0, "delta": {"role": "assistant", "content": answer}, "finish_reason": None}]},
                 {**base, "object": "chat.completion.chunk",
                  "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                 "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
+                 "usage": USAGE},
             ]
             for chunk in chunks:
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
@@ -235,7 +241,7 @@ class Model(BaseHTTPRequestHandler):
             return
         self._json({**base, "object": "chat.completion",
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
+                    "usage": USAGE})
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
@@ -447,7 +453,15 @@ if [ -z "${LIVE_TRACES_URL:-}" ]; then
   check "and, with content capture on, what was asked" grep -qa 'please say hello' "$scratch/otlp.log"
   check "and no Authorization header: the collector holds the key, never the Gateway" \
     bash -c "! grep -q authorization '$scratch/otlp-headers.log'"
+  # The core's meter bills each call: one surplus.charge generation per call, with Surplus's charge as its cost.
+  for _ in $(seq 1 30); do grep -qa 'surplus.charge' "$scratch/otlp.log" 2>/dev/null && break; sleep 1; done
+  check "the meter sends a surplus.charge generation per call" grep -qa 'surplus.charge' "$scratch/otlp.log"
+  check "carrying the call's charge as its cost" grep -qa 'langfuse.observation.cost_details' "$scratch/otlp.log"
 fi
+# --- the model meter (core/src/gateway/meter.ts), between the Gateway and the endpoint ---
+check "the Gateway calls the model through the core's meter on loopback" \
+  jq -e '.models.providers["local-openai"].baseUrl | test("^http://127\\.0\\.0\\.1:[0-9]+/v1$")' "$root/state/openclaw/openclaw.json"
+check "which keys each call's prompt cache by its stable prefix" grep -q '"prompt_cache_key": "teeny-' "$scratch/model-bodies.jsonl"
 # --- a shell agent through the real Gateway: guardrails is the only gate on exec ---
 shelled="$("$root/bin/ask" --agent worker --thread live:shell "# shell e2e $root" 2>"$scratch/shell.log" || true)"
 check "a shell agent's turn runs and quotes its tool results" grep -q '^SHELL-E2E ' <<<"$shelled"
