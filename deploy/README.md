@@ -225,7 +225,9 @@ the `langfuse` profile, with its UI on `127.0.0.1:3140` only.
 
 ```sh
 deploy/langfuse/init.sh
-docker compose -f deploy/compose.yaml --profile langfuse up -d
+docker compose -f deploy/compose.yaml --profile langfuse up -d \
+  otel-collector langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
+# name the services: a bare up or down with the profile takes the spine and cortexdb along too
 # then TRACES_OTLP_URL=http://otel-collector:4318 in secrets/spine.env, and up -d cortexdb spine
 ```
 

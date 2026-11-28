@@ -17,10 +17,16 @@ type Env = Readonly<Record<string, string | undefined>>;
 export const OTEL_PACKAGE = "@openclaw/diagnostics-otel";
 
 /**
+ * The compose services the Gateway may reach over plain http: deploy/compose.yaml's collector, on the private
+ * langfuse-net. A named list, not any dotless host: Docker forwards a name it cannot resolve to the host's DNS, where
+ * a search domain could turn `collector` into a machine off the box.
+ */
+export const OTEL_PLAIN_HOSTS: readonly string[] = ["otel-collector"];
+
+/**
  * Whether the Gateway may send spans to `url`. Captured content can hold anything a turn saw, so the rule is the
- * memory plugin's (https, or plain http on this machine) widened by one case: plain http to a bare compose service
- * name (a host with no dot, such as `otel-collector`), which resolves only on the box's own Docker networks. No
- * credentials in the URL, no query: nothing secret goes in the Gateway's config.
+ * memory plugin's (https, or plain http on this machine) widened by one case: plain http to a compose service in
+ * OTEL_PLAIN_HOSTS. No credentials in the URL, no query: nothing secret goes in the Gateway's config.
  */
 export function safeOtelEndpoint(url: string): boolean {
   let parsed: URL;
@@ -35,7 +41,7 @@ export function safeOtelEndpoint(url: string): boolean {
   if (parsed.protocol === "https:") return true;
   if (parsed.protocol !== "http:") return false;
   if (host === "localhost" || host === "[::1]" || /^127(\.\d{1,3}){3}$/.test(host)) return true;
-  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host) && !/^\d+$/.test(host);
+  return OTEL_PLAIN_HOSTS.includes(host);
 }
 
 export interface OtelInput {
@@ -50,7 +56,7 @@ export function otelFromEnv(env: Env): OtelSetting {
   const endpoint = (env.TEENY_OTEL_URL ?? "").trim().replace(/\/+$/, "");
   if (!endpoint) return { otel: undefined };
   if (!safeOtelEndpoint(endpoint)) {
-    return { otel: undefined, why: "TEENY_OTEL_URL is not https, loopback, or http to a compose service name; turns are not traced" };
+    return { otel: undefined, why: `TEENY_OTEL_URL is not https, loopback, or http to ${OTEL_PLAIN_HOSTS.join(", ")}; turns are not traced` };
   }
   const captureContent = !/^(0|false|no|off)$/i.test((env.TEENY_OTEL_CAPTURE ?? "").trim());
   return { otel: { endpoint, captureContent } };
@@ -97,13 +103,39 @@ export function trustedInstallAt(stdout: string, version: string): boolean {
  * the npm registry when it is missing or another version. `--no-enable`: the core's config owns activation, so the
  * installer touches no allowlist or entry. Fails (and the caller leaves tracing off) when the registry cannot be
  * reached or the install is not trusted.
+ *
+ * The whole of it stays inside `budgetMs`: it runs before the core listens, and bin/spine fails the boot when the
+ * core has not answered /health in SPINE_BOOT_SECS (120 s). Tracing is optional; a slow registry must cost the
+ * boot a minute at most, then the core boots without it. (A healthy install takes about 15 s.)
  */
-export async function ensureOtelPlugin(run: OpenclawRun, version: string): Promise<{ ok: true; installed: boolean } | { ok: false; why: string }> {
-  const inspect = (): Promise<{ code: number; stdout: string }> => run(["plugins", "inspect", "diagnostics-otel", "--json"], 60_000);
-  if (trustedInstallAt((await inspect()).stdout, version)) return { ok: true, installed: false };
-  const install = await run(["plugins", "install", `npm:${OTEL_PACKAGE}@${version}`, "--pin", "--no-enable"], 300_000);
+export const OTEL_ENSURE_BUDGET_MS = 60_000;
+
+export async function ensureOtelPlugin(
+  run: OpenclawRun,
+  version: string,
+  budgetMs: number = OTEL_ENSURE_BUDGET_MS,
+  now: () => number = Date.now,
+): Promise<{ ok: true; installed: boolean } | { ok: false; why: string }> {
+  const deadline = now() + budgetMs;
+  const timed = async (args: string[]): Promise<{ code: number; stdout: string } | undefined> => {
+    const left = deadline - now();
+    if (left <= 0) return undefined;
+    const started = now();
+    const result = await run(args, left);
+    // The runner kills the CLI at `left`; a run that used all of it timed out, whatever its exit code.
+    return now() - started >= left ? undefined : result;
+  };
+  const late = { ok: false as const, why: `installing ${OTEL_PACKAGE}@${version} took longer than ${Math.round(budgetMs / 1000)}s` };
+  const inspect = (): Promise<{ code: number; stdout: string } | undefined> => timed(["plugins", "inspect", "diagnostics-otel", "--json"]);
+  const first = await inspect();
+  if (!first) return late;
+  if (trustedInstallAt(first.stdout, version)) return { ok: true, installed: false };
+  const install = await timed(["plugins", "install", `npm:${OTEL_PACKAGE}@${version}`, "--pin", "--no-enable"]);
+  if (!install) return late;
   if (install.code !== 0) return { ok: false, why: `openclaw plugins install npm:${OTEL_PACKAGE}@${version} exited ${install.code}` };
-  if (!trustedInstallAt((await inspect()).stdout, version)) {
+  const second = await inspect();
+  if (!second) return late;
+  if (!trustedInstallAt(second.stdout, version)) {
     return { ok: false, why: `${OTEL_PACKAGE}@${version} installed but is not the trusted official install` };
   }
   return { ok: true, installed: true };

@@ -730,7 +730,8 @@ fresh
 put_gateway_config "$with_otel"
 check "a config tracing turns to the private collector passes" audit_doctor "$CLEAN_AUDIT"
 for broken in \
-  '.diagnostics.otel.endpoint = "http://traces.example.com:4318"@@diagnostics.otel.endpoint is not https, loopback or a compose service name' \
+  '.diagnostics.otel.endpoint = "http://traces.example.com:4318"@@diagnostics.otel.endpoint is not https, loopback or the otel-collector service' \
+  '.diagnostics.otel.endpoint = "http://collector:4318"@@diagnostics.otel.endpoint is not https' \
   '.diagnostics.otel.tracesEndpoint = "http://10.1.2.3:4318/v1/traces"@@diagnostics.otel.tracesEndpoint is not https' \
   '.diagnostics.otel.endpoint = "http://pk:sk@otel-collector:4318"@@diagnostics.otel.endpoint is not https' \
   '.diagnostics.otel.headers = {Authorization: "Basic cGs6c2s="}@@diagnostics.otel.headers is set'; do

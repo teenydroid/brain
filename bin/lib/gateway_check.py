@@ -124,11 +124,14 @@ def memory_plugin(doc: dict) -> list[str]:
 #: The exporter the core loads when it traces turns (core/src/gateway/otel.ts).
 OTEL_PLUGIN = "diagnostics-otel"
 _OTEL_ENDPOINTS = ("endpoint", "tracesEndpoint", "metricsEndpoint", "logsEndpoint")
+# The core's OTEL_PLAIN_HOSTS: compose services reachable over plain http. Named, not any dotless host: Docker hands
+# a name it cannot resolve to the host's DNS, where a search domain could send it off the box.
+_OTEL_PLAIN_HOSTS = ("otel-collector",)
 
 
 def _safe_otel_endpoint(url: str) -> bool:
-    """The core's safeOtelEndpoint: https, plain http on this machine, or plain http to a bare compose service name
-    (no dot, not all digits: it resolves only on this box's Docker networks). No credentials, no query."""
+    """The core's safeOtelEndpoint: https, plain http on this machine, or plain http to a compose service in
+    _OTEL_PLAIN_HOSTS. No credentials, no query."""
     try:
         parts = urlsplit(url)
         host = (parts.hostname or "").lower()
@@ -139,7 +142,7 @@ def _safe_otel_endpoint(url: str) -> bool:
         return False
     if _safe_endpoint(url):
         return True
-    return parts.scheme == "http" and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", host) is not None and not host.isdigit()
+    return parts.scheme == "http" and host in _OTEL_PLAIN_HOSTS
 
 
 def diagnostics(doc: dict) -> list[str]:
@@ -152,7 +155,7 @@ def diagnostics(doc: dict) -> list[str]:
     for key in _OTEL_ENDPOINTS:
         url = otel.get(key)
         if url is not None and not (isinstance(url, str) and _safe_otel_endpoint(url)):
-            wrong.append(f"diagnostics.otel.{key} is not https, loopback or a compose service name: spans would leave the box in the clear")
+            wrong.append(f"diagnostics.otel.{key} is not https, loopback or the otel-collector service: spans would leave the box in the clear")
     if otel.get("headers") not in (None, {}):
         wrong.append("diagnostics.otel.headers is set: an export credential belongs to the collector, never the Gateway's config")
     return wrong

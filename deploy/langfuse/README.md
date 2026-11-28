@@ -20,14 +20,15 @@ Gateway (in the spine)                 langfuse-net                 langfuse-dat
   Gateway starts. It has to be the official install: the Gateway gives its
   diagnostic event stream only to a bundled or verified official
   `diagnostics-otel`, and a copy loaded from a path exports nothing. If the
-  install cannot happen (no registry, say), the core logs `turns are not
-  traced` and boots without tracing.
+  install cannot happen within a minute (no registry, say), the core logs
+  `turns are not traced` and boots without tracing, well inside the spine's
+  120-second boot deadline.
 - **The Gateway's config** (`core/src/gateway/config.ts`) gets a
   `diagnostics.otel` block: traces only, every turn sampled, prompts and
   replies on the spans unless `TRACES_CAPTURE=0`, and **no headers**. The
   lockdown (`bin/lib/gateway_check.py`) refuses an export endpoint that
-  would leave the box in the clear (only https, loopback, or a bare compose
-  service name such as `otel-collector`) and any header in the file.
+  would leave the box in the clear (only https, loopback, or plain http to
+  the `otel-collector` service by name) and any header in the file.
 - **The collector** (`otel-collector.yaml`) is the only thing that holds
   Langfuse's project key (`secrets/langfuse-otlp.env`). It drops traces that
   are nothing but the core's RPC chatter with the Gateway (9 in 10 on the
@@ -43,9 +44,14 @@ Gateway (in the spine)                 langfuse-net                 langfuse-dat
 
 ```sh
 deploy/langfuse/init.sh                    # mints secrets/langfuse.env and secrets/langfuse-otlp.env, once
-docker compose -f deploy/compose.yaml --profile langfuse up -d
+docker compose -f deploy/compose.yaml --profile langfuse up -d \
+  otel-collector langfuse-web langfuse-worker langfuse-postgres \
+  langfuse-clickhouse langfuse-redis langfuse-minio
 curl -fsS http://127.0.0.1:3140/api/public/health
 ```
+
+Name the services: without them, `up` and `down` with the profile also act on
+every service without one, the spine and cortexdb included.
 
 Then point the spine at the collector: add
 `TRACES_OTLP_URL=http://otel-collector:4318` to `secrets/spine.env`, and
@@ -66,8 +72,17 @@ and sessions.
 ## Turning it off
 
 Remove `TRACES_OTLP_URL` from `secrets/spine.env` and restart the spine: the
-Gateway's config loses the exporter and nothing is sent. `--profile langfuse
-down` stops Langfuse; its data stays in the `langfuse-*` volumes.
+Gateway's config loses the exporter and nothing is sent. Then stop Langfuse by
+naming its services; its data stays in the `langfuse-*` volumes:
+
+```sh
+docker compose -f deploy/compose.yaml --profile langfuse stop \
+  otel-collector langfuse-web langfuse-worker langfuse-postgres \
+  langfuse-clickhouse langfuse-redis langfuse-minio
+```
+
+Not `--profile langfuse down`: `down` takes the whole project with it, the
+spine and cortexdb included.
 
 ## Upgrading
 
