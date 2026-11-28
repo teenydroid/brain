@@ -44,7 +44,7 @@ The pool less `best_reply_tiny` must split evenly by `winners`, and no one perso
 
 The `prompt` is the question people answer to enter. Make it one people want to answer in public, a hot take, a worst bug, the thing they would build, so the replies are worth reading and you have something to judge.
 
-The `text` is the announce post, written to the hook rules (skills/hooks): the stake first and the real numbers exactly as you chose them, then the one thing to do (reply to this post with your answer and your Solana address), then that it is free to enter and the rules are at teeny.enamakel.com/rewards. It must carry `next_tag` exactly. Under 280 characters, no hashtags. Never promise anyone a win.
+The `text` is the announce post, written to the hook rules (skills/hooks): the stake first and the real numbers exactly as you chose them, then the one thing to do (reply to this post with your answer and your Solana address), then that it is free to enter and the rules are at teenydroid.github.io/rewards. It must carry `next_tag` exactly. Under 280 characters, no hashtags. Never promise anyone a win.
 
 Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
 

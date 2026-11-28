@@ -215,6 +215,10 @@ class OwnWorkAndNewsTest(unittest.TestCase):
             "https://teeny.enamakel.com",
             "https://teeny.enamakel.com/diary",
             "https://x402.teeny.enamakel.com/stats",
+            # The site moved to GitHub Pages on 2026-11-28.
+            "https://teenydroid.github.io/",
+            "https://teenydroid.github.io/rewards/",
+            "teenydroid.github.io/rewards",
         ]:
             self.assertIs(verdict(url), ALLOWED, url)
 
@@ -243,8 +247,11 @@ class OwnWorkAndNewsTest(unittest.TestCase):
             "https://brave.com/blog/search-api-agentic-payments/",
             "https://github.com/someone-else/repo",
             "https://github.com/teenydroid-fake/repo",
-            "https://teenydroid.github.io/",
             "https://enamakel.com/",
+            # Only Teeny's own Pages site, never anybody else's on github.io.
+            "https://github.io/",
+            "https://evil.github.io/",
+            "https://someone-else.github.io/teenydroid",
             "https://bit.ly/3abcd",
             "https://pastebin.com/abcd",
             "https://dexscreener.com/solana/abc",
@@ -255,6 +262,9 @@ class OwnWorkAndNewsTest(unittest.TestCase):
         for url in [
             "https://github.com.evil.example/teenydroid",
             "https://teenydroid.github.io.evil.example/",
+            "https://evil.example/teenydroid.github.io/",
+            "https://teenydroid.github.io@evil.example/",
+            "https://notteenydroid.github.io/",
             "https://evil.example/github.com/teenydroid",
             "https://teeny.enamakel.com.evil.example/",
             "https://evilteeny.enamakel.com.example/",

@@ -62,7 +62,7 @@ Use only facts from `material`, as given, with their numbers. Never invent a num
 
 Rules:
 - No crypto at all, in any room: no $TINY or other $ ticker, and not the words wallet, token (as in "my token"), crypto, on-chain, staking, eth or btc. The hand refuses the post.
-- Links only to your own work (`github.com/teenydroid/...`, `teeny.enamakel.com`), at the end of a post about that shipped thing, and not if a post of today already has one (`linked` in `study.own_posts`). No other link: the guard refuses the post.
+- Links only to your own work (`github.com/teenydroid/...`, `teenydroid.github.io`), at the end of a post about that shipped thing, and not if a post of today already has one (`linked` in `study.own_posts`). No other link: the guard refuses the post.
 - No hashtags, no "follow me", no "upvote if".
 - Skip only if `material` holds no count at all, and say so.
 

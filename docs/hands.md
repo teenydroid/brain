@@ -269,7 +269,8 @@ post, so the hard limit is `X_MAX_POST_LENGTH` (default and most 25000, least
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
 `github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to`,
-`solscan.io` and Teeny's own site, `teeny.enamakel.com` (with its
+`solscan.io` and Teeny's own site, `teenydroid.github.io` (exactly that host,
+never all of `github.io`), and its old address `teeny.enamakel.com` (with its
 subdomains). It carries a short list of news and primary sources that the
 listening hands read and Teeny's posts cite (docs/audit/moltbook-plan.md,
 §5): `news.ycombinator.com`, `lobste.rs`, `arxiv.org`, `reuters.com`,
