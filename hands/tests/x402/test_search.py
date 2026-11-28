@@ -169,6 +169,17 @@ class SearchTest(Scratch):
         self.assertEqual(len(search.search("q")["results"]), 1)
         self.assertEqual(len(self.fetched()), 2)
 
+    def test_a_page_that_came_back_blank_is_not_cached(self):
+        # #606: a blank paid read was served blank for an hour, so a retry could not read the page.
+        self.core.answers[FETCH] = answer({"requestId": "r", "results": [{"url": "https://example.com/a", "title": "A"}]})
+        first = search.contents(["https://example.com/a"])
+        self.assertTrue(first["blank"])
+        self.assertFalse(first["cached"])
+        self.core.answers[FETCH] = answer({"requestId": "r", "results": [exa_hit(1)]})
+        again = search.contents(["https://example.com/a"])
+        self.assertNotIn("blank", again)
+        self.assertEqual(len(self.fetched()), 2)
+
     # --- dry run --------------------------------------------------------------------------
 
     def test_dry_run_pays_nothing_and_says_would_fetch(self):

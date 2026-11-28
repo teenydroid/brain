@@ -76,6 +76,15 @@ class _DryRun(Exception):
         self.answer = answer
 
 
+class _Blank(Exception):
+    """A paid read of pages came back with no text: answered and marked
+    unread, never cached (a retry within the hour must be able to read it)."""
+
+    def __init__(self, answer: Json) -> None:
+        super().__init__("blank read")
+        self.answer = answer
+
+
 def _settings() -> settings.Search:
     try:
         return settings.search(hand.secrets())
@@ -196,12 +205,18 @@ def _run(provider: str, kind: str, parts: tuple[Any, ...], call: Callable[[], tu
     def fetch() -> Json:
         results, paid = call()
         fresh.append(paid)
-        return {"provider": provider, "results": results}
+        answer = {"provider": provider, "results": results}
+        if kind == "exa_contents" and not any(r.get("text") for r in results):
+            raise _Blank(answer)
+        return answer
 
     try:
         got = CACHE.cached(kind, parts, fetch)
     except _DryRun as dry:
         return dry.answer
+    except _Blank as blank:
+        return {**blank.answer, "note": NOTE, "cached": False, "paid_usd": _dollars(fresh[0]),
+                "blank": True, "unread": "the page came back with no text: unread, not empty"}
     out = {**got, "note": NOTE, "cached": not fresh, "paid_usd": _dollars(fresh[0] if fresh else 0)}
     return out
 
