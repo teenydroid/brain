@@ -397,6 +397,10 @@ def mark(post_id: str, status: str, note: str | None = None) -> Mapping[str, Any
     ).rowcount
     if not changed:
         raise hand.Refused("unknown mention", id=post_id)
+    from .. import stimuli
+
+    # Dealt with, so its waiting stimulus is too: the tick must never hand the mind a mention it marked skipped.
+    stimuli.close("x", post_id)
     return {"id": post_id, "status": status}
 
 

@@ -51,8 +51,10 @@ describe("teeny-guardrails in the pinned openclaw", () => {
     for (const hook of ["before_tool_call (priority 1000)", "tool_result_persist (priority 1000)", "after_tool_call", "before_prompt_build"]) {
       expect(out).toContain(hook);
     }
-    // recall is the memory plugin's: the guardrails hook the prompt only for the mind's wake block, and do not ask to read the conversation
-    expect(out).not.toMatch(/allowConversationAccess: true/);
+    // recall is the memory plugin's: the guardrails hook the prompt only for the mind's wake block (and agent_end for a run's
+    // record). The Gateway blocks both typed hooks of a non-bundled plugin unless allowConversationAccess is set, as
+    // buildGatewayConfig sets it; without it the mind never saw the block (2026-11-28).
+    expect(out).toMatch(/allowConversationAccess: true/);
   });
 
   it("loads teeny-cortexdb as the memory slot owner with its hooks and its four tools", { timeout: 120_000 }, () => {

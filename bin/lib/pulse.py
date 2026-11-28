@@ -258,6 +258,33 @@ def days_of(value: Any) -> int:
     return value
 
 
+def inbox_passes(since: float) -> Json | None:
+    """How the mind's wakes did with their inbox pass (teeny-guardrails writes
+    one line per mind run to state/mind/inbox-pass.jsonl): the wakes given the
+    block, and those that neither replied nor marked anything (`owed`), with
+    the times of the latest. None when no run was recorded in the window."""
+    path = hand.state_dir() / "mind" / "inbox-pass.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-2000:]
+    except OSError:
+        return None
+    given, owed = 0, []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            at = dt.datetime.fromisoformat(str(row["at"]).replace("Z", "+00:00")).timestamp()
+        except (ValueError, KeyError, TypeError):
+            continue
+        if at < since or row.get("agent") != "mind" or not row.get("block"):
+            continue
+        given += 1
+        if row.get("owed"):
+            owed.append(row["at"])
+    if not given:
+        return None
+    return {"wakes_given_the_block": given, "wakes_that_skipped_it": len(owed), "last_skipped": owed[-MAX_FAILURES:][::-1]}
+
+
 def pulse(days: int = DEFAULT_DAYS) -> Json:
     now = hand.now()
     since = now - days * 86400
@@ -287,6 +314,9 @@ def pulse(days: int = DEFAULT_DAYS) -> Json:
         out["audience_unread"] = NO_AUDIENCE
     # A notes file the mind's own file_write destroyed (bin/lib/notes_keep.py):
     # which one, by how much, and its last full copy. Only while one is open.
+    passes = inbox_passes(since)
+    if passes:
+        out["inbox_pass"] = passes
     shrunk = notes_keep.alerts()
     if shrunk:
         out["notes_shrunk"] = shrunk

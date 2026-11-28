@@ -143,6 +143,11 @@ export function buildGatewayConfig(input: GatewayConfigInput): Record<string, un
         ? {
             [GUARDRAILS_PLUGIN_ID]: {
               enabled: true,
+              // before_prompt_build (the mind's inbox-pass block) and agent_end (a run's record and lock) are typed
+              // hooks that a non-bundled plugin may only register with this flag: without it the Gateway logs
+              // "typed hook ... blocked" and never calls them, so the mind's wakes never saw the block (2026-11-28).
+              // The plugin reads only the agent id from them, never the conversation.
+              hooks: { allowConversationAccess: true },
               // schema: plugins.entries.<id>.config (validated by the plugin's own configSchema)
               config: { policy: input.guardrailsPolicy ?? {} },
             },

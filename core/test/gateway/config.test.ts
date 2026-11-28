@@ -65,6 +65,11 @@ describe("generated OpenClaw config: the lockdown", () => {
     expect(withPlugin.plugins.entries["teeny-guardrails"].enabled).toBe(true);
   });
 
+  it("lets teeny-guardrails register before_prompt_build and agent_end: the Gateway blocks both typed hooks of a non-bundled plugin without allowConversationAccess, so the mind's inbox block was never injected (2026-11-28)", () => {
+    const withPlugin = buildGatewayConfig(input({ guardrailsPath: "/srv/core/plugins/teeny-guardrails" })) as Cfg;
+    expect(withPlugin.plugins.entries["teeny-guardrails"].hooks).toEqual({ allowConversationAccess: true });
+  });
+
   it("names the model key's environment variable and never carries a secret", () => {
     const text = JSON.stringify(cfg);
     expect(cfg.models.providers["local-openai"].apiKey).toEqual({ source: "env", provider: "default", id: "LOCAL_OPENAI_API_KEY" });

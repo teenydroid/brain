@@ -299,10 +299,9 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.chats()[-1]["message"].count("### self · quiet"), 1)
 
-    def test_a_mention_goes_to_the_mind_while_the_drain_switch_is_missing(self):
-        # 2026-11-28 regression: with MIND=1 and no TEENY_HEARTBEAT_DRAIN the
-        # tick left mentions alone and nobody answered them.
-        (self.root / "secrets" / "teeny.env").write_text("MIND=1\n")
+    def test_a_mention_goes_back_to_the_tick_when_the_drain_is_switched_off(self):
+        # The stopgap of 2026-11-28: MIND=1 and TEENY_HEARTBEAT_DRAIN=0.
+        (self.root / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
         hand._ENV_CACHE = None
         stimuli.add("x", "mention", "1", "@teenydroid gm")
         self.answer({"thought": "", "intents": []})
@@ -310,6 +309,14 @@ class TickTest(unittest.TestCase):
         self.assertEqual(got["kind"], "beat")
         self.assertIn("@teenydroid gm", self.chats()[0]["message"])
         self.assertEqual(stimuli.counts()["pending"], 0)
+
+    def test_the_tick_leaves_a_mention_to_the_mind_while_the_drain_is_on(self):
+        (self.root / "secrets" / "teeny.env").write_text("MIND=1\n")
+        hand._ENV_CACHE = None
+        stimuli.add("x", "mention", "1", "@teenydroid gm")
+        self.tick()
+        self.assertEqual(stimuli.counts()["pending"], 1, "the mind's wake owns it")
+        self.assertTrue(all("@teenydroid gm" not in c["message"] for c in self.chats()))
 
     # --- every beat leaves a trace -----------------------------------------
 

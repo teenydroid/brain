@@ -2,9 +2,10 @@
 // shell and the rules are testable without a Gateway. The plugin can only
 // refuse a call or narrow it (an absolute program path, a typed password); it
 // never adds a tool, a path, a program or an environment variable.
-import { resolve } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { checkPath, expandHome, type PathRules } from "./paths.js";
-import { countReplies, judgeExec } from "./exec.js";
+import { countMarks, countReplies, judgeExec } from "./exec.js";
 import { judgeAllowedFetch, judgeBrowser, newBrowserState, openclawLiveUrl, runKeychainFill, type BrowserState } from "./browser.js";
 import { exitCodeOf, NativeState } from "./native.js";
 import type { AgentPolicy, GuardrailsPolicy } from "./policy.js";
@@ -75,6 +76,8 @@ export class Guardrails {
   private readonly runs = new Map<string, number>();
   /** Replies sent so far by each run (the same key as `runs`), against AgentPolicy.replyCaps. */
   private readonly replies = new Map<string, { x: number; mail: number }>();
+  /** Runs given an inbox-pass block, and how many mentions or mail each marked as not worth an answer. */
+  private readonly blocks = new Map<string, number>();
   /** The acting-hand calls a judged exec call holds, by the params object judge returned for it. */
   private readonly actingIn = new WeakMap<Record<string, unknown>, { calls: number; last: boolean }>();
   readonly browserState: BrowserState = newBrowserState();
@@ -100,10 +103,41 @@ export class Guardrails {
     this.native.settle(n, this.runKeyOf(agent, ctx, event), event.params.command, exitCodeOf(event.result));
   }
 
+  /** before_prompt_build: this run was given the inbox-pass block, so it owes a reply or a mark for it. */
+  blockGiven(ctx: ToolContext): void {
+    const agent = ctx.agentId ? this.policy.agents[ctx.agentId] : undefined;
+    if (agent?.replyCaps) this.blocks.set(this.runKeyOf(agent, ctx), 0);
+  }
+
+  /**
+   * The run's inbox-pass record, one line to state/mind/inbox-pass.jsonl (what bin/teeny pulse reads): whether
+   * it was given the block, how many replies it sent or tried, how many it marked, and `owed` when it was given
+   * the block and did neither. Best effort: a record that cannot be written never stops a run.
+   */
+  private recordPass(agent: AgentPolicy, key: string, ctx: ToolContext): void {
+    const block = this.blocks.has(key);
+    const replies = this.replies.get(key) ?? { x: 0, mail: 0 };
+    const marks = this.blocks.get(key) ?? 0;
+    this.blocks.delete(key);
+    this.replies.delete(key);
+    try {
+      const dir = join(this.policy.stateDir, "mind");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const owed = block && replies.x + replies.mail + marks === 0;
+      const line = { at: new Date((this.deps.now ?? Date.now)()).toISOString(), agent: agent.id, run: ctx.runId ?? ctx.sessionKey ?? "", block, replies, marks, owed };
+      appendFileSync(join(dir, "inbox-pass.jsonl"), `${JSON.stringify(line)}\n`, { mode: 0o600 });
+    } catch {
+      // not recorded
+    }
+  }
+
   /** agent_end: the run is over; its lock is released and its record written. */
   runEnded(event: { runId?: string; success: boolean; error?: string }, ctx: ToolContext): void {
     const agent = ctx.agentId ? this.policy.agents[ctx.agentId] : undefined;
-    if (!agent?.exec?.native) return;
+    if (!agent) return;
+    const full = { ...ctx, ...(event.runId ? { runId: event.runId } : {}) };
+    if (agent.replyCaps) this.recordPass(agent, this.runKeyOf(agent, full), full);
+    if (!agent.exec?.native) return;
     this.native.end(this.runKeyOf(agent, { ...ctx, ...(event.runId ? { runId: event.runId } : {}) }), { ok: event.success, ...(event.error ? { error: event.error } : {}) });
   }
 
@@ -232,6 +266,7 @@ export class Guardrails {
         if (!verdict.ok) return refuse(`exec: ${verdict.reason}`);
         const over = this.repliesSpent(agent, runKey, params.command as string, verdict.cwd);
         if (over) return refuse(`exec: ${over}`);
+        if (this.blocks.has(runKey)) this.blocks.set(runKey, (this.blocks.get(runKey) ?? 0) + countMarks(params.command as string));
         const next = { ...params, command: verdict.command, workdir: verdict.cwd };
         if (verdict.acting > 0) this.actingIn.set(next, { calls: verdict.acting, last: verdict.actingLast });
         return { params: next };

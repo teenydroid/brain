@@ -353,3 +353,13 @@ class ReplyableTest(IngestBase):
     def test_the_rule_is_the_one_the_reply_gate_uses(self):
         for text in ("@teenydroid hi", "x @TEENYDROID", "(@teenydroid)", "@teenydroidx", "mail me@teenydroid.com", "no tag"):
             self.assertEqual(mentions.replyable(hand.db(), text), rules.tags_account(text, "teenydroid"), text)
+
+    def test_marking_a_mention_closes_its_waiting_stimulus(self):
+        from teeny_hands import stimuli
+
+        self.offered("1", "@teenydroid yes")
+        self.offered("2", "@teenydroid also yes")
+        for ref in ("1", "2"):
+            stimuli.add("x", "mention", ref, "t", who="ana")
+        mentions.mark("1", "skipped", "not worth it")
+        self.assertEqual([s["ref"] for s in stimuli.pending()], ["2"])

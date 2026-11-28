@@ -37,9 +37,8 @@ reply`. The mind may mark up to about ten mentions it will not answer with
 `hands/x mark ID --status skipped` (mail: `hands/stimuli close`) so the backlog
 drains.
 
-While the heartbeat drains X mentions and mail (`TEENY_HEARTBEAT_DRAIN`, opt-in:
-missing means off, so the tick keeps handing them to the mind; `1` in `secrets/teeny.env` turns it on, and
-only while `MIND=1`), the
+While the heartbeat drains X mentions and mail (`TEENY_HEARTBEAT_DRAIN`, default
+on, and only while `MIND=1`; `0` in `secrets/teeny.env` gives them back), the
 tick leaves those stimuli pending and never offers them to its own model
 (`stimuli.DRAINED`), so nothing is answered twice. A wake that finds one
 answered closes it for the tick as well.

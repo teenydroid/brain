@@ -53,7 +53,7 @@ class Scratch(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = self.tmp.name
         os.environ["TEENY_NOW"] = "1789369200"
-        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=1\n")
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\n")
         os.environ.pop("DRY_RUN", None)
         hand._ENV_CACHE = None
 
@@ -109,8 +109,8 @@ class OnlyAnswerable(Scratch):
         self.assertIn("- x 7 ", text)
         self.assertNotIn("- x 6 ", text)
 
-    def test_the_block_is_empty_while_the_drain_switch_is_missing(self):
-        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\n")
+    def test_the_block_is_empty_when_the_drain_is_switched_off(self):
+        (Path(self.tmp.name) / "secrets" / "teeny.env").write_text("MIND=1\nTEENY_HEARTBEAT_DRAIN=0\n")
         hand._ENV_CACHE = None
         self.mention(5)
         self.assertEqual(reply_pass.build(), "")
@@ -126,16 +126,10 @@ class TickLeavesTheDrain(unittest.TestCase):
         with mock.patch.object(stimuli.hand, "setting", side_effect=lambda n, d=None: values.get(n, d)):
             self.assertFalse(stimuli.heartbeat_drains(), "no mind awake: the tick keeps answering")
             values["MIND"] = "1"
-            self.assertFalse(stimuli.heartbeat_drains(), "switch missing means off: the tick keeps handing mentions to the mind")
-            self.assertEqual(stimuli.drained(), ())
-            values["TEENY_HEARTBEAT_DRAIN"] = "1"
-            self.assertTrue(stimuli.heartbeat_drains())
+            self.assertTrue(stimuli.heartbeat_drains(), "switch missing means the new behaviour")
             self.assertEqual(stimuli.drained(), stimuli.DRAINED)
             values["TEENY_HEARTBEAT_DRAIN"] = "0"
             self.assertEqual(stimuli.drained(), ())
-            del values["MIND"]
-            values["TEENY_HEARTBEAT_DRAIN"] = "1"
-            self.assertEqual(stimuli.drained(), (), "no mind awake: the tick keeps answering")
 
 
 if __name__ == "__main__":
