@@ -5,6 +5,7 @@ import {
   billSseLine,
   billUsage,
   chargeSpan,
+  exportSpan,
   listCostMicro,
   promptCacheKey,
   readPriceBook,
@@ -54,6 +55,21 @@ describe("the prompt cache key", () => {
     expect(promptCacheKey({ model: "glm-5.3-flash", messages: [{ role: "system", content: "You are the mind." }], tools })).not.toBe(base);
     expect(promptCacheKey({ model: "glm-5.3-flash", messages: [sys], tools: [] })).not.toBe(base);
     expect(promptCacheKey({ model: "claude-opus-5.5", messages: [sys], tools })).not.toBe(base);
+  });
+
+  it("ignores the notes CortexDB recalls into the system prompt, which change with every query", () => {
+    const note = (text: string) => `\n[memory.recall] What you remember that may bear on this.\n${text}`;
+    const a = promptCacheKey({ model: "m", messages: [{ role: "system", content: sys.content + note("likes tea") }, { role: "user", content: "x" }], tools });
+    const b = promptCacheKey({ model: "m", messages: [{ role: "system", content: sys.content + note("posted on X at 9") }, { role: "user", content: "y" }], tools });
+    const none = promptCacheKey({ model: "m", messages: [sys, { role: "user", content: "z" }], tools });
+    expect(a).toBe(b);
+    expect(a).toBe(none);
+    // as content parts, and as a system message of its own
+    const parts = promptCacheKey({ model: "m", messages: [{ role: "system", content: [{ type: "text", text: sys.content }, { type: "text", text: note("other") }] }], tools });
+    const alone = promptCacheKey({ model: "m", messages: [sys, { role: "system", content: note("third") }], tools });
+    const partsNone = promptCacheKey({ model: "m", messages: [{ role: "system", content: [{ type: "text", text: sys.content }] }], tools });
+    expect(parts).toBe(partsNone);
+    expect(alone).toBe(none);
   });
 
   it("is left alone when there is no stable prefix", () => {
@@ -193,6 +209,42 @@ describe("the meter between the Gateway and the endpoint", () => {
     expect(charges[0]).toMatchObject({ promptTokens: 4145, cachedTokens: 2304, buyerCostMicro: 232, directCostMicro: 1928 });
   });
 
+  it("cancels the upstream call when the Gateway hangs up", async () => {
+    let upstreamClosed = false;
+    const { meter, seen } = await rig((_req, _sent, res) => {
+      // never answers: the call is still generating
+      res.on("close", () => (upstreamClosed = true));
+    });
+    const client = request(`${meter.url}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" } });
+    client.on("error", () => undefined);
+    client.end(JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }));
+    await until(() => seen.length > 0);
+    client.destroy();
+    await until(() => upstreamClosed);
+    expect(upstreamClosed).toBe(true);
+  });
+
+  it("sends the bill without a list cost when the price lookup stalls", async () => {
+    const upstream = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ model: "glm-5.3-flash", usage: SURPLUS_USAGE }));
+    });
+    const spans: unknown[] = [];
+    const collector = createServer(async (req, res) => {
+      spans.push(JSON.parse(await body(req)));
+      res.end("{}");
+    });
+    servers.push(upstream, collector);
+    const [up, col] = [await listen(upstream), await listen(collector)];
+    const meter = await startMeter({ upstream: `http://127.0.0.1:${up}/v1`, port: 0, otlpUrl: `http://127.0.0.1:${col}`, prices: () => new Promise(() => undefined) });
+    close = meter.close;
+    await post(`${meter.url}/chat/completions`, { model: "glm-5.3-flash", messages: [{ role: "user", content: "hi" }] });
+    for (let i = 0; i < 200 && spans.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    const attrs = JSON.stringify(firstSpan(spans[0]).attributes);
+    expect(attrs).toContain("cost_details");
+    expect(attrs).not.toContain("list_cost_usd");
+  });
+
   it("passes anything else through untouched, and says so when the endpoint is down", async () => {
     const { meter, seen } = await rig((_req, _sent, res) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -207,5 +259,40 @@ describe("the meter between the Gateway and the endpoint", () => {
     await down.close();
     expect(failed.status).toBe(502);
     expect(failed.text).toContain("teeny_meter_error");
+  });
+});
+
+describe("exporting a charge to the collector", () => {
+  const servers: Server[] = [];
+  afterEach(async () => {
+    for (const s of servers.splice(0)) await new Promise((r) => s.close(r));
+  });
+  const collectorAnswering = async (statuses: number[]) => {
+    let hits = 0;
+    const server = createServer(async (req, res) => {
+      await body(req);
+      res.writeHead(statuses[Math.min(hits++, statuses.length - 1)]!);
+      res.end("{}");
+    });
+    servers.push(server);
+    return { url: `http://127.0.0.1:${await listen(server)}`, hits: () => hits };
+  };
+
+  it("retries a 503 and succeeds when the collector recovers", async () => {
+    const c = await collectorAnswering([503, 200]);
+    await exportSpan(c.url, { resourceSpans: [] }, 1);
+    expect(c.hits()).toBe(2);
+  });
+
+  it("reports a collector that keeps refusing, instead of dropping the bill silently", async () => {
+    const c = await collectorAnswering([500]);
+    await expect(exportSpan(c.url, { resourceSpans: [] }, 1)).rejects.toThrow("500");
+    expect(c.hits()).toBe(3);
+  });
+
+  it("does not retry a request the collector will never accept", async () => {
+    const c = await collectorAnswering([400]);
+    await expect(exportSpan(c.url, { resourceSpans: [] }, 1)).rejects.toThrow("400");
+    expect(c.hits()).toBe(1);
   });
 });

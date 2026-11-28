@@ -28,6 +28,9 @@ import type { AddressInfo } from "node:net";
 
 export const METER_PORT = 18790;
 
+/** How long a bill waits for the published rates before it goes without its list cost. */
+const PRICES_TIMEOUT_MS = 3000;
+
 /** Headers a hop must not forward (RFC 9110 §7.6.1), plus the ones the meter recomputes. */
 const HOP = new Set(["connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade", "host", "content-length", "accept-encoding"]);
 
@@ -61,13 +64,46 @@ export interface MeterOptions {
   prices?: () => Promise<PriceBook | undefined>;
 }
 
+/** Where the CortexDB plugin's recalled notes begin (core/plugins/teeny-cortexdb/recall.ts HEADER): they change with each query. */
+const RECALL_MARK = "[memory.recall]";
+
+/**
+ * A system message's content without the recalled notes the memory plugin appends to it (appendSystemContext): they
+ * differ per turn, so hashing them would give one agent a new key each time. Strings are cut at the marker; for
+ * content parts, the part that holds it (and any after it) goes.
+ */
+function stableContent(content: unknown): unknown {
+  if (typeof content === "string") {
+    const at = content.indexOf(RECALL_MARK);
+    return (at < 0 ? content : content.slice(0, at)).trimEnd();
+  }
+  if (Array.isArray(content)) {
+    const out: unknown[] = [];
+    for (const part of content) {
+      const text = typeof part === "string" ? part : (part as { text?: unknown } | null)?.text;
+      if (typeof text === "string" && text.includes(RECALL_MARK)) {
+        const kept = text.slice(0, text.indexOf(RECALL_MARK)).trimEnd();
+        if (kept && typeof part === "object" && part) out.push({ ...(part as object), text: kept });
+        else if (kept) out.push(kept);
+        break;
+      }
+      out.push(part);
+    }
+    return out;
+  }
+  return content;
+}
+
 /** The stable prefix of a chat request: its system and developer messages and its tools, which repeat across runs. */
 export function promptCacheKey(body: Record<string, unknown>): string | undefined {
   const messages = Array.isArray(body.messages) ? (body.messages as Array<Record<string, unknown>>) : [];
   const head: unknown[] = [];
   for (const m of messages) {
     if (m.role !== "system" && m.role !== "developer") break;
-    head.push(m.content);
+    const content = stableContent(m.content);
+    // A message that was only recalled notes is no part of the prefix.
+    if (content === "" || (Array.isArray(content) && content.length === 0)) continue;
+    head.push(content);
   }
   if (head.length === 0 && !body.tools) return undefined;
   const h = createHash("sha256").update(JSON.stringify([body.model ?? "", head, body.tools ?? null])).digest("hex");
@@ -202,10 +238,12 @@ function forwardHeaders(h: IncomingHttpHeaders): Record<string, string | string[
   return out;
 }
 
-function send(url: URL, method: string, headers: Record<string, string | string[]>, body?: Buffer): Promise<IncomingMessage> {
+/** One outgoing request. `signal` cancels it (and its response) when the Gateway's own connection goes; `timeoutMs` bounds the wait for headers. */
+function send(url: URL, method: string, headers: Record<string, string | string[]>, body?: Buffer, signal?: AbortSignal, timeoutMs?: number): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method, headers }, resolve);
+    const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method, headers, ...(signal ? { signal } : {}) }, resolve);
     req.on("error", reject);
+    if (timeoutMs) req.setTimeout(timeoutMs, () => req.destroy(new Error(`no answer from ${url.host} in ${timeoutMs}ms`)));
     req.end(body);
   });
 }
@@ -251,26 +289,55 @@ export function listCostMicro(book: PriceBook | undefined, c: Charge): number | 
   return Math.round(usd);
 }
 
-async function exportSpan(otlpUrl: string, span: Record<string, unknown>): Promise<void> {
-  const res = await send(new URL(`${otlpUrl.replace(/\/+$/, "")}/v1/traces`), "POST", { "content-type": "application/json" }, Buffer.from(JSON.stringify(span)));
-  res.resume();
+/** Sends one span to the collector; a 4xx/5xx or a refused connection is retried a few times, then thrown. */
+export async function exportSpan(otlpUrl: string, span: Record<string, unknown>, backoffMs = 500): Promise<void> {
+  const url = new URL(`${otlpUrl.replace(/\/+$/, "")}/v1/traces`);
+  const payload = Buffer.from(JSON.stringify(span));
+  let failure = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, backoffMs * 2 ** (attempt - 1)));
+    try {
+      const res = await send(url, "POST", { "content-type": "application/json" }, payload, undefined, 5000);
+      res.resume();
+      const status = res.statusCode ?? 0;
+      if (status >= 200 && status < 300) return;
+      failure = `the collector answered ${status}`;
+      // A request the collector will never accept is not worth retrying.
+      if (status >= 400 && status < 500 && status !== 429 && status !== 408) break;
+    } catch (e) {
+      failure = e instanceof Error ? e.message : String(e);
+    }
+  }
+  throw new Error(failure);
 }
 
 export async function startMeter(opts: MeterOptions): Promise<{ url: string; port: number; close: () => Promise<void> }> {
   const upstream = new URL(opts.upstream.replace(/\/+$/, ""));
   const log = opts.log ?? (() => undefined);
   // The published rates move slowly; one read an hour.
-  let book: { at: number; book: PriceBook | undefined } | undefined;
+  let book: { until: number; book: PriceBook | undefined } | undefined;
   const fetchPrices =
     opts.prices ??
     (async (): Promise<PriceBook | undefined> => {
-      const res = await send(new URL(`${upstream.href.replace(/\/+$/, "")}/prices`), "GET", { accept: "application/json" });
+      const res = await send(new URL(`${upstream.href.replace(/\/+$/, "")}/prices`), "GET", { accept: "application/json" }, undefined, undefined, PRICES_TIMEOUT_MS);
       const text = (await readAll(res)).toString("utf8");
       return res.statusCode === 200 ? readPriceBook(JSON.parse(text)) : undefined;
     });
+  // A lookup that stalls must not hold the bill back: past PRICES_TIMEOUT_MS the charge goes without its list cost,
+  // and the lookup is tried again a minute later (an hour after a success).
   const prices = async (): Promise<PriceBook | undefined> => {
-    if (!book || Date.now() - book.at > 3_600_000) {
-      book = { at: Date.now(), book: await fetchPrices().catch(() => book?.book) };
+    if (!book || Date.now() > book.until) {
+      const old = book?.book;
+      let timer: NodeJS.Timeout | undefined;
+      const got = await Promise.race([
+        fetchPrices().then((b) => ({ ok: b !== undefined, b: b ?? old }), () => ({ ok: false, b: old })),
+        new Promise<{ ok: false; b: PriceBook | undefined }>((r) => {
+          timer = setTimeout(() => r({ ok: false, b: old }), PRICES_TIMEOUT_MS);
+          timer.unref();
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      book = { until: Date.now() + (got.ok ? 3_600_000 : 60_000), book: got.b };
     }
     return book.book;
   };
@@ -299,47 +366,60 @@ export async function startMeter(opts: MeterOptions): Promise<{ url: string; por
     const traceparent = typeof req.headers.traceparent === "string" ? req.headers.traceparent : undefined;
     const charge: Charge = { model: requested, status: 0, startMs, endMs: startMs, traceparent };
 
+    // The Gateway dropping its connection (a cancelled or timed-out turn) cancels the upstream call too, so a
+    // generation nobody will read stops charging.
+    const gone = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) gone.abort();
+    });
     let up: IncomingMessage;
     try {
-      up = await send(target, req.method ?? "GET", headers, body.length ? body : undefined);
+      up = await send(target, req.method ?? "GET", headers, body.length ? body : undefined, gone.signal);
     } catch (e) {
+      if (gone.signal.aborted) return;
       res.writeHead(502, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { message: `the meter could not reach the model endpoint: ${e instanceof Error ? e.message : String(e)}`, type: "teeny_meter_error" } }));
       return;
     }
     charge.status = up.statusCode ?? 502;
-    charge.requestId = (up.headers["x-request-id"] as string | undefined) ?? undefined;
-    charge.provider = (up.headers["x-si-provider-family"] as string | undefined) ?? undefined;
-    const header = Number(up.headers["x-si-buyer-cost-micro"]);
-    if (Number.isFinite(header) && header >= 0) charge.buyerCostMicro = header;
-    const outHeaders: Record<string, string | string[]> = {};
-    for (const [k, v] of Object.entries(up.headers)) if (v !== undefined && !HOP.has(k.toLowerCase())) outHeaders[k] = v;
-    const type = String(up.headers["content-type"] ?? "");
+    try {
+      charge.requestId = (up.headers["x-request-id"] as string | undefined) ?? undefined;
+      charge.provider = (up.headers["x-si-provider-family"] as string | undefined) ?? undefined;
+      const header = Number(up.headers["x-si-buyer-cost-micro"]);
+      if (Number.isFinite(header) && header >= 0) charge.buyerCostMicro = header;
+      const outHeaders: Record<string, string | string[]> = {};
+      for (const [k, v] of Object.entries(up.headers)) if (v !== undefined && !HOP.has(k.toLowerCase())) outHeaders[k] = v;
+      const type = String(up.headers["content-type"] ?? "");
 
-    if (isChat && type.includes("text/event-stream")) {
-      res.writeHead(charge.status, outHeaders);
-      let rest = "";
-      up.setEncoding("utf8");
-      for await (const chunk of up) {
-        const lines = (rest + (chunk as string)).split("\n");
-        rest = lines.pop() ?? "";
-        res.write(lines.map((l) => billSseLine(l, charge)).join("\n") + (lines.length ? "\n" : ""));
+      if (isChat && type.includes("text/event-stream")) {
+        res.writeHead(charge.status, outHeaders);
+        let rest = "";
+        up.setEncoding("utf8");
+        for await (const chunk of up) {
+          const lines = (rest + (chunk as string)).split("\n");
+          rest = lines.pop() ?? "";
+          res.write(lines.map((l) => billSseLine(l, charge)).join("\n") + (lines.length ? "\n" : ""));
+        }
+        if (rest) res.write(billSseLine(rest, charge));
+        res.end();
+      } else if (isChat && type.includes("json")) {
+        const text = billJson((await readAll(up)).toString("utf8"), charge);
+        outHeaders["content-length"] = String(Buffer.byteLength(text));
+        res.writeHead(charge.status, outHeaders);
+        res.end(text);
+      } else {
+        res.writeHead(charge.status, outHeaders);
+        up.pipe(res);
+        await once(up, "end");
+        return;
       }
-      if (rest) res.write(billSseLine(rest, charge));
-      res.end();
-    } else if (isChat && type.includes("json")) {
-      const text = billJson((await readAll(up)).toString("utf8"), charge);
-      outHeaders["content-length"] = String(Buffer.byteLength(text));
-      res.writeHead(charge.status, outHeaders);
-      res.end(text);
-    } else {
-      res.writeHead(charge.status, outHeaders);
-      up.pipe(res);
-      await once(up, "end");
-      return;
+      charge.endMs = Date.now();
+      void settle(charge).catch(() => undefined);
+    } catch (e) {
+      // Cancelled by the Gateway's own hang-up: nothing left to answer.
+      if (!gone.signal.aborted) throw e;
+      res.destroy();
     }
-    charge.endMs = Date.now();
-    void settle(charge).catch(() => undefined);
   };
 
   const server: Server = createServer((req, res) => {

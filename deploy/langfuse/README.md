@@ -57,9 +57,13 @@ loopback between the Gateway and Surplus, and turns each model call into one
   from Surplus's `GET /v1/prices`, the figure its request log calls
   `direct_cost_micro`), `discount_pct`, and the `provider` that served it.
 
-The collector strips the Gateway's own token counts off `openclaw.model.call`
-and drops the per-run `openclaw.model.usage` total, so nothing is counted
-twice. A project's cost and token totals in Langfuse are Surplus's bill; the
+While the meter is in front of the model, the Gateway reports as service
+`teeny-metered`, and the collector then strips its own token counts off
+`openclaw.model.call` and drops the per-run `openclaw.model.usage` total, so
+nothing is counted twice. With `TEENY_METER=0`, or when the meter cannot bind
+its port, the Gateway reports as `teeny` and its counts stay, since there is
+no `surplus.charge` to replace them. A charge the collector refuses is retried
+twice and then logged as a warning. A project's cost and token totals in Langfuse are Surplus's bill; the
 cache hit rate over any window is the sum of `input_cached_tokens` over the
 sum of `input` plus `input_cached_tokens` on `surplus.charge`.
 

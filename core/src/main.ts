@@ -248,7 +248,7 @@ async function startCoreInner(env: Env, opts: StartOptions): Promise<RunningCore
       ...(cortexDir && cortexConfig ? { cortex: { path: cortexDir, config: cortexConfig } } : {}),
       ...(findChrome(env) ? { chromePath: findChrome(env) as string } : {}),
       logFile: join(logDir, "openclaw-YYYY-MM-DD.log"),
-      ...(tracing.otel ? { otel: tracing.otel } : {}),
+      ...(tracing.otel ? { otel: { ...tracing.otel, ...(meterUrl ? { metered: true } : {}) } } : {}),
     });
     const settled = JSON.stringify(build(true), null, 2);
     // The proven shape is what is compared, so opening exec later is never mistaken for a change that needs a restart.

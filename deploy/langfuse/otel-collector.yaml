@@ -29,17 +29,21 @@ processors:
       span:
         - 'IsMatch(name, "^openclaw\\.(gateway\\.rpc\\.|diagnostic\\.phase$)")'
         # The run's usage total, a second generation per run: Langfuse would add its tokens to the calls' own.
-        - 'name == "openclaw.model.usage"'
+        # Only when the meter is in front of the model, which the Gateway says with its service name; a Gateway
+        # that calls the model directly (TEENY_METER=0, or the meter could not bind) has no surplus.charge, and
+        # this total is the one place Langfuse sees its tokens.
+        - 'name == "openclaw.model.usage" and resource.attributes["service.name"] == "teeny-metered"'
   # Tokens and money come from one place: the core's model meter (core/src/gateway/meter.ts), which writes a
   # surplus.charge generation per call with Surplus's own counts and its actual charge. The Gateway's model-call span
   # keeps the prompt, the reply and its timings, but loses its gen_ai.usage.* figures, which Langfuse would count a
-  # second time. (Its openclaw.model_call.usage.* attributes stay, as metadata Langfuse does not add up.)
+  # second time. Only for a Gateway that reports as "teeny-metered" (core/src/gateway/config.ts): one that calls the
+  # model directly keeps its own counts. (Its openclaw.model_call.usage.* attributes stay, as metadata Langfuse does not add up.)
   transform/usage-from-the-bill:
     error_mode: ignore
     trace_statements:
       - context: span
         conditions:
-          - 'name == "openclaw.model.call"'
+          - 'name == "openclaw.model.call" and resource.attributes["service.name"] == "teeny-metered"'
         statements:
           - 'delete_matching_keys(attributes, "^gen_ai\\.usage\\.")'
   batch:

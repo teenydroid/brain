@@ -255,6 +255,12 @@ describe("tracing turns to the private Langfuse", () => {
     expect(cfg.diagnostics.otel).not.toHaveProperty("headers");
   });
 
+  it("reports as teeny-metered only while the meter is in front of the model, so the collector strips the Gateway's token counts only then", () => {
+    const name = (o: object) => (buildGatewayConfig(input({ otel: o as typeof otel })) as Cfg).diagnostics.otel.serviceName;
+    expect(name(otel)).toBe("teeny");
+    expect(name({ ...otel, metered: true })).toBe("teeny-metered");
+  });
+
   it("passes `openclaw config validate` with the exporter in", { timeout: 90_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "oc-validate-otel-"));
     const file = join(dir, "openclaw.json");
