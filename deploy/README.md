@@ -8,25 +8,32 @@ at `/srv/teeny`:
 | `spine` | `teeny-spine` serving over the checkout. The core, its cron and every job. | none; reach it with `exec` |
 | `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `glm-5.3-flash` for writing memories, `gpt-6-luna` for recall, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine runs in its network namespace and finds it at `CORTEX_API_URL=http://127.0.0.1:3141` (`secrets/spine.env`); CortexDB binds loopback only. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. On the `edge` network only. | `127.0.0.1:3110` |
-| `web` | teeny.enamakel.com's old landing page, now nginx answering a 301 to the same path on https://teenydroid.github.io (`web-redirect.conf`). The site itself is on GitHub Pages (`web/`, built and published by teenydroid/teenydroid.github.io's build.yml). | `127.0.0.1:3120` |
-| `tunnel` | The Cloudflare Tunnel for teeny.enamakel.com (`cloudflared/config.yml`): X's webhook to `xhook`, everything else to `web`. Dials out; on the `edge` network only. | none; dials out |
+| `web` | teeny.enamakel.com's old landing page, now nginx answering the bare root with a 301 to https://teenydroid.github.io and any other path with a 404 (`web-redirect.conf`). The site itself is on GitHub Pages (`web/`, built and published by teenydroid/teenydroid.github.io's build.yml). | `127.0.0.1:3120` |
+| `tunnel` | The Cloudflare Tunnel for X's webhook, on Teeny's own Cloudflare account (`cloudflared/config.yml`): `/api/webhooks/x` on its name to `xhook`, everything else 404. Dials out; on the `edge` network with `xhook` only. Behind the `tunnel` profile. | none; dials out |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 | `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
 | `ingest` | Short videos to study for `hands/remake`: a pinned yt-dlp and ffmpeg behind `deploy/ingest/serve.py`. No key, no mount of Teeny's. Behind the `ingest` profile. | none; compose network only (`http://ingest:8090`) |
 
-Nothing takes a public port. `teeny.enamakel.com` comes in through a
-Cloudflare Tunnel (`cloudflared/config.yml`): the `tunnel` service dials out
-to Cloudflare, `/api/webhooks/x` goes to the webhook, and everything else gets
-a 301 to the site on GitHub Pages. The tunnel shares the `edge` network with
-`xhook` and `web` alone, so the spine, cortexdb and the Gateway are out of its
-reach (`bin/test/tunnel_test.sh` holds that in place).
+Nothing takes a public port. The host's nginx still serves
+`teeny.enamakel.com` (`nginx/teeny.enamakel.com.conf`), kept for backwards
+compatibility: `/api/webhooks/x` goes to the webhook, the bare root gets a 301
+to the site on GitHub Pages, and anything else a 404. X's webhook also comes
+in through a Cloudflare Tunnel on Teeny's own account (`cloudflared/config.yml`):
+the `tunnel` service dials out, and only `/api/webhooks/x` on its name gets
+through. The tunnel shares the `edge` network with `xhook` alone, so the
+spine, cortexdb and the Gateway are out of its reach
+(`bin/test/tunnel_test.sh` holds that in place).
 
 ```
-X ────────► Cloudflare ──► tunnel (cloudflared, dials out) ── network `edge` ──┐
-browsers ─►  teeny.enamakel.com                                                │
-              = /api/webhooks/x ──► xhook:3110 ─────────────────────────────────┤
-              everything else  ──► web:3000 ──► 301 https://teenydroid.github.io/<path>
-              any other host   ──► 404
+X, browsers ──► Cloudflare ──► host nginx: teeny.enamakel.com (nginx/teeny.enamakel.com.conf)
+                                 ├── = /api/webhooks/x ──► 127.0.0.1:3110 ──► xhook
+                                 └── everything else  ──► 127.0.0.1:3120 ──► web
+                                                            = / ──► 301 https://teenydroid.github.io/
+                                                            else ──► 404
+
+X ──► Cloudflare (Teeny's account) ──► tunnel (cloudflared, dials out) ── network `edge`
+                                         = /api/webhooks/x ──► xhook:3110
+                                         everything else  ──► 404
 
 browsers ──► GitHub Pages: https://teenydroid.github.io (teenydroid/teenydroid.github.io)
               built from web/ by its own workflow every 15 min, data/*.json too
@@ -37,7 +44,7 @@ compose project teeny-spine
   │ no published port: reach the spine with docker compose exec
   │ cortexdb reads secrets/cortex.env; models on api.surplusintelligence.ai
   xhook  ──► queues mentions, replies and quotes into state/hands.db
-  web    ──► nginx: a 301 to GitHub Pages; mounts web-redirect.conf alone
+  web    ──► nginx: the root's 301 to GitHub Pages; mounts web-redirect.conf alone
   tunnel ──► cloudflared; mounts cloudflared/config.yml and secrets/cloudflared/creds.json
 
 the checkout, mounted at /srv/teeny in spine and xhook
@@ -58,9 +65,9 @@ the checkout, mounted at /srv/teeny in spine and xhook
 | `reel.Dockerfile`, `reel.config.toml`, `reel/` | The `reel` service: MoneyPrinterTurbo's config and Teeny's front (`serve.py` routes, `policy.py` rules, `skitcut.py` the skit cutter). |
 | `memegen/` | The `memegen` front (`front.py`, `art.py`). The service itself builds from `vendor/memegen`. |
 | `ingest.Dockerfile`, `ingest/` | The `ingest` service: `serve.py`, `policy.py` (the URL allowlist) and `shots.py` (the cuts). |
-| `nginx/` | The host's vhost `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`, and `x402.`). |
-| `cloudflared/` | The tunnel's routing for teeny.enamakel.com (`config.yml`). |
-| `web-redirect.conf` | The `web` service's nginx config: a 301 from the old address to https://teenydroid.github.io. |
+| `nginx/` | The host's vhosts: `teeny.enamakel.com.conf` (the webhook, and the old address's root redirect) and `sites.teeny.enamakel.com.conf` (static sites published by `hands/deploy`, and `x402.`). |
+| `cloudflared/` | The webhook tunnel's routing (`config.yml`). |
+| `web-redirect.conf` | The `web` service's nginx config: the old address's root, a 301 to https://teenydroid.github.io. |
 | `tell.sh` | Tells Teeny something from the host and has it act now. |
 | `langfuse/` | The private Langfuse that traces every Gateway turn: the collector's config, `init.sh` (mints its secrets) and its README. |
 
@@ -242,8 +249,9 @@ docker compose -f deploy/compose.yaml --profile langfuse up -d \
 
 X's Activity API pushes `post.mention.create`, `post.reply.create`,
 `post.quote.create`, `follow.follow` and `follow.unfollow` (inbound) for the
-account to `https://teeny.enamakel.com/api/webhooks/x`, which reaches `xhook`
-through the tunnel (below). The subscriptions are
+account to `https://teeny.enamakel.com/api/webhooks/x` through the host's
+nginx, and to the same path on the tunnel's name once that webhook is
+registered (below). The subscriptions are
 made, or refreshed after an event type is added, with
 `hands/x subscribe --webhook-id ID` (a preview) and then `--confirm`. `bin/x-webhook` answers X's CRC
 challenge and refuses any delivery whose signature is not the HMAC of the
@@ -252,10 +260,13 @@ X search is not used.
 
 ## The tunnel
 
-teeny.enamakel.com is a locally managed Cloudflare Tunnel named `teeny`. Its
-routing is `cloudflared/config.yml`, in this repository; its one secret is
-`secrets/cloudflared/creds.json` (mode 600, owned by the stack's user). To set
-it up once, with the Cloudflare account that holds enamakel.com:
+X's webhook also has a way in that needs no host nginx: a locally managed
+Cloudflare Tunnel named `teeny`, on Teeny's own Cloudflare account
+(teeny@agentmail.to). Its routing is `cloudflared/config.yml`, in this
+repository, and names no hostname: only `/api/webhooks/x` gets through,
+whatever public name the tunnel has. Its one secret is
+`secrets/cloudflared/creds.json` (mode 600, owned by the stack's user). Once
+the account and a name for it exist:
 
 ```sh
 mkdir -p secrets/cloudflared && chmod 700 secrets/cloudflared
@@ -263,21 +274,18 @@ alias cfd='docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/cf -v "$PWD/s
 cfd tunnel login                             # open the URL it prints; writes cert.pem
 cfd tunnel create teeny                      # writes <uuid>.json
 mv secrets/cloudflared/*-*-*-*-*.json secrets/cloudflared/creds.json && chmod 600 secrets/cloudflared/creds.json
-docker compose -f deploy/compose.yaml up -d xhook web tunnel
-cfd tunnel route dns --overwrite-dns teeny teeny.enamakel.com   # the name now points at the tunnel
+cfd tunnel route dns teeny <name>            # <name> must be in a zone on the same account
 rm secrets/cloudflared/cert.pem              # only needed to create and route
+docker compose -f deploy/compose.yaml --profile tunnel up -d tunnel
 ```
 
-Bring the tunnel up before the DNS route moves, so X's deliveries never fall
-in a gap (X retries what it does not see acknowledged in any case). Once the
-name points at the tunnel, the host's old vhost for it can go
-(`/etc/nginx/sites-enabled/teeny.enamakel.com.conf`, then reload nginx).
+Then register `https://<name>/api/webhooks/x` with X as a second webhook and
+subscribe it (`hands/x subscribe --webhook-id ID`). The old
+teeny.enamakel.com webhook keeps working for backwards compatibility.
 
 The webhook cannot sit behind Cloudflare Access, because X cannot log in: its
 protection is that it is the only path routed, that `xhook` refuses any
-delivery not signed by X, and that `xhook` has no route to the core. A
-private route to anything else (the Gateway's UI, say) belongs on its own
-hostname behind an Access policy, never as another path on this one.
+delivery not signed by X, and that `xhook` has no route to the core.
 
 ## The studio cutover
 

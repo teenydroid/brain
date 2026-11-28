@@ -4,8 +4,10 @@
     bin/x-webhook [--host 0.0.0.0] [--port 3110]
 
 Runs as the `xhook` service in deploy/compose.yaml, published on
-127.0.0.1:3110; the Cloudflare Tunnel routes
-https://teeny.enamakel.com/api/webhooks/x to it (deploy/cloudflared/config.yml). It answers X's CRC challenge, checks
+127.0.0.1:3110, where the host's vhost routes
+https://teeny.enamakel.com/api/webhooks/x (deploy/nginx/teeny.enamakel.com.conf),
+and the Cloudflare Tunnel the same path on its own name
+(deploy/cloudflared/config.yml). It answers X's CRC challenge, checks
 every delivery's signature, and queues mentions, replies and quotes into
 x_mentions, unscreened: the core (and the safety judge) is not reachable from
 this container, so bin/mentions screens them in the spine before offering.

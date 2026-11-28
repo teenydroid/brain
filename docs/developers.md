@@ -22,8 +22,8 @@ docker compose -f deploy/compose.yaml logs -f spine      # "[spine] ready" once 
 ```
 
 That starts `spine` (the core), `cortexdb` (its memory) and `xhook` (the X
-webhook on `127.0.0.1:3110`). The `tunnel` and the `web` redirect only matter
-on the box that answers teeny.enamakel.com; the site itself is `web/`, run
+webhook on `127.0.0.1:3110`). The `web` redirect and the `tunnel` (profile
+`tunnel`) only matter on the box that answers X's webhook; the site itself is `web/`, run
 with `npm run dev` and published to GitHub Pages by CI. Run anything below inside the container with
 `docker compose -f deploy/compose.yaml exec spine <command>`.
 [`deploy/README.md`](../deploy/README.md) covers the server: updates, backups,

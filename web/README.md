@@ -35,9 +35,8 @@ then reads `data/home.json` or `data/drops.json` from
 swaps it in when it is newer than what the page was built with. A snapshot
 that does not have the expected shape is ignored (`src/lib/snapshot.ts`).
 
-teeny.enamakel.com, the old address, now answers with a 301 to the same path
-here (`deploy/web-redirect.conf`, through the Cloudflare Tunnel in
-`deploy/cloudflared/`).
+teeny.enamakel.com, the old address, answers its bare root with a 301 here
+(`deploy/web-redirect.conf`); its other paths are gone.
 
 ## The page
 
