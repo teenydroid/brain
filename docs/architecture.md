@@ -158,9 +158,39 @@ The core generates its configuration and nobody edits it by hand
 | `gateway.controlUi`, `discovery.mdns` | off | No UI, no advertising. |
 | `update.checkOnStart` | `false` | The Gateway never phones home for updates. |
 | `cron.skipMissedJobs` | `true` | A slot missed while it was down is skipped, not replayed (`bin/lib/catch_up.py` decides what is made up). |
-| `plugins` | allowlist: the browser, `teeny-guardrails`, `teeny-cortexdb`, and `diagnostics-otel` when turns are traced | The guardrails plugin is what holds every tool call of every agent to its definition (`core/plugins/teeny-guardrails`). |
+| `plugins` | allowlist: the browser, `teeny-guardrails`, `teeny-cortexdb`, `teeny-lanes` when `brain/lanes.toml` has lanes, and `diagnostics-otel` when turns are traced | The guardrails plugin is what holds every tool call of every agent to its definition (`core/plugins/teeny-guardrails`). |
 | `diagnostics.otel` | absent, or traces to `TRACES_OTLP_URL` with no headers | Every turn traced to the private Langfuse (`deploy/langfuse/README.md`). The endpoint must be https, loopback, or plain http to the `otel-collector` service by name, and the file holds no export credential: the otel-collector has Langfuse's key, the Gateway never does. The exporter is OpenClaw's official `diagnostics-otel`, which the core installs into the Gateway's state before it starts (`core/src/gateway/otel.ts`). |
 | `plugins.slots.memory` | `teeny-cortexdb` when CortexDB is configured, else `none`; `memory-core` is always off | OpenClaw's own memory plugin would run a dreaming job outside `brain/cron.toml`. Teeny's memory is CortexDB, and the plugin that owns the slot (`core/plugins/teeny-cortexdb`, derived from `@cortexdb/openclaw` 0.1.4, Apache-2.0) is the one place a turn recalls from it, captures into it, and gets the `memory_*` tools. Its config has the URL, scope and budgets and never a key (that stays sealed in `state/memory-engine.json`). It is in the config only once an engine is stored (`memory_engine_set`) or `CORTEX_API_URL` is set; a lab without CortexDB runs with the slot `none`. |
+
+#### Model lanes (`brain/lanes.toml`, `core/plugins/teeny-lanes`)
+
+Every turn runs in an OpenClaw session whose key names its thread: `bin/ask
+--agent A --thread T` is `agent:A:T`, and a cron run of the mind is
+`agent:mind:cron:<job>`. A lane claims sessions by glob over that key, the
+first lane in the file winning, and says which model they run on:
+
+| lane | sessions | model |
+|---|---|---|
+| `locked` | `agent:x-reply:*` (one session per X conversation), `teeny-mentions`, `teeny-mail` | `glm-5.3-flash`, no fallback: a stranger's thread never runs on a freer model |
+| `free` | dreams and reflection (`teeny:dream`, `teeny:reflect`), the evolve proposer (`evolve:<gen>:…`) | `kimi-k3`, falling back to GLM. The evolve reviewer stays on its own model |
+| `wake` | the mind and its worker | none in the lane: their pins in `brain/agents/*.toml` decide |
+| `home` | the tick's long `teeny:mind` thread | none: `SPINE_MODEL` |
+
+The plugin's `before_model_resolve` gives a run its lane's model. That override
+holds for the run only and is never written to the session. Its `llm_output`
+writes every model call's tokens to `state/lanes/usage-<UTC day>.jsonl`, with
+the lane's and the thread's running day totals. The first call of the day
+that takes a lane past `daily_tokens`, or a thread past `thread_daily_tokens`,
+is marked `over` and warned about in the Gateway log. **Nothing is blocked or
+downgraded yet.** `bin/lanes report [DAYS]` reads the ledger: per lane, then
+the threads that spent the most, each against its cap. A session no lane
+claims keeps its agent's model and is logged as `other`. `brain/lanes.toml`
+is frozen (`evals/frozen.txt`): a self-edited lane could move a stranger's
+thread onto a freer model.
+
+Telegram is DMs only unless `TELEGRAM_GROUPS=1`. Only the owners'
+(`TELEGRAM_OWNERS`) DMs reach me while `TELEGRAM_OPEN_DMS` is off, and
+nothing is read from or sent to a group.
 
 The Gateway's environment holds the model key and its own token, and nothing
 else of the core's: no core token, no master key. Agent definitions are still
