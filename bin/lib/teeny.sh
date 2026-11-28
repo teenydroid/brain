@@ -58,9 +58,13 @@ oh() { "${TEENY_OH:-$TEENY_ROOT/bin/oh}" "$@"; }
 # (cron/scheduler/agent_run.rs). Its default of 120 s let the builder (retired
 # 2026-11-24) make six model calls and no test run (2026-11-12). 900 s was
 # then enough for a small build and too short for a feature: on 2026-11-22
-# the builder timed out three runs in a row on one. 1800 s gives the mind
+# the builder timed out three runs in a row on one. 1800 s then gave the mind
 # (brain/agents/mind.toml) and the operator a real working session.
+# 2026-11-27: 1500 s (25 minutes), under the mind's 30-minute interval, so a
+# wake ends before the next slot and two never overlap. bin/spine sets it here
+# and the core hands every agent cron job the same deadline
+# (core/src/cron/scheduler.ts), which is what actually ends a wake.
 # It also caps any single tool call, which the turn deadline bounds anyway.
 # bin/spine sets it at boot; `bin/doctor --live` checks it.
 # shellcheck disable=SC2034 # read by bin/spine and bin/doctor, which source this file
-TEENY_AGENT_TURN_SECS=1800
+TEENY_AGENT_TURN_SECS=1500

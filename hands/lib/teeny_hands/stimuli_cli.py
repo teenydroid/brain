@@ -8,6 +8,7 @@ Teeny's mind reads (teeny_hands.stimuli).
   R  counts                                           how many in each status
   R  recent [--max N] [--chars N]                     the newest, any status; --chars cuts each
                                                       text to N and leaves the payload out
+  A  close {surface, ref}                             one waiting item dealt with (the mind's heartbeat)
   A  follow-up {about, in_hours | due_at, ref?}       a reminder to itself
   A  drop-follow-up {id | ref}                        clear a waiting follow-up
   A  due                                              raise the follow-ups now due
@@ -64,6 +65,13 @@ def _follow_up(_: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return stimuli.follow_up(due, str(b.get("about", "")), ref=ref)
 
 
+def _close(_: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    b = _body(body)
+    if not isinstance(b.get("surface"), str) or not isinstance(b.get("ref"), str) or not b["ref"]:
+        raise hand.HandError("close needs a surface and a ref")
+    return {"closed": stimuli.close(b["surface"], b["ref"])}
+
+
 def _drop_follow_up(_: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     b = _body(body)
     fid = b.get("id")
@@ -92,6 +100,7 @@ def parser() -> argparse.ArgumentParser:
     recent = verb("recent", lambda a, _: stimuli.recent(a.max, a.chars), "the newest, any status")
     recent.add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     recent.add_argument("--chars", type=_bounded(50, 16_000, "--chars"), default=None)
+    verb("close", _close, "an item the heartbeat dealt with (JSON on stdin)", body=True)
     verb("follow-up", _follow_up, "a reminder to itself (JSON on stdin)", body=True)
     verb("drop-follow-up", _drop_follow_up, "clear a waiting follow-up by id or ref (JSON on stdin)", body=True)
     verb("due", lambda a, _: {"raised": stimuli.raise_due()}, "raise the follow-ups now due")

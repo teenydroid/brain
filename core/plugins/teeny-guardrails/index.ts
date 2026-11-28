@@ -18,6 +18,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { maskSecrets, picturePaths, savePicture } from "./browser.js";
 import { Guardrails } from "./guard.js";
 import { parsePolicy } from "./policy.js";
+import { wakeContext } from "./wake.js";
 
 export const PLUGIN_ID = "teeny-guardrails";
 
@@ -85,6 +86,11 @@ export default definePluginEntry({
       },
       { matcher: ["browser", "exec"] },
     );
+
+    api.on("before_prompt_build", async (_event, ctx) => {
+      const queue = await wakeContext(guard?.policy.wakeContext, ctx.agentId);
+      return queue ? { prependContext: queue } : undefined;
+    });
 
     // The run is over: its lock is released and its record written (native.ts).
     api.on("agent_end", (event, ctx) => {

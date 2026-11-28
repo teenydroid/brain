@@ -7,8 +7,8 @@
 //   - a plain program name on this agent's list (read-only, writers, tools).
 // A path to anything else, however spelled, is refused: the program is never
 // looked up on PATH unless its name is on the list.
-import { statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import { checkPath, expandHome, realish, type PathRules } from "./paths.js";
 import { parseCommand, shellQuote, type Segment, type Word } from "./shell.js";
 import type { AgentPolicy, GuardrailsPolicy, NativePolicy } from "./policy.js";
@@ -444,4 +444,86 @@ export function judgeExec(policy: GuardrailsPolicy, agent: AgentPolicy, params: 
   for (const r of rewrites.sort((a, b) => b.start - a.start)) out = out.slice(0, r.start) + r.to + out.slice(r.end);
   // The command exits with its last stage: only a pipeline that ends in the acting hand speaks for it.
   return { ok: true, command: out, cwd, acting, actingLast: pipeline && lastActing > 0 && acting === 1 };
+}
+
+export type ReplyCounts = { x: number; mail: number };
+const REPLY_DO: Record<string, keyof ReplyCounts> = { reply_x: "x", reply_mail: "mail" };
+
+/**
+ * How many replies, by channel, one exec command would send: `hands/x reply`, `hands/mail reply` and
+ * `bin/teeny do` of a `reply_x` or `reply_mail`. Read from the same parse the judge used, so a
+ * `timeout N hands/x reply` or a chain counts each. A JSON body passed as "$(cat FILE)" is read from FILE (best
+ * effort; one that cannot be read counts as a reply of every channel, because the guard cannot tell it is not
+ * one). Used by the per-run caps in guard.ts, which count before the call.
+ */
+export function countReplies(command: string, cwd: string, readFile: (path: string) => string = (p) => readFileSync(p, "utf8")): ReplyCounts {
+  const n: ReplyCounts = { x: 0, mail: 0 };
+  const parsed = parseCommand(command);
+  if (!parsed.ok) return n;
+  for (const [index, seg] of parsed.segments.entries()) {
+    let words = seg.words;
+    while (words[0] && words[0].text === "timeout") {
+      let k = 1;
+      while (k < words.length && isFlag(words[k] as Word)) k++;
+      words = words.slice(k + 1);
+    }
+    const prog = words[0]?.text ?? "";
+    const args = words.slice(1);
+    // `hands/./x` and `hands//x` run the same hand as `hands/x`; count what the path resolves to.
+    const hand = /(^|\/)hands\/(x|mail)$/.exec(prog.includes("/") ? normalize(prog) : prog);
+    if (hand) {
+      // A verb that comes from a "$(cat FILE)" is unknown here: it counts as a reply, so it cannot be used to send one unseen.
+      const verb = args.find((a) => !isFlag(a))?.text;
+      if (verb === "reply" || verb?.includes("\u0001")) n[hand[2] as "x" | "mail"]++;
+    } else if (/(^|\/)teeny$/.test(prog) && args[0]?.text === "do") {
+      let found = false;
+      for (const a of args.slice(1)) {
+        // A "$(cat FILE)" inside a longer argument is read by the broker as one text with the file spliced in, which
+        // the guard cannot see whole: it counts as a reply of every channel. A bare "$(cat FILE)" is read below.
+        if (a.text.includes("\u0001")) {
+          if (a.text !== "\u0001") {
+            n.x++;
+            n.mail++;
+            found = true;
+          }
+          continue;
+        }
+        // The client decodes the argument as JSON, so `reply\u005fx` is dispatched as `reply_x`. A JSON object is
+        // counted by its `do` alone: a reply's text that mentions `reply_x` is not a second reply. Anything else is
+        // read as text.
+        let verb: string | undefined;
+        try {
+          const j = JSON.parse(a.text) as unknown;
+          if (typeof j === "object" && j !== null) verb = typeof (j as { do?: unknown }).do === "string" ? ((j as { do: string }).do) : "";
+        } catch {
+          // not JSON
+        }
+        for (const [name, channel] of Object.entries(REPLY_DO)) {
+          if (verb !== undefined ? verb === name : new RegExp(`\\b${name}\\b`).test(a.text)) {
+            n[channel]++;
+            found = true;
+          }
+        }
+      }
+      if (found) continue;
+      for (const path of seg.catReads) {
+        // The file is read now, but the shell reads it when the command runs: an earlier part of the same command
+        // (cp, a redirect, a pipe) may have changed it by then. Only the first part is read as it stands; a later one
+        // counts as a reply of every channel.
+        if (index > 0) {
+          n.x++;
+          n.mail++;
+          continue;
+        }
+        try {
+          const verb = String((JSON.parse(readFile(resolve(cwd, path))) as { do?: unknown }).do);
+          if (REPLY_DO[verb]) n[REPLY_DO[verb]]++;
+        } catch {
+          n.x++;
+          n.mail++;
+        }
+      }
+    }
+  }
+  return n;
 }

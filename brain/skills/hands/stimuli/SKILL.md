@@ -43,7 +43,7 @@ Run it from the repository root with your shell (exec) tool: `hands/stimuli <ver
 
 Kinds: R = read: no side effect beyond its read cache; A = acting: posts, sends, pays or opens something in the world; O = operator-only: the operator runs it, never you; J = job: writes state or calls the core, says nothing to anyone; scheduled jobs run it, you do not.
 
-Verbs named in the hand's source: `add`, `counts`, `drop-follow-up`, `due`, `follow-up`, `follow-ups`, `recent`, `release`, `settle`, `take`.
+Verbs named in the hand's source: `add`, `close`, `counts`, `drop-follow-up`, `due`, `follow-up`, `follow-ups`, `recent`, `release`, `settle`, `take`.
 
 Flags named in the hand's source: `--chars`, `--max`.
 

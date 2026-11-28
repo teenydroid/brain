@@ -2,7 +2,7 @@
   "method": "openhuman.cron_add",
   "call_sites": [
     "bin/lib/broker.py:623",
-    "bin/seed-cron:124"
+    "bin/seed-cron:127"
   ],
   "params": {
     "fields": {

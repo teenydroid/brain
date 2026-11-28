@@ -1,7 +1,8 @@
 {
   "method": "openhuman.config_get_agent_settings",
   "call_sites": [
-    "bin/doctor:133"
+    "bin/doctor:133",
+    "bin/seed-cron:94"
   ],
   "params": {
     "fields": {},

@@ -50,6 +50,11 @@
           "required": false,
           "note": "agent jobs"
         },
+        "timeout_secs": {
+          "type": "number",
+          "required": false,
+          "note": "agent jobs: the run deadline the job holds; seed-cron compares it with config_get_agent_settings"
+        },
         "enabled": {
           "type": "boolean",
           "required": false,

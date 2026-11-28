@@ -225,10 +225,20 @@ export function buildAgentPolicies(input: PolicyInput) {
       ...(browser ? { browser } : {}),
       subagents: def.subagentAllowlist,
       maxToolCalls: def.maxIterations ?? 40,
+      ...(def.id === "mind" || def.id === "worker" ? { replyCaps: BEAT_REPLY_CAPS } : {}),
     };
   }
   return agents;
 }
+
+/**
+ * What one beat of the mind may answer: the inbox pass (brain/agents/mind.md). The worker, which the mind may
+ * spawn, holds the same caps for its own run; the hands' daily caps still apply to both.
+ */
+export const BEAT_REPLY_CAPS = { x: 3, mail: 2 };
+/** The reply-pass block put in front of a mind turn (bin/reply-queue): about 1.5k characters. */
+export const WAKE_CONTEXT_CHARS = 1500;
+export const WAKE_CONTEXT_MS = 8000;
 
 /** Where teeny-guardrails says it is loaded (state/openclaw/guardrails.ready). */
 export function guardrailsReadyFile(openclawDir: string): string {
@@ -255,5 +265,8 @@ export function buildGuardrailsPolicy(input: PolicyInput): Record<string, unknow
     readyFile: guardrailsReadyFile(paths.openclawDir),
     openclaw: openclawCommand(env),
     agents: buildAgentPolicies(input),
+    ...(existsSync(join(paths.root, "bin", "reply-queue"))
+      ? { wakeContext: { agents: ["mind"], argv: [join(paths.root, "bin", "reply-queue")], cwd: paths.root, maxChars: WAKE_CONTEXT_CHARS, timeoutMs: WAKE_CONTEXT_MS } }
+      : {}),
   };
 }

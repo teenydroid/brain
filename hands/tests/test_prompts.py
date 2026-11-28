@@ -704,7 +704,8 @@ class PromptsTest(unittest.TestCase):
         # 9,000 until 2026-11-26: the words on Moltbook dispatches took about
         # 80 bytes, and moved some 26 KB of one-off blocks out of a playbook
         # its model re-read every run.
-        self.assertLess(len(text), 9_100)
+        # 9,100 until 2026-11-27: the wake's inbox pass takes about 300 bytes.
+        self.assertLess(len(text), 9_400)
         self.assertIn("library/INDEX.md", text)
         # No Moltbook rules: Moltbook is the scripts' (the broker refuses the
         # mind's writes there) and its code is the operator's (2026-11-25, "too

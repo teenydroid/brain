@@ -39,7 +39,7 @@ export function makeFixture(extra: { now?: () => number; memoryTools?: boolean; 
   const brain = join(root, "brain");
   const state = join(root, "state");
   // The native playbooks' hands (gm, moltbook-general) exist too, so their inputs and acting hands are real files.
-  for (const hand of ["x", "gh", "wallet", "keychain", "stats", "listen", "hn", "story", "moltbook", "image", "video", "tasks"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
+  for (const hand of ["x", "mail", "gh", "wallet", "keychain", "stats", "listen", "hn", "story", "moltbook", "image", "video", "tasks"]) write(join(root, "hands", hand), "#!/bin/sh\necho ok\n", 0o755);
   write(join(root, "hands", "README.md"));
   write(join(root, "hands", "lib", "mod.py"));
   write(join(root, "hands", "not-exec"), "text", 0o644);
