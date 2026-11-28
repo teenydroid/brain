@@ -532,6 +532,9 @@ check "and the first draft in it" grep -q 'hello from a playbook' <<<"$(act_requ
 mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | tail -n 1; }
 # Awake whatever the wall clock says, and on the minute.
 export TEENY_QUIET_HOURS=off TEENY_TICK_JITTER_SECS=0
+# X_REPLIES=0: the beat takes the X mention itself, as it did before
+# bin/x-replies answered each mention in its own conversation's session.
+echo "X_REPLIES=0" >>"$root/secrets/teeny.env"
 (cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
 # The pinned tick job runs every five minutes in this spine too, with up to a
 # minute of jitter while it holds the lock: a beat called then says `busy`.
