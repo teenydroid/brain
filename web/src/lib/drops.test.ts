@@ -267,3 +267,26 @@ describe("times name their timezone", () => {
     expect(parse({ ...settled(), deadline: "2026-11-20T20:00:00+02:00" }).deadline).toBe("2026-11-20T20:00:00+02:00")
   })
 })
+
+
+describe("each leaf is its prize", () => {
+  type Leaves = { claims: Record<string, unknown>[] }
+  const withAmounts = (amounts: Record<string, string>) => {
+    const r = settled() as unknown as Leaves
+    return { ...r, claims: r.claims.map((c) => ({ ...c, amount_atomic: amounts[c.handle as string] ?? c.amount_atomic })) }
+  }
+
+  it("accepts the exact prizes", () => {
+    expect(() => parse(settled())).not.toThrow()
+  })
+
+  it("refuses a leaf bigger than its prize even when the sum stays under the pool", () => {
+    expect(() => parse(withAmounts({ carol: "70000000000", alice: "30000000000" }))).toThrow()
+  })
+
+  it("accepts one address holding both prizes as a single best_reply leaf", () => {
+    const r = settled() as unknown as Leaves
+    const alice = r.claims.find((c) => c.handle === "alice")!
+    expect(() => parse({ ...r, claims: [{ ...alice, index: 0, amount_atomic: "100000000000" }] })).not.toThrow()
+  })
+})
