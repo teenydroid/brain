@@ -133,7 +133,11 @@ class MindAgentTest(unittest.TestCase):
         self.assertIs(agent_check.check(MIND) is not None, True)
         windows = (REPO / "bin" / "lib" / "model_windows.sh").read_text()
         self.assertIn('"agents", "*.toml"', windows)
-        self.assertNotIn("model", tomllib.loads(WORKER.read_text()), "the worker inherits the mind's model")
+        # The worker names its own (cheaper) model since 2026-11-28; the boot
+        # registers its window too, since it reads every agents/*.toml.
+        worker_model = tomllib.loads(WORKER.read_text()).get("model")
+        self.assertIsInstance(worker_model, str)
+        self.assertTrue(worker_model and not worker_model.startswith("hint:"), worker_model)
 
     def test_the_prompt_names_the_shell_rules_that_end_a_wake(self):
         # Until openhuman#8776 a jailed shell was refused for naming a parent

@@ -23,6 +23,10 @@ id = "worker"
 display_name = "Teeny (worker)"
 when_to_use = "One bounded piece of work for the mind, inside the mind's home: read, write, run, report back. Only the mind spawns it."
 temperature = 0.4
+# Its own model: the mind runs on claude-opus-5.5, and its helpers would
+# inherit that (core/src/agents/definitions.ts). A helper does one bounded
+# piece of work, so it runs on the cheaper glm-5.3-flash.
+model = "glm-5.3-flash"
 max_iterations = 40
 sandbox_mode = "sandboxed"
 sandbox_filesystem_only = true
