@@ -6,6 +6,8 @@ The rules:
 - Only to a chat Teeny has seen (`telegram_chats`): a group it was added
   to, or a DM someone opened. Never a cold message. A stranger's DM only
   while TELEGRAM_OPEN_DMS is on; an owner's always.
+- No group at all while TELEGRAM_GROUPS is off (the default): Telegram is
+  DMs only, from the owners (TELEGRAM_OWNERS) unless DMs are open.
 - `reply_to`, when given, is a message Teeny read in that chat, never one
   the inbound guard held.
 - At most TELEGRAM_MAX_SENDS_PER_DAY (60, UTC day) and
@@ -92,6 +94,8 @@ def send(body: Any, bot: client.Bot | None = None) -> Json:
         raise hand.Refused("Teeny only writes in chats it is in or was written to from; never cold", rule="unknown_chat")
     if chat["type"] == "private" and chat_id not in client.owners() and not client.open_dms():
         raise hand.Refused("DMs with people other than the owners are closed (TELEGRAM_OPEN_DMS)", rule="closed_dms")
+    if chat["type"] != "private" and not client.groups_on():
+        raise hand.Refused("Telegram is DMs only while TELEGRAM_GROUPS is off", rule="groups_off")
     allowed = client.allowed_chats()
     if chat["type"] != "private" and allowed is not None and chat_id not in allowed:
         raise hand.Refused("Teeny does not take part in that group (TELEGRAM_CHATS)", rule="chat_not_allowed")

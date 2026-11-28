@@ -121,6 +121,7 @@ def ingest(limit: int = 100, bot: client.Bot | None = None) -> Mapping[str, Any]
         updates = bot.call("getUpdates", offset=offset, timeout=0, limit=limit, allowed_updates=["message"])
         updates = updates if isinstance(updates, list) else []
         owners, chats_allowed, dms_open = client.owners(), client.allowed_chats(), client.open_dms()
+        groups = client.groups_on()
         counts = {s: 0 for s in STATUSES}
         chatter: dict[int, list[Mapping[str, Any]]] = {}
         newest = offset
@@ -149,6 +150,8 @@ def ingest(limit: int = 100, bot: client.Bot | None = None) -> Mapping[str, Any]
                 status, note = "skipped", "a bot"
             elif private and not owner and not dms_open:
                 status, note = "skipped", "DMs are closed"
+            elif not private and not groups:
+                status, note = "skipped", "groups are off (TELEGRAM_GROUPS)"
             elif not private and chats_allowed is not None and chat_id not in chats_allowed:
                 status, note = "skipped", "a group Teeny does not take part in"
             else:

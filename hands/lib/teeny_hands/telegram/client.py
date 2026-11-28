@@ -64,6 +64,13 @@ def open_dms() -> bool:
     return hand.flag("TELEGRAM_OPEN_DMS", False)
 
 
+def groups_on() -> bool:
+    """Whether Teeny reads and writes in groups at all (TELEGRAM_GROUPS, off).
+    Off, Telegram is DMs only: a group's messages never reach the mind and
+    nothing is sent to a group, whatever TELEGRAM_CHATS says."""
+    return hand.flag("TELEGRAM_GROUPS", False)
+
+
 def allowed_chats() -> set[int] | None:
     """The groups Teeny takes part in (TELEGRAM_CHATS: chat ids). Unset: every
     group it was added to; someone had to add it."""

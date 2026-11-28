@@ -99,6 +99,7 @@ class TelegramTest(unittest.TestCase):
         self.assertNotIn("owner", self.pending()["telegram:dm:77:11"]["payload"])
 
     def test_a_group_message_for_teeny_is_a_mention(self):
+        self.configure(TELEGRAM_GROUPS="1")
         self.updates(msg(1, GROUP, 5, "@teenydroid_bot what do you think?"),
                      msg(2, GROUP, 6, "teeny would like this"),
                      msg(3, GROUP, 7, "agreed", reply_to_message={"message_id": 4, "from": {"id": 999}}))
@@ -108,11 +109,28 @@ class TelegramTest(unittest.TestCase):
                                  "telegram:mention:-100123:7": "mention"})
 
     def test_a_groups_other_talk_is_one_stimulus_per_chat(self):
+        self.configure(TELEGRAM_GROUPS="1")
         self.updates(msg(1, GROUP, 5, "anyone tried rust?"), msg(2, GROUP, 6, "yes, love it", username="bo"))
         inbox.ingest()
         [chatter] = self.pending().values()
         self.assertEqual((chatter["kind"], chatter["payload"]["message_ids"]), ("chatter", [5, 6]))
         self.assertIn("- @ana: anyone tried rust?\n- @bo: yes, love it", chatter["text"])
+
+    def test_groups_are_off_by_default_so_telegram_is_owner_dms_only(self):
+        # TELEGRAM_GROUPS unset: a mention and a group's talk are skipped even with
+        # TELEGRAM_CHATS unset (any group), a stranger's DM is skipped (DMs closed),
+        # and only the owner's DM reaches the mind.
+        self.updates(msg(1, GROUP, 5, "@teenydroid_bot what do you think?"),
+                     msg(2, GROUP, 6, "anyone tried rust?"),
+                     msg(3, 77, 7, "hi bot", sender_id=77),
+                     msg(4, OWNER, 8, "hey teeny", sender_id=OWNER))
+        out = inbox.ingest()
+        self.assertEqual(out["new"], {"skipped": 3, "offered": 1})
+        self.assertEqual(out["chatter"], 0)
+        self.assertEqual(list(self.pending()), ["telegram:dm:42:8"])
+        notes = {r["id"]: r["note"] for r in inbox.db().execute("SELECT id, note FROM telegram_messages")}
+        self.assertEqual(notes["-100123:5"], "groups are off (TELEGRAM_GROUPS)")
+        self.assertEqual(notes["-100123:6"], "groups are off (TELEGRAM_GROUPS)")
 
     def test_each_update_is_read_once(self):
         self.updates(msg(1, OWNER, 10, "one", sender_id=OWNER))
@@ -123,7 +141,7 @@ class TelegramTest(unittest.TestCase):
         self.assertEqual(len(self.pending()), 1)
 
     def test_bots_and_groups_not_allowed_are_skipped(self):
-        self.configure(TELEGRAM_CHATS="-100555")
+        self.configure(TELEGRAM_GROUPS="1", TELEGRAM_CHATS="-100555")
         bot = msg(1, -100555, 5, "beep teeny")
         bot["message"]["from"]["is_bot"] = True
         self.updates(bot, msg(2, GROUP, 6, "teeny hi"))
@@ -144,6 +162,7 @@ class TelegramTest(unittest.TestCase):
         inbox.ingest()
 
     def test_a_reply_goes_into_the_chat_through_the_guard(self):
+        self.configure(TELEGRAM_GROUPS="1")
         self.seen(msg(1, GROUP, 5, "teeny gm"))
         got = actions.send({"chat_id": GROUP, "reply_to": 5, "text": "gm crab club"})
         self.assertEqual(got["message_id"], 501)
@@ -152,6 +171,15 @@ class TelegramTest(unittest.TestCase):
                                        "reply_parameters": {"message_id": 5, "allow_sending_without_reply": True}})
         self.assertEqual(inbox.queue("replied")["messages"][0]["message_id"], 5)
 
+    def test_nothing_goes_to_a_group_while_groups_are_off(self):
+        self.configure(TELEGRAM_GROUPS="1")
+        self.seen(msg(1, GROUP, 5, "teeny gm"))
+        self.configure()
+        with self.assertRaises(hand.Refused) as caught:
+            actions.send({"chat_id": GROUP, "text": "gm"})
+        self.assertEqual(caught.exception.detail["rule"], "groups_off")
+        self.assertEqual(self.tg.requests("POST", f"{BOT}/sendMessage"), [])
+
     def test_never_a_chat_teeny_has_not_seen(self):
         with self.assertRaises(hand.Refused) as caught:
             actions.send({"chat_id": -100999, "text": "hello?"})
@@ -159,7 +187,7 @@ class TelegramTest(unittest.TestCase):
         self.assertEqual(self.tg.requests("POST", f"{BOT}/sendMessage"), [])
 
     def test_a_group_is_never_flooded(self):
-        self.configure(TELEGRAM_MAX_PER_CHAT_HOUR="2")
+        self.configure(TELEGRAM_GROUPS="1", TELEGRAM_MAX_PER_CHAT_HOUR="2")
         self.seen(msg(1, GROUP, 5, "teeny gm"))
         actions.send({"chat_id": GROUP, "text": "one"})
         actions.send({"chat_id": GROUP, "text": "two"})
